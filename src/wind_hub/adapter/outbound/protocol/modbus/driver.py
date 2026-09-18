@@ -79,6 +79,11 @@ def _decode_registers(registers: list[int], data_type: str, byte_order: str) -> 
     return struct.unpack(fmt, raw)[0]
 
 
+#: 单点 decode 失败的哨兵值——整组请求成功但某个值解不出时，该点以
+#: ``Quality.BAD`` 返回，不影响同组其它点（批量读部分失败语义）。
+_DECODE_FAILED: Any = object()
+
+
 def _encode_registers(value: Any, data_type: str, byte_order: str) -> list[int]:
     """Encode a Python value into 16-bit register words."""
     if data_type == "bool":
@@ -309,12 +314,13 @@ class ModbusDriver:
                     )
                 )
             else:
+                value = values[ref.point_id]
                 results.append(
                     PointValue(
                         device_id=ref.device_id,
                         point_id=ref.point_id,
-                        value=values[ref.point_id],
-                        quality=Quality.GOOD,
+                        value=None if value is _DECODE_FAILED else value,
+                        quality=Quality.BAD if value is _DECODE_FAILED else Quality.GOOD,
                         source="modbus",
                     )
                 )
@@ -349,10 +355,22 @@ class ModbusDriver:
         for p in group:
             offset = p.address - start
             segment = raw[offset : offset + p.count]
-            if register_type in _BIT_TYPES:
-                values[p.point_id] = bool(segment[0]) if p.data_type == "bool" else int(segment[0])
-            else:
-                values[p.point_id] = _decode_registers(segment, p.data_type, p.byte_order)
+            try:
+                if register_type in _BIT_TYPES:
+                    values[p.point_id] = (
+                        bool(segment[0]) if p.data_type == "bool" else int(segment[0])
+                    )
+                else:
+                    values[p.point_id] = _decode_registers(segment, p.data_type, p.byte_order)
+            except Exception:
+                # 单点 decode 失败（寄存器数不足/类型不符，多为点表配置问题）
+                # 只影响该点——标记 BAD，不让整组失败（部分失败语义）。
+                logger.warning(
+                    "Modbus: decode failed for point '%s' (type %s) — marked BAD",
+                    p.point_id,
+                    p.data_type,
+                )
+                values[p.point_id] = _DECODE_FAILED
         return values
 
     # ------------------------------------------------------------------

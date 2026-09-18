@@ -64,6 +64,7 @@ def _make_device_config() -> DeviceConfig:
             port=48898,
             extensions={"ams_net_id": _AMS_NET_ID, "timeout": 3.0},
         ),
+        point_table="t1",
         read_mode="sum",
     )
 
@@ -71,7 +72,6 @@ def _make_device_config() -> DeviceConfig:
 def _make_symbol_point(point_id: str, symbol: str) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-plc",
         address=PointAddress(symbol=symbol),
         data_type="float32",
     )

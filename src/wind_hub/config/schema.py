@@ -45,7 +45,12 @@ class SchedulerConfig(BaseModel):
     """Per-device connection timeout in seconds."""
 
     read_timeout: float = 5.0
-    """Per-read timeout in seconds."""
+    """Per-read timeout in seconds — 应用层对一次批量读的外层兜底
+    （协议驱动内部的底层超时仍各自保留，两层职责见 docs/architecture.md）。"""
+
+    write_timeout: float = 5.0
+    """Per-write default timeout in seconds — 命令未自带 ``timeout``
+    （``Command.timeout <= 0``）时 Dispatcher 使用的默认写超时。"""
 
     @model_validator(mode="after")
     def _validate_backpressure(self) -> SchedulerConfig:
@@ -182,16 +187,19 @@ class DeviceConfig(BaseModel):
     device_id: str
     protocol: str
     endpoint: Endpoint
+    point_table: str
+    """绑定的点表名（``points.yaml`` 中 ``point_tables`` 的键）。同类型
+    设备共享同一份点表定义，不逐设备复制。"""
     polling: list[PollingGroup] = Field(default_factory=list)
     enabled: bool = True
     read_mode: str = "sum"
-    """ADS batch-read strategy: ``'sum'`` (single Sum command via
-    symbol addressing) or ``'sequential'`` (per-point Read).  Only
-    meaningful for ``protocol == 'ads'``."""
+    """ADS 读取策略：``'sum'``（单条 Sum 命令，Symbol 批量寻址，用于周期
+    采集）或 ``'sequential'``（逐点 Read，用于 CLI/API 单次读取与诊断）。
+    仅对 ``protocol == 'ads'`` 有意义。"""
 
     mode: str = "poll"
-    """Acquisition mode: ``'poll'`` (scheduler polls), ``'subscribe'``
-    (scheduler subscribes, no polling), or ``'both'`` (poll + subscribe)."""
+    """采集模式：``'poll'``（调度器周期轮询）或 ``'subscribe'``（订阅推送，
+    不轮询）。不支持两者混合。"""
 
     subscribe: SubscribeConfig = Field(default_factory=SubscribeConfig)
     """Push-subscription settings; see :class:`SubscribeConfig`."""
@@ -203,9 +211,9 @@ class DeviceConfig(BaseModel):
                 f"Device '{self.device_id}': read_mode must be 'sum' or 'sequential', "
                 f"got '{self.read_mode}'"
             )
-        if self.mode not in ("poll", "subscribe", "both"):
+        if self.mode not in ("poll", "subscribe"):
             raise ConfigError(
-                f"Device '{self.device_id}': mode must be 'poll', 'subscribe' or 'both', "
+                f"Device '{self.device_id}': mode must be 'poll' or 'subscribe', "
                 f"got '{self.mode}'"
             )
         return self
@@ -234,7 +242,7 @@ class DevicesConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# points.yaml
+# points.yaml — 可复用点表（point_tables）
 # ---------------------------------------------------------------------------
 
 ALLOWED_DATA_TYPES = frozenset(
@@ -288,12 +296,24 @@ class PointAddress(BaseModel):
 
 
 class PointConfig(BaseModel):
-    """Definition of a single measurement point."""
+    """Definition of a single measurement point.
+
+    点是**设备无关**的：不携带 ``device_id``，设备通过绑定点表获得点集
+    （见 :class:`DeviceConfig.point_table`）。三个标识各司其职、不得混用：
+
+    - ``point_id`` — 系统内部稳定 ID（如 ``p001``），与具体设备无关；
+    - ``name`` — 业务变量名（如 ``rotor_speed``），仅供展示与诊断；
+    - ``address.symbol`` — PLC Symbol（协议寻址，见 address extra 字段）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     point_id: str
-    device_id: str
+    name: str | None = None
+    """业务变量名（展示/诊断用）；``None`` 表示未命名。"""
+    group: str = "default"
+    """采集分组——设备 ``polling`` 配置按组定义周期；点通过本字段归类，
+    一个 ``(device, group)`` 对应一个调度 Job。"""
     address: PointAddress
     data_type: str = "float32"
     scale: float = 1.0
@@ -320,8 +340,7 @@ class PointConfig(BaseModel):
             return self
         if self.deadband is not None and self.deadband < 0:
             raise ConfigError(
-                f"Point '{self.device_id}/{self.point_id}': "
-                f"deadband must be >= 0, got {self.deadband}"
+                f"Point '{self.point_id}': deadband must be >= 0, got {self.deadband}"
             )
         if (
             self.min_value is not None
@@ -329,34 +348,43 @@ class PointConfig(BaseModel):
             and self.min_value >= self.max_value
         ):
             raise ConfigError(
-                f"Point '{self.device_id}/{self.point_id}': "
+                f"Point '{self.point_id}': "
                 f"min_value ({self.min_value}) must be < max_value ({self.max_value})"
             )
         return self
 
 
-class PointsConfig(BaseModel):
-    """Top-level points configuration (``points.yaml``)."""
+class PointTableConfig(BaseModel):
+    """一份可复用点表——同类型设备共享的完整点集定义。
+
+    表内 ``point_id`` 唯一；不同表之间允许重复（命名空间相互独立）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    points: list[PointConfig]
+    points: list[PointConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_points(self) -> PointsConfig:
-        seen: set[tuple[str, str]] = set()
+    def _validate_points(self) -> PointTableConfig:
+        seen: set[str] = set()
         for p in self.points:
             if p.data_type not in ALLOWED_DATA_TYPES:
                 raise ConfigError(
-                    f"Point '{p.device_id}/{p.point_id}': " f"unknown data_type '{p.data_type}'"
+                    f"Point '{p.point_id}': unknown data_type '{p.data_type}'"
                 )
-            key = (p.device_id, p.point_id)
-            if key in seen:
-                raise ConfigError(
-                    f"Duplicate (device_id, point_id): " f"('{p.device_id}', '{p.point_id}')"
-                )
-            seen.add(key)
+            if p.point_id in seen:
+                raise ConfigError(f"Duplicate point_id in table: '{p.point_id}'")
+            seen.add(p.point_id)
         return self
+
+
+class PointTablesConfig(BaseModel):
+    """Top-level points configuration (``points.yaml``)——全部命名点表。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tables: dict[str, PointTableConfig] = Field(default_factory=dict)
+    """``{点表名: 点表}``；设备经 ``DeviceConfig.point_table`` 引用。"""
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +538,28 @@ class Config(BaseModel):
 
     system: SystemConfig
     devices: DevicesConfig
-    points: PointsConfig
+    point_tables: PointTablesConfig
     routing: RoutingConfig
     reporting: ReportingConfig | None = None
     """Optional IEC104 slave proxy config; ``None`` disables the proxy."""
+
+    def points_for_device(self, device_id: str) -> list[PointConfig]:
+        """解析设备绑定点表的点集。
+
+        每次调用返回**新的 list**（浅拷贝）：配置加载后即不可变快照，
+        调用方（Runtime/引擎/处理器注入）拿到的副本可安全持有，任何
+        「原地修改点表」都不会污染配置快照，也不会影响其他绑定同一表
+        的设备。共享语义体现在「引用同一表定义、内容一致」，而非共享
+        同一个 Python list 对象。
+
+        Raises:
+            KeyError: 设备或其绑定的点表不存在（loader 交叉校验保证
+                加载后的配置不会出现此情况）。
+        """
+        device = next(d for d in self.devices.devices if d.device_id == device_id)
+        return list(self.point_tables.tables[device.point_table].points)
+
+    def points_by_device(self) -> dict[str, list[PointConfig]]:
+        """``{device_id: 点集}``——每个键都是独立 list（见
+        :meth:`points_for_device` 的快拍语义）。"""
+        return {d.device_id: self.points_for_device(d.device_id) for d in self.devices.devices}

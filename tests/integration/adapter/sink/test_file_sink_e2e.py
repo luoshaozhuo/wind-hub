@@ -60,6 +60,7 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
                 {
                     "device_id": "modbus-1",
                     "protocol": "modbus",
+                    "point_table": "modbus",
                     "endpoint": {
                         "host": "127.0.0.1",
                         "port": 15020,
@@ -79,26 +80,30 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
         cfg_dir,
         "points.yaml",
         {
-            "points": [
-                {
-                    "point_id": "rotor.speed",
-                    "device_id": "modbus-1",
-                    "address": {"register_type": "holding", "address": 100},
-                    "data_type": "float32",
+            "point_tables": {
+                "modbus": {
+                    "points": [
+                        {
+                            "point_id": "rotor.speed",
+                            "group": "telemetry",
+                            "address": {"register_type": "holding", "address": 100},
+                            "data_type": "float32",
+                        },
+                        {
+                            "point_id": "gen.power",
+                            "group": "telemetry",
+                            "address": {"register_type": "holding", "address": 102},
+                            "data_type": "float32",
+                        },
+                    ],
                 },
-                {
-                    "point_id": "gen.power",
-                    "device_id": "modbus-1",
-                    "address": {"register_type": "holding", "address": 102},
-                    "data_type": "float32",
-                },
-            ],
+            },
         },
     )
     _write_yaml(
         cfg_dir,
         "routing.yaml",
-        {"rules": [{"name": "default", "targets": ["file"], "priority": 0}]},
+        {"rules": [{"name": "default", "targets": [{"sink": "file"}], "priority": 0}]},
     )
     return cfg_dir
 

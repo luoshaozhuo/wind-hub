@@ -35,13 +35,13 @@ def _device(host: str = "10.0.1.1", port: int = 2404, protocol: str = "iec104") 
         device_id="wtg-001",
         protocol=protocol,
         endpoint=Endpoint(host=host, port=port),
+        point_table="t1",
     )
 
 
-def _point(device_id: str = "wtg-001") -> PointConfig:
+def _point() -> PointConfig:
     return PointConfig(
         point_id="rotor.speed",
-        device_id=device_id,
         address={"type": "measured_value", "ioa": 1001},
     )
 

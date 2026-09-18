@@ -7,10 +7,9 @@ from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.model.point import PointValue
 
 
-def _point(point_id: str, *, device_id: str = "d1", deadband: float | None = 1.0) -> PointConfig:
+def _point(point_id: str, *, deadband: float | None = 1.0) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(),
         data_type="float32",
         deadband=deadband,
@@ -19,7 +18,7 @@ def _point(point_id: str, *, device_id: str = "d1", deadband: float | None = 1.0
 
 def _setup(points: list[PointConfig]) -> DeadbandProcessor:
     proc = DeadbandProcessor()
-    proc.set_points_config(points)
+    proc.set_points_config({"d1": points})
     return proc
 
 

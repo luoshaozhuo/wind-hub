@@ -47,11 +47,16 @@ pytestmark = pytest.mark.asyncio
 
 
 def _device(device_id: str = "d1", protocol: str = "modbus") -> DeviceConfig:
-    return DeviceConfig(device_id=device_id, protocol=protocol, endpoint=Endpoint(host="h", port=1))
+    return DeviceConfig(
+        device_id=device_id,
+        protocol=protocol,
+        point_table="t1",
+        endpoint=Endpoint(host="h", port=1),
+    )
 
 
-def _point(device_id: str = "d1", point_id: str = "p1") -> PointConfig:
-    return PointConfig(point_id=point_id, device_id=device_id, address=PointAddress(type="hr"))
+def _point(point_id: str = "p1") -> PointConfig:
+    return PointConfig(point_id=point_id, address=PointAddress(type="hr"))
 
 
 def _protocol(healthy: bool = True, read_values: list[PointValue] | None = None) -> MagicMock:
@@ -235,7 +240,7 @@ async def test_hot_added_device_visible_immediately() -> None:
     assert {i.device_id for i in await service.list_devices()} == {"d1"}
 
     p_new = _protocol(read_values=[_value(device_id="d2", point_id="t1", value=7.0)])
-    await runtime.add_device("d2", _device("d2"), p_new, [_point("d2", "t1")])
+    await runtime.add_device("d2", _device("d2"), p_new, [_point("t1")])
 
     assert {i.device_id for i in await service.list_devices()} == {"d1", "d2"}
     value = await service.read_point("d2", "t1")
@@ -248,12 +253,12 @@ async def test_rebuilt_device_read_uses_new_protocol() -> None:
     runtime = _runtime(
         devices={"d1": _device("d1")},
         protocols={"d1": p_old},
-        points={"d1": [_point("d1", "p1")]},
+        points={"d1": [_point("p1")]},
     )
     service = QueryService(runtime)
 
     p_new = _protocol(read_values=[_value(value=2.0)])
-    await runtime.rebuild_device("d1", _device("d1"), p_new, [_point("d1", "p1")])
+    await runtime.rebuild_device("d1", _device("d1"), p_new, [_point("p1")])
 
     value = await service.read_point("d1", "p1")
 
@@ -268,11 +273,11 @@ async def test_point_table_change_visible_to_read_validation() -> None:
     runtime = _runtime(
         devices={"d1": _device("d1")},
         protocols={"d1": proto},
-        points={"d1": [_point("d1", "p1")]},
+        points={"d1": [_point("p1")]},
     )
     service = QueryService(runtime)
 
-    await runtime.rebuild_device("d1", _device("d1"), proto, [_point("d1", "p2")])
+    await runtime.rebuild_device("d1", _device("d1"), proto, [_point("p2")])
 
     with pytest.raises(CommandError, match="unknown point 'd1/p1'"):
         await service.read_point("d1", "p1")
@@ -285,7 +290,7 @@ async def test_removed_device_no_longer_listed_or_readable() -> None:
     runtime = _runtime(
         devices={"d1": _device("d1")},
         protocols={"d1": proto},
-        points={"d1": [_point("d1", "p1")]},
+        points={"d1": [_point("p1")]},
     )
     service = QueryService(runtime)
 

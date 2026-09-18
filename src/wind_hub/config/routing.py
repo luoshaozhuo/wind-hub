@@ -17,14 +17,15 @@ ALLOWED_UNMATCHED_POLICIES = frozenset({"drop", "error", "default"})
 class RoutingTable:
     """Pre-compiled routing table for O(1) point-to-sinks resolution.
 
-    Built from the full ``RouteRule`` and ``PointConfig`` lists so
+    Built from the full ``RouteRule`` list plus per-device point sets
+    (``{device_id: [PointConfig, …]}``——点表已与设备绑定解析）so
     that every ``resolve()`` call is a dictionary lookup.
     """
 
     def __init__(
         self,
         rules: list[RouteRule],
-        points: list[PointConfig],
+        points_by_device: dict[str, list[PointConfig]],
         unmatched_policy: str = "drop",
     ) -> None:
         if unmatched_policy not in ALLOWED_UNMATCHED_POLICIES:
@@ -37,9 +38,10 @@ class RoutingTable:
 
         # Per-point sink overrides: (device_id, point_id) → [sink, …]
         self._point_overrides: dict[tuple[str, str], list[str]] = {}
-        for p in points:
-            if p.sinks is not None:
-                self._point_overrides[(p.device_id, p.point_id)] = list(p.sinks)
+        for device_id, points in points_by_device.items():
+            for p in points:
+                if p.sinks is not None:
+                    self._point_overrides[(device_id, p.point_id)] = list(p.sinks)
 
         # Build the full pre-compiled table
         self._table: dict[tuple[str, str], list[str]] = {}
@@ -48,23 +50,26 @@ class RoutingTable:
 
         unmatched: list[tuple[str, str]] = []
 
-        for p in points:
-            key = (p.device_id, p.point_id)
+        for device_id, points in points_by_device.items():
+            for p in points:
+                key = (device_id, p.point_id)
 
-            # 1. Explicit per-point sinks override everything
-            if key in self._point_overrides:
-                self._table[key] = list(self._point_overrides[key])
-                # matched_rule stays None; Router sets source='point_override'
-                continue
+                # 1. Explicit per-point sinks override everything
+                if key in self._point_overrides:
+                    self._table[key] = list(self._point_overrides[key])
+                    # matched_rule stays None; Router sets source='point_override'
+                    continue
 
-            # 2. Walk rules by descending priority
-            targets = self._match_rules(p.device_id, p.point_id)
-            if targets:
-                self._table[key] = targets
-                # Record first matching rule name
-                self._rule_hits[key] = self._first_matching_rule_name(p.device_id, p.point_id)
-            else:
-                unmatched.append(key)
+                # 2. Walk rules by descending priority
+                targets = self._match_rules(device_id, p.point_id)
+                if targets:
+                    self._table[key] = targets
+                    # Record first matching rule name
+                    self._rule_hits[key] = self._first_matching_rule_name(
+                        device_id, p.point_id
+                    )
+                else:
+                    unmatched.append(key)
 
         if self._unmatched_policy == "error" and unmatched:
             raise ConfigError(f"Unmatched points found (unmatched_policy='error'): " f"{unmatched}")
@@ -97,6 +102,13 @@ class RoutingTable:
         """Return all (device_id, point_id) keys with no route target."""
         return list(self._unmatched)
 
+    def rule_for(self, device_id: str, point_id: str) -> str | None:
+        """返回命中该点的规则名；点位级覆盖或未匹配时返回 ``None``。
+
+        Delivery Policy 按规则评估投递节拍时以此定位点所属规则。
+        """
+        return self._rule_hits.get((device_id, point_id))
+
     def explain(self, device_id: str, point_id: str) -> tuple[list[str], str | None, str]:
         """Return (targets, matched_rule, source) for a single point.
 
@@ -119,10 +131,10 @@ class RoutingTable:
     # ------------------------------------------------------------------
 
     def _match_rules(self, device_id: str, point_id: str) -> list[str] | None:
-        """Walk sorted rules; return targets of the first matching rule."""
+        """Walk sorted rules; return sink names of the first matching rule."""
         for rule in self._rules:
             if self._rule_matches(rule, device_id, point_id):
-                return list(rule.targets)
+                return [t.sink for t in rule.targets]
         return None
 
     def _first_matching_rule_name(self, device_id: str, point_id: str) -> str:

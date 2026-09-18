@@ -27,7 +27,11 @@ def validate(
         raise typer.Exit(1) from exc
 
     devices = len(cfg.devices.devices)
-    points = len(cfg.points.points)
+    tables = len(cfg.point_tables.tables)
+    points = sum(len(t.points) for t in cfg.point_tables.tables.values())
     sinks = len(cfg.system.sinks)
     rules = len(cfg.routing.rules)
-    typer.echo(f"配置有效：{devices} 台设备、{points} 个点位、{sinks} 个 sink、{rules} 条路由规则")
+    typer.echo(
+        f"配置有效：{devices} 台设备、{tables} 份点表（{points} 个点位）、"
+        f"{sinks} 个 sink、{rules} 条路由规则"
+    )

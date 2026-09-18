@@ -56,6 +56,26 @@ def _plc_datatype(ads_name: str) -> Any:
     return getattr(pyads, f"PLCTYPE_{ads_name}")
 
 
+#: ADS 错误码：符号不存在（ADSERR_DEVICE_SYMBOLNOTFOUND）——只影响该点。
+_ADSERR_SYMBOL_NOT_FOUND = 1808
+
+
+def _is_point_level_ads_error(exc: BaseException) -> bool:
+    """判定 ADS 错误是否属于「单点级」失败（可安全降级为 BAD 点）。
+
+    仅识别 ``pyads.ADSError`` 且 ``err_code == 1808``（符号不存在）——
+    其余错误（超时、句柄失效、传输错误）无法与连接级故障可靠区分，
+    保持上抛，由外层走断线/重连路径（不伪造成功）。
+    """
+    pyads = _pyads()
+    ads_error = getattr(pyads, "ADSError", None)
+    return (
+        ads_error is not None
+        and isinstance(exc, ads_error)
+        and getattr(exc, "err_code", None) == _ADSERR_SYMBOL_NOT_FOUND
+    )
+
+
 class ADSDriver:
     """ADS protocol driver (polling).
 
@@ -278,7 +298,15 @@ class ADSDriver:
         return [r for r in results if r is not None]
 
     async def _read_sequential(self, points: list[PointRef]) -> list[PointValue]:
-        """Read each point with an individual ``Read``, concurrency-limited."""
+        """Read each point with an individual ``Read``, concurrency-limited.
+
+        寻址优先级：点配置了 ``symbol`` 时用 ``read_by_name``（Symbol 寻址），
+        否则回退 ``index_group``/``index_offset`` 兼容寻址。
+
+        部分失败语义：单点级错误（ADS 1808 符号不存在）降级为该点
+        ``Quality.BAD``，不影响批次内其它点；其余错误（超时/传输）无法与
+        连接级故障可靠区分，继续上抛走断线/重连路径。
+        """
         sem = asyncio.Semaphore(self._config.max_concurrent_reads)
 
         async def read_one(ref: PointRef) -> PointValue:
@@ -286,10 +314,23 @@ class ADSDriver:
             if ap is None:
                 return self._bad_value(ref)
             plctype = _plc_datatype(ap.data_type)
-            async with sem:
-                value = await asyncio.to_thread(
-                    self._connection.read, ap.index_group, ap.index_offset, plctype
-                )
+            try:
+                async with sem:
+                    if ap.symbol is not None:
+                        value = await asyncio.to_thread(
+                            self._connection.read_by_name, ap.symbol, plctype
+                        )
+                    else:
+                        value = await asyncio.to_thread(
+                            self._connection.read, ap.index_group, ap.index_offset, plctype
+                        )
+            except Exception as exc:
+                if _is_point_level_ads_error(exc):
+                    logger.warning(
+                        "ADS: symbol not found for point '%s' — marked BAD", ref.point_id
+                    )
+                    return self._bad_value(ref)
+                raise
             return PointValue(
                 device_id=ref.device_id,
                 point_id=ref.point_id,
@@ -338,13 +379,19 @@ class ADSDriver:
                 results.append(self._failed_result(cmd, f"unknown point '{cmd.point_id}'"))
                 continue
             plctype = _plc_datatype(ap.data_type)
-            await asyncio.to_thread(
-                self._connection.write,
-                ap.index_group,
-                ap.index_offset,
-                cmd.value,
-                plctype,
-            )
+            if ap.symbol is not None:
+                # 写入优先级：symbol 存在时永远走 Symbol 寻址，不用 index。
+                await asyncio.to_thread(
+                    self._connection.write_by_name, ap.symbol, cmd.value, plctype
+                )
+            else:
+                await asyncio.to_thread(
+                    self._connection.write,
+                    ap.index_group,
+                    ap.index_offset,
+                    cmd.value,
+                    plctype,
+                )
             results.append(CommandResult(command_id=cmd.command_id, success=True))
         return results
 

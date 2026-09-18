@@ -21,6 +21,7 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-device",
         protocol="iec104",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=2404,
@@ -31,12 +32,10 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
 
 def _make_point_config(
     point_id: str,
-    device_id: str,
     ioa: int,
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(ioa=ioa),
         data_type="float32",
     )
@@ -96,8 +95,8 @@ class TestPointMapping:
         cfg = _make_device_config()
         driver = IEC104Driver(cfg)
         points = [
-            _make_point_config("rotor.speed", "test-device", 100),
-            _make_point_config("gen.power", "test-device", 200),
+            _make_point_config("rotor.speed", 100),
+            _make_point_config("gen.power", 200),
         ]
         driver.set_points_mapping(points)
 
@@ -108,8 +107,8 @@ class TestPointMapping:
         cfg = _make_device_config()
         driver = IEC104Driver(cfg)
         points = [
-            _make_point_config("a", "test-device", 100),
-            _make_point_config("b", "test-device", 100),
+            _make_point_config("a", 100),
+            _make_point_config("b", 100),
         ]
         # Should not raise — last one wins, warning logged.
         driver.set_points_mapping(points)
@@ -122,11 +121,10 @@ class TestPointMapping:
         points = [
             PointConfig(
                 point_id="bad",
-                device_id="test-device",
                 address=PointAddress(),  # No IOA field.
                 data_type="float32",
             ),
-            _make_point_config("good", "test-device", 200),
+            _make_point_config("good", 200),
         ]
         driver.set_points_mapping(points)
         assert driver._ioa_to_point_id == {200: "good"}

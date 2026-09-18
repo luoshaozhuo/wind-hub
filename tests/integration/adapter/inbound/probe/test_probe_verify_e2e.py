@@ -36,11 +36,13 @@ def _write_config(base: Path) -> None:
                     {
                         "device_id": "wtg-001",
                         "protocol": "modbus",
+                        "point_table": "modbus-table",
                         "endpoint": {"host": "10.0.1.1", "port": 502},
                     },
                     {
                         "device_id": "wtg-002",
                         "protocol": "iec104",
+                        "point_table": "iec104-table",
                         "endpoint": {"host": "10.0.1.2", "port": 2404},
                     },
                 ]
@@ -51,25 +53,30 @@ def _write_config(base: Path) -> None:
     (base / "points.yaml").write_text(
         yaml.safe_dump(
             {
-                "points": [
-                    {
-                        "point_id": "rotor.speed",
-                        "device_id": "wtg-001",
-                        "address": {"type": "holding_register", "address": 0},
-                        "data_type": "int16",
+                "point_tables": {
+                    "modbus-table": {
+                        "points": [
+                            {
+                                "point_id": "rotor.speed",
+                                "address": {"type": "holding_register", "address": 0},
+                                "data_type": "int16",
+                            },
+                            {
+                                "point_id": "gen.power",
+                                "address": {"type": "holding_register", "address": 1},
+                                "data_type": "int16",
+                            },
+                        ]
                     },
-                    {
-                        "point_id": "gen.power",
-                        "device_id": "wtg-001",
-                        "address": {"type": "holding_register", "address": 1},
-                        "data_type": "int16",
+                    "iec104-table": {
+                        "points": [
+                            {
+                                "point_id": "nacelle.temp",
+                                "address": {"type": "measured_value", "ioa": 1001},
+                            },
+                        ]
                     },
-                    {
-                        "point_id": "nacelle.temp",
-                        "device_id": "wtg-002",
-                        "address": {"type": "measured_value", "ioa": 1001},
-                    },
-                ]
+                }
             }
         ),
         encoding="utf-8",

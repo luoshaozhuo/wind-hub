@@ -68,6 +68,7 @@ def _make_device_config_enabled() -> DeviceConfig:
             port=48898,
             extensions={"ams_net_id": _AMS_NET_ID, "timeout": 3.0},
         ),
+        point_table="t1",
         subscribe=SubscribeConfig(enabled=True),
     )
 
@@ -75,7 +76,6 @@ def _make_device_config_enabled() -> DeviceConfig:
 def _make_symbol_point(point_id: str, symbol: str) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-plc",
         address=PointAddress(symbol=symbol),
         data_type="float32",
     )
@@ -119,6 +119,7 @@ class TestAdsNotificationIntegration:
                     port=48898,
                     extensions={"ams_net_id": _AMS_NET_ID},
                 ),
+                point_table="t1",
             )
         )
         await driver.connect()

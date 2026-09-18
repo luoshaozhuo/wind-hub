@@ -30,6 +30,7 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-device",
         protocol="iec104",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=2404,
@@ -40,13 +41,11 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
 
 def _make_point_config(
     point_id: str,
-    device_id: str,
     ioa: int,
     data_type: str = "float32",
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(ioa=ioa),
         data_type=data_type,
     )
@@ -297,7 +296,7 @@ class TestDriverSubscribe:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100),
+                _make_point_config("p1", 100),
             ]
         )
 
@@ -338,7 +337,7 @@ class TestDispatchPointValues:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="float32"),
+                _make_point_config("p1", 100, data_type="float32"),
             ]
         )
 
@@ -371,7 +370,7 @@ class TestDispatchPointValues:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="float32"),
+                _make_point_config("p1", 100, data_type="float32"),
             ]
         )
 
@@ -402,7 +401,7 @@ class TestDispatchPointValues:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100),
+                _make_point_config("p1", 100),
             ]
         )
 
@@ -437,7 +436,7 @@ class TestDispatchPointValues:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100),
+                _make_point_config("p1", 100),
             ]
         )
 
@@ -468,7 +467,7 @@ class TestDispatchPointValues:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("sp1", "d1", 50, data_type="bool"),
+                _make_point_config("sp1", 50, data_type="bool"),
             ]
         )
 

@@ -182,9 +182,7 @@ async def verify_all(
             known = [d.device_id for d in config.devices.devices]
             raise WindHubError(f"设备 '{device_id}' 不存在（已配置：{known}）")
 
-    points_by_device: dict[str, list[PointConfig]] = {}
-    for point in config.points.points:
-        points_by_device.setdefault(point.device_id, []).append(point)
+    points_by_device: dict[str, list[PointConfig]] = config.points_by_device()
 
     semaphore = asyncio.Semaphore(concurrency)
 

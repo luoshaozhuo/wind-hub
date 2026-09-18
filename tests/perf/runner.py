@@ -104,6 +104,7 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
     return DeviceConfig(
         device_id=plan.device_id,
         protocol=protocol,
+        point_table="perf",
         endpoint=Endpoint(host=host, port=port, extensions=extensions),
         polling=[{"group": "default", "interval": plan.poll_interval_s}],
         enabled=True,
@@ -112,7 +113,6 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
 
 def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
     """生成对应协议的点表（地址格式与生产 configs/points.yaml 一致）。"""
-    plan = PLANS[protocol]
     points: list[PointConfig] = []
     for i in range(num_points):
         if protocol == "modbus":
@@ -132,7 +132,6 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
         points.append(
             PointConfig(
                 point_id=point_id,
-                device_id=plan.device_id,
                 address=address,
                 data_type=data_type,
             )
@@ -178,7 +177,9 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
     files = {
         "system.yaml": system,
         "devices.yaml": {"devices": [device.model_dump()]},
-        "points.yaml": {"points": [p.model_dump() for p in points]},
+        "points.yaml": {
+            "point_tables": {"perf": {"points": [p.model_dump() for p in points]}}
+        },
         "routing.yaml": routing,
     }
     for name, payload in files.items():

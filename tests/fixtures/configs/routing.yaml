@@ -9,5 +9,5 @@ rules:
     match_device: null
     match_point_prefix: null
     targets:
-      - null_sink
+      - sink: null_sink
     priority: 0

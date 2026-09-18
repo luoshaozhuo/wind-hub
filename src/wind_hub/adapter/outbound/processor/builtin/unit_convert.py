@@ -24,14 +24,15 @@ class UnitConvertProcessor(ProcessorPort):
     def __init__(self) -> None:
         self._scale_offset: dict[tuple[str, str], tuple[float, float]] = {}
 
-    def set_points_config(self, points: list[PointConfig]) -> None:
+    def set_points_config(self, points_by_device: dict[str, list[PointConfig]]) -> None:
         """注入点表配置，建立 ``(device_id, point_id) → (scale, offset)``。
 
         只收录数值类型 ``data_type`` 的点；bool / string 点不需要换算，
         因而不会进入映射（后续 ``process`` 对未映射点原样透传）。
         """
         self._scale_offset = {
-            (p.device_id, p.point_id): (p.scale, p.offset)
+            (device_id, p.point_id): (p.scale, p.offset)
+            for device_id, points in points_by_device.items()
             for p in points
             if p.data_type in NUMERIC_DATA_TYPES
         }

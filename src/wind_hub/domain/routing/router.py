@@ -57,6 +57,10 @@ class Router:
         """Return all points that have no route target."""
         return self._table.unmatched_points()
 
+    def rule_for(self, device_id: str, point_id: str) -> str | None:
+        """返回命中该点的规则名（点位级覆盖/未匹配为 ``None``）。"""
+        return self._table.rule_for(device_id, point_id)
+
     @property
     def table_size(self) -> int:
         """Number of entries in the underlying routing table."""

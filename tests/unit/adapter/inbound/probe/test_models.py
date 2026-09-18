@@ -26,10 +26,9 @@ def test_to_yaml_dict_symbol_addressing() -> None:
     point = DiscoveredPoint(
         symbol="MAIN.风机1.转速", data_type="float32", size=4, comment="转速符号注释"
     )
-    entry = point.to_yaml_dict(device_id="plc-001", point_id="风机1.转速")
+    entry = point.to_yaml_dict(point_id="风机1.转速")
     assert entry == {
         "point_id": "风机1.转速",
-        "device_id": "plc-001",
         "address": {"symbol": "MAIN.风机1.转速"},
         "data_type": "float32",
         "unit": None,
@@ -46,7 +45,7 @@ def test_to_yaml_dict_explicit_address() -> None:
         comment="扫描结果，需人工确认",
         address={"register_type": "holding", "address": 100},
     )
-    entry = point.to_yaml_dict(device_id="wtg-002", point_id="holding_100")
+    entry = point.to_yaml_dict(point_id="holding_100")
     assert entry["address"] == {"register_type": "holding", "address": 100}
 
 

@@ -1,12 +1,18 @@
 # ---------------------------------------------------------------------------
 # wind-hub 设备配置 — 设备列表与协议参数
 # ---------------------------------------------------------------------------
+#
+# 点表绑定：每台设备经 `point_table: <表名>` 引用 points.yaml 中的一份命名
+# 点表；同类型设备共享同一表定义（见 wtg-003/004/005）。设备的 `polling`
+# 按 group 定义采集周期——点表中每个点的 `group` 必须被 polling 覆盖，
+# 一个 (device, group) 对应一个调度 Job（poll:{device_id}:{group}）。
 
 devices:
 
   # IEC104 风机控制器（遥测 + 遥信）
   - device_id: wtg-001
     protocol: iec104
+    point_table: iec104_wtg_v1
     endpoint:
       host: "10.0.1.1"
       port: 2404
@@ -22,6 +28,7 @@ devices:
   # Modbus 风机控制器
   - device_id: wtg-002
     protocol: modbus
+    point_table: modbus_wtg_v1
     endpoint:
       host: "10.0.2.1"
       port: 502
@@ -32,11 +39,12 @@ devices:
         interval: 2.0
     enabled: true
 
-  # ADS 风机控制器（TwinCAT 2，默认）— Sum 批量读 + 可选的设备通知订阅
+  # ADS 风机控制器 1 号（TwinCAT 2）— Sum 批量周期采集
   - device_id: wtg-003
     protocol: ads
-    read_mode: sum           # 'sum'（单条 Sum 命令，符号寻址）| 'sequential'
-    mode: poll               # 'poll' | 'subscribe' | 'both'
+    point_table: beckhoff_wtg_v1
+    read_mode: sum           # 'sum'（单条 Sum 命令，Symbol 批量，周期采集）
+    mode: poll               # 'poll'（周期轮询）| 'subscribe'（订阅推送）
     endpoint:
       host: "10.0.3.1"
       port: 48898
@@ -44,8 +52,51 @@ devices:
         ams_net_id: "10.0.3.1.1.1"
         twincat_version: "2"    # '2' → 默认端口 801（默认），'3' → 851
     polling:
-      - group: telemetry     # 遥测组，每秒采集
+      - group: fast          # 快变遥测，每秒采集 → Job poll:wtg-003:fast
         interval: 1.0
-    subscribe:
-      enabled: false         # 置 true 后按 mode 启用设备通知推送
+      - group: slow          # 慢变量，每 10 秒采集 → Job poll:wtg-003:slow
+        interval: 10.0
+    enabled: true
+
+  # ADS 风机控制器 2 号 — 与 wtg-003 共享同一份点表（同类型设备复用）
+  - device_id: wtg-004
+    protocol: ads
+    point_table: beckhoff_wtg_v1
+    read_mode: sum
+    mode: poll
+    endpoint:
+      host: "10.0.3.2"
+      port: 48898
+      extensions:
+        ams_net_id: "10.0.3.2.1.1"
+        twincat_version: "2"
+    polling:
+      - group: fast
+        interval: 1.0
+      - group: slow
+        interval: 10.0
+    enabled: true
+
+  # ADS 诊断机位 — read_mode: sequential（逐点读，供 CLI/WebAPI 单次读取
+  # 与诊断；不能用于周期轮询——sequential + mode: poll 是配置错误）。
+  # 周期数据经设备通知订阅推送（subscribe.enabled: true）。
+  - device_id: wtg-005
+    protocol: ads
+    point_table: beckhoff_wtg_v1
+    read_mode: sequential    # 逐点 Read（Symbol 优先，无 symbol 回退 index）
+    mode: poll               # read_mode（如何读）与 mode（何时读）正交：
+                             # sequential 也可周期轮询，引擎把该组的
+                             # PointRef 批交给驱动逐点读（点数多、周期短
+                             # 时建议 sum——性能取舍而非配置错误）
+    endpoint:
+      host: "10.0.3.3"
+      port: 48898
+      extensions:
+        ams_net_id: "10.0.3.3.1.1"
+        twincat_version: "2"
+    polling:
+      - group: fast
+        interval: 1.0
+      - group: slow
+        interval: 10.0
     enabled: true

@@ -23,7 +23,7 @@ from wind_hub.config.schema import DeviceConfig
 from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
-from wind_hub.domain.port.inbound import QueryUseCase, SystemStatus
+from wind_hub.domain.port.inbound import AcquisitionInfo, QueryUseCase, SystemStatus
 
 
 class QueryService(QueryUseCase):
@@ -88,6 +88,9 @@ class QueryService(QueryUseCase):
           「设备优先、随后 sink」顺序，依 ``device_count`` 切分后统计健康数。
         - 点位统计：采集计数经 Runtime 透传自 AcquisitionEngine，路由/丢弃
           计数来自 Runtime 的 Sink 派发侧。
+        - ``acquisitions``：各采集 Job 的业务执行状态（Runtime 的
+          AcquisitionRuntimeState 快照）——与设备连接状态、调度器 Job
+          注册/暂停状态分维度。
         """
         health_values = list(self._runtime.health().values())
         device_health = health_values[: self._runtime.device_count]
@@ -105,18 +108,36 @@ class QueryService(QueryUseCase):
             points_collected=self._runtime.points_collected,
             points_routed=self._runtime.points_routed,
             points_dropped=self._runtime.points_dropped,
+            acquisitions=[
+                AcquisitionInfo(
+                    device_id=state.device_id,
+                    group=state.group,
+                    running=state.running,
+                    consecutive_failures=state.consecutive_failures,
+                    last_error=state.last_error,
+                    last_duration=state.last_duration,
+                )
+                for state in self._runtime.acquisition_states().values()
+            ],
         )
 
     def _device_info(self, device_id: str, cfg: DeviceConfig) -> DeviceInfo:
-        """从设备配置 + 协议健康状态构造 :class:`DeviceInfo`。
+        """从设备配置 + 协议健康状态 + Runtime 设备运行状态构造
+        :class:`DeviceInfo`。
 
-        ``last_seen`` 暂无逐设备读取时间戳追踪，恒为 ``None``（诚实空缺，
-        待后续步骤在采集循环中补齐）。
+        ``last_seen`` 暂无逐设备读取墙钟时间戳追踪，恒为 ``None``（诚实
+        空缺）；连接健康与重连计数来自 Runtime 的 DeviceRuntimeState。
         """
         proto = self._runtime.protocols.get(device_id)
+        state = self._runtime.device_state(device_id)
+        # connected 以驱动实时 health 为准（驱动自带重连监控时比 Runtime
+        # 的记账更新）；consecutive_failures/last_error 来自 Runtime 的
+        # 重连节流状态。
         connected = proto.health().healthy if proto is not None else False
         return DeviceInfo(
             device_id=device_id,
             protocol=cfg.protocol,
             connected=connected,
+            consecutive_failures=state.consecutive_failures if state is not None else 0,
+            last_error=state.last_error if state is not None else None,
         )

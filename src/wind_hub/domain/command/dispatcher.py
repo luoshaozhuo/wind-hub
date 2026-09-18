@@ -36,12 +36,16 @@ class Dispatcher:
         protocols: dict[str, ProtocolPort],
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
+        default_timeout: float = 5.0,
         on_command_sent: Callable[[], None] | None = None,
         on_command_failed: Callable[[], None] | None = None,
     ) -> None:
         self._protocols = protocols
         self._cache_max = idempotency_cache_size
         self._cache_ttl = idempotency_ttl
+        # 命令未自带超时（``Command.timeout <= 0``）时使用的系统默认写超时，
+        # 由组合根从 ``system.yaml`` 的 ``scheduler.write_timeout`` 注入。
+        self._default_timeout = default_timeout
         # 命令成功/失败回调（决策 6）：组合根注入 Prometheus 计数器递增；
         # domain 不得依赖 infra（import-linter），故不在此直接 import metrics。
         self._on_command_sent = on_command_sent or (lambda: None)
@@ -82,7 +86,8 @@ class Dispatcher:
             return result
 
         # --- step 3: write with timeout ----------------------------------
-        timeout = cmd.timeout if cmd.timeout > 0 else 5.0
+        # 优先级：Command.timeout > 0 用命令自带超时，否则用系统默认写超时。
+        timeout = cmd.timeout if cmd.timeout > 0 else self._default_timeout
         try:
             results = await asyncio.wait_for(
                 proto.write([cmd]),
@@ -98,11 +103,17 @@ class Dispatcher:
                 )
             )
         except TimeoutError:
-            logger.warning("Command '%s' timed out after %.1fs", cmd.command_id, timeout)
+            # 错误语义区分操作阶段（write），不模糊成裸 "timeout"。
+            logger.warning(
+                "write timeout: device=%s point=%s timeout=%.1fs",
+                cmd.device_id,
+                cmd.point_id,
+                timeout,
+            )
             result = CommandResult(
                 command_id=cmd.command_id,
                 success=False,
-                error="timeout",
+                error=f"write timeout after {timeout:.1f}s",
             )
         except Exception as exc:
             logger.warning(

@@ -29,6 +29,7 @@ def _make_device_cfg(
         device_id=device_id,
         protocol=protocol,
         endpoint=Endpoint(host=host, port=port),
+        point_table="t1",
     )
 
 

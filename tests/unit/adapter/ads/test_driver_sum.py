@@ -23,6 +23,7 @@ def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceC
     return DeviceConfig(
         device_id="test-dev",
         protocol="ads",
+        point_table="t1",
         endpoint=Endpoint(
             host="192.168.0.100",
             port=48898,
@@ -35,7 +36,6 @@ def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceC
 def _make_symbol_point(point_id: str, symbol: str, data_type: str = "float32") -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-dev",
         address=PointAddress(symbol=symbol),
         data_type=data_type,
     )
@@ -44,7 +44,6 @@ def _make_symbol_point(point_id: str, symbol: str, data_type: str = "float32") -
 def _make_index_point(point_id: str) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-dev",
         address=PointAddress(index_group=0x4020, index_offset=0),
         data_type="float32",
     )

@@ -25,7 +25,9 @@ def runner() -> CliRunner:
 def _write_config(base: Path, devices: list[dict]) -> None:
     (base / "system.yaml").write_text("{}\n", encoding="utf-8")
     (base / "devices.yaml").write_text(yaml.safe_dump({"devices": devices}), encoding="utf-8")
-    (base / "points.yaml").write_text("points: []\n", encoding="utf-8")
+    (base / "points.yaml").write_text(
+        "point_tables:\n  main:\n    points: []\n", encoding="utf-8"
+    )
     (base / "routing.yaml").write_text("rules: []\n", encoding="utf-8")
 
 
@@ -36,6 +38,7 @@ def _ads_config(base: Path) -> None:
             {
                 "device_id": "plc-001",
                 "protocol": "ads",
+                "point_table": "main",
                 "endpoint": {
                     "host": "10.0.3.1",
                     "port": 48898,
@@ -53,6 +56,7 @@ def _modbus_config(base: Path) -> None:
             {
                 "device_id": "wtg-002",
                 "protocol": "modbus",
+                "point_table": "main",
                 "endpoint": {"host": "10.0.2.1", "port": 502, "extensions": {"unit_id": 1}},
             }
         ],
@@ -66,6 +70,7 @@ def _iec104_config(base: Path) -> None:
             {
                 "device_id": "wtg-001",
                 "protocol": "iec104",
+                "point_table": "main",
                 "endpoint": {"host": "10.0.1.1", "port": 2404},
             }
         ],
@@ -111,9 +116,11 @@ def test_discover_ads_to_stdout(
     assert result.exit_code == 0
     assert "此文件由 wind-hub probe discover 生成" in result.output
     data = yaml.safe_load(result.output)
-    assert data["points"][0]["point_id"] == "风机1.转速"
-    assert data["points"][0]["device_id"] == "plc-001"
-    assert data["points"][0]["address"] == {"symbol": "MAIN.风机1.转速"}
+    # 草稿为 point_tables 结构（点表设备无关，默认表名取设备 id）
+    entries = data["point_tables"]["plc-001"]["points"]
+    assert entries[0]["point_id"] == "风机1.转速"
+    assert "device_id" not in entries[0]
+    assert entries[0]["address"] == {"symbol": "MAIN.风机1.转速"}
 
 
 def test_discover_ads_to_file(
@@ -140,7 +147,7 @@ def test_discover_ads_to_file(
     assert result.exit_code == 0
     assert "草稿已写入" in result.output
     data = yaml.safe_load(out.read_text(encoding="utf-8"))
-    assert data["points"][0]["data_type"] == "float32"
+    assert data["point_tables"]["plc-001"]["points"][0]["data_type"] == "float32"
 
 
 def test_discover_ads_filter_prefix(
@@ -171,7 +178,8 @@ def test_discover_ads_filter_prefix(
 
     assert result.exit_code == 0
     data = yaml.safe_load(result.output)
-    assert [p["point_id"] for p in data["points"]] == ["a"]
+    entries = data["point_tables"]["plc-001"]["points"]
+    assert [p["point_id"] for p in entries] == ["a"]
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +243,10 @@ def test_discover_modbus_scan_outputs_register_draft(
     assert result.exit_code == 0
     assert "寄存器扫描结果" in result.output
     data = yaml.safe_load(result.output)
-    assert data["points"][0]["address"] == {"register_type": "holding", "address": 0}
+    assert data["point_tables"]["wtg-002"]["points"][0]["address"] == {
+        "register_type": "holding",
+        "address": 0,
+    }
 
 
 # ---------------------------------------------------------------------------

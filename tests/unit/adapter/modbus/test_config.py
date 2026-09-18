@@ -13,6 +13,7 @@ def _cfg(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-dev",
         protocol="modbus",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=502,

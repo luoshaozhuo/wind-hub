@@ -13,13 +13,18 @@ from wind_hub.assembly import AssembledRuntime
 
 
 def _append_device_and_points(config_dir: Path) -> None:
-    """向设备/点表追加 ``modbus-2``（unit 2），供热重载接入。"""
+    """向设备配置追加 ``modbus-2``（unit 2），供热重载接入。
+
+    ``modbus-2`` 与 ``modbus-1`` 同型号，直接共享 ``modbus`` 点表，
+    无需再追加点位定义。
+    """
     devices_path = config_dir / "devices.yaml"
     devices = yaml.safe_load(devices_path.read_text(encoding="utf-8"))
     devices["devices"].append(
         {
             "device_id": "modbus-2",
             "protocol": "modbus",
+            "point_table": "modbus",
             "endpoint": {
                 "host": "127.0.0.1",
                 "port": 15020,
@@ -30,26 +35,6 @@ def _append_device_and_points(config_dir: Path) -> None:
         }
     )
     devices_path.write_text(yaml.safe_dump(devices, sort_keys=False), encoding="utf-8")
-
-    points_path = config_dir / "points.yaml"
-    points = yaml.safe_load(points_path.read_text(encoding="utf-8"))
-    points["points"].extend(
-        [
-            {
-                "point_id": "rotor.speed",
-                "device_id": "modbus-2",
-                "address": {"register_type": "holding", "address": 100},
-                "data_type": "float32",
-            },
-            {
-                "point_id": "gen.power",
-                "device_id": "modbus-2",
-                "address": {"register_type": "holding", "address": 102},
-                "data_type": "float32",
-            },
-        ]
-    )
-    points_path.write_text(yaml.safe_dump(points, sort_keys=False), encoding="utf-8")
 
 
 async def test_hot_reload_adds_device(

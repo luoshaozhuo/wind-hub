@@ -336,6 +336,7 @@ def _make_device_config(port: int) -> DeviceConfig:
             port=port,
             extensions={"common_addr": 1, "t1": 2.0, "t2": 1.0, "t3": 5.0},
         ),
+        point_table="t1",
     )
 
 
@@ -346,7 +347,6 @@ def _make_point_config(
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-rtu",
         address=PointAddress(ioa=ioa),
         data_type=data_type,
     )

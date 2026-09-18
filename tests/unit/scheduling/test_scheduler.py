@@ -207,3 +207,24 @@ async def test_unknown_job_operations_raise_key_error() -> None:
             await sched.trigger_job("nope")
     finally:
         await sched.stop()
+
+
+def test_scheduler_port_contract_is_unaware_of_read_mode() -> None:
+    """read_mode（如何读）与调度（何时读）正交：SchedulerPort 的公开契约
+    （方法签名与 JobInfo 字段）不包含任何 read_mode 概念。"""
+    import inspect
+
+    from wind_hub.domain.port.scheduling import JobInfo, SchedulerPort
+
+    for name in (
+        "add_interval_job",
+        "remove_job",
+        "pause_job",
+        "resume_job",
+        "trigger_job",
+        "get_job",
+        "list_jobs",
+    ):
+        sig = inspect.signature(getattr(SchedulerPort, name))
+        assert not any("read_mode" in p for p in sig.parameters), name
+    assert "read_mode" not in JobInfo.model_fields

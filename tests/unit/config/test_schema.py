@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from wind_hub.config.schema import (
     DeviceConfig,
     DevicesConfig,
     PointAddress,
     PointConfig,
-    PointsConfig,
+    PointTableConfig,
+    PointTablesConfig,
     RoutingConfig,
     SinkConfig,
     SystemConfig,
 )
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.model.route import RouteRule
+from wind_hub.domain.model.route import RouteRule, RouteTarget
 
 # ---------------------------------------------------------------------------
 # SystemConfig
@@ -61,6 +63,7 @@ class TestDevicesConfig:
                 devices=[
                     DeviceConfig(
                         device_id="d1",
+                        point_table="t1",
                         protocol="opcua",
                         endpoint=Endpoint(host="10.0.0.1", port=4840),
                     )
@@ -73,6 +76,7 @@ class TestDevicesConfig:
                 devices=[
                     DeviceConfig(
                         device_id="d1",
+                        point_table="t1",
                         protocol=proto,
                         endpoint=Endpoint(host="10.0.0.1", port=502),
                     )
@@ -85,8 +89,8 @@ class TestDevicesConfig:
         with pytest.raises(ConfigError, match="Duplicate"):
             DevicesConfig(
                 devices=[
-                    DeviceConfig(device_id="d1", protocol="modbus", endpoint=ep),
-                    DeviceConfig(device_id="d1", protocol="ads", endpoint=ep),
+                    DeviceConfig(device_id="d1", point_table="t1", protocol="modbus", endpoint=ep),
+                    DeviceConfig(device_id="d1", point_table="t1", protocol="ads", endpoint=ep),
                 ]
             )
 
@@ -94,6 +98,7 @@ class TestDevicesConfig:
         with pytest.raises(ConfigError, match="read_mode"):
             DeviceConfig(
                 device_id="d1",
+                point_table="t1",
                 protocol="ads",
                 endpoint=Endpoint(host="10.0.0.1", port=502),
                 read_mode="batch",
@@ -103,6 +108,7 @@ class TestDevicesConfig:
         with pytest.raises(ConfigError, match="mode"):
             DeviceConfig(
                 device_id="d1",
+                point_table="t1",
                 protocol="ads",
                 endpoint=Endpoint(host="10.0.0.1", port=502),
                 mode="push",
@@ -110,9 +116,10 @@ class TestDevicesConfig:
 
     def test_valid_read_mode_and_mode_accepted(self) -> None:
         for read_mode in ("sum", "sequential"):
-            for mode in ("poll", "subscribe", "both"):
+            for mode in ("poll", "subscribe"):
                 cfg = DeviceConfig(
                     device_id="d1",
+                    point_table="t1",
                     protocol="ads",
                     endpoint=Endpoint(host="10.0.0.1", port=502),
                     read_mode=read_mode,
@@ -121,9 +128,21 @@ class TestDevicesConfig:
                 assert cfg.read_mode == read_mode
                 assert cfg.mode == mode
 
+    def test_mode_both_rejected(self) -> None:
+        """``both`` 语义已删除——不再是合法的采集模式。"""
+        with pytest.raises(ConfigError, match="mode"):
+            DeviceConfig(
+                device_id="d1",
+                point_table="t1",
+                protocol="ads",
+                endpoint=Endpoint(host="10.0.0.1", port=502),
+                mode="both",
+            )
+
     def test_subscribe_defaults(self) -> None:
         cfg = DeviceConfig(
             device_id="d1",
+            point_table="t1",
             protocol="ads",
             endpoint=Endpoint(host="10.0.0.1", port=502),
         )
@@ -134,78 +153,56 @@ class TestDevicesConfig:
 
 
 # ---------------------------------------------------------------------------
-# PointsConfig
+# PointTablesConfig
 # ---------------------------------------------------------------------------
 
 
-class TestPointsConfig:
-    def test_duplicate_device_point_id_raises(self) -> None:
+class TestPointTablesConfig:
+    def test_duplicate_point_id_in_table_raises(self) -> None:
         addr = PointAddress(type="holding_register")
         with pytest.raises(ConfigError, match="Duplicate"):
-            PointsConfig(
+            PointTableConfig(
                 points=[
-                    PointConfig(
-                        point_id="rotor.speed",
-                        device_id="wtg-001",
-                        address=addr,
-                        data_type="float32",
-                    ),
-                    PointConfig(
-                        point_id="rotor.speed",
-                        device_id="wtg-001",
-                        address=addr,
-                        data_type="float32",
-                    ),
+                    PointConfig(point_id="p001", address=addr, data_type="float32"),
+                    PointConfig(point_id="p001", address=addr, data_type="float32"),
                 ]
             )
 
-    def test_different_device_same_point_ok(self) -> None:
+    def test_same_point_id_across_tables_ok(self) -> None:
+        """point_id 的命名空间是单份点表——不同表之间允许重复。"""
         addr = PointAddress(type="holding_register")
-        cfg = PointsConfig(
-            points=[
-                PointConfig(
-                    point_id="rotor.speed",
-                    device_id="wtg-001",
-                    address=addr,
-                    data_type="float32",
+        cfg = PointTablesConfig(
+            tables={
+                "t1": PointTableConfig(
+                    points=[PointConfig(point_id="p001", address=addr, data_type="float32")]
                 ),
-                PointConfig(
-                    point_id="rotor.speed",
-                    device_id="wtg-002",
-                    address=addr,
-                    data_type="float32",
+                "t2": PointTableConfig(
+                    points=[PointConfig(point_id="p001", address=addr, data_type="float32")]
                 ),
-            ]
+            }
         )
-        assert len(cfg.points) == 2
+        assert len(cfg.tables) == 2
 
     def test_invalid_data_type_raises(self) -> None:
         addr = PointAddress(type="holding_register")
         with pytest.raises(ConfigError, match="data_type"):
-            PointsConfig(
-                points=[
-                    PointConfig(
-                        point_id="p1",
-                        device_id="d1",
-                        address=addr,
-                        data_type="imaginary",
-                    )
-                ]
+            PointTableConfig(
+                points=[PointConfig(point_id="p1", address=addr, data_type="imaginary")]
             )
 
     def test_valid_config_builds(self) -> None:
-        cfg = PointsConfig(
+        cfg = PointTableConfig(
             points=[
                 PointConfig(
-                    point_id="rotor.speed",
-                    device_id="wtg-001",
+                    point_id="p001",
+                    name="rotor_speed",
+                    group="fast",
                     address=PointAddress(ioa=1001),
                     data_type="float32",
                     sinks=["kafka_main"],
                 ),
                 PointConfig(
-                    point_id="gen.power",
-                    device_id="wtg-001",
+                    point_id="p002",
                     address=PointAddress(type="measured_value", ioa=1002),
                     data_type="float32",
                 ),
@@ -213,7 +210,24 @@ class TestPointsConfig:
         )
         assert len(cfg.points) == 2
         assert cfg.points[0].sinks == ["kafka_main"]
+        assert cfg.points[0].name == "rotor_speed"
+        assert cfg.points[0].group == "fast"
         assert cfg.points[1].sinks is None
+        assert cfg.points[1].group == "default"
+
+    def test_point_config_has_no_device_id(self) -> None:
+        """点是设备无关的——``device_id`` 不再是 PointConfig 的字段。"""
+        point = PointConfig(
+            point_id="p001", address=PointAddress(ioa=1001), data_type="float32"
+        )
+        assert not hasattr(point, "device_id")
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointConfig(
+                point_id="p001",
+                device_id="wtg-001",  # type: ignore[call-arg]
+                address=PointAddress(ioa=1001),
+                data_type="float32",
+            )
 
 
 class TestPointAddress:
@@ -233,10 +247,18 @@ class TestPointAddress:
 class TestRoutingConfig:
     def test_duplicate_rule_names_raises(self) -> None:
         r1 = RouteRule(
-            name="r1", targets=["kafka"], priority=10, match_device=None, match_point_prefix=None
+            name="r1",
+            targets=[RouteTarget(sink="kafka")],
+            priority=10,
+            match_device=None,
+            match_point_prefix=None,
         )
         r2 = RouteRule(
-            name="r1", targets=["file"], priority=5, match_device=None, match_point_prefix=None
+            name="r1",
+            targets=[RouteTarget(sink="file")],
+            priority=5,
+            match_device=None,
+            match_point_prefix=None,
         )
         with pytest.raises(ConfigError, match="Duplicate"):
             RoutingConfig(rules=[r1, r2])

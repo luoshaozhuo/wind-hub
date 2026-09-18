@@ -8,7 +8,7 @@ from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.model.point import PointRef
-from wind_hub.domain.model.route import RouteRule
+from wind_hub.domain.model.route import RouteRule, RouteTarget
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,7 +24,7 @@ def _make_rule(
 ) -> RouteRule:
     return RouteRule(
         name=name,
-        targets=targets,
+        targets=[RouteTarget(sink=s) for s in targets],
         priority=priority,
         match_device=match_device,
         match_point_prefix=match_point_prefix,
@@ -33,15 +33,18 @@ def _make_rule(
 
 def _make_point(
     point_id: str,
-    device_id: str = "d1",
     sinks: list[str] | None = None,
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(type="hr", register=30001),
         sinks=sinks,
     )
+
+
+def _pbd(*entries: tuple[str, list[PointConfig]]) -> dict[str, list[PointConfig]]:
+    """Build a ``{device_id: [PointConfig, …]}`` mapping from tuples."""
+    return dict(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -52,20 +55,19 @@ def _make_point(
 class TestResolve:
     def test_resolve_returns_targets(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [_make_point("p1")]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d1", [_make_point("p1")])))
         assert table.resolve("d1", "p1") == ["kafka"]
 
     def test_resolve_returns_empty_for_unknown_point(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [_make_point("p1")]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d1", [_make_point("p1")])))
         assert table.resolve("d1", "unknown") == []
 
     def test_resolve_point_override(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [_make_point("p1", sinks=["override"])]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules, points_by_device=_pbd(("d1", [_make_point("p1", sinks=["override"])]))
+        )
         assert table.resolve("d1", "p1") == ["override"]
 
 
@@ -77,11 +79,10 @@ class TestResolve:
 class TestResolveBatch:
     def test_resolve_batch_returns_all_matches(self) -> None:
         rules = [_make_rule("catch-all", ["kafka"])]
-        points = [
-            _make_point("p1"),
-            _make_point("p2"),
-        ]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(("d1", [_make_point("p1"), _make_point("p2")])),
+        )
         refs = [
             PointRef(device_id="d1", point_id="p1"),
             PointRef(device_id="d1", point_id="p2"),
@@ -102,11 +103,11 @@ class TestResolveBatch:
 class TestPolicyDrop:
     def test_unmatched_returns_empty_with_drop(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            _make_point("p1", device_id="d1"),
-            _make_point("p2", device_id="d2"),  # no matching rule
-        ]
-        table = RoutingTable(rules=rules, points=points, unmatched_policy="drop")
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(("d1", [_make_point("p1")]), ("d2", [_make_point("p2")])),
+            unmatched_policy="drop",
+        )
         assert table.resolve("d2", "p2") == []
         assert ("d2", "p2") in table.unmatched_points()
 
@@ -119,17 +120,20 @@ class TestPolicyDrop:
 class TestPolicyError:
     def test_unmatched_policy_error_raises(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            _make_point("p1", device_id="d1"),
-            _make_point("p2", device_id="d2"),
-        ]
         with pytest.raises(ConfigError, match="Unmatched"):
-            RoutingTable(rules=rules, points=points, unmatched_policy="error")
+            RoutingTable(
+                rules=rules,
+                points_by_device=_pbd(("d1", [_make_point("p1")]), ("d2", [_make_point("p2")])),
+                unmatched_policy="error",
+            )
 
     def test_unmatched_policy_error_passes_when_all_matched(self) -> None:
         rules = [_make_rule("catch-all", ["kafka"])]
-        points = [_make_point("p1")]
-        table = RoutingTable(rules=rules, points=points, unmatched_policy="error")
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(("d1", [_make_point("p1")])),
+            unmatched_policy="error",
+        )
         assert table.size == 1
 
 
@@ -141,12 +145,14 @@ class TestPolicyError:
 class TestUnmatchedPoints:
     def test_unmatched_points_all_listed(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            _make_point("p1", device_id="d1"),
-            _make_point("p2", device_id="d2"),
-            _make_point("p3", device_id="d3"),
-        ]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(
+                ("d1", [_make_point("p1")]),
+                ("d2", [_make_point("p2")]),
+                ("d3", [_make_point("p3")]),
+            ),
+        )
         assert sorted(table.unmatched_points()) == [("d2", "p2"), ("d3", "p3")]
 
 
@@ -158,21 +164,20 @@ class TestUnmatchedPoints:
 class TestSize:
     def test_size_matches_matched_points(self) -> None:
         rules = [_make_rule("catch-all", ["kafka"])]
-        points = [
-            _make_point("p1"),
-            _make_point("p2"),
-            _make_point("p3"),
-        ]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(
+                ("d1", [_make_point("p1"), _make_point("p2"), _make_point("p3")])
+            ),
+        )
         assert table.size == 3
 
     def test_size_excludes_unmatched(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            _make_point("p1", device_id="d1"),
-            _make_point("p2", device_id="d2"),
-        ]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules,
+            points_by_device=_pbd(("d1", [_make_point("p1")]), ("d2", [_make_point("p2")])),
+        )
         assert table.size == 1  # only d1/p1 matched
 
 
@@ -184,8 +189,9 @@ class TestSize:
 class TestExplain:
     def test_explain_overridden(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [_make_point("p1", sinks=["override"])]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(
+            rules=rules, points_by_device=_pbd(("d1", [_make_point("p1", sinks=["override"])]))
+        )
         targets, rule_name, source = table.explain("d1", "p1")
         assert targets == ["override"]
         assert rule_name is None
@@ -193,8 +199,7 @@ class TestExplain:
 
     def test_explain_rule(self) -> None:
         rules = [_make_rule("my-rule", ["kafka"], match_device="d1")]
-        points = [_make_point("p1")]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d1", [_make_point("p1")])))
         targets, rule_name, source = table.explain("d1", "p1")
         assert targets == ["kafka"]
         assert rule_name == "my-rule"
@@ -202,12 +207,35 @@ class TestExplain:
 
     def test_explain_unmatched(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [_make_point("p2", device_id="d2")]
-        table = RoutingTable(rules=rules, points=points)
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d2", [_make_point("p2")])))
         targets, rule_name, source = table.explain("d2", "p2")
         assert targets == []
         assert rule_name is None
         assert source == "unmatched"
+
+
+# ---------------------------------------------------------------------------
+# rule_for — 命中规则名查询（Delivery Policy 用）
+# ---------------------------------------------------------------------------
+
+
+class TestRuleFor:
+    def test_rule_for_returns_matching_rule(self) -> None:
+        rules = [_make_rule("my-rule", ["kafka"], match_device="d1")]
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d1", [_make_point("p1")])))
+        assert table.rule_for("d1", "p1") == "my-rule"
+
+    def test_rule_for_none_for_point_override(self) -> None:
+        rules = [_make_rule("default", ["kafka"])]
+        table = RoutingTable(
+            rules=rules, points_by_device=_pbd(("d1", [_make_point("p1", sinks=["override"])]))
+        )
+        assert table.rule_for("d1", "p1") is None
+
+    def test_rule_for_none_for_unmatched(self) -> None:
+        rules = [_make_rule("specific", ["kafka"], match_device="d1")]
+        table = RoutingTable(rules=rules, points_by_device=_pbd(("d2", [_make_point("p2")])))
+        assert table.rule_for("d2", "p2") is None
 
 
 # ---------------------------------------------------------------------------
@@ -218,4 +246,4 @@ class TestExplain:
 class TestInvalidPolicy:
     def test_invalid_unmatched_policy_raises(self) -> None:
         with pytest.raises(ConfigError, match="unmatched_policy"):
-            RoutingTable(rules=[], points=[], unmatched_policy="invalid")
+            RoutingTable(rules=[], points_by_device={}, unmatched_policy="invalid")

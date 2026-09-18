@@ -19,6 +19,7 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-dev",
         protocol="modbus",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=502,
@@ -35,7 +36,6 @@ def _make_point_config(
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-dev",
         address=PointAddress(register_type=register_type, address=address),
         data_type=data_type,
     )
@@ -223,6 +223,42 @@ class TestRead:
         client.read_holding_registers.assert_awaited_once_with(100, count=4, device_id=1)
         assert values[0].value == pytest.approx(1.5)
         assert values[1].value == pytest.approx(2.5)
+
+    async def test_short_response_marks_only_undecodable_point_bad(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """批量读部分失败：整组请求成功但响应偏短——可解码的点 GOOD，
+        解不出的点单独 BAD（value=None），批次顺序与数量不变。"""
+        client = _FakeClient()
+        # 两个相邻 float32 点（100, 102）合并成一次 4 寄存器读，
+        # 但响应只回了 2 个寄存器——第二个点解不出。
+        client.read_holding_registers.return_value = _FakeResponse(
+            registers=_float32_registers(1.5)
+        )
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping(
+            [
+                _make_point_config("a", "holding", 100),
+                _make_point_config("b", "holding", 102),
+            ]
+        )
+
+        await driver.connect()
+        values = await driver.read(
+            [
+                PointRef(device_id="test-dev", point_id="a"),
+                PointRef(device_id="test-dev", point_id="b"),
+            ]
+        )
+        await driver.close()
+
+        assert len(values) == 2  # 批次不缩
+        assert values[0].quality == Quality.GOOD
+        assert values[0].value == pytest.approx(1.5)
+        assert values[1].quality == Quality.BAD
+        assert values[1].value is None
 
 
 # ---------------------------------------------------------------------------

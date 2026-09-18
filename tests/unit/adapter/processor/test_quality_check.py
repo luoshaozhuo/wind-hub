@@ -10,14 +10,12 @@ from wind_hub.domain.model.point import PointValue, Quality
 def _point(
     point_id: str,
     *,
-    device_id: str = "d1",
     min_value: float | None = None,
     max_value: float | None = None,
     data_type: str = "float32",
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(),
         data_type=data_type,
         min_value=min_value,
@@ -27,7 +25,7 @@ def _point(
 
 def _setup(points: list[PointConfig]) -> QualityCheckProcessor:
     proc = QualityCheckProcessor()
-    proc.set_points_config(points)
+    proc.set_points_config({"d1": points})
     return proc
 
 

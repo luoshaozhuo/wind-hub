@@ -110,8 +110,8 @@ async def test_send_unknown_device_returns_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_send_timeout_returns_failure() -> None:
-    """send returns failure with error='timeout' when ProtocolPort.write
-    exceeds the command timeout."""
+    """send returns failure with a stage-located 'write timeout' error when
+    ProtocolPort.write exceeds the command timeout."""
     proto = _make_proto(delay=10.0)
     dispatcher = Dispatcher(protocols={"dev-1": proto})
     cmd = _make_cmd(timeout=0.05)  # very short timeout
@@ -119,7 +119,34 @@ async def test_send_timeout_returns_failure() -> None:
     result = await dispatcher.send(cmd)
 
     assert result.success is False
-    assert result.error == "timeout"
+    assert result.error == "write timeout after 0.1s"
+
+
+@pytest.mark.asyncio
+async def test_send_timeout_uses_default_when_command_has_none() -> None:
+    """Command.timeout <= 0 时回退到注入的默认写超时（system.yaml
+    scheduler.write_timeout），并同样返回 write 阶段定位的错误。"""
+    proto = _make_proto(delay=10.0)
+    dispatcher = Dispatcher(protocols={"dev-1": proto}, default_timeout=0.05)
+    cmd = _make_cmd(timeout=0.0)  # 未自带超时 → 用默认值
+
+    result = await dispatcher.send(cmd)
+
+    assert result.success is False
+    assert result.error == "write timeout after 0.1s"
+
+
+@pytest.mark.asyncio
+async def test_send_command_timeout_overrides_smaller_default() -> None:
+    """Command.timeout > 0 时优先于默认写超时——默认 0.05s 会超时，
+    但命令自带 1s 超时让 0.1s 的写成功。"""
+    proto = _make_proto(delay=0.1)
+    dispatcher = Dispatcher(protocols={"dev-1": proto}, default_timeout=0.05)
+    cmd = _make_cmd(timeout=1.0)
+
+    result = await dispatcher.send(cmd)
+
+    assert result.success is True
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +327,7 @@ async def test_send_timeout_counts_as_failed() -> None:
     )
     result = await dispatcher.send(_make_cmd(timeout=0.05))
     assert result.success is False
-    assert result.error == "timeout"
+    assert result.error is not None and result.error.startswith("write timeout")
     assert failed == ["f"]
 
 

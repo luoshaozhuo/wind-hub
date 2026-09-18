@@ -51,6 +51,7 @@ def _write_minimal_config(base: Path) -> None:
                 {
                     "device_id": "d1",
                     "protocol": "modbus",
+                    "point_table": "wtg",
                     "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
                 },
             ],
@@ -60,14 +61,17 @@ def _write_minimal_config(base: Path) -> None:
         base,
         "points.yaml",
         {
-            "points": [
-                {
-                    "point_id": "rotor.speed",
-                    "device_id": "d1",
-                    "address": {"type": "holding_register", "register": 30001},
-                    "data_type": "float32",
+            "point_tables": {
+                "wtg": {
+                    "points": [
+                        {
+                            "point_id": "rotor.speed",
+                            "address": {"type": "holding_register", "register": 30001},
+                            "data_type": "float32",
+                        },
+                    ],
                 },
-            ],
+            },
         },
     )
     _write_yaml(
@@ -75,7 +79,11 @@ def _write_minimal_config(base: Path) -> None:
         "routing.yaml",
         {
             "rules": [
-                {"name": "default", "match_point_prefix": "rotor.", "targets": ["archive"]},
+                {
+                    "name": "default",
+                    "match_point_prefix": "rotor.",
+                    "targets": [{"sink": "archive"}],
+                },
             ],
         },
     )

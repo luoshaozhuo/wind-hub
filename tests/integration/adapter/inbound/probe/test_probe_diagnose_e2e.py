@@ -62,6 +62,7 @@ def _write_config(
                     {
                         "device_id": device_id,
                         "protocol": protocol,
+                        "point_table": "wtg-table",
                         "endpoint": {"host": host, "port": port, "extensions": {"unit_id": 1}},
                     }
                 ]
@@ -74,12 +75,14 @@ def _write_config(
         points.append(
             {
                 "point_id": "rotor.speed",
-                "device_id": device_id,
                 "address": {"type": "holding_register", "address": 0},
                 "data_type": "int16",
             }
         )
-    (base / "points.yaml").write_text(yaml.safe_dump({"points": points}), encoding="utf-8")
+    (base / "points.yaml").write_text(
+        yaml.safe_dump({"point_tables": {"wtg-table": {"points": points}}}),
+        encoding="utf-8",
+    )
     (base / "routing.yaml").write_text("rules: []\n", encoding="utf-8")
 
 

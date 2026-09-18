@@ -13,6 +13,7 @@ def _cfg(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-dev",
         protocol="ads",
+        point_table="t1",
         endpoint=Endpoint(
             host="192.168.0.100",
             port=48898,
@@ -83,6 +84,7 @@ def test_read_mode_sequential() -> None:
     cfg = DeviceConfig(
         device_id="test-dev",
         protocol="ads",
+        point_table="t1",
         endpoint=Endpoint(host="192.168.0.100", port=48898),
         read_mode="sequential",
     )

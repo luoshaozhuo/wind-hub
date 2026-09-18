@@ -28,6 +28,7 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-device",
         protocol="iec104",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=2404,
@@ -38,13 +39,11 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
 
 def _make_point_config(
     point_id: str,
-    device_id: str,
     ioa: int,
     data_type: str = "bool",
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(ioa=ioa),
         data_type=data_type,
     )
@@ -77,7 +76,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="bool"),
+                _make_point_config("p1", 100, data_type="bool"),
             ]
         )
         cmd = _make_cmd(value=True)
@@ -96,7 +95,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="bool"),
+                _make_point_config("p1", 100, data_type="bool"),
             ]
         )
         cmd = _make_cmd(value=False)
@@ -112,7 +111,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="float32"),
+                _make_point_config("p1", 100, data_type="float32"),
             ]
         )
         cmd = _make_cmd(value=42.5)
@@ -129,7 +128,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="uint16"),
+                _make_point_config("p1", 100, data_type="uint16"),
             ]
         )
         cmd = _make_cmd(value=0)
@@ -145,7 +144,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="uint16"),
+                _make_point_config("p1", 100, data_type="uint16"),
             ]
         )
         cmd = _make_cmd(value=2)
@@ -162,7 +161,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="bool"),
+                _make_point_config("p1", 100, data_type="bool"),
             ]
         )
         cmd = _make_cmd(value=1)
@@ -178,7 +177,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="uint16"),
+                _make_point_config("p1", 100, data_type="uint16"),
             ]
         )
         cmd = _make_cmd(value=1)
@@ -194,7 +193,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="int16"),
+                _make_point_config("p1", 100, data_type="int16"),
             ]
         )
         cmd = _make_cmd(value=42)
@@ -210,7 +209,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="float32"),
+                _make_point_config("p1", 100, data_type="float32"),
             ]
         )
         cmd = _make_cmd(value=5)
@@ -227,7 +226,7 @@ class TestBuildControlAsdu:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("p1", "d1", 100, data_type="str"),
+                _make_point_config("p1", 100, data_type="str"),
             ]
         )
         cmd = _make_cmd(value="hello")

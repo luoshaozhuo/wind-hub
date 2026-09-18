@@ -45,6 +45,22 @@ async def metrics_endpoint() -> Response:
             sinks_total_val=runtime.sink_count,
             sinks_healthy_val=sinks_healthy,
         )
+        # 逐设备连通 gauge（标签 device_id/protocol，取自配置，基数受控）：
+        # connected 以驱动实时 health 为准（与 QueryService 口径一致）。
+        metrics.update_device_gauges(
+            [
+                (
+                    device_id,
+                    cfg.protocol,
+                    runtime.protocols[device_id].health().healthy
+                    if device_id in runtime.protocols
+                    else False,
+                )
+                for device_id, cfg in runtime.devices.items()
+            ]
+        )
+        # sink 队列深度 gauge（队列归 Runtime 所有）。
+        metrics.update_sink_queue_depths(runtime.sink_queue_depths())
         body = metrics.render()
     except Exception as exc:
         raise APIError(

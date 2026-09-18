@@ -43,16 +43,15 @@ class DiscoveredPoint:
     comment: str | None = None
     address: dict[str, Any] | None = None
 
-    def to_yaml_dict(self, device_id: str, point_id: str) -> dict[str, Any]:
+    def to_yaml_dict(self, point_id: str) -> dict[str, Any]:
         """转换为 YAML 草稿中一个点位条目的字典形式。
 
         结构与 :class:`~wind_hub.config.schema.PointConfig` 兼容
-        （``point_id`` / ``device_id`` / ``address`` / ``data_type`` /
-        ``unit`` / ``description``）。
+        （``point_id`` / ``address`` / ``data_type`` / ``unit`` /
+        ``description``）——点表设备无关，条目不含 ``device_id``。
         """
         return {
             "point_id": point_id,
-            "device_id": device_id,
             "address": self.address if self.address is not None else {"symbol": self.symbol},
             "data_type": self.data_type,
             "unit": None,

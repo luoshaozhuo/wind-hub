@@ -1,7 +1,8 @@
 """probe discover 的 YAML 草稿输出（决策 4）。
 
-生成的草稿与 ``points.yaml`` 结构兼容（顶层 ``points:`` 列表，条目字
-段同 :class:`~wind_hub.config.schema.PointConfig`），但它是**草稿**：
+生成的草稿与 ``points.yaml`` 结构兼容（顶层 ``point_tables:`` 字典，
+条目字段同 :class:`~wind_hub.config.schema.PointConfig`——点表设备
+无关，条目不含 ``device_id``），但它是**草稿**：
 - ADS 符号的 ``data_type`` 可能是 ``unknown``（类型映射表未收录）；
 - Modbus 扫描结果的地址、类型都只是「读得通」的证据。
 因此文件头固定带「需人工确认」的注释。
@@ -33,16 +34,16 @@ def render_yaml_draft(
     """生成与 points.yaml 兼容的 YAML 草稿文本。
 
     Args:
-        device_id: 草稿条目的 ``device_id``（取命令行指定的设备）。
+        device_id: 命令行指定的设备——用作草稿点表的默认表名（点表
+            设备无关，可人工改表名后被多台同类型设备绑定复用）。
         points: 发现点列表；point_id 由 :func:`symbol_to_point_id` 生成。
         protocol: 协议名；``"modbus"`` 时追加扫描风险提示注释。
     """
     entries = [
-        point.to_yaml_dict(device_id=device_id, point_id=symbol_to_point_id(point.symbol))
-        for point in points
+        point.to_yaml_dict(point_id=symbol_to_point_id(point.symbol)) for point in points
     ]
     body = yaml.safe_dump(
-        {"points": entries},
+        {"point_tables": {device_id: {"points": entries}}},
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,

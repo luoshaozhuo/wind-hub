@@ -21,15 +21,17 @@ class DeadbandProcessor(ProcessorPort):
         self._deadbands: dict[tuple[str, str], float] = {}
         self._last_values: dict[tuple[str, str], float] = {}
 
-    def set_points_config(self, points: list[PointConfig]) -> None:
+    def set_points_config(self, points_by_device: dict[str, list[PointConfig]]) -> None:
         """注入点表配置，建立 ``(device_id, point_id) → deadband``。
 
         只收录数值类型且 ``deadband`` 非 ``None`` 的点；其余点不参与过滤。
         """
-        self._deadbands = {}
-        for p in points:
-            if p.deadband is not None and p.data_type in NUMERIC_DATA_TYPES:
-                self._deadbands[(p.device_id, p.point_id)] = p.deadband
+        self._deadbands = {
+            (device_id, p.point_id): p.deadband
+            for device_id, points in points_by_device.items()
+            for p in points
+            if p.deadband is not None and p.data_type in NUMERIC_DATA_TYPES
+        }
 
     @property
     def name(self) -> str:

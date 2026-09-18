@@ -19,6 +19,7 @@ def _modbus_device() -> DeviceConfig:
         device_id="wtg-002",
         protocol="modbus",
         endpoint=Endpoint(host="10.0.2.1", port=502, extensions={"unit_id": 1}),
+        point_table="t1",
     )
 
 

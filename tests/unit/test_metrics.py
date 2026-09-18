@@ -80,3 +80,127 @@ def test_sink_points_written_counter_increment_with_label() -> None:
     metrics.sink_points_written_total.labels(sink_name="metrics-points-sink").inc(3)
     after = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels)
     assert after - before == 8.0
+
+
+# ---------------------------------------------------------------------------
+# 采集/连接可观测性（PrometheusRuntimeMetrics + 拉取侧 gauge）
+#
+# 指标是进程级单例：每个用例使用唯一标签值，断言增量而非绝对值，
+# 不重置全局注册表。
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_metrics_counts_success_partial_failed_exactly_once() -> None:
+    """success/partial/failed 三种结局各自只累加对应计数器一次；
+    runs 总数每次都加。"""
+    hook = metrics.PrometheusRuntimeMetrics()
+    labels = {"device_id": "metrics-dev-acq", "group": "g1"}
+    keys = {
+        "runs": "wind_hub_acquisition_runs_total",
+        "failures": "wind_hub_acquisition_failures_total",
+        "partial": "wind_hub_acquisition_partial_total",
+    }
+    before = {k: REGISTRY.get_sample_value(v, labels) or 0.0 for k, v in keys.items()}
+
+    hook.acquisition_run_finished("metrics-dev-acq", "g1", "success", 0.01)
+    hook.acquisition_run_finished("metrics-dev-acq", "g1", "partial", 0.02)
+    hook.acquisition_run_finished("metrics-dev-acq", "g1", "failed", 0.03)
+
+    after = {k: REGISTRY.get_sample_value(v, labels) or 0.0 for k, v in keys.items()}
+    assert after["runs"] - before["runs"] == 3.0
+    assert after["failures"] - before["failures"] == 1.0
+    assert after["partial"] - before["partial"] == 1.0
+    # 耗时直方图：3 次观测
+    count = REGISTRY.get_sample_value("wind_hub_acquisition_duration_seconds_count", labels)
+    assert count == 3.0
+
+
+def test_runtime_metrics_duration_skipped_when_none() -> None:
+    """duration 为 None 时不观测直方图（计数器仍累加）。"""
+    hook = metrics.PrometheusRuntimeMetrics()
+    labels = {"device_id": "metrics-dev-nodur", "group": "g1"}
+    hook.acquisition_run_finished("metrics-dev-nodur", "g1", "success", None)
+    assert REGISTRY.get_sample_value("wind_hub_acquisition_runs_total", labels) == 1.0
+    assert (
+        REGISTRY.get_sample_value("wind_hub_acquisition_duration_seconds_count", labels) is None
+    )
+
+
+def test_runtime_metrics_connect_failure_and_reconnect_counters() -> None:
+    """connect 失败与 Runtime 驱动的重连成功按 device_id/protocol 标签计数。"""
+    hook = metrics.PrometheusRuntimeMetrics()
+    labels = {"device_id": "metrics-dev-conn", "protocol": "modbus"}
+    before_f = (
+        REGISTRY.get_sample_value("wind_hub_device_connect_failures_total", labels) or 0.0
+    )
+    before_r = REGISTRY.get_sample_value("wind_hub_device_reconnect_total", labels) or 0.0
+
+    hook.device_connect_failed("metrics-dev-conn", "modbus")
+    hook.device_connect_failed("metrics-dev-conn", "modbus")
+    hook.device_reconnected("metrics-dev-conn", "modbus")
+
+    after_f = REGISTRY.get_sample_value("wind_hub_device_connect_failures_total", labels)
+    after_r = REGISTRY.get_sample_value("wind_hub_device_reconnect_total", labels)
+    assert after_f - before_f == 2.0
+    assert after_r - before_r == 1.0
+
+
+def test_points_bad_counter_increments() -> None:
+    """points_bad_total（协议采集 BAD 点）与 points_dropped（背压丢弃）分开计数。"""
+    before = REGISTRY.get_sample_value("wind_hub_points_bad_total") or 0.0
+    metrics.points_bad_total.inc(4)
+    after = REGISTRY.get_sample_value("wind_hub_points_bad_total")
+    assert after - before == 4.0
+
+
+def test_update_device_gauges_sets_and_prunes_stale_series() -> None:
+    """逐设备连通 gauge：按快照覆盖；热重载删除的设备序列被移除。"""
+    metrics.update_device_gauges(
+        [("metrics-dev-a", "modbus", True), ("metrics-dev-b", "ads", False)]
+    )
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_device_connected", {"device_id": "metrics-dev-a", "protocol": "modbus"}
+        )
+        == 1.0
+    )
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_device_connected", {"device_id": "metrics-dev-b", "protocol": "ads"}
+        )
+        == 0.0
+    )
+
+    # 设备 b 被热删除 → 下一次覆盖移除其序列
+    metrics.update_device_gauges([("metrics-dev-a", "modbus", True)])
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_device_connected", {"device_id": "metrics-dev-b", "protocol": "ads"}
+        )
+        is None
+    )
+
+
+def test_update_sink_queue_depths_sets_and_prunes_stale_series() -> None:
+    """sink 队列深度 gauge：按快照覆盖；删除的 sink 序列被移除。"""
+    metrics.update_sink_queue_depths({"metrics-sink-a": 3, "metrics-sink-b": 7})
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-a"}
+        )
+        == 3.0
+    )
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"}
+        )
+        == 7.0
+    )
+
+    metrics.update_sink_queue_depths({"metrics-sink-a": 1})
+    assert (
+        REGISTRY.get_sample_value(
+            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"}
+        )
+        is None
+    )

@@ -70,6 +70,7 @@ def _make_device_config(port: int) -> DeviceConfig:
     return DeviceConfig(
         device_id="test-rtu",
         protocol="modbus",
+        point_table="t1",
         endpoint=Endpoint(
             host="127.0.0.1",
             port=port,
@@ -86,7 +87,6 @@ def _make_point_config(
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-rtu",
         address=PointAddress(register_type=register_type, address=address),
         data_type=data_type,
     )

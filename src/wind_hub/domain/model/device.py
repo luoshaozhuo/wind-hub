@@ -54,3 +54,10 @@ class DeviceInfo(BaseModel):
     last_seen: datetime | None = None
     """UTC timestamp of the last successful read, or ``None`` if the
     device has never been read."""
+
+    consecutive_failures: int = 0
+    """Consecutive connect failures backing the reconnect backoff
+    (0 when the device is healthy)."""
+
+    last_error: str | None = None
+    """Short description of the most recent failure, if any."""

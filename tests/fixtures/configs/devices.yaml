@@ -7,6 +7,7 @@ devices:
   # Modbus 设备（unit 1），指向 tests/fixtures/servers/modbus_server.py
   - device_id: modbus-1
     protocol: modbus
+    point_table: modbus
     endpoint:
       host: "127.0.0.1"
       port: 15020
@@ -23,6 +24,7 @@ devices:
   # IEC104 设备，指向 tests/fixtures/servers/iec104_server.py
   - device_id: iec104-1
     protocol: iec104
+    point_table: iec104
     endpoint:
       host: "127.0.0.1"
       port: 12404

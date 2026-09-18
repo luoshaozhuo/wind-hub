@@ -32,8 +32,8 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
       any field of its ``DeviceConfig`` differs (deep equality via
       ``model_dump()``).
     - **Sinks**: keyed by ``sink.name``, same logic.
-    - **Points**: list-level deep comparison — any difference sets
-      ``points_changed=True``.
+    - **Point tables**: keyed by table name — 新增/删除/内容变化的表名进入
+      ``point_tables_changed``；任意表变化同时置 ``points_changed=True``。
     - **Rules**: list-level deep comparison — any difference sets
       ``rules_changed=True``.
     - **Pipeline**: processor list comparison.
@@ -84,15 +84,25 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     sinks.updated = sorted(sink_updated)
     sinks.unchanged = sorted(sink_unchanged)
 
-    # -- points / rules / pipeline -----------------------------------------
-    points_changed = _items_changed(old.points.points, new.points.points)
+    # -- point tables / rules / pipeline -------------------------------------
+    old_tables = old.point_tables.tables
+    new_tables = new.point_tables.tables
+    table_names = set(old_tables) | set(new_tables)
+    point_tables_changed = sorted(
+        name
+        for name in table_names
+        if name not in old_tables
+        or name not in new_tables
+        or old_tables[name].model_dump() != new_tables[name].model_dump()
+    )
     rules_changed = _items_changed(old.routing.rules, new.routing.rules)
     pipeline_changed = old.system.pipeline.processors != new.system.pipeline.processors
 
     return ConfigDiff(
         devices=devices,
         sinks=sinks,
-        points_changed=points_changed,
+        points_changed=bool(point_tables_changed),
+        point_tables_changed=point_tables_changed,
         rules_changed=rules_changed,
         pipeline_changed=pipeline_changed,
     )

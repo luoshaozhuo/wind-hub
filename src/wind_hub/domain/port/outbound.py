@@ -211,13 +211,16 @@ class PointsConfigurable(Protocol):
     composition root probes for this capability before injecting points.
     """
 
-    def set_points_config(self, points: list[PointConfig]) -> None:
-        """Inject the point table; build any per-point lookup tables.
+    def set_points_config(self, points_by_device: dict[str, list[PointConfig]]) -> None:
+        """Inject the resolved point tables; build per-point lookup tables.
 
         Pure in-memory and synchronous — no I/O.  Called once by the
         composition root after the processor is created.
 
         Args:
-            points: The full point table from ``points.yaml``.
+            points_by_device: ``{device_id: [PointConfig, …]}``——设备绑定
+                点表后的解析结果（同一表被多设备共享时，各设备键指向同一
+                list 对象）。处理器通常据此建立 ``(device_id, point_id)``
+                键的查找表。
         """
         ...

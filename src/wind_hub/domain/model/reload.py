@@ -49,7 +49,11 @@ class ConfigDiff(BaseModel):
     """Sink-level changes."""
 
     points_changed: bool = False
-    """``True`` when the points list has changed — triggers routing table rebuild."""
+    """``True`` when any point table changed — triggers routing table rebuild."""
+
+    point_tables_changed: list[str] = Field(default_factory=list)
+    """发生变化（新增/删除/内容修改）的点表名——Runtime 据此对绑定这些表的
+    设备做点映射重注入（不重建 Protocol 连接）。"""
 
     rules_changed: bool = False
     """``True`` when routing rules have changed — triggers routing table rebuild."""

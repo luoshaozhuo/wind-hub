@@ -20,18 +20,18 @@ class QualityCheckProcessor(ProcessorPort):
     def __init__(self) -> None:
         self._ranges: dict[tuple[str, str], tuple[float | None, float | None]] = {}
 
-    def set_points_config(self, points: list[PointConfig]) -> None:
+    def set_points_config(self, points_by_device: dict[str, list[PointConfig]]) -> None:
         """注入点表配置，建立 ``(device_id, point_id) → (min, max)``。
 
         只收录数值类型且至少配置了一个边界的点；无约束的点不参与校验。
         """
-        self._ranges = {}
-        for p in points:
-            if p.data_type not in NUMERIC_DATA_TYPES:
-                continue
-            if p.min_value is None and p.max_value is None:
-                continue
-            self._ranges[(p.device_id, p.point_id)] = (p.min_value, p.max_value)
+        self._ranges = {
+            (device_id, p.point_id): (p.min_value, p.max_value)
+            for device_id, points in points_by_device.items()
+            for p in points
+            if p.data_type in NUMERIC_DATA_TYPES
+            and (p.min_value is not None or p.max_value is not None)
+        }
 
     @property
     def name(self) -> str:

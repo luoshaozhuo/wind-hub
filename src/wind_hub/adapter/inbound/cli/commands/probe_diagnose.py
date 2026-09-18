@@ -81,8 +81,7 @@ def _load_device(config_dir: Path, device_id: str) -> tuple[DeviceConfig, list[P
     cfg = load_config(config_dir)
     for device_cfg in cfg.devices.devices:
         if device_cfg.device_id == device_id:
-            points = [p for p in cfg.points.points if p.device_id == device_id]
-            return device_cfg, points
+            return device_cfg, cfg.points_for_device(device_id)
     known = [d.device_id for d in cfg.devices.devices]
     raise WindHubError(f"设备 '{device_id}' 不存在（已配置：{known}）")
 

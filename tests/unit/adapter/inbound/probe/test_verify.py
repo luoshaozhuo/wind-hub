@@ -18,7 +18,8 @@ from wind_hub.config.schema import (
     DeviceConfig,
     DevicesConfig,
     PointConfig,
-    PointsConfig,
+    PointTableConfig,
+    PointTablesConfig,
     RoutingConfig,
     SystemConfig,
 )
@@ -31,24 +32,25 @@ def _device(device_id: str = "wtg-001", protocol: str = "modbus") -> DeviceConfi
     return DeviceConfig(
         device_id=device_id,
         protocol=protocol,
+        point_table="t1",
         endpoint=Endpoint(host="10.0.1.1", port=502),
     )
 
 
-def _point(point_id: str, device_id: str = "wtg-001") -> PointConfig:
+def _point(point_id: str) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address={"type": "holding_register", "address": 0},
         data_type="int16",
     )
 
 
 def _config(devices: list[DeviceConfig], points: list[PointConfig]) -> Config:
+    """全部设备共享表 ``t1``——点表设备无关、经绑定复用。"""
     return Config(
         system=SystemConfig(),
         devices=DevicesConfig(devices=devices),
-        points=PointsConfig(points=points),
+        point_tables=PointTablesConfig(tables={"t1": PointTableConfig(points=points)}),
         routing=RoutingConfig(rules=[]),
     )
 
@@ -259,7 +261,7 @@ async def test_verify_all_multiple_devices(monkeypatch: pytest.MonkeyPatch) -> N
     )
     cfg = _config(
         [_device("wtg-001"), _device("wtg-002")],
-        [_point("p1", "wtg-001"), _point("p2", "wtg-002")],
+        [_point("p1")],
     )
     result = await verify_mod.verify_all(cfg)
 
@@ -279,7 +281,7 @@ async def test_verify_all_specific_device(monkeypatch: pytest.MonkeyPatch) -> No
     )
     cfg = _config(
         [_device("wtg-001"), _device("wtg-002")],
-        [_point("p1", "wtg-001"), _point("p2", "wtg-002")],
+        [_point("p2")],
     )
     result = await verify_mod.verify_all(cfg, device_id="wtg-002")
 
@@ -317,7 +319,7 @@ async def test_verify_all_concurrency_limit(monkeypatch: pytest.MonkeyPatch) -> 
     device_ids = [f"wtg-{i:03d}" for i in range(5)]
     cfg = _config(
         [_device(did) for did in device_ids],
-        [_point("p1", did) for did in device_ids],
+        [_point("p1")],
     )
     result = await verify_mod.verify_all(cfg, concurrency=2)
 

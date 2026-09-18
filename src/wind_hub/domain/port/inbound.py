@@ -17,6 +17,32 @@ if TYPE_CHECKING:
     from wind_hub.config.schema import Config
 
 
+class AcquisitionInfo(BaseModel):
+    """单个采集 Job（``(device, group)``）的业务执行状态快照。
+
+    与调度器的 Job 状态（注册/暂停/下次触发时间）和设备连接状态分维度：
+    本模型只描述「这个采集 Job 最近跑得怎样」。
+    """
+
+    device_id: str
+    """Device identifier."""
+
+    group: str
+    """Polling group name."""
+
+    running: bool = False
+    """``True`` while a collect run is in flight."""
+
+    consecutive_failures: int = 0
+    """连续失败次数（partial 不算失败）。"""
+
+    last_error: str | None = None
+    """最近一次失败的简要描述。"""
+
+    last_duration: float | None = None
+    """最近一次 collect 耗时（秒，单调时钟口径）。"""
+
+
 class SystemStatus(BaseModel):
     """Runtime status snapshot returned by :meth:`QueryUseCase.status`."""
 
@@ -43,6 +69,9 @@ class SystemStatus(BaseModel):
 
     points_dropped: int = 0
     """累计丢弃点数——背压策略丢弃的点值总数。"""
+
+    acquisitions: list[AcquisitionInfo] = []
+    """各采集 Job 的业务执行状态（按 ``(device, group)`` 粒度）。"""
 
 
 class CommandUseCase(Protocol):

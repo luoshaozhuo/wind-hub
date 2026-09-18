@@ -73,7 +73,7 @@ from wind_hub.domain.port.outbound import (
 )
 from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing import Pipeline
-from wind_hub.domain.routing import Router
+from wind_hub.domain.routing import DeliveryDispatcher, Router, policies_from_rules
 from wind_hub.infra import metrics
 from wind_hub.infra.processor_registry import processor_registry
 from wind_hub.infra.registry import protocol_registry
@@ -160,34 +160,46 @@ def assemble(
 
     make_sink = sink_factory or _create_sink
 
+    # 设备无关点表经设备绑定解析为 {device_id: [PointConfig, …]}——同一表
+    # 被多设备共享时，各设备键指向同一 list 对象（不逐设备复制）。
+    points_by_device = cfg.points_by_device()
+
     protocols = {d.device_id: _create_protocol(d) for d in cfg.devices.devices}
     sinks = {s.name: make_sink(s) for s in cfg.system.sinks}
     processors = [
-        _create_processor(name, cfg.points.points) for name in cfg.system.pipeline.processors
+        _create_processor(name, points_by_device) for name in cfg.system.pipeline.processors
     ]
     pipeline = Pipeline(processors)
 
-    table = RoutingTable(cfg.routing.rules, cfg.points.points, cfg.routing.unmatched_policy)
+    table = RoutingTable(cfg.routing.rules, points_by_device, cfg.routing.unmatched_policy)
     router = Router(table)
+    # 投递策略（阶段 B）：Router 决定「发到哪些 sink」，DeliveryDispatcher
+    # 按规则上的 delivery 配置决定「这批是否投递」。
+    delivery = DeliveryDispatcher(router, policies_from_rules(cfg.routing.rules))
 
     dispatcher = Dispatcher(
         protocols,
         # 命令计数回调接到 Prometheus 计数器：domain 不依赖 infra，由组合根注入。
+        # 默认写超时来自 system.yaml（Command.timeout > 0 时以命令自带值优先）。
+        default_timeout=cfg.system.scheduler.write_timeout,
         on_command_sent=metrics.commands_sent_total.inc,
         on_command_failed=metrics.commands_failed_total.inc,
     )
 
     devices = {d.device_id: d for d in cfg.devices.devices}
-    points_by_device = _group_points_by_device(cfg.points.points)
 
     # 采集引擎：执行「读 → 处理 → 路由 → 派发」单次链路；采集回调接
-    # Prometheus 计数器（domain 不依赖 infra，由组合根注入）。
+    # Prometheus 计数器（domain 不依赖 infra，由组合根注入）。read_timeout
+    # 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
     engine = AcquisitionEngine(
         protocols=protocols,
         pipeline=pipeline,
         router=router,
         points_by_device=points_by_device,
         on_points_collected=lambda n: metrics.points_collected_total.inc(n),
+        on_points_bad=lambda n: metrics.points_bad_total.inc(n),
+        delivery=delivery,
+        read_timeout=cfg.system.scheduler.read_timeout,
     )
 
     # 调度端口：APScheduler 适配器（infra）；核心代码只依赖 SchedulerPort。
@@ -207,6 +219,9 @@ def assemble(
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
         processor_factory=_create_processor,
+        # 运行时事件指标（connect 失败/重连/collect 完成）接 Prometheus；
+        # application 不 import infra.metrics，由组合根注入结构化实现。
+        metrics_hook=metrics.PrometheusRuntimeMetrics(),
     )
 
     # ConfigService 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
@@ -348,14 +363,6 @@ def _build_iec104_slave(
     )
 
 
-def _group_points_by_device(points: list[PointConfig]) -> dict[str, list[PointConfig]]:
-    """把点表按 ``device_id`` 分组，供 Runtime 注入到对应协议驱动。"""
-    grouped: dict[str, list[PointConfig]] = {}
-    for p in points:
-        grouped.setdefault(p.device_id, []).append(p)
-    return grouped
-
-
 def _create_sink(cfg: SinkConfig) -> SinkPort:
     """按 sink 配置的 ``type`` 创建对应骨架实现。"""
     if cfg.type == "kafka":
@@ -367,7 +374,9 @@ def _create_sink(cfg: SinkConfig) -> SinkPort:
     raise ConfigError(f"Unknown sink type '{cfg.type}' (available: kafka, file, db)")
 
 
-def _create_processor(name: str, points: list[PointConfig]) -> ProcessorPort:
+def _create_processor(
+    name: str, points_by_device: dict[str, list[PointConfig]]
+) -> ProcessorPort:
     """按处理器名从注册表创建，并注入点表配置（若处理器支持）。
 
     首次组装与 Runtime 热重载共享同一路径，确保热重载后处理器
@@ -375,5 +384,5 @@ def _create_processor(name: str, points: list[PointConfig]) -> ProcessorPort:
     """
     processor = processor_registry.create(name)
     if isinstance(processor, PointsConfigurable):
-        processor.set_points_config(points)
+        processor.set_points_config(points_by_device)
     return processor

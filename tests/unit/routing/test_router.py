@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.model.route import RouteRule
+from wind_hub.domain.model.route import RouteRule, RouteTarget
 from wind_hub.domain.routing.router import Router
 
 _FROZEN_TS = datetime(2025, 1, 1, tzinfo=UTC)
@@ -31,11 +31,24 @@ def _make_rule(
 ) -> RouteRule:
     return RouteRule(
         name=name,
-        targets=targets,
+        targets=[RouteTarget(sink=s) for s in targets],
         priority=priority,
         match_device=match_device,
         match_point_prefix=match_point_prefix,
     )
+
+
+def _point(point_id: str, sinks: list[str] | None = None) -> PointConfig:
+    return PointConfig(
+        point_id=point_id,
+        address=PointAddress(type="hr", register=30001),
+        sinks=sinks,
+    )
+
+
+def _table(rules: list[RouteRule], **device_points: list[PointConfig]) -> RoutingTable:
+    """Build a RoutingTable from ``device_id=[PointConfig, …]`` kwargs."""
+    return RoutingTable(rules=rules, points_by_device=dict(device_points))
 
 
 # ---------------------------------------------------------------------------
@@ -46,15 +59,7 @@ def _make_rule(
 class TestBasicRouting:
     def test_single_point_single_sink(self) -> None:
         rules = [_make_rule("default", ["kafka"], match_point_prefix=None)]
-        points = [
-            PointConfig(
-                point_id="p1",
-                device_id="d1",
-                address=PointAddress(type="hr", register=30001),
-            )
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         batch = [_make_pv("d1", "p1")]
         result = router.route(batch)
         assert result == {"kafka": [_make_pv("d1", "p1")]}
@@ -68,15 +73,7 @@ class TestBasicRouting:
 class TestFanOut:
     def test_single_point_multiple_sinks(self) -> None:
         rules = [_make_rule("multi", ["kafka", "file"])]
-        points = [
-            PointConfig(
-                point_id="p1",
-                device_id="d1",
-                address=PointAddress(type="hr", register=30001),
-            )
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         batch = [_make_pv("d1", "p1")]
         result = router.route(batch)
         assert set(result.keys()) == {"kafka", "file"}
@@ -92,16 +89,7 @@ class TestFanOut:
 class TestPointOverride:
     def test_per_point_sinks_override_rules(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [
-            PointConfig(
-                point_id="p1",
-                device_id="d1",
-                address=PointAddress(type="hr", register=30001),
-                sinks=["override_sink"],
-            )
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1", sinks=["override_sink"])]))
         result = router.route([_make_pv("d1", "p1")])
         assert result == {"override_sink": [_make_pv("d1", "p1")]}
 
@@ -117,12 +105,7 @@ class TestDeviceMatching:
             _make_rule("d1-only", ["kafka"], match_device="d1"),
             _make_rule("d2-only", ["file"], match_device="d2"),
         ]
-        points = [
-            PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="p1", device_id="d2", address=PointAddress(type="hr")),
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")], d2=[_point("p1")]))
         result = router.route([_make_pv("d1", "p1"), _make_pv("d2", "p1")])
         assert "kafka" in result
         assert "file" in result
@@ -141,12 +124,7 @@ class TestPrefixMatching:
             _make_rule("rotor-rule", ["file"], match_point_prefix="rotor."),
             _make_rule("gen-rule", ["kafka"], match_point_prefix="gen."),
         ]
-        points = [
-            PointConfig(point_id="rotor.speed", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="gen.power", device_id="d1", address=PointAddress(type="hr")),
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("rotor.speed"), _point("gen.power")]))
         result = router.route([_make_pv("d1", "rotor.speed"), _make_pv("d1", "gen.power")])
         assert result["file"] == [_make_pv("d1", "rotor.speed")]
         assert result["kafka"] == [_make_pv("d1", "gen.power")]
@@ -163,9 +141,7 @@ class TestPriority:
             _make_rule("low-prio", ["file"], priority=0),
             _make_rule("high-prio", ["kafka"], priority=100),
         ]
-        points = [PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         result = router.route([_make_pv("d1", "p1")])
         assert result == {"kafka": [_make_pv("d1", "p1")]}
 
@@ -182,9 +158,7 @@ class TestSamePriority:
             _make_rule("first", ["kafka"], priority=0),
             _make_rule("second", ["file"], priority=0),
         ]
-        points = [PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         result = router.route([_make_pv("d1", "p1")])
         assert result == {"kafka": [_make_pv("d1", "p1")]}
 
@@ -197,12 +171,7 @@ class TestSamePriority:
 class TestUnmatched:
     def test_unmatched_point_dropped(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="p2", device_id="d2", address=PointAddress(type="hr")),
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")], d2=[_point("p2")]))
         result = router.route([_make_pv("d1", "p1"), _make_pv("d2", "p2")])
         assert "kafka" in result
         assert len(result["kafka"]) == 1  # only d1/p1
@@ -221,16 +190,16 @@ class TestBatchRouting:
             _make_rule("d2-rule", ["file"], match_device="d2"),
             _make_rule("rotor-rule", ["archive"], match_point_prefix="rotor."),
         ]
-        points = [
-            PointConfig(point_id="rotor.speed", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="gen.power", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="rotor.speed", device_id="d2", address=PointAddress(type="hr")),
-        ]
         # d1/rotor.speed → d1-rule matches first (priority 0, device match)
         # d1/gen.power → d1-rule matches first
         # d2/rotor.speed → d2-rule matches first
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(
+            _table(
+                rules,
+                d1=[_point("rotor.speed"), _point("gen.power")],
+                d2=[_point("rotor.speed")],
+            )
+        )
         batch = [
             _make_pv("d1", "rotor.speed"),
             _make_pv("d1", "gen.power"),
@@ -250,16 +219,7 @@ class TestBatchRouting:
 class TestExplain:
     def test_explain_point_override(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [
-            PointConfig(
-                point_id="p1",
-                device_id="d1",
-                address=PointAddress(type="hr"),
-                sinks=["override_sink"],
-            )
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1", sinks=["override_sink"])]))
         decision = router.explain("d1", "p1")
         assert decision.targets == ["override_sink"]
         assert decision.matched_rule is None
@@ -267,9 +227,7 @@ class TestExplain:
 
     def test_explain_rule_match(self) -> None:
         rules = [_make_rule("my-rule", ["kafka"], match_device="d1")]
-        points = [PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         decision = router.explain("d1", "p1")
         assert decision.targets == ["kafka"]
         assert decision.matched_rule == "my-rule"
@@ -277,9 +235,7 @@ class TestExplain:
 
     def test_explain_unmatched(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [PointConfig(point_id="p2", device_id="d2", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d2=[_point("p2")]))
         decision = router.explain("d2", "p2")
         assert decision.targets == []
         assert decision.matched_rule is None
@@ -294,21 +250,36 @@ class TestExplain:
 class TestUnmatchedPoints:
     def test_unmatched_points_list(self) -> None:
         rules = [_make_rule("specific", ["kafka"], match_device="d1")]
-        points = [
-            PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="p2", device_id="d2", address=PointAddress(type="hr")),
-        ]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")], d2=[_point("p2")]))
         unmatched = router.unmatched_points()
         assert unmatched == [("d2", "p2")]
 
     def test_all_matched_no_unmatched(self) -> None:
         rules = [_make_rule("catch-all", ["kafka"])]
-        points = [PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         assert router.unmatched_points() == []
+
+
+# ---------------------------------------------------------------------------
+# rule_for — 命中规则名查询（Delivery Policy 用）
+# ---------------------------------------------------------------------------
+
+
+class TestRuleFor:
+    def test_rule_for_rule_match(self) -> None:
+        rules = [_make_rule("my-rule", ["kafka"], match_device="d1")]
+        router = Router(_table(rules, d1=[_point("p1")]))
+        assert router.rule_for("d1", "p1") == "my-rule"
+
+    def test_rule_for_point_override(self) -> None:
+        rules = [_make_rule("default", ["kafka"])]
+        router = Router(_table(rules, d1=[_point("p1", sinks=["override_sink"])]))
+        assert router.rule_for("d1", "p1") is None
+
+    def test_rule_for_unmatched(self) -> None:
+        rules = [_make_rule("specific", ["kafka"], match_device="d1")]
+        router = Router(_table(rules, d2=[_point("p2")]))
+        assert router.rule_for("d2", "p2") is None
 
 
 # ---------------------------------------------------------------------------
@@ -319,19 +290,13 @@ class TestUnmatchedPoints:
 class TestEdgeCases:
     def test_empty_batch(self) -> None:
         rules = [_make_rule("default", ["kafka"])]
-        points = [PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr"))]
-        table = RoutingTable(rules=rules, points=points)
-        router = Router(table)
+        router = Router(_table(rules, d1=[_point("p1")]))
         result = router.route([])
         assert result == {}
 
     def test_table_size(self) -> None:
         rules = [_make_rule("catch-all", ["kafka"])]
-        points = [
-            PointConfig(point_id="p1", device_id="d1", address=PointAddress(type="hr")),
-            PointConfig(point_id="p2", device_id="d1", address=PointAddress(type="hr")),
-        ]
-        table = RoutingTable(rules=rules, points=points)
+        table = _table(rules, d1=[_point("p1"), _point("p2")])
         assert table.size == 2
         router = Router(table)
         assert router.table_size == 2

@@ -16,6 +16,7 @@ point's :data:`~wind_hub.config.schema.PointConfig.data_type` via
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from wind_hub.config.schema import PointConfig
 from wind_hub.domain.model.errors import ConfigError
@@ -111,17 +112,21 @@ def parse_point(point: PointConfig) -> ADSPoint:
 
     index_group = extra.get("index_group")
     index_offset = extra.get("index_offset")
-    if symbol is None:
-        # Symbol addressing is optional; index/offset addressing requires both.
-        if index_group is None or index_offset is None:
-            raise ConfigError(
-                f"ADS point '{point.point_id}': missing 'symbol' or "
-                f"'index_group'/'index_offset' in address"
-            )
-    else:
-        # Symbol addressing defaults index_group/index_offset to 0 (unused).
-        index_group = index_group if index_group is not None else 0
-        index_offset = index_offset if index_offset is not None else 0
+    # 运行时安全网（配置加载阶段已做同样校验）：index 两字段必须成对；
+    # symbol 与 index 同时存在时保留两者，实际读写以 symbol 优先。
+    if (index_group is None) != (index_offset is None):
+        raise ConfigError(
+            f"ADS point '{point.point_id}': 'index_group' and 'index_offset' "
+            f"must be configured together"
+        )
+    if symbol is None and index_group is None:
+        raise ConfigError(
+            f"ADS point '{point.point_id}': missing 'symbol' or "
+            f"'index_group'/'index_offset' in address"
+        )
+    # Symbol-only addressing defaults index_group/index_offset to 0 (unused).
+    ig: Any = index_group if index_group is not None else 0
+    io: Any = index_offset if index_offset is not None else 0
 
     explicit_type = extra.get("data_type") if extra.get("data_type") is not None else address.type
     if explicit_type is not None:
@@ -138,8 +143,8 @@ def parse_point(point: PointConfig) -> ADSPoint:
 
     return ADSPoint(
         point_id=point.point_id,
-        index_group=int(index_group),
-        index_offset=int(index_offset),
+        index_group=int(ig),
+        index_offset=int(io),
         data_type=ads_name,
         size=size,
         symbol=symbol,

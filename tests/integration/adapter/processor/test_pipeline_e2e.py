@@ -19,7 +19,6 @@ def _points() -> list[PointConfig]:
     return [
         PointConfig(
             point_id="meas",
-            device_id="d1",
             address=PointAddress(),
             data_type="float32",
             scale=10.0,
@@ -40,7 +39,7 @@ def _build(*names: str) -> Pipeline:
     }
     processors = [registry[n]() for n in names]
     for proc in processors:
-        proc.set_points_config(_points())
+        proc.set_points_config({"d1": _points()})
     return Pipeline(processors)
 
 

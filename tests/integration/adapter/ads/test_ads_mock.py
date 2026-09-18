@@ -73,6 +73,7 @@ def _make_device_config() -> DeviceConfig:
             port=48898,
             extensions={"ams_net_id": _AMS_NET_ID, "timeout": 3.0},
         ),
+        point_table="t1",
         read_mode="sequential",
     )
 
@@ -84,7 +85,6 @@ def _make_point_config(
 ) -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id="test-plc",
         address=PointAddress(index_group=0x4020, index_offset=index_offset),
         data_type=data_type,
     )

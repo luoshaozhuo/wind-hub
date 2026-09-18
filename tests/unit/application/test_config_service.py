@@ -34,7 +34,7 @@ from wind_hub.config.schema import (
     SinkConfig,
 )
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.route import RouteRule
+from wind_hub.domain.model.route import RouteRule, RouteTarget
 
 pytestmark = pytest.mark.asyncio
 
@@ -65,7 +65,7 @@ def _write_configs(
         (base / "devices.yaml").open("w"),
     )
     yaml.safe_dump(
-        {"points": [p.model_dump() for p in (points or [])]},
+        {"point_tables": {"t1": {"points": [p.model_dump() for p in (points or [])]}}},
         (base / "points.yaml").open("w"),
     )
     yaml.safe_dump(
@@ -78,14 +78,14 @@ def _make_device(device_id: str, protocol: str = "modbus") -> DeviceConfig:
     return DeviceConfig(
         device_id=device_id,
         protocol=protocol,
+        point_table="t1",
         endpoint=Endpoint(host="10.0.0.1", port=502),
     )
 
 
-def _make_point(device_id: str, point_id: str = "p1") -> PointConfig:
+def _make_point(point_id: str = "p1") -> PointConfig:
     return PointConfig(
         point_id=point_id,
-        device_id=device_id,
         address=PointAddress(type="hr"),
     )
 
@@ -102,7 +102,7 @@ def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
 
 
 async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
-    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     service = ConfigService(tmp_path, _mock_runtime())
 
     cfg = service.current_config
@@ -143,7 +143,7 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
 
 
 async def test_reload_no_changes_skips_reconfigure(tmp_path: Path) -> None:
-    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
     service = ConfigService(tmp_path, runtime)
 
@@ -163,7 +163,7 @@ async def test_reload_no_changes_skips_reconfigure(tmp_path: Path) -> None:
 async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     tmp_path: Path,
 ) -> None:
-    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
     service = ConfigService(tmp_path, runtime)
 
@@ -171,7 +171,7 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     _write_configs(
         tmp_path,
         devices=[_make_device("d1"), _make_device("d2")],
-        points=[_make_point("d1")],
+        points=[_make_point()],
     )
     result = await service.reload()
 
@@ -234,8 +234,8 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         tmp_path,
         devices=[_make_device("d1")],
         sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
-        points=[_make_point("d1", "p1")],
-        rules=[RouteRule(name="r1", match_point_prefix="a.", targets=["s1"])],
+        points=[_make_point("p1")],
+        rules=[RouteRule(name="r1", match_point_prefix="a.", targets=[RouteTarget(sink="s1")])],
         processors=["scale"],
     )
     service = ConfigService(tmp_path, _mock_runtime())
@@ -245,8 +245,8 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         tmp_path,
         devices=[_make_device("d1")],
         sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
-        points=[_make_point("d1", "p2")],
-        rules=[RouteRule(name="r2", match_point_prefix="b.", targets=["s2"])],
+        points=[_make_point("p2")],
+        rules=[RouteRule(name="r2", match_point_prefix="b.", targets=[RouteTarget(sink="s2")])],
         processors=["scale", "filter"],
     )
     service2 = ConfigService(tmp_path, _mock_runtime())
@@ -260,7 +260,7 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
 
 
 async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) -> None:
-    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     service = ConfigService(tmp_path, _mock_runtime())
     service2 = ConfigService(tmp_path, _mock_runtime())
 

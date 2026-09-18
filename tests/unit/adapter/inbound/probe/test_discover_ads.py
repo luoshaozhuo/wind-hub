@@ -26,6 +26,7 @@ def _ads_device() -> DeviceConfig:
             port=48898,
             extensions={"target_net_id": "10.0.3.1.1.1", "target_port": 851},
         ),
+        point_table="t1",
     )
 
 

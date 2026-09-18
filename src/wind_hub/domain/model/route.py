@@ -2,18 +2,55 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, model_validator
+
+DeliveryType = Literal["always", "interval", "every_n", "on_change"]
+"""投递策略类型：``always``（每批都投递，缺省）/ ``interval``（按最小间隔
+限流）/ ``every_n``（每 n 批投递一次）/ ``on_change``（值变化才投递）。"""
+
+
+class DeliveryConfig(BaseModel):
+    """投递策略——Router 决定「发到哪些 sink」之后，策略决定「何时真正投递」。
+
+    挂在规则上（规则级策略）：命中该规则、发往同一 sink 的批次共用一套
+    节拍状态。缺省 ``always`` 等价于旧行为（路由即投递）。
+    """
+
+    type: DeliveryType = "always"
+    """策略类型。"""
+
+    interval: float | None = None
+    """``interval`` 类型的最小投递间隔（秒）——距上次投递不足该时长的
+    批次整批抑制。"""
+
+    n: int | None = None
+    """``every_n`` 类型的批间隔——首批投递，之后每 n 批投递一次。"""
+
+    @model_validator(mode="after")
+    def _check_params(self) -> DeliveryConfig:
+        if self.type == "interval" and (self.interval is None or self.interval <= 0):
+            raise ValueError("delivery type 'interval' requires interval > 0")
+        if self.type == "every_n" and (self.n is None or self.n < 1):
+            raise ValueError("delivery type 'every_n' requires n >= 1")
+        return self
 
 
 class RouteTarget(BaseModel):
-    """Destination for routed data — a named Sink.
+    """Destination for routed data — a named Sink plus its delivery policy.
 
-    Kept minimal by design.  Future extensions (e.g. per-target filter
-    conditions) can be added without breaking route rules.
+    Delivery policy lives on the *target*, not the rule: one point routed
+    to Kafka (``always``), PostgreSQL (``interval``) and a file
+    (``every_n``) gets an independent delivery cadence per sink.
+    ``delivery=None`` is equivalent to ``always``.
     """
 
-    sink_name: str
+    sink: str
     """Name of the SinkPort implementation to forward data to."""
+
+    delivery: DeliveryConfig | None = None
+    """Delivery policy for this (rule, sink) pair; ``None`` means always."""
 
 
 class RouteRule(BaseModel):
@@ -35,8 +72,9 @@ class RouteRule(BaseModel):
     ``'rotor.speed'`` but not ``'gen.power'``).
     ``None`` means "match any point"."""
 
-    targets: list[str]
-    """Ordered list of sink names to deliver matching data to."""
+    targets: list[RouteTarget]
+    """Ordered list of route targets (sink + optional delivery policy)
+    to deliver matching data to."""
 
     priority: int = 0
     """Rule priority — higher values are evaluated first.

@@ -51,6 +51,7 @@ def _write_minimal_config(base: Path) -> None:
                 {
                     "device_id": "d1",
                     "protocol": "modbus",
+                    "point_table": "wtg",
                     "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
                 }
             ],
@@ -60,14 +61,17 @@ def _write_minimal_config(base: Path) -> None:
         base,
         "points.yaml",
         {
-            "points": [
-                {
-                    "point_id": "rotor.speed",
-                    "device_id": "d1",
-                    "address": {"register_type": "holding", "address": 100},
-                    "data_type": "float32",
-                }
-            ],
+            "point_tables": {
+                "wtg": {
+                    "points": [
+                        {
+                            "point_id": "rotor.speed",
+                            "address": {"register_type": "holding", "address": 100},
+                            "data_type": "float32",
+                        }
+                    ],
+                },
+            },
         },
     )
     _write_yaml(
@@ -75,14 +79,19 @@ def _write_minimal_config(base: Path) -> None:
         "routing.yaml",
         {
             "rules": [
-                {"name": "default", "match_point_prefix": "rotor.", "targets": ["archive"]},
+                {
+                    "name": "default",
+                    "match_point_prefix": "rotor.",
+                    "targets": [{"sink": "archive"}],
+                },
             ],
         },
     )
 
 
 def _write_two_device_config(base: Path) -> None:
-    """写一份两点位跨两台设备的配置，用于验证按 device_id 分组。"""
+    """写一份两台设备绑定同一共享点表的配置——用于验证设备无关点表
+    经 ``DeviceConfig.point_table`` 绑定后由多设备共享。"""
     _write_yaml(
         base,
         "system.yaml",
@@ -98,11 +107,13 @@ def _write_two_device_config(base: Path) -> None:
                 {
                     "device_id": "d1",
                     "protocol": "modbus",
+                    "point_table": "wtg",
                     "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
                 },
                 {
                     "device_id": "d2",
                     "protocol": "modbus",
+                    "point_table": "wtg",
                     "endpoint": {"host": "10.0.0.2", "port": 502, "extensions": {"unit_id": 2}},
                 },
             ],
@@ -112,20 +123,22 @@ def _write_two_device_config(base: Path) -> None:
         base,
         "points.yaml",
         {
-            "points": [
-                {
-                    "point_id": "rotor.speed",
-                    "device_id": "d1",
-                    "address": {"type": "holding_register", "register": 30001},
-                    "data_type": "float32",
+            "point_tables": {
+                "wtg": {
+                    "points": [
+                        {
+                            "point_id": "rotor.speed",
+                            "address": {"type": "holding_register", "register": 30001},
+                            "data_type": "float32",
+                        },
+                        {
+                            "point_id": "gen.power",
+                            "address": {"type": "holding_register", "register": 30003},
+                            "data_type": "float32",
+                        },
+                    ],
                 },
-                {
-                    "point_id": "gen.power",
-                    "device_id": "d2",
-                    "address": {"type": "holding_register", "register": 30003},
-                    "data_type": "float32",
-                },
-            ],
+            },
         },
     )
     _write_yaml(
@@ -133,7 +146,7 @@ def _write_two_device_config(base: Path) -> None:
         "routing.yaml",
         {
             "rules": [
-                {"name": "default", "targets": ["archive"]},
+                {"name": "default", "targets": [{"sink": "archive"}]},
             ],
         },
     )
@@ -162,7 +175,13 @@ def test_assemble_accepts_string_config_dir() -> None:
         assert rt.runtime.device_count == 1
 
 
-def test_assemble_groups_points_by_device() -> None:
+def test_assemble_shares_point_table_between_devices() -> None:
+    """两台绑定同一 ``point_table`` 的设备共享同一点位表内容。
+
+    新架构下点位设备无关：``points_by_device`` 按设备绑定解析点表，
+    绑定同一表的设备获得内容一致的独立快照副本（每次调用返回新的
+    list 对象，共享语义体现在引用同一 table_id 且内容相等）。
+    """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         _write_two_device_config(base)
@@ -171,8 +190,13 @@ def test_assemble_groups_points_by_device() -> None:
 
         by_device = rt.runtime.points_by_device
         assert set(by_device) == {"d1", "d2"}
-        assert [p.point_id for p in by_device["d1"]] == ["rotor.speed"]
-        assert [p.point_id for p in by_device["d2"]] == ["gen.power"]
+        # 同一表被多设备共享——两个设备引用同一 table_id，点表内容一致
+        assert by_device["d1"] == by_device["d2"]
+        # …但各自持有独立的快照副本（非同一 list 对象）
+        assert by_device["d1"] is not by_device["d2"]
+        assert [p.point_id for p in by_device["d1"]] == ["rotor.speed", "gen.power"]
+        # 引擎与 Runtime 看到的是同一份共享映射
+        assert rt.engine._points_by_device["d1"] is by_device["d1"]  # noqa: SLF001
 
 
 def test_assemble_wires_runtime_engine_scheduler_and_services() -> None:

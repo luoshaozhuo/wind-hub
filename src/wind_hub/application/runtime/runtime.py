@@ -25,9 +25,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
+from wind_hub.application.runtime.acquisition_state import AcquisitionRuntimeState
+from wind_hub.application.runtime.device_state import DeviceRuntimeState
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import (
     Config,
@@ -49,9 +52,44 @@ from wind_hub.domain.port.outbound import (
 )
 from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing.pipeline import Pipeline
+from wind_hub.domain.routing.delivery import DeliveryDispatcher, policies_from_rules
 from wind_hub.domain.routing.router import Router
 
 logger = logging.getLogger(__name__)
+
+#: 设备更新走轻量路径（不重建 Protocol 连接）所允许的变更字段集。
+_LIGHTWEIGHT_DEVICE_FIELDS = frozenset({"polling", "point_table"})
+
+
+def _changed_fields(old: DeviceConfig, new: DeviceConfig) -> set[str]:
+    """返回两个设备配置间取值不同的字段名集合。"""
+    old_dump = old.model_dump()
+    new_dump = new.model_dump()
+    return {k for k in old_dump if old_dump[k] != new_dump[k]}
+
+
+class RuntimeMetricsPort(Protocol):
+    """运行时指标端口——由组合根注入（接 Prometheus 计数器/直方图）。
+
+    只承载「事件发生时累加」的计数与观测（connect 失败、重连成功、
+    collect 完成）；gauge 类状态（设备连通数、sink 队列深度）由
+    ``/metrics`` 拉取时从 Runtime 快照覆盖，不经本端口。application 层
+    不直接依赖 infra 的 metrics 模块——保持与引擎回调一致的依赖倒置。
+    """
+
+    def acquisition_run_finished(
+        self, device_id: str, group: str, outcome: str, duration: float | None
+    ) -> None:
+        """一次 collect 结束；``outcome`` ∈ ``{"success", "partial", "failed"}``。"""
+        ...
+
+    def device_connect_failed(self, device_id: str, protocol: str) -> None:
+        """一次 connect 尝试失败（启动 / 热增 / 重建 / 重连节流窗口内）。"""
+        ...
+
+    def device_reconnected(self, device_id: str, protocol: str) -> None:
+        """断线设备经 ensure 路径重连成功（驱动内部自重连不经 Runtime，不计入）。"""
+        ...
 
 
 def _is_connection_level(exc: BaseException) -> bool:
@@ -101,7 +139,10 @@ class Runtime:
         points_by_device: dict[str, list[PointConfig]] | None = None,
         protocol_factory: Callable[[DeviceConfig], ProtocolPort] | None = None,
         sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
-        processor_factory: Callable[[str, list[PointConfig]], ProcessorPort] | None = None,
+        processor_factory: Callable[[str, dict[str, list[PointConfig]]], ProcessorPort]
+        | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
         self._devices = devices
         self._protocols = protocols
@@ -114,9 +155,29 @@ class Runtime:
         self._protocol_factory = protocol_factory
         self._sink_factory = sink_factory
         self._processor_factory = processor_factory
+        self._clock = clock
+        # 运行时指标端口（可选）：组合根接 Prometheus；未注入时跳过计数。
+        self._metrics = metrics_hook
+
+        # 每台设备的运行状态（与 DeviceConfig 分离——配置是不可变快照，
+        # 状态随采集/重连演进）。设备增删/重建时同步维护。
+        self._device_states: dict[str, DeviceRuntimeState] = {
+            device_id: DeviceRuntimeState() for device_id in devices
+        }
+
+        # 每个采集 Job（(device, group)）的业务执行状态——与设备连接状态
+        # 分维度，与调度器的 Job 注册/暂停状态也是不同维度。Job 注册时
+        # 建立、注销时删除；引擎 collect 经 AcquisitionStatePort 上报演进。
+        self._acq_states: dict[str, AcquisitionRuntimeState] = {}
 
         # Sink 派发的落点：引擎路由结果进入本类的队列/背压/消费者机制。
         self._engine.attach_sink_dispatch(self)
+        # 设备连接状态的落点：引擎采集前经 ensure_connected 完成带节流的
+        # 重连，采集后上报 read 结果（本类实现 DeviceStatePort）。
+        self._engine.attach_device_state(self)
+        # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
+        # （本类实现 AcquisitionStatePort）。
+        self._engine.attach_acquisition_state(self)
 
         # Per-sink bounded queues
         self._queues: dict[str, asyncio.Queue[list[PointValue]]] = {
@@ -199,11 +260,21 @@ class Runtime:
         for device_id, proto in self._protocols.items():
             try:
                 await asyncio.wait_for(proto.connect(), timeout=self._config.connect_timeout)
+                self._state_for(device_id).mark_success(self._clock())
                 logger.info("Device '%s' connected", device_id)
+            except TimeoutError:
+                # 错误语义区分操作阶段：connect timeout 不模糊成 "timeout"。
+                self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+                logger.warning(
+                    "connect timeout: device=%s timeout=%.1fs — skipped",
+                    device_id,
+                    self._config.connect_timeout,
+                )
             except Exception as exc:
-                # 决策 0.3：连接级故障（超时/拒连/网络不可达，含驱动包装链
+                # 决策 0.3：连接级故障（拒连/网络不可达，含驱动包装链
                 # 里的底层 OSError）是现场日常，简洁 warning 不打堆栈；
                 # 其他异常（编程错误、协议实现缺陷）保留完整堆栈以便排查。
+                self._note_connect_failure(device_id, exc)
                 if _is_connection_level(exc):
                     logger.warning("Device '%s' failed to connect — skipped: %s", device_id, exc)
                 else:
@@ -330,6 +401,11 @@ class Runtime:
         """累计丢弃点数——背压策略丢弃的点值总数（单调不减，决策 7）。"""
         return self._points_dropped
 
+    def sink_queue_depths(self) -> dict[str, int]:
+        """各 sink 队列当前深度——``/metrics`` 拉取时覆盖 ``sink_queue_depth``
+        gauge（队列归 Runtime 所有，SinkPort 自身不感知队列）。"""
+        return {name: queue.qsize() for name, queue in self._queues.items()}
+
     # ------------------------------------------------------------------
     # Sink 派发端口实现（AcquisitionEngine → Runtime 的落点）
     # ------------------------------------------------------------------
@@ -343,6 +419,131 @@ class Runtime:
             if queue is None:
                 continue
             await self._handle_backpressure(queue, batch, sink_name)
+
+    # ------------------------------------------------------------------
+    # 设备状态端口实现（AcquisitionEngine → Runtime 的采集前/后钩子）
+    # ------------------------------------------------------------------
+
+    async def ensure_connected(self, device_id: str) -> bool:
+        """采集前确保设备可用，必要时按节流窗口重连（实现 ``DeviceStatePort``）。
+
+        语义：
+
+        - 已连接 → 立即 ``True``（零开销快路径）；
+        - 断线但未到 ``next_retry_at`` → ``False``，本次采集跳过——
+          1 Hz 轮询不会形成每秒一次的 connect 风暴；
+        - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
+          （失败计数清零），失败则按指数 backoff 推迟下次窗口
+          （1 s → 2 s → … → 30 s 封顶）。
+
+        本方法只调用 ProtocolPort 的 ``connect``——驱动内部若已自带
+        重连监控（ADS/Modbus/IEC104 均有），``connect`` 的幂等实现会让
+        重复调用安全收敛。
+        """
+        state = self._state_for(device_id)
+        if state.connected:
+            return True
+        proto = self._protocols.get(device_id)
+        if proto is None:
+            return False
+        now = self._clock()
+        if now < state.next_retry_at:
+            return False
+        try:
+            await asyncio.wait_for(proto.connect(), timeout=self._config.connect_timeout)
+        except TimeoutError:
+            self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+            logger.warning(
+                "connect timeout: device=%s timeout=%.1fs — reconnect attempt failed",
+                device_id,
+                self._config.connect_timeout,
+            )
+            return False
+        except Exception as exc:
+            self._note_connect_failure(device_id, exc)
+            if _is_connection_level(exc):
+                logger.warning("Device '%s' reconnect attempt failed: %s", device_id, exc)
+            else:
+                logger.warning(
+                    "Device '%s' reconnect attempt failed", device_id, exc_info=True
+                )
+            return False
+        state.mark_success(now)
+        if self._metrics is not None:
+            self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
+        logger.info("Device '%s' reconnected", device_id)
+        return True
+
+    def report_read_success(self, device_id: str) -> None:
+        """采集读成功（实现 ``DeviceStatePort``）——状态恢复 connected。"""
+        self._state_for(device_id).mark_success(self._clock())
+
+    def report_read_failure(self, device_id: str, error: BaseException) -> None:
+        """采集读失败（实现 ``DeviceStatePort``）。
+
+        连接级失败标记断线（下一次 ``ensure_connected`` 起走重连节流）；
+        协议/编程级失败只记录错误——连接本身可能仍然健康。
+        """
+        self._state_for(device_id).mark_read_failure(
+            self._clock(), error, connection_level=_is_connection_level(error)
+        )
+
+    def device_state(self, device_id: str) -> DeviceRuntimeState | None:
+        """返回设备当前运行状态（QueryService 聚合 status 用）。"""
+        return self._device_states.get(device_id)
+
+    def _state_for(self, device_id: str) -> DeviceRuntimeState:
+        """取设备运行状态；缺失时惰性创建（引擎只对已注册设备调用）。"""
+        return self._device_states.setdefault(device_id, DeviceRuntimeState())
+
+    def _note_connect_failure(self, device_id: str, exc: BaseException) -> None:
+        """集中记账一次 connect 失败：更新设备状态并上报指标。"""
+        self._state_for(device_id).mark_connect_failure(self._clock(), exc)
+        if self._metrics is not None:
+            self._metrics.device_connect_failed(device_id, self._protocol_name(device_id))
+
+    def _protocol_name(self, device_id: str) -> str:
+        """设备协议名（指标标签用）；设备已从注册表移除时回退 'unknown'。"""
+        cfg = self._devices.get(device_id)
+        return cfg.protocol if cfg is not None else "unknown"
+
+    # ------------------------------------------------------------------
+    # 采集执行状态端口实现（AcquisitionEngine → Runtime 的 collect 钩子）
+    # ------------------------------------------------------------------
+
+    def report_collect_started(self, device_id: str, group: str) -> None:
+        """一次 collect 开始（实现 ``AcquisitionStatePort``）。"""
+        self._acq_state_for(device_id, group).begin(self._clock())
+
+    def report_collect_success(self, device_id: str, group: str, *, partial: bool) -> None:
+        """一次 collect 成功（含 partial——GOOD/BAD 混合不计连续失败）。"""
+        state = self._acq_state_for(device_id, group)
+        state.finish_success(self._clock(), partial=partial)
+        if self._metrics is not None:
+            self._metrics.acquisition_run_finished(
+                device_id, group, "partial" if partial else "success", state.last_duration
+            )
+
+    def report_collect_failure(self, device_id: str, group: str, error: str) -> None:
+        """一次 collect 失败（读异常/读超时/断线跳过/无有效结果）。"""
+        state = self._acq_state_for(device_id, group)
+        state.finish_failure(self._clock(), error)
+        if self._metrics is not None:
+            self._metrics.acquisition_run_finished(
+                device_id, group, "failed", state.last_duration
+            )
+
+    def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
+        """当前采集 Job 状态簿（``{job_id: state}`` 浅拷贝，QueryService 用）。"""
+        return dict(self._acq_states)
+
+    def _acq_state_for(self, device_id: str, group: str) -> AcquisitionRuntimeState:
+        """取采集 Job 状态；缺失时惰性创建（与 Job 注册路径的提前建立互补）。"""
+        job_id = self._job_id(device_id, group)
+        return self._acq_states.setdefault(
+            job_id,
+            AcquisitionRuntimeState(job_id=job_id, device_id=device_id, group=group),
+        )
 
     # ------------------------------------------------------------------
     # 热重载——设备管理
@@ -360,11 +561,21 @@ class Runtime:
         self._protocols[device_id] = protocol
         protocol.set_points_mapping(points)
         self._points_by_device[device_id] = points
+        self._device_states[device_id] = DeviceRuntimeState()
 
         try:
             await asyncio.wait_for(protocol.connect(), timeout=self._config.connect_timeout)
+            self._device_states[device_id].mark_success(self._clock())
             logger.info("Hot-reload: device '%s' connected", device_id)
-        except Exception:
+        except TimeoutError:
+            self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+            logger.warning(
+                "connect timeout: device=%s timeout=%.1fs — hot-reload connect failed",
+                device_id,
+                self._config.connect_timeout,
+            )
+        except Exception as exc:
+            self._note_connect_failure(device_id, exc)
             logger.warning(
                 "Hot-reload: device '%s' failed to connect — task launched anyway",
                 device_id,
@@ -391,6 +602,7 @@ class Runtime:
 
         self._devices.pop(device_id, None)
         self._points_by_device.pop(device_id, None)
+        self._device_states.pop(device_id, None)
         logger.info("Hot-reload: device '%s' removed", device_id)
 
     async def rebuild_device(
@@ -418,11 +630,23 @@ class Runtime:
         self._protocols[device_id] = new_protocol
         new_protocol.set_points_mapping(points)
         self._points_by_device[device_id] = points
+        # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
+        # 立即写入全新状态）。
+        self._device_states[device_id] = DeviceRuntimeState()
 
         try:
             await asyncio.wait_for(new_protocol.connect(), timeout=self._config.connect_timeout)
+            self._device_states[device_id].mark_success(self._clock())
             logger.info("Hot-reload: device '%s' reconnected", device_id)
-        except Exception:
+        except TimeoutError:
+            self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+            logger.warning(
+                "connect timeout: device=%s timeout=%.1fs — connect failed after rebuild",
+                device_id,
+                self._config.connect_timeout,
+            )
+        except Exception as exc:
+            self._note_connect_failure(device_id, exc)
             logger.warning(
                 "Hot-reload: device '%s' connect failed after rebuild",
                 device_id,
@@ -570,14 +794,29 @@ class Runtime:
             logger.error("Sink diff apply failed: %s", exc, exc_info=True)
             errors.append(f"sink: {exc}")
 
+        # 点表内容变化：对绑定受影响表、且未在设备 diff 中增删重建的设备，
+        # 仅重注入点映射——不重建 Protocol 连接（A.10）。
+        if diff.point_tables_changed:
+            try:
+                self._reinject_changed_tables(new_config, diff)
+            except Exception as exc:
+                logger.error("Point mapping re-inject failed: %s", exc, exc_info=True)
+                errors.append(f"points: {exc}")
+
         if diff.points_changed or diff.rules_changed:
             try:
                 table = RoutingTable(
                     new_config.routing.rules,
-                    new_config.points.points,
+                    new_config.points_by_device(),
                     new_config.routing.unmatched_policy,
                 )
-                await self.replace_router(Router(table))
+                router = Router(table)
+                await self.replace_router(router)
+                # 投递策略随路由表整体重建（B.4）——只替换策略/dispatcher
+                # 状态，不触碰 Sink 与 Protocol。
+                await self._engine.replace_delivery(
+                    DeliveryDispatcher(router, policies_from_rules(new_config.routing.rules))
+                )
                 logger.info("Routing table rebuilt (%d entries)", table.size)
             except Exception as exc:
                 logger.error("Routing table rebuild failed: %s", exc, exc_info=True)
@@ -588,8 +827,9 @@ class Runtime:
             diff.pipeline_changed or diff.points_changed
         ) and self._processor_factory is not None:
             try:
+                points_by_device = new_config.points_by_device()
                 processors = [
-                    self._processor_factory(name, new_config.points.points)
+                    self._processor_factory(name, points_by_device)
                     for name in new_config.system.pipeline.processors
                 ]
                 await self.replace_pipeline(Pipeline(processors))
@@ -600,33 +840,126 @@ class Runtime:
 
         return errors
 
+    def _reinject_changed_tables(self, new_config: Config, diff: ConfigDiff) -> None:
+        """点表内容变化时，对绑定受影响表的既有设备重注入点映射。
+
+        仅重注入内存映射（``set_points_mapping`` + ``_points_by_device``），
+        不触碰 Protocol 连接；设备 diff 中已增删重建的设备跳过（它们的
+        映射已由 add/rebuild/lightweight 路径写入）。
+        """
+        changed_tables = set(diff.point_tables_changed)
+        skip = set(diff.devices.added) | set(diff.devices.updated) | set(diff.devices.removed)
+        for did, dev_cfg in self._devices.items():
+            if did in skip or dev_cfg.point_table not in changed_tables:
+                continue
+            points = self._points_for_device(new_config, did)
+            proto = self._protocols.get(did)
+            if proto is not None:
+                proto.set_points_mapping(points)
+            self._points_by_device[did] = points
+            logger.info(
+                "Hot-reload: point mapping re-injected for '%s' (table '%s')",
+                did,
+                dev_cfg.point_table,
+            )
+
     async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建设备；新增/重建的协议实例由工厂创建。"""
-        factory = self._protocol_factory
-        if factory is None and (diff.devices.added or diff.devices.updated):
-            raise RuntimeError("protocol factory is not wired into Runtime")
+        """按 diff 增删重建设备；新增/重建的协议实例由工厂创建。
+
+        仅 ``polling`` / ``point_table`` 变化的设备走轻量路径——就地更新
+        配置、同步调度 Job、按需重注入点映射，不重建 Protocol 连接。
+        """
         new_devices = {d.device_id: d for d in new_cfg.devices.devices}
+
+        lightweight: set[str] = set()
+        for did in diff.devices.updated:
+            old_dev = self._devices.get(did)
+            if old_dev is not None and _changed_fields(old_dev, new_devices[did]) <= (
+                _LIGHTWEIGHT_DEVICE_FIELDS
+            ):
+                lightweight.add(did)
+
+        factory = self._protocol_factory
+        if factory is None and (diff.devices.added or set(diff.devices.updated) - lightweight):
+            raise RuntimeError("protocol factory is not wired into Runtime")
 
         for did in diff.devices.removed:
             await self.remove_device(did)
 
         for did in diff.devices.added:
             cfg = new_devices[did]
-            # 入口已守卫：有新增/更新时 factory 必然非 None
+            # 入口已守卫：有新增/非轻量更新时 factory 必然非 None
             assert factory is not None
             protocol = factory(cfg)
             await self.add_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
 
         for did in diff.devices.updated:
             cfg = new_devices[did]
+            if did in lightweight:
+                self._apply_lightweight_device_update(did, cfg, new_cfg)
+                continue
             assert factory is not None  # 同上——入口守卫保证
             protocol = factory(cfg)
             await self.rebuild_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
 
+    def _apply_lightweight_device_update(
+        self, device_id: str, new_dev: DeviceConfig, new_cfg: Config
+    ) -> None:
+        """轻量设备更新（仅 polling / point_table 变化）——不重建连接。
+
+        - ``point_table`` 变化：仅向既有 Protocol 重注入新点映射；
+        - ``polling`` 变化：仅同步调度 Job（增删/替换受影响 Job）。
+        """
+        old_dev = self._devices[device_id]
+        self._devices[device_id] = new_dev
+
+        if new_dev.point_table != old_dev.point_table:
+            points = self._points_for_device(new_cfg, device_id)
+            proto = self._protocols.get(device_id)
+            if proto is not None:
+                proto.set_points_mapping(points)
+            self._points_by_device[device_id] = points
+
+        if new_dev.polling != old_dev.polling:
+            self._sync_device_jobs(device_id, new_dev)
+
+        logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
+
+    def _sync_device_jobs(self, device_id: str, device_cfg: DeviceConfig) -> None:
+        """把设备的轮询 Job 同步为当前 polling 配置。
+
+        只增删/替换受影响的 Job：消失的 group 注销 Job；现存 group 经
+        ``replace_existing=True`` 按新 interval 重建；未运行或非轮询
+        设备不新建 Job。
+        """
+        desired = {self._job_id(device_id, g.group): g for g in self._polling_groups(device_cfg)}
+        prefix = f"poll:{device_id}:"
+        for job in self._scheduler.list_jobs():
+            if job.job_id.startswith(prefix) and job.job_id not in desired:
+                self._scheduler.remove_job(job.job_id)
+                # 消失的 group 连同其采集状态一起清理。
+                self._acq_states.pop(job.job_id, None)
+
+        if not (device_cfg.enabled and self._running and device_cfg.mode == "poll"):
+            return
+        for job_id, group in desired.items():
+            self._scheduler.add_interval_job(
+                job_id=job_id,
+                interval_seconds=group.interval,
+                func=self._engine.collect,
+                args=(device_id, group.group),
+                replace_existing=True,
+            )
+            # 新 group 建立新状态；interval 变化（Job 原地替换）保留原状态。
+            self._acq_states.setdefault(
+                job_id,
+                AcquisitionRuntimeState(job_id=job_id, device_id=device_id, group=group.group),
+            )
+
     @staticmethod
     def _points_for_device(config: Config, device_id: str) -> list[PointConfig]:
-        """取某设备的完整点表（按 device_id 过滤）。"""
-        return [p for p in config.points.points if p.device_id == device_id]
+        """取设备绑定点表中的点列表（设备无关点表经绑定解析）。"""
+        return config.points_for_device(device_id)
 
     async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
         """按 diff 增删重建 sink；新实例由工厂创建。"""
@@ -672,27 +1005,37 @@ class Runtime:
 
         未知 Job 的 ``remove_job`` 会抛 ``KeyError``——设备可能以纯订阅
         模式运行而没有轮询 Job，故缺席是正常情况，静默跳过。
+        采集执行状态随 Job 一并清理。
         """
         prefix = f"poll:{device_id}:"
         for job in self._scheduler.list_jobs():
             if job.job_id.startswith(prefix):
                 self._scheduler.remove_job(job.job_id)
+                self._acq_states.pop(job.job_id, None)
 
     async def _start_acquisition(self, device_id: str, device_cfg: DeviceConfig) -> None:
         """按设备 ``mode`` 接入采集：``'poll'`` 注册周期 Job；
-        ``'subscribe'`` 订阅推送；``'both'`` 两者兼有。禁用设备跳过。"""
+        ``'subscribe'`` 订阅推送。禁用设备跳过。"""
         if not device_cfg.enabled:
             return
-        if device_cfg.mode in ("poll", "both"):
+        if device_cfg.mode == "poll":
             for group in self._polling_groups(device_cfg):
+                job_id = self._job_id(device_id, group.group)
                 self._scheduler.add_interval_job(
-                    job_id=self._job_id(device_id, group.group),
+                    job_id=job_id,
                     interval_seconds=group.interval,
                     func=self._engine.collect,
                     args=(device_id, group.group),
                     replace_existing=True,
                 )
-        if device_cfg.mode in ("subscribe", "both"):
+                # Job 注册即建立采集状态（首次 collect 前 status 即可见）。
+                self._acq_states.setdefault(
+                    job_id,
+                    AcquisitionRuntimeState(
+                        job_id=job_id, device_id=device_id, group=group.group
+                    ),
+                )
+        if device_cfg.mode == "subscribe":
             await self._start_subscription(device_id, device_cfg)
 
     async def _start_subscription(self, device_id: str, device_cfg: DeviceConfig) -> None:

@@ -5,7 +5,7 @@ from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import (
     Config,
     DevicesConfig,
-    PointsConfig,
+    PointTablesConfig,
     RoutingConfig,
     SystemConfig,
 )
@@ -14,7 +14,7 @@ __all__ = [
     "Config",
     "SystemConfig",
     "DevicesConfig",
-    "PointsConfig",
+    "PointTablesConfig",
     "RoutingConfig",
     "load_config",
     "RoutingTable",

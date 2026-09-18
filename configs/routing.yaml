@@ -1,6 +1,17 @@
 # ---------------------------------------------------------------------------
-# wind-hub 路由规则 — 默认路由（点表内显式 sinks 可覆盖）
+# wind-hub 路由规则 + 投递策略（Delivery Policy，target 级）
 # ---------------------------------------------------------------------------
+#
+# Router 只决定「发到哪些 sink」；每个 target 上的 delivery 决定「这批是否
+# 真正投递」——策略属于 (规则, sink) 二元组，同一规则下不同 sink 的节拍
+# 相互独立：
+#   always    — 缺省；每批都投递（旧行为）
+#   interval  — 按 (规则, sink) 限流：距上次投递不足 interval 秒的批次整批抑制
+#   every_n   — 按 (规则, sink) 计批：首批投递，之后每 n 批投递一次
+#   on_change — 按 (sink, 设备, 点) 记忆上次投递值，值变化（严格不等）才投递
+#
+# 点位级 sinks 覆盖（points.yaml 中点位的 sinks 字段）优先级最高，命中覆盖的
+# 点不经任何规则、始终按 always 投递。
 
 # 未匹配点的策略：
 #   drop     — 默认，未匹配点丢弃，启动时不报错（运行时记 WARNING）
@@ -10,27 +21,38 @@ unmatched_policy: drop
 
 rules:
 
-  # 高优先级：特定设备 + 点前缀
-  # wtg-001 的状态量只发 kafka（演示 priority 覆盖）
-  - name: wtg001-status-to-kafka
-    match_device: wtg-001
-    match_point_prefix: status.
-    targets:
-      - kafka_main
-    priority: 100
-
-  # 默认规则：所有 rotor.* 点发 file_archive
-  - name: rotor-to-file
-    match_device: null        # null 表示匹配所有设备
-    match_point_prefix: rotor.
-    targets:
-      - file_archive
+  # 同一条规则的多个 target 使用不同投递策略：
+  #   Kafka → always（实时流）
+  #   DB    → interval 10s（限流入库）
+  #   File  → every_n 60（抽样归档）
+  # 兜底规则：未被更高优先级规则匹配的点都走这里（含共享
+  # beckhoff_wtg_v1 点表的 ADS 机组 wtg-003/004/005；注意表内 p001
+  # 声明了点位级 sinks 覆盖，不走本规则）
+  - name: default-fanout
+    match_device: null       # null 表示匹配所有设备
+    match_point_prefix: null # null 表示匹配任意点
     priority: 0
-
-  # 兜底规则：没被前面规则匹配到的所有点发 kafka_main
-  - name: default-to-kafka
-    match_device: null
-    match_point_prefix: null  # null 表示匹配任意点
     targets:
-      - kafka_main
-    priority: -10
+      - sink: kafka_main
+        delivery:
+          type: always     # 缺省即 always，此处显式声明作示例
+
+      - sink: db_main
+        delivery:
+          type: interval
+          interval: 10.0
+
+      - sink: file_archive
+        delivery:
+          type: every_n
+          n: 60
+
+  # on_change 单独 target——wtg-002（Modbus）值变化才入 kafka
+  - name: wtg002-on-change
+    match_device: wtg-002
+    match_point_prefix: null
+    priority: 10
+    targets:
+      - sink: kafka_main
+        delivery:
+          type: on_change
