@@ -1,7 +1,7 @@
 """Prometheus metrics — process-level singletons and helpers.
 
 Gauges reflect engine *state* and are overwritten on every ``/metrics``
-scrape from a :class:`~wind_hub.domain.engine.scheduler.Scheduler` snapshot.
+scrape from a :class:`~wind_hub.application.runtime.Runtime` snapshot.
 Counters accumulate *events* as they occur (a point value is collected, a
 command is dispatched).
 

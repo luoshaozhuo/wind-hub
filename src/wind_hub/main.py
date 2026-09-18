@@ -42,8 +42,8 @@ def _start_api(rt: AssembledRuntime, host: str, port: int) -> uvicorn.Server:
     config = uvicorn.Config(app, host=host, port=port, log_level="info", lifespan="on")
     logger.info(
         "Web API 启动中（%d 台设备，%d 个 sink）→ %s:%d",
-        rt.scheduler.device_count,
-        rt.scheduler.sink_count,
+        rt.runtime.device_count,
+        rt.runtime.sink_count,
         host,
         port,
     )
@@ -90,9 +90,9 @@ async def run_engine(
     set_context(
         AppContext(
             config_service=rt.config_service,
-            router=rt.route_service,
-            scheduler=rt.scheduler,
-            task_service=rt.task_service,
+            router=rt.route_query_service,
+            job_service=rt.job_service,
+            runtime=rt.runtime,
             command_service=rt.command_service,
             query_service=rt.query_service,
         )
@@ -106,14 +106,14 @@ async def run_engine(
         loop.add_signal_handler(sig, shutdown_event.set)
     reload_handler.install(loop)
 
-    # 决策 1：API 先于调度器监听——设备连接超时（每台等满 connect_timeout）
-    # 不再阻塞 /health 的可用性；调度器未就绪期间 /health 如实报告 down。
+    # 决策 1：API 先于 Runtime 监听——设备连接超时（每台等满 connect_timeout）
+    # 不再阻塞 /health 的可用性；Runtime 未就绪期间 /health 如实报告 down。
     server = _start_api(rt, host, port)
     api_task = await start_runtime(rt, api_server=server)
     logger.info(
         "wind-hub 引擎已启动（%d 台设备，%d 个 sink）；Web API 已监听 %s:%d",
-        rt.scheduler.device_count,
-        rt.scheduler.sink_count,
+        rt.runtime.device_count,
+        rt.runtime.sink_count,
         host,
         port,
     )

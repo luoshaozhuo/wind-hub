@@ -19,7 +19,7 @@ from collections.abc import Iterator
 from typing import Any, Protocol
 from uuid import uuid4
 
-from wind_hub.adapter.inbound.iec104_slave.bridge import SchedulerBridge
+from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub.adapter.outbound.protocol.iec104.codec import (
     ASDU,
@@ -152,7 +152,7 @@ class IEC104SlaveHandlers:
         snapshot: DataSnapshot,
         data_type_mapping: dict[int, str],
         reverse_mapping: dict[int, tuple[str, str]],
-        bridge: SchedulerBridge,
+        bridge: SlaveBridge,
         common_address: int,
         batch_size: int,
     ) -> None:

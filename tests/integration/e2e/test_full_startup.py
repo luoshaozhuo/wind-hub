@@ -13,9 +13,9 @@ async def test_full_startup_health_and_devices(
 ) -> None:
     """启动后引擎处于运行态，/health 返回 200 且设备/服务已真实装配。"""
     # 引擎运行中
-    assert runtime.scheduler.running is True
+    assert runtime.runtime.running is True
 
-    # /health 返回 200（此前因 task_service 未真实化而 503）
+    # /health 返回 200（query_service 已真实装配）
     resp = await api_client.get("/health")
     assert resp.status_code == 200
     body = resp.json()

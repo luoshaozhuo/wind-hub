@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub.adapter.inbound.iec104_slave.bridge import SchedulerBridge
+from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub.adapter.inbound.iec104_slave.handlers import (
     MAX_APDU_ASDU_BYTES,
@@ -65,8 +65,7 @@ def _make_handlers(
     reporting: list[ReportingPoint] | None = None,
 ) -> IEC104SlaveHandlers:
     reporting = reporting if reporting is not None else _reporting()
-    bridge = SchedulerBridge(
-        scheduler=MagicMock(),
+    bridge = SlaveBridge(
         dispatcher=dispatcher,
         snapshot=snapshot,
         mapping=build_ioa_mapping(reporting),
@@ -175,8 +174,7 @@ class TestMapping:
 class TestBridge:
     async def test_on_points_collected_updates_snapshot(self) -> None:
         snapshot = DataSnapshot()
-        bridge = SchedulerBridge(
-            scheduler=MagicMock(),
+        bridge = SlaveBridge(
             dispatcher=MagicMock(),
             snapshot=snapshot,
             mapping=build_ioa_mapping(_reporting()),
@@ -189,8 +187,7 @@ class TestBridge:
     async def test_forward_command_calls_dispatcher(self) -> None:
         dispatcher = MagicMock()
         dispatcher.send = AsyncMock(return_value=CommandResult(command_id="c1", success=True))
-        bridge = SchedulerBridge(
-            scheduler=MagicMock(),
+        bridge = SlaveBridge(
             dispatcher=dispatcher,
             snapshot=DataSnapshot(),
             mapping=build_ioa_mapping(_reporting()),

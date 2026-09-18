@@ -5,11 +5,12 @@ a dispatch master, answers general interrogation from the live data snapshot,
 and accepts remote-control commands routed through the engine Dispatcher.
 
 Reuses the pure :mod:`~wind_hub.adapter.outbound.protocol.iec104.codec`
-encode/decode layer; depends on the :class:`~wind_hub.domain.engine.scheduler`
-observer mechanism and the :class:`~wind_hub.domain.engine.dispatcher`.
+encode/decode layer; depends on the
+:class:`~wind_hub.domain.acquisition.AcquisitionEngine` observer mechanism
+and the :class:`~wind_hub.domain.command.dispatcher`.
 """
 
-from wind_hub.adapter.inbound.iec104_slave.bridge import SchedulerBridge
+from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub.adapter.inbound.iec104_slave.handlers import IEC104SlaveHandlers
 from wind_hub.adapter.inbound.iec104_slave.mapping import (
@@ -25,7 +26,7 @@ __all__ = [
     "build_ioa_mapping",
     "build_data_type_mapping",
     "build_reverse_mapping",
-    "SchedulerBridge",
+    "SlaveBridge",
     "IEC104SlaveHandlers",
     "IEC104SlaveSession",
     "IEC104SlaveServer",

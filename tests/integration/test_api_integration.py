@@ -4,9 +4,6 @@
 （来自 ``assembly.assemble``）组成的完整链路——``/metrics`` 渲染 Prometheus
 文本、``/routes/explain`` 与 ``/config/reload`` 走真实服务、缺失服务/上下文时
 的 503 兜底。不真实监听端口，用 ``fastapi.testclient`` 走 in-process 请求。
-
-注意：命令/任务/查询服务在本步骤仍是占位（后续步骤才实现），因此 ``/health``、
-``/devices``、``/points``、``/commands`` 在此应返回 503（服务未接入），而非 200。
 """
 
 from __future__ import annotations
@@ -95,8 +92,8 @@ def test_metrics_renders_prometheus_text() -> None:
         set_context(
             AppContext(
                 config_service=rt.config_service,
-                router=rt.route_service,
-                scheduler=rt.scheduler,
+                router=rt.route_query_service,
+                runtime=rt.runtime,
             )
         )
         with TestClient(build_api()) as client:
@@ -112,7 +109,7 @@ def test_metrics_renders_prometheus_text() -> None:
 def test_route_explain_uses_real_router() -> None:
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
-        set_context(AppContext(router=rt.route_service, scheduler=rt.scheduler))
+        set_context(AppContext(router=rt.route_query_service, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.get(
                 "/routes/explain", params={"device_id": "d1", "point_id": "rotor.speed"}
@@ -125,7 +122,7 @@ def test_route_explain_uses_real_router() -> None:
 def test_config_reload_runs_real_config_service() -> None:
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
-        set_context(AppContext(config_service=rt.config_service, scheduler=rt.scheduler))
+        set_context(AppContext(config_service=rt.config_service, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.post("/config/reload")
         assert resp.status_code == 200
@@ -133,11 +130,11 @@ def test_config_reload_runs_real_config_service() -> None:
     clear_context()
 
 
-def test_health_returns_503_when_task_service_deferred() -> None:
-    """命令/任务/查询服务尚未实现，``/health`` 应 503 而非崩溃。"""
+def test_health_returns_503_when_query_service_missing() -> None:
+    """查询服务未接入上下文时，``/health`` 应 503 而非崩溃。"""
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
-        set_context(AppContext(scheduler=rt.scheduler))
+        set_context(AppContext(runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.get("/health")
         assert resp.status_code == 503

@@ -34,7 +34,7 @@ from pymodbus.server import ModbusTcpServer
 from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
-    SchedulerBridge,
+    SlaveBridge,
 )
 from wind_hub.adapter.inbound.iec104_slave.handlers import (
     MAX_ASDU_PAYLOAD_BYTES,
@@ -139,8 +139,7 @@ class _PerfIEC104Slave:
         dispatcher.send = AsyncMock(
             side_effect=lambda cmd: CommandResult(command_id=cmd.command_id, success=True)
         )
-        bridge = SchedulerBridge(
-            scheduler=MagicMock(),
+        bridge = SlaveBridge(
             dispatcher=dispatcher,
             snapshot=self._snapshot,
             mapping=self._ioa_mapping,

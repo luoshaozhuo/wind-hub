@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig
-from wind_hub.domain.engine.router import Router
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.route import RouteRule
+from wind_hub.domain.routing.router import Router
 
 _FROZEN_TS = datetime(2025, 1, 1, tzinfo=UTC)
 

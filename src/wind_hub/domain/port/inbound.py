@@ -11,13 +11,14 @@ from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ReloadResult
 from wind_hub.domain.model.route import RouteDecision
+from wind_hub.domain.port.scheduling import JobInfo
 
 if TYPE_CHECKING:
     from wind_hub.config.schema import Config
 
 
 class SystemStatus(BaseModel):
-    """Runtime status snapshot returned by :meth:`TaskUseCase.status`."""
+    """Runtime status snapshot returned by :meth:`QueryUseCase.status`."""
 
     running: bool
     """``True`` when the engine loop is active."""
@@ -80,28 +81,48 @@ class CommandUseCase(Protocol):
         ...
 
 
-class TaskUseCase(Protocol):
-    """Task and lifecycle control use case."""
+class JobUseCase(Protocol):
+    """调度 Job 运行控制用例——只管「Scheduled Job 生命周期」。
 
-    async def start(self) -> None:
-        """Start the engine loop. Idempotent — calling on an already
-        running system is a no-op."""
+    与另外两层启停语义严格区分：Runtime 整体 ``start()``/``stop()`` 属于
+    Runtime 生命周期（由组合根/进程入口编排），进程启停属于 systemd /
+    Docker / ``main.py``；本用例不涉及这两者。
+    """
+
+    async def list_jobs(self) -> list[JobInfo]:
+        """Return snapshots of all scheduled jobs."""
         ...
 
-    async def stop(self) -> None:
-        """Gracefully stop the engine loop. Idempotent."""
-        ...
-
-    async def reload_config(self) -> None:
-        """Trigger hot-reload of configuration files.
+    async def job_status(self, job_id: str) -> JobInfo:
+        """Return the snapshot of a single job.
 
         Raises:
-            ConfigError: If the new configuration is invalid.
+            KeyError: If the job is unknown.
         """
         ...
 
-    async def status(self) -> SystemStatus:
-        """Return a snapshot of the current system state."""
+    async def pause_job(self, job_id: str) -> None:
+        """Pause a job — its definition is kept but it stops firing.
+
+        Raises:
+            KeyError: If the job is unknown.
+        """
+        ...
+
+    async def resume_job(self, job_id: str) -> None:
+        """Resume a paused job.
+
+        Raises:
+            KeyError: If the job is unknown.
+        """
+        ...
+
+    async def trigger_job(self, job_id: str) -> None:
+        """Trigger one immediate run of a job; its schedule is unchanged.
+
+        Raises:
+            KeyError: If the job is unknown.
+        """
         ...
 
 
@@ -136,6 +157,14 @@ class QueryUseCase(Protocol):
 
         Raises:
             CommandError: If the device is unknown.
+        """
+        ...
+
+    async def status(self) -> SystemStatus:
+        """Return a snapshot of the current system state.
+
+        Reads through the runtime's live registries, so the snapshot
+        always reflects the latest hot-reload state.
         """
         ...
 

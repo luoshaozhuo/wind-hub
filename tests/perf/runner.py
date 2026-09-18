@@ -11,7 +11,7 @@
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
 6. 停引擎、清 netem、返回 :class:`~tests.perf.collector.PerfMetrics`。
 
-延迟经 scheduler observer 采集（pipeline 后口径）；重连经每秒轮询
+延迟经 engine observer 采集（pipeline 后口径）；重连经每秒轮询
 驱动 ``health()`` 的跳变识别（不修改任何驱动）。
 """
 
@@ -194,7 +194,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
 
 @dataclass
 class _StatsDelta:
-    """测量窗口内的调度器计数差值（满足 collector 的 SchedulerStats 协议）。"""
+    """测量窗口内的运行时计数差值（满足 collector 的 SchedulerStats 协议）。"""
 
     points_collected: int
     points_routed: int
@@ -267,8 +267,8 @@ async def run_benchmark(
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
             rt = assemble(config_dir, sink_factory=lambda _cfg: NullSink())
-            scheduler = rt.scheduler
-            scheduler.add_observer(_make_latency_observer(collector))
+            runtime = rt.runtime
+            rt.engine.add_observer(_make_latency_observer(collector))
 
             await start_runtime(rt)
             health_task = asyncio.create_task(
@@ -283,9 +283,9 @@ async def run_benchmark(
                 # ---- 测量窗口开始：重置基线 ----
                 collector.reset_measurement()
                 base = _StatsDelta(
-                    points_collected=scheduler.points_collected,
-                    points_routed=scheduler.points_routed,
-                    points_dropped=scheduler.points_dropped,
+                    points_collected=runtime.points_collected,
+                    points_routed=runtime.points_routed,
+                    points_dropped=runtime.points_dropped,
                 )
                 if scenario.outage_duration_s > 0:
                     outage_task = asyncio.create_task(
@@ -295,9 +295,9 @@ async def run_benchmark(
                 await asyncio.sleep(duration_s)
 
                 delta = _StatsDelta(
-                    points_collected=scheduler.points_collected - base.points_collected,
-                    points_routed=scheduler.points_routed - base.points_routed,
-                    points_dropped=scheduler.points_dropped - base.points_dropped,
+                    points_collected=runtime.points_collected - base.points_collected,
+                    points_routed=runtime.points_routed - base.points_routed,
+                    points_dropped=runtime.points_dropped - base.points_dropped,
                 )
             finally:
                 health_task.cancel()
@@ -318,7 +318,7 @@ async def run_benchmark(
 def _make_latency_observer(
     collector: MetricsCollector,
 ) -> Callable[[list[PointValue]], None]:
-    """scheduler observer：把批次里每个点的「采集 → 处理完成」耗时记入采集器。"""
+    """engine observer：把批次里每个点的「采集 → 处理完成」耗时记入采集器。"""
 
     def _on_batch(values: list[PointValue]) -> None:
         now = datetime.now(UTC)

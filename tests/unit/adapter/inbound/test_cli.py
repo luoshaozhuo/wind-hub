@@ -33,13 +33,11 @@ def runner() -> CliRunner:
 def _context(
     *,
     command: AsyncMock | None = None,
-    task: AsyncMock | None = None,
     query: AsyncMock | None = None,
     router: MagicMock | None = None,
 ) -> AppContext:
     return AppContext(
         command_service=command or AsyncMock(),
-        task_service=task or AsyncMock(),
         query_service=query or AsyncMock(),
         router=router,
     )
@@ -94,9 +92,9 @@ def test_validate_failure_exit_one(runner: CliRunner, tmp_path) -> None:  # noqa
 
 
 def test_status_table(runner: CliRunner) -> None:
-    task = AsyncMock()
-    task.status.return_value = SystemStatus(running=True, device_count=2, sink_count=1)
-    set_context(_context(task=task))
+    query = AsyncMock()
+    query.status.return_value = SystemStatus(running=True, device_count=2, sink_count=1)
+    set_context(_context(query=query))
 
     result = runner.invoke(build_cli(), ["status"])
     assert result.exit_code == 0
@@ -105,9 +103,9 @@ def test_status_table(runner: CliRunner) -> None:
 
 
 def test_status_json(runner: CliRunner) -> None:
-    task = AsyncMock()
-    task.status.return_value = SystemStatus(running=True, device_count=2, sink_count=1)
-    set_context(_context(task=task))
+    query = AsyncMock()
+    query.status.return_value = SystemStatus(running=True, device_count=2, sink_count=1)
+    set_context(_context(query=query))
 
     result = runner.invoke(build_cli(), ["status", "--json"])
     assert result.exit_code == 0

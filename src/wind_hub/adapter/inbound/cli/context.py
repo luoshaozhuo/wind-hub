@@ -18,13 +18,13 @@ from typing import TYPE_CHECKING
 from wind_hub.domain.port.inbound import (
     CommandUseCase,
     ConfigUseCase,
+    JobUseCase,
     QueryUseCase,
     RouteQueryUseCase,
-    TaskUseCase,
 )
 
 if TYPE_CHECKING:
-    from wind_hub.domain.engine.scheduler import Scheduler
+    from wind_hub.application.runtime import Runtime
 
 
 @dataclass
@@ -32,19 +32,18 @@ class AppContext:
     """Application context — temporary dependency-injection container.
 
     所有服务字段都可选：缺失服务由适配器上报 503 / 非零退出而非崩溃。
-    ``command_service`` / ``task_service`` / ``query_service`` 的真实实现
-    尚在后续步骤补齐；step9b 只接入了 ``config_service`` / ``router`` /
-    ``scheduler``（供热重载、路由查询与 ``/metrics`` 使用）。
+
+    三类启停语义在本容器中各有归属：Runtime 生命周期经 ``runtime``
+    （组合根/进程入口编排），Scheduled Job 生命周期经 ``job_service``，
+    进程生命周期由 ``main.py`` 信号处理负责——不再有混合语义的
+    「task service」。
     """
 
     command_service: CommandUseCase | None = None
-    """可选指令服务。真实实现由后续步骤补齐后再接入。"""
-
-    task_service: TaskUseCase | None = None
-    """可选任务/生命周期服务。真实实现由后续步骤补齐后再接入。"""
+    """可选指令服务。"""
 
     query_service: QueryUseCase | None = None
-    """可选只读查询服务。真实实现由后续步骤补齐后再接入。"""
+    """可选只读查询服务（含系统状态 ``status()``）。"""
 
     config_service: ConfigUseCase | None = None
     """可选配置服务（热重载）。引擎可能不带配置服务运行（如只读部署），
@@ -53,8 +52,11 @@ class AppContext:
     router: RouteQueryUseCase | None = None
     """可选路由查询服务（``route explain``）。缺失时同样由适配器兜底。"""
 
-    scheduler: Scheduler | None = None
-    """可选采集调度器，供 ``/metrics`` 读取引擎快照（gauge 数据来源）。"""
+    job_service: JobUseCase | None = None
+    """可选调度 Job 管理服务（pause/resume/trigger/status）。"""
+
+    runtime: Runtime | None = None
+    """可选 Runtime，供 ``/metrics`` 读取引擎快照（gauge 数据来源）。"""
 
 
 _context: AppContext | None = None

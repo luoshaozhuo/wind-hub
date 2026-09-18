@@ -15,34 +15,34 @@ router = APIRouter(tags=["metrics"])
 async def metrics_endpoint() -> Response:
     """Return the current engine metrics in Prometheus text format.
 
-    从 ``AppContext.scheduler`` 读取快照，覆盖四个 gauge（设备/连接数、
+    从 ``AppContext.runtime`` 读取快照，覆盖四个 gauge（设备/连接数、
     sink/健康数），再渲染 Prometheus 文本。计数器（如
     ``points_collected_total``）由采集循环经组合根注入的回调累加，这里只负责
     拉取。
     """
     ctx = get_ctx()
-    scheduler = ctx.scheduler
-    if scheduler is None:
+    runtime = ctx.runtime
+    if runtime is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "scheduler is not configured",
+            "runtime is not configured",
             status_code=503,
         )
 
     try:
-        # Scheduler.health() 返回「设备优先、随后 sink」的合并字典（见其 docstring），
+        # Runtime.health() 返回「设备优先、随后 sink」的合并字典（见其 docstring），
         # 因此按 device_count 切分即可区分两类组件。
-        health = list(scheduler.health().values())
-        device_health = health[: scheduler.device_count]
-        sink_health = health[scheduler.device_count :]
+        health = list(runtime.health().values())
+        device_health = health[: runtime.device_count]
+        sink_health = health[runtime.device_count :]
 
         devices_connected = sum(1 for h in device_health if h.healthy)
         sinks_healthy = sum(1 for h in sink_health if h.healthy)
 
         metrics.update_gauges(
-            devices_total_val=scheduler.device_count,
+            devices_total_val=runtime.device_count,
             devices_connected_val=devices_connected,
-            sinks_total_val=scheduler.sink_count,
+            sinks_total_val=runtime.sink_count,
             sinks_healthy_val=sinks_healthy,
         )
         body = metrics.render()

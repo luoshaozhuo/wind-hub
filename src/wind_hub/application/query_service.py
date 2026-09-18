@@ -1,8 +1,14 @@
 """Query service — 只读查询的应用服务。
 
-将协议驱动与设备配置包装为
-:class:`~wind_hub.domain.port.inbound.QueryUseCase`：单点实时读（绕过采集循环
-直接调用协议驱动的 ``read``）、设备列表与单设备信息。
+将 :class:`~wind_hub.application.runtime.runtime.Runtime` 包装为
+:class:`~wind_hub.domain.port.inbound.QueryUseCase`：
+
+- 单点实时读（绕过采集循环直接调用协议驱动的 ``read``）；
+- 设备列表与单设备信息；
+- 系统状态快照（``status()``——原 TaskService 的聚合职责）。
+
+服务**不缓存** protocols / devices / points 静态副本，每次查询都经 Runtime
+的当前注册表读取——热重载增删/重建组件后，查询立即看到最新对象。
 
 ``read_point`` 的错误语义对齐端口契约：
 - 设备不存在 → :class:`CommandError`（API 层映射为 404）。
@@ -12,33 +18,24 @@
 
 from __future__ import annotations
 
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.engine.scheduler import Scheduler
+from wind_hub.application.runtime.runtime import Runtime
+from wind_hub.config.schema import DeviceConfig
 from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
-from wind_hub.domain.port.inbound import QueryUseCase
-from wind_hub.domain.port.outbound import ProtocolPort
+from wind_hub.domain.port.inbound import QueryUseCase, SystemStatus
 
 
 class QueryService(QueryUseCase):
-    """只读查询服务。
+    """只读查询服务——所有读取都穿透到 Runtime 当前状态。
 
-    ``points``（按 device_id 分组的点表）用于在实时读之前判定点是否存在，
-    从而把「未知点」与「读失败」区分开，给调用方稳定的 404 / 503 语义。
+    Runtime 的热重载是就地增删注册表（``devices`` / ``protocols`` /
+    ``points_by_device``），因此本服务持有的唯一引用就是 Runtime 本身，
+    天然免疫「静态快照失效」问题。
     """
 
-    def __init__(
-        self,
-        scheduler: Scheduler,
-        protocols: dict[str, ProtocolPort],
-        devices: dict[str, DeviceConfig],
-        points: dict[str, list[PointConfig]] | None = None,
-    ) -> None:
-        self._scheduler = scheduler
-        self._protocols = protocols
-        self._devices = devices
-        self._points = points or {}
+    def __init__(self, runtime: Runtime) -> None:
+        self._runtime = runtime
 
     async def read_point(self, device_id: str, point_id: str) -> PointValue:
         """实时读取单个点，绕过采集缓存直接走协议驱动。
@@ -47,14 +44,14 @@ class QueryService(QueryUseCase):
             CommandError: 设备或点未知。
             ProtocolError: 协议驱动读失败（设备不可达等）。
         """
-        if device_id not in self._devices:
+        if device_id not in self._runtime.devices:
             raise CommandError(f"unknown device '{device_id}'", "")
 
-        device_points = self._points.get(device_id, [])
+        device_points = self._runtime.points_by_device.get(device_id, [])
         if not any(p.point_id == point_id for p in device_points):
             raise CommandError(f"unknown point '{device_id}/{point_id}'", "")
 
-        proto = self._protocols.get(device_id)
+        proto = self._runtime.protocols.get(device_id)
         if proto is None:
             raise CommandError(f"no protocol driver for device '{device_id}'", "")
 
@@ -64,8 +61,11 @@ class QueryService(QueryUseCase):
         return values[0]
 
     async def list_devices(self) -> list[DeviceInfo]:
-        """返回所有配置设备的运行时状态。"""
-        return [self._device_info(device_id, cfg) for device_id, cfg in self._devices.items()]
+        """返回所有配置设备的运行时状态（按当前注册表）。"""
+        return [
+            self._device_info(device_id, cfg)
+            for device_id, cfg in self._runtime.devices.items()
+        ]
 
     async def get_device_info(self, device_id: str) -> DeviceInfo:
         """返回单设备运行时状态。
@@ -73,10 +73,39 @@ class QueryService(QueryUseCase):
         Raises:
             CommandError: 设备未知。
         """
-        cfg = self._devices.get(device_id)
+        cfg = self._runtime.devices.get(device_id)
         if cfg is None:
             raise CommandError(f"unknown device '{device_id}'", "")
         return self._device_info(device_id, cfg)
+
+    async def status(self) -> SystemStatus:
+        """返回系统运行时快照。
+
+        从 Runtime 聚合：
+        - ``running``：运行时就绪标志。
+        - ``device_count`` / ``sink_count``：Runtime 持有的组件总数。
+        - ``devices_connected`` / ``sinks_healthy``：按 ``health()`` 返回的
+          「设备优先、随后 sink」顺序，依 ``device_count`` 切分后统计健康数。
+        - 点位统计：采集计数经 Runtime 透传自 AcquisitionEngine，路由/丢弃
+          计数来自 Runtime 的 Sink 派发侧。
+        """
+        health_values = list(self._runtime.health().values())
+        device_health = health_values[: self._runtime.device_count]
+        sink_health = health_values[self._runtime.device_count :]
+
+        devices_connected = sum(1 for h in device_health if h.healthy)
+        sinks_healthy = sum(1 for h in sink_health if h.healthy)
+
+        return SystemStatus(
+            running=self._runtime.running,
+            device_count=self._runtime.device_count,
+            sink_count=self._runtime.sink_count,
+            devices_connected=devices_connected,
+            sinks_healthy=sinks_healthy,
+            points_collected=self._runtime.points_collected,
+            points_routed=self._runtime.points_routed,
+            points_dropped=self._runtime.points_dropped,
+        )
 
     def _device_info(self, device_id: str, cfg: DeviceConfig) -> DeviceInfo:
         """从设备配置 + 协议健康状态构造 :class:`DeviceInfo`。
@@ -84,7 +113,7 @@ class QueryService(QueryUseCase):
         ``last_seen`` 暂无逐设备读取时间戳追踪，恒为 ``None``（诚实空缺，
         待后续步骤在采集循环中补齐）。
         """
-        proto = self._protocols.get(device_id)
+        proto = self._runtime.protocols.get(device_id)
         connected = proto.health().healthy if proto is not None else False
         return DeviceInfo(
             device_id=device_id,

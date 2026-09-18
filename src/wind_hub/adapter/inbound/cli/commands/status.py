@@ -16,16 +16,16 @@ app = typer.Typer(name="status", help="查看系统运行状态")
 def status(
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
-    """调用 task_service.status() 并打印。"""
+    """调用 query_service.status() 并打印。"""
     asyncio.run(_status(json))
 
 
 async def _status(as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.task_service is None:
-        print_error("任务服务未配置（AppContext.task_service 为 None）")
+    if ctx.query_service is None:
+        print_error("查询服务未配置（AppContext.query_service 为 None）")
         raise typer.Exit(1)
-    snapshot = await ctx.task_service.status()
+    snapshot = await ctx.query_service.status()
     if as_json:
         print_json(snapshot.model_dump(mode="json"))
         return

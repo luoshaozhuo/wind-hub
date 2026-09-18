@@ -1,4 +1,4 @@
-"""``wind-hub reload`` — hot-reload configuration via the task service."""
+"""``wind-hub reload`` — hot-reload configuration via the config service."""
 
 from __future__ import annotations
 
@@ -17,23 +17,31 @@ app = typer.Typer(name="reload", help="热加载配置（无需重启）")
 def reload(
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
-    """调用 task_service.reload_config() 并打印结果。"""
+    """调用 config_service.reload() 并打印结果。"""
     asyncio.run(_reload(json))
 
 
 async def _reload(as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.task_service is None:
-        print_error("任务服务未配置（AppContext.task_service 为 None）")
+    if ctx.config_service is None:
+        print_error("配置服务未配置（AppContext.config_service 为 None）")
         raise typer.Exit(1)
     try:
-        await ctx.task_service.reload_config()
+        result = await ctx.config_service.reload()
     except WindHubError as exc:
         if as_json:
             print_json({"success": False, "error": str(exc)})
         else:
             print_error(f"配置热加载失败：{exc}")
         raise typer.Exit(1) from exc
+
+    if not result.success:
+        details = "; ".join(result.errors) if result.errors else "unknown error"
+        if as_json:
+            print_json({"success": False, "error": details})
+        else:
+            print_error(f"配置热加载失败：{details}")
+        raise typer.Exit(1)
 
     if as_json:
         print_json({"success": True})

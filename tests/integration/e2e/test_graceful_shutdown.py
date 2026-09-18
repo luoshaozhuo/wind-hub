@@ -18,7 +18,7 @@ async def test_graceful_shutdown_transitions_to_down(
 
     await stop_runtime(runtime)
 
-    assert runtime.scheduler.running is False
+    assert runtime.runtime.running is False
 
     after = await api_client.get("/health")
     assert after.status_code == 200
@@ -32,4 +32,4 @@ async def test_graceful_shutdown_is_idempotent(
     """连续两次 stop 不抛异常（幂等）。"""
     await stop_runtime(runtime)
     await stop_runtime(runtime)
-    assert runtime.scheduler.running is False
+    assert runtime.runtime.running is False

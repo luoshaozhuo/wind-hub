@@ -26,12 +26,10 @@ def _client() -> TestClient:
     return TestClient(build_api(), raise_server_exceptions=False)
 
 
-def _install_task(status_side_effect: object) -> None:
-    task = AsyncMock()
-    task.status.side_effect = status_side_effect
-    set_context(
-        AppContext(command_service=AsyncMock(), task_service=task, query_service=AsyncMock())
-    )
+def _install_query(status_side_effect: object) -> None:
+    query = AsyncMock()
+    query.status.side_effect = status_side_effect
+    set_context(AppContext(command_service=AsyncMock(), query_service=query))
 
 
 def test_api_error_returns_unified_format() -> None:
@@ -46,7 +44,7 @@ def test_api_error_returns_unified_format() -> None:
 
 def test_windhub_error_returns_unified_format() -> None:
     """A domain ProtocolError maps to 503 with a stable code."""
-    _install_task(ProtocolError("connection refused"))
+    _install_query(ProtocolError("connection refused"))
     resp = _client().get("/health")
     assert resp.status_code == 503
     body = resp.json()
@@ -56,7 +54,7 @@ def test_windhub_error_returns_unified_format() -> None:
 
 def test_unhandled_exception_returns_500() -> None:
     """A non-domain exception maps to 500 and hides the traceback."""
-    _install_task(RuntimeError("kaboom"))
+    _install_query(RuntimeError("kaboom"))
     resp = _client().get("/health")
     assert resp.status_code == 500
     body = resp.json()
@@ -64,7 +62,7 @@ def test_unhandled_exception_returns_500() -> None:
 
 
 def test_error_response_contains_no_traceback() -> None:
-    _install_task(RuntimeError("secret internal detail"))
+    _install_query(RuntimeError("secret internal detail"))
     resp = _client().get("/health")
     # The raw exception message and any traceback must not leak to the client.
     assert "secret internal detail" not in resp.text

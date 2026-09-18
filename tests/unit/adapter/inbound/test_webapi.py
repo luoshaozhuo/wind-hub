@@ -33,14 +33,12 @@ def _device_info(device_id: str = "d1") -> DeviceInfo:
 def _install_context(
     *,
     command: AsyncMock | None = None,
-    task: AsyncMock | None = None,
     query: AsyncMock | None = None,
     config: AsyncMock | None = None,
     router: MagicMock | None = None,
 ) -> AppContext:
     ctx = AppContext(
         command_service=command or AsyncMock(),
-        task_service=task or AsyncMock(),
         query_service=query or AsyncMock(),
         config_service=config,
         router=router,
@@ -58,8 +56,8 @@ def test_build_api_returns_fastapi() -> None:
 
 
 def test_health_returns_200() -> None:
-    task = AsyncMock()
-    task.status.return_value = SystemStatus(
+    query = AsyncMock()
+    query.status.return_value = SystemStatus(
         running=True,
         device_count=3,
         sink_count=1,
@@ -67,14 +65,14 @@ def test_health_returns_200() -> None:
         points_routed=40,
         points_dropped=2,
     )
-    _install_context(task=task)
+    _install_context(query=query)
 
     resp = _client().get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
     assert body["device_count"] == 3
-    # 决策 7：/health 暴露调度器点位统计
+    # 决策 7：/health 暴露运行时点位统计
     assert body["points_collected"] == 42
     assert body["points_routed"] == 40
     assert body["points_dropped"] == 2

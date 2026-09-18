@@ -11,9 +11,9 @@ def set_runtime_context(rt: AssembledRuntime) -> None:
     set_context(
         AppContext(
             config_service=rt.config_service,
-            router=rt.route_service,
-            scheduler=rt.scheduler,
-            task_service=rt.task_service,
+            router=rt.route_query_service,
+            job_service=rt.job_service,
+            runtime=rt.runtime,
             command_service=rt.command_service,
             query_service=rt.query_service,
         )

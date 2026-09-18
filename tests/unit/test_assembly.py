@@ -1,9 +1,9 @@
 """Unit tests for the composition root (assembly.py).
 
 验证对象：``assemble`` 从配置目录装配出的 :class:`AssembledRuntime`
-对象图——协议驱动、sink、处理器链、路由表、调度器各按其配置正确建立。
-装配过程纯同步、无网络 I/O，故本测试用临时配置目录即可完整覆盖，且
-不依赖任何真实设备或后端。
+对象图——协议驱动、sink、处理器链、路由表、采集引擎、调度适配器、
+Runtime 与应用服务各按其配置正确接线。装配过程纯同步、无网络 I/O，
+故本测试用临时配置目录即可完整覆盖，且不依赖任何真实设备或后端。
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from wind_hub.assembly import assemble, start_runtime, stop_runtime
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub.infra.scheduling import APSchedulerAdapter
 
 
 def _write_yaml(dir_path: Path, name: str, data: dict) -> Path:
@@ -149,16 +150,16 @@ def test_assemble_builds_runtime_object_graph() -> None:
         assert set(rt.sinks) == {"archive"}
         assert rt.pipeline.processor_count == 1
         assert rt.router.table_size == 1
-        assert rt.scheduler.device_count == 1
-        assert rt.scheduler.sink_count == 1
-        assert rt.route_service.explain("d1", "rotor.speed").targets == ["archive"]
+        assert rt.runtime.device_count == 1
+        assert rt.runtime.sink_count == 1
+        assert rt.route_query_service.explain("d1", "rotor.speed").targets == ["archive"]
 
 
 def test_assemble_accepts_string_config_dir() -> None:
     with tempfile.TemporaryDirectory() as td:
         _write_minimal_config(Path(td))
         rt = assemble(td)
-        assert rt.scheduler.device_count == 1
+        assert rt.runtime.device_count == 1
 
 
 def test_assemble_groups_points_by_device() -> None:
@@ -168,14 +169,37 @@ def test_assemble_groups_points_by_device() -> None:
 
         rt = assemble(base)
 
-        by_device = rt.scheduler._points_by_device  # noqa: SLF001
+        by_device = rt.runtime.points_by_device
         assert set(by_device) == {"d1", "d2"}
         assert [p.point_id for p in by_device["d1"]] == ["rotor.speed"]
         assert [p.point_id for p in by_device["d2"]] == ["gen.power"]
 
 
+def test_assemble_wires_runtime_engine_scheduler_and_services() -> None:
+    """新对象图接线：Runtime 持有引擎/调度/分发器，服务委托真实组件。"""
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        _write_minimal_config(base)
+
+        rt = assemble(base)
+
+        # 调度端口是 APScheduler 适配器；核心只依赖抽象
+        assert isinstance(rt.scheduler, APSchedulerAdapter)
+        # Runtime 与 AssembledRuntime 暴露的引擎是同一实例
+        assert rt.runtime.engine is rt.engine
+        # 引擎与 Runtime 共享协议/点表注册表（热重载立即可见的前提）
+        assert rt.runtime.protocols is rt.protocols
+        assert rt.runtime.points_by_device is rt.engine._points_by_device  # noqa: SLF001
+        # Runtime 持有分发器；服务按职责委托
+        assert rt.runtime.dispatcher is rt.dispatcher
+        assert rt.job_service._scheduler is rt.scheduler  # noqa: SLF001
+        assert rt.query_service._runtime is rt.runtime  # noqa: SLF001
+        assert rt.route_query_service._runtime is rt.runtime  # noqa: SLF001
+        assert rt.config_service._runtime is rt.runtime  # noqa: SLF001
+
+
 # ---------------------------------------------------------------------------
-# start_runtime（决策 1）：API 先于调度器启动
+# start_runtime（决策 1）：API 先于 Runtime 启动
 # ---------------------------------------------------------------------------
 
 
@@ -202,10 +226,10 @@ def _null_sink_factory(_cfg: SinkConfig) -> _NullSink:
     return _NullSink()
 
 
-async def test_start_runtime_starts_api_before_scheduler_finishes() -> None:
-    """start_runtime 先拉起 API 服务任务，再启动调度器（决策 1）。
+async def test_start_runtime_starts_api_before_runtime_finishes() -> None:
+    """start_runtime 先拉起 API 服务任务，再启动 Runtime（决策 1）。
 
-    把 ``scheduler.start`` 替换为「等待 API 就绪事件」的探针：若 API 任务
+    把 ``runtime.start`` 替换为「等待 API 就绪事件」的探针：若 API 任务
     没有先行/并发启动，等待必然超时，测试即失败。
     """
     with tempfile.TemporaryDirectory() as td:
@@ -219,16 +243,16 @@ async def test_start_runtime_starts_api_before_scheduler_finishes() -> None:
             async def serve(self) -> None:
                 api_started.set()
 
-        original_start = rt.scheduler.start
+        original_start = rt.runtime.start
 
         async def _start_waiting_for_api() -> None:
             await asyncio.wait_for(api_started.wait(), timeout=2.0)
 
-        rt.scheduler.start = _start_waiting_for_api  # type: ignore[method-assign]
+        rt.runtime.start = _start_waiting_for_api  # type: ignore[method-assign]
         try:
             api_task = await start_runtime(rt, api_server=_FakeServer())  # type: ignore[arg-type]
         finally:
-            rt.scheduler.start = original_start  # type: ignore[method-assign]
+            rt.runtime.start = original_start  # type: ignore[method-assign]
 
         assert api_task is not None
         api_task.cancel()
@@ -237,7 +261,7 @@ async def test_start_runtime_starts_api_before_scheduler_finishes() -> None:
 
 
 async def test_start_runtime_without_api_server_returns_none() -> None:
-    """向后兼容：不传 api_server 时返回 None，调度器正常启动。"""
+    """不传 api_server 时返回 None，Runtime 正常启动。"""
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         _write_minimal_config(base)
@@ -245,7 +269,9 @@ async def test_start_runtime_without_api_server_returns_none() -> None:
         try:
             result = await start_runtime(rt)
             assert result is None
+            assert rt.runtime.running is True
             assert rt.scheduler.running is True
         finally:
             await stop_runtime(rt)
+        assert rt.runtime.running is False
         assert rt.scheduler.running is False

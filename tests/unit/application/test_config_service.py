@@ -1,25 +1,43 @@
-"""Unit tests for ConfigService hot-reload orchestration."""
+"""ConfigService 的单元测试。
+
+验证对象：``application/config_service.py`` 的热重载编排——
+「load → validate → diff → Runtime.reconfigure → commit current config」。
+
+覆盖点：
+
+- 初始 load 与 ``current_config``；
+- diff 计算（设备/sink 增删改、点表/规则/管线变更）；
+- 非法配置：中止重载、不触碰 Runtime、旧快照保持；
+- 无变更：不调用 reconfigure 直接成功；
+- 有变更：以 ``(new_config, diff)`` 调用 ``Runtime.reconfigure`` 一次；
+- reconfigure 返回错误：``success=False``、错误透传、**快照仍提交**
+  （部分失败语义：已应用的变更不回滚，下次 reload 以新快照为基准）。
+
+Runtime 用 mock——本层只验证编排，重构执行由
+``tests/unit/runtime/test_runtime.py`` 覆盖。
+"""
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
 
-from wind_hub.application.config_service import ConfigService
+from wind_hub.application.config_service import ConfigService, compute_diff
+from wind_hub.application.runtime import Runtime
 from wind_hub.config.schema import (
     DeviceConfig,
     PointAddress,
     PointConfig,
     SinkConfig,
 )
-from wind_hub.domain.engine.scheduler import Scheduler
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.route import RouteRule
-from wind_hub.domain.port.outbound import ProtocolPort, SinkPort
+
+pytestmark = pytest.mark.asyncio
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,688 +90,181 @@ def _make_point(device_id: str, point_id: str = "p1") -> PointConfig:
     )
 
 
-def _mock_protocol_factory() -> MagicMock:
-    factory = MagicMock()
-    factory.return_value = MagicMock(spec=ProtocolPort)
-    factory.return_value.connect = AsyncMock()
-    factory.return_value.close = AsyncMock()
-    return factory
-
-
-def _mock_sink_factory() -> MagicMock:
-    factory = MagicMock()
-    factory.return_value = MagicMock(spec=SinkPort)
-    factory.return_value.open = AsyncMock()
-    factory.return_value.close = AsyncMock()
-    factory.return_value.flush = AsyncMock()
-    factory.return_value.write = AsyncMock()
-    return factory
-
-
-def _mock_scheduler() -> MagicMock:
-    sched = MagicMock(spec=Scheduler)
-    sched.add_device = AsyncMock()
-    sched.remove_device = AsyncMock()
-    sched.rebuild_device = AsyncMock()
-    sched.add_sink = AsyncMock()
-    sched.remove_sink = AsyncMock()
-    sched.rebuild_sink = AsyncMock()
-    sched.replace_router = AsyncMock()
-    sched.replace_pipeline = AsyncMock()
-    return sched
+def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
+    runtime = MagicMock(spec=Runtime)
+    runtime.reconfigure = AsyncMock(return_value=reconfigure_errors or [])
+    return runtime
 
 
 # ---------------------------------------------------------------------------
-# 1. reload() — success, no changes
+# 初始加载
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reload_no_changes() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
-        result = await service.reload()
-        assert result.success
-        assert not result.diff.has_any_changes
+async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    service = ConfigService(tmp_path, _mock_runtime())
+
+    cfg = service.current_config
+    assert [d.device_id for d in cfg.devices.devices] == ["d1"]
+
+
+async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
+    (tmp_path / "system.yaml").write_text("not: [valid")
+    with pytest.raises(Exception):  # noqa: B017 — 加载失败类型由 loader 决定
+        ConfigService(tmp_path, _mock_runtime())
 
 
 # ---------------------------------------------------------------------------
-# 2. reload() — validation failure
+# reload —— load / validate 阶段
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reload_validation_failure() -> None:
-    """If load_config fails during reload, no changes are applied."""
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        # Write valid initial config so __init__ succeeds
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
+async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: Path) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")])
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
+    snapshot_before = service.current_config
 
-        # Corrupt system.yaml to make reload fail
-        (base / "system.yaml").write_text("::: invalid yaml :::")
-        result = await service.reload()
-        assert not result.success
-        assert len(result.errors) > 0
-        # No scheduler methods were called on failure
-        scheduler.add_device.assert_not_called()
-        scheduler.remove_device.assert_not_called()
+    # 破坏 devices.yaml
+    (tmp_path / "devices.yaml").write_text("devices: [broken")
+    result = await service.reload()
+
+    assert result.success is False
+    assert result.errors  # 加载错误如实呈现
+    runtime.reconfigure.assert_not_awaited()
+    # 旧快照保持——失败的重载不改变 diff 基准
+    assert service.current_config is snapshot_before
 
 
 # ---------------------------------------------------------------------------
-# 3. reload() — device added
+# reload —— diff / no-change
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reload_device_added() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        protocol_factory = _mock_protocol_factory()
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            protocol_factory,
-            _mock_sink_factory(),
-        )
+async def test_reload_no_changes_skips_reconfigure(tmp_path: Path) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
 
-        # Modify config to add d2
-        _write_configs(
-            base,
-            devices=[_make_device("d1"), _make_device("d2")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-                PointConfig(
-                    point_id="p1",
-                    device_id="d2",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.devices.added == ["d2"]
-        scheduler.add_device.assert_called_once()
+    result = await service.reload()
+
+    assert result.success is True
+    assert result.errors == []
+    assert result.diff.has_any_changes is False
+    runtime.reconfigure.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
-# 4. reload() — device removed
+# reload —— reconfigure 调用语义
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reload_device_removed() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1"), _make_device("d2")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-                PointConfig(
-                    point_id="p1",
-                    device_id="d2",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
+async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
+    tmp_path: Path,
+) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
 
-        # Remove d2
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.devices.removed == ["d2"]
-        scheduler.remove_device.assert_called_with("d2")
+    # 新增一台设备
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1"), _make_device("d2")],
+        points=[_make_point("d1")],
+    )
+    result = await service.reload()
+
+    assert result.success is True
+    runtime.reconfigure.assert_awaited_once()
+    new_cfg, diff = runtime.reconfigure.await_args.args
+    assert diff.devices.added == ["d2"]
+    assert [d.device_id for d in new_cfg.devices.devices] == ["d1", "d2"]
+    # 成功后提交新快照
+    assert service.current_config is new_cfg
 
 
-# ---------------------------------------------------------------------------
-# 5. reload() — device updated
-# ---------------------------------------------------------------------------
+async def test_reload_commits_snapshot_even_on_partial_failure(tmp_path: Path) -> None:
+    """reconfigure 部分失败：success=False、错误透传，但快照仍提交。"""
+    _write_configs(tmp_path, devices=[_make_device("d1")])
+    runtime = _mock_runtime(reconfigure_errors=["sink: open failed"])
+    service = ConfigService(tmp_path, runtime)
+
+    _write_configs(tmp_path, devices=[_make_device("d1"), _make_device("d2")])
+    result = await service.reload()
+
+    assert result.success is False
+    assert result.errors == ["sink: open failed"]
+    # 快照已提交：再次 reload 同一目录内容时 diff 基准是新快照 → 无变更
+    result2 = await service.reload()
+    assert result2.success is True
+    assert result2.diff.has_any_changes is False
+    assert runtime.reconfigure.await_count == 1  # 第二轮不再调用
 
 
-@pytest.mark.asyncio
-async def test_reload_device_updated() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1", protocol="modbus")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        protocol_factory = _mock_protocol_factory()
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            protocol_factory,
-            _mock_sink_factory(),
-        )
+async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+    )
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
 
-        # Change protocol
-        _write_configs(
-            base,
-            devices=[_make_device("d1", protocol="iec104")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.devices.updated == ["d1"]
-        scheduler.rebuild_device.assert_called_once()
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d2")],  # d1 删除、d2 新增
+        sinks=[SinkConfig(name="s1", type="kafka")],  # s1 变更
+    )
+    result = await service.reload()
+
+    assert result.success is True
+    assert result.diff.devices.added == ["d2"]
+    assert result.diff.devices.removed == ["d1"]
+    assert result.diff.sinks.updated == ["s1"]
 
 
 # ---------------------------------------------------------------------------
-# 5b. reload() — device added passes correct point table
+# compute_diff 纯函数
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_reload_device_added_passes_points() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
+async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path) -> None:
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
+        points=[_make_point("d1", "p1")],
+        rules=[RouteRule(name="r1", match_point_prefix="a.", targets=["s1"])],
+        processors=["scale"],
+    )
+    service = ConfigService(tmp_path, _mock_runtime())
+    old = service.current_config
 
-        # Add d2 with its own point; d1's point must NOT leak into d2's table
-        d2_point = _make_point("d2")
-        _write_configs(
-            base,
-            devices=[_make_device("d1"), _make_device("d2")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1"), d2_point],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        args = scheduler.add_device.call_args
-        assert args.args[0] == "d2"
-        assert args.args[3] == [d2_point]
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
+        points=[_make_point("d1", "p2")],
+        rules=[RouteRule(name="r2", match_point_prefix="b.", targets=["s2"])],
+        processors=["scale", "filter"],
+    )
+    service2 = ConfigService(tmp_path, _mock_runtime())
+    new = service2.current_config
+
+    diff = compute_diff(old, new)
+    assert diff.points_changed is True
+    assert diff.rules_changed is True
+    assert diff.pipeline_changed is True
+    assert diff.has_any_changes is True
 
 
-# ---------------------------------------------------------------------------
-# 5c. reload() — device updated passes correct point table
-# ---------------------------------------------------------------------------
+async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point("d1")])
+    service = ConfigService(tmp_path, _mock_runtime())
+    service2 = ConfigService(tmp_path, _mock_runtime())
 
+    diff = compute_diff(service.current_config, service2.current_config)
 
-@pytest.mark.asyncio
-async def test_reload_device_updated_passes_points() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1", protocol="modbus"), _make_device("d2")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1"), _make_point("d2", point_id="p2")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
-
-        # Change d1's protocol; d1 keeps only its own point table
-        d1_points = [_make_point("d1")]
-        _write_configs(
-            base,
-            devices=[_make_device("d1", protocol="iec104"), _make_device("d2")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=d1_points + [_make_point("d2", point_id="p2")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        args = scheduler.rebuild_device.call_args
-        assert args.args[0] == "d1"
-        assert args.args[3] == d1_points
-
-
-# ---------------------------------------------------------------------------
-# 6. reload() — points change → replace_router
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_reload_points_change_rebuilds_router() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
-
-        # Add a new point
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-                PointConfig(
-                    point_id="p2",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.points_changed
-        scheduler.replace_router.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# 7. reload() — pipeline change → replace_pipeline
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_reload_pipeline_change_rebuilds_pipeline() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a"],
-        )
-        scheduler = _mock_scheduler()
-
-        def _proc_factory(name: str, points: list[PointConfig]) -> MagicMock:
-            p = MagicMock()
-            p.name = name
-            return p
-
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-            processor_factory=_proc_factory,
-        )
-
-        # Change processor list
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a", "b"],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.pipeline_changed
-        scheduler.replace_pipeline.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_reload_points_change_rebuilds_pipeline() -> None:
-    """点表变更（processor 列表未变）也应重建 Pipeline，让 Processor 重新注入新点表。"""
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1", "p1")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a"],
-        )
-        scheduler = _mock_scheduler()
-        received: list[list[PointConfig]] = []
-
-        def _proc_factory(name: str, points: list[PointConfig]) -> MagicMock:
-            received.append(points)
-            p = MagicMock()
-            p.name = name
-            return p
-
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-            processor_factory=_proc_factory,
-        )
-
-        # 仅变更点表（processor 列表保持 ["a"] 不变）
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1", "p2")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a"],
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.points_changed
-        assert not result.diff.pipeline_changed
-        scheduler.replace_pipeline.assert_called_once()
-        # processor_factory 必须收到新点表（含 p2，不含旧的 p1）
-        assert received
-        injected_ids = {p.point_id for p in received[-1]}
-        assert injected_ids == {"p2"}
-
-
-# ---------------------------------------------------------------------------
-# 8. reload() — returns correct ReloadResult
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_reload_returns_correct_result() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.errors == []
-        assert result.duration_ms >= 0
-        assert not result.diff.has_any_changes
-
-
-# ---------------------------------------------------------------------------
-# 9. current_config property
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_current_config() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[
-                PointConfig(
-                    point_id="p1",
-                    device_id="d1",
-                    address=PointAddress(type="hr"),
-                ),
-            ],
-            rules=[RouteRule(name="default", targets=["s1"])],
-        )
-        scheduler = _mock_scheduler()
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-        )
-        assert service.current_config.devices.devices[0].device_id == "d1"
-
-
-# ---------------------------------------------------------------------------
-# 10. reload() — pipeline rebuild injects the new point table
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_reload_rebuilds_pipeline_with_new_points() -> None:
-    """processor_factory 必须收到「新」点表（new_cfg.points.points），而非旧快照。"""
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a"],
-        )
-        scheduler = _mock_scheduler()
-        received: list[tuple[str, list[PointConfig]]] = []
-
-        def _proc_factory(name: str, points: list[PointConfig]) -> MagicMock:
-            received.append((name, points))
-            p = MagicMock()
-            p.name = name
-            return p
-
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-            processor_factory=_proc_factory,
-        )
-
-        # 变更处理器列表 + 点表（新增一个点）
-        new_point = PointConfig(point_id="p2", device_id="d1", address=PointAddress(type="hr"))
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[new_point],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a", "b"],
-        )
-        result = await service.reload()
-        assert result.success
-        scheduler.replace_pipeline.assert_called_once()
-        assert [name for name, _ in received] == ["a", "b"]
-        # 每个处理器都拿到重载后的新点表
-        assert all(points == [new_point] for _, points in received)
-
-
-@pytest.mark.asyncio
-async def test_reload_injects_points_into_configurable_processor() -> None:
-    """重载后，具备 ``PointsConfigurable`` 能力的处理器收到新的点表配置。
-
-    工厂仿照 ``assembly._create_processor`` 的职责：创建实例后注入点表；
-    这里验证 ``set_points_config`` 被以「新点表」调用。
-    """
-    with tempfile.TemporaryDirectory() as td:
-        base = Path(td)
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("d1")],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a"],
-        )
-        scheduler = _mock_scheduler()
-        injected: list[list[PointConfig]] = []
-
-        def _proc_factory(name: str, points: list[PointConfig]) -> MagicMock:
-            # 仿照 production：创建 → isinstance(PointsConfigurable) → 注入
-            p = MagicMock()
-            p.name = name
-            p.set_points_config = MagicMock()
-            p.set_points_config(points)
-            injected.append(points)
-            return p
-
-        service = ConfigService(
-            str(base),
-            scheduler,
-            _mock_protocol_factory(),
-            _mock_sink_factory(),
-            processor_factory=_proc_factory,
-        )
-
-        new_point = PointConfig(point_id="p2", device_id="d1", address=PointAddress(type="hr"))
-        _write_configs(
-            base,
-            devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[new_point],
-            rules=[RouteRule(name="default", targets=["s1"])],
-            processors=["a", "b"],  # 变更处理器列表触发 pipeline 重建
-        )
-        result = await service.reload()
-        assert result.success
-        assert result.diff.pipeline_changed
-        # 每个被重建的处理器都注入新的点表
-        assert injected == [[new_point], [new_point]]
+    assert diff.has_any_changes is False
+    assert diff.devices.unchanged == ["d1"]

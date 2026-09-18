@@ -16,8 +16,8 @@ from wind_hub.main import _handle_sighup, _start_api
 
 def test_start_api_returns_embedded_uvicorn_server() -> None:
     rt = MagicMock()
-    rt.scheduler.device_count = 2
-    rt.scheduler.sink_count = 1
+    rt.runtime.device_count = 2
+    rt.runtime.sink_count = 1
     server = _start_api(rt, "127.0.0.1", 8080)
     assert isinstance(server, uvicorn.Server)
 

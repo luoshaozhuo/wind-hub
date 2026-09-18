@@ -11,7 +11,7 @@
 
 三个读取函数是模块级 seam（单测可替换，等效 spec 的「mock psutil」）。
 
-延迟口径：scheduler observer 在 pipeline 之后收到批次，``utcnow -
+延迟口径：engine observer 在 pipeline 之后收到批次，``utcnow -
 PointValue.timestamp`` 即「采集 → 处理完成」的单点耗时。
 """
 
@@ -54,7 +54,7 @@ def _read_fd_count() -> int:
 
 
 class SchedulerStats(Protocol):
-    """构建指标所需的调度器计数切片（与 ``Scheduler`` 同名属性结构对齐）。"""
+    """构建指标所需的运行时计数切片（与 ``Runtime`` 同名属性结构对齐）。"""
 
     @property
     def points_collected(self) -> int: ...

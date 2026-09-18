@@ -195,7 +195,7 @@ def _latency_section(results: list[PerfMetrics]) -> list[str]:
         "",
         "## 3. 延迟分布",
         "",
-        "单点延迟 = 采集时间戳 → pipeline 处理完成（scheduler observer 口径）。",
+        "单点延迟 = 采集时间戳 → pipeline 处理完成（engine observer 口径）。",
         "",
         "| 协议 | 场景 | P50 (ms) | P95 (ms) | P99 (ms) | 最大 (ms) |",
         "|---|---|---|---|---|---|",

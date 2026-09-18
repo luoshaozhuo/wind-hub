@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from wind_hub.domain.engine.dispatcher import Dispatcher
+from wind_hub.domain.command.dispatcher import Dispatcher
 from wind_hub.domain.model.command import Command, CommandResult
 
 # ---------------------------------------------------------------------------

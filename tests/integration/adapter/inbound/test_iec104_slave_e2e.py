@@ -18,7 +18,7 @@ from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
     IEC104SlaveServer,
-    SchedulerBridge,
+    SlaveBridge,
     build_data_type_mapping,
     build_ioa_mapping,
     build_reverse_mapping,
@@ -150,8 +150,7 @@ async def proxy():
     dispatcher.send = AsyncMock(
         side_effect=lambda cmd: CommandResult(command_id=cmd.command_id, success=True)
     )
-    bridge = SchedulerBridge(
-        scheduler=MagicMock(),
+    bridge = SlaveBridge(
         dispatcher=dispatcher,
         snapshot=snapshot,
         mapping=build_ioa_mapping(reporting),
@@ -230,8 +229,7 @@ async def test_proxy_reports_health_and_session_count() -> None:
         snapshot=snapshot,
         data_type_mapping={},
         reverse_mapping={},
-        bridge=SchedulerBridge(
-            scheduler=MagicMock(),
+        bridge=SlaveBridge(
             dispatcher=MagicMock(),
             snapshot=snapshot,
             mapping={},

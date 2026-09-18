@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 
 class HealthResponse(BaseModel):
-    """Engine health snapshot, derived from ``TaskUseCase.status()``."""
+    """Engine health snapshot, derived from ``QueryUseCase.status()``."""
 
     status: str
     """``"ok"`` when the engine is running, otherwise ``"down"``."""

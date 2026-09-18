@@ -1,13 +1,13 @@
 """Command service — 指令下发的应用服务。
 
-将 :class:`~wind_hub.domain.engine.dispatcher.Dispatcher` 包装为
+将 :class:`~wind_hub.domain.command.dispatcher.Dispatcher` 包装为
 :class:`~wind_hub.domain.port.inbound.CommandUseCase`：``send`` /
 ``send_batch`` 直接委托，幂等与超时均由 Dispatcher 保证（见其 docstring）。
 """
 
 from __future__ import annotations
 
-from wind_hub.domain.engine.dispatcher import Dispatcher
+from wind_hub.domain.command.dispatcher import Dispatcher
 from wind_hub.domain.model.command import Command, CommandResult
 from wind_hub.domain.port.inbound import CommandUseCase
 

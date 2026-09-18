@@ -11,8 +11,8 @@ from wind_hub.adapter.outbound.processor.builtin.deadband import DeadbandProcess
 from wind_hub.adapter.outbound.processor.builtin.quality_check import QualityCheckProcessor
 from wind_hub.adapter.outbound.processor.builtin.unit_convert import UnitConvertProcessor
 from wind_hub.config.schema import PointAddress, PointConfig
-from wind_hub.domain.engine.pipeline import Pipeline
 from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub.domain.processing.pipeline import Pipeline
 
 
 def _points() -> list[PointConfig]:

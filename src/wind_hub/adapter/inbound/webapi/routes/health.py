@@ -13,15 +13,15 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    """Return a health snapshot derived from ``TaskUseCase.status()``."""
+    """Return a health snapshot derived from ``QueryUseCase.status()``."""
     ctx = get_ctx()
-    if ctx.task_service is None:
+    if ctx.query_service is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "task_service is not configured",
+            "query_service is not configured",
             status_code=503,
         )
-    snapshot = await ctx.task_service.status()
+    snapshot = await ctx.query_service.status()
     return HealthResponse(
         status="ok" if snapshot.running else "down",
         running=snapshot.running,

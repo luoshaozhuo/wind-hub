@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from wind_hub.domain.engine.pipeline import Pipeline
 from wind_hub.domain.model.point import PointValue
+from wind_hub.domain.processing.pipeline import Pipeline
 
 _FROZEN_TS = datetime(2025, 1, 1, tzinfo=UTC)
 

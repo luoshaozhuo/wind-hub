@@ -1,22 +1,24 @@
-"""Config service — configuration loading, diff computation, and hot-reload."""
+"""Config service — 配置加载、校验、diff 与热重载用例编排。
+
+职责边界：本服务只做「load → validate → diff → runtime.reconfigure →
+commit current config」的编排；具体的设备/sink 增删重建、路由表与处理链
+替换全部由 :class:`~wind_hub.application.runtime.runtime.Runtime` 的
+:meth:`Runtime.reconfigure` 执行——本服务不直接触碰任何运行时组件。
+"""
 
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.config.loader import load_config
-from wind_hub.config.routing import RoutingTable
-from wind_hub.config.schema import Config, DeviceConfig, PointConfig, SinkConfig
-from wind_hub.domain.engine.pipeline import Pipeline
-from wind_hub.domain.engine.router import Router
-from wind_hub.domain.engine.scheduler import Scheduler
+from wind_hub.config.schema import Config
 from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, ReloadResult, SinkDiff
 from wind_hub.domain.port.inbound import ConfigUseCase
-from wind_hub.domain.port.outbound import ProcessorPort, ProtocolPort, SinkPort
 
 logger = logging.getLogger(__name__)
 
@@ -104,40 +106,26 @@ def _items_changed(old_items: Sequence[Any], new_items: Sequence[Any]) -> bool:
 
 
 class ConfigService(ConfigUseCase):
-    """Configuration service — hot-reload orchestration.
+    """配置服务——热重载用例编排。
 
     实现 :class:`~wind_hub.domain.port.inbound.ConfigUseCase`：
     ``reload()`` 编排热重载，``current_config`` 暴露当前配置。
 
-    Holds the current ``Config`` and a reference to the running
-    ``Scheduler``.  On ``reload()`` it:
+    ``reload()`` 流程：
 
-    1. Loads new configuration files from disk.
-    2. Computes a ``ConfigDiff``.
-    3. Applies changes to the scheduler:
-       - Add / remove / rebuild devices.
-       - Add / remove / rebuild sinks.
-       - Replace the routing table (if points or rules changed).
-       - Replace the pipeline (if the processor list changed).
-    4. Returns a ``ReloadResult``.
+    1. 从磁盘加载新配置（load + schema 校验，失败即中止，不应用任何改动）；
+    2. 计算 :class:`ConfigDiff`（无变更则直接返回成功）；
+    3. 调用 :meth:`Runtime.reconfigure` 执行全部运行时重构；
+    4. 提交新配置为当前快照，返回 :class:`ReloadResult`。
 
-    If loading fails, no changes are applied and ``ReloadResult.success``
-    is ``False``.
+    reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``——部分失败
+    时 ``success`` 为 ``False``，但配置快照仍提交（与旧语义一致：已应用的
+    变更不回滚，下一次 reload 以新快照为 diff 基准）。
     """
 
-    def __init__(
-        self,
-        config_dir: str | Path,
-        scheduler: Scheduler,
-        protocol_factory: Callable[[DeviceConfig], ProtocolPort],
-        sink_factory: Callable[[SinkConfig], SinkPort],
-        processor_factory: Callable[[str, list[PointConfig]], ProcessorPort] | None = None,
-    ) -> None:
+    def __init__(self, config_dir: str | Path, runtime: Runtime) -> None:
         self._config_dir = Path(config_dir)
-        self._scheduler = scheduler
-        self._protocol_factory = protocol_factory
-        self._sink_factory = sink_factory
-        self._processor_factory = processor_factory
+        self._runtime = runtime
 
         # Load initial config
         self._current = load_config(self._config_dir)
@@ -154,7 +142,6 @@ class ConfigService(ConfigUseCase):
         the operation succeeded.
         """
         t0 = time.monotonic()
-        errors: list[str] = []
 
         # 1. Load new config — bail early on failure
         try:
@@ -178,48 +165,11 @@ class ConfigService(ConfigUseCase):
                 duration_ms=(time.monotonic() - t0) * 1000,
             )
 
-        # 3. Apply device changes
-        try:
-            await self._apply_device_diff(diff, new_cfg)
-        except Exception as exc:
-            logger.error("Device diff apply failed: %s", exc, exc_info=True)
-            errors.append(f"device: {exc}")
+        # 3. 全部运行时重构交给 Runtime（设备/sink 增删重建、路由表与处理链
+        #    替换的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
+        errors = await self._runtime.reconfigure(new_cfg, diff)
 
-        # 4. Apply sink changes
-        try:
-            await self._apply_sink_diff(diff, new_cfg)
-        except Exception as exc:
-            logger.error("Sink diff apply failed: %s", exc, exc_info=True)
-            errors.append(f"sink: {exc}")
-
-        # 5. Rebuild routing table
-        if diff.points_changed or diff.rules_changed:
-            try:
-                table = RoutingTable(
-                    new_cfg.routing.rules,
-                    new_cfg.points.points,
-                    new_cfg.routing.unmatched_policy,
-                )
-                await self._scheduler.replace_router(Router(table))
-                logger.info("Routing table rebuilt (%d entries)", table.size)
-            except Exception as exc:
-                logger.error("Routing table rebuild failed: %s", exc, exc_info=True)
-                errors.append(f"routing: {exc}")
-
-        # 6. Rebuild pipeline（点表变更也会让 Processor 重新注入新点表，死区状态重置可接受）
-        if (diff.pipeline_changed or diff.points_changed) and self._processor_factory is not None:
-            try:
-                processors = [
-                    self._processor_factory(name, new_cfg.points.points)
-                    for name in new_cfg.system.pipeline.processors
-                ]
-                await self._scheduler.replace_pipeline(Pipeline(processors))
-                logger.info("Pipeline rebuilt (%d processors)", len(processors))
-            except Exception as exc:
-                logger.error("Pipeline rebuild failed: %s", exc, exc_info=True)
-                errors.append(f"pipeline: {exc}")
-
-        # 7. Commit new config
+        # 4. Commit new config
         self._current = new_cfg
 
         duration_ms = (time.monotonic() - t0) * 1000
@@ -235,47 +185,3 @@ class ConfigService(ConfigUseCase):
             errors=errors,
             duration_ms=duration_ms,
         )
-
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
-
-    async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        new_devices = {d.device_id: d for d in new_cfg.devices.devices}
-
-        for did in diff.devices.removed:
-            await self._scheduler.remove_device(did)
-
-        for did in diff.devices.added:
-            cfg = new_devices[did]
-            protocol = self._protocol_factory(cfg)
-            await self._scheduler.add_device(
-                did, cfg, protocol, self._points_for_device(new_cfg, did)
-            )
-
-        for did in diff.devices.updated:
-            cfg = new_devices[did]
-            protocol = self._protocol_factory(cfg)
-            await self._scheduler.rebuild_device(
-                did, cfg, protocol, self._points_for_device(new_cfg, did)
-            )
-
-    def _points_for_device(self, config: Config, device_id: str) -> list[PointConfig]:
-        """取某设备的完整点表（按 device_id 过滤）。"""
-        return [p for p in config.points.points if p.device_id == device_id]
-
-    async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        new_sinks = {s.name: s for s in new_cfg.system.sinks}
-
-        for name in diff.sinks.removed:
-            await self._scheduler.remove_sink(name)
-
-        for name in diff.sinks.added:
-            cfg = new_sinks[name]
-            sink = self._sink_factory(cfg)
-            await self._scheduler.add_sink(name, cfg, sink)
-
-        for name in diff.sinks.updated:
-            cfg = new_sinks[name]
-            sink = self._sink_factory(cfg)
-            await self._scheduler.rebuild_sink(name, cfg, sink)

@@ -1,7 +1,7 @@
 """Unit tests for the CommandService application service.
 
 验证对象：``application/command_service.py`` 把指令下发委托给
-:class:`~wind_hub.domain.engine.dispatcher.Dispatcher`——``send`` /
+:class:`~wind_hub.domain.command.dispatcher.Dispatcher`——``send`` /
 ``send_batch`` 原样转发，幂等与超时由 Dispatcher 保证，服务本身不增加语义。
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 from wind_hub.application.command_service import CommandService
-from wind_hub.domain.engine.dispatcher import Dispatcher
+from wind_hub.domain.command.dispatcher import Dispatcher
 from wind_hub.domain.model.command import Command, CommandResult
 
 
