@@ -1,0 +1,1 @@
+"""Database sink adapter (placeholder)."""

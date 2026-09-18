@@ -1,0 +1,88 @@
+[tool.poetry]
+name = "wind-hub"
+version = "0.1.0"
+description = "风电场主控通信模块：协议无关、输出无关的工业通信内核"
+authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{ include = "wind_hub", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.0"
+pyyaml = "^6.0"
+typer = ">=0.15,<1.0"
+fastapi = "^0.115"
+uvicorn = { version = "^0.32", extras = ["standard"] }
+structlog = "^24.0"
+prometheus-client = "^0.21"
+pymodbus = { version = "^3.6", optional = true }
+pyads = { version = "^3.4", optional = true }
+
+[tool.poetry.extras]
+ads = ["pyads"]
+modbus = ["pymodbus"]
+iec104 = []  # 暂无 Python 客户端依赖
+kafka = ["aiokafka"]
+db = ["asyncpg", "influxdb-client"]
+all = [
+    "pyads",
+    "pymodbus",
+    # iec104: no dependencies yet
+    "aiokafka",
+    "asyncpg",
+    "influxdb-client",
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.24"
+mypy = "^1.0"
+ruff = "^0.8"
+import-linter = "^2.0"
+
+[tool.poetry.scripts]
+wind-hub = "wind_hub.adapter.inbound.cli.app:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.flake8-bugbear]
+# ``typer.Option``/``typer.Argument`` default values are the idiomatic way to
+# declare CLI parameters; B008 must not flag them as mutable-call-in-default.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.lint.per-file-ignores]
+# IEC104 测试类名刻意对应协议类型 ID（如 M_SP_NA_1 / C_SC_NA_1），
+# 不是常规 CapWords 命名，N801 在此处无意义。
+"tests/unit/adapter/iec104/test_info_objects.py" = ["N801"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "perf: 性能压测（需 root + tc netem；不加入默认收集，经 scripts/run_benchmark.py 触发）",
+]
+
+[tool.importlinter]
+root_package = "wind_hub"
+
+[[tool.importlinter.contracts]]
+name = "Domain 不得依赖 Adapter 和 Infra"
+type = "forbidden"
+source_modules = ["wind_hub.domain"]
+forbidden_modules = ["wind_hub.adapter", "wind_hub.infra"]
+
+[[tool.importlinter.contracts]]
+name = "Application 不得依赖 Adapter"
+type = "forbidden"
+source_modules = ["wind_hub.application"]
+forbidden_modules = ["wind_hub.adapter"]

@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# 端到端测试用系统配置 —— 短超时 + 空管道 + null sink
+# ---------------------------------------------------------------------------
+
+scheduler:
+  default_interval: 0.2
+  connect_timeout: 2.0
+  read_timeout: 2.0
+  shutdown_timeout: 5.0
+  queue_maxsize: 100
+  backpressure_policy: drop_old
+
+pipeline:
+  processors: []
+
+sinks:
+  - name: null_sink
+    type: "null"
+    enabled: true
+    params: {}
+
+interfaces:
+  api:
+    enabled: true
+    host: "127.0.0.1"
+    port: 18080
+  cli:
+    enabled: true

@@ -1,0 +1,56 @@
+"""Domain model — device and endpoint definitions."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class Endpoint(BaseModel):
+    """Connection endpoint for a device."""
+
+    host: str
+    """IP address or hostname of the device."""
+
+    port: int
+    """TCP port for the protocol connection."""
+
+    extensions: dict[str, Any] = Field(default_factory=dict)
+    """Protocol-specific parameters (e.g. IEC104 ``common_addr``,
+    Modbus ``unit_id``, ADS ``ams_net_id``)."""
+
+
+class Device(BaseModel):
+    """Static configuration of a device."""
+
+    device_id: str
+    """Unique identifier for the device (e.g. 'turbine-01')."""
+
+    protocol: str
+    """Protocol driver name: ``'ads'``, ``'modbus'``, or ``'iec104'``."""
+
+    endpoint: Endpoint
+    """Network endpoint of the device."""
+
+    enabled: bool = True
+    """Whether the device is active. Disabled devices are skipped
+    by the scheduler."""
+
+
+class DeviceInfo(BaseModel):
+    """Runtime status snapshot of a device — returned by query operations."""
+
+    device_id: str
+    """Device identifier."""
+
+    protocol: str
+    """Protocol driver in use."""
+
+    connected: bool
+    """``True`` if the protocol adapter reports a healthy connection."""
+
+    last_seen: datetime | None = None
+    """UTC timestamp of the last successful read, or ``None`` if the
+    device has never been read."""

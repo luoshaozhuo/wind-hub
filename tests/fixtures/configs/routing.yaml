@@ -1,0 +1,13 @@
+# ---------------------------------------------------------------------------
+# 端到端测试用路由 —— 所有点发往 null sink
+# ---------------------------------------------------------------------------
+
+unmatched_policy: drop
+
+rules:
+  - name: default-to-null
+    match_device: null
+    match_point_prefix: null
+    targets:
+      - null_sink
+    priority: 0
