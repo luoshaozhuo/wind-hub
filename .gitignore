@@ -18,6 +18,7 @@ venv/
 *~
 
 # Testing / Linting
+.import_linter_cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -49,5 +50,3 @@ htmlcov/
 Thumbs.db
 
 # Project
-configs/**/*.yaml
-!configs/**/.gitkeep

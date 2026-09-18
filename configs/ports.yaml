@@ -1,0 +1,62 @@
+# 端口扫描配置
+#
+# 定义默认扫描的端口集，以及端口到服务名的映射。
+# ``wind-hub probe ports`` 未指定 --ports 时扫描 default_ports；
+# service_map 用于报告里的服务名标注（纯端口映射，不做 banner grabbing）。
+
+# 默认扫描的端口（未指定 --ports 时使用）
+default_ports:
+  # 工业协议
+  - 502      # Modbus TCP
+  - 2404     # IEC104
+  - 48898    # ADS
+  - 4840     # OPC UA
+  - 44818    # EtherNet/IP
+  - 20000    # DNP3
+  - 102      # S7comm (Siemens)
+  - 9600     # OMRON FINS
+
+  # 通用服务
+  - 21       # FTP
+  - 22       # SSH
+  - 23       # Telnet
+  - 25       # SMTP
+  - 53       # DNS
+  - 80       # HTTP
+  - 443      # HTTPS
+  - 445      # SMB
+  - 3306     # MySQL
+  - 5432     # PostgreSQL
+  - 6379     # Redis
+  - 8080     # HTTP (alt)
+  - 8443     # HTTPS (alt)
+
+# 端口到服务名的映射
+service_map:
+  502: modbus
+  2404: iec104
+  48898: ads
+  4840: opc-ua
+  44818: ethernet-ip
+  20000: dnp3
+  102: s7comm
+  9600: omron-fins
+  21: ftp
+  22: ssh
+  23: telnet
+  25: smtp
+  53: dns
+  80: http
+  443: https
+  445: smb
+  3306: mysql
+  5432: postgresql
+  6379: redis
+  8080: http
+  8443: https
+
+# 端口扫描的默认超时（秒）
+default_timeout: 1.0
+
+# 端口扫描的默认并发
+default_concurrency: 128

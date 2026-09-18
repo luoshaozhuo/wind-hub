@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# wind-hub 设备配置 — 设备列表与协议参数
+# ---------------------------------------------------------------------------
+
+devices:
+
+  # IEC104 风机控制器（遥测 + 遥信）
+  - device_id: wtg-001
+    protocol: iec104
+    endpoint:
+      host: "10.0.1.1"
+      port: 2404
+      extensions:
+        common_addr: 1
+    polling:
+      - group: telemetry    # 遥测组，每秒采集
+        interval: 1.0
+      - group: signals      # 遥信组，每 5 秒采集
+        interval: 5.0
+    enabled: true
+
+  # Modbus 风机控制器
+  - device_id: wtg-002
+    protocol: modbus
+    endpoint:
+      host: "10.0.2.1"
+      port: 502
+      extensions:
+        unit_id: 1
+    polling:
+      - group: telemetry    # 遥测组，每 2 秒采集
+        interval: 2.0
+    enabled: true
+
+  # ADS 风机控制器（TwinCAT 2，默认）— Sum 批量读 + 可选的设备通知订阅
+  - device_id: wtg-003
+    protocol: ads
+    read_mode: sum           # 'sum'（单条 Sum 命令，符号寻址）| 'sequential'
+    mode: poll               # 'poll' | 'subscribe' | 'both'
+    endpoint:
+      host: "10.0.3.1"
+      port: 48898
+      extensions:
+        ams_net_id: "10.0.3.1.1.1"
+        twincat_version: "2"    # '2' → 默认端口 801（默认），'3' → 851
+    polling:
+      - group: telemetry     # 遥测组，每秒采集
+        interval: 1.0
+    subscribe:
+      enabled: false         # 置 true 后按 mode 启用设备通知推送
+    enabled: true

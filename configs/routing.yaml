@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# wind-hub 路由规则 — 默认路由（点表内显式 sinks 可覆盖）
+# ---------------------------------------------------------------------------
+
+# 未匹配点的策略：
+#   drop     — 默认，未匹配点丢弃，启动时不报错（运行时记 WARNING）
+#   error    — 启动时校验，发现未覆盖的点直接报 ConfigError
+#   default  — 预留：未匹配点发往 default_sink（本版本暂未实现）
+unmatched_policy: drop
+
+rules:
+
+  # 高优先级：特定设备 + 点前缀
+  # wtg-001 的状态量只发 kafka（演示 priority 覆盖）
+  - name: wtg001-status-to-kafka
+    match_device: wtg-001
+    match_point_prefix: status.
+    targets:
+      - kafka_main
+    priority: 100
+
+  # 默认规则：所有 rotor.* 点发 file_archive
+  - name: rotor-to-file
+    match_device: null        # null 表示匹配所有设备
+    match_point_prefix: rotor.
+    targets:
+      - file_archive
+    priority: 0
+
+  # 兜底规则：没被前面规则匹配到的所有点发 kafka_main
+  - name: default-to-kafka
+    match_device: null
+    match_point_prefix: null  # null 表示匹配任意点
+    targets:
+      - kafka_main
+    priority: -10

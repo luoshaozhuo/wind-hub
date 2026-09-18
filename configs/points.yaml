@@ -1,0 +1,129 @@
+# ---------------------------------------------------------------------------
+# wind-hub 点表 — 所有采集点的定义
+# ---------------------------------------------------------------------------
+
+# 重要：Processor 参数的单位语义
+#
+# 推荐的处理链顺序：quality_check → unit_convert → deadband
+#
+# - min_value / max_value：作用于【原始读数】（换算前）
+#   例：gen.voltage 的 scale=0.001（V → kV），min/max 按 V 填
+#
+# - deadband：作用于【换算后读数】（换算后）
+#   例：rotor.speed 的 scale=0.1，deadband 按 rpm 填
+#
+# - scale / offset：unit_convert 的换算参数
+
+# 点表配置说明
+#
+# 每个点的 address 字段是协议专属的：
+# - IEC104: 使用 ioa（信息对象地址），如 ioa: 16385
+# - Modbus: 使用 type + address，如：
+#     type: holding_register
+#     address: 30001
+#   （register_type 是 type 的兼容别名，推荐用 type）
+# - ADS: 使用 index_group + index_offset，如：
+#     index_group: 0x4020
+#     index_offset: 0x1234
+#
+# 注意：Modbus 点必须用 address 字段（不是 register）。
+
+points:
+
+  # ---- wtg-001 (IEC104 设备) ----
+
+  - point_id: rotor.speed
+    device_id: wtg-001
+    address:
+      type: measured_value
+      ioa: 1001
+    data_type: float32
+    scale: 1.0
+    offset: 0.0
+    unit: rpm
+    description: "风轮转速"
+    deadband: 0.5          # 死区 0.5 rpm：变化量小于该值不输出
+    min_value: 0           # 下限（原始读数，scale=1.0 时即 rpm）
+    max_value: 2000        # 上限（原始读数）
+    # 显式声明 sinks 覆盖默认路由规则
+    sinks:
+      - kafka_main
+      - file_archive
+
+  - point_id: gen.power
+    device_id: wtg-001
+    address:
+      type: measured_value
+      ioa: 1002
+    data_type: float32
+    scale: 1.0
+    offset: 0.0
+    unit: kW
+    description: "发电机有功功率"
+    deadband: 1.0          # 死区 1 kW：变化量小于该值不输出
+    min_value: 0           # 有功功率下限（0 表示不发反向功率）
+    max_value: 10000       # 有功功率上限（kW）
+
+  - point_id: gen.voltage
+    device_id: wtg-001
+    address:
+      type: measured_value
+      ioa: 1003
+    data_type: float32
+    scale: 0.001
+    offset: 0.0
+    unit: kV
+    description: "发电机电压"
+
+  - point_id: wind.speed
+    device_id: wtg-001
+    address:
+      type: measured_value
+      ioa: 1004
+    data_type: float32
+    scale: 1.0
+    offset: 0.0
+    unit: m/s
+    description: "风速"
+    min_value: 0           # 风速下限（物理上不可能为负）
+    max_value: 50          # 风速上限（m/s，超出视为异常）
+    sinks:
+      - file_archive            # 仅归档，不发 Kafka
+
+  - point_id: status.running
+    device_id: wtg-001
+    address:
+      type: single_point
+      ioa: 2001
+    data_type: bool
+    scale: 1.0
+    offset: 0.0
+    description: "运行状态（遥信）"
+    sinks:
+      - kafka_main
+
+  # ---- wtg-002 (Modbus 设备) ----
+
+  - point_id: rotor.speed
+    device_id: wtg-002
+    address:
+      type: holding_register
+      address: 30001
+    data_type: float32
+    scale: 1.0
+    offset: 0.0
+    unit: rpm
+    description: "风轮转速"
+
+  - point_id: gen.power
+    device_id: wtg-002
+    address:
+      type: holding_register
+      address: 30003
+    data_type: float32
+    scale: 1.0
+    offset: 0.0
+    unit: kW
+    description: "发电机有功功率"
+    sinks:
+      - kafka_main

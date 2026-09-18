@@ -1,0 +1,72 @@
+# ---------------------------------------------------------------------------
+# wind-hub 系统配置 — 引擎、管道、Sink、接口
+# ---------------------------------------------------------------------------
+
+scheduler:
+  # 默认采集间隔（秒），当设备未指定 polling group 时使用
+  default_interval: 1.0
+  # 最大并发轮询设备数
+  max_concurrent_devices: 32
+  # 每个 Sink 的内部队列容量（背压阈值）
+  queue_maxsize: 1000
+  # 背压策略：drop_old（丢最旧）/ drop_new（丢最新）/ block（阻塞）
+  backpressure_policy: drop_old
+  # 优雅停机超时（秒）
+  shutdown_timeout: 30.0
+  # 设备连接超时（秒）
+  connect_timeout: 10.0
+  # 单次读取超时（秒）
+  read_timeout: 5.0
+
+pipeline:
+  # 启用的处理器列表，按顺序执行（推荐顺序：先校验，再换算，再过滤）
+  #   quality_check — 值域校验（min_value / max_value 越界标记 BAD）
+  #   unit_convert  — 单位换算（value = value * scale + offset）
+  #   deadband      — 死区过滤（变化量小于 deadband 时不输出）
+  processors:
+    - quality_check
+    - unit_convert
+    - deadband
+
+sinks:
+  # Sink 定义 — 路由规则通过名称引用它们
+
+  - name: kafka_main
+    type: kafka
+    enabled: true
+    params:
+      bootstrap_servers: "localhost:9092"
+      topic: wind-hub.raw
+      # key_field: device_id   # 以设备 ID 作为消息 key 实现分区亲和
+      # acks: all              # 确认级别（all / 0 / 1）
+      # retries: 3             # 发送失败重试次数
+      # batch_size: 16384      # 生产者批大小（字节）
+      # linger_ms: 0           # 批收集等待时长（毫秒）
+
+  # PostgreSQL 关系库 sink 示例（默认关闭；开启需真实可用的 DSN）
+  - name: db_main
+    type: db
+    enabled: false
+    params:
+      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
+      table: points
+      batch_size: 1000
+      # create_table: true     # open 时执行 CREATE TABLE IF NOT EXISTS
+
+  - name: file_archive
+    type: file
+    enabled: true
+    params:
+      path: ./data/archive.jsonl
+      format: jsonl
+      # 滚动后是否对旧分片 gzip 压缩（关闭即以 .jsonl 原文归档）
+      compress: false
+      # compress_level: 6   # gzip 压缩级别 1-9（compress: true 时生效）
+
+interfaces:
+  api:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8080
+  cli:
+    enabled: true
