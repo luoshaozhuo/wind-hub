@@ -81,9 +81,10 @@ class TestLoadConfig:
         assert cfg.system.scheduler.default_interval == 1.0
         assert len(cfg.system.sinks) == 3
         assert len(cfg.devices.devices) == 5
-        assert len(cfg.point_tables.tables) == 3
-        assert sum(len(t.points) for t in cfg.point_tables.tables.values()) == 11
-        assert len(cfg.routing.rules) == 2
+        assert len(cfg.point_tables.tables) == 6
+        # 继承展开后的点表：base 4 / 2mw 4 / site_a 4 / diag 2 / iec104 4 / modbus 2
+        assert sum(len(t.points) for t in cfg.point_tables.tables.values()) == 20
+        assert len(cfg.routing.rules) == 3
         # target 级投递策略：同一规则扇出三 sink、各带不同策略
         rules = {r.name: r for r in cfg.routing.rules}
         fanout = {t.sink: t.delivery for t in rules["default-fanout"].targets}
@@ -92,16 +93,30 @@ class TestLoadConfig:
         assert fanout["db_main"].interval == 10.0
         assert fanout["file_archive"].type == "every_n"
         assert fanout["file_archive"].n == 60
-        on_change_targets = rules["wtg002-on-change"].targets
+        on_change_targets = rules["telemetry-on-change"].targets
         assert len(on_change_targets) == 1
         assert on_change_targets[0].sink == "kafka_main"
         assert on_change_targets[0].delivery.type == "on_change"
-        # 共享点表语义：两台 ADS 设备引用同一 table_id 且内容一致
-        # （快照语义下每次 points_by_device 返回新的 list，不比较对象身份）
+        # 新匹配模型：device_group + point_group 的 AND
+        fast = rules["turbine-fast"]
+        assert fast.match.device_group == "turbine"
+        assert fast.match.point_group == "fast"
+        assert rules["default-fanout"].match.all is True
+        # 点表继承语义：wtg-003 绑定机型表，wtg-004 绑定其现场变体子表
         dev = {d.device_id: d for d in cfg.devices.devices}
-        assert dev["wtg-003"].point_table == dev["wtg-004"].point_table
-        shared = cfg.points_by_device()
-        assert shared["wtg-003"] == shared["wtg-004"]
+        assert dev["wtg-003"].point_table == "beckhoff_2mw_v1"
+        assert dev["wtg-004"].point_table == "beckhoff_2mw_site_a"
+        by_device = {d: {p.point_id: p for p in pts} for d, pts in cfg.points_by_device().items()}
+        # 原样继承：p001 在机型表与现场表中完全一致
+        assert by_device["wtg-003"]["p001"] == by_device["wtg-004"]["p001"]
+        # remove_points：p003 已不在任何继承展开结果中
+        assert "p003" not in by_device["wtg-003"]
+        assert "p003" not in by_device["wtg-004"]
+        # group override：现场表 p002 从 fast 改为 slow（机型表仍为 fast）
+        assert by_device["wtg-003"]["p002"].group == "fast"
+        assert by_device["wtg-004"]["p002"].group == "slow"
+        # address 整体替换 + 新增点穿透：现场表 p005 使用现场 Symbol
+        assert by_device["wtg-004"]["p005"].address.symbol == "PLC1.Measurements.converterTemp"
 
     def test_load_minimal_valid_config(self) -> None:
         """A minimal valid configuration loads without error."""
@@ -121,7 +136,14 @@ class TestLoadConfig:
                         ]
                     }
                 },
-                rules=[{"name": "default", "targets": [{"sink": "s1"}], "priority": 0}],
+                rules=[
+                    {
+                        "name": "default",
+                        "match": {"all": True},
+                        "targets": [{"sink": "s1"}],
+                        "priority": 0,
+                    }
+                ],
             )
             cfg = load_config(str(base))
             assert len(cfg.devices.devices) == 1
@@ -248,9 +270,44 @@ class TestCrossFileValidation:
                 point_tables=_ads_table(
                     [{"point_id": "p1", "address": {"type": "hr"}, "data_type": "float32"}]
                 ),
-                rules=[{"name": "r1", "targets": [{"sink": "ghost_sink"}], "priority": 0}],
+                rules=[
+                    {
+                        "name": "r1",
+                        "match": {"all": True},
+                        "targets": [{"sink": "ghost_sink"}],
+                        "priority": 0,
+                    }
+                ],
             )
             with pytest.raises(ConfigError, match="unknown sink"):
+                load_config(str(base))
+
+    def test_polling_group_without_points_raises(self) -> None:
+        """每个 polling 分组必须至少有一个点（否则 Job 永远空跑）。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    _modbus_device(
+                        polling=[
+                            {"group": "fast", "interval": 1.0},
+                            {"group": "ghost", "interval": 5.0},
+                        ]
+                    )
+                ],
+                point_tables=_ads_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "group": "fast",
+                            "address": {"type": "hr"},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+            )
+            with pytest.raises(ConfigError, match="has no points"):
                 load_config(str(base))
 
 
@@ -276,8 +333,13 @@ class TestADSAddressValidation:
             self._load(td, {"symbol": "MAIN.rotorSpeed"})
 
     def test_index_pair_legal(self) -> None:
+        """仅 index 成对寻址合法——但 sum 模式要求 symbol，故以 sequential 验证。"""
         with tempfile.TemporaryDirectory() as td:
-            self._load(td, {"index_group": 0x4020, "index_offset": 0x1234})
+            self._load(
+                td,
+                {"index_group": 0x4020, "index_offset": 0x1234},
+                read_mode="sequential",
+            )
 
     def test_symbol_and_index_legal(self) -> None:
         """symbol 与 index 同时配置是允许的（读写以 symbol 优先）。"""
@@ -303,7 +365,7 @@ class TestADSAddressValidation:
             tempfile.TemporaryDirectory() as td,
             pytest.raises(ConfigError, match="symbol"),
         ):
-            self._load(td, {})
+            self._load(td, {}, read_mode="sequential")
 
     def test_address_validation_skipped_for_non_ads(self) -> None:
         """非 ADS 设备不做 ADS 地址校验。"""
@@ -320,51 +382,218 @@ class TestADSAddressValidation:
 
 
 # ---------------------------------------------------------------------------
-# ADS read_mode 与调度权限（A.4）
+# ADS read_mode 与调度权限
 # ---------------------------------------------------------------------------
 
 
 class TestADSReadModeScheduling:
-    def test_sequential_with_poll_accepted(self) -> None:
-        """read_mode（如何读）与 mode（何时读）正交：sequential 周期轮询合法
-        ——逐点读只是性能取舍，不是配置错误。"""
+    def test_sequential_with_polling_rejected(self) -> None:
+        """sequential 只允许请求驱动的单次读取——配置 polling 是配置错误。"""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
-                devices=[_ads_device(read_mode="sequential", mode="poll")],
+                devices=[
+                    _ads_device(
+                        read_mode="sequential",
+                        polling=[{"group": "default", "interval": 1.0}],
+                    )
+                ],
+                point_tables=_ads_table(
+                    [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
+                ),
+            )
+            with pytest.raises(ConfigError, match="sequential"):
+                load_config(str(base))
+
+    def test_sequential_without_polling_accepted(self) -> None:
+        """sequential 不配置 polling：不创建轮询 Job，单次读取走 CLI/API。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_ads_device(read_mode="sequential")],
                 point_tables=_ads_table(
                     [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
                 ),
             )
             cfg = load_config(str(base))
             assert cfg.devices.devices[0].read_mode == "sequential"
-            assert cfg.devices.devices[0].mode == "poll"
 
-    def test_sum_with_poll_accepted(self) -> None:
+    def test_sequential_skips_group_coverage(self) -> None:
+        """sequential 不参与周期调度——点组无调度含义，不做覆盖校验。"""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
-                devices=[_ads_device(read_mode="sum", mode="poll")],
+                devices=[_ads_device(read_mode="sequential")],
                 point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
+                    [
+                        {
+                            "point_id": "p1",
+                            "group": "diag",
+                            "address": {"symbol": "MAIN.p"},
+                            "data_type": "float32",
+                        }
+                    ]
                 ),
             )
             load_config(str(base))
 
-    def test_sequential_with_subscribe_accepted(self) -> None:
-        """sequential + subscribe：不创建轮询 Job，单次读取走 CLI/API。"""
+    def test_sum_with_polling_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
-                devices=[_ads_device(read_mode="sequential", mode="subscribe")],
+                devices=[
+                    _ads_device(
+                        read_mode="sum", polling=[{"group": "fast", "interval": 1.0}]
+                    )
+                ],
                 point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
+                    [
+                        {
+                            "point_id": "p1",
+                            "group": "fast",
+                            "address": {"symbol": "MAIN.p"},
+                            "data_type": "float32",
+                        }
+                    ]
                 ),
             )
             load_config(str(base))
+
+    def test_sum_point_without_symbol_rejected(self) -> None:
+        """sum 按 Symbol 批量读——绑定表的每个点都必须配置 symbol。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_ads_device(read_mode="sum")],
+                point_tables=_ads_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "address": {"index_group": 0x4020, "index_offset": 0x1234},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+            )
+            with pytest.raises(ConfigError, match="symbol"):
+                load_config(str(base))
+
+
+# ---------------------------------------------------------------------------
+# 点表继承后的绑定校验（作用于 Resolved Point Table）
+# ---------------------------------------------------------------------------
+
+
+class TestInheritanceAwareValidation:
+    def test_ads_sum_rejects_inherited_index_only_point(self) -> None:
+        """子表把 address 整体覆盖为 index-only 后，sum 设备绑定即报错。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_ads_device(read_mode="sum", point_table="child")],
+                point_tables={
+                    "base": {
+                        "points": [
+                            {
+                                "point_id": "p1",
+                                "address": {"symbol": "MAIN.p"},
+                                "data_type": "float32",
+                            }
+                        ]
+                    },
+                    "child": {
+                        "extends": "base",
+                        "points": [
+                            {
+                                "point_id": "p1",
+                                "address": {"index_group": 0x4020, "index_offset": 0x1234},
+                            }
+                        ],
+                    },
+                },
+            )
+            with pytest.raises(ConfigError, match="symbol"):
+                load_config(str(base))
+
+    def test_polling_coverage_uses_resolved_group(self) -> None:
+        """继承后 group 改变 → polling 覆盖校验按最终 group 执行。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    _modbus_device(
+                        point_table="child", polling=[{"group": "fast", "interval": 1.0}]
+                    )
+                ],
+                point_tables={
+                    "base": {
+                        "points": [
+                            {
+                                "point_id": "p1",
+                                "group": "fast",
+                                "address": {"type": "hr"},
+                                "data_type": "float32",
+                            }
+                        ]
+                    },
+                    "child": {
+                        "extends": "base",
+                        "points": [{"point_id": "p1", "group": "slow"}],
+                    },
+                },
+            )
+            # 最终 group 是 slow——只覆盖 fast 的 polling 不再合法
+            with pytest.raises(ConfigError, match="group"):
+                load_config(str(base))
+
+    def test_polling_coverage_ok_on_resolved_group(self) -> None:
+        """正向对照：polling 覆盖最终 group（fast + slow）时加载成功。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    _modbus_device(
+                        point_table="child",
+                        polling=[
+                            {"group": "fast", "interval": 1.0},
+                            {"group": "slow", "interval": 5.0},
+                        ],
+                    )
+                ],
+                point_tables={
+                    "base": {
+                        "points": [
+                            {
+                                "point_id": "p1",
+                                "group": "fast",
+                                "address": {"type": "hr"},
+                                "data_type": "float32",
+                            },
+                            {
+                                "point_id": "p2",
+                                "group": "fast",
+                                "address": {"type": "hr"},
+                                "data_type": "float32",
+                            },
+                        ]
+                    },
+                    "child": {
+                        "extends": "base",
+                        "points": [{"point_id": "p2", "group": "slow"}],
+                    },
+                },
+            )
+            cfg = load_config(str(base))
+            groups = {p.point_id: p.group for p in cfg.points_for_device("d1")}
+            assert groups == {"p1": "fast", "p2": "slow"}
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +670,12 @@ class TestIndividualLoaders:
                 "routing.yaml",
                 {
                     "rules": [
-                        {"name": "default", "targets": [{"sink": "s1"}], "priority": 0},
+                        {
+                            "name": "default",
+                            "match": {"all": True},
+                            "targets": [{"sink": "s1"}],
+                            "priority": 0,
+                        },
                     ],
                 },
             )

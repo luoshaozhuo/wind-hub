@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import yaml
 
+from wind_hub.config.point_table_resolver import resolve_point_tables
 from wind_hub.config.reporting import load_reporting
 from wind_hub.config.schema import (
     Config,
@@ -15,6 +16,7 @@ from wind_hub.config.schema import (
     PointConfig,
     PointTablesConfig,
     ReportingConfig,
+    ResolvedPointTables,
     RoutingConfig,
     SystemConfig,
 )
@@ -82,17 +84,22 @@ def load_config(config_dir: str | Path) -> Config:
     Expected files:
         ``system.yaml``, ``devices.yaml``, ``points.yaml``, ``routing.yaml``
 
+    点表继承：``points.yaml`` 先按 Raw Schema 解析，再经
+    ``point_table_resolver.resolve_point_tables`` 展开 ``extends`` /
+    ``remove_points`` / override 为完整点集；以下全部交叉校验均作用于
+    **resolved** 点表。
+
     Cross-file checks:
         - 设备引用的 ``point_table`` 必须存在；
-        - 点位 ``group`` 必须被设备 ``polling`` 分组覆盖（无显式 polling 时
-          仅允许 ``default``）；
+        - 参与周期调度的设备：点位 ``group`` 必须被设备 ``polling`` 分组覆盖
+          （无显式 polling 时仅允许 ``default``），且每个 polling 分组至少
+          有一个点；
         - 点位级 ``sinks`` 与路由规则 ``targets`` 必须引用已定义的 sink；
         - ADS 设备点表的地址形式合法（symbol 单独合法；index_group 与
-          index_offset 必须成对；三者不得全空）。
-
-    ``read_mode``（如何读：sequential/sum）与 ``mode``（何时读：poll/
-    subscribe）是正交概念，本层不做组合限制——sequential 周期轮询合法
-    （逐点读性能较低，属于部署取舍而非配置错误）。
+          index_offset 必须成对；三者不得全空）；
+        - ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``；
+        - ADS ``sequential`` 设备只允许请求驱动的单次读取，不得配置
+          ``polling``（不参与周期调度，分组覆盖校验同样跳过）。
 
     Raises:
         ConfigError: On any validation or consistency failure.
@@ -101,7 +108,9 @@ def load_config(config_dir: str | Path) -> Config:
 
     system = load_system(base / "system.yaml")
     devices = load_devices(base / "devices.yaml")
-    point_tables = load_points(base / "points.yaml")
+    # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
+    # resolved 结果（ADS sum symbol、polling 覆盖、路由分组均按最终点集）。
+    point_tables = resolve_point_tables(load_points(base / "points.yaml"))
     routing = load_routing(base / "routing.yaml")
 
     # Optional IEC104 slave proxy config — absent means no proxy.
@@ -135,14 +144,14 @@ def load_config(config_dir: str | Path) -> Config:
 
 def _validate_device_binding(
     device: DeviceConfig,
-    point_tables: PointTablesConfig,
+    point_tables: ResolvedPointTables,
     sink_names: set[str],
 ) -> None:
     """校验单台设备的点表绑定、分组覆盖与协议相关约束。
 
     Raises:
-        ConfigError: 点表缺失、点组未被 polling 覆盖、sink 引用未知或
-            ADS 地址非法。
+        ConfigError: 点表缺失、点组未被 polling 覆盖、polling 分组无点、
+            sink 引用未知、ADS 地址非法或 read_mode 组合非法。
     """
     table = point_tables.tables.get(device.point_table)
     if table is None:
@@ -151,18 +160,37 @@ def _validate_device_binding(
             f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
         )
 
-    # 点组必须被设备 polling 覆盖；无显式 polling 时仅 default 组（用默认间隔）
-    allowed_groups = (
-        {g.group for g in device.polling} if device.polling else {"default"}
-    )
-    for p in table.points:
-        if p.group not in allowed_groups:
+    # ADS sequential 只允许请求驱动的单次读取，不得配置周期 polling；
+    # 其分组无调度含义，跳过覆盖校验。
+    if not device.supports_scheduled_polling:
+        if device.polling:
             raise ConfigError(
-                f"Device '{device.device_id}': point '{p.point_id}' uses group "
-                f"'{p.group}' not covered by device polling groups "
-                f"{sorted(allowed_groups)}"
+                f"Device '{device.device_id}': ADS read_mode='sequential' "
+                f"must not configure polling (single reads only)"
             )
-        # Per-point sinks override must reference valid sink names
+    else:
+        # 点组必须被设备 polling 覆盖；无显式 polling 时仅 default 组（默认间隔）
+        allowed_groups = (
+            {g.group for g in device.polling} if device.polling else {"default"}
+        )
+        for p in table.points:
+            if p.group not in allowed_groups:
+                raise ConfigError(
+                    f"Device '{device.device_id}': point '{p.point_id}' uses group "
+                    f"'{p.group}' not covered by device polling groups "
+                    f"{sorted(allowed_groups)}"
+                )
+        # 每个 polling 分组必须至少有一个点
+        point_groups = {p.group for p in table.points}
+        for g in device.polling:
+            if g.group not in point_groups:
+                raise ConfigError(
+                    f"Device '{device.device_id}': polling group '{g.group}' "
+                    f"has no points in table '{device.point_table}'"
+                )
+
+    # Per-point sinks override must reference valid sink names
+    for p in table.points:
         for sn in p.sinks or []:
             if sn not in sink_names:
                 raise ConfigError(
@@ -173,6 +201,15 @@ def _validate_device_binding(
     if device.protocol == "ads":
         for p in table.points:
             _validate_ads_address(device.device_id, p)
+            # sum 模式按 symbol 批量读，绑定表必须全部 symbol 寻址
+            if device.read_mode == "sum":
+                symbol = (p.address.model_extra or {}).get("symbol")
+                if symbol is None:
+                    raise ConfigError(
+                        f"ADS point '{p.point_id}' (device '{device.device_id}'): "
+                        f"read_mode='sum' requires 'symbol' on every point of "
+                        f"table '{device.point_table}'"
+                    )
 
 
 def _validate_ads_address(device_id: str, point: PointConfig) -> None:

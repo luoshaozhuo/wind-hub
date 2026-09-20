@@ -22,7 +22,7 @@ from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.model.route import DeliveryConfig, RouteRule, RouteTarget
+from wind_hub.domain.model.route import DeliveryConfig, RouteMatch, RouteRule, RouteTarget
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import DeliveryDispatcher, Router, policies_from_rules
@@ -296,6 +296,7 @@ def _real_router_with_every_n(n: int) -> tuple[Router, DeliveryDispatcher]:
     """真实 Router + every_n 投递策略（规则 r1 匹配所有点、发往 s1）。"""
     rule = RouteRule(
         name="r1",
+        match=RouteMatch(all=True),
         targets=[RouteTarget(sink="s1", delivery=DeliveryConfig(type="every_n", n=n))],
     )
     table = RoutingTable([rule], {"d1": [_make_point("p1")]})

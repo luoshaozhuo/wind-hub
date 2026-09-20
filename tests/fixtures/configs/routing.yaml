@@ -6,8 +6,8 @@ unmatched_policy: drop
 
 rules:
   - name: default-to-null
-    match_device: null
-    match_point_prefix: null
+    match:
+      all: true
     targets:
       - sink: null_sink
     priority: 0

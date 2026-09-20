@@ -18,7 +18,7 @@ from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig, SchedulerConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.command import Dispatcher
-from wind_hub.domain.model.route import RouteRule, RouteTarget
+from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import Router
@@ -43,14 +43,18 @@ def _runtime(router: Router) -> Runtime:
 
 def _points() -> list[PointConfig]:
     return [
-        PointConfig(point_id="rotor.speed", address=PointAddress(type="hr")),
-        PointConfig(point_id="no.target", address=PointAddress(type="hr")),
+        PointConfig(point_id="rotor.speed", group="fast", address=PointAddress(type="hr")),
+        PointConfig(point_id="no.target", group="other", address=PointAddress(type="hr")),
     ]
 
 
 def test_explain_routed_point() -> None:
     rules = [
-        RouteRule(name="rotor", match_point_prefix="rotor.", targets=[RouteTarget(sink="s1")])
+        RouteRule(
+            name="rotor",
+            match=RouteMatch(point_group="fast"),
+            targets=[RouteTarget(sink="s1")],
+        )
     ]
     service = RouteQueryService(_runtime(_router(_points(), rules)))
     decision = service.explain("d1", "rotor.speed")
@@ -61,7 +65,11 @@ def test_explain_routed_point() -> None:
 
 def test_explain_unmatched_point() -> None:
     rules = [
-        RouteRule(name="rotor", match_point_prefix="rotor.", targets=[RouteTarget(sink="s1")])
+        RouteRule(
+            name="rotor",
+            match=RouteMatch(point_group="fast"),
+            targets=[RouteTarget(sink="s1")],
+        )
     ]
     service = RouteQueryService(_runtime(_router(_points(), rules)))
     decision = service.explain("d1", "no.target")
@@ -71,7 +79,11 @@ def test_explain_unmatched_point() -> None:
 
 def test_unmatched_points() -> None:
     rules = [
-        RouteRule(name="rotor", match_point_prefix="rotor.", targets=[RouteTarget(sink="s1")])
+        RouteRule(
+            name="rotor",
+            match=RouteMatch(point_group="fast"),
+            targets=[RouteTarget(sink="s1")],
+        )
     ]
     service = RouteQueryService(_runtime(_router(_points(), rules)))
     assert service.unmatched_points() == [("d1", "no.target")]
@@ -80,17 +92,31 @@ def test_unmatched_points() -> None:
 async def test_explain_reflects_router_swap_on_hot_reload() -> None:
     """经 Runtime.current_router 查询：热重载替换路由表后基于最新实例。"""
     points = [
-        PointConfig(point_id="a.x", address=PointAddress(type="hr")),
+        PointConfig(point_id="a.x", group="g", address=PointAddress(type="hr")),
     ]
     old_router = _router(
-        points, [RouteRule(name="old", match_point_prefix="a.", targets=[RouteTarget(sink="s1")])]
+        points,
+        [
+            RouteRule(
+                name="old",
+                match=RouteMatch(point_group="g"),
+                targets=[RouteTarget(sink="s1")],
+            )
+        ],
     )
     runtime = _runtime(old_router)
     service = RouteQueryService(runtime)
     assert service.explain("d1", "a.x").targets == ["s1"]
 
     new_router = _router(
-        points, [RouteRule(name="new", match_point_prefix="a.", targets=[RouteTarget(sink="s2")])]
+        points,
+        [
+            RouteRule(
+                name="new",
+                match=RouteMatch(point_group="g"),
+                targets=[RouteTarget(sink="s2")],
+            )
+        ],
     )
     await runtime.replace_router(new_router)
     assert service.explain("d1", "a.x").targets == ["s2"]

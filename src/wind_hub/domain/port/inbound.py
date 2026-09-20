@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ReloadResult
 from wind_hub.domain.model.route import RouteDecision
-from wind_hub.domain.port.scheduling import JobInfo
+from wind_hub.domain.port.scheduling import JobState
 
 if TYPE_CHECKING:
     from wind_hub.config.schema import Config
@@ -110,47 +111,106 @@ class CommandUseCase(Protocol):
         ...
 
 
+class JobDetail(BaseModel):
+    """调度 Job 的展示级快照——供 CLI / Web API 呈现。
+
+    在端口层 :class:`~wind_hub.domain.port.scheduling.JobInfo` 之上补全
+    采集语义：``device_id`` / ``group`` 由 ``poll:{device_id}:{group}``
+    命名约定解析（非采集 Job 为 ``None``），``state`` 是二态生命周期视图。
+    """
+
+    job_id: str
+    """Job 唯一标识（采集 Job 为 ``poll:{device_id}:{group}``）。"""
+
+    device_id: str | None = None
+    """采集设备 ID；非 ``poll:`` 前缀的系统 Job 为 ``None``。"""
+
+    group: str | None = None
+    """采集分组；非采集 Job 为 ``None``。"""
+
+    interval_seconds: float | None = None
+    """触发间隔（秒）。"""
+
+    state: JobState
+    """二态生命周期：``RUNNING`` / ``STOPPED``。"""
+
+    next_run_time: datetime | None = None
+    """下一次计划触发时间；``STOPPED`` 时为 ``None``。"""
+
+
+class JobBatchResult(BaseModel):
+    """批量 Job 操作（start-all / stop-all）的结果汇总。"""
+
+    total: int
+    """参与本次批量操作的采集 Job 总数。"""
+
+    changed: int
+    """本次状态发生翻转的 Job 数。"""
+
+    unchanged: int
+    """已处于目标状态、本次未触碰的 Job 数。"""
+
+
 class JobUseCase(Protocol):
     """调度 Job 运行控制用例——只管「Scheduled Job 生命周期」。
 
     与另外两层启停语义严格区分：Runtime 整体 ``start()``/``stop()`` 属于
     Runtime 生命周期（由组合根/进程入口编排），进程启停属于 systemd /
     Docker / ``main.py``；本用例不涉及这两者。
+
+    ``start_job`` / ``stop_job`` 只改变调度状态（resume / pause 语义）——
+    Job 的创建与删除只由配置（启动装配与热重载）决定。
     """
 
-    async def list_jobs(self) -> list[JobInfo]:
-        """Return snapshots of all scheduled jobs."""
+    async def list_jobs(self) -> list[JobDetail]:
+        """Return detail snapshots of all scheduled jobs."""
         ...
 
-    async def job_status(self, job_id: str) -> JobInfo:
-        """Return the snapshot of a single job.
+    async def get_job(self, job_id: str) -> JobDetail:
+        """Return the detail snapshot of a single job.
 
         Raises:
             KeyError: If the job is unknown.
         """
         ...
 
-    async def pause_job(self, job_id: str) -> None:
-        """Pause a job — its definition is kept but it stops firing.
+    async def start_job(self, job_id: str) -> JobDetail:
+        """Start periodic scheduling of a job (resume semantics).
+
+        Idempotent: an already ``RUNNING`` job is left untouched.  Does not
+        trigger an immediate extra run — the job fires from the resume
+        moment at its normal interval.
 
         Raises:
             KeyError: If the job is unknown.
         """
         ...
 
-    async def resume_job(self, job_id: str) -> None:
-        """Resume a paused job.
+    async def stop_job(self, job_id: str) -> JobDetail:
+        """Stop periodic scheduling of a job (pause semantics).
+
+        Idempotent: an already ``STOPPED`` job is left untouched.  The job
+        definition, its acquisition history and the device connection are
+        all kept.
 
         Raises:
             KeyError: If the job is unknown.
         """
         ...
 
-    async def trigger_job(self, job_id: str) -> None:
-        """Trigger one immediate run of a job; its schedule is unchanged.
+    async def start_all_jobs(self) -> JobBatchResult:
+        """Start all acquisition (``poll:``-prefixed) jobs.
 
-        Raises:
-            KeyError: If the job is unknown.
+        Jobs already ``RUNNING`` are left untouched; non-acquisition system
+        jobs are never matched.
+        """
+        ...
+
+    async def stop_all_jobs(self) -> JobBatchResult:
+        """Stop all acquisition (``poll:``-prefixed) jobs.
+
+        Only acquisition scheduling is paused — the scheduler, the Runtime,
+        device connections and sinks all keep running.
         """
         ...
 

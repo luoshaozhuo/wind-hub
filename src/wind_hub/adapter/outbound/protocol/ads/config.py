@@ -121,8 +121,10 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
         read_mode=cfg.read_mode,
         max_subs_per_sum=int(ext.get("max_subs_per_sum", 500)),
         max_concurrent_reads=int(ext.get("max_concurrent_reads", 16)),
-        subscribe_enabled=bool(cfg.subscribe.enabled),
-        cycle_time=float(cfg.subscribe.cycle_time),
-        max_delay=float(cfg.subscribe.max_delay),
-        max_notifications_per_connection=int(cfg.subscribe.max_notifications_per_connection),
+        # 订阅参数不经正式配置 Schema——由 endpoint.extensions 透传，
+        # 供诊断/实验性订阅使用（Runtime 不含订阅路径）。
+        subscribe_enabled=bool(ext.get("subscribe_enabled", False)),
+        cycle_time=float(ext.get("cycle_time", 0.02)),
+        max_delay=float(ext.get("max_delay", 0.06)),
+        max_notifications_per_connection=int(ext.get("max_notifications_per_connection", 550)),
     )

@@ -18,8 +18,8 @@ from wind_hub.config.schema import (
     DeviceConfig,
     DevicesConfig,
     PointConfig,
-    PointTableConfig,
-    PointTablesConfig,
+    ResolvedPointTable,
+    ResolvedPointTables,
     RoutingConfig,
     SystemConfig,
 )
@@ -50,7 +50,7 @@ def _config(devices: list[DeviceConfig], points: list[PointConfig]) -> Config:
     return Config(
         system=SystemConfig(),
         devices=DevicesConfig(devices=devices),
-        point_tables=PointTablesConfig(tables={"t1": PointTableConfig(points=points)}),
+        point_tables=ResolvedPointTables(tables={"t1": ResolvedPointTable(points=points)}),
         routing=RoutingConfig(rules=[]),
     )
 

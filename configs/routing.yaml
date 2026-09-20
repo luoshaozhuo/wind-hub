@@ -2,6 +2,20 @@
 # wind-hub 路由规则 + 投递策略（Delivery Policy，target 级）
 # ---------------------------------------------------------------------------
 #
+# 匹配模型：每条规则经 `match` 声明匹配条件，只保留两个维度——
+#   match.all: true          匹配全部数据（兜底规则）；
+#                            与 device_group / point_group 互斥
+#   match.device_group       按设备业务类别匹配（devices.yaml 的 device_group，
+#                            如 turbine）
+#   match.point_group        按点采集分组匹配（points.yaml 中点位的 group，
+#                            如 fast / telemetry）
+# device_group 与 point_group 同时配置时为 AND；只配置一个时只按该维度匹配；
+# 至少必须配置一种匹配条件（空 match 是配置错误，加载期报错）。
+#
+# 规则按 priority 降序评估，首个命中的规则决定目标 sink 集合
+# （first-match-wins）。路由表在配置加载期预编译为
+# (device_id, point_id) → sinks 的 O(1) 查询，运行时不逐条扫描规则。
+#
 # Router 只决定「发到哪些 sink」；每个 target 上的 delivery 决定「这批是否
 # 真正投递」——策略属于 (规则, sink) 二元组，同一规则下不同 sink 的节拍
 # 相互独立：
@@ -21,16 +35,41 @@ unmatched_policy: drop
 
 rules:
 
-  # 同一条规则的多个 target 使用不同投递策略：
-  #   Kafka → always（实时流）
-  #   DB    → interval 10s（限流入库）
-  #   File  → every_n 60（抽样归档）
-  # 兜底规则：未被更高优先级规则匹配的点都走这里（含共享
-  # beckhoff_wtg_v1 点表的 ADS 机组 wtg-003/004/005；注意表内 p001
-  # 声明了点位级 sinks 覆盖，不走本规则）
+  # device_group + point_group 的 AND 匹配：turbine 类设备的 fast 组
+  # （ADS 机组 wtg-003/004 的快变遥测）——Kafka 实时流 + DB 限流入库
+  - name: turbine-fast
+    match:
+      device_group: turbine
+      point_group: fast
+    priority: 100
+    targets:
+      - sink: kafka_main
+        delivery:
+          type: always
+
+      - sink: db_main
+        delivery:
+          type: interval
+          interval: 10.0
+
+  # 仅 point_group 单维度匹配：所有设备的 telemetry 组
+  # （IEC104 wtg-001 与 Modbus wtg-002 的遥测）值变化才入 Kafka
+  - name: telemetry-on-change
+    match:
+      point_group: telemetry
+    priority: 50
+    targets:
+      - sink: kafka_main
+        delivery:
+          type: on_change
+
+  # 兜底规则：all: true 匹配其余全部点（含 slow / signals / diag 组）。
+  # 注意 p001（beckhoff 基础表，经继承进入 wtg-003/004 的点集）声明了
+  # 点位级 sinks 覆盖，不走任何规则；sequential 诊断机位 wtg-005 不参与
+  # 周期调度，其点仅在单次读取时经本兜底规则投递。
   - name: default-fanout
-    match_device: null       # null 表示匹配所有设备
-    match_point_prefix: null # null 表示匹配任意点
+    match:
+      all: true
     priority: 0
     targets:
       - sink: kafka_main
@@ -46,13 +85,3 @@ rules:
         delivery:
           type: every_n
           n: 60
-
-  # on_change 单独 target——wtg-002（Modbus）值变化才入 kafka
-  - name: wtg002-on-change
-    match_device: wtg-002
-    match_point_prefix: null
-    priority: 10
-    targets:
-      - sink: kafka_main
-        delivery:
-          type: on_change

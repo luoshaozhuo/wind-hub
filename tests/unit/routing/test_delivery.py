@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.model.route import DeliveryConfig, RouteRule, RouteTarget
+from wind_hub.domain.model.route import DeliveryConfig, RouteMatch, RouteRule, RouteTarget
 from wind_hub.domain.routing import DeliveryDispatcher, Router, policies_from_rules
 
 
@@ -48,7 +48,11 @@ def _dispatcher(
 
 
 def _rule(name: str, *targets: RouteTarget) -> RouteRule:
-    return RouteRule(name=name, targets=list(targets) or [RouteTarget(sink="s1")])
+    return RouteRule(
+        name=name,
+        match=RouteMatch(all=True),
+        targets=list(targets) or [RouteTarget(sink="s1")],
+    )
 
 
 def _target(sink: str, delivery: DeliveryConfig | None = None) -> RouteTarget:

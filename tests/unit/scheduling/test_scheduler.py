@@ -17,9 +17,15 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
+from wind_hub.domain.port.scheduling import JobMetadata
 from wind_hub.infra.scheduling import APSchedulerAdapter
 
 pytestmark = pytest.mark.asyncio
+
+
+def _meta(device_id: str = "d1", group: str = "fast", kind: str = "poll") -> JobMetadata:
+    """构造测试用 Job 业务元数据（默认一个采集 Job 的归属）。"""
+    return JobMetadata(kind=kind, device_id=device_id, group=group)
 
 
 def _job_recorder() -> tuple[Callable[..., Awaitable[None]], asyncio.Event, list[tuple]]:
@@ -70,11 +76,11 @@ async def test_restart_allows_fresh_registration() -> None:
     sched = APSchedulerAdapter()
     await sched.start()
     job, _event, _calls = _job_recorder()
-    sched.add_interval_job("j1", 60.0, job)
+    sched.add_interval_job("j1", 60.0, job, metadata=_meta())
     await sched.stop()
 
     await sched.start()
-    sched.add_interval_job("j1", 60.0, job)  # 同名重新注册不冲突
+    sched.add_interval_job("j1", 60.0, job, metadata=_meta())  # 同名重新注册不冲突
     assert sched.get_job("j1") is not None
     await sched.stop()
 
@@ -89,7 +95,9 @@ async def test_add_interval_job_registers_and_lists() -> None:
     await sched.start()
     try:
         job, _event, _calls = _job_recorder()
-        sched.add_interval_job("poll:d1:default", 1.0, job, args=("d1", "default"))
+        sched.add_interval_job(
+            "poll:d1:default", 1.0, job, metadata=_meta(), args=("d1", "default")
+        )
 
         info = sched.get_job("poll:d1:default")
         assert info is not None
@@ -109,7 +117,7 @@ async def test_interval_job_fires_with_args() -> None:
     await sched.start()
     try:
         job, event, calls = _job_recorder()
-        sched.add_interval_job("j1", 0.05, job, args=("d1", "telemetry"))
+        sched.add_interval_job("j1", 0.05, job, metadata=_meta(), args=("d1", "telemetry"))
 
         await asyncio.wait_for(event.wait(), timeout=2.0)
         assert calls[0] == ("d1", "telemetry")
@@ -122,9 +130,73 @@ async def test_add_job_replace_existing() -> None:
     await sched.start()
     try:
         job, _event, _calls = _job_recorder()
-        sched.add_interval_job("j1", 1.0, job)
-        sched.add_interval_job("j1", 2.0, job, replace_existing=True)
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta())
+        sched.add_interval_job("j1", 2.0, job, metadata=_meta(), replace_existing=True)
         assert len(sched.list_jobs()) == 1
+    finally:
+        await sched.stop()
+
+
+async def test_add_interval_job_start_paused_registers_stopped() -> None:
+    """``start_paused=True``：原子注册暂停态 Job——``next_run_time=None``、
+    状态 STOPPED，且注册到恢复之间不会触发任何执行。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, event, calls = _job_recorder()
+        sched.add_interval_job("poll:d1:fast", 0.05, job, metadata=_meta(), start_paused=True)
+
+        info = sched.get_job("poll:d1:fast")
+        assert info is not None
+        assert info.paused is True
+        assert info.next_run_time is None
+        assert info.state.value == "stopped"
+        assert info.interval_seconds == 0.05
+
+        # 等待远超一个周期——暂停的 Job 不得触发
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(event.wait(), timeout=0.3)
+        assert calls == []
+    finally:
+        await sched.stop()
+
+
+async def test_resume_of_paused_registered_job_schedules_normally() -> None:
+    """paused 注册的 Job 经 resume 恢复正常周期调度——不立即补跑一次，
+    从恢复时刻起按 interval 触发。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, event, calls = _job_recorder()
+        sched.add_interval_job("j1", 0.05, job, metadata=_meta(), start_paused=True)
+        assert calls == []
+
+        sched.resume_job("j1")
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.paused is False
+        assert info.next_run_time is not None
+
+        await asyncio.wait_for(event.wait(), timeout=2.0)
+        assert len(calls) >= 1
+    finally:
+        await sched.stop()
+
+
+async def test_replace_existing_can_preserve_stopped_state() -> None:
+    """同 id 重建（interval 变更）经 ``start_paused`` 保持原暂停态。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta(), start_paused=True)
+        sched.add_interval_job(
+            "j1", 2.0, job, metadata=_meta(), replace_existing=True, start_paused=True
+        )
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.paused is True
+        assert info.interval_seconds == 2.0
     finally:
         await sched.stop()
 
@@ -134,7 +206,7 @@ async def test_add_job_before_start_raises() -> None:
     sched = APSchedulerAdapter()
     job, _event, _calls = _job_recorder()
     with pytest.raises(RuntimeError, match="not started"):
-        sched.add_interval_job("j1", 1.0, job)
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta())
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +219,7 @@ async def test_remove_job() -> None:
     await sched.start()
     try:
         job, _event, _calls = _job_recorder()
-        sched.add_interval_job("j1", 1.0, job)
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta())
         sched.remove_job("j1")
         assert sched.get_job("j1") is None
         assert sched.list_jobs() == []
@@ -160,7 +232,7 @@ async def test_pause_and_resume_job() -> None:
     await sched.start()
     try:
         job, _event, _calls = _job_recorder()
-        sched.add_interval_job("j1", 1.0, job)
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta())
 
         sched.pause_job("j1")
         info = sched.get_job("j1")
@@ -183,7 +255,7 @@ async def test_trigger_job_runs_immediately() -> None:
     await sched.start()
     try:
         job, event, calls = _job_recorder()
-        sched.add_interval_job("j1", 600.0, job, args=("x",))
+        sched.add_interval_job("j1", 600.0, job, metadata=_meta(), args=("x",))
 
         await sched.trigger_job("j1")
         await asyncio.wait_for(event.wait(), timeout=2.0)
@@ -205,6 +277,105 @@ async def test_unknown_job_operations_raise_key_error() -> None:
             sched.resume_job("nope")
         with pytest.raises(KeyError):
             await sched.trigger_job("nope")
+    finally:
+        await sched.stop()
+
+
+# ---------------------------------------------------------------------------
+# 元数据生命周期——注册写入 / 查询返回 / 替换更新 / 移除清理
+# ---------------------------------------------------------------------------
+
+
+async def test_get_job_returns_registered_metadata() -> None:
+    """注册的 ``metadata`` 经 ``get_job`` 快照原样返回（不由 job_id 推导）。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        meta = _meta(device_id="d1", group="fast")
+        # job_id 刻意与元数据字段不一致——返回值必须来自元数据而非 id 解析
+        sched.add_interval_job("whatever-id", 1.0, job, metadata=meta)
+
+        info = sched.get_job("whatever-id")
+        assert info is not None
+        assert info.metadata == meta
+        assert info.metadata.kind == "poll"
+        assert info.metadata.device_id == "d1"
+        assert info.metadata.group == "fast"
+    finally:
+        await sched.stop()
+
+
+async def test_list_jobs_returns_registered_metadata() -> None:
+    """``list_jobs`` 的每个快照都携带各自的注册元数据。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta(device_id="d1", group="fast"))
+        sched.add_interval_job("j2", 1.0, job, metadata=JobMetadata(kind="system"))
+
+        by_id = {info.job_id: info for info in sched.list_jobs()}
+        assert by_id["j1"].metadata == _meta(device_id="d1", group="fast")
+        assert by_id["j2"].metadata == JobMetadata(kind="system")
+        assert by_id["j2"].metadata.device_id is None
+    finally:
+        await sched.stop()
+
+
+async def test_pause_resume_preserves_metadata() -> None:
+    """pause/resume 只翻转调度状态，不改变元数据。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        meta = _meta()
+        sched.add_interval_job("j1", 1.0, job, metadata=meta)
+
+        sched.pause_job("j1")
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.metadata == meta
+
+        sched.resume_job("j1")
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.metadata == meta
+    finally:
+        await sched.stop()
+
+
+async def test_replace_existing_updates_metadata() -> None:
+    """同 id 替换注册：元数据随新定义更新（interval 变更路径的契约）。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta(group="fast"))
+        sched.add_interval_job("j1", 2.0, job, metadata=_meta(group="slow"), replace_existing=True)
+
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.metadata == _meta(group="slow")
+        assert info.interval_seconds == 2.0
+    finally:
+        await sched.stop()
+
+
+async def test_remove_job_cleans_metadata() -> None:
+    """移除 Job 同时清理其元数据——同名再注册不得读到残留。"""
+    sched = APSchedulerAdapter()
+    await sched.start()
+    try:
+        job, _event, _calls = _job_recorder()
+        sched.add_interval_job("j1", 1.0, job, metadata=_meta())
+        sched.remove_job("j1")
+        assert "j1" not in sched._job_metadata
+
+        sched.add_interval_job("j1", 1.0, job, metadata=JobMetadata(kind="system"))
+        info = sched.get_job("j1")
+        assert info is not None
+        assert info.metadata == JobMetadata(kind="system")
     finally:
         await sched.stop()
 

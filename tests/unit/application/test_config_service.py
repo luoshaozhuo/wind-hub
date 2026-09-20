@@ -34,7 +34,7 @@ from wind_hub.config.schema import (
     SinkConfig,
 )
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.route import RouteRule, RouteTarget
+from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 
 pytestmark = pytest.mark.asyncio
 
@@ -235,7 +235,13 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         devices=[_make_device("d1")],
         sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
         points=[_make_point("p1")],
-        rules=[RouteRule(name="r1", match_point_prefix="a.", targets=[RouteTarget(sink="s1")])],
+        rules=[
+            RouteRule(
+                name="r1",
+                match=RouteMatch(point_group="a"),
+                targets=[RouteTarget(sink="s1")],
+            )
+        ],
         processors=["scale"],
     )
     service = ConfigService(tmp_path, _mock_runtime())
@@ -246,7 +252,13 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         devices=[_make_device("d1")],
         sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
         points=[_make_point("p2")],
-        rules=[RouteRule(name="r2", match_point_prefix="b.", targets=[RouteTarget(sink="s2")])],
+        rules=[
+            RouteRule(
+                name="r2",
+                match=RouteMatch(point_group="b"),
+                targets=[RouteTarget(sink="s2")],
+            )
+        ],
         processors=["scale", "filter"],
     )
     service2 = ConfigService(tmp_path, _mock_runtime())
@@ -268,3 +280,95 @@ async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) 
 
     assert diff.has_any_changes is False
     assert diff.devices.unchanged == ["d1"]
+
+
+# ---------------------------------------------------------------------------
+# 热重载 —— 点表继承的传播
+# ---------------------------------------------------------------------------
+
+
+def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
+    """写出一套含继承链的配置：d1 绑定子表 child（extends base），d2 绑定无关表。"""
+    _write_configs(
+        base,
+        devices=[
+            DeviceConfig(
+                device_id="d1",
+                protocol="modbus",
+                point_table="child",
+                endpoint=Endpoint(host="10.0.0.1", port=502),
+            ),
+            DeviceConfig(
+                device_id="d2",
+                protocol="modbus",
+                point_table="other",
+                endpoint=Endpoint(host="10.0.0.2", port=502),
+            ),
+        ],
+        points=[_make_point()],  # t1 占位，随即被下方 points.yaml 覆盖
+    )
+    yaml.safe_dump(
+        {
+            "point_tables": {
+                "base": {
+                    "points": [
+                        {
+                            "point_id": "p1",
+                            "address": {"type": "hr"},
+                            "data_type": "float32",
+                            "unit": base_unit,
+                        }
+                    ]
+                },
+                "child": {"extends": "base"},
+                "other": {
+                    "points": [
+                        {
+                            "point_id": "p9",
+                            "address": {"type": "hr"},
+                            "data_type": "float32",
+                        }
+                    ]
+                },
+            }
+        },
+        (base / "points.yaml").open("w"),
+    )
+
+
+async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: Path) -> None:
+    """父表变化：diff 基于 resolved 结果，子表被标记变更并携带新点集进入 Runtime。"""
+    _write_inheritance_configs(tmp_path, base_unit="rpm")
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
+    assert service.current_config.point_tables.tables["child"].points[0].unit == "rpm"
+
+    _write_inheritance_configs(tmp_path, base_unit="rps")  # 只改父表
+    result = await service.reload()
+
+    assert result.success is True
+    runtime.reconfigure.assert_awaited_once()
+    new_cfg, diff = runtime.reconfigure.await_args.args
+    # 父表变化把继承它的子表一并标记为变更——Runtime 据此为绑定子表的
+    # 设备重新注入点映射（_reinject_changed_tables 路径）
+    assert diff.points_changed is True
+    assert diff.point_tables_changed == ["base", "child"]
+    child_points = {p.point_id: p for p in new_cfg.point_tables.tables["child"].points}
+    assert child_points["p1"].unit == "rps"
+    # 无关表与无关设备不受影响
+    assert "other" not in diff.point_tables_changed
+    assert diff.devices.unchanged == ["d1", "d2"]
+    assert service.current_config is new_cfg
+
+
+async def test_reload_unmodified_inheritance_chain_is_noop(tmp_path: Path) -> None:
+    """继承链配置未变：reload 无 diff、不触碰 Runtime。"""
+    _write_inheritance_configs(tmp_path)
+    runtime = _mock_runtime()
+    service = ConfigService(tmp_path, runtime)
+
+    result = await service.reload()
+
+    assert result.success is True
+    assert result.diff.has_any_changes is False
+    runtime.reconfigure.assert_not_awaited()

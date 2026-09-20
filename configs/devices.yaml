@@ -3,15 +3,27 @@
 # ---------------------------------------------------------------------------
 #
 # 点表绑定：每台设备经 `point_table: <表名>` 引用 points.yaml 中的一份命名
-# 点表；同类型设备共享同一表定义（见 wtg-003/004/005）。设备的 `polling`
-# 按 group 定义采集周期——点表中每个点的 `group` 必须被 polling 覆盖，
-# 一个 (device, group) 对应一个调度 Job（poll:{device_id}:{group}）。
+# 点表；点表自身可单继承复用（wtg-003 绑定机型表 beckhoff_2mw_v1，
+# wtg-004 绑定其现场变体 beckhoff_2mw_site_a），设备绑定的校验作用于
+# 继承展开后的最终点集。设备的 `polling` 按 group 定义采集周期——点表中
+# 每个点的 `group` 必须被 polling 覆盖，一个 (device, group) 对应一个
+# 调度 Job（poll:{device_id}:{group}）。
+#
+# `device_group` 是设备业务类别（如 turbine / pcs / substation / met_mast），
+# 同类大量设备共享同一值——路由规则按它匹配（见 routing.yaml）。
+#
+# ADS `read_mode`：
+#   sum        — 单条 Sum 命令按 Symbol 批量读，用于周期采集；
+#                绑定点表的全部点位必须配置 address.symbol（加载期校验）
+#   sequential — 逐点 Read，只允许 CLI/WebAPI 单次读取与诊断，
+#                不参与周期调度——配置 polling 是配置错误（加载期报错）
 
 devices:
 
   # IEC104 风机控制器（遥测 + 遥信）
   - device_id: wtg-001
     protocol: iec104
+    device_group: turbine
     point_table: iec104_wtg_v1
     endpoint:
       host: "10.0.1.1"
@@ -28,6 +40,7 @@ devices:
   # Modbus 风机控制器
   - device_id: wtg-002
     protocol: modbus
+    device_group: turbine
     point_table: modbus_wtg_v1
     endpoint:
       host: "10.0.2.1"
@@ -39,12 +52,13 @@ devices:
         interval: 2.0
     enabled: true
 
-  # ADS 风机控制器 1 号（TwinCAT 2）— Sum 批量周期采集
+  # ADS 风机控制器 1 号（TwinCAT 2）— Sum 批量周期采集；
+  # 绑定 2MW 机型点表（继承自 beckhoff_base_v1，继承展开后校验）
   - device_id: wtg-003
     protocol: ads
-    point_table: beckhoff_wtg_v1
-    read_mode: sum           # 'sum'（单条 Sum 命令，Symbol 批量，周期采集）
-    mode: poll               # 'poll'（周期轮询）| 'subscribe'（订阅推送）
+    device_group: turbine
+    point_table: beckhoff_2mw_v1
+    read_mode: sum           # 单条 Sum 命令，Symbol 批量寻址，周期采集
     endpoint:
       host: "10.0.3.1"
       port: 48898
@@ -58,12 +72,13 @@ devices:
         interval: 10.0
     enabled: true
 
-  # ADS 风机控制器 2 号 — 与 wtg-003 共享同一份点表（同类型设备复用）
+  # ADS 风机控制器 2 号 — 同机型现场 A 变体：绑定 beckhoff_2mw_site_a
+  # （继承 beckhoff_2mw_v1，仅分组与个别 Symbol 与机型表不同）
   - device_id: wtg-004
     protocol: ads
-    point_table: beckhoff_wtg_v1
+    device_group: turbine
+    point_table: beckhoff_2mw_site_a
     read_mode: sum
-    mode: poll
     endpoint:
       host: "10.0.3.2"
       port: 48898
@@ -77,26 +92,18 @@ devices:
         interval: 10.0
     enabled: true
 
-  # ADS 诊断机位 — read_mode: sequential（逐点读，供 CLI/WebAPI 单次读取
-  # 与诊断；不能用于周期轮询——sequential + mode: poll 是配置错误）。
-  # 周期数据经设备通知订阅推送（subscribe.enabled: true）。
+  # ADS 诊断机位 — read_mode: sequential：逐点 Read（Symbol 优先，无 symbol
+  # 回退 index 对），只允许 CLI/WebAPI 单次读取与诊断，不参与周期调度，
+  # 因此不配置 polling（配置即在加载期报错）。
   - device_id: wtg-005
     protocol: ads
-    point_table: beckhoff_wtg_v1
-    read_mode: sequential    # 逐点 Read（Symbol 优先，无 symbol 回退 index）
-    mode: poll               # read_mode（如何读）与 mode（何时读）正交：
-                             # sequential 也可周期轮询，引擎把该组的
-                             # PointRef 批交给驱动逐点读（点数多、周期短
-                             # 时建议 sum——性能取舍而非配置错误）
+    device_group: turbine
+    point_table: beckhoff_diag_v1
+    read_mode: sequential
     endpoint:
       host: "10.0.3.3"
       port: 48898
       extensions:
         ams_net_id: "10.0.3.3.1.1"
         twincat_version: "2"
-    polling:
-      - group: fast
-        interval: 1.0
-      - group: slow
-        interval: 10.0
     enabled: true

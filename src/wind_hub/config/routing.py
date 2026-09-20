@@ -27,6 +27,8 @@ class RoutingTable:
         rules: list[RouteRule],
         points_by_device: dict[str, list[PointConfig]],
         unmatched_policy: str = "drop",
+        *,
+        device_groups: dict[str, str | None] | None = None,
     ) -> None:
         if unmatched_policy not in ALLOWED_UNMATCHED_POLICIES:
             raise ConfigError(
@@ -35,6 +37,7 @@ class RoutingTable:
             )
         self._unmatched_policy = unmatched_policy
         self._rules = sorted(rules, key=lambda r: (-r.priority, r.name))
+        self._device_groups = device_groups or {}
 
         # Per-point sink overrides: (device_id, point_id) → [sink, …]
         self._point_overrides: dict[tuple[str, str], list[str]] = {}
@@ -51,6 +54,7 @@ class RoutingTable:
         unmatched: list[tuple[str, str]] = []
 
         for device_id, points in points_by_device.items():
+            device_group = self._device_groups.get(device_id)
             for p in points:
                 key = (device_id, p.point_id)
 
@@ -61,12 +65,12 @@ class RoutingTable:
                     continue
 
                 # 2. Walk rules by descending priority
-                targets = self._match_rules(device_id, p.point_id)
+                targets = self._match_rules(device_group, p.group)
                 if targets:
                     self._table[key] = targets
                     # Record first matching rule name
                     self._rule_hits[key] = self._first_matching_rule_name(
-                        device_id, p.point_id
+                        device_group, p.group
                     )
                 else:
                     unmatched.append(key)
@@ -130,22 +134,31 @@ class RoutingTable:
     # internal helpers
     # ------------------------------------------------------------------
 
-    def _match_rules(self, device_id: str, point_id: str) -> list[str] | None:
+    def _match_rules(
+        self, device_group: str | None, point_group: str
+    ) -> list[str] | None:
         """Walk sorted rules; return sink names of the first matching rule."""
         for rule in self._rules:
-            if self._rule_matches(rule, device_id, point_id):
+            if self._rule_matches(rule, device_group, point_group):
                 return [t.sink for t in rule.targets]
         return None
 
-    def _first_matching_rule_name(self, device_id: str, point_id: str) -> str:
+    def _first_matching_rule_name(
+        self, device_group: str | None, point_group: str
+    ) -> str:
         """Return the name of the first matching rule (caller guarantees a match)."""
         for rule in self._rules:
-            if self._rule_matches(rule, device_id, point_id):
+            if self._rule_matches(rule, device_group, point_group):
                 return rule.name
         return ""  # unreachable when a match already exists
 
     @staticmethod
-    def _rule_matches(rule: RouteRule, device_id: str, point_id: str) -> bool:
-        device_ok = rule.match_device is None or rule.match_device == device_id
-        prefix_ok = rule.match_point_prefix is None or point_id.startswith(rule.match_point_prefix)
-        return device_ok and prefix_ok
+    def _rule_matches(
+        rule: RouteRule, device_group: str | None, point_group: str
+    ) -> bool:
+        m = rule.match
+        if m.all:
+            return True
+        device_ok = m.device_group is None or m.device_group == device_group
+        point_ok = m.point_group is None or m.point_group == point_group
+        return device_ok and point_ok

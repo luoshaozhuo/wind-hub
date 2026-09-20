@@ -42,7 +42,7 @@ from wind_hub.config.schema import (
 )
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
 from wind_hub.domain.command.dispatcher import Dispatcher
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff
 from wind_hub.domain.port.outbound import (
     HealthStatus,
@@ -50,7 +50,12 @@ from wind_hub.domain.port.outbound import (
     ProtocolPort,
     SinkPort,
 )
-from wind_hub.domain.port.scheduling import SchedulerPort
+from wind_hub.domain.port.scheduling import (
+    POLL_JOB_KIND,
+    JobInfo,
+    JobMetadata,
+    SchedulerPort,
+)
 from wind_hub.domain.processing.pipeline import Pipeline
 from wind_hub.domain.routing.delivery import DeliveryDispatcher, policies_from_rules
 from wind_hub.domain.routing.router import Router
@@ -58,7 +63,7 @@ from wind_hub.domain.routing.router import Router
 logger = logging.getLogger(__name__)
 
 #: 设备更新走轻量路径（不重建 Protocol 连接）所允许的变更字段集。
-_LIGHTWEIGHT_DEVICE_FIELDS = frozenset({"polling", "point_table"})
+_LIGHTWEIGHT_DEVICE_FIELDS = frozenset({"polling", "point_table", "device_group"})
 
 
 def _changed_fields(old: DeviceConfig, new: DeviceConfig) -> set[str]:
@@ -241,6 +246,10 @@ class Runtime:
 
     async def start(self) -> None:
         """启动运行时——连接设备、打开 sink、启动调度器并注册采集 Job。
+
+        全部采集 Job 注册后默认 STOPPED（paused，``next_run_time=None``）：
+        启动完成只意味着基础设施就绪，周期采集要等 CLI / Web API 的显式
+        start 指令才开始（见 :class:`~wind_hub.application.job_service.JobService`）。
 
         单台设备连接失败或单个 sink 打开失败只记录日志并跳过，其余组件
         照常启动。幂等：已运行时重复调用为无操作。
@@ -556,7 +565,7 @@ class Runtime:
         protocol: ProtocolPort,
         points: list[PointConfig],
     ) -> None:
-        """运行时新增设备——注入点表、连接、注册采集 Job / 订阅。"""
+        """运行时新增设备——注入点表、连接、注册采集 Job（默认 STOPPED）。"""
         self._devices[device_id] = cfg
         self._protocols[device_id] = protocol
         protocol.set_points_mapping(points)
@@ -612,7 +621,17 @@ class Runtime:
         new_protocol: ProtocolPort,
         points: list[PointConfig],
     ) -> None:
-        """重建设备——注销旧 Job、关闭旧连接，换入新配置/驱动后重新接入。"""
+        """重建设备——注销旧 Job、关闭旧连接，换入新配置/驱动后重新接入。
+
+        采集 Job 的调度状态（RUNNING/STOPPED）跨重建保持：注销前记录各
+        Job 的暂停态，重新注册时原样恢复——设备重连或协议重建不会让
+        STOPPED Job 自动启动，也不会打断 RUNNING Job。
+        """
+        job_states = {
+            job.job_id: job.paused
+            for job in self._scheduler.list_jobs()
+            if self._owns_job(device_id, job)
+        }
         self._remove_device_jobs(device_id)
 
         old_proto = self._protocols.pop(device_id, None)
@@ -654,7 +673,7 @@ class Runtime:
             )
 
         if new_cfg.enabled and self._running:
-            await self._start_acquisition(device_id, new_cfg)
+            await self._start_acquisition(device_id, new_cfg, job_states=job_states)
 
     # ------------------------------------------------------------------
     # 热重载——sink 管理
@@ -782,6 +801,15 @@ class Runtime:
         """
         errors: list[str] = []
 
+        # device_group 变化影响路由匹配——必须在设备 diff 应用前用旧配置比较
+        # （_apply_device_diff 会用新配置覆盖 self._devices）。
+        new_devices_by_id = {d.device_id: d for d in new_config.devices.devices}
+        device_group_changed = any(
+            (old := self._devices.get(did)) is not None
+            and old.device_group != new_devices_by_id[did].device_group
+            for did in diff.devices.updated
+        )
+
         try:
             await self._apply_device_diff(diff, new_config)
         except Exception as exc:
@@ -803,12 +831,16 @@ class Runtime:
                 logger.error("Point mapping re-inject failed: %s", exc, exc_info=True)
                 errors.append(f"points: {exc}")
 
-        if diff.points_changed or diff.rules_changed:
+        routing_stale = diff.points_changed or diff.rules_changed or device_group_changed
+        if routing_stale:
             try:
                 table = RoutingTable(
                     new_config.routing.rules,
                     new_config.points_by_device(),
                     new_config.routing.unmatched_policy,
+                    device_groups={
+                        d.device_id: d.device_group for d in new_config.devices.devices
+                    },
                 )
                 router = Router(table)
                 await self.replace_router(router)
@@ -929,26 +961,35 @@ class Runtime:
         """把设备的轮询 Job 同步为当前 polling 配置。
 
         只增删/替换受影响的 Job：消失的 group 注销 Job；现存 group 经
-        ``replace_existing=True`` 按新 interval 重建；未运行或非轮询
-        设备不新建 Job。
+        ``replace_existing=True`` 按新 interval 重建，并**保持其当前
+        RUNNING/STOPPED 状态**（interval 修改不统一 resume）；热新增的
+        group 一律以 STOPPED 注册；未运行或非轮询设备不新建 Job。
         """
         desired = {self._job_id(device_id, g.group): g for g in self._polling_groups(device_cfg)}
-        prefix = f"poll:{device_id}:"
-        for job in self._scheduler.list_jobs():
-            if job.job_id.startswith(prefix) and job.job_id not in desired:
-                self._scheduler.remove_job(job.job_id)
+        existing = {
+            job.job_id: job for job in self._scheduler.list_jobs() if self._owns_job(device_id, job)
+        }
+        for job_id in existing:
+            if job_id not in desired:
+                self._scheduler.remove_job(job_id)
                 # 消失的 group 连同其采集状态一起清理。
-                self._acq_states.pop(job.job_id, None)
+                self._acq_states.pop(job_id, None)
 
-        if not (device_cfg.enabled and self._running and device_cfg.mode == "poll"):
+        if not (
+            device_cfg.enabled and self._running and device_cfg.supports_scheduled_polling
+        ):
             return
         for job_id, group in desired.items():
+            # 已存在的 Job 保持原调度状态；新 Job 默认 STOPPED（显式启动才运行）。
+            start_paused = existing[job_id].paused if job_id in existing else True
             self._scheduler.add_interval_job(
                 job_id=job_id,
                 interval_seconds=group.interval,
                 func=self._engine.collect,
+                metadata=self._job_metadata(device_id, group.group),
                 args=(device_id, group.group),
                 replace_existing=True,
+                start_paused=start_paused,
             )
             # 新 group 建立新状态；interval 变化（Job 原地替换）保留原状态。
             self._acq_states.setdefault(
@@ -985,7 +1026,7 @@ class Runtime:
             await self.rebuild_sink(name, cfg, sink)
 
     # ------------------------------------------------------------------
-    # 私有——采集接入（调度 Job 注册 / 订阅）
+    # 私有——采集接入（调度 Job 注册）
     # ------------------------------------------------------------------
 
     def _polling_groups(self, device_cfg: DeviceConfig) -> list[PollingGroup]:
@@ -1000,89 +1041,68 @@ class Runtime:
         """轮询 Job 标识约定：``poll:{device_id}:{group}``。"""
         return f"poll:{device_id}:{group}"
 
-    def _remove_device_jobs(self, device_id: str) -> None:
-        """注销某设备的全部轮询 Job（按 id 前缀匹配）。
+    @staticmethod
+    def _job_metadata(device_id: str, group: str) -> JobMetadata:
+        """轮询 Job 的业务元数据——注册时显式传入，与 Job ID 解耦。"""
+        return JobMetadata(kind=POLL_JOB_KIND, device_id=device_id, group=group)
 
-        未知 Job 的 ``remove_job`` 会抛 ``KeyError``——设备可能以纯订阅
-        模式运行而没有轮询 Job，故缺席是正常情况，静默跳过。
+    @staticmethod
+    def _owns_job(device_id: str, job: JobInfo) -> bool:
+        """该 Job 是否属于指定设备的采集 Job——按元数据判定，不解析 Job ID。
+
+        元数据里的 ``device_id`` 是精确匹配，天然免疫「id 前缀歧义」
+        （如设备 ``d1`` 与 ``d1:sub`` 的 Job ID 前缀互相包含）。
+        """
+        return job.metadata.kind == POLL_JOB_KIND and job.metadata.device_id == device_id
+
+    def _remove_device_jobs(self, device_id: str) -> None:
+        """注销某设备的全部轮询 Job（按元数据归属匹配）。
+
+        未知 Job 的 ``remove_job`` 会抛 ``KeyError``——设备可能不参与周期
+        调度而没有轮询 Job，故缺席是正常情况，静默跳过。
         采集执行状态随 Job 一并清理。
         """
-        prefix = f"poll:{device_id}:"
         for job in self._scheduler.list_jobs():
-            if job.job_id.startswith(prefix):
+            if self._owns_job(device_id, job):
                 self._scheduler.remove_job(job.job_id)
                 self._acq_states.pop(job.job_id, None)
 
-    async def _start_acquisition(self, device_id: str, device_cfg: DeviceConfig) -> None:
-        """按设备 ``mode`` 接入采集：``'poll'`` 注册周期 Job；
-        ``'subscribe'`` 订阅推送。禁用设备跳过。"""
-        if not device_cfg.enabled:
-            return
-        if device_cfg.mode == "poll":
-            for group in self._polling_groups(device_cfg):
-                job_id = self._job_id(device_id, group.group)
-                self._scheduler.add_interval_job(
-                    job_id=job_id,
-                    interval_seconds=group.interval,
-                    func=self._engine.collect,
-                    args=(device_id, group.group),
-                    replace_existing=True,
-                )
-                # Job 注册即建立采集状态（首次 collect 前 status 即可见）。
-                self._acq_states.setdefault(
-                    job_id,
-                    AcquisitionRuntimeState(
-                        job_id=job_id, device_id=device_id, group=group.group
-                    ),
-                )
-        if device_cfg.mode == "subscribe":
-            await self._start_subscription(device_id, device_cfg)
+    async def _start_acquisition(
+        self,
+        device_id: str,
+        device_cfg: DeviceConfig,
+        *,
+        job_states: dict[str, bool] | None = None,
+    ) -> None:
+        """为启用且参与周期调度的设备注册轮询 Job；禁用或
+        ADS ``sequential`` 设备跳过（后者只允许请求驱动的单次读取）。
 
-    async def _start_subscription(self, device_id: str, device_cfg: DeviceConfig) -> None:
-        """订阅设备推送（push 模式），推送值回流到正常采集链路。
-
-        驱动不支持订阅（``NotImplementedError``）或订阅调用失败时，纯
-        ``'subscribe'`` 设备回退为轮询 Job，保证仍能采集。
+        新 Job 一律以 STOPPED（paused）注册——程序启动与热新增都不会自动
+        开始周期采集，只有 CLI / Web API 的显式 start 才恢复调度。
+        ``job_states``（``{job_id: paused}``）用于设备重建路径恢复既有
+        Job 的调度状态。
         """
-        proto = self._protocols.get(device_id)
-        if proto is None:
+        if not (device_cfg.enabled and device_cfg.supports_scheduled_polling):
             return
-        refs = [
-            PointRef(device_id=device_id, point_id=p.point_id)
-            for p in self._points_by_device.get(device_id, [])
-        ]
-
-        async def on_data(value: PointValue) -> None:
-            await self._engine.process_and_route([value])
-
-        try:
-            await proto.subscribe(refs, on_data)
-            logger.info("Device '%s' subscribed to updates", device_id)
-        except NotImplementedError:
-            logger.warning(
-                "Device '%s' does not support subscription — falling back to polling",
-                device_id,
+        for group in self._polling_groups(device_cfg):
+            job_id = self._job_id(device_id, group.group)
+            start_paused = job_states.get(job_id, True) if job_states else True
+            self._scheduler.add_interval_job(
+                job_id=job_id,
+                interval_seconds=group.interval,
+                func=self._engine.collect,
+                metadata=self._job_metadata(device_id, group.group),
+                args=(device_id, group.group),
+                replace_existing=True,
+                start_paused=start_paused,
             )
-            self._fallback_to_polling(device_id, device_cfg)
-        except Exception:
-            logger.warning(
-                "Device '%s' subscribe failed — falling back to polling",
-                device_id,
-                exc_info=True,
+            # Job 注册即建立采集状态（首次 collect 前 status 即可见）。
+            self._acq_states.setdefault(
+                job_id,
+                AcquisitionRuntimeState(
+                    job_id=job_id, device_id=device_id, group=group.group
+                ),
             )
-            self._fallback_to_polling(device_id, device_cfg)
-
-    def _fallback_to_polling(self, device_id: str, device_cfg: DeviceConfig) -> None:
-        """订阅失败后把纯订阅设备切换为轮询 Job。"""
-        if device_cfg.mode == "subscribe":
-            for group in self._polling_groups(device_cfg):
-                self._scheduler.add_interval_job(
-                    job_id=self._job_id(device_id, group.group),
-                    interval_seconds=group.interval,
-                    func=self._engine.collect,
-                    args=(device_id, group.group),
-                    replace_existing=True,
-                )
 
     # ------------------------------------------------------------------
     # 私有——sink 背压与消费者

@@ -53,7 +53,7 @@ class AppContext:
     """可选路由查询服务（``route explain``）。缺失时同样由适配器兜底。"""
 
     job_service: JobUseCase | None = None
-    """可选调度 Job 管理服务（pause/resume/trigger/status）。"""
+    """可选采集 Job 生命周期服务（查询 / start / stop / start-all / stop-all）。"""
 
     runtime: Runtime | None = None
     """可选 Runtime，供 ``/metrics`` 读取引擎快照（gauge 数据来源）。"""

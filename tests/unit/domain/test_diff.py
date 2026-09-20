@@ -10,20 +10,20 @@ from wind_hub.config.schema import (
     PipelineConfig,
     PointAddress,
     PointConfig,
-    PointTableConfig,
-    PointTablesConfig,
+    ResolvedPointTable,
+    ResolvedPointTables,
     RoutingConfig,
     SinkConfig,
     SystemConfig,
 )
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.route import RouteRule, RouteTarget
+from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 
 
 def _make_config(
     devices: list[DeviceConfig] | None = None,
     sinks: list[SinkConfig] | None = None,
-    tables: dict[str, PointTableConfig] | None = None,
+    tables: dict[str, ResolvedPointTable] | None = None,
     rules: list[RouteRule] | None = None,
     processors: list[str] | None = None,
 ) -> Config:
@@ -33,7 +33,7 @@ def _make_config(
             pipeline=PipelineConfig(processors=processors or []),
         ),
         devices=DevicesConfig(devices=devices or []),
-        point_tables=PointTablesConfig(tables=tables or {}),
+        point_tables=ResolvedPointTables(tables=tables or {}),
         routing=RoutingConfig(rules=rules or []),
     )
 
@@ -52,8 +52,8 @@ def _device(device_id: str, protocol: str = "modbus", **kwargs) -> DeviceConfig:
     )
 
 
-def _table(*points: PointConfig) -> PointTableConfig:
-    return PointTableConfig(points=list(points))
+def _table(*points: PointConfig) -> ResolvedPointTable:
+    return ResolvedPointTable(points=list(points))
 
 
 def _point(point_id: str = "p1", **kwargs) -> PointConfig:  # type: ignore[no-untyped-def]
@@ -70,7 +70,9 @@ def test_empty_diff_identical_configs() -> None:
         devices=[_device("d1")],
         sinks=[SinkConfig(name="s1", type="file")],
         tables={"t1": _table(_point("p1"))},
-        rules=[RouteRule(name="default", targets=[RouteTarget(sink="s1")])],
+        rules=[
+            RouteRule(match=RouteMatch(all=True), name="default", targets=[RouteTarget(sink="s1")])
+        ],
         processors=["unit_convert"],
     )
     diff = compute_diff(cfg, cfg)
@@ -274,11 +276,19 @@ def test_tables_unchanged() -> None:
 
 def test_rules_changed() -> None:
     old = _make_config(
-        rules=[RouteRule(name="r1", targets=[RouteTarget(sink="s1")], priority=0)],
+        rules=[
+            RouteRule(
+                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=0
+            )
+        ],
     )
     new = _make_config(
         # priority changed
-        rules=[RouteRule(name="r1", targets=[RouteTarget(sink="s1")], priority=10)],
+        rules=[
+            RouteRule(
+                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=10
+            )
+        ],
     )
     diff = compute_diff(old, new)
     assert diff.rules_changed
@@ -286,7 +296,11 @@ def test_rules_changed() -> None:
 
 def test_rules_unchanged() -> None:
     cfg = _make_config(
-        rules=[RouteRule(name="r1", targets=[RouteTarget(sink="s1")], priority=0)],
+        rules=[
+            RouteRule(
+                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=0
+            )
+        ],
     )
     diff = compute_diff(cfg, cfg)
     assert not diff.rules_changed
@@ -326,7 +340,7 @@ def test_comprehensive_diff() -> None:
             SinkConfig(name="s2", type="kafka"),
         ],
         tables={"t1": _table(_point("p1"))},
-        rules=[RouteRule(name="r1", targets=[RouteTarget(sink="s1")])],
+        rules=[RouteRule(match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")])],
         processors=["a"],
     )
     new = _make_config(
@@ -339,7 +353,13 @@ def test_comprehensive_diff() -> None:
             SinkConfig(name="s3", type="db"),
         ],
         tables={"t1": _table(_point("p1"), _point("p2"))},
-        rules=[RouteRule(name="r2", targets=[RouteTarget(sink="s1"), RouteTarget(sink="s3")])],
+        rules=[
+            RouteRule(
+                match=RouteMatch(all=True),
+                name="r2",
+                targets=[RouteTarget(sink="s1"), RouteTarget(sink="s3")],
+            )
+        ],
         processors=["a", "b"],
     )
     diff = compute_diff(old, new)

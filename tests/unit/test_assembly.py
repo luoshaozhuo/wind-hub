@@ -81,7 +81,7 @@ def _write_minimal_config(base: Path) -> None:
             "rules": [
                 {
                     "name": "default",
-                    "match_point_prefix": "rotor.",
+                    "match": {"all": True},
                     "targets": [{"sink": "archive"}],
                 },
             ],
@@ -146,7 +146,7 @@ def _write_two_device_config(base: Path) -> None:
         "routing.yaml",
         {
             "rules": [
-                {"name": "default", "targets": [{"sink": "archive"}]},
+                {"name": "default", "match": {"all": True}, "targets": [{"sink": "archive"}]},
             ],
         },
     )

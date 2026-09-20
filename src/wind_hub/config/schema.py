@@ -153,30 +153,14 @@ class PollingGroup(BaseModel):
     interval: float
     """Polling interval for this group in seconds."""
 
-
-class SubscribeConfig(BaseModel):
-    """Device-notification (push) parameters for a device.
-
-    Only meaningful when the protocol driver supports spontaneous
-    updates (e.g. ADS device notifications).  Values are consumed by
-    the adapter, which owns the connection-pool sizing.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = False
-    """Whether to subscribe to spontaneous updates instead of (or in
-    addition to) polling."""
-
-    cycle_time: float = 0.02
-    """Notification cycle time in seconds (minimum update period)."""
-
-    max_delay: float = 0.06
-    """Maximum notification delay in seconds."""
-
-    max_notifications_per_connection: int = 550
-    """Notification-handle budget per connection; the adapter opens an
-    additional connection once a connection's handles exceed this."""
+    @model_validator(mode="after")
+    def _validate_interval(self) -> PollingGroup:
+        if self.interval <= 0:
+            raise ConfigError(
+                f"Polling group '{self.group}': interval must be > 0, "
+                f"got {self.interval}"
+            )
+        return self
 
 
 class DeviceConfig(BaseModel):
@@ -190,19 +174,24 @@ class DeviceConfig(BaseModel):
     point_table: str
     """绑定的点表名（``points.yaml`` 中 ``point_tables`` 的键）。同类型
     设备共享同一份点表定义，不逐设备复制。"""
+    device_group: str | None = None
+    """设备业务类别（如 ``'turbine'`` / ``'pcs'`` / ``'substation'`` /
+    ``'met_mast'``）——同类大量设备共享同一值，路由规则按此维度匹配。"""
     polling: list[PollingGroup] = Field(default_factory=list)
     enabled: bool = True
     read_mode: str = "sum"
     """ADS 读取策略：``'sum'``（单条 Sum 命令，Symbol 批量寻址，用于周期
-    采集）或 ``'sequential'``（逐点 Read，用于 CLI/API 单次读取与诊断）。
-    仅对 ``protocol == 'ads'`` 有意义。"""
+    采集）或 ``'sequential'``（逐点 Read，仅用于 CLI/API 单次读取与诊断，
+    不参与周期调度）。仅对 ``protocol == 'ads'`` 有意义。"""
 
-    mode: str = "poll"
-    """采集模式：``'poll'``（调度器周期轮询）或 ``'subscribe'``（订阅推送，
-    不轮询）。不支持两者混合。"""
+    @property
+    def supports_scheduled_polling(self) -> bool:
+        """是否参与周期调度。
 
-    subscribe: SubscribeConfig = Field(default_factory=SubscribeConfig)
-    """Push-subscription settings; see :class:`SubscribeConfig`."""
+        ADS ``sequential`` 设备只允许请求驱动的单次读取（CLI/API/诊断），
+        不注册周期 Job——配置加载阶段已禁止其配置 ``polling``。
+        """
+        return not (self.protocol == "ads" and self.read_mode == "sequential")
 
     @model_validator(mode="after")
     def _validate_acquisition(self) -> DeviceConfig:
@@ -211,10 +200,10 @@ class DeviceConfig(BaseModel):
                 f"Device '{self.device_id}': read_mode must be 'sum' or 'sequential', "
                 f"got '{self.read_mode}'"
             )
-        if self.mode not in ("poll", "subscribe"):
+        groups = [g.group for g in self.polling]
+        if len(groups) != len(set(groups)):
             raise ConfigError(
-                f"Device '{self.device_id}': mode must be 'poll' or 'subscribe', "
-                f"got '{self.mode}'"
+                f"Device '{self.device_id}': duplicate polling groups: {groups}"
             )
         return self
 
@@ -302,14 +291,14 @@ class PointConfig(BaseModel):
     （见 :class:`DeviceConfig.point_table`）。三个标识各司其职、不得混用：
 
     - ``point_id`` — 系统内部稳定 ID（如 ``p001``），与具体设备无关；
-    - ``name`` — 业务变量名（如 ``rotor_speed``），仅供展示与诊断；
+    - ``variable_name`` — 业务变量名（如 ``rotor_speed``），仅供展示与诊断；
     - ``address.symbol`` — PLC Symbol（协议寻址，见 address extra 字段）。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     point_id: str
-    name: str | None = None
+    variable_name: str | None = None
     """业务变量名（展示/诊断用）；``None`` 表示未命名。"""
     group: str = "default"
     """采集分组——设备 ``polling`` 配置按组定义周期；点通过本字段归类，
@@ -354,10 +343,81 @@ class PointConfig(BaseModel):
         return self
 
 
-class PointTableConfig(BaseModel):
-    """一份可复用点表——同类型设备共享的完整点集定义。
+class PointPatch(BaseModel):
+    """点表继承中的点补丁——子表对父表点的**部分**覆盖或新增点的定义。
 
-    表内 ``point_id`` 唯一；不同表之间允许重复（命名空间相互独立）。
+    与 :class:`PointConfig` 的区别：除 ``point_id`` 外全部字段可选，
+    「未写」与「显式 null」语义不同——merge 以 ``model_fields_set``
+    判断字段是否出现在 Raw YAML 中：
+
+    - 未写（不在 ``model_fields_set``）→ 继承父表值；
+    - 写了（含显式 ``null``）→ 覆盖父表值。
+
+    本模型**不做**完整点校验（``data_type`` 白名单、deadband、min/max、
+    地址约束等）——这些在继承展开为完整 :class:`PointConfig` 后统一执行。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    point_id: str
+    variable_name: str | None = None
+    group: str | None = None
+    address: PointAddress | None = None
+    """显式配置时**整体替换**父表 address（不做递归深度 merge）。"""
+    data_type: str | None = None
+    scale: float | None = None
+    offset: float | None = None
+    unit: str | None = None
+    description: str | None = None
+    sinks: list[str] | None = None
+    """显式配置时**整体替换**父表 sinks（不做 append）。"""
+    deadband: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+
+    @model_validator(mode="after")
+    def _validate_patch(self) -> PointPatch:
+        if not self.point_id:
+            raise ConfigError("Point patch: point_id must be non-empty")
+        return self
+
+
+class PointTableConfig(BaseModel):
+    """Raw 点表（``points.yaml`` 中的表定义）——可复用、可单继承。
+
+    - ``extends``：父表名（单继承，允许多级链）；``None`` 表示基础表；
+    - ``remove_points``：按 ``point_id`` 从父表解析结果中删除；
+    - ``points``：补丁列表——``point_id`` 已存在于父表结果为 override，
+      不存在为新增。
+
+    解析顺序：父表解析结果 → ``remove_points`` → 本表 points
+    override/append（见 ``config/point_table_resolver.py``）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    extends: str | None = None
+    remove_points: list[str] = Field(default_factory=list)
+    points: list[PointPatch] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_raw(self) -> PointTableConfig:
+        seen: set[str] = set()
+        for p in self.points:
+            if p.point_id in seen:
+                raise ConfigError(f"Duplicate point_id in table: '{p.point_id}'")
+            seen.add(p.point_id)
+        if len(self.remove_points) != len(set(self.remove_points)):
+            raise ConfigError(f"Duplicate remove_points: {self.remove_points}")
+        return self
+
+
+class ResolvedPointTable(BaseModel):
+    """继承展开后的完整点表——同类型设备共享的点集定义（运行模型）。
+
+    Runtime / 协议驱动 / RoutingTable 只接触本模型，不接触
+    :class:`PointPatch`。表内 ``point_id`` 唯一；不同表之间允许重复
+    （命名空间相互独立）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -365,7 +425,7 @@ class PointTableConfig(BaseModel):
     points: list[PointConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_points(self) -> PointTableConfig:
+    def _validate_points(self) -> ResolvedPointTable:
         seen: set[str] = set()
         for p in self.points:
             if p.data_type not in ALLOWED_DATA_TYPES:
@@ -379,12 +439,29 @@ class PointTableConfig(BaseModel):
 
 
 class PointTablesConfig(BaseModel):
-    """Top-level points configuration (``points.yaml``)——全部命名点表。"""
+    """Top-level points configuration (``points.yaml``)——全部命名 Raw 点表。
+
+    仅作为 ``points.yaml`` 的解析目标与继承解析的输入；运行链路使用
+    :class:`ResolvedPointTables`。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     tables: dict[str, PointTableConfig] = Field(default_factory=dict)
-    """``{点表名: 点表}``；设备经 ``DeviceConfig.point_table`` 引用。"""
+    """``{点表名: Raw 点表}``。"""
+
+
+class ResolvedPointTables(BaseModel):
+    """继承解析完成后的全部命名点表（运行模型）。
+
+    ``Config.point_tables`` 持有本类型：父表变更在 diff 时体现为全部
+    受影响子孙表的 resolved 内容变化，热重载据此精确重注入设备点映射。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tables: dict[str, ResolvedPointTable] = Field(default_factory=dict)
+    """``{点表名: 解析后点表}``；设备经 ``DeviceConfig.point_table`` 引用。"""
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +615,8 @@ class Config(BaseModel):
 
     system: SystemConfig
     devices: DevicesConfig
-    point_tables: PointTablesConfig
+    point_tables: ResolvedPointTables
+    """继承解析完成后的点表集——运行链路只使用 resolved 模型。"""
     routing: RoutingConfig
     reporting: ReportingConfig | None = None
     """Optional IEC104 slave proxy config; ``None`` disables the proxy."""

@@ -87,6 +87,26 @@ class RouteExplainResponse(BaseModel):
     source: str
 
 
+class JobResponse(BaseModel):
+    """采集 Job 的调度生命周期快照。"""
+
+    job_id: str
+    device_id: str | None = None
+    group: str | None = None
+    interval: float | None = None
+    state: str
+    """``"running"`` / ``"stopped"``。"""
+    next_run_time: datetime | None = None
+
+
+class JobBatchResponse(BaseModel):
+    """批量 Job 操作（start-all / stop-all）的结果汇总。"""
+
+    total: int
+    changed: int
+    unchanged: int
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
@@ -105,6 +125,8 @@ __all__ = [
     "CommandResponse",
     "ReloadResponse",
     "RouteExplainResponse",
+    "JobResponse",
+    "JobBatchResponse",
     "ErrorDetail",
     "ErrorResponse",
 ]

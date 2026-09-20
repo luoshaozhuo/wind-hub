@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 DeliveryType = Literal["always", "interval", "every_n", "on_change"]
 """投递策略类型：``always``（每批都投递，缺省）/ ``interval``（按最小间隔
@@ -53,6 +53,43 @@ class RouteTarget(BaseModel):
     """Delivery policy for this (rule, sink) pair; ``None`` means always."""
 
 
+class RouteMatch(BaseModel):
+    """路由匹配条件——按设备业务类别与点采集分组两个维度匹配。
+
+    - ``all: true`` 匹配全部数据，与 ``device_group`` / ``point_group`` 互斥；
+    - ``device_group`` 匹配 :attr:`~wind_hub.config.schema.DeviceConfig.device_group`
+      （设备业务类别，如 ``'turbine'``）；
+    - ``point_group`` 匹配 :attr:`~wind_hub.config.schema.PointConfig.group`
+      （点采集分组，如 ``'fast'``）；
+    - 两个维度同时配置时为 AND；只配置一个时只按该维度匹配。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    all: bool = False
+    """``True`` 表示匹配全部数据（兜底规则）。"""
+
+    device_group: str | None = None
+    """按设备业务类别匹配；``None`` 表示不限设备类别。"""
+
+    point_group: str | None = None
+    """按点采集分组匹配；``None`` 表示不限分组。"""
+
+    @model_validator(mode="after")
+    def _validate_match(self) -> RouteMatch:
+        if self.all and (self.device_group is not None or self.point_group is not None):
+            raise ValueError(
+                "route match: 'all: true' is mutually exclusive with "
+                "'device_group' / 'point_group'"
+            )
+        if not self.all and self.device_group is None and self.point_group is None:
+            raise ValueError(
+                "route match must define at least one condition: "
+                "'all' / 'device_group' / 'point_group'"
+            )
+        return self
+
+
 class RouteRule(BaseModel):
     """A default routing rule that matches points and sends them to sinks.
 
@@ -63,14 +100,8 @@ class RouteRule(BaseModel):
     name: str
     """Human-readable rule name for debugging and observability."""
 
-    match_device: str | None = None
-    """Glob-like device ID filter (e.g. ``'turbine-*'``).
-    ``None`` means "match any device"."""
-
-    match_point_prefix: str | None = None
-    """Prefix filter on point ID (e.g. ``'rotor.'`` matches
-    ``'rotor.speed'`` but not ``'gen.power'``).
-    ``None`` means "match any point"."""
+    match: RouteMatch
+    """匹配条件（``all`` / ``device_group`` / ``point_group``）。"""
 
     targets: list[RouteTarget]
     """Ordered list of route targets (sink + optional delivery policy)

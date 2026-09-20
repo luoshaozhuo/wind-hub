@@ -81,7 +81,7 @@ def _write_minimal_config(base: Path) -> None:
             "rules": [
                 {
                     "name": "default",
-                    "match_point_prefix": "rotor.",
+                    "match": {"all": True},
                     "targets": [{"sink": "archive"}],
                 },
             ],

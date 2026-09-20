@@ -58,18 +58,20 @@ def ads_connection(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def _make_device_config_enabled() -> DeviceConfig:
-    from wind_hub.config.schema import SubscribeConfig
-
     return DeviceConfig(
         device_id="test-plc",
         protocol="ads",
         endpoint=Endpoint(
             host="192.168.0.100",
             port=48898,
-            extensions={"ams_net_id": _AMS_NET_ID, "timeout": 3.0},
+            extensions={
+                "ams_net_id": _AMS_NET_ID,
+                "timeout": 3.0,
+                # 订阅参数不经正式 Schema——经 endpoint.extensions 透传（诊断用）
+                "subscribe_enabled": True,
+            },
         ),
         point_table="t1",
-        subscribe=SubscribeConfig(enabled=True),
     )
 
 

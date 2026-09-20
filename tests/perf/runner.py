@@ -167,9 +167,8 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
         "rules": [
             {
                 "name": "all-to-null",
-                "match_device": None,
-                "match_point_prefix": "",
-                "targets": ["perf_null"],
+                "match": {"all": True},
+                "targets": [{"sink": "perf_null"}],
                 "priority": 0,
             }
         ],

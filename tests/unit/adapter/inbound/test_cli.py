@@ -15,7 +15,8 @@ from wind_hub.domain.model.command import CommandResult
 from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.point import PointValue, Quality
 from wind_hub.domain.model.route import RouteDecision
-from wind_hub.domain.port.inbound import SystemStatus
+from wind_hub.domain.port.inbound import JobBatchResult, JobDetail, SystemStatus
+from wind_hub.domain.port.scheduling import JobState
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +56,7 @@ def test_build_cli_returns_typer() -> None:
 def test_all_subcommands_registered(runner: CliRunner) -> None:
     result = runner.invoke(build_cli(), ["--help"])
     assert result.exit_code == 0
-    for name in ["run", "validate", "reload", "status", "devices", "point", "cmd", "route"]:
+    for name in ["run", "validate", "reload", "status", "devices", "jobs", "point", "cmd", "route"]:
         assert name in result.output
 
 
@@ -220,3 +221,109 @@ def test_route_explain_without_router_exits_one(runner: CliRunner) -> None:
     set_context(_context())
     result = runner.invoke(build_cli(), ["route", "explain", "d1", "p1"])
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# jobs —— 采集 Job 生命周期
+# ---------------------------------------------------------------------------
+
+
+def _job_detail(job_id: str, state: str = "stopped") -> JobDetail:
+    return JobDetail(
+        job_id=job_id,
+        device_id="d1",
+        group="fast",
+        interval_seconds=1.0,
+        state=JobState(state),
+        next_run_time=None,
+    )
+
+
+def _jobs_context(job_service: AsyncMock) -> AppContext:
+    return AppContext(
+        command_service=AsyncMock(),
+        query_service=AsyncMock(),
+        job_service=job_service,
+    )
+
+
+def test_jobs_list_table(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.list_jobs.return_value = [_job_detail("poll:d1:fast")]
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "list"])
+
+    assert result.exit_code == 0
+    assert "poll:d1:fast" in result.output
+    assert "d1" in result.output
+    assert "fast" in result.output
+    assert "stopped" in result.output
+    job_service.list_jobs.assert_awaited_once()
+
+
+def test_jobs_show_unknown_exits_one(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.get_job.side_effect = KeyError("poll:nope:fast")
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "show", "poll:nope:fast"])
+
+    assert result.exit_code == 1
+    assert "不存在" in result.output
+
+
+def test_jobs_start_calls_service(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.start_job.return_value = _job_detail("poll:d1:fast", state="running")
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "start", "poll:d1:fast"])
+
+    assert result.exit_code == 0
+    job_service.start_job.assert_awaited_once_with("poll:d1:fast")
+    assert "running" in result.output
+
+
+def test_jobs_stop_calls_service(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.stop_job.return_value = _job_detail("poll:d1:fast")
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "stop", "poll:d1:fast"])
+
+    assert result.exit_code == 0
+    job_service.stop_job.assert_awaited_once_with("poll:d1:fast")
+
+
+def test_jobs_start_all_reports_summary(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.start_all_jobs.return_value = JobBatchResult(total=3, changed=2, unchanged=1)
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "start-all"])
+
+    assert result.exit_code == 0
+    job_service.start_all_jobs.assert_awaited_once()
+    assert "2" in result.output
+
+
+def test_jobs_stop_all_reports_summary(runner: CliRunner) -> None:
+    job_service = AsyncMock()
+    job_service.stop_all_jobs.return_value = JobBatchResult(total=3, changed=3, unchanged=0)
+    set_context(_jobs_context(job_service))
+
+    result = runner.invoke(build_cli(), ["jobs", "stop-all"])
+
+    assert result.exit_code == 0
+    job_service.stop_all_jobs.assert_awaited_once()
+    assert "3" in result.output
+
+
+def test_jobs_without_service_exits_one(runner: CliRunner) -> None:
+    set_context(AppContext(command_service=AsyncMock(), query_service=AsyncMock()))
+
+    result = runner.invoke(build_cli(), ["jobs", "list"])
+
+    assert result.exit_code == 1
+    assert "job_service" in result.output

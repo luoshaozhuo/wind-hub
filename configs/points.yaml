@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# wind-hub 点表 — 命名点表集合（设备无关、可被同类型设备复用）
+# wind-hub 点表 — 命名点表集合（设备无关、可被同类型设备复用、可单继承）
 # ---------------------------------------------------------------------------
 
 # 点表模型
@@ -8,11 +8,30 @@
 #   `point_table: <表名>` 绑定获得点集，多台同类型设备共享同一份定义，
 #   不逐设备复制。
 # - 三个标识各司其职、不得混用：
-#     point_id        — 系统内部稳定 ID（如 p001），与具体设备无关
-#     name            — 业务变量名（如 rotor_speed），仅供展示与诊断
+#     point_id        — 系统内部稳定 ID（如 p001），与具体设备无关，
+#                       也是继承合并的唯一主键
+#     variable_name   — 业务变量名（如 rotor_speed），仅供展示与诊断
 #     address.symbol  — PLC Symbol（协议寻址字段，见下）
-# - `group` 把点归入采集分组；设备的 polling 配置按组定义周期，
+# - `group` 把点归入采集分组；参与周期调度的设备按 polling 分组定义周期，
 #   一个 (device, group) 对应一个调度 Job（不存在逐点 Job）。
+#   `group` 同时也是路由规则的匹配维度（match.point_group，见 routing.yaml）。
+#
+# 点表继承（extends）
+#
+# - 每张表最多继承一个父表（单继承），允许多级链：
+#     beckhoff_base_v1 → beckhoff_2mw_v1 → beckhoff_2mw_site_a
+# - 合并主键只有 point_id：子表写了父表已有的 point_id → override；
+#   写了父表没有的 point_id → 新增。
+# - remove_points 按 point_id 从父表结果中删除；删除不存在的点是配置错误。
+# - 覆盖语义：
+#     * 普通字段——子表写了就覆盖（显式写 null 也会覆盖为 null），
+#       没写就继承父表值；
+#     * address —— 显式配置即整体替换，不残留父表的 symbol/index 字段；
+#     * sinks   —— 显式配置即整体替换，不做 append。
+# - 解析顺序：父表解析结果 → remove_points → 子表 points override/新增，
+#   全部展开为完整点后统一校验（data_type、min/max、ADS 地址约束等）。
+#   设备绑定校验（polling 覆盖、ADS sum 全 symbol）与路由编译都作用于
+#   继承展开后的最终点集。
 #
 # Processor 参数的单位语义（推荐处理链顺序：quality_check → unit_convert → deadband）
 # - min_value / max_value：作用于【原始读数】（换算前）
@@ -30,16 +49,19 @@
 #     index_offset: 0x1234                  #   出现（只写一个是配置错误）
 #   symbol 与 index 同时配置是允许的——实际读写永远以 symbol 优先；
 #   三者全空是配置错误。以上均在配置加载阶段校验，不等运行时失败。
+#   注意：read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位
+#   配置 symbol（Sum 命令按 Symbol 批量读）；仅 index 寻址的点只能放在
+#   sequential 设备绑定的表里（见 beckhoff_diag_v1 的 p401）。
 
 point_tables:
 
-  # Beckhoff ADS 风机的共用点表 —— wtg-003 / wtg-004 / wtg-005 三台同类型
-  # ADS 设备共享这一份定义。
-  beckhoff_wtg_v1:
+  # Beckhoff 风机控制器基础点表 —— 同系列机型共用点集。
+  # 不直接被设备绑定，作为机型表/现场表的继承基座。
+  beckhoff_base_v1:
     points:
 
       - point_id: p001
-        name: rotor_speed
+        variable_name: rotor_speed
         group: fast               # 快变遥测，设备 polling 中按 fast 组周期采集
         address:
           symbol: MAIN.rotorSpeed # PLC Symbol 寻址（推荐形式）
@@ -57,7 +79,7 @@ point_tables:
           - file_archive
 
       - point_id: p002
-        name: gen_power
+        variable_name: gen_power
         group: fast
         address:
           symbol: MAIN.genPower
@@ -71,7 +93,7 @@ point_tables:
         max_value: 10000
 
       - point_id: p003
-        name: gen_voltage
+        variable_name: gen_voltage
         group: slow               # 慢变量，按 slow 组周期采集
         address:
           symbol: MAIN.genVoltage
@@ -84,30 +106,85 @@ point_tables:
         description: "发电机电压"
 
       - point_id: p004
-        name: legacy_counter
-        group: slow
-        address:                  # 兼容寻址：仅 index_group + index_offset（成对）
-          index_group: 0x4020
-          index_offset: 0x2000
-        data_type: uint32
-        scale: 1.0
-        offset: 0.0
-        description: " legacy 计数器（无 Symbol 的老变量）"
-
-      - point_id: p005
-        name: status_running
+        variable_name: status_running
         group: fast
         address:
           symbol: MAIN.statusRunning
         data_type: bool
         description: "运行状态"
 
+  # 2MW 机型点表 —— 继承基础表：删除本机型没有的电压点，覆盖功率点的
+  # Symbol 与量程上限，新增变流器温度点。p001 / p004 原样继承不修改。
+  beckhoff_2mw_v1:
+    extends: beckhoff_base_v1
+
+    remove_points:
+      - p003                      # 2MW 机型无此电压测点
+
+    points:
+
+      - point_id: p002            # override：address 整体替换 + max_value 覆盖
+        address:
+          symbol: MAIN.power.genActivePower
+        max_value: 2500           # 2MW 机型功率上限；其余字段继承父表
+
+      - point_id: p005            # 新增点：父表没有的 point_id
+        variable_name: converter_temp
+        group: slow
+        address:
+          symbol: MAIN.converterTemp
+        data_type: float32
+        unit: degC
+        description: "变流器温度"
+        min_value: -40
+        max_value: 120
+
+  # 现场 A 变体点表 —— 继承 2MW 机型表，按现场 PLC 调整分组与 Symbol。
+  beckhoff_2mw_site_a:
+    extends: beckhoff_2mw_v1
+
+    points:
+
+      - point_id: p002            # group override：fast → slow（现场功率低频采集）
+        group: slow
+
+      - point_id: p005            # address override：现场 PLC 的 Symbol 命名空间
+        address:
+          symbol: PLC1.Measurements.converterTemp
+
+  # Beckhoff ADS 诊断点表 —— 独立表（不继承），绑定到 read_mode: sequential
+  # 的诊断机位（wtg-005）：逐点读，Symbol 优先、无 symbol 回退 index 对；
+  # 不参与周期调度，group 仅作分类与路由匹配用途。
+  beckhoff_diag_v1:
+    points:
+
+      - point_id: p401
+        variable_name: legacy_counter
+        group: diag
+        address:                  # 兼容寻址：仅 index_group + index_offset（成对）
+          index_group: 0x4020
+          index_offset: 0x2000
+        data_type: uint32
+        scale: 1.0
+        offset: 0.0
+        description: "legacy 计数器（无 Symbol 的老变量，sequential 逐点按 index 读）"
+
+      - point_id: p402
+        variable_name: diag_state
+        group: diag
+        address:
+          symbol: MAIN.diagState  # sequential 下按 Symbol 逐点读
+          index_group: 0x4020     # symbol 与 index 同时配置：允许，
+          index_offset: 0x3000    # 实际读写以 symbol 优先
+        data_type: int32
+        description: "诊断状态字"
+
   # IEC104 风机点表
   iec104_wtg_v1:
     points:
 
       - point_id: p101
-        name: rotor_speed
+        variable_name: rotor_speed
         group: telemetry
         address:
           type: measured_value
@@ -122,7 +199,7 @@ point_tables:
         max_value: 2000
 
       - point_id: p102
-        name: gen_power
+        variable_name: gen_power
         group: telemetry
         address:
           type: measured_value
@@ -137,7 +214,7 @@ point_tables:
         max_value: 10000
 
       - point_id: p103
-        name: wind_speed
+        variable_name: wind_speed
         group: telemetry
         address:
           type: measured_value
@@ -153,7 +230,7 @@ point_tables:
           - file_archive          # 仅归档，不发 Kafka
 
       - point_id: p104
-        name: status_running
+        variable_name: status_running
         group: signals
         address:
           type: single_point
@@ -168,7 +245,7 @@ point_tables:
     points:
 
       - point_id: p201
-        name: rotor_speed
+        variable_name: rotor_speed
         group: telemetry
         address:
           type: holding_register
@@ -180,7 +257,7 @@ point_tables:
         description: "风轮转速"
 
       - point_id: p202
-        name: gen_power
+        variable_name: gen_power
         group: telemetry
         address:
           type: holding_register

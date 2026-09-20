@@ -16,7 +16,8 @@ from wind_hub.domain.model.errors import CommandError
 from wind_hub.domain.model.point import PointValue, Quality
 from wind_hub.domain.model.reload import ConfigDiff, ReloadResult
 from wind_hub.domain.model.route import RouteDecision
-from wind_hub.domain.port.inbound import SystemStatus
+from wind_hub.domain.port.inbound import JobBatchResult, JobDetail, SystemStatus
+from wind_hub.domain.port.scheduling import JobState
 
 
 @pytest.fixture(autouse=True)
@@ -201,3 +202,124 @@ def test_route_explain_returns_decision() -> None:
     body = resp.json()
     assert body["targets"] == ["s1"]
     assert body["source"] == "rule"
+
+
+# ---------------------------------------------------------------------------
+# /jobs —— 采集 Job 生命周期
+# ---------------------------------------------------------------------------
+
+
+def _job_detail(job_id: str, state: str = "stopped") -> JobDetail:
+    return JobDetail(
+        job_id=job_id,
+        device_id="d1",
+        group="fast",
+        interval_seconds=1.0,
+        state=JobState(state),
+        next_run_time=None,
+    )
+
+
+def _install_jobs_context(job_service: AsyncMock | None) -> AppContext:
+    ctx = AppContext(
+        command_service=AsyncMock(),
+        query_service=AsyncMock(),
+        job_service=job_service,
+    )
+    set_context(ctx)
+    return ctx
+
+
+def test_jobs_list() -> None:
+    job_service = AsyncMock()
+    job_service.list_jobs.return_value = [_job_detail("poll:d1:fast")]
+    _install_jobs_context(job_service)
+
+    resp = _client().get("/jobs")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["job_id"] == "poll:d1:fast"
+    assert body[0]["device_id"] == "d1"
+    assert body[0]["group"] == "fast"
+    assert body[0]["interval"] == 1.0
+    assert body[0]["state"] == "stopped"
+    assert body[0]["next_run_time"] is None
+
+
+def test_jobs_detail_unknown_returns_404() -> None:
+    job_service = AsyncMock()
+    job_service.get_job.side_effect = KeyError("poll:nope:fast")
+    _install_jobs_context(job_service)
+
+    resp = _client().get("/jobs/poll:nope:fast")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_jobs_start() -> None:
+    job_service = AsyncMock()
+    job_service.start_job.return_value = _job_detail("poll:d1:fast", state="running")
+    _install_jobs_context(job_service)
+
+    resp = _client().post("/jobs/poll:d1:fast/start")
+
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "running"
+    job_service.start_job.assert_awaited_once_with("poll:d1:fast")
+
+
+def test_jobs_stop() -> None:
+    job_service = AsyncMock()
+    job_service.stop_job.return_value = _job_detail("poll:d1:fast")
+    _install_jobs_context(job_service)
+
+    resp = _client().post("/jobs/poll:d1:fast/stop")
+
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "stopped"
+    job_service.stop_job.assert_awaited_once_with("poll:d1:fast")
+
+
+def test_jobs_start_unknown_returns_404() -> None:
+    job_service = AsyncMock()
+    job_service.start_job.side_effect = KeyError("poll:nope:fast")
+    _install_jobs_context(job_service)
+
+    resp = _client().post("/jobs/poll:nope:fast/start")
+
+    assert resp.status_code == 404
+
+
+def test_jobs_start_all() -> None:
+    job_service = AsyncMock()
+    job_service.start_all_jobs.return_value = JobBatchResult(total=3, changed=2, unchanged=1)
+    _install_jobs_context(job_service)
+
+    resp = _client().post("/jobs/start-all")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"total": 3, "changed": 2, "unchanged": 1}
+    job_service.start_all_jobs.assert_awaited_once()
+
+
+def test_jobs_stop_all() -> None:
+    job_service = AsyncMock()
+    job_service.stop_all_jobs.return_value = JobBatchResult(total=3, changed=3, unchanged=0)
+    _install_jobs_context(job_service)
+
+    resp = _client().post("/jobs/stop-all")
+
+    assert resp.status_code == 200
+    assert resp.json()["changed"] == 3
+    job_service.stop_all_jobs.assert_awaited_once()
+
+
+def test_jobs_unavailable_returns_503() -> None:
+    _install_jobs_context(None)
+
+    resp = _client().get("/jobs")
+
+    assert resp.status_code == 503

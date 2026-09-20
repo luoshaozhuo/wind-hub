@@ -171,7 +171,12 @@ def assemble(
     ]
     pipeline = Pipeline(processors)
 
-    table = RoutingTable(cfg.routing.rules, points_by_device, cfg.routing.unmatched_policy)
+    table = RoutingTable(
+        cfg.routing.rules,
+        points_by_device,
+        cfg.routing.unmatched_policy,
+        device_groups={d.device_id: d.device_group for d in cfg.devices.devices},
+    )
     router = Router(table)
     # 投递策略（阶段 B）：Router 决定「发到哪些 sink」，DeliveryDispatcher
     # 按规则上的 delivery 配置决定「这批是否投递」。
