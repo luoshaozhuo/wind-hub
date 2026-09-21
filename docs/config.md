@@ -5,7 +5,7 @@ wind-hub 的配置由四个 YAML 文件组成（仓库 `configs/` 下有带详�
 
 | 文件 | 内容 | schema |
 |---|---|---|
-| `system.yaml` | 运行时参数、管线、Sink、接口 | `SystemConfig` |
+| `system.yaml` | 运行时参数、Sink、接口 | `SystemConfig` |
 | `devices.yaml` | 设备列表与协议参数 | `DevicesConfig` |
 | `points.yaml` | 命名点表集合（设备无关） | `PointTablesConfig` |
 | `tasks.yaml` | 采集任务（周期采集的唯一来源） | `TasksConfig` |

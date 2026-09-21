@@ -1,6 +1,6 @@
 """``wind-hub run`` — 前台启动引擎并阻塞，直到收到信号停机。
 
-委托给 :func:`wind_hub.main.run_engine` 完成「装配 → 启动 → 等待
+委托给 :func:`wind_hub.main.run_application` 完成「装配 → 启动 → 等待
 SIGINT/SIGTERM → 优雅停机」。本命令只负责把 typer 参数转发给入口函数。
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import typer
 
-from wind_hub.main import run_engine
+from wind_hub.main import run_application
 
 app = typer.Typer(name="run", help="启动引擎（前台阻塞，由 systemd/supervisor 管理）")
 
@@ -27,7 +27,7 @@ def run(
 ) -> None:
     """启动引擎并前台阻塞，等待 SIGINT/SIGTERM 优雅停机。"""
     code = asyncio.run(
-        run_engine(
+        run_application(
             str(config),
             host=host,
             port=port,

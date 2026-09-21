@@ -101,7 +101,7 @@ while True:
 
 一次 `collect` 的生命周期：`begin`（running=True）→ 成功或失败结束
 → `running` 归位并记录 `last_finished_at` / `last_duration`。无论哪条
-异常路径（读失败、超时、管线异常），`running` 都必须归位——引擎侧以
+异常路径（读失败、超时、派发异常），`running` 都必须归位——引擎侧以
 try/except 保证，失败只上报一次（不双报）。
 
 所有运行状态的时间戳使用注入时钟（默认 `time.monotonic`），只做内部
@@ -261,7 +261,7 @@ last_duration）。
   不重建设备连接；
 - **device_group 成员变化**（设备改分组或 enabled 翻转）→ 按成员差
   增删实例，不重启 Runtime；
-- **点表变化** → 重注入设备点映射并重建管线，不触碰实例协程与采集
-  状态；
+- **点表变化** → 经 `Device.set_points` 重注入点表，不触碰实例协程
+  与采集状态；
 - **连接参数变化** → 走 `rebuild_device`（关旧连接、工厂建新驱动），
   状态随删除/新建路径重置。

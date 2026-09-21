@@ -2,7 +2,7 @@
 
 职责边界：本用例只做「load → validate → diff → runtime.reconfigure →
 commit current config」的编排；具体的设备/sink 增删重建、Task Instance
-重新展开与处理链替换全部由
+重新展开与点表重注入全部由
 :class:`~wind_hub.application.runtime.runtime.Runtime` 的
 :meth:`Runtime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
 """
@@ -187,9 +187,8 @@ class ConfigUseCase:
                 duration_ms=(time.monotonic() - t0) * 1000,
             )
 
-        # 3. 全部运行时重构交给 Runtime（设备/sink/task 增删重建、点映射
-        #    重注入与处理链替换的执行细节由 Runtime 负责，此处不直接调用
-        #    任何组件操作）。
+        # 3. 全部运行时重构交给 Runtime（设备/sink/task 增删重建、点表
+        #    重注入的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
         errors = await self._runtime.reconfigure(new_cfg, diff)
 
         # 4. Commit new config

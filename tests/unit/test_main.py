@@ -1,6 +1,6 @@
 """Unit tests for the process entry point (``main.py``) helpers.
 
-``run_engine`` 阻塞直到收到信号，不适合在此直接测试；这里只覆盖可无副作用
+``run_application`` 阻塞直到收到信号，不适合在此直接测试；这里只覆盖可无副作用
 构造的辅助函数 ``_start_api`` 与 ``_handle_sighup``。
 """
 

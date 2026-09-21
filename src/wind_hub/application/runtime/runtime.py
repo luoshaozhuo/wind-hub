@@ -880,8 +880,7 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def reconfigure(self, new_config: Config, diff: ConfigDiff) -> list[str]:
-        """按 diff 重构运行时——设备/sink/task 增删重建、点映射重注入与
-        处理链替换。
+        """按 diff 重构运行时——设备/sink/task 增删重建与点表重注入。
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
         本方法不修改配置快照——``current_config`` 的提交时机由

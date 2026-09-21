@@ -1,6 +1,6 @@
 """进程入口——装配、信号处理、启动与优雅停机。
 
-提供异步编排函数 :func:`run_engine` 与同步入口 :func:`main` /
+提供异步编排函数 :func:`run_application` 与同步入口 :func:`main` /
 :func:`cli_entry`，含 Web API 的真实启动（内嵌 uvicorn）、
 SIGHUP 热重载与 ``/metrics``。
 
@@ -59,7 +59,7 @@ async def _reload_loop(reload_event: asyncio.Event, config: ConfigUseCase) -> No
     """长期运行的 SIGHUP 监听协程——每次事件触发执行一次热重载。
 
     连续多次 SIGHUP 只会折叠为事件置位，循环逐次消费；协程由
-    :func:`run_engine` 启动一次，并在停机时取消。
+    :func:`run_application` 启动一次，并在停机时取消。
     """
     while True:
         await reload_event.wait()
@@ -67,7 +67,7 @@ async def _reload_loop(reload_event: asyncio.Event, config: ConfigUseCase) -> No
         await _handle_sighup(config)
 
 
-async def run_engine(
+async def run_application(
     config_dir: str | Path,
     host: str = "127.0.0.1",
     port: int = 8080,
@@ -160,7 +160,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     return asyncio.run(
-        run_engine(
+        run_application(
             args.config,
             host=args.host,
             port=args.port,
