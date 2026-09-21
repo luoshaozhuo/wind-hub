@@ -1,7 +1,7 @@
 """进程入口——装配、信号处理、启动与优雅停机。
 
 提供异步编排函数 :func:`run_engine` 与同步入口 :func:`main` /
-:func:`cli_entry`。step9b 起接入 Web API 的真实启动（内嵌 uvicorn）、
+:func:`cli_entry`，含 Web API 的真实启动（内嵌 uvicorn）、
 SIGHUP 热重载与 ``/metrics``。
 
 信号语义：SIGINT / SIGTERM 触发 ``shutdown_event``，随后先停 API、再调用
@@ -18,7 +18,9 @@ from pathlib import Path
 
 import uvicorn
 
-from wind_hub.application.config_service import ConfigService
+from wind_hub.adapter.inbound.webapi.app import build_api
+from wind_hub.application.app_context import AppContext, set_context
+from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 
 logger = logging.getLogger(__name__)
@@ -30,13 +32,7 @@ def _build_api_server(rt: AssembledRuntime, host: str, port: int) -> uvicorn.Ser
     真正的 ``serve()`` 由调用方以 ``asyncio.Task`` 启动，以便与引擎停机的
     信号等待共存于同一事件循环；API 通过 ``AppContext`` 读取服务，因此这里
     只负责监听地址与 FastAPI 应用的绑定。
-
-    ``build_api`` 在此处局部导入：``webapi.app`` → ``webapi.context`` →
-    ``cli.context`` 的链会触发 CLI 包 ``__init__``（→ ``cli.commands.run`` →
-    回到本模块），顶层导入会形成循环导入；延迟到调用点即可解环。
     """
-    from wind_hub.adapter.inbound.webapi.app import build_api
-
     app = build_api()
     config = uvicorn.Config(app, host=host, port=port, log_level="info", lifespan="on")
     logger.info(
@@ -49,17 +45,17 @@ def _build_api_server(rt: AssembledRuntime, host: str, port: int) -> uvicorn.Ser
     return uvicorn.Server(config)
 
 
-async def _handle_sighup(config_service: ConfigService) -> None:
-    """SIGHUP 触发热重载——调用一次 ``config_service.reload()`` 并记录结果。"""
+async def _handle_sighup(config: ConfigUseCase) -> None:
+    """SIGHUP 触发热重载——调用一次 ``config.reload()`` 并记录结果。"""
     logger.info("收到 SIGHUP，开始热重载")
-    result = await config_service.reload()
+    result = await config.reload()
     if result.success:
         logger.info("配置热重载成功")
     else:
         logger.warning("配置热重载失败：%s", result.errors)
 
 
-async def _reload_loop(reload_event: asyncio.Event, config_service: ConfigService) -> None:
+async def _reload_loop(reload_event: asyncio.Event, config: ConfigUseCase) -> None:
     """长期运行的 SIGHUP 监听协程——每次事件触发执行一次热重载。
 
     连续多次 SIGHUP 只会折叠为事件置位，循环逐次消费；协程由
@@ -68,7 +64,7 @@ async def _reload_loop(reload_event: asyncio.Event, config_service: ConfigServic
     while True:
         await reload_event.wait()
         reload_event.clear()
-        await _handle_sighup(config_service)
+        await _handle_sighup(config)
 
 
 async def run_engine(
@@ -91,21 +87,17 @@ async def run_engine(
     """
     logging.basicConfig(level=logging.INFO)
 
-    # 局部导入：``cli.context`` 会触发 CLI 包 ``__init__``（→ ``cli.commands.run``
-    # → 回到本模块），顶层导入会形成循环导入；延迟到调用点即可解环。
-    from wind_hub.adapter.inbound.cli.context import AppContext, set_context
-
     rt = assemble(config_dir)
 
     # 组合根把全部服务注入进程级 AppContext。
     set_context(
         AppContext(
-            config_service=rt.config_service,
-            router=rt.route_query_service,
-            job_service=rt.job_service,
+            config=rt.config,
+            route_query=rt.route_query,
+            jobs=rt.jobs,
             runtime=rt.runtime,
-            command_service=rt.command_service,
-            query_service=rt.query_service,
+            command=rt.command,
+            query=rt.query,
         )
     )
 
@@ -129,7 +121,7 @@ async def run_engine(
         port,
     )
 
-    reload_task = asyncio.create_task(_reload_loop(reload_event, rt.config_service))
+    reload_task = asyncio.create_task(_reload_loop(reload_event, rt.config))
 
     try:
         await shutdown_event.wait()

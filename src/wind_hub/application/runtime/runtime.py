@@ -9,12 +9,12 @@
 - Runtime 状态（running / health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()``。
 
-持有：:class:`~wind_hub.domain.port.scheduling.SchedulerPort`（决定「何时
+持有：:class:`~wind_hub.application.port.scheduling.SchedulerPort`（决定「何时
 执行」）、:class:`~wind_hub.domain.acquisition.AcquisitionEngine`（执行
 「一次采集」）、:class:`~wind_hub.domain.command.Dispatcher`（命令分发）。
 
 不负责：具体时间调度算法（SchedulerPort 的实现细节）、协议实现细节
-（ProtocolPort 适配器）、配置加载与 diff（ConfigService）。
+（ProtocolPort 适配器）、配置加载与 diff（ConfigUseCase）。
 
 失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
 其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
@@ -29,6 +29,13 @@ import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
+from wind_hub.application.port.scheduling import (
+    POLL_JOB_KIND,
+    JobInfo,
+    JobMetadata,
+    SchedulerPort,
+)
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub.application.runtime.device_state import DeviceRuntimeState
 from wind_hub.application.runtime.dispatcher import RuntimeSinkDispatcher
@@ -51,13 +58,6 @@ from wind_hub.domain.port.outbound import (
     HealthStatus,
     ProcessorPort,
     ProtocolPort,
-    SinkPort,
-)
-from wind_hub.domain.port.scheduling import (
-    POLL_JOB_KIND,
-    JobInfo,
-    JobMetadata,
-    SchedulerPort,
 )
 from wind_hub.domain.processing.pipeline import Pipeline
 from wind_hub.domain.routing.delivery import DeliveryDispatcher, policies_from_rules
@@ -214,7 +214,7 @@ class Runtime:
         self._points_dropped = 0
 
     # ------------------------------------------------------------------
-    # 组件只读视图（QueryService / 适配器经此读取当前实例，热重载安全）
+    # 组件只读视图（QueryUseCase / 适配器经此读取当前实例，热重载安全）
     # ------------------------------------------------------------------
 
     @property
@@ -383,7 +383,7 @@ class Runtime:
         )
 
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
-        """返回设备当前运行状态（QueryService 聚合 status 用）。"""
+        """返回设备当前运行状态（QueryUseCase 聚合 status 用）。"""
         return self._device_states.get(device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
@@ -428,7 +428,7 @@ class Runtime:
             )
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
-        """当前采集 Job 状态簿（``{job_id: state}`` 浅拷贝，QueryService 用）。"""
+        """当前采集 Job 状态簿（``{job_id: state}`` 浅拷贝，QueryUseCase 用）。"""
         return dict(self._acq_states)
 
     def _acq_state_for(self, device_id: str, group: str) -> AcquisitionRuntimeState:
@@ -667,19 +667,19 @@ class Runtime:
         await self._engine.replace_pipeline(new_pipeline)
 
     # ------------------------------------------------------------------
-    # 热重载编排（ConfigService 的唯一入口）
+    # 热重载编排（ConfigUseCase 的唯一入口）
     # ------------------------------------------------------------------
 
     async def reconfigure(self, new_config: Config, diff: ConfigDiff) -> list[str]:
         """按 diff 重构运行时——设备/sink 增删重建、路由表与处理链替换。
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行
-        （与旧 ConfigService 的部分失败语义一致）。本方法不修改配置快照——
-        ``current_config`` 的提交时机由 ConfigService 决定。
+        （与旧 ConfigUseCase 的部分失败语义一致）。本方法不修改配置快照——
+        ``current_config`` 的提交时机由 ConfigUseCase 决定。
 
         Args:
             new_config: 已加载并通过校验的新配置。
-            diff: 新旧配置的 diff（由 ConfigService 计算）。
+            diff: 新旧配置的 diff（由 ConfigUseCase 计算）。
 
         Returns:
             错误描述列表；空列表表示全部阶段成功。

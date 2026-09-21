@@ -22,10 +22,10 @@ def status(
 
 async def _status(as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.query_service is None:
-        print_error("查询服务未配置（AppContext.query_service 为 None）")
+    if ctx.query is None:
+        print_error("查询用例未配置（AppContext.query 为 None）")
         raise typer.Exit(1)
-    snapshot = await ctx.query_service.status()
+    snapshot = await ctx.query.status()
     if as_json:
         print_json(snapshot.model_dump(mode="json"))
         return

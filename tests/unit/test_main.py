@@ -11,14 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 import uvicorn
 
 from wind_hub.domain.model.reload import ConfigDiff, ReloadResult
-from wind_hub.main import _handle_sighup, _start_api
+from wind_hub.main import _build_api_server, _handle_sighup
 
 
-def test_start_api_returns_embedded_uvicorn_server() -> None:
+def test_build_api_server_returns_embedded_uvicorn_server() -> None:
     rt = MagicMock()
     rt.runtime.device_count = 2
     rt.runtime.sink_count = 1
-    server = _start_api(rt, "127.0.0.1", 8080)
+    server = _build_api_server(rt, "127.0.0.1", 8080)
     assert isinstance(server, uvicorn.Server)
 
 

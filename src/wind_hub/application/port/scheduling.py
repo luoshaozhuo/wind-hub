@@ -1,6 +1,6 @@
 """调度端口——「什么时候执行哪个 Job」的抽象。
 
-架构位置：domain 层 outbound 端口。核心代码（Runtime / JobService）只依赖
+架构位置：domain 层 outbound 端口。核心代码（Runtime / JobUseCase）只依赖
 本模块定义的 :class:`SchedulerPort`，不直接依赖任何具体调度实现；APScheduler
 适配器位于 ``wind_hub.infra.scheduling``，由组合根注入。
 
@@ -36,7 +36,7 @@ class JobState(str, Enum):
 
 
 #: 采集 Job 的分类标识（``JobMetadata.kind`` 取值）——Runtime 注册采集
-#: Job 时写入，JobService 据此圈定批量启停范围。Job ID 只负责标识，
+#: Job 时写入，JobUseCase 据此圈定批量启停范围。Job ID 只负责标识，
 #: 分类只看 ``kind``。
 POLL_JOB_KIND = "poll"
 
@@ -45,7 +45,7 @@ class JobMetadata(BaseModel):
     """Job 的业务元数据——与 Job ID 字符串解耦的显式分类/归属信息。
 
     由创建 Job 的业务层（Runtime）在注册时显式传入，调度实现方随 Job
-    保存并在查询快照中原样返回；读取方（JobService）一律从本模型取
+    保存并在查询快照中原样返回；读取方（JobUseCase）一律从本模型取
     kind/device/group，禁止反向解析 ``job_id`` 字符串。
 
     - 采集 Job：``JobMetadata(kind="poll", device_id=..., group=...)``；

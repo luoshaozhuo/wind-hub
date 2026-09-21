@@ -1,4 +1,4 @@
-"""JobService 的单元测试。
+"""JobUseCase 的单元测试。
 
 验证对象：``application/job_service.py``——采集 Job 显式生命周期控制服务，
 全部调度状态操作经 ``SchedulerPort`` 委托。
@@ -24,9 +24,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import wind_hub.application.job_service as job_service_module
-from wind_hub.application.job_service import JobService
-from wind_hub.domain.port.scheduling import JobInfo, JobMetadata, JobState, SchedulerPort
+import wind_hub.application.usecase.job as job_service_module
+from wind_hub.application.port.scheduling import JobInfo, JobMetadata, JobState, SchedulerPort
+from wind_hub.application.usecase.job import JobUseCase
 
 pytestmark = pytest.mark.asyncio
 
@@ -86,7 +86,7 @@ async def test_list_jobs_returns_enriched_details() -> None:
     sched = _scheduler(
         _job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=True, interval=2.0)
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     jobs = await service.list_jobs()
 
@@ -102,7 +102,7 @@ async def test_list_jobs_returns_enriched_details() -> None:
 
 async def test_list_jobs_running_state_and_next_run_time() -> None:
     sched = _scheduler(_job_info("poll:d1:slow", _poll_meta("d1", "slow"), paused=False))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = (await service.list_jobs())[0]
 
@@ -117,7 +117,7 @@ async def test_list_jobs_non_poll_job_has_no_device_group() -> None:
     展示字段只来自元数据，与 id 形状无关。
     """
     sched = _scheduler(_job_info("abc:def:ghi", JobMetadata(kind="system")))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = (await service.list_jobs())[0]
 
@@ -137,7 +137,7 @@ async def test_device_id_with_colons_roundtrip_from_metadata() -> None:
             _poll_meta("site:a:wtg-001", "fast"),
         )
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = await service.get_job("poll:site:a:wtg-001:fast")
 
@@ -147,14 +147,14 @@ async def test_device_id_with_colons_roundtrip_from_metadata() -> None:
 
 async def test_get_job_unknown_raises_key_error() -> None:
     sched = _scheduler()
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     with pytest.raises(KeyError):
         await service.get_job("poll:nope:fast")
 
 
 def test_job_service_does_not_parse_job_id() -> None:
-    """结构保证：JobService 源码不存在任何 job_id 字符串解析——
+    """结构保证：JobUseCase 源码不存在任何 job_id 字符串解析——
 
     无 ``split``/``startswith``，业务字段一律来自 ``JobMetadata``。
     """
@@ -170,7 +170,7 @@ def test_job_service_does_not_parse_job_id() -> None:
 
 async def test_start_job_resumes_stopped_job() -> None:
     sched = _scheduler(_job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=True))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = await service.start_job("poll:d1:fast")
 
@@ -180,7 +180,7 @@ async def test_start_job_resumes_stopped_job() -> None:
 
 async def test_start_job_is_idempotent_when_running() -> None:
     sched = _scheduler(_job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=False))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = await service.start_job("poll:d1:fast")
 
@@ -190,7 +190,7 @@ async def test_start_job_is_idempotent_when_running() -> None:
 
 async def test_stop_job_pauses_running_job() -> None:
     sched = _scheduler(_job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=False))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = await service.stop_job("poll:d1:fast")
 
@@ -200,7 +200,7 @@ async def test_stop_job_pauses_running_job() -> None:
 
 async def test_stop_job_is_idempotent_when_stopped() -> None:
     sched = _scheduler(_job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=True))
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     job = await service.stop_job("poll:d1:fast")
 
@@ -210,7 +210,7 @@ async def test_stop_job_is_idempotent_when_stopped() -> None:
 
 async def test_start_stop_unknown_job_raises_key_error() -> None:
     sched = _scheduler()
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     with pytest.raises(KeyError):
         await service.start_job("poll:nope:fast")
@@ -226,7 +226,7 @@ async def test_stop_one_group_keeps_sibling_jobs_untouched() -> None:
         _job_info("poll:d1:fast", _poll_meta("d1", "fast"), paused=False),
         _job_info("poll:d1:slow", _poll_meta("d1", "slow"), paused=False),
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     await service.stop_job("poll:d1:fast")
 
@@ -247,7 +247,7 @@ async def test_start_all_jobs_only_touches_stopped_poll_jobs() -> None:
         # job_id 形似采集 Job，但 kind=system——不在批量范围内
         _job_info("abc:def:ghi", JobMetadata(kind="system"), paused=True),
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     result = await service.start_all_jobs()
 
@@ -266,7 +266,7 @@ async def test_stop_all_jobs_only_touches_running_poll_jobs() -> None:
         _job_info("poll:d1:slow", _poll_meta("d1", "slow"), paused=True),
         _job_info("abc:def:ghi", JobMetadata(kind="system"), paused=False),
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     result = await service.stop_all_jobs()
 
@@ -287,7 +287,7 @@ async def test_batch_operations_classify_by_kind_not_job_id() -> None:
         _job_info("poll:fake:fast", JobMetadata(kind="system"), paused=True),
         _job_info("no-prefix-at-all", _poll_meta("d9", "slow"), paused=True),
     )
-    service = JobService(sched)
+    service = JobUseCase(sched)
 
     result = await service.start_all_jobs()
 
@@ -298,7 +298,7 @@ async def test_batch_operations_classify_by_kind_not_job_id() -> None:
 
 
 async def test_start_all_jobs_with_no_jobs_returns_zero_summary() -> None:
-    service = JobService(_scheduler())
+    service = JobUseCase(_scheduler())
 
     result = await service.start_all_jobs()
 

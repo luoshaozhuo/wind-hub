@@ -1,6 +1,6 @@
 """Kafka 输出 sink —— 用 aiokafka 把点值批量投递到消息主题。
 
-实现 :class:`~wind_hub.domain.port.outbound.SinkPort` 的真实 Kafka 走向：把一批
+实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实 Kafka 走向：把一批
 :class:`~wind_hub.domain.model.point.PointValue` 序列化成 UTF-8 的 JSON 消息，
 经 ``aiokafka.AIOKafkaProducer`` 投递到 ``topic``；``key_field`` 指定后以点值该
 字段（``device_id`` / ``point_id`` / ``source``）作为消息 key 实现分区亲和，
@@ -31,10 +31,11 @@ from typing import Any
 # PointValue / HealthStatus / SinkError）。
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus, SinkPort
+from wind_hub.domain.port.outbound import HealthStatus
 from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)

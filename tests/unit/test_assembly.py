@@ -165,7 +165,7 @@ def test_assemble_builds_runtime_object_graph() -> None:
         assert rt.router.table_size == 1
         assert rt.runtime.device_count == 1
         assert rt.runtime.sink_count == 1
-        assert rt.route_query_service.explain("d1", "rotor.speed").targets == ["archive"]
+        assert rt.route_query.explain("d1", "rotor.speed").targets == ["archive"]
 
 
 def test_assemble_accepts_string_config_dir() -> None:
@@ -216,10 +216,10 @@ def test_assemble_wires_runtime_engine_scheduler_and_services() -> None:
         assert rt.runtime.points_by_device is rt.engine._points_by_device  # noqa: SLF001
         # Runtime 持有分发器；服务按职责委托
         assert rt.runtime.dispatcher is rt.dispatcher
-        assert rt.job_service._scheduler is rt.scheduler  # noqa: SLF001
-        assert rt.query_service._runtime is rt.runtime  # noqa: SLF001
-        assert rt.route_query_service._runtime is rt.runtime  # noqa: SLF001
-        assert rt.config_service._runtime is rt.runtime  # noqa: SLF001
+        assert rt.jobs._scheduler is rt.scheduler  # noqa: SLF001
+        assert rt.query._runtime is rt.runtime  # noqa: SLF001
+        assert rt.route_query._runtime is rt.runtime  # noqa: SLF001
+        assert rt.config._runtime is rt.runtime  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------

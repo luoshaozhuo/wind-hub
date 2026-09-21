@@ -1,18 +1,18 @@
 """组合根（composition root）——依赖装配与生命周期编排。
 
 职责：把 config 层加载出的配置，装配成完整的对象图（协议驱动 / sink /
-处理器 / 路由 / 采集引擎 / 调度适配器 / Runtime / 应用服务），并通过
+处理器 / 路由 / 采集引擎 / 调度适配器 / Runtime / Use Case），并通过
 :func:`start_runtime` / :func:`stop_runtime` 编排运行时的启动与优雅停机。
 
 装配顺序：Protocol/Sink/Processor/Pipeline/Router → AcquisitionEngine →
-Scheduler 适配器 → Runtime（持有前两者与 Dispatcher）→ Application
-Services。``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime``
+Scheduler 适配器 → Runtime（持有前两者与 Dispatcher）→ Use Case。
+``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime``
 为运行核心——不再由调度组件充当运行核心。
 
 不负责：Web API 的真实启动与 SIGHUP 热重载监听（见 ``main.py``）、
 ``/metrics`` 端点（见 webapi 适配器）。这里负责把采集计数器回调
 （``on_points_collected``）注入采集引擎，并把命令/查询/配置/路由/Job
-服务装配为对 Dispatcher / Runtime / SchedulerPort 的真实委托。
+用例装配为对 Dispatcher / Runtime / SchedulerPort 的真实委托。
 
 关键 side effect：导入协议驱动包触发自注册（见
 :mod:`wind_hub.infra.registry`）；构造过程纯同步、无网络 I/O，
@@ -26,12 +26,8 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    # 仅类型标注需要 uvicorn（api_server 参数）；运行时通过鸭子类型调用
-    # ``serve()``，避免组合根对 uvicorn 的硬依赖。
-    import uvicorn
+import uvicorn
 
 import wind_hub.adapter.outbound.processor  # noqa: F401 触发处理器自注册
 import wind_hub.adapter.outbound.protocol  # noqa: F401 触发协议驱动自注册
@@ -47,12 +43,14 @@ from wind_hub.adapter.inbound.iec104_slave import (
 from wind_hub.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub.application.command_service import CommandService
-from wind_hub.application.config_service import ConfigService
-from wind_hub.application.job_service import JobService
-from wind_hub.application.query_service import QueryService
-from wind_hub.application.route_query_service import RouteQueryService
+from wind_hub.application.port.scheduling import SchedulerPort
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.command import CommandUseCase
+from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.job import JobUseCase
+from wind_hub.application.usecase.query import QueryUseCase
+from wind_hub.application.usecase.route_query import RouteQueryUseCase
 from wind_hub.config.loader import load_config
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import (
@@ -69,9 +67,7 @@ from wind_hub.domain.port.outbound import (
     PointsConfigurable,
     ProcessorPort,
     ProtocolPort,
-    SinkPort,
 )
-from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import DeliveryDispatcher, Router, policies_from_rules
 from wind_hub.infra import metrics
@@ -87,13 +83,13 @@ class AssembledRuntime:
     """一次装配的产物——完整的运行时对象图。
 
     ``start_runtime`` / ``stop_runtime`` 依赖其中 ``runtime`` 完成启动与
-    停机；``config_service`` / ``route_query_service`` / ``job_service`` /
-    ``command_service`` / ``query_service`` 暴露给 inbound 适配器（通过
-    ``AppContext``）。
+    停机；``config`` / ``route_query`` / ``jobs`` / ``command`` / ``query``
+    五个 Use Case 暴露给 inbound 适配器（通过 ``AppContext``）。
     """
 
-    config: Config
-    """当前生效的完整配置快照。"""
+    boot_config: Config
+    """启动时装载的完整配置快照；热重载后的生效配置以
+    ``config.current_config`` 为准。"""
 
     runtime: Runtime
     """运行时——组件生命周期与状态编排核心，持有引擎/调度/分发器。"""
@@ -102,7 +98,7 @@ class AssembledRuntime:
     """采集引擎（与 ``runtime.engine`` 同一实例，便于直接注册观察者）。"""
 
     scheduler: SchedulerPort
-    """调度端口抽象（APScheduler 适配器），Job 生命周期由 JobService 操作。"""
+    """调度端口抽象（APScheduler 适配器），Job 生命周期由 JobUseCase 操作。"""
 
     dispatcher: Dispatcher
     """指令分发器，负责写指令路由与幂等。"""
@@ -119,20 +115,20 @@ class AssembledRuntime:
     protocols: dict[str, ProtocolPort]
     """按 device_id 索引的协议驱动实例。"""
 
-    config_service: ConfigService
-    """配置热重载服务（实现 ``ConfigUseCase``）。"""
+    config: ConfigUseCase
+    """配置热重载用例。"""
 
-    route_query_service: RouteQueryService
-    """路由查询服务（实现 ``RouteQueryUseCase``）。"""
+    route_query: RouteQueryUseCase
+    """只读路由查询用例。"""
 
-    job_service: JobService
-    """调度 Job 管理服务（实现 ``JobUseCase``）。"""
+    jobs: JobUseCase
+    """采集 Job 生命周期管理用例。"""
 
-    command_service: CommandService
-    """指令下发服务（实现 ``CommandUseCase``）。"""
+    command: CommandUseCase
+    """指令下发用例。"""
 
-    query_service: QueryService
-    """只读查询服务（实现 ``QueryUseCase``，含系统状态查询）。"""
+    query: QueryUseCase
+    """只读查询用例（含系统状态查询）。"""
 
     iec104_slave: IEC104SlaveServer | None = None
     """可选的 IEC104 从站代理（reporting.yaml 存在时装配），否则 ``None``."""
@@ -178,7 +174,7 @@ def assemble(
         device_groups={d.device_id: d.device_group for d in cfg.devices.devices},
     )
     router = Router(table)
-    # 投递策略（阶段 B）：Router 决定「发到哪些 sink」，DeliveryDispatcher
+    # 投递策略：Router 决定「发到哪些 sink」，DeliveryDispatcher
     # 按规则上的 delivery 配置决定「这批是否投递」。
     delivery = DeliveryDispatcher(router, policies_from_rules(cfg.routing.rules))
 
@@ -229,15 +225,15 @@ def assemble(
         metrics_hook=metrics.PrometheusRuntimeMetrics(),
     )
 
-    # ConfigService 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
+    # ConfigUseCase 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
     # 具体重构委托给 Runtime.reconfigure。
-    config_service = ConfigService(config_dir, runtime)
+    config = ConfigUseCase(config_dir, runtime)
     # 路由查询经 Runtime.current_router 做到热重载感知。
-    route_query_service = RouteQueryService(runtime)
-    # Job 管理经 SchedulerPort；命令/查询服务委托 Dispatcher / Runtime。
-    job_service = JobService(scheduler)
-    command_service = CommandService(dispatcher)
-    query_service = QueryService(runtime)
+    route_query = RouteQueryUseCase(runtime)
+    # Job 管理经 SchedulerPort；命令/查询用例委托 Dispatcher / Runtime。
+    jobs = JobUseCase(scheduler)
+    command = CommandUseCase(dispatcher)
+    query = QueryUseCase(runtime)
 
     # IEC104 从站代理：reporting.yaml 存在时才装配（可选组件）。
     iec104_slave: IEC104SlaveServer | None = None
@@ -245,7 +241,7 @@ def assemble(
         iec104_slave = _build_iec104_slave(cfg.reporting, engine, dispatcher)
 
     return AssembledRuntime(
-        config=cfg,
+        boot_config=cfg,
         runtime=runtime,
         engine=engine,
         scheduler=scheduler,
@@ -254,11 +250,11 @@ def assemble(
         pipeline=pipeline,
         sinks=sinks,
         protocols=protocols,
-        config_service=config_service,
-        route_query_service=route_query_service,
-        job_service=job_service,
-        command_service=command_service,
-        query_service=query_service,
+        config=config,
+        route_query=route_query,
+        jobs=jobs,
+        command=command,
+        query=query,
         iec104_slave=iec104_slave,
     )
 

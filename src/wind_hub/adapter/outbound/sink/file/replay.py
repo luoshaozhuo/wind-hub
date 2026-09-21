@@ -21,9 +21,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.domain.model.errors import SinkError
 from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.domain.port.outbound import SinkPort
 
 logger = logging.getLogger(__name__)
 

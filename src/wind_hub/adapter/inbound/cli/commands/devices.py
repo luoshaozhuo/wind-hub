@@ -22,10 +22,10 @@ def devices(
 
 async def _devices(as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.query_service is None:
-        print_error("查询服务未配置（AppContext.query_service 为 None）")
+    if ctx.query is None:
+        print_error("查询用例未配置（AppContext.query 为 None）")
         raise typer.Exit(1)
-    infos = await ctx.query_service.list_devices()
+    infos = await ctx.query.list_devices()
     if as_json:
         print_json([info.model_dump(mode="json") for info in infos])
         return

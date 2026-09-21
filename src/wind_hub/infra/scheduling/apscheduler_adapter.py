@@ -1,7 +1,7 @@
 """APScheduler 调度适配器——:class:`SchedulerPort` 的 asyncio 实现。
 
 架构位置：infra 层。这是核心代码之外唯一允许依赖 APScheduler 类型的模块；
-domain / application 只见 ``wind_hub.domain.port.scheduling`` 的抽象。
+domain / application 只见 ``wind_hub.application.port.scheduling`` 的抽象。
 
 实现要点：
 
@@ -32,7 +32,7 @@ from apscheduler.job import Job  # type: ignore[import-untyped]
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
 
-from wind_hub.domain.port.scheduling import JobFunc, JobInfo, JobMetadata
+from wind_hub.application.port.scheduling import JobFunc, JobInfo, JobMetadata
 
 
 class APSchedulerAdapter:

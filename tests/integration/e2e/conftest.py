@@ -12,10 +12,10 @@ from httpx import ASGITransport, AsyncClient
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.port.outbound import SinkPort
 
 from .runtime_helpers import clear_runtime_context, set_runtime_context
 

@@ -21,8 +21,8 @@ def run(
     config: Path = typer.Option(
         ..., "--config", help="配置目录（含 system/devices/points/routing.yaml）"
     ),
-    host: str = typer.Option("127.0.0.1", "--host", help="API 监听地址（step9b 启用）"),
-    port: int = typer.Option(8080, "--port", help="API 监听端口（step9b 启用）"),
+    host: str = typer.Option("127.0.0.1", "--host", help="API 监听地址"),
+    port: int = typer.Option(8080, "--port", help="API 监听端口"),
     shutdown_timeout: float = typer.Option(30.0, "--shutdown-timeout", help="优雅停机超时（秒）"),
 ) -> None:
     """启动引擎并前台阻塞，等待 SIGINT/SIGTERM 优雅停机。"""

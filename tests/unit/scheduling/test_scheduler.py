@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from wind_hub.domain.port.scheduling import JobMetadata
+from wind_hub.application.port.scheduling import JobMetadata
 from wind_hub.infra.scheduling import APSchedulerAdapter
 
 pytestmark = pytest.mark.asyncio
@@ -385,7 +385,7 @@ def test_scheduler_port_contract_is_unaware_of_read_mode() -> None:
     （方法签名与 JobInfo 字段）不包含任何 read_mode 概念。"""
     import inspect
 
-    from wind_hub.domain.port.scheduling import JobInfo, SchedulerPort
+    from wind_hub.application.port.scheduling import JobInfo, SchedulerPort
 
     for name in (
         "add_interval_job",

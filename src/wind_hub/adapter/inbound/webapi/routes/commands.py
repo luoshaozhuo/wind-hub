@@ -23,7 +23,7 @@ async def send_command(request: CommandRequest) -> CommandResponse:
     a dispatch failure (e.g. unknown device) raises ``CommandError`` → 404.
     """
     ctx = get_ctx()
-    if ctx.command_service is None:
+    if ctx.command is None:
         raise APIError("SERVICE_UNAVAILABLE", "command_service is not configured", status_code=503)
     command = Command(
         command_id=request.command_id or str(uuid.uuid4()),
@@ -32,7 +32,7 @@ async def send_command(request: CommandRequest) -> CommandResponse:
         value=request.value,
         timeout=request.timeout,
     )
-    result = await ctx.command_service.send(command)
+    result = await ctx.command.send(command)
     return _to_response(result)
 
 

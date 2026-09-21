@@ -1,23 +1,25 @@
-"""Route query service — 只读路由查询的实现。
+"""Route query use case——只读路由查询的应用编排。
 
-将 :class:`~wind_hub.application.runtime.runtime.Runtime` 包装为
-:class:`~wind_hub.domain.port.inbound.RouteQueryUseCase`，供 CLI / Web API
-适配器查询路由决策与未匹配点。服务本身不做任何路由计算，只做惰性委托。
+基于 :class:`~wind_hub.application.runtime.runtime.Runtime`，供 CLI /
+Web API 适配器查询路由决策与未匹配点。用例本身不做任何路由计算，只做
+惰性委托。
 
 持有 Runtime（而非直接持有 Router）是因为热重载可能通过
 :meth:`Runtime.replace_router` 替换路由表——通过 :meth:`Runtime.current_router`
-读取即可始终看到最新实例，无需在每次热重载后重组服务引用。
+读取即可始终看到最新实例，无需在每次热重载后重组用例引用。
+
+路由表是纯内存结构、无 I/O，因此方法设计为同步，与 :class:`Router`
+的纯逻辑语义一致，避免引入不必要的 ``asyncio`` 边界。
 """
 
 from __future__ import annotations
 
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.domain.model.route import RouteDecision
-from wind_hub.domain.port.inbound import RouteQueryUseCase
 
 
-class RouteQueryService(RouteQueryUseCase):
-    """只读路由查询服务，委托给 Runtime 的当前路由表。
+class RouteQueryUseCase:
+    """只读路由查询用例，委托给 Runtime 的当前路由表。
 
     通过 :meth:`Runtime.current_router` 间接访问路由表，做到热重载感知：
     无论路由表是否在运行时被替换，查询都基于最新快照。

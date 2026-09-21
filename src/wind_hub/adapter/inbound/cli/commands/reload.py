@@ -23,11 +23,11 @@ def reload(
 
 async def _reload(as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.config_service is None:
-        print_error("配置服务未配置（AppContext.config_service 为 None）")
+    if ctx.config is None:
+        print_error("配置用例未配置（AppContext.config 为 None）")
         raise typer.Exit(1)
     try:
-        result = await ctx.config_service.reload()
+        result = await ctx.config.reload()
     except WindHubError as exc:
         if as_json:
             print_json({"success": False, "error": str(exc)})

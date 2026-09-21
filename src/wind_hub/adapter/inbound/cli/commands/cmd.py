@@ -30,8 +30,8 @@ def send(
 
 async def _send(device_id: str, point_id: str, value: str, timeout: float, as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.command_service is None:
-        print_error("指令服务未配置（AppContext.command_service 为 None）")
+    if ctx.command is None:
+        print_error("指令用例未配置（AppContext.command 为 None）")
         raise typer.Exit(1)
     command = Command(
         command_id=str(uuid.uuid4()),
@@ -41,7 +41,7 @@ async def _send(device_id: str, point_id: str, value: str, timeout: float, as_js
         timeout=timeout,
     )
     try:
-        result = await ctx.command_service.send(command)
+        result = await ctx.command.send(command)
     except WindHubError as exc:
         if as_json:
             print_json({"success": False, "error": str(exc)})

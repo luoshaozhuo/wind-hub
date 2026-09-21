@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from wind_hub.adapter.inbound.cli.context import AppContext, clear_context, set_context
 from wind_hub.adapter.inbound.webapi.app import build_api
 from wind_hub.adapter.inbound.webapi.errors import APIError
+from wind_hub.application.app_context import AppContext, clear_context, set_context
 from wind_hub.domain.model.errors import ProtocolError
 
 
@@ -29,7 +29,7 @@ def _client() -> TestClient:
 def _install_query(status_side_effect: object) -> None:
     query = AsyncMock()
     query.status.side_effect = status_side_effect
-    set_context(AppContext(command_service=AsyncMock(), query_service=query))
+    set_context(AppContext(command=AsyncMock(), query=query))
 
 
 def test_api_error_returns_unified_format() -> None:

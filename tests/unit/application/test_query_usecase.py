@@ -1,4 +1,4 @@
-"""QueryService 的单元测试。
+"""QueryUseCase 的单元测试。
 
 验证对象：``application/query_service.py``——只读查询全部穿透到 Runtime
 当前注册表（不缓存静态快照）。
@@ -20,8 +20,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.query_service import QueryService
+from wind_hub.application.port.scheduling import SchedulerPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.config.schema import (
     DeviceConfig,
     PointAddress,
@@ -34,7 +35,6 @@ from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
-from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import Router
 
@@ -105,7 +105,7 @@ def _runtime(
 
 async def test_read_point_returns_protocol_value() -> None:
     proto = _protocol(read_values=[_value(value=42.0)])
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(devices={"d1": _device()}, protocols={"d1": proto}, points={"d1": [_point()]})
     )
 
@@ -116,14 +116,14 @@ async def test_read_point_returns_protocol_value() -> None:
 
 
 async def test_read_point_unknown_device_raises_command_error() -> None:
-    service = QueryService(_runtime(devices={"d1": _device()}))
+    service = QueryUseCase(_runtime(devices={"d1": _device()}))
 
     with pytest.raises(CommandError, match="unknown device 'missing'"):
         await service.read_point("missing", "p1")
 
 
 async def test_read_point_unknown_point_raises_command_error() -> None:
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(
             devices={"d1": _device()},
             protocols={"d1": _protocol()},
@@ -136,7 +136,7 @@ async def test_read_point_unknown_point_raises_command_error() -> None:
 
 
 async def test_read_point_missing_driver_raises_command_error() -> None:
-    service = QueryService(_runtime(devices={"d1": _device()}, points={"d1": [_point()]}))
+    service = QueryUseCase(_runtime(devices={"d1": _device()}, points={"d1": [_point()]}))
 
     with pytest.raises(CommandError, match="no protocol driver"):
         await service.read_point("d1", "p1")
@@ -144,7 +144,7 @@ async def test_read_point_missing_driver_raises_command_error() -> None:
 
 async def test_read_point_empty_result_raises_protocol_error() -> None:
     proto = _protocol(read_values=[])
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(devices={"d1": _device()}, protocols={"d1": proto}, points={"d1": [_point()]})
     )
 
@@ -158,7 +158,7 @@ async def test_read_point_empty_result_raises_protocol_error() -> None:
 
 
 async def test_list_devices_reports_health() -> None:
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(
             devices={"d1": _device("d1", "modbus"), "d2": _device("d2", "iec104")},
             protocols={"d1": _protocol(healthy=True), "d2": _protocol(healthy=False)},
@@ -175,7 +175,7 @@ async def test_list_devices_reports_health() -> None:
 
 
 async def test_list_devices_missing_driver_reports_disconnected() -> None:
-    service = QueryService(_runtime(devices={"d1": _device()}))
+    service = QueryUseCase(_runtime(devices={"d1": _device()}))
 
     infos = await service.list_devices()
 
@@ -185,7 +185,7 @@ async def test_list_devices_missing_driver_reports_disconnected() -> None:
 
 
 async def test_get_device_info_known() -> None:
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(devices={"d1": _device()}, protocols={"d1": _protocol(healthy=True)})
     )
 
@@ -196,7 +196,7 @@ async def test_get_device_info_known() -> None:
 
 
 async def test_get_device_info_unknown_raises_command_error() -> None:
-    service = QueryService(_runtime(devices={"d1": _device()}))
+    service = QueryUseCase(_runtime(devices={"d1": _device()}))
 
     with pytest.raises(CommandError, match="unknown device 'missing'"):
         await service.get_device_info("missing")
@@ -208,7 +208,7 @@ async def test_get_device_info_unknown_raises_command_error() -> None:
 
 
 async def test_status_aggregates_runtime_snapshot() -> None:
-    service = QueryService(
+    service = QueryUseCase(
         _runtime(
             devices={"d1": _device("d1"), "d2": _device("d2")},
             protocols={"d1": _protocol(healthy=True), "d2": _protocol(healthy=False)},
@@ -235,7 +235,7 @@ async def test_status_aggregates_runtime_snapshot() -> None:
 async def test_hot_added_device_visible_immediately() -> None:
     """Runtime.add_device 后 list_devices/read_point 立即看到新设备。"""
     runtime = _runtime(devices={"d1": _device("d1")}, protocols={"d1": _protocol()})
-    service = QueryService(runtime)
+    service = QueryUseCase(runtime)
 
     assert {i.device_id for i in await service.list_devices()} == {"d1"}
 
@@ -255,7 +255,7 @@ async def test_rebuilt_device_read_uses_new_protocol() -> None:
         protocols={"d1": p_old},
         points={"d1": [_point("p1")]},
     )
-    service = QueryService(runtime)
+    service = QueryUseCase(runtime)
 
     p_new = _protocol(read_values=[_value(value=2.0)])
     await runtime.rebuild_device("d1", _device("d1"), p_new, [_point("p1")])
@@ -275,7 +275,7 @@ async def test_point_table_change_visible_to_read_validation() -> None:
         protocols={"d1": proto},
         points={"d1": [_point("p1")]},
     )
-    service = QueryService(runtime)
+    service = QueryUseCase(runtime)
 
     await runtime.rebuild_device("d1", _device("d1"), proto, [_point("p2")])
 
@@ -292,7 +292,7 @@ async def test_removed_device_no_longer_listed_or_readable() -> None:
         protocols={"d1": proto},
         points={"d1": [_point("p1")]},
     )
-    service = QueryService(runtime)
+    service = QueryUseCase(runtime)
 
     await runtime.remove_device("d1")
 

@@ -1,6 +1,6 @@
 """``wind-hub jobs`` — 采集 Job 生命周期管理（查询 / start / stop / 批量启停）。
 
-命令只经 ``job_service``（:class:`~wind_hub.domain.port.inbound.JobUseCase`）
+命令只经 ``jobs``（:class:`~wind_hub.application.usecase.job.JobUseCase`）
 操作调度状态：start/stop 是 resume/pause 语义，不增删 Job、不触碰设备连接。
 """
 
@@ -13,7 +13,7 @@ import typer
 
 from wind_hub.adapter.inbound.cli.context import get_context_or_exit
 from wind_hub.adapter.inbound.cli.output import print_error, print_json, print_kv, print_table
-from wind_hub.domain.port.inbound import JobBatchResult, JobDetail, JobUseCase
+from wind_hub.application.usecase.job import JobBatchResult, JobDetail, JobUseCase
 
 app = typer.Typer(name="jobs", help="采集任务管理")
 
@@ -22,10 +22,10 @@ _COLUMNS = ["job_id", "device", "group", "interval", "state", "next_run"]
 
 def _service() -> JobUseCase:
     ctx = get_context_or_exit()
-    if ctx.job_service is None:
-        print_error("任务服务未配置（AppContext.job_service 为 None）")
+    if ctx.jobs is None:
+        print_error("Job 用例未配置（AppContext.jobs 为 None）")
         raise typer.Exit(1)
-    return ctx.job_service
+    return ctx.jobs
 
 
 def _row(job: JobDetail) -> dict[str, Any]:

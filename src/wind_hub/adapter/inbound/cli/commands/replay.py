@@ -18,10 +18,10 @@ import typer
 
 from wind_hub.adapter.inbound.cli.output import print_error, print_kv
 from wind_hub.adapter.outbound.sink.file.replay import parse_records, replay_to_sink
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.assembly import _create_sink
 from wind_hub.config.loader import load_config
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.port.outbound import SinkPort
 
 app = typer.Typer(name="replay", help="重放归档文件到目标 sink")
 

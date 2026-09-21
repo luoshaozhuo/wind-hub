@@ -6,7 +6,7 @@
 
 不负责：
 
-- 「什么时候执行」——那是 :class:`~wind_hub.domain.port.scheduling.SchedulerPort`
+- 「什么时候执行」——那是 :class:`~wind_hub.application.port.scheduling.SchedulerPort`
   的职责，由 Runtime 把本引擎的 :meth:`collect` 注册为调度 Job；
 - Protocol / Sink 实例的创建、连接与关闭——那是 Runtime 的生命周期职责；
 - Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托给

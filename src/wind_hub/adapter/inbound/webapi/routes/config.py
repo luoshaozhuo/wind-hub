@@ -16,13 +16,13 @@ router = APIRouter(tags=["config"])
 async def reload_config() -> ReloadResponse:
     """Run a full hot-reload cycle; 503 when the config service is absent."""
     ctx = get_ctx()
-    if ctx.config_service is None:
+    if ctx.config is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "config_service is not configured",
+            "config use case is not configured",
             status_code=503,
         )
-    result: ReloadResult = await ctx.config_service.reload()
+    result: ReloadResult = await ctx.config.reload()
     return _to_response(result)
 
 

@@ -17,10 +17,10 @@ router = APIRouter(tags=["points"])
 async def read_point(device_id: str, point_id: str) -> PointValueResponse:
     """Read a single point's value (404 unknown, 503 device unreachable)."""
     ctx = get_ctx()
-    if ctx.query_service is None:
+    if ctx.query is None:
         raise APIError("SERVICE_UNAVAILABLE", "query_service is not configured", status_code=503)
     try:
-        value = await ctx.query_service.read_point(device_id, point_id)
+        value = await ctx.query.read_point(device_id, point_id)
     except CommandError as exc:
         raise APIError("NOT_FOUND", str(exc), status_code=404) from exc
     # ProtocolError propagates to the domain error handler → 503.

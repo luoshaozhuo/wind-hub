@@ -1,35 +1,83 @@
-"""Job service — 采集 Job 显式生命周期控制的应用服务。
+"""Job use case——采集 Job 显式生命周期控制的应用编排。
 
-将 :class:`~wind_hub.domain.port.scheduling.SchedulerPort` 包装为
-:class:`~wind_hub.domain.port.inbound.JobUseCase`，供 CLI / Web API 管理
-「调度 Job 生命周期」：查询、start（resume）、stop（pause）、批量启停。
+基于 :class:`~wind_hub.application.port.scheduling.SchedulerPort`，供
+CLI / Web API 管理「调度 Job 生命周期」：查询、start（resume）、
+stop（pause）、批量启停。
 
 核心语义：
 
 - 配置决定「有哪些 Job」——Job 的创建与删除只发生在启动装配与配置热
-  重载；本服务的 start/stop 只翻转调度状态，不增删 Job；
+  重载；本用例的 start/stop 只翻转调度状态，不增删 Job；
 - Job 状态只有 ``RUNNING`` / ``STOPPED`` 两态——采集执行状态
   （failed/partial）与设备连接状态（disconnected）是另外的维度，
-  不由本服务呈现或修改；
+  不由本用例呈现或修改；
 - 批量操作只匹配 ``JobMetadata.kind == "poll"`` 的采集 Job，避免误操作
   未来可能出现的调度器内部系统 Job——Job ID 只负责标识，分类只看
-  ``metadata.kind``，本服务不解析 ``job_id`` 字符串。
+  ``metadata.kind``，本用例不解析 ``job_id`` 字符串。
 
-职责边界：本服务只管 Job 粒度操作。Runtime 整体 ``start()``/``stop()``
+职责边界：本用例只管 Job 粒度操作。Runtime 整体 ``start()``/``stop()``
 （Runtime 生命周期）与进程启停（process 生命周期）是另外两层语义，不在
 此暴露——三者不得混用。
 """
 
 from __future__ import annotations
 
-from wind_hub.domain.port.inbound import JobBatchResult, JobDetail, JobUseCase
-from wind_hub.domain.port.scheduling import POLL_JOB_KIND, JobInfo, SchedulerPort
+from datetime import datetime
+
+from pydantic import BaseModel
+
+from wind_hub.application.port.scheduling import (
+    POLL_JOB_KIND,
+    JobInfo,
+    JobState,
+    SchedulerPort,
+)
 
 
-class JobService(JobUseCase):
-    """采集 Job 管理服务——调度状态操作直接委托给 SchedulerPort。
+class JobDetail(BaseModel):
+    """调度 Job 的展示级快照——供 CLI / Web API 呈现。
 
-    未知 ``job_id`` 的 ``KeyError`` 由本服务统一抛出，调用方（适配层）
+    在端口层 :class:`~wind_hub.application.port.scheduling.JobInfo` 之上
+    补全采集语义：``device_id`` / ``group`` 取自 ``JobMetadata``（非采集
+    Job 为 ``None``），``state`` 是二态生命周期视图。
+    """
+
+    job_id: str
+    """Job 唯一标识（采集 Job 为 ``poll:{device_id}:{group}``）。"""
+
+    device_id: str | None = None
+    """采集设备 ID；非 ``poll:`` 前缀的系统 Job 为 ``None``。"""
+
+    group: str | None = None
+    """采集分组；非采集 Job 为 ``None``。"""
+
+    interval_seconds: float | None = None
+    """触发间隔（秒）。"""
+
+    state: JobState
+    """二态生命周期：``RUNNING`` / ``STOPPED``。"""
+
+    next_run_time: datetime | None = None
+    """下一次计划触发时间；``STOPPED`` 时为 ``None``。"""
+
+
+class JobBatchResult(BaseModel):
+    """批量 Job 操作（start-all / stop-all）的结果汇总。"""
+
+    total: int
+    """参与本次批量操作的采集 Job 总数。"""
+
+    changed: int
+    """本次状态发生翻转的 Job 数。"""
+
+    unchanged: int
+    """已处于目标状态、本次未触碰的 Job 数。"""
+
+
+class JobUseCase:
+    """采集 Job 管理用例——调度状态操作直接委托给 SchedulerPort。
+
+    未知 ``job_id`` 的 ``KeyError`` 由本用例统一抛出，调用方（适配层）
     据此映射为 404 / 非零退出。
     """
 

@@ -23,9 +23,9 @@ async def explain_route(
     ``source="unmatched"`` and empty ``targets``.
     """
     ctx = get_ctx()
-    if ctx.router is None:
+    if ctx.route_query is None:
         raise APIError("SERVICE_UNAVAILABLE", "router is not configured", status_code=503)
-    decision: RouteDecision = ctx.router.explain(device_id, point_id)
+    decision: RouteDecision = ctx.route_query.explain(device_id, point_id)
     return _to_response(decision)
 
 

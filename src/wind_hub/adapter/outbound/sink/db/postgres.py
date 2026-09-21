@@ -1,6 +1,6 @@
 """PostgreSQL 输出 sink —— 用 asyncpg 连接池把点值批量 INSERT 到关系表。
 
-实现 :class:`~wind_hub.domain.port.outbound.SinkPort` 的真实数据库走向：把一批
+实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实数据库走向：把一批
 :class:`~wind_hub.domain.model.point.PointValue` 映射为行，经 ``asyncpg``
 连接池的 ``executemany`` 批量写入 ``table``；``value`` 列以 JSON 序列化后按
 ``JSONB`` 落库（决策 5，兼容任意标量/结构化值），``timestamp`` 传 ``datetime``
@@ -27,10 +27,11 @@ from typing import Any
 # PointValue / HealthStatus / SinkError）。
 import asyncpg  # type: ignore[import-untyped]
 
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus, SinkPort
+from wind_hub.domain.port.outbound import HealthStatus
 from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)

@@ -1,18 +1,21 @@
-"""Application layer — 应用服务与运行时编排。"""
+"""Application 层——Use Case、Runtime 编排、应用级端口与进程级上下文。"""
 
-from wind_hub.application.command_service import CommandService
-from wind_hub.application.config_service import ConfigService, compute_diff
-from wind_hub.application.job_service import JobService
-from wind_hub.application.query_service import QueryService
-from wind_hub.application.route_query_service import RouteQueryService
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase import (
+    CommandUseCase,
+    ConfigUseCase,
+    JobUseCase,
+    QueryUseCase,
+    RouteQueryUseCase,
+    compute_diff,
+)
 
 __all__ = [
-    "CommandService",
-    "ConfigService",
-    "JobService",
-    "QueryService",
-    "RouteQueryService",
+    "CommandUseCase",
+    "ConfigUseCase",
+    "JobUseCase",
+    "QueryUseCase",
+    "RouteQueryUseCase",
     "Runtime",
     "compute_diff",
 ]

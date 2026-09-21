@@ -19,11 +19,11 @@ def explain(
 ) -> None:
     """打印某点位的路由决策（目标 sink、命中规则、来源）。"""
     ctx = get_context_or_exit()
-    if ctx.router is None:
-        print_error("路由未配置（AppContext.router 为 None）")
+    if ctx.route_query is None:
+        print_error("路由查询用例未配置（AppContext.route_query 为 None）")
         raise typer.Exit(1)
 
-    decision: RouteDecision = ctx.router.explain(device_id, point_id)
+    decision: RouteDecision = ctx.route_query.explain(device_id, point_id)
     if json:
         print_json(decision.model_dump(mode="json"))
     else:

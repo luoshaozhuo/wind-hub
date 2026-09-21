@@ -15,8 +15,8 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from wind_hub.adapter.inbound.cli.context import AppContext, clear_context, set_context
 from wind_hub.adapter.inbound.webapi.app import build_api
+from wind_hub.application.app_context import AppContext, clear_context, set_context
 from wind_hub.assembly import assemble
 
 
@@ -99,8 +99,8 @@ def test_metrics_renders_prometheus_text() -> None:
         rt = _assemble(Path(td))
         set_context(
             AppContext(
-                config_service=rt.config_service,
-                router=rt.route_query_service,
+                config=rt.config,
+                route_query=rt.route_query,
                 runtime=rt.runtime,
             )
         )
@@ -117,7 +117,7 @@ def test_metrics_renders_prometheus_text() -> None:
 def test_route_explain_uses_real_router() -> None:
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
-        set_context(AppContext(router=rt.route_query_service, runtime=rt.runtime))
+        set_context(AppContext(route_query=rt.route_query, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.get(
                 "/routes/explain", params={"device_id": "d1", "point_id": "rotor.speed"}
@@ -130,7 +130,7 @@ def test_route_explain_uses_real_router() -> None:
 def test_config_reload_runs_real_config_service() -> None:
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
-        set_context(AppContext(config_service=rt.config_service, runtime=rt.runtime))
+        set_context(AppContext(config=rt.config, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.post("/config/reload")
         assert resp.status_code == 200

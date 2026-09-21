@@ -1,4 +1,4 @@
-"""Unit tests for the CommandService application service.
+"""Unit tests for the CommandUseCase application service.
 
 验证对象：``application/command_service.py`` 把指令下发委托给
 :class:`~wind_hub.domain.command.dispatcher.Dispatcher`——``send`` /
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub.application.command_service import CommandService
+from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.domain.command.dispatcher import Dispatcher
 from wind_hub.domain.model.command import Command, CommandResult
 
@@ -32,7 +32,7 @@ async def test_send_delegates_to_dispatcher() -> None:
     expected = _result("c1")
     dispatcher.send = AsyncMock(return_value=expected)
 
-    result = await CommandService(dispatcher).send(_command())
+    result = await CommandUseCase(dispatcher).send(_command())
 
     dispatcher.send.assert_awaited_once()
     assert result is expected
@@ -49,7 +49,7 @@ async def test_send_batch_delegates_to_dispatcher() -> None:
     expected = [_result("c1"), _result("c2", success=False)]
     dispatcher.send_batch = AsyncMock(return_value=expected)
 
-    results = await CommandService(dispatcher).send_batch(cmds)
+    results = await CommandUseCase(dispatcher).send_batch(cmds)
 
     dispatcher.send_batch.assert_awaited_once()
     assert results == expected

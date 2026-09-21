@@ -18,7 +18,7 @@ app = typer.Typer(name="point", help="点位操作")
 def read(
     device_id: str = typer.Argument(..., help="设备 ID"),
     point_id: str = typer.Argument(..., help="点位 ID"),
-    fresh: bool = typer.Option(False, "--fresh", help="触发一次实时读取（step8 暂忽略）"),
+    fresh: bool = typer.Option(False, "--fresh", help="触发一次实时读取（暂忽略）"),
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
     """读取单个点位的当前值。"""
@@ -27,11 +27,11 @@ def read(
 
 async def _read(device_id: str, point_id: str, as_json: bool) -> None:
     ctx = get_context_or_exit()
-    if ctx.query_service is None:
-        print_error("查询服务未配置（AppContext.query_service 为 None）")
+    if ctx.query is None:
+        print_error("查询用例未配置（AppContext.query 为 None）")
         raise typer.Exit(1)
     try:
-        value = await ctx.query_service.read_point(device_id, point_id)
+        value = await ctx.query.read_point(device_id, point_id)
     except WindHubError as exc:
         if as_json:
             print_json({"error": str(exc)})

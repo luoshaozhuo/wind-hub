@@ -1,16 +1,15 @@
-"""Query service — 只读查询的应用服务。
+"""Query use case——只读查询的应用编排。
 
-将 :class:`~wind_hub.application.runtime.runtime.Runtime` 包装为
-:class:`~wind_hub.domain.port.inbound.QueryUseCase`：
+基于 :class:`~wind_hub.application.runtime.runtime.Runtime` 提供：
 
 - 单点实时读（绕过采集循环直接调用协议驱动的 ``read``）；
 - 设备列表与单设备信息；
-- 系统状态快照（``status()``——原 TaskService 的聚合职责）。
+- 系统状态快照（``status()``）。
 
-服务**不缓存** protocols / devices / points 静态副本，每次查询都经 Runtime
-的当前注册表读取——热重载增删/重建组件后，查询立即看到最新对象。
+本用例**不缓存** protocols / devices / points 静态副本，每次查询都经
+Runtime 的当前注册表读取——热重载增删/重建组件后，查询立即看到最新对象。
 
-``read_point`` 的错误语义对齐端口契约：
+``read_point`` 的错误语义：
 - 设备不存在 → :class:`CommandError`（API 层映射为 404）。
 - 点不存在 → :class:`CommandError`（同样 404）。
 - 协议读失败 → :class:`ProtocolError` 原样上抛（API 层映射为 503）。
@@ -18,19 +17,77 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel
+
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.config.schema import DeviceConfig
 from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
-from wind_hub.domain.port.inbound import AcquisitionInfo, QueryUseCase, SystemStatus
 
 
-class QueryService(QueryUseCase):
-    """只读查询服务——所有读取都穿透到 Runtime 当前状态。
+class AcquisitionInfo(BaseModel):
+    """单个采集 Job（``(device, group)``）的业务执行状态快照。
+
+    与调度器的 Job 状态（注册/暂停/下次触发时间）和设备连接状态分维度：
+    本模型只描述「这个采集 Job 最近跑得怎样」。
+    """
+
+    device_id: str
+    """Device identifier."""
+
+    group: str
+    """Polling group name."""
+
+    running: bool = False
+    """``True`` while a collect run is in flight."""
+
+    consecutive_failures: int = 0
+    """连续失败次数（partial 不算失败）。"""
+
+    last_error: str | None = None
+    """最近一次失败的简要描述。"""
+
+    last_duration: float | None = None
+    """最近一次 collect 耗时（秒，单调时钟口径）。"""
+
+
+class SystemStatus(BaseModel):
+    """Runtime status snapshot returned by :meth:`QueryUseCase.status`."""
+
+    running: bool
+    """``True`` when the engine loop is active."""
+
+    device_count: int
+    """Number of configured devices."""
+
+    sink_count: int
+    """Number of configured sinks."""
+
+    devices_connected: int = 0
+    """Number of devices currently reporting a healthy connection."""
+
+    sinks_healthy: int = 0
+    """Number of sinks currently reporting healthy."""
+
+    points_collected: int = 0
+    """累计采集点数（调度器单调计数，进程重启归零）。"""
+
+    points_routed: int = 0
+    """累计路由点数——成功进入 sink 队列的点值总数。"""
+
+    points_dropped: int = 0
+    """累计丢弃点数——背压策略丢弃的点值总数。"""
+
+    acquisitions: list[AcquisitionInfo] = []
+    """各采集 Job 的业务执行状态（按 ``(device, group)`` 粒度）。"""
+
+
+class QueryUseCase:
+    """只读查询用例——所有读取都穿透到 Runtime 当前状态。
 
     Runtime 的热重载是就地增删注册表（``devices`` / ``protocols`` /
-    ``points_by_device``），因此本服务持有的唯一引用就是 Runtime 本身，
+    ``points_by_device``），因此本用例持有的唯一引用就是 Runtime 本身，
     天然免疫「静态快照失效」问题。
     """
 
@@ -63,8 +120,7 @@ class QueryService(QueryUseCase):
     async def list_devices(self) -> list[DeviceInfo]:
         """返回所有配置设备的运行时状态（按当前注册表）。"""
         return [
-            self._device_info(device_id, cfg)
-            for device_id, cfg in self._runtime.devices.items()
+            self._device_info(device_id, cfg) for device_id, cfg in self._runtime.devices.items()
         ]
 
     async def get_device_info(self, device_id: str) -> DeviceInfo:

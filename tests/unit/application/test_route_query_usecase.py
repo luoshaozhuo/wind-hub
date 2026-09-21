@@ -1,4 +1,4 @@
-"""RouteQueryService 的单元测试。
+"""RouteQueryUseCase 的单元测试。
 
 验证对象：``application/route_query_service.py``——经 Runtime 的
 ``current_router`` 委托给当前路由表：``explain`` 返回正确的
@@ -12,14 +12,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from wind_hub.application.route_query_service import RouteQueryService
+from wind_hub.application.port.scheduling import SchedulerPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.route_query import RouteQueryUseCase
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import PointAddress, PointConfig, SchedulerConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.command import Dispatcher
 from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
-from wind_hub.domain.port.scheduling import SchedulerPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import Router
 
@@ -56,7 +56,7 @@ def test_explain_routed_point() -> None:
             targets=[RouteTarget(sink="s1")],
         )
     ]
-    service = RouteQueryService(_runtime(_router(_points(), rules)))
+    service = RouteQueryUseCase(_runtime(_router(_points(), rules)))
     decision = service.explain("d1", "rotor.speed")
     assert decision.targets == ["s1"]
     assert decision.source == "rule"
@@ -71,7 +71,7 @@ def test_explain_unmatched_point() -> None:
             targets=[RouteTarget(sink="s1")],
         )
     ]
-    service = RouteQueryService(_runtime(_router(_points(), rules)))
+    service = RouteQueryUseCase(_runtime(_router(_points(), rules)))
     decision = service.explain("d1", "no.target")
     assert decision.targets == []
     assert decision.source == "unmatched"
@@ -85,7 +85,7 @@ def test_unmatched_points() -> None:
             targets=[RouteTarget(sink="s1")],
         )
     ]
-    service = RouteQueryService(_runtime(_router(_points(), rules)))
+    service = RouteQueryUseCase(_runtime(_router(_points(), rules)))
     assert service.unmatched_points() == [("d1", "no.target")]
 
 
@@ -105,7 +105,7 @@ async def test_explain_reflects_router_swap_on_hot_reload() -> None:
         ],
     )
     runtime = _runtime(old_router)
-    service = RouteQueryService(runtime)
+    service = RouteQueryUseCase(runtime)
     assert service.explain("d1", "a.x").targets == ["s1"]
 
     new_router = _router(

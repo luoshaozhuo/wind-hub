@@ -1,6 +1,6 @@
 """本地文件输出 sink —— 追加写 CSV / JSONL，支持滚动策略与后台压缩。
 
-实现 :class:`~wind_hub.domain.port.outbound.SinkPort` 的真实文件走向：把一批
+实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实文件走向：把一批
 :class:`~wind_hub.domain.model.point.PointValue` 序列化成 ``csv`` 或 ``jsonl``
 行，追加写入本地文件；滚动判断委托给 :class:`~.rotation.RotationPolicy`（由
 ``params`` 里的 ``max_size_mb`` / ``max_age_hours`` 构建），滚动把当前文件改名
@@ -32,10 +32,11 @@ from wind_hub.adapter.outbound.sink.file.compression import (
     NoCompressor,
 )
 from wind_hub.adapter.outbound.sink.file.rotation import build_rotation
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus, SinkPort
+from wind_hub.domain.port.outbound import HealthStatus
 from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)

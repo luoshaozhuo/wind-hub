@@ -5,6 +5,26 @@
 
 ## 1. 总体结构
 
+### 1.1 术语定义
+
+| 术语 | 定义 |
+|---|---|
+| Domain | 核心业务模型与业务规则（model / acquisition / routing / command / processing / domain 扩展点端口），不含应用入口与基础设施语义 |
+| Use Case | application 层完成完整应用业务流程的编排类（`application/usecase/`），接收 inbound adapter 调用，编排 domain 对象、Runtime 与 outbound port |
+| Inbound Adapter | CLI / Web API / IEC104 slave——参数解析、协议转换、调用 Use Case、映射输出 |
+| Inbound Port | 不默认存在：inbound adapter 直接依赖具体 Use Case；只有存在多实现或替换边界时才允许保留，且必须命名为 `xxxPort` |
+| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort、SchedulerPort）与 `domain/port/outbound.py`（ProtocolPort、ProcessorPort——被 domain 服务直接消费，故留在 domain） |
+| Outbound Adapter | outbound port 的实现：Modbus / ADS / IEC104 / Kafka / Postgres / FileSink / APScheduler |
+| Runtime | 运行期组件生命周期与状态编排核心（`application/runtime/`），不是普通 Use Case |
+| Composition Root | `assembly.py`——唯一知道双方具体类型并负责装配的模块 |
+| AppContext | 进程级共享 application context / 依赖容器（`application/app_context.py`），CLI 与 Web API 共享同一实例 |
+
+注意：**UseCase 不是 Port 的统一后缀**——`xxxUseCase` 是具体编排类；
+"Application Service" 术语不再作为代码主命名体系（不再存在
+`xxxService` 类或 `application/*_service.py` 模块）。
+
+### 1.2 入口与装配
+
 入口与装配：
 
 ```text
@@ -27,8 +47,8 @@ Runtime
 
 | 层 | 内容 | 依赖约束 |
 |---|---|---|
-| `domain` | 模型、端口（Protocol）、AcquisitionEngine、Router、DeliveryDispatcher、Dispatcher、Pipeline | 不得依赖 adapter / infra；不得 import APScheduler、FastAPI、pyads、pymodbus、prometheus_client |
-| `application` | Runtime、DeviceRuntimeState、AcquisitionRuntimeState、ConfigService、QueryService 等 | 不得依赖 adapter；指标等经回调/端口注入 |
+| `domain` | 模型、扩展点端口（ProtocolPort / ProcessorPort）、AcquisitionEngine、Router、DeliveryDispatcher、Dispatcher、Pipeline | 不得依赖 application / adapter / infra；不得 import APScheduler、FastAPI、pyads、pymodbus、prometheus_client |
+| `application` | Use Case（command / config / job / query / route_query）、Runtime、DeviceRuntimeState、AcquisitionRuntimeState、应用级端口（SinkPort / SchedulerPort）、AppContext | 不得依赖 adapter；指标等经回调/端口注入 |
 | `adapter` | inbound（webapi/cli）、outbound（protocol/sink/processor） | 可依赖 domain / infra |
 | `infra` | metrics、registry、processor_registry | 被各层经组合根接线 |
 
@@ -191,14 +211,14 @@ DeliveryDispatcher 实例，采集循环总是读当前实例。
 热重载删除的设备/sink，其 gauge 标签序列在下一次拉取时移除
 （Counter 序列不删除）。
 
-健康与状态查询（`QueryService.status()`）分层返回：
+健康与状态查询（`QueryUseCase.status()`）分层返回：
 `running` / 设备计数与连通数 / sink 计数与健康数 / 采集计数 /
 `acquisitions`（各采集 Job 的 `AcquisitionInfo`：running、
 consecutive_failures、last_error、last_duration）。
 
 ## 9. 热重载
 
-唯一入口：`ConfigService.reload()` → 加载校验配置并 diff →
+唯一入口：`ConfigUseCase.reload()` → 加载校验配置并 diff →
 `Runtime.reconfigure(new_config, diff)`。状态处理规则：
 
 - **设备删除** → 注销其全部 Job，删除 `DeviceRuntimeState` 与全部

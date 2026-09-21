@@ -2,15 +2,16 @@
 
 生产 sink（File/Kafka/DB）的 ``write`` 仍是骨架（抛 ``NotImplementedError``），
 端到端测试无法用它们断言数据落地。NullSink 实现
-:class:`~wind_hub.domain.port.outbound.SinkPort` 的最小契约，把收到的
+:class:`~wind_hub.application.port.sink.SinkPort` 的最小契约，把收到的
 :class:`~wind_hub.domain.model.point.PointValue` 存入内存，供测试断言
 「采集 → 路由 → 输出」链路是否真的把数据推到了 sink。
 """
 
 from __future__ import annotations
 
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus, SinkPort
+from wind_hub.domain.port.outbound import HealthStatus
 
 
 class NullSink(SinkPort):

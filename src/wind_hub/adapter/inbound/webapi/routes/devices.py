@@ -26,9 +26,9 @@ def _to_response(info: DeviceInfo) -> DeviceInfoResponse:
 async def list_devices() -> list[DeviceInfoResponse]:
     """List all configured devices and their runtime status."""
     ctx = get_ctx()
-    if ctx.query_service is None:
+    if ctx.query is None:
         raise APIError("SERVICE_UNAVAILABLE", "query_service is not configured", status_code=503)
-    infos = await ctx.query_service.list_devices()
+    infos = await ctx.query.list_devices()
     return [_to_response(info) for info in infos]
 
 
@@ -36,10 +36,10 @@ async def list_devices() -> list[DeviceInfoResponse]:
 async def get_device(device_id: str) -> DeviceInfoResponse:
     """Return the runtime status of a single device (404 when unknown)."""
     ctx = get_ctx()
-    if ctx.query_service is None:
+    if ctx.query is None:
         raise APIError("SERVICE_UNAVAILABLE", "query_service is not configured", status_code=503)
     try:
-        info = await ctx.query_service.get_device_info(device_id)
+        info = await ctx.query.get_device_info(device_id)
     except CommandError as exc:
         raise APIError("NOT_FOUND", str(exc), status_code=404) from exc
     return _to_response(info)

@@ -29,8 +29,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.job_service import JobService
+from wind_hub.application.port.scheduling import JobInfo, JobMetadata
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.job import JobUseCase
 from wind_hub.config.schema import (
     Config,
     DeviceConfig,
@@ -53,8 +55,7 @@ from wind_hub.domain.model.errors import ProtocolError
 from wind_hub.domain.model.point import PointValue, Quality
 from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, SinkDiff
 from wind_hub.domain.model.route import DeliveryConfig, RouteMatch, RouteRule, RouteTarget
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort, SinkPort
-from wind_hub.domain.port.scheduling import JobInfo, JobMetadata
+from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 from wind_hub.domain.processing import Pipeline
 from wind_hub.domain.routing import Router
 
@@ -2021,7 +2022,7 @@ async def test_job_service_start_stop_roundtrip_on_runtime_jobs() -> None:
         devices={"d1": _two_group_device()},
         protocols={"d1": _make_mock_protocol()},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
 
@@ -2046,7 +2047,7 @@ async def test_stop_all_jobs_keeps_runtime_running() -> None:
         devices={"d1": _two_group_device()},
         protocols={"d1": p1},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         await service.start_all_jobs()
@@ -2070,7 +2071,7 @@ async def test_stopped_job_retains_acquisition_state_history() -> None:
         devices={"d1": _make_device("d1")},
         protocols={"d1": _make_mock_protocol()},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         # 模拟一次成功采集留下的历史
@@ -2171,7 +2172,7 @@ async def test_interval_change_preserves_running_state() -> None:
         protocols={"d1": p1},
         points_by_device={"d1": [_make_point("p1")]},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         await service.start_job("poll:d1:default")
@@ -2221,7 +2222,7 @@ async def test_point_table_content_change_preserves_job_state() -> None:
         protocols={"d1": p1},
         points_by_device={"d1": [_make_point("p1")]},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         await service.start_job("poll:d1:default")
@@ -2250,7 +2251,7 @@ async def test_device_group_change_preserves_job_state() -> None:
         protocols={"d1": p1},
         points_by_device={"d1": [_make_point("p1")]},
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         await service.start_job("poll:d1:default")
@@ -2279,7 +2280,7 @@ async def test_device_rebuild_preserves_job_states() -> None:
         points_by_device={"d1": [_make_point("p1")]},
         protocol_factory=lambda _cfg: p_new,
     )
-    service = JobService(scheduler)
+    service = JobUseCase(scheduler)
     try:
         await runtime.start()
         await service.start_job("poll:d1:fast")  # fast RUNNING，slow 保持 STOPPED

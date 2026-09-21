@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wind_hub.adapter.inbound.cli.context import AppContext, clear_context, set_context
+from wind_hub.application.app_context import AppContext, clear_context, set_context
 from wind_hub.assembly import AssembledRuntime
 
 
@@ -10,12 +10,12 @@ def set_runtime_context(rt: AssembledRuntime) -> None:
     """用一次装配的运行时填充 AppContext，使 ``/health`` 等端点返回 200。"""
     set_context(
         AppContext(
-            config_service=rt.config_service,
-            router=rt.route_query_service,
-            job_service=rt.job_service,
+            config=rt.config,
+            route_query=rt.route_query,
+            jobs=rt.jobs,
             runtime=rt.runtime,
-            command_service=rt.command_service,
-            query_service=rt.query_service,
+            command=rt.command,
+            query=rt.query,
         )
     )
 

@@ -83,6 +83,12 @@ source_modules = ["wind_hub.domain"]
 forbidden_modules = ["wind_hub.adapter", "wind_hub.infra"]
 
 [[tool.importlinter.contracts]]
+name = "Domain 不得依赖 Application"
+type = "forbidden"
+source_modules = ["wind_hub.domain"]
+forbidden_modules = ["wind_hub.application"]
+
+[[tool.importlinter.contracts]]
 name = "Application 不得依赖 Adapter"
 type = "forbidden"
 source_modules = ["wind_hub.application"]

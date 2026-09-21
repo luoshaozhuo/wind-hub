@@ -5,7 +5,7 @@ Every failure is returned with a single envelope::
     {"error": {"code": "...", "message": "...", "details": {...}}}
 
 Internal stack traces are logged, not leaked to clients.  Status codes follow
-the step8 contract (400 format / 404 not found / 409 conflict / 500 internal /
+the unified contract (400 format / 404 not found / 409 conflict / 500 internal /
 503 unavailable).  Domain exceptions are mapped to these codes via a small
 lookup table rather than scattered ``try/except`` blocks in the routes.
 """

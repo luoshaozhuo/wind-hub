@@ -1,4 +1,4 @@
-"""ConfigService 的单元测试。
+"""ConfigUseCase 的单元测试。
 
 验证对象：``application/config_service.py`` 的热重载编排——
 「load → validate → diff → Runtime.reconfigure → commit current config」。
@@ -25,8 +25,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 
-from wind_hub.application.config_service import ConfigService, compute_diff
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.config.schema import (
     DeviceConfig,
     PointAddress,
@@ -103,7 +103,7 @@ def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
 
 async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
-    service = ConfigService(tmp_path, _mock_runtime())
+    service = ConfigUseCase(tmp_path, _mock_runtime())
 
     cfg = service.current_config
     assert [d.device_id for d in cfg.devices.devices] == ["d1"]
@@ -112,7 +112,7 @@ async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
 async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
     (tmp_path / "system.yaml").write_text("not: [valid")
     with pytest.raises(Exception):  # noqa: B017 — 加载失败类型由 loader 决定
-        ConfigService(tmp_path, _mock_runtime())
+        ConfigUseCase(tmp_path, _mock_runtime())
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
 async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
     snapshot_before = service.current_config
 
     # 破坏 devices.yaml
@@ -145,7 +145,7 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
 async def test_reload_no_changes_skips_reconfigure(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
 
     result = await service.reload()
 
@@ -165,7 +165,7 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
 ) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
 
     # 新增一台设备
     _write_configs(
@@ -188,7 +188,7 @@ async def test_reload_commits_snapshot_even_on_partial_failure(tmp_path: Path) -
     """reconfigure 部分失败：success=False、错误透传，但快照仍提交。"""
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime(reconfigure_errors=["sink: open failed"])
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
 
     _write_configs(tmp_path, devices=[_make_device("d1"), _make_device("d2")])
     result = await service.reload()
@@ -209,7 +209,7 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
         sinks=[SinkConfig(name="s1", type="file")],
     )
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
 
     _write_configs(
         tmp_path,
@@ -244,7 +244,7 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         ],
         processors=["scale"],
     )
-    service = ConfigService(tmp_path, _mock_runtime())
+    service = ConfigUseCase(tmp_path, _mock_runtime())
     old = service.current_config
 
     _write_configs(
@@ -261,7 +261,7 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         ],
         processors=["scale", "filter"],
     )
-    service2 = ConfigService(tmp_path, _mock_runtime())
+    service2 = ConfigUseCase(tmp_path, _mock_runtime())
     new = service2.current_config
 
     diff = compute_diff(old, new)
@@ -273,8 +273,8 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
 
 async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
-    service = ConfigService(tmp_path, _mock_runtime())
-    service2 = ConfigService(tmp_path, _mock_runtime())
+    service = ConfigUseCase(tmp_path, _mock_runtime())
+    service2 = ConfigUseCase(tmp_path, _mock_runtime())
 
     diff = compute_diff(service.current_config, service2.current_config)
 
@@ -340,7 +340,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     """父表变化：diff 基于 resolved 结果，子表被标记变更并携带新点集进入 Runtime。"""
     _write_inheritance_configs(tmp_path, base_unit="rpm")
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
     assert service.current_config.point_tables.tables["child"].points[0].unit == "rpm"
 
     _write_inheritance_configs(tmp_path, base_unit="rps")  # 只改父表
@@ -365,7 +365,7 @@ async def test_reload_unmodified_inheritance_chain_is_noop(tmp_path: Path) -> No
     """继承链配置未变：reload 无 diff、不触碰 Runtime。"""
     _write_inheritance_configs(tmp_path)
     runtime = _mock_runtime()
-    service = ConfigService(tmp_path, runtime)
+    service = ConfigUseCase(tmp_path, runtime)
 
     result = await service.reload()
 

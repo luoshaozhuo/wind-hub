@@ -1,9 +1,9 @@
-"""Config service — 配置加载、校验、diff 与热重载用例编排。
+"""Config use case——配置加载、校验、diff 与热重载的应用编排。
 
-职责边界：本服务只做「load → validate → diff → runtime.reconfigure →
+职责边界：本用例只做「load → validate → diff → runtime.reconfigure →
 commit current config」的编排；具体的设备/sink 增删重建、路由表与处理链
 替换全部由 :class:`~wind_hub.application.runtime.runtime.Runtime` 的
-:meth:`Runtime.reconfigure` 执行——本服务不直接触碰任何运行时组件。
+:meth:`Runtime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import Config
 from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, ReloadResult, SinkDiff
-from wind_hub.domain.port.inbound import ConfigUseCase
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +114,9 @@ def _items_changed(old_items: Sequence[Any], new_items: Sequence[Any]) -> bool:
     return any(a.model_dump() != b.model_dump() for a, b in zip(old_items, new_items, strict=True))
 
 
-class ConfigService(ConfigUseCase):
-    """配置服务——热重载用例编排。
+class ConfigUseCase:
+    """配置热重载用例编排。
 
-    实现 :class:`~wind_hub.domain.port.inbound.ConfigUseCase`：
     ``reload()`` 编排热重载，``current_config`` 暴露当前配置。
 
     ``reload()`` 流程：
