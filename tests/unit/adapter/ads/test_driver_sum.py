@@ -35,6 +35,7 @@ def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceC
 
 def _make_symbol_point(point_id: str, symbol: str, data_type: str = "float32") -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(symbol=symbol),
         data_type=data_type,
@@ -43,6 +44,7 @@ def _make_symbol_point(point_id: str, symbol: str, data_type: str = "float32") -
 
 def _make_index_point(point_id: str) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(index_group=0x4020, index_offset=0),
         data_type="float32",

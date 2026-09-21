@@ -14,21 +14,17 @@ if TYPE_CHECKING:
 _MAX_RANGE_LEN = 1024
 _MAX_TOTAL_PORTS = 4096
 
-# 内置默认端口集（决策 2）：工业协议常用端口。step24 起为兜底值——
-# 部署应通过 configs/ports.yaml 的 default_ports 提供完整端口集，
-# 未加载配置时沿用本表（向后兼容）。
-_DEFAULT_PORTS: tuple[int, ...] = (502, 2404, 48898, 4840, 44818)
-
 
 def default_ports(config: PortsConfig | None = None) -> list[int]:
-    """返回默认端口集。
+    """返回默认端口集：端口配置 ``mapping`` 的全部端口。
 
-    ``config`` 提供时读 ``config.default_ports``（配置文件驱动，
-    step24）；否则返回内置默认值（向后兼容）。
+    ``config`` 为 ``None`` 时用内置工业协议映射（配置文件缺失的兜底）。
     """
-    if config is not None:
-        return list(config.default_ports)
-    return list(_DEFAULT_PORTS)
+    if config is None:
+        from wind_hub.config.ports_config import default_ports_config
+
+        config = default_ports_config()
+    return list(config.mapping)
 
 
 def parse_ports(spec: str) -> list[int]:

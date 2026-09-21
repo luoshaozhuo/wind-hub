@@ -14,6 +14,7 @@ import pytest
 
 from wind_hub.adapter.inbound.cli.probe import ports as ports_mod
 from wind_hub.adapter.inbound.cli.probe.ports_models import PortState
+from wind_hub.config.ports_config import PortsConfig
 from wind_hub.domain.model.errors import ConfigError
 
 
@@ -60,6 +61,20 @@ async def test_scan_port_closed_on_connection_refused(
     result = await ports_mod.scan_port("10.0.1.1", 2404, timeout=0.1)
     assert result.state is PortState.CLOSED
     assert result.service_guess == "iec104"
+
+
+async def test_scan_port_service_guess_uses_config_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """服务名来自 ``PortsConfig.mapping``（SERVICE_MAP 已删，配置驱动）。"""
+    config = PortsConfig(mapping={20000: "dnp3"})
+    _patch_open(monkeypatch, "open")
+    result = await ports_mod.scan_port("10.0.1.1", 20000, timeout=0.1, config=config)
+    assert result.state is PortState.OPEN
+    assert result.service_guess == "dnp3"
+    # config 提供时以 config 为准——内置表有的 502 不在自定义表里则为 None
+    result = await ports_mod.scan_port("10.0.1.1", 502, timeout=0.1, config=config)
+    assert result.service_guess is None
 
 
 async def test_scan_port_timeout_on_no_response(monkeypatch: pytest.MonkeyPatch) -> None:

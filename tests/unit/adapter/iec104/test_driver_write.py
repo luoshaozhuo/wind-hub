@@ -43,6 +43,7 @@ def _make_point_config(
     data_type: str = "bool",
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(ioa=ioa),
         data_type=data_type,

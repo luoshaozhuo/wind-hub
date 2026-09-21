@@ -10,6 +10,7 @@ import yaml
 from wind_hub.config.point_table_resolver import resolve_point_tables
 from wind_hub.config.reporting import load_reporting
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     Config,
     DeviceConfig,
     DevicesConfig,
@@ -17,8 +18,8 @@ from wind_hub.config.schema import (
     PointTablesConfig,
     ReportingConfig,
     ResolvedPointTables,
-    RoutingConfig,
     SystemConfig,
+    TasksConfig,
 )
 from wind_hub.domain.model.errors import ConfigError
 
@@ -68,21 +69,22 @@ def load_points(path: Path) -> PointTablesConfig:
         raise ConfigError(f"Invalid points config [{path}]: {exc}") from exc
 
 
-def load_routing(path: Path) -> RoutingConfig:
-    """Load and validate ``routing.yaml``."""
+def load_tasks(path: Path) -> TasksConfig:
+    """Load and validate ``tasks.yaml``。"""
     raw = _read_yaml(path)
     try:
-        return RoutingConfig(**raw)
+        return TasksConfig(**raw)
     except Exception as exc:
-        raise ConfigError(f"Invalid routing config [{path}]: {exc}") from exc
+        raise ConfigError(f"Invalid tasks config [{path}]: {exc}") from exc
 
 
 def load_config(config_dir: str | Path) -> Config:
-    """Load all four configuration files from a directory, validate each,
+    """Load all configuration files from a directory, validate each,
     run cross-file consistency checks, and return an aggregate ``Config``.
 
     Expected files:
-        ``system.yaml``, ``devices.yaml``, ``points.yaml``, ``routing.yaml``
+        ``system.yaml``, ``devices.yaml``, ``points.yaml``, ``tasks.yaml``
+        （``reporting.yaml`` 可选）
 
     点表继承：``points.yaml`` 先按 Raw Schema 解析，再经
     ``point_table_resolver.resolve_point_tables`` 展开 ``extends`` /
@@ -91,15 +93,16 @@ def load_config(config_dir: str | Path) -> Config:
 
     Cross-file checks:
         - 设备引用的 ``point_table`` 必须存在；
-        - 参与周期调度的设备：点位 ``group`` 必须被设备 ``polling`` 分组覆盖
-          （无显式 polling 时仅允许 ``default``），且每个 polling 分组至少
-          有一个点；
-        - 点位级 ``sinks`` 与路由规则 ``targets`` 必须引用已定义的 sink；
+        - Task 的 ``device`` 必须存在；``device_group`` 至少匹配一台 enabled
+          设备；
+        - Task 的 ``point_group`` 必须在其命中的每台 enabled 设备绑定点表
+          中存在；
+        - Task 的 ``targets`` 必须引用已定义的 sink；
+        - 任何 Task 不得命中 ADS ``read_mode='sequential'`` 的设备（该模式
+          只允许请求驱动的单次读取，不参与周期采集）；
         - ADS 设备点表的地址形式合法（symbol 单独合法；index_group 与
           index_offset 必须成对；三者不得全空）；
-        - ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``；
-        - ADS ``sequential`` 设备只允许请求驱动的单次读取，不得配置
-          ``polling``（不参与周期调度，分组覆盖校验同样跳过）。
+        - ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``。
 
     Raises:
         ConfigError: On any validation or consistency failure.
@@ -109,9 +112,9 @@ def load_config(config_dir: str | Path) -> Config:
     system = load_system(base / "system.yaml")
     devices = load_devices(base / "devices.yaml")
     # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
-    # resolved 结果（ADS sum symbol、polling 覆盖、路由分组均按最终点集）。
+    # resolved 结果（ADS sum symbol、Task point_group 覆盖均按最终点集）。
     point_tables = resolve_point_tables(load_points(base / "points.yaml"))
-    routing = load_routing(base / "routing.yaml")
+    tasks = load_tasks(base / "tasks.yaml")
 
     # Optional IEC104 slave proxy config — absent means no proxy.
     reporting: ReportingConfig | None = None
@@ -119,39 +122,85 @@ def load_config(config_dir: str | Path) -> Config:
     if reporting_path.is_file():
         reporting = load_reporting(reporting_path)
 
-    sink_names = {s.name for s in system.sinks}
-
     for device in devices.devices:
-        _validate_device_binding(device, point_tables, sink_names)
+        _validate_device_binding(device, point_tables)
 
-    # Cross-file: routing rule targets must reference valid sink names
-    for rule in routing.rules:
-        for target in rule.targets:
-            if target.sink not in sink_names:
-                raise ConfigError(
-                    f"Routing rule '{rule.name}' targets unknown sink "
-                    f"'{target.sink}' (available: {sorted(sink_names)})"
-                )
+    sink_names = {s.name for s in system.sinks}
+    for task in tasks.tasks:
+        _validate_task_targets(task, devices, point_tables, sink_names)
 
     return Config(
         system=system,
         devices=devices,
         point_tables=point_tables,
-        routing=routing,
+        tasks=tasks,
         reporting=reporting,
     )
+
+
+def _validate_task_targets(
+    task: CollectionTaskConfig,
+    devices: DevicesConfig,
+    point_tables: ResolvedPointTables,
+    sink_names: set[str],
+) -> None:
+    """校验单个采集 Task 的跨文件引用。
+
+    - ``device`` 必须存在；``device_group`` 至少匹配一台 enabled 设备；
+    - 命中的 enabled 设备必须全部支持周期采集（ADS ``sequential`` 报错）；
+    - ``point_group`` 必须在每台命中 enabled 设备的绑定点表中存在；
+    - 每个 target sink 必须已定义。
+
+    Raises:
+        ConfigError: 任一引用缺失或组合非法。
+    """
+    for target in task.targets:
+        if target.sink not in sink_names:
+            raise ConfigError(
+                f"Task '{task.task_id}' targets unknown sink "
+                f"'{target.sink}' (available: {sorted(sink_names)})"
+            )
+
+    if task.device is not None:
+        device = next((d for d in devices.devices if d.device_id == task.device), None)
+        if device is None:
+            raise ConfigError(f"Task '{task.task_id}' references unknown device '{task.device}'")
+        matched = [device] if device.enabled else []
+    else:
+        matched = [d for d in devices.devices if d.enabled and d.device_group == task.device_group]
+        if not any(d.device_group == task.device_group for d in devices.devices):
+            raise ConfigError(
+                f"Task '{task.task_id}': device_group '{task.device_group}' " "matches no device"
+            )
+
+    unsupported = [d.device_id for d in matched if not d.supports_scheduled_collection]
+    if unsupported:
+        raise ConfigError(
+            f"Task '{task.task_id}': devices {unsupported} do not support "
+            "scheduled collection (ADS read_mode='sequential' is single-read only)"
+        )
+
+    missing = [
+        d.device_id
+        for d in matched
+        if task.point_group
+        not in {g for p in point_tables.tables[d.point_table].points for g in p.point_groups}
+    ]
+    if missing:
+        raise ConfigError(
+            f"Task '{task.task_id}': point_group '{task.point_group}' does not "
+            f"exist in the point tables of devices {missing}"
+        )
 
 
 def _validate_device_binding(
     device: DeviceConfig,
     point_tables: ResolvedPointTables,
-    sink_names: set[str],
 ) -> None:
-    """校验单台设备的点表绑定、分组覆盖与协议相关约束。
+    """校验单台设备的点表绑定与协议相关约束。
 
     Raises:
-        ConfigError: 点表缺失、点组未被 polling 覆盖、polling 分组无点、
-            sink 引用未知、ADS 地址非法或 read_mode 组合非法。
+        ConfigError: 点表缺失、ADS 地址非法或 read_mode 组合非法。
     """
     table = point_tables.tables.get(device.point_table)
     if table is None:
@@ -159,44 +208,6 @@ def _validate_device_binding(
             f"Device '{device.device_id}' references unknown point_table "
             f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
         )
-
-    # ADS sequential 只允许请求驱动的单次读取，不得配置周期 polling；
-    # 其分组无调度含义，跳过覆盖校验。
-    if not device.supports_scheduled_polling:
-        if device.polling:
-            raise ConfigError(
-                f"Device '{device.device_id}': ADS read_mode='sequential' "
-                f"must not configure polling (single reads only)"
-            )
-    else:
-        # 点组必须被设备 polling 覆盖；无显式 polling 时仅 default 组（默认间隔）
-        allowed_groups = (
-            {g.group for g in device.polling} if device.polling else {"default"}
-        )
-        for p in table.points:
-            if p.group not in allowed_groups:
-                raise ConfigError(
-                    f"Device '{device.device_id}': point '{p.point_id}' uses group "
-                    f"'{p.group}' not covered by device polling groups "
-                    f"{sorted(allowed_groups)}"
-                )
-        # 每个 polling 分组必须至少有一个点
-        point_groups = {p.group for p in table.points}
-        for g in device.polling:
-            if g.group not in point_groups:
-                raise ConfigError(
-                    f"Device '{device.device_id}': polling group '{g.group}' "
-                    f"has no points in table '{device.point_table}'"
-                )
-
-    # Per-point sinks override must reference valid sink names
-    for p in table.points:
-        for sn in p.sinks or []:
-            if sn not in sink_names:
-                raise ConfigError(
-                    f"Point '{p.point_id}' references unknown sink '{sn}' "
-                    f"(available: {sorted(sink_names)})"
-                )
 
     if device.protocol == "ads":
         for p in table.points:

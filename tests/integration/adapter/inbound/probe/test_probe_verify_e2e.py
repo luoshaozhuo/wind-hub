@@ -58,11 +58,13 @@ def _write_config(base: Path) -> None:
                         "points": [
                             {
                                 "point_id": "rotor.speed",
+                                "point_groups": ["telemetry"],
                                 "address": {"type": "holding_register", "address": 0},
                                 "data_type": "int16",
                             },
                             {
                                 "point_id": "gen.power",
+                                "point_groups": ["telemetry"],
                                 "address": {"type": "holding_register", "address": 1},
                                 "data_type": "int16",
                             },
@@ -72,6 +74,7 @@ def _write_config(base: Path) -> None:
                         "points": [
                             {
                                 "point_id": "nacelle.temp",
+                                "point_groups": ["telemetry"],
                                 "address": {"type": "measured_value", "ioa": 1001},
                             },
                         ]
@@ -81,7 +84,7 @@ def _write_config(base: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (base / "routing.yaml").write_text("rules: []\n", encoding="utf-8")
+    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 class _FakeDriver:

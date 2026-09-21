@@ -2,8 +2,7 @@
 # 端到端测试用系统配置 —— 短超时 + 空管道 + null sink
 # ---------------------------------------------------------------------------
 
-scheduler:
-  default_interval: 0.2
+runtime:
   connect_timeout: 2.0
   read_timeout: 2.0
   shutdown_timeout: 5.0

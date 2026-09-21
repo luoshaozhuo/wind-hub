@@ -77,8 +77,8 @@ async def scan_ports(
 ) -> PortScanResult:
     """扫描一个 IP 的多个端口（Semaphore 限流，决策 6/7）。
 
-    结果按端口号升序排列。``config`` 提供服务名映射（step24 配置化）；
-    缺省用内置 :data:`~...ports_models.SERVICE_MAP`。
+    结果按端口号升序排列。``config`` 提供服务名映射（``mapping``）；
+    缺省用内置工业协议映射。
 
     Raises:
         ConfigError: 非 Linux 平台（决策 1）。

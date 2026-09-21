@@ -121,18 +121,14 @@ def test_runtime_metrics_duration_skipped_when_none() -> None:
     labels = {"device_id": "metrics-dev-nodur", "group": "g1"}
     hook.acquisition_run_finished("metrics-dev-nodur", "g1", "success", None)
     assert REGISTRY.get_sample_value("wind_hub_acquisition_runs_total", labels) == 1.0
-    assert (
-        REGISTRY.get_sample_value("wind_hub_acquisition_duration_seconds_count", labels) is None
-    )
+    assert REGISTRY.get_sample_value("wind_hub_acquisition_duration_seconds_count", labels) is None
 
 
 def test_runtime_metrics_connect_failure_and_reconnect_counters() -> None:
     """connect 失败与 Runtime 驱动的重连成功按 device_id/protocol 标签计数。"""
     hook = metrics.PrometheusRuntimeMetrics()
     labels = {"device_id": "metrics-dev-conn", "protocol": "modbus"}
-    before_f = (
-        REGISTRY.get_sample_value("wind_hub_device_connect_failures_total", labels) or 0.0
-    )
+    before_f = REGISTRY.get_sample_value("wind_hub_device_connect_failures_total", labels) or 0.0
     before_r = REGISTRY.get_sample_value("wind_hub_device_reconnect_total", labels) or 0.0
 
     hook.device_connect_failed("metrics-dev-conn", "modbus")
@@ -185,22 +181,16 @@ def test_update_sink_queue_depths_sets_and_prunes_stale_series() -> None:
     """sink 队列深度 gauge：按快照覆盖；删除的 sink 序列被移除。"""
     metrics.update_sink_queue_depths({"metrics-sink-a": 3, "metrics-sink-b": 7})
     assert (
-        REGISTRY.get_sample_value(
-            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-a"}
-        )
+        REGISTRY.get_sample_value("wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-a"})
         == 3.0
     )
     assert (
-        REGISTRY.get_sample_value(
-            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"}
-        )
+        REGISTRY.get_sample_value("wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"})
         == 7.0
     )
 
     metrics.update_sink_queue_depths({"metrics-sink-a": 1})
     assert (
-        REGISTRY.get_sample_value(
-            "wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"}
-        )
+        REGISTRY.get_sample_value("wind_hub_sink_queue_depth", {"sink_name": "metrics-sink-b"})
         is None
     )

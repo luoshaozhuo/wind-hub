@@ -31,31 +31,17 @@ class PortState(str, Enum):
     UNREACHABLE = "unreachable"
 
 
-# 已知协议端口映射（决策 5）：工业协议为主，辅以少量通用管理端口。
-# step24 起为内置兜底值——部署应通过 configs/ports.yaml 提供完整映射
-# （见 wind_hub.config.ports_config），未加载配置时沿用本表。
-SERVICE_MAP: dict[int, str] = {
-    502: "modbus",
-    2404: "iec104",
-    48898: "ads",
-    4840: "opc-ua",
-    44818: "ethernet-ip",
-    80: "http",
-    443: "https",
-    22: "ssh",
-    23: "telnet",
-}
-
-
 def guess_service(port: int, config: PortsConfig | None = None) -> str | None:
     """端口 → 服务名（纯映射）；未识别的端口返回 ``None``。
 
-    ``config`` 提供时查 ``config.service_map``（配置文件驱动，step24）；
-    否则回落到内置 :data:`SERVICE_MAP`（向后兼容）。
+    查端口配置的 ``mapping``（configs/ports.yaml 驱动）；``config`` 为
+    ``None`` 时用内置工业协议映射（配置文件缺失的兜底）。
     """
-    if config is not None:
-        return config.service_map.get(port)
-    return SERVICE_MAP.get(port)
+    if config is None:
+        from wind_hub.config.ports_config import default_ports_config
+
+        config = default_ports_config()
+    return config.mapping.get(port)
 
 
 @dataclass(frozen=True)

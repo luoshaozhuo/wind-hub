@@ -76,7 +76,7 @@ async def run_engine(
     """装配并启动引擎与 Web API，阻塞直到收到 SIGINT/SIGTERM，随后优雅停机。
 
     Args:
-        config_dir: 配置目录（含 system/devices/points/routing.yaml）。
+        config_dir: 配置目录（含 system/devices/points/tasks.yaml）。
         host: Web API 监听地址。
         port: Web API 监听端口。
         shutdown_timeout: 优雅停机整体超时（秒），透传给
@@ -93,8 +93,7 @@ async def run_engine(
     set_context(
         AppContext(
             config=rt.config,
-            route_query=rt.route_query,
-            jobs=rt.jobs,
+            tasks=rt.tasks,
             runtime=rt.runtime,
             command=rt.command,
             query=rt.query,
@@ -149,7 +148,7 @@ def main() -> int:
     parser.add_argument(
         "--config",
         required=True,
-        help="配置目录（含 system/devices/points/routing.yaml）",
+        help="配置目录（含 system/devices/points/tasks.yaml）",
     )
     parser.add_argument("--host", default="127.0.0.1", help="API 监听地址")
     parser.add_argument("--port", type=int, default=8080, help="API 监听端口")

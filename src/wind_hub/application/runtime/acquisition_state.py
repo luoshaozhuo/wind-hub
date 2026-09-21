@@ -1,17 +1,18 @@
-"""AcquisitionRuntimeState —— 每个采集 Job（``(device, group)``）的运行状态。
+"""AcquisitionRuntimeState —— 每个采集执行（Task Instance）的运行状态。
 
 架构位置：application/runtime。与 :class:`DeviceRuntimeState` 严格分维度：
-设备连接状态回答「设备通不通」，本模型回答「这个采集 Job 最近跑得怎样」。
-调度器的 Job 状态（注册/暂停/下次触发时间）是第三维度，三者不可混淆：
+设备连接状态回答「设备通不通」，本模型回答「这个采集实例最近跑得怎样」。
+实例生命周期状态（RUNNING / STOPPED，由 Runtime 显式簿记）是第三维度，
+三者不可混淆：
 
-- ``SchedulerPort`` 的 Job = 时间调度状态（paused ≠ 设备 down）；
-- ``DeviceRuntimeState`` = 连接状态（断线不删 Job）；
+- 实例生命周期 = 启停状态（STOPPED ≠ 设备 down）；
+- ``DeviceRuntimeState`` = 连接状态（断线不删实例）；
 - ``AcquisitionRuntimeState`` = 业务执行状态（最近一次成功/失败/耗时）。
 
-粒度固定为 ``(device_id, group)``——即调度 Job ``poll:{device}:{group}``；
-不建逐点状态。一次 ``collect`` 的生命周期：:meth:`begin` →
-:meth:`finish_success` / :meth:`finish_failure`；无论哪条异常路径，
-``running`` 都必须在结束时归位（引擎侧以 try/except 保证）。
+粒度固定为 Task Instance（``{task_id}:{device_id}``）；不建逐点状态。
+一次 ``collect`` 的生命周期：:meth:`begin` → :meth:`finish_success` /
+:meth:`finish_failure`；无论哪条异常路径，``running`` 都必须在结束时
+归位（引擎侧以 try/except 保证）。
 
 所有时间戳为注入时钟（默认 ``time.monotonic``）语义，只做内部时长计算，
 不面向人类可读输出。
@@ -31,13 +32,14 @@ def _error_text(error: BaseException | str) -> str:
 
 @dataclass
 class AcquisitionRuntimeState:
-    """单个采集 Job 的运行状态（Runtime 持有，随 collect 演进）。"""
+    """单个采集执行实例的运行状态（Runtime 持有，随 collect 演进）。"""
 
-    job_id: str
-    """调度 Job 标识（``poll:{device}:{group}``）。"""
+    instance_id: str
+    """Task Instance 标识（``{task_id}:{device_id}``）。"""
 
+    task_id: str
     device_id: str
-    group: str
+    point_group: str
 
     running: bool = False
     """当前是否有一次 collect 正在执行。"""

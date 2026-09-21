@@ -2,11 +2,7 @@
 # wind-hub 系统配置 — 引擎、管道、Sink、接口
 # ---------------------------------------------------------------------------
 
-scheduler:
-  # 默认采集间隔（秒），当设备未指定 polling group 时使用
-  default_interval: 1.0
-  # 最大并发轮询设备数
-  max_concurrent_devices: 32
+runtime:
   # 每个 Sink 的内部队列容量（背压阈值）
   queue_maxsize: 1000
   # 背压策略：drop_old（丢最旧）/ drop_new（丢最新）/ block（阻塞）
@@ -31,11 +27,11 @@ pipeline:
     - deadband
 
 sinks:
-  # Sink 定义 — 路由规则通过名称引用它们
+  # Sink 定义 — Task 的 targets 通过名称引用它们
 
   - name: kafka_main
     type: kafka
-    enabled: true
+    enabled: false
     params:
       bootstrap_servers: "localhost:9092"
       topic: wind-hub.raw

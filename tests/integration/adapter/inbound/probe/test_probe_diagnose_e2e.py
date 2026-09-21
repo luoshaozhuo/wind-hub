@@ -75,6 +75,7 @@ def _write_config(
         points.append(
             {
                 "point_id": "rotor.speed",
+                "point_groups": ["telemetry"],
                 "address": {"type": "holding_register", "address": 0},
                 "data_type": "int16",
             }
@@ -83,7 +84,7 @@ def _write_config(
         yaml.safe_dump({"point_tables": {"wtg-table": {"points": points}}}),
         encoding="utf-8",
     )
-    (base / "routing.yaml").write_text("rules: []\n", encoding="utf-8")
+    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 class _FakeDriver:

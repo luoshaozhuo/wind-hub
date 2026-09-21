@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -10,14 +10,18 @@ from fastapi.testclient import TestClient
 
 from wind_hub.adapter.inbound.webapi.app import build_api
 from wind_hub.application.app_context import AppContext, clear_context, set_context
-from wind_hub.application.port.scheduling import JobState
-from wind_hub.application.usecase import JobBatchResult, JobDetail, SystemStatus
+from wind_hub.application.runtime.task_instance import TaskInstanceState
+from wind_hub.application.usecase import (
+    SystemStatus,
+    TaskBatchResult,
+    TaskDetail,
+    TaskInstanceDetail,
+)
 from wind_hub.domain.model.command import CommandResult
 from wind_hub.domain.model.device import DeviceInfo
 from wind_hub.domain.model.errors import CommandError
 from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.domain.model.reload import ConfigDiff, ReloadResult
-from wind_hub.domain.model.route import RouteDecision
+from wind_hub.domain.model.reload import ConfigDiff, ReloadResult, TaskDiff
 
 
 @pytest.fixture(autouse=True)
@@ -36,13 +40,16 @@ def _install_context(
     command: AsyncMock | None = None,
     query: AsyncMock | None = None,
     config: AsyncMock | None = None,
-    router: MagicMock | None = None,
+    tasks: AsyncMock | None = None,
+    runtime: AsyncMock | None = None,
 ) -> AppContext:
+    """AppContext 新模型：command/query/config/tasks/runtime（无 route_query/jobs）。"""
     ctx = AppContext(
         command=command or AsyncMock(),
         query=query or AsyncMock(),
         config=config,
-        route_query=router,
+        tasks=tasks,
+        runtime=runtime,
     )
     set_context(ctx)
     return ctx
@@ -171,10 +178,18 @@ def test_send_command_bad_request_returns_400() -> None:
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_config_reload_returns_200() -> None:
+# ---------------------------------------------------------------------------
+# /config/reload —— tasks diff 取代 routing_rebuilt
+# ---------------------------------------------------------------------------
+
+
+def test_config_reload_returns_tasks_diff() -> None:
     config = AsyncMock()
     config.reload.return_value = ReloadResult(
-        success=True, diff=ConfigDiff(), errors=[], duration_ms=1.0
+        success=True,
+        diff=ConfigDiff(tasks=TaskDiff(added=["t2"], removed=["t0"], updated=["t1"])),
+        errors=[],
+        duration_ms=1.0,
     )
     _install_context(config=config)
 
@@ -182,144 +197,211 @@ def test_config_reload_returns_200() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
+    assert body["tasks_added"] == ["t2"]
+    assert body["tasks_removed"] == ["t0"]
+    assert body["tasks_updated"] == ["t1"]
     assert body["devices_added"] == []
-    assert body["routing_rebuilt"] is False
+    assert body["pipeline_rebuilt"] is False
+    # 旧路由模型字段已删除
+    assert "routing_rebuilt" not in body
 
 
-def test_route_explain_returns_decision() -> None:
-    router = MagicMock()
-    router.explain.return_value = RouteDecision(
-        device_id="d1",
-        point_id="rotor.speed",
-        targets=["s1"],
-        matched_rule="default",
-        source="rule",
-    )
-    _install_context(router=router)
+def test_config_reload_unavailable_returns_503() -> None:
+    _install_context(config=None)
 
-    resp = _client().get("/routes/explain", params={"device_id": "d1", "point_id": "rotor.speed"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["targets"] == ["s1"]
-    assert body["source"] == "rule"
+    resp = _client().post("/config/reload")
+    assert resp.status_code == 503
 
 
 # ---------------------------------------------------------------------------
-# /jobs —— 采集 Job 生命周期
+# /tasks —— 采集 Task / Task Instance 生命周期
 # ---------------------------------------------------------------------------
 
+_INSTANCE_ID = "fast:d1"
 
-def _job_detail(job_id: str, state: str = "stopped") -> JobDetail:
-    return JobDetail(
-        job_id=job_id,
+
+def _task_detail(task_id: str = "fast") -> TaskDetail:
+    return TaskDetail(
+        task_id=task_id,
+        device="d1",
+        device_group=None,
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        enabled=True,
+    )
+
+
+def _instance_detail(
+    instance_id: str = _INSTANCE_ID, state: TaskInstanceState = TaskInstanceState.STOPPED
+) -> TaskInstanceDetail:
+    return TaskInstanceDetail(
+        instance_id=instance_id,
+        task_id="fast",
         device_id="d1",
-        group="fast",
-        interval_seconds=1.0,
-        state=JobState(state),
-        next_run_time=None,
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        state=state,
     )
 
 
-def _install_jobs_context(jobs: AsyncMock | None) -> AppContext:
-    ctx = AppContext(
-        command=AsyncMock(),
-        query=AsyncMock(),
-        jobs=jobs,
-    )
-    set_context(ctx)
-    return ctx
+def test_tasks_list() -> None:
+    tasks = AsyncMock()
+    tasks.list_tasks.return_value = [_task_detail()]
+    _install_context(tasks=tasks)
 
-
-def test_jobs_list() -> None:
-    jobs = AsyncMock()
-    jobs.list_jobs.return_value = [_job_detail("poll:d1:fast")]
-    _install_jobs_context(jobs)
-
-    resp = _client().get("/jobs")
+    resp = _client().get("/tasks")
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body[0]["job_id"] == "poll:d1:fast"
-    assert body[0]["device_id"] == "d1"
-    assert body[0]["group"] == "fast"
+    assert body[0]["task_id"] == "fast"
+    assert body[0]["device"] == "d1"
+    assert body[0]["device_group"] is None
+    assert body[0]["point_group"] == "fast"
     assert body[0]["interval"] == 1.0
+    assert body[0]["targets"] == ["archive"]
+    assert body[0]["enabled"] is True
+
+
+def test_tasks_instances_list() -> None:
+    tasks = AsyncMock()
+    tasks.list_instances.return_value = [_instance_detail()]
+    _install_context(tasks=tasks)
+
+    resp = _client().get("/tasks/instances")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["instance_id"] == _INSTANCE_ID
+    assert body[0]["task_id"] == "fast"
+    assert body[0]["device_id"] == "d1"
+    assert body[0]["point_group"] == "fast"
     assert body[0]["state"] == "stopped"
-    assert body[0]["next_run_time"] is None
 
 
-def test_jobs_detail_unknown_returns_404() -> None:
-    jobs = AsyncMock()
-    jobs.get_job.side_effect = KeyError("poll:nope:fast")
-    _install_jobs_context(jobs)
+def test_tasks_instance_detail() -> None:
+    tasks = AsyncMock()
+    tasks.get_instance.return_value = _instance_detail(state=TaskInstanceState.RUNNING)
+    _install_context(tasks=tasks)
 
-    resp = _client().get("/jobs/poll:nope:fast")
+    resp = _client().get(f"/tasks/instances/{_INSTANCE_ID}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["instance_id"] == _INSTANCE_ID
+    assert body["state"] == "running"
+    tasks.get_instance.assert_awaited_once_with(_INSTANCE_ID)
+
+
+def test_tasks_instance_detail_unknown_returns_404() -> None:
+    tasks = AsyncMock()
+    tasks.get_instance.side_effect = KeyError("nope:d1")
+    _install_context(tasks=tasks)
+
+    resp = _client().get("/tasks/instances/nope:d1")
 
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
-def test_jobs_start() -> None:
-    jobs = AsyncMock()
-    jobs.start_job.return_value = _job_detail("poll:d1:fast", state="running")
-    _install_jobs_context(jobs)
+def test_tasks_instance_start() -> None:
+    tasks = AsyncMock()
+    tasks.start_instance.return_value = _instance_detail(state=TaskInstanceState.RUNNING)
+    _install_context(tasks=tasks)
 
-    resp = _client().post("/jobs/poll:d1:fast/start")
+    resp = _client().post(f"/tasks/instances/{_INSTANCE_ID}/start")
 
     assert resp.status_code == 200
     assert resp.json()["state"] == "running"
-    jobs.start_job.assert_awaited_once_with("poll:d1:fast")
+    tasks.start_instance.assert_awaited_once_with(_INSTANCE_ID)
 
 
-def test_jobs_stop() -> None:
-    jobs = AsyncMock()
-    jobs.stop_job.return_value = _job_detail("poll:d1:fast")
-    _install_jobs_context(jobs)
+def test_tasks_instance_start_unknown_returns_404() -> None:
+    tasks = AsyncMock()
+    tasks.start_instance.side_effect = KeyError("nope:d1")
+    _install_context(tasks=tasks)
 
-    resp = _client().post("/jobs/poll:d1:fast/stop")
+    resp = _client().post("/tasks/instances/nope:d1/start")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_tasks_instance_stop() -> None:
+    tasks = AsyncMock()
+    tasks.stop_instance.return_value = _instance_detail()
+    _install_context(tasks=tasks)
+
+    resp = _client().post(f"/tasks/instances/{_INSTANCE_ID}/stop")
 
     assert resp.status_code == 200
     assert resp.json()["state"] == "stopped"
-    jobs.stop_job.assert_awaited_once_with("poll:d1:fast")
+    tasks.stop_instance.assert_awaited_once_with(_INSTANCE_ID)
 
 
-def test_jobs_start_unknown_returns_404() -> None:
-    jobs = AsyncMock()
-    jobs.start_job.side_effect = KeyError("poll:nope:fast")
-    _install_jobs_context(jobs)
+def test_tasks_instance_stop_unknown_returns_404() -> None:
+    tasks = AsyncMock()
+    tasks.stop_instance.side_effect = KeyError("nope:d1")
+    _install_context(tasks=tasks)
 
-    resp = _client().post("/jobs/poll:nope:fast/start")
+    resp = _client().post("/tasks/instances/nope:d1/stop")
 
     assert resp.status_code == 404
 
 
-def test_jobs_start_all() -> None:
-    jobs = AsyncMock()
-    jobs.start_all_jobs.return_value = JobBatchResult(total=3, changed=2, unchanged=1)
-    _install_jobs_context(jobs)
+def test_tasks_start_all() -> None:
+    tasks = AsyncMock()
+    tasks.start_all_instances.return_value = TaskBatchResult(total=3, changed=2, unchanged=1)
+    _install_context(tasks=tasks)
 
-    resp = _client().post("/jobs/start-all")
+    resp = _client().post("/tasks/start-all")
 
     assert resp.status_code == 200
-    body = resp.json()
-    assert body == {"total": 3, "changed": 2, "unchanged": 1}
-    jobs.start_all_jobs.assert_awaited_once()
+    assert resp.json() == {"total": 3, "changed": 2, "unchanged": 1}
+    tasks.start_all_instances.assert_awaited_once()
 
 
-def test_jobs_stop_all() -> None:
-    jobs = AsyncMock()
-    jobs.stop_all_jobs.return_value = JobBatchResult(total=3, changed=3, unchanged=0)
-    _install_jobs_context(jobs)
+def test_tasks_stop_all() -> None:
+    tasks = AsyncMock()
+    tasks.stop_all_instances.return_value = TaskBatchResult(total=3, changed=3, unchanged=0)
+    _install_context(tasks=tasks)
 
-    resp = _client().post("/jobs/stop-all")
+    resp = _client().post("/tasks/stop-all")
 
     assert resp.status_code == 200
     assert resp.json()["changed"] == 3
-    jobs.stop_all_jobs.assert_awaited_once()
+    tasks.stop_all_instances.assert_awaited_once()
 
 
-def test_jobs_unavailable_returns_503() -> None:
-    _install_jobs_context(None)
+def test_tasks_unavailable_returns_503() -> None:
+    _install_context(tasks=None)
 
-    resp = _client().get("/jobs")
+    resp = _client().get("/tasks")
 
     assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# 旧路由已删除：/jobs 与 /routes 全部 404
+# ---------------------------------------------------------------------------
+
+
+def test_jobs_routes_removed() -> None:
+    _install_context()
+
+    client = _client()
+    assert client.get("/jobs").status_code == 404
+    assert client.get("/jobs/poll:d1:fast").status_code == 404
+    assert client.post("/jobs/poll:d1:fast/start").status_code == 404
+    assert client.post("/jobs/poll:d1:fast/stop").status_code == 404
+    assert client.post("/jobs/start-all").status_code == 404
+    assert client.post("/jobs/stop-all").status_code == 404
+
+
+def test_routes_explain_removed() -> None:
+    _install_context()
+
+    resp = _client().get("/routes/explain", params={"device_id": "d1", "point_id": "p1"})
+
+    assert resp.status_code == 404

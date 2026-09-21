@@ -47,8 +47,7 @@ def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
         _resolve_table(name, raw.tables, [], cache)
     return ResolvedPointTables(
         tables={
-            name: ResolvedPointTable(points=list(points.values()))
-            for name, points in cache.items()
+            name: ResolvedPointTable(points=list(points.values())) for name, points in cache.items()
         }
     )
 
@@ -133,6 +132,5 @@ def _validate_resolved_point(data: dict[str, Any], table: str) -> PointConfig:
         raise
     except Exception as exc:
         raise ConfigError(
-            f"Point table '{table}': resolved point "
-            f"'{data.get('point_id')}' is invalid: {exc}"
+            f"Point table '{table}': resolved point " f"'{data.get('point_id')}' is invalid: {exc}"
         ) from exc

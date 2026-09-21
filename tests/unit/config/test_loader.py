@@ -13,8 +13,8 @@ from wind_hub.config.loader import (
     load_config,
     load_devices,
     load_points,
-    load_routing,
     load_system,
+    load_tasks,
 )
 from wind_hub.domain.model.errors import ConfigError
 
@@ -36,13 +36,17 @@ def _write_config_dir(
     devices: list[dict[str, Any]],
     point_tables: dict[str, Any],
     sinks: list[dict[str, Any]] | None = None,
-    rules: list[dict[str, Any]] | None = None,
+    tasks: list[dict[str, Any]] | None = None,
 ) -> None:
-    """写出一套最小完整配置目录（system/devices/points/routing）。"""
-    _write_yaml(base, "system.yaml", {"sinks": sinks or [{"name": "s1", "type": "file"}]})
+    """写出一套最小完整配置目录（system/devices/points/tasks）。"""
+    _write_yaml(
+        base,
+        "system.yaml",
+        {"sinks": sinks if sinks is not None else [{"name": "s1", "type": "file"}]},
+    )
     _write_yaml(base, "devices.yaml", {"devices": devices})
     _write_yaml(base, "points.yaml", {"point_tables": point_tables})
-    _write_yaml(base, "routing.yaml", {"rules": rules or []})
+    _write_yaml(base, "tasks.yaml", {"tasks": tasks or []})
 
 
 def _modbus_device(device_id: str = "d1", point_table: str = "t1", **extra: Any) -> dict[str, Any]:
@@ -60,13 +64,34 @@ def _ads_device(device_id: str = "d1", point_table: str = "t1", **extra: Any) ->
         "device_id": device_id,
         "protocol": "ads",
         "point_table": point_table,
-        "endpoint": {"host": "10.0.0.1", "port": 851},
+        "endpoint": {"host": "10.0.0.1", "port": 48898},
         **extra,
     }
 
 
-def _ads_table(points: list[dict[str, Any]]) -> dict[str, Any]:
+def _table(points: list[dict[str, Any]]) -> dict[str, Any]:
     return {"t1": {"points": points}}
+
+
+def _modbus_point(point_id: str = "p1", point_groups: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "point_id": point_id,
+        "point_groups": point_groups or ["default"],
+        "address": {"type": "holding_register", "address": 30001},
+        "data_type": "float32",
+    }
+
+
+def _task(task_id: str = "task1", **overrides: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "task_id": task_id,
+        "device": "d1",
+        "point_group": "default",
+        "interval": 1.0,
+        "targets": [{"sink": "s1"}],
+    }
+    data.update(overrides)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -78,30 +103,28 @@ class TestLoadConfig:
     def test_load_example_configs(self) -> None:
         """Loading the project's configs/ directory succeeds."""
         cfg = load_config("configs")
-        assert cfg.system.scheduler.default_interval == 1.0
+        assert cfg.system.runtime.backpressure_policy == "drop_old"
         assert len(cfg.system.sinks) == 3
         assert len(cfg.devices.devices) == 5
         assert len(cfg.point_tables.tables) == 6
         # 继承展开后的点表：base 4 / 2mw 4 / site_a 4 / diag 2 / iec104 4 / modbus 2
         assert sum(len(t.points) for t in cfg.point_tables.tables.values()) == 20
-        assert len(cfg.routing.rules) == 3
-        # target 级投递策略：同一规则扇出三 sink、各带不同策略
-        rules = {r.name: r for r in cfg.routing.rules}
-        fanout = {t.sink: t.delivery for t in rules["default-fanout"].targets}
-        assert fanout["kafka_main"].type == "always"
-        assert fanout["db_main"].type == "interval"
-        assert fanout["db_main"].interval == 10.0
-        assert fanout["file_archive"].type == "every_n"
-        assert fanout["file_archive"].n == 60
-        on_change_targets = rules["telemetry-on-change"].targets
-        assert len(on_change_targets) == 1
-        assert on_change_targets[0].sink == "kafka_main"
-        assert on_change_targets[0].delivery.type == "on_change"
-        # 新匹配模型：device_group + point_group 的 AND
-        fast = rules["turbine-fast"]
-        assert fast.match.device_group == "turbine"
-        assert fast.match.point_group == "fast"
-        assert rules["default-fanout"].match.all is True
+        # 采集 Task：旧 routing 已由 tasks.yaml 取代
+        assert len(cfg.tasks.tasks) == 5
+        tasks = {t.task_id: t for t in cfg.tasks.tasks}
+        # 单设备 Task
+        assert tasks["wtg001-telemetry"].device == "wtg-001"
+        assert tasks["wtg001-telemetry"].device_group is None
+        assert [t.sink for t in tasks["wtg001-telemetry"].targets] == [
+            "kafka_main",
+            "file_archive",
+        ]
+        # device_group Task
+        fast = tasks["turbine-fast"]
+        assert fast.device is None
+        assert fast.device_group == "turbine_ads"
+        assert fast.point_group == "fast"
+        assert fast.interval == 1.0
         # 点表继承语义：wtg-003 绑定机型表，wtg-004 绑定其现场变体子表
         dev = {d.device_id: d for d in cfg.devices.devices}
         assert dev["wtg-003"].point_table == "beckhoff_2mw_v1"
@@ -112,11 +135,12 @@ class TestLoadConfig:
         # remove_points：p003 已不在任何继承展开结果中
         assert "p003" not in by_device["wtg-003"]
         assert "p003" not in by_device["wtg-004"]
-        # group override：现场表 p002 从 fast 改为 slow（机型表仍为 fast）
-        assert by_device["wtg-003"]["p002"].group == "fast"
-        assert by_device["wtg-004"]["p002"].group == "slow"
-        # address 整体替换 + 新增点穿透：现场表 p005 使用现场 Symbol
-        assert by_device["wtg-004"]["p005"].address.symbol == "PLC1.Measurements.converterTemp"
+        # point_groups override：现场表 p002 从 fast 改为 slow（机型表仍为 fast）
+        assert by_device["wtg-003"]["p002"].point_groups == ["fast"]
+        assert by_device["wtg-004"]["p002"].point_groups == ["slow"]
+        # address 整体替换：现场表 p005 使用现场 Symbol
+        addr = by_device["wtg-004"]["p005"].address
+        assert (addr.model_extra or {}).get("symbol") == "PLC1.Measurements.converterTemp"
 
     def test_load_minimal_valid_config(self) -> None:
         """A minimal valid configuration loads without error."""
@@ -125,29 +149,37 @@ class TestLoadConfig:
             _write_config_dir(
                 base,
                 devices=[_modbus_device()],
-                point_tables={
-                    "t1": {
-                        "points": [
-                            {
-                                "point_id": "p1",
-                                "address": {"type": "holding_register", "register": 30001},
-                                "data_type": "float32",
-                            }
-                        ]
-                    }
-                },
-                rules=[
-                    {
-                        "name": "default",
-                        "match": {"all": True},
-                        "targets": [{"sink": "s1"}],
-                        "priority": 0,
-                    }
-                ],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task()],
             )
             cfg = load_config(str(base))
             assert len(cfg.devices.devices) == 1
             assert cfg.points_for_device("d1")[0].point_id == "p1"
+            assert cfg.tasks.tasks[0].task_id == "task1"
+
+    def test_config_without_tasks_is_valid(self) -> None:
+        """tasks.yaml 为空 tasks 列表：合法，只是不做周期采集。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+            )
+            cfg = load_config(str(base))
+            assert cfg.tasks.tasks == []
+
+    def test_reporting_yaml_optional(self) -> None:
+        """reporting.yaml 缺失时 reporting 为 None。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+            )
+            cfg = load_config(str(base))
+            assert cfg.reporting is None
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +199,23 @@ class TestMissingFile:
             with pytest.raises(ConfigError, match="not found"):
                 load_config(str(base))
 
+    def test_missing_points_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_yaml(base, "system.yaml", {"sinks": []})
+            _write_yaml(base, "devices.yaml", {"devices": []})
+            with pytest.raises(ConfigError, match="not found"):
+                load_config(str(base))
+
+    def test_missing_tasks_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_yaml(base, "system.yaml", {"sinks": []})
+            _write_yaml(base, "devices.yaml", {"devices": []})
+            _write_yaml(base, "points.yaml", {"point_tables": {}})
+            with pytest.raises(ConfigError, match="not found"):
+                load_config(str(base))
+
 
 # ---------------------------------------------------------------------------
 # Invalid YAML
@@ -177,14 +226,20 @@ class TestInvalidYaml:
     def test_malformed_yaml_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
-            # Write invalid YAML
             base.joinpath("system.yaml").write_text("::: invalid yaml :::")
             with pytest.raises(ConfigError, match="Invalid YAML"):
                 load_system(base / "system.yaml")
 
+    def test_malformed_tasks_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            base.joinpath("tasks.yaml").write_text("::: invalid yaml :::")
+            with pytest.raises(ConfigError, match="Invalid YAML"):
+                load_tasks(base / "tasks.yaml")
+
 
 # ---------------------------------------------------------------------------
-# Cross-file validation
+# Cross-file validation — Task 引用
 # ---------------------------------------------------------------------------
 
 
@@ -200,114 +255,177 @@ class TestCrossFileValidation:
             with pytest.raises(ConfigError, match="unknown point_table"):
                 load_config(str(base))
 
-    def test_point_group_not_covered_by_polling_raises(self) -> None:
-        """点的 group 必须被设备 polling 分组覆盖（无 polling 时仅 default）。"""
+    def test_task_targets_unknown_sink_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
                 devices=[_modbus_device()],
-                point_tables=_ads_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "group": "fast",
-                            "address": {"type": "hr"},
-                            "data_type": "float32",
-                        }
-                    ]
-                ),
-            )
-            with pytest.raises(ConfigError, match="group"):
-                load_config(str(base))
-
-    def test_point_group_covered_by_polling_ok(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[_modbus_device(polling=[{"group": "fast", "interval": 1.0}])],
-                point_tables=_ads_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "group": "fast",
-                            "address": {"type": "hr"},
-                            "data_type": "float32",
-                        }
-                    ]
-                ),
-            )
-            cfg = load_config(str(base))
-            assert cfg.points_for_device("d1")[0].group == "fast"
-
-    def test_point_sink_references_unknown_sink_raises(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[_modbus_device()],
-                point_tables=_ads_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "address": {"type": "hr"},
-                            "data_type": "float32",
-                            "sinks": ["ghost_sink"],
-                        }
-                    ]
-                ),
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(targets=[{"sink": "ghost_sink"}])],
             )
             with pytest.raises(ConfigError, match="unknown sink"):
                 load_config(str(base))
 
-    def test_route_rule_targets_unknown_sink_raises(self) -> None:
+    def test_task_references_unknown_device_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
                 devices=[_modbus_device()],
-                point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"type": "hr"}, "data_type": "float32"}]
-                ),
-                rules=[
-                    {
-                        "name": "r1",
-                        "match": {"all": True},
-                        "targets": [{"sink": "ghost_sink"}],
-                        "priority": 0,
-                    }
-                ],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(device="ghost_device")],
             )
-            with pytest.raises(ConfigError, match="unknown sink"):
+            with pytest.raises(ConfigError, match="unknown device 'ghost_device'"):
                 load_config(str(base))
 
-    def test_polling_group_without_points_raises(self) -> None:
-        """每个 polling 分组必须至少有一个点（否则 Job 永远空跑）。"""
+    def test_task_device_group_matches_no_device_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device(device_group="turbine")],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(device=None, device_group="pcs")],
+            )
+            with pytest.raises(ConfigError, match="matches no device"):
+                load_config(str(base))
+
+    def test_task_point_group_missing_in_device_table_raises(self) -> None:
+        """task.point_group 必须存在于命中设备的点表——报错信息列出缺失设备。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point(point_groups=["default"])]),
+                tasks=[_task(point_group="ghost_group")],
+            )
+            with pytest.raises(ConfigError, match=r"point_group.*devices \['d1'\]"):
+                load_config(str(base))
+
+    def test_task_point_group_must_exist_in_every_matched_device(self) -> None:
+        """device_group Task：命中多台设备时，任一台缺失 point_group 即报错并列出该设备。"""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
                 devices=[
-                    _modbus_device(
-                        polling=[
-                            {"group": "fast", "interval": 1.0},
-                            {"group": "ghost", "interval": 5.0},
-                        ]
-                    )
+                    _modbus_device(device_id="d1", device_group="turbine"),
+                    _modbus_device(device_id="d2", point_table="t2", device_group="turbine"),
                 ],
-                point_tables=_ads_table(
+                point_tables={
+                    "t1": {"points": [_modbus_point(point_groups=["fast"])]},
+                    "t2": {"points": [_modbus_point(point_id="p2", point_groups=["slow"])]},
+                },
+                tasks=[_task(device=None, device_group="turbine", point_group="fast")],
+            )
+            with pytest.raises(ConfigError, match=r"devices \['d2'\]"):
+                load_config(str(base))
+
+    def test_task_point_group_checked_on_resolved_table(self) -> None:
+        """point_group 存在性校验作用于继承展开后的最终点集。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device(point_table="child")],
+                point_tables={
+                    "base": {"points": [_modbus_point(point_groups=["fast"])]},
+                    "child": {
+                        "extends": "base",
+                        "points": [{"point_id": "p1", "point_groups": ["slow"]}],
+                    },
+                },
+                tasks=[_task(point_group="fast")],
+            )
+            # 继承后 p1 的最终分组是 slow——引用 fast 的 Task 不再合法
+            with pytest.raises(ConfigError, match="point_group"):
+                load_config(str(base))
+
+    def test_task_referencing_sequential_ads_device_raises(self) -> None:
+        """ADS sequential 设备只允许单次读取——任何 Task 引用都是配置错误。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_ads_device(read_mode="sequential")],
+                point_tables=_table(
                     [
                         {
                             "point_id": "p1",
-                            "group": "fast",
-                            "address": {"type": "hr"},
+                            "point_groups": ["default"],
+                            "address": {"symbol": "MAIN.p"},
                             "data_type": "float32",
                         }
                     ]
                 ),
+                tasks=[_task()],
             )
-            with pytest.raises(ConfigError, match="has no points"):
+            with pytest.raises(ConfigError, match="sequential"):
+                load_config(str(base))
+
+    def test_group_task_matching_sequential_ads_device_raises(self) -> None:
+        """device_group Task 命中 sequential 设备同样报错。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    _ads_device(device_id="d1", device_group="turbine_ads", read_mode="sequential"),
+                    _ads_device(device_id="d2", device_group="turbine_ads", read_mode="sum"),
+                ],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"symbol": "MAIN.p"},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+                tasks=[_task(device=None, device_group="turbine_ads")],
+            )
+            with pytest.raises(ConfigError, match=r"\['d1'\].*sequential"):
+                load_config(str(base))
+
+    def test_task_referencing_disabled_device_accepted(self) -> None:
+        """device 任务指向 disabled 设备：加载合法（运行时不展开实例）。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device(enabled=False)],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task()],
+            )
+            cfg = load_config(str(base))
+            assert cfg.tasks.tasks[0].device == "d1"
+
+    def test_disabled_task_skips_cross_validation_of_point_group(self) -> None:
+        """加载期校验不看 enabled 标志——disabled Task 同样校验 point_group。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(point_group="ghost", enabled=False)],
+            )
+            with pytest.raises(ConfigError, match="point_group"):
+                load_config(str(base))
+
+    def test_duplicate_task_id_in_file_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(task_id="t1"), _task(task_id="t1", interval=2.0)],
+            )
+            with pytest.raises(ConfigError, match="Duplicate task_id"):
                 load_config(str(base))
 
 
@@ -322,8 +440,15 @@ class TestADSAddressValidation:
         _write_config_dir(
             base,
             devices=[_ads_device(**device_extra)],
-            point_tables=_ads_table(
-                [{"point_id": "p1", "address": address, "data_type": "float32"}]
+            point_tables=_table(
+                [
+                    {
+                        "point_id": "p1",
+                        "point_groups": ["default"],
+                        "address": address,
+                        "data_type": "float32",
+                    }
+                ]
             ),
         )
         load_config(str(base))
@@ -374,94 +499,37 @@ class TestADSAddressValidation:
             _write_config_dir(
                 base,
                 devices=[_modbus_device()],
-                point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"type": "hr"}, "data_type": "float32"}]
-                ),
+                point_tables=_table([_modbus_point()]),
             )
             load_config(str(base))
 
 
 # ---------------------------------------------------------------------------
-# ADS read_mode 与调度权限
+# ADS read_mode 与点表约束
 # ---------------------------------------------------------------------------
 
 
-class TestADSReadModeScheduling:
-    def test_sequential_with_polling_rejected(self) -> None:
-        """sequential 只允许请求驱动的单次读取——配置 polling 是配置错误。"""
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[
-                    _ads_device(
-                        read_mode="sequential",
-                        polling=[{"group": "default", "interval": 1.0}],
-                    )
-                ],
-                point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
-                ),
-            )
-            with pytest.raises(ConfigError, match="sequential"):
-                load_config(str(base))
-
-    def test_sequential_without_polling_accepted(self) -> None:
-        """sequential 不配置 polling：不创建轮询 Job，单次读取走 CLI/API。"""
+class TestADSReadMode:
+    def test_sequential_device_accepted_without_tasks(self) -> None:
+        """sequential 不配置 Task：单次读取走 CLI/API，加载合法。"""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
                 devices=[_ads_device(read_mode="sequential")],
-                point_tables=_ads_table(
-                    [{"point_id": "p1", "address": {"symbol": "MAIN.p"}, "data_type": "float32"}]
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["diag"],
+                            "address": {"symbol": "MAIN.p"},
+                            "data_type": "float32",
+                        }
+                    ]
                 ),
             )
             cfg = load_config(str(base))
             assert cfg.devices.devices[0].read_mode == "sequential"
-
-    def test_sequential_skips_group_coverage(self) -> None:
-        """sequential 不参与周期调度——点组无调度含义，不做覆盖校验。"""
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[_ads_device(read_mode="sequential")],
-                point_tables=_ads_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "group": "diag",
-                            "address": {"symbol": "MAIN.p"},
-                            "data_type": "float32",
-                        }
-                    ]
-                ),
-            )
-            load_config(str(base))
-
-    def test_sum_with_polling_accepted(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[
-                    _ads_device(
-                        read_mode="sum", polling=[{"group": "fast", "interval": 1.0}]
-                    )
-                ],
-                point_tables=_ads_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "group": "fast",
-                            "address": {"symbol": "MAIN.p"},
-                            "data_type": "float32",
-                        }
-                    ]
-                ),
-            )
-            load_config(str(base))
 
     def test_sum_point_without_symbol_rejected(self) -> None:
         """sum 按 Symbol 批量读——绑定表的每个点都必须配置 symbol。"""
@@ -470,10 +538,11 @@ class TestADSReadModeScheduling:
             _write_config_dir(
                 base,
                 devices=[_ads_device(read_mode="sum")],
-                point_tables=_ads_table(
+                point_tables=_table(
                     [
                         {
                             "point_id": "p1",
+                            "point_groups": ["default"],
                             "address": {"index_group": 0x4020, "index_offset": 0x1234},
                             "data_type": "float32",
                         }
@@ -502,6 +571,7 @@ class TestInheritanceAwareValidation:
                         "points": [
                             {
                                 "point_id": "p1",
+                                "point_groups": ["default"],
                                 "address": {"symbol": "MAIN.p"},
                                 "data_type": "float32",
                             }
@@ -521,79 +591,33 @@ class TestInheritanceAwareValidation:
             with pytest.raises(ConfigError, match="symbol"):
                 load_config(str(base))
 
-    def test_polling_coverage_uses_resolved_group(self) -> None:
-        """继承后 group 改变 → polling 覆盖校验按最终 group 执行。"""
+    def test_resolved_point_groups_visible_to_tasks(self) -> None:
+        """正向对照：Task 引用继承后最终 point_groups 加载成功。"""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             _write_config_dir(
                 base,
-                devices=[
-                    _modbus_device(
-                        point_table="child", polling=[{"group": "fast", "interval": 1.0}]
-                    )
-                ],
+                devices=[_modbus_device(point_table="child")],
                 point_tables={
                     "base": {
                         "points": [
-                            {
-                                "point_id": "p1",
-                                "group": "fast",
-                                "address": {"type": "hr"},
-                                "data_type": "float32",
-                            }
+                            _modbus_point("p1", point_groups=["fast"]),
+                            _modbus_point("p2", point_groups=["fast"]),
                         ]
                     },
                     "child": {
                         "extends": "base",
-                        "points": [{"point_id": "p1", "group": "slow"}],
+                        "points": [{"point_id": "p2", "point_groups": ["slow"]}],
                     },
                 },
-            )
-            # 最终 group 是 slow——只覆盖 fast 的 polling 不再合法
-            with pytest.raises(ConfigError, match="group"):
-                load_config(str(base))
-
-    def test_polling_coverage_ok_on_resolved_group(self) -> None:
-        """正向对照：polling 覆盖最终 group（fast + slow）时加载成功。"""
-        with tempfile.TemporaryDirectory() as td:
-            base = Path(td)
-            _write_config_dir(
-                base,
-                devices=[
-                    _modbus_device(
-                        point_table="child",
-                        polling=[
-                            {"group": "fast", "interval": 1.0},
-                            {"group": "slow", "interval": 5.0},
-                        ],
-                    )
+                tasks=[
+                    _task(task_id="t-fast", point_group="fast"),
+                    _task(task_id="t-slow", point_group="slow"),
                 ],
-                point_tables={
-                    "base": {
-                        "points": [
-                            {
-                                "point_id": "p1",
-                                "group": "fast",
-                                "address": {"type": "hr"},
-                                "data_type": "float32",
-                            },
-                            {
-                                "point_id": "p2",
-                                "group": "fast",
-                                "address": {"type": "hr"},
-                                "data_type": "float32",
-                            },
-                        ]
-                    },
-                    "child": {
-                        "extends": "base",
-                        "points": [{"point_id": "p2", "group": "slow"}],
-                    },
-                },
             )
             cfg = load_config(str(base))
-            groups = {p.point_id: p.group for p in cfg.points_for_device("d1")}
-            assert groups == {"p1": "fast", "p2": "slow"}
+            groups = {p.point_id: p.point_groups for p in cfg.points_for_device("d1")}
+            assert groups == {"p1": ["fast"], "p2": ["slow"]}
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +649,7 @@ class TestIndividualLoaders:
                             "device_id": "d1",
                             "protocol": "ads",
                             "point_table": "t1",
-                            "endpoint": {"host": "10.0.0.1", "port": 851},
+                            "endpoint": {"host": "10.0.0.1", "port": 48898},
                         }
                     ],
                 },
@@ -645,7 +669,8 @@ class TestIndividualLoaders:
                             "points": [
                                 {
                                     "point_id": "p1",
-                                    "address": {"type": "hr", "register": 30001},
+                                    "point_groups": ["default"],
+                                    "address": {"type": "hr", "address": 30001},
                                     "data_type": "float32",
                                 }
                             ]
@@ -655,6 +680,7 @@ class TestIndividualLoaders:
             )
             cfg = load_points(p)
             assert cfg.tables["t1"].points[0].unit is None
+            assert cfg.tables["t1"].points[0].point_groups == ["default"]
 
     def test_load_points_empty_tables(self) -> None:
         """points.yaml 没有 point_tables 键时等价于空点表集。"""
@@ -663,21 +689,24 @@ class TestIndividualLoaders:
             cfg = load_points(p)
             assert cfg.tables == {}
 
-    def test_load_routing(self) -> None:
+    def test_load_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             p = _write_yaml(
                 Path(td),
-                "routing.yaml",
+                "tasks.yaml",
                 {
-                    "rules": [
+                    "tasks": [
                         {
-                            "name": "default",
-                            "match": {"all": True},
+                            "task_id": "t1",
+                            "device_group": "turbine",
+                            "point_group": "fast",
+                            "interval": 1.0,
                             "targets": [{"sink": "s1"}],
-                            "priority": 0,
                         },
                     ],
                 },
             )
-            cfg = load_routing(p)
-            assert len(cfg.rules) == 1
+            cfg = load_tasks(p)
+            assert len(cfg.tasks) == 1
+            assert cfg.tasks[0].device_group == "turbine"
+            assert cfg.tasks[0].enabled is True

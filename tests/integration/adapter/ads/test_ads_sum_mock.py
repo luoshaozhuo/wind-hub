@@ -71,6 +71,7 @@ def _make_device_config() -> DeviceConfig:
 
 def _make_symbol_point(point_id: str, symbol: str) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(symbol=symbol),
         data_type="float32",

@@ -1,66 +1,64 @@
-"""Runtime（``application/runtime``）的单元测试。
+"""Runtime（``application/runtime``）的单元测试——Task / Task Instance 模型。
 
-验证对象：:class:`Runtime`——组件生命周期与状态编排核心。
+验证对象：:class:`Runtime`（组件生命周期、Task Instance 展开与启停、
+polling 循环、热重载、Sink 背压/派发）。
 
-覆盖点：
+覆盖点（对应重构简报 spec §30）：
 
-- ``start`` / ``stop``：设备连接（best-effort）、点表注入、sink 打开与
-  消费者任务、调度器启动与轮询 Job 注册、优雅停机、幂等；
-- ``running`` 语义（决策 1）与 ``health``（设备优先、打开失败的 sink 暴露
-  为不健康）；
-- 设备热管理：``add_device`` / ``remove_device`` / ``rebuild_device``；
-- sink 热管理：``add_sink`` / ``remove_sink`` / ``rebuild_sink``（队列保留）；
-- ``replace_router`` / ``replace_pipeline`` 委托引擎；
-- ``reconfigure``：按 diff 编排、路由/管线重建、阶段错误隔离；
-- 订阅模式与回退轮询；
-- 背压策略与路由/丢弃计数（决策 7）。
+- Task 展开：device 任务 → 1 实例；device_group 任务 → 组内全部启用设备
+  各 1 实例（``{task_id}:{device_id}``）；disabled Task / 引用禁用设备的
+  device Task 不展开；
+- 启动语义：实例初始 STOPPED；``start_task_instance`` 幂等且对未知
+  instance_id 抛 KeyError；
+- 停止：``stop_task_instance`` 取消协程、幂等、stop 后不再 collect；
+- 循环行为：``collect → sleep(interval)``（非墙钟对齐）；单次 collect
+  异常只记日志继续；CancelledError 传播；
+- 停机：``stop()`` 取消全部实例协程、无孤儿 task；
+- 热重载 ``reconfigure``：Task 增删 / device_group 成员变化 / interval
+  与 targets 快照替换（协程不重启）/ 点表重注入 / 连接不重建；
+- Sink 派发与背压：targets fan-out、未知 sink 跳过、drop_old / drop_new。
 
-调度器使用内存 Fake（实现 ``SchedulerPort``），不依赖真实 APScheduler——
-适配器契约在 ``tests/unit/scheduling/test_scheduler.py`` 单独验证。
+引擎侧循环测试使用内存 ``_FakeEngine``（只实现 Runtime 依赖的装配缝与
+``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.port.scheduling import JobInfo, JobMetadata
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
-from wind_hub.application.usecase.job import JobUseCase
+from wind_hub.application.runtime.task_instance import (
+    CollectionTaskInstance,
+    TaskInstanceState,
+    task_instance_id,
+)
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     Config,
     DeviceConfig,
     DevicesConfig,
-    PipelineConfig,
     PointAddress,
     PointConfig,
-    PollingGroup,
     ResolvedPointTable,
     ResolvedPointTables,
-    RoutingConfig,
-    SchedulerConfig,
+    RuntimeConfig,
     SinkConfig,
     SystemConfig,
+    TasksConfig,
+    TaskTarget,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.command import Dispatcher
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, SinkDiff
-from wind_hub.domain.model.route import DeliveryConfig, RouteMatch, RouteRule, RouteTarget
+from wind_hub.domain.model.point import PointValue
+from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, TaskDiff
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 from wind_hub.domain.processing import Pipeline
-from wind_hub.domain.routing import Router
-
-pytestmark = pytest.mark.asyncio
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,58 +67,61 @@ pytestmark = pytest.mark.asyncio
 
 def _make_device(
     device_id: str,
-    polling_interval: float = 1.0,
+    device_group: str | None = None,
+    enabled: bool = True,
     point_table: str = "t1",
-    polling: list[PollingGroup] | None = None,
     protocol: str = "modbus",
-    read_mode: str = "sum",
 ) -> DeviceConfig:
     return DeviceConfig(
         device_id=device_id,
         protocol=protocol,
-        point_table=point_table,
         endpoint=Endpoint(host="10.0.0.1", port=502),
-        polling=(
-            polling
-            if polling is not None
-            else [PollingGroup(group="default", interval=polling_interval)]
-        ),
-        enabled=True,
-        read_mode=read_mode,
+        point_table=point_table,
+        device_group=device_group,
+        enabled=enabled,
     )
 
 
-def _make_config(backpressure: str = "drop_old") -> SchedulerConfig:
-    return SchedulerConfig(
-        queue_maxsize=10,
-        backpressure_policy=backpressure,
-        shutdown_timeout=1.0,
-        connect_timeout=1.0,
-        read_timeout=1.0,
+def _make_task(
+    task_id: str,
+    device: str | None = None,
+    device_group: str | None = None,
+    point_group: str = "g1",
+    interval: float = 0.02,
+    sinks: tuple[str, ...] = ("s1",),
+    enabled: bool = True,
+) -> CollectionTaskConfig:
+    return CollectionTaskConfig(
+        task_id=task_id,
+        device=device,
+        device_group=device_group,
+        point_group=point_group,
+        interval=interval,
+        targets=[TaskTarget(sink=s) for s in sinks],
+        enabled=enabled,
     )
 
 
-def _make_mock_protocol() -> ProtocolPort:
+def _make_point(point_id: str, groups: tuple[str, ...] = ("g1",)) -> PointConfig:
+    return PointConfig(
+        point_id=point_id,
+        point_groups=list(groups),
+        address=PointAddress(type="holding_register"),
+    )
+
+
+def _mock_protocol() -> ProtocolPort:
     proto = MagicMock(spec=ProtocolPort)
     proto.set_points_mapping = MagicMock()
     proto.connect = AsyncMock()
     proto.close = AsyncMock()
     proto.read = AsyncMock(return_value=[])
     proto.write = AsyncMock()
-    proto.subscribe = AsyncMock()
     proto.health = MagicMock(return_value=HealthStatus(healthy=True))
     return proto
 
 
-def _make_point(point_id: str, group: str = "default") -> PointConfig:
-    return PointConfig(
-        point_id=point_id,
-        group=group,
-        address=PointAddress(type="holding_register"),
-    )
-
-
-def _make_mock_sink() -> SinkPort:
+def _mock_sink() -> SinkPort:
     sink = MagicMock(spec=SinkPort)
     sink.open = AsyncMock()
     sink.close = AsyncMock()
@@ -134,2267 +135,752 @@ def _value(device_id: str = "d1", point_id: str = "p1") -> PointValue:
     return PointValue(device_id=device_id, point_id=point_id, value=1.0)
 
 
-class _FakeScheduler:
-    """``SchedulerPort`` 的内存实现——记录 Job 注册与暂停态，不执行任何调度。"""
+def _runtime_config(backpressure: str = "drop_old", queue_maxsize: int = 10) -> RuntimeConfig:
+    return RuntimeConfig(
+        queue_maxsize=queue_maxsize,
+        backpressure_policy=backpressure,
+        shutdown_timeout=0.5,
+        connect_timeout=0.2,
+        read_timeout=0.2,
+    )
+
+
+class _FakeEngine:
+    """``AcquisitionEngine`` 的内存替身——只实现 Runtime 依赖的接口面。
+
+    记录每次 ``collect`` 调用的完整参数；``fail_next`` 让下一次 collect
+    抛异常（验证 polling 循环的异常韧性）；``collect_gate`` 可阻塞 collect
+    （验证 CancelledError 传播）。不模拟引擎内部读/管线逻辑——那是
+    ``tests/unit/engine`` 的职责。
+    """
 
     def __init__(self) -> None:
-        self.jobs: dict[str, tuple[float, Callable[..., Awaitable[None]], tuple]] = {}
-        self.paused: dict[str, bool] = {}
-        self.metadata: dict[str, JobMetadata] = {}
-        self.started = False
+        self.collect_calls: list[tuple[str, str, list[str], str]] = []
+        self.fail_next = 0
+        self.collect_gate: asyncio.Event | None = None
+        self.sink_dispatch: object | None = None
+        self.replaced_pipelines: list[Pipeline] = []
+
+    def attach_sink_dispatch(self, dispatch: object) -> None:
+        self.sink_dispatch = dispatch
+
+    def attach_device_state(self, device_state: object) -> None:
+        pass
+
+    def attach_acquisition_state(self, acquisition_state: object) -> None:
+        pass
 
     @property
-    def running(self) -> bool:
-        return self.started
+    def points_collected(self) -> int:
+        return 0
 
-    async def start(self) -> None:
-        self.started = True
+    async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
+        self.replaced_pipelines.append(new_pipeline)
 
-    async def stop(self) -> None:
-        self.started = False
-
-    def add_interval_job(
+    async def collect(
         self,
-        job_id: str,
-        interval_seconds: float,
-        func: Callable[..., Awaitable[None]],
-        metadata: JobMetadata,
-        args: tuple = (),
-        replace_existing: bool = False,
-        start_paused: bool = False,
+        device_id: str,
+        point_group: str,
+        targets: list[str],
+        execution_id: str,
     ) -> None:
-        if job_id in self.jobs and not replace_existing:
-            raise ValueError(f"duplicate job: {job_id}")
-        self.jobs[job_id] = (interval_seconds, func, args)
-        self.paused[job_id] = start_paused
-        self.metadata[job_id] = metadata
-
-    def remove_job(self, job_id: str) -> None:
-        if job_id not in self.jobs:
-            raise KeyError(job_id)
-        del self.jobs[job_id]
-        del self.paused[job_id]
-        del self.metadata[job_id]
-
-    def pause_job(self, job_id: str) -> None:
-        if job_id not in self.jobs:
-            raise KeyError(job_id)
-        self.paused[job_id] = True
-
-    def resume_job(self, job_id: str) -> None:
-        if job_id not in self.jobs:
-            raise KeyError(job_id)
-        self.paused[job_id] = False
-
-    async def trigger_job(self, job_id: str) -> None:
-        if job_id not in self.jobs:
-            raise KeyError(job_id)
-        _, func, args = self.jobs[job_id]
-        await func(*args)
-
-    def get_job(self, job_id: str) -> JobInfo | None:
-        if job_id not in self.jobs:
-            return None
-        paused = self.paused[job_id]
-        return JobInfo(
-            job_id=job_id,
-            metadata=self.metadata[job_id],
-            next_run_time=None if paused else datetime.now(UTC),
-            paused=paused,
-            interval_seconds=self.jobs[job_id][0],
-        )
-
-    def list_jobs(self) -> list[JobInfo]:
-        return [info for jid in self.jobs if (info := self.get_job(jid)) is not None]
+        self.collect_calls.append((device_id, point_group, list(targets), execution_id))
+        if self.fail_next:
+            self.fail_next -= 1
+            raise RuntimeError("collect boom")
+        if self.collect_gate is not None:
+            await self.collect_gate.wait()
 
 
-def _make_runtime(
-    devices: dict[str, DeviceConfig] | None = None,
-    protocols: dict[str, ProtocolPort] | None = None,
-    sinks: dict[str, SinkPort] | None = None,
-    config: SchedulerConfig | None = None,
-    points_by_device: dict[str, list[PointConfig]] | None = None,
+def _build_runtime(
+    *,
+    devices: list[DeviceConfig],
+    tasks: list[CollectionTaskConfig],
+    sink_names: tuple[str, ...] = ("s1",),
+    points: dict[str, list[PointConfig]] | None = None,
+    engine: _FakeEngine | None = None,
+    backpressure: str = "drop_old",
+    queue_maxsize: int = 10,
     protocol_factory=None,
     sink_factory=None,
     processor_factory=None,
-    clock: Callable[[], float] | None = None,
-) -> tuple[Runtime, AcquisitionEngine, _FakeScheduler]:
-    """构造 Runtime + 真实引擎 + Fake 调度器，返回三元组。
-
-    ``clock`` 可注入假时钟（如 ``lambda: now[0]``）以确定性验证
-    重连 backoff——避免真实 ``asyncio.sleep`` 等待。
-    """
-    protocols = protocols if protocols is not None else {}
-    points_by_device = points_by_device if points_by_device is not None else {}
-    effective_config = config or _make_config()
-    engine = AcquisitionEngine(
-        protocols=protocols,
-        pipeline=Pipeline([]),
-        router=MagicMock(spec=Router),
-        points_by_device=points_by_device,
-        # 与组合根（assembly）一致：引擎的应用层读超时取自系统配置。
-        read_timeout=effective_config.read_timeout,
-    )
-    scheduler = _FakeScheduler()
-    kwargs = {"clock": clock} if clock is not None else {}
-    runtime = Runtime(
-        devices=devices if devices is not None else {},
-        protocols=protocols,
-        sinks=sinks if sinks is not None else {},
-        engine=engine,
-        scheduler=scheduler,
-        dispatcher=MagicMock(spec=Dispatcher),
-        config=effective_config,
-        points_by_device=points_by_device,
+) -> tuple[Runtime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
+    protos = {d.device_id: _mock_protocol() for d in devices}
+    sinks = {name: _mock_sink() for name in sink_names}
+    eng = engine if engine is not None else _FakeEngine()
+    rt = Runtime(
+        devices={d.device_id: d for d in devices},
+        protocols=protos,
+        sinks=sinks,
+        engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 Runtime 依赖面
+        dispatcher=Dispatcher(protocols=protos),
+        config=_runtime_config(backpressure, queue_maxsize),
+        tasks={t.task_id: t for t in tasks},
+        points_by_device=points if points is not None else {},
         protocol_factory=protocol_factory,
         sink_factory=sink_factory,
         processor_factory=processor_factory,
-        **kwargs,  # type: ignore[arg-type]
     )
-    return runtime, engine, scheduler
+    return rt, protos, sinks, eng
 
 
-def _make_full_config(
-    devices: list[DeviceConfig] | None = None,
-    sinks: list[SinkConfig] | None = None,
-    points: list[PointConfig] | None = None,
-    tables: dict[str, list[PointConfig]] | None = None,
-    rules: list[RouteRule] | None = None,
+def _full_config(
+    *,
+    devices: list[DeviceConfig],
+    tasks: list[CollectionTaskConfig],
+    tables: dict[str, ResolvedPointTable] | None = None,
+    sink_names: tuple[str, ...] = ("s1", "s2"),
 ) -> Config:
-    """构造完整 Config；``points`` 是表 ``t1`` 的便捷写法，``tables`` 显式给多表。"""
-    table_map = (
-        {name: ResolvedPointTable(points=pts) for name, pts in tables.items()}
-        if tables is not None
-        else {"t1": ResolvedPointTable(points=points or [])}
-    )
+    if tables is None:
+        tables = {"t1": ResolvedPointTable(points=[_make_point("p1")])}
     return Config(
-        system=SystemConfig(sinks=sinks or [], pipeline=PipelineConfig(processors=[])),
-        devices=DevicesConfig(devices=devices or []),
-        point_tables=ResolvedPointTables(tables=table_map),
-        routing=RoutingConfig(rules=rules or []),
+        system=SystemConfig(
+            runtime=_runtime_config(),
+            sinks=[SinkConfig(name=n, type="file") for n in sink_names],
+        ),
+        devices=DevicesConfig(devices=list(devices)),
+        point_tables=ResolvedPointTables(tables=tables),
+        tasks=TasksConfig(tasks=list(tasks)),
     )
+
+
+async def _wait_for(cond, timeout: float = 2.0, what: str = "condition") -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not cond():
+        if loop.time() > deadline:
+            raise AssertionError(f"timeout waiting for {what}")
+        await asyncio.sleep(0.005)
+
+
+def _instance_coroutine_tasks() -> list[asyncio.Task]:
+    """当前事件循环中仍在跑的 Task Instance polling 协程（孤儿检测用）。"""
+    result = []
+    for task in asyncio.all_tasks():
+        coro = task.get_coro()
+        if coro is not None and "_run_task_instance" in coro.__qualname__:
+            result.append(task)
+    return result
 
 
 # ---------------------------------------------------------------------------
-# start() —— 设备连接 / 点表注入 / Job 注册
+# Task 展开
 # ---------------------------------------------------------------------------
 
 
-async def test_start_injects_points_connects_and_registers_jobs() -> None:
-    p1 = _make_mock_protocol()
-    points = {"d1": [_make_point("p1")]}
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=2.0)},
-        protocols={"d1": p1},
-        points_by_device=points,
-    )
-    try:
-        await runtime.start()
-
-        p1.set_points_mapping.assert_called_once_with(points["d1"])
-        p1.connect.assert_awaited_once()
-        assert scheduler.started is True
-
-        # 轮询 Job 以 poll:{device}:{group} 注册，执行体为引擎 collect
-        interval, func, args = scheduler.jobs["poll:d1:default"]
-        assert interval == 2.0
-        assert func == engine.collect
-        assert args == ("d1", "default")
-        assert runtime.running is True
-    finally:
-        await runtime.stop()
-    assert scheduler.started is False
-
-
-async def test_start_is_idempotent() -> None:
-    p1 = _make_mock_protocol()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    await runtime.start()
-    await runtime.start()
-    p1.connect.assert_awaited_once()
-    await runtime.stop()
-
-
-async def test_connect_failure_skipped_others_continue() -> None:
-    p1 = _make_mock_protocol()
-    p2 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1"), "d2": _make_device("d2")},
-        protocols={"d1": p1, "d2": p2},
-    )
-    try:
-        await runtime.start()
-    finally:
-        await runtime.stop()
-
-    p2.connect.assert_awaited_once()
-    assert "poll:d1:default" in scheduler.jobs
-    assert "poll:d2:default" in scheduler.jobs
-
-
-async def test_connection_level_failure_logs_without_traceback(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """连接级故障（OSError/超时）是现场日常：简洁 warning，不打堆栈（决策 0.3）。"""
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = ConnectionRefusedError("refused")
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.runtime"):
-        await runtime.start()
-    await runtime.stop()
-
-    conn_records = [r for r in caplog.records if "failed to connect" in r.message]
-    assert len(conn_records) == 1
-    assert conn_records[0].exc_info is None
-
-
-async def test_wrapped_connection_failure_detected_through_cause_chain(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """驱动把底层 OSError 包装进 ProtocolError 时沿 __cause__ 链穿透判定。"""
-    p1 = _make_mock_protocol()
-    wrapped = ProtocolError("connect failed")
-    wrapped.__cause__ = OSError("tcp down")  # 模拟驱动 raise ... from 的包装链
-    p1.connect.side_effect = wrapped
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.runtime"):
-        await runtime.start()
-    await runtime.stop()
-
-    conn_records = [r for r in caplog.records if "failed to connect" in r.message]
-    assert len(conn_records) == 1
-    assert conn_records[0].exc_info is None
-
-
-async def test_non_connection_failure_keeps_traceback(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """非连接级异常（实现缺陷）保留完整堆栈便于排查。"""
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = ValueError("bad config")
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.runtime"):
-        await runtime.start()
-    await runtime.stop()
-
-    conn_records = [r for r in caplog.records if "failed to connect" in r.message]
-    assert len(conn_records) == 1
-    assert conn_records[0].exc_info is not None
-
-
-async def test_sequential_ads_device_registers_no_job() -> None:
-    """ADS read_mode=sequential：只允许请求驱动的单次读取，不注册周期 Job。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", protocol="ads", read_mode="sequential", polling=[])},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        assert scheduler.jobs == {}
-    finally:
-        await runtime.stop()
-
-
-async def test_disabled_device_registers_no_job() -> None:
-    p1 = _make_mock_protocol()
-    device = _make_device("d1")
-    device.enabled = False
-    runtime, _engine, scheduler = _make_runtime(devices={"d1": device}, protocols={"d1": p1})
-    try:
-        await runtime.start()
-        assert scheduler.jobs == {}
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# sink 打开与消费者
-# ---------------------------------------------------------------------------
-
-
-async def test_sink_open_failure_marked_unhealthy() -> None:
-    bad = _make_mock_sink()
-    bad.open.side_effect = OSError("cannot open")
-    good = _make_mock_sink()
-    runtime, _engine, _scheduler = _make_runtime(sinks={"bad": bad, "good": good})
-    try:
-        await runtime.start()
-        good.open.assert_awaited_once()
-        health = runtime.health()
-        assert health["bad"].healthy is False
-        assert health["good"].healthy is True
-    finally:
-        await runtime.stop()
-
-
-async def test_health_lists_devices_first_then_sinks() -> None:
-    p1 = _make_mock_protocol()
-    s1 = _make_mock_sink()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        sinks={"s1": s1},
-    )
-    health = runtime.health()
-    assert list(health.keys()) == ["d1", "s1"]
-
-
-async def test_dispatched_batch_reaches_sink_write() -> None:
-    """完整链路：引擎 collect → 路由 → Runtime 派发 → 队列 → sink.write。"""
-    p1 = _make_mock_protocol()
-    p1.read = AsyncMock(return_value=[_value()])
-    s1 = _make_mock_sink()
-    write_done = asyncio.Event()
-
-    async def _write(_batch):
-        write_done.set()
-
-    s1.write.side_effect = _write
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        sinks={"s1": s1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    # 路由替身把全部点值导向 s1
-    router = MagicMock(spec=Router)
-    router.route.side_effect = lambda vals: {"s1": list(vals)}
-    await engine.replace_router(router)
-
-    try:
-        await runtime.start()
-        await engine.collect("d1", "default")
-        # 消费者是独立任务：事件驱动等待而非固定 sleep
-        await asyncio.wait_for(write_done.wait(), timeout=2.0)
-
-        s1.write.assert_awaited_once()
-        written = s1.write.await_args.args[0]
-        assert len(written) == 1
-        assert runtime.points_collected == 1
-        assert runtime.points_routed == 1
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# stop() —— 优雅停机
-# ---------------------------------------------------------------------------
-
-
-async def test_stop_flushes_and_closes_sinks_and_protocols() -> None:
-    p1 = _make_mock_protocol()
-    s1 = _make_mock_sink()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        sinks={"s1": s1},
-    )
-    await runtime.start()
-    await runtime.stop()
-
-    s1.flush.assert_awaited_once()
-    s1.close.assert_awaited_once()
-    p1.close.assert_awaited_once()
-    assert runtime.running is False
-
-
-async def test_stop_is_idempotent() -> None:
-    runtime, _engine, _scheduler = _make_runtime()
-    await runtime.stop()  # 未启动时直接返回
-    await runtime.start()
-    await runtime.stop()
-    await runtime.stop()  # 重复停机无副作用
-
-
-async def test_stop_tolerates_sink_flush_close_failures() -> None:
-    s1 = _make_mock_sink()
-    s1.flush.side_effect = OSError("flush boom")
-    s1.close.side_effect = OSError("close boom")
-    runtime, _engine, _scheduler = _make_runtime(sinks={"s1": s1})
-    await runtime.start()
-    await runtime.stop()  # 失败只记日志，停机链路走完
-    assert runtime.running is False
-
-
-# ---------------------------------------------------------------------------
-# running 语义（决策 1）
-# ---------------------------------------------------------------------------
-
-
-async def test_running_false_before_start_and_after_stop() -> None:
-    runtime, _engine, _scheduler = _make_runtime()
-    assert runtime.running is False
-    await runtime.start()
-    assert runtime.running is True
-    await runtime.stop()
-    assert runtime.running is False
-
-
-async def test_running_false_while_start_in_progress() -> None:
-    """start 未完成（如设备 connect 仍在等待）时 running 保持 False。"""
-    p1 = _make_mock_protocol()
-    connect_gate = asyncio.Event()
-
-    async def _gated_connect():
-        await connect_gate.wait()
-
-    p1.connect.side_effect = _gated_connect
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    start_task = asyncio.create_task(runtime.start())
-    try:
-        await asyncio.sleep(0)  # 让 start 进入 connect 等待
-        assert runtime.running is False
-    finally:
-        connect_gate.set()
-        await start_task
-        assert runtime.running is True
-        await runtime.stop()
-
-
-async def test_stop_waits_for_start_to_finish() -> None:
-    """stop 必须等待 start 完成，不能在启动过程中覆写状态字段。"""
-    p1 = _make_mock_protocol()
-    connect_gate = asyncio.Event()
-
-    async def _gated_connect():
-        await connect_gate.wait()
-
-    p1.connect.side_effect = _gated_connect
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
-    )
-    start_task = asyncio.create_task(runtime.start())
-    await asyncio.sleep(0)
-
-    stop_task = asyncio.create_task(runtime.stop())
-    await asyncio.sleep(0)
-    assert not stop_task.done(), "stop should wait until start finishes"
-
-    connect_gate.set()
-    await start_task
-    await stop_task
-    assert runtime.running is False
-    assert runtime._started is False
-
-
-# ---------------------------------------------------------------------------
-# 设备热管理
-# ---------------------------------------------------------------------------
-
-
-async def test_add_device_connects_and_registers_job() -> None:
-    runtime, engine, scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        p_new = _make_mock_protocol()
-        cfg = _make_device("d2", polling_interval=5.0)
-        points = [_make_point("p1")]
-        await runtime.add_device("d2", cfg, p_new, points)
-
-        assert runtime.devices["d2"] is cfg
-        assert runtime.protocols["d2"] is p_new
-        assert runtime.points_by_device["d2"] == points
-        p_new.set_points_mapping.assert_called_once_with(points)
-        p_new.connect.assert_awaited_once()
-        assert "poll:d2:default" in scheduler.jobs
-        # 引擎与 Runtime 共享注册表——新设备立即可采集
-        assert engine._protocols["d2"] is p_new  # noqa: SLF001
-    finally:
-        await runtime.stop()
-
-
-async def test_add_device_connect_failure_still_registers_job() -> None:
-    runtime, _engine, scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        p_new = _make_mock_protocol()
-        p_new.connect.side_effect = OSError("unreachable")
-        await runtime.add_device("d2", _make_device("d2"), p_new, [])
-        assert "poll:d2:default" in scheduler.jobs
-    finally:
-        await runtime.stop()
-
-
-async def test_remove_device_unregisters_jobs_and_closes() -> None:
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    await runtime.start()
-    try:
-        assert "poll:d1:default" in scheduler.jobs
-        await runtime.remove_device("d1")
-
-        assert scheduler.jobs == {}
-        p1.close.assert_awaited_once()
-        assert "d1" not in runtime.devices
-        assert "d1" not in runtime.protocols
-        assert "d1" not in runtime.points_by_device
-    finally:
-        await runtime.stop()
-
-
-async def test_remove_unknown_device_is_noop() -> None:
-    runtime, _engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        await runtime.remove_device("ghost")  # 不抛异常
-    finally:
-        await runtime.stop()
-
-
-async def test_rebuild_device_swaps_protocol_and_restarts_jobs() -> None:
-    p_old = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=1.0)},
-        protocols={"d1": p_old},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    await runtime.start()
-    try:
-        p_new = _make_mock_protocol()
-        new_cfg = _make_device("d1", polling_interval=3.0)
-        new_points = [_make_point("p9")]
-        await runtime.rebuild_device("d1", new_cfg, p_new, new_points)
-
-        p_old.close.assert_awaited_once()
-        assert runtime.protocols["d1"] is p_new
-        assert runtime.points_by_device["d1"] == new_points
-        p_new.connect.assert_awaited_once()
-        interval, _func, _args = scheduler.jobs["poll:d1:default"]
-        assert interval == 3.0
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# sink 热管理
-# ---------------------------------------------------------------------------
-
-
-async def test_add_sink_opens_and_starts_consumer() -> None:
-    runtime, _engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        s_new = _make_mock_sink()
-        await runtime.add_sink("s2", SinkConfig(name="s2", type="file"), s_new)
-
-        s_new.open.assert_awaited_once()
-        assert "s2" in runtime._queues  # noqa: SLF001
-        assert "s2" in runtime._sink_tasks  # noqa: SLF001
-        assert runtime.sink_count == 1
-    finally:
-        await runtime.stop()
-
-
-async def test_add_sink_open_failure_propagates() -> None:
-    """热新增 sink 打开失败原样上抛，由编排方（reconfigure）记录错误。"""
-    runtime, _engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        bad = _make_mock_sink()
-        bad.open.side_effect = OSError("cannot open")
-        with pytest.raises(OSError, match="cannot open"):
-            await runtime.add_sink("s2", SinkConfig(name="s2", type="file"), bad)
-    finally:
-        await runtime.stop()
-
-
-async def test_remove_sink_stops_consumer_and_closes() -> None:
-    s1 = _make_mock_sink()
-    runtime, _engine, _scheduler = _make_runtime(sinks={"s1": s1})
-    await runtime.start()
-    try:
-        await runtime.remove_sink("s1")
-
-        s1.flush.assert_awaited_once()
-        s1.close.assert_awaited_once()
-        assert "s1" not in runtime._queues  # noqa: SLF001
-        assert "s1" not in runtime._sink_tasks  # noqa: SLF001
-        assert runtime.sink_count == 0
-    finally:
-        await runtime.stop()
-
-
-async def test_rebuild_sink_preserves_queue() -> None:
-    """重建 sink 保留既有队列——在途数据不丢失。"""
-    s_old = _make_mock_sink()
-    runtime, _engine, _scheduler = _make_runtime(sinks={"s1": s_old})
-    await runtime.start()
-    try:
-        queue_before = runtime._queues["s1"]  # noqa: SLF001
-        s_new = _make_mock_sink()
-        await runtime.rebuild_sink("s1", SinkConfig(name="s1", type="file"), s_new)
-
-        assert runtime._queues["s1"] is queue_before  # noqa: SLF001
-        s_old.flush.assert_awaited_once()
-        s_old.close.assert_awaited_once()
-        s_new.open.assert_awaited_once()
-        assert "s1" in runtime._sink_tasks  # noqa: SLF001
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# router / pipeline 替换
-# ---------------------------------------------------------------------------
-
-
-async def test_replace_router_delegates_to_engine() -> None:
-    runtime, engine, _scheduler = _make_runtime()
-    new_router = MagicMock(spec=Router)
-    new_router.table_size = 3
-    await runtime.replace_router(new_router)
-    assert engine.current_router is new_router
-    assert runtime.current_router is new_router
-
-
-async def test_replace_pipeline_delegates_to_engine() -> None:
-    runtime, engine, _scheduler = _make_runtime()
-    new_pipeline = Pipeline([])
-    await runtime.replace_pipeline(new_pipeline)
-    assert engine._pipeline is new_pipeline  # noqa: SLF001
-
-
-# ---------------------------------------------------------------------------
-# reconfigure —— 热重载编排
-# ---------------------------------------------------------------------------
-
-
-async def test_reconfigure_applies_device_diff_via_factory() -> None:
-    p1 = _make_mock_protocol()
-    p_new = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda cfg: p_new,
-    )
-    await runtime.start()
-    try:
-        new_cfg = _make_full_config(devices=[_make_device("d2", polling_interval=2.0)])
-        diff = ConfigDiff(
-            devices=DeviceDiff(added=["d2"], removed=["d1"]),
-        )
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        assert "d1" not in runtime.devices
-        assert "d2" in runtime.devices
-        assert "poll:d1:default" not in scheduler.jobs
-        assert "poll:d2:default" in scheduler.jobs
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_applies_sink_diff_via_factory() -> None:
-    s_old = _make_mock_sink()
-    s_new = _make_mock_sink()
-    new_sink_cfg = SinkConfig(name="s2", type="file")
-    runtime, _engine, _scheduler = _make_runtime(
-        sinks={"s1": s_old},
-        sink_factory=lambda cfg: s_new,
-    )
-    await runtime.start()
-    try:
-        new_cfg = _make_full_config(sinks=[new_sink_cfg])
-        diff = ConfigDiff(sinks=SinkDiff(added=["s2"], removed=["s1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        assert runtime.sink_count == 1
-        assert "s2" in runtime._queues  # noqa: SLF001
-        s_old.close.assert_awaited_once()
-        s_new.open.assert_awaited_once()
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_rebuilds_router_on_points_change() -> None:
-    runtime, engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        router_before = engine.current_router
-        new_cfg = _make_full_config(points=[_make_point("p1")])
-        diff = ConfigDiff(points_changed=True)
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        assert engine.current_router is not router_before
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_rebuilds_pipeline_via_processor_factory() -> None:
-    processor = MagicMock()
-    processor_factory = MagicMock(return_value=processor)
-    runtime, engine, _scheduler = _make_runtime(processor_factory=processor_factory)
-    await runtime.start()
-    try:
-        pipeline_before = engine._pipeline  # noqa: SLF001
-        new_cfg = _make_full_config()
-        diff = ConfigDiff(pipeline_changed=True)
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        assert engine._pipeline is not pipeline_before  # noqa: SLF001
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_without_factories_reports_errors() -> None:
-    """工厂未接线时不得静默——错误进入返回列表，其余阶段继续。"""
-    runtime, engine, _scheduler = _make_runtime()  # 无工厂
-    await runtime.start()
-    try:
-        router_before = engine.current_router
-        new_cfg = _make_full_config(
-            devices=[_make_device("d2")],
-            sinks=[SinkConfig(name="s2", type="file")],
-        )
-        diff = ConfigDiff(
-            devices=DeviceDiff(added=["d2"]),
-            sinks=SinkDiff(added=["s2"]),
-            points_changed=True,
-        )
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert any(e.startswith("device:") for e in errors)
-        assert any(e.startswith("sink:") for e in errors)
-        # 路由重建不依赖工厂——即使设备/sink 阶段失败也应执行
-        assert engine.current_router is not router_before
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_remove_only_needs_no_factory() -> None:
-    """纯删除 diff 不触发工厂——未接线工厂的运行时也能缩容。"""
-    p1 = _make_mock_protocol()
-    s1 = _make_mock_sink()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        sinks={"s1": s1},
-    )
-    await runtime.start()
-    try:
-        diff = ConfigDiff(
-            devices=DeviceDiff(removed=["d1"]),
-            sinks=SinkDiff(removed=["s1"]),
-        )
-        errors = await runtime.reconfigure(_make_full_config(), diff)
-
-        assert errors == []
-        assert runtime.device_count == 0
-        assert runtime.sink_count == 0
-        assert scheduler.jobs == {}
-    finally:
-        await runtime.stop()
-
-
-async def test_reconfigure_no_changes_is_noop() -> None:
-    runtime, engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        router_before = engine.current_router
-        errors = await runtime.reconfigure(_make_full_config(), ConfigDiff())
-        assert errors == []
-        assert engine.current_router is router_before
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 背压与计数（决策 7）
-# ---------------------------------------------------------------------------
-
-
-async def test_backpressure_drop_new_counts_dropped() -> None:
-    runtime, _engine, _scheduler = _make_runtime(config=_make_config("drop_new"))
-    queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=1)
-    await queue.put([_value()])  # 占满
-
-    await runtime._handle_backpressure(queue, [_value(), _value()], "s1")  # noqa: SLF001
-
-    assert runtime.points_dropped == 2
-    assert runtime.points_routed == 0
-    assert queue.qsize() == 1
-
-
-async def test_backpressure_drop_old_evicts_and_counts() -> None:
-    runtime, _engine, _scheduler = _make_runtime(config=_make_config("drop_old"))
-    queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=1)
-    await queue.put([_value(), _value()])  # 占满（2 点旧批次）
-
-    await runtime._handle_backpressure(queue, [_value()], "s1")  # noqa: SLF001
-
-    assert runtime.points_dropped == 2
-    assert runtime.points_routed == 1
-    assert queue.qsize() == 1
-
-
-async def test_backpressure_block_waits_for_space() -> None:
-    runtime, _engine, _scheduler = _make_runtime(config=_make_config("block"))
-    queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=1)
-    await queue.put([_value()])
-
-    put_task = asyncio.create_task(
-        runtime._handle_backpressure(queue, [_value()], "s1")  # noqa: SLF001
-    )
-    await asyncio.sleep(0)
-    assert not put_task.done()  # 队列满——阻塞等待
-
-    await queue.get()  # 腾出空间
-    await asyncio.wait_for(put_task, timeout=2.0)
-    assert runtime.points_routed == 1
-
-
-async def test_dispatch_ignores_unknown_sink_and_empty_batch() -> None:
-    runtime, _engine, _scheduler = _make_runtime()
-    await runtime.dispatch({"ghost": [_value()], "s1": []})  # 不抛异常
-    assert runtime.points_routed == 0
-
-
-# ---------------------------------------------------------------------------
-# 热重载——轻量设备更新与点表重注入（A.10）
-# ---------------------------------------------------------------------------
-
-
-async def test_polling_interval_change_replaces_only_that_job() -> None:
-    """polling interval 变化：只重建受影响 Job，不重建 Protocol 连接。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=1.0)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    await runtime.start()
-    try:
-        p1.connect.reset_mock()
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", polling_interval=3.0)],
-            points=[_make_point("p1")],
-        )
-        diff = ConfigDiff(devices=DeviceDiff(updated=["d1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        p1.connect.assert_not_awaited()  # 未重连
-        p1.close.assert_not_awaited()
-        interval, _func, _args = scheduler.jobs["poll:d1:default"]
-        assert interval == 3.0
-    finally:
-        await runtime.stop()
-
-
-async def test_polling_group_removed_only_removes_that_job() -> None:
-    """polling group 删除：仅注销对应 Job，其余 Job 与连接不受影响。"""
-    p1 = _make_mock_protocol()
-    two_groups = [
-        PollingGroup(group="fast", interval=1.0),
-        PollingGroup(group="slow", interval=10.0),
-    ]
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=two_groups)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1", group="fast"), _make_point("p2", group="slow")]},
-    )
-    await runtime.start()
-    try:
-        assert "poll:d1:fast" in scheduler.jobs
-        assert "poll:d1:slow" in scheduler.jobs
-        p1.connect.reset_mock()
-
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])],
-            points=[_make_point("p1", group="fast")],
-        )
-        diff = ConfigDiff(devices=DeviceDiff(updated=["d1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        p1.connect.assert_not_awaited()
-        assert "poll:d1:fast" in scheduler.jobs
-        assert "poll:d1:slow" not in scheduler.jobs
-    finally:
-        await runtime.stop()
-
-
-async def test_polling_group_added_only_adds_that_job() -> None:
-    """polling group 新增：仅注册新 Job——不存在逐点 Job。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1", group="fast")]},
-    )
-    await runtime.start()
-    try:
-        p1.connect.reset_mock()
-        two_groups = [
-            PollingGroup(group="fast", interval=1.0),
-            PollingGroup(group="slow", interval=10.0),
-        ]
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", polling=two_groups)],
-            points=[_make_point("p1", group="fast"), _make_point("p2", group="slow")],
-        )
-        diff = ConfigDiff(devices=DeviceDiff(updated=["d1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        p1.connect.assert_not_awaited()
-        # 一个 (device, group) 一个 Job——永远不存在逐点 Job
-        assert set(scheduler.jobs) == {"poll:d1:fast", "poll:d1:slow"}
-        interval, func, args = scheduler.jobs["poll:d1:slow"]
-        assert interval == 10.0
-        assert args == ("d1", "slow")
-    finally:
-        await runtime.stop()
-
-
-async def test_point_table_rebind_reinjects_mapping_without_reconnect() -> None:
-    """point_table 换绑：仅向既有 Protocol 重注入新表映射，不重建连接。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", point_table="t1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    await runtime.start()
-    try:
-        p1.connect.reset_mock()
-        p1.set_points_mapping.reset_mock()
-        t2_points = [_make_point("p9")]
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", point_table="t2")],
-            tables={"t1": [_make_point("p1")], "t2": t2_points},
-        )
-        diff = ConfigDiff(devices=DeviceDiff(updated=["d1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        p1.connect.assert_not_awaited()
-        p1.set_points_mapping.assert_called_once_with(t2_points)
-        assert runtime.points_by_device["d1"] == t2_points
-    finally:
-        await runtime.stop()
-
-
-async def test_endpoint_change_rebuilds_device() -> None:
-    """连接参数变化：走重建路径（关闭旧连接、工厂创建新驱动）。"""
-    p_old = _make_mock_protocol()
-    p_new = _make_mock_protocol()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p_old},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda cfg: p_new,
-    )
-    await runtime.start()
-    try:
-        changed = _make_device("d1")
-        changed.endpoint = Endpoint(host="10.0.9.9", port=502)
-        new_cfg = _make_full_config(devices=[changed], points=[_make_point("p1")])
-        diff = ConfigDiff(devices=DeviceDiff(updated=["d1"]))
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        p_old.close.assert_awaited_once()
-        p_new.connect.assert_awaited_once()
-        assert runtime.protocols["d1"] is p_new
-    finally:
-        await runtime.stop()
-
-
-async def test_table_content_change_reinjects_mapping_without_reconnect() -> None:
-    """点表内容变化（设备未变）：重注入点映射，不重建 Protocol 连接。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    await runtime.start()
-    try:
-        p1.connect.reset_mock()
-        p1.set_points_mapping.reset_mock()
-        new_points = [_make_point("p1"), _make_point("p2")]
-        new_cfg = _make_full_config(
+class TestTaskExpansion:
+    async def test_device_task_expands_to_single_instance(self) -> None:
+        rt, _, _, _ = _build_runtime(
             devices=[_make_device("d1")],
-            points=new_points,
+            tasks=[_make_task("t1", device="d1", interval=1.0, sinks=("s1", "s2"))],
+            sink_names=("s1", "s2"),
         )
-        diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
-        errors = await runtime.reconfigure(new_cfg, diff)
+        await rt.start()
+        try:
+            instances = rt.task_instances()
+            assert list(instances) == ["t1:d1"]
+            inst = instances["t1:d1"]
+            assert isinstance(inst, CollectionTaskInstance)
+            assert inst.task_id == "t1"
+            assert inst.device_id == "d1"
+            assert inst.point_group == "g1"
+            assert inst.interval == 1.0
+            assert inst.targets == ["s1", "s2"]
+        finally:
+            await rt.stop()
 
-        assert errors == []
-        p1.connect.assert_not_awaited()
-        p1.set_points_mapping.assert_called_once_with(new_points)
-        assert runtime.points_by_device["d1"] == new_points
-    finally:
-        await runtime.stop()
-
-
-async def test_point_table_hot_reload_does_not_mutate_old_snapshot() -> None:
-    """点表快照语义：热重载整体替换，此前持有的点表 list（旧快照）
-    不被原地修改——消费者可安全持有旧引用直至处理完成。"""
-    p1 = _make_mock_protocol()
-    old_points = [_make_point("p1")]
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": old_points},
-    )
-    await runtime.start()
-    try:
-        held_snapshot = runtime.points_by_device["d1"]
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1")],
-            points=[_make_point("p1"), _make_point("p2")],
-        )
-        diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
-        errors = await runtime.reconfigure(new_cfg, diff)
-
-        assert errors == []
-        assert held_snapshot == old_points  # 旧快照内容未变
-        assert len(held_snapshot) == 1  # 未被原地追加 p2
-        assert len(runtime.points_by_device["d1"]) == 2  # 新快照是新内容
-    finally:
-        await runtime.stop()
-
-
-async def test_multi_group_device_registers_one_job_per_group() -> None:
-    """多分组设备：每个 (device, group) 恰好一个 Job，id 为 poll:{device}:{group}。"""
-    p1 = _make_mock_protocol()
-    groups = [
-        PollingGroup(group="fast", interval=1.0),
-        PollingGroup(group="slow", interval=10.0),
-    ]
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=groups)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1", group="fast"), _make_point("p2", group="slow")]},
-    )
-    try:
-        await runtime.start()
-        assert set(scheduler.jobs) == {"poll:d1:fast", "poll:d1:slow"}
-        assert scheduler.jobs["poll:d1:fast"][0] == 1.0
-        assert scheduler.jobs["poll:d1:slow"][0] == 10.0
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 投递策略热替换（阶段 B / B.4）
-# ---------------------------------------------------------------------------
-
-
-async def test_reconfigure_rebuilds_delivery_on_rules_change() -> None:
-    """规则（含 delivery）变化 → 路由重建阶段同时替换 DeliveryDispatcher。"""
-    runtime, engine, _scheduler = _make_runtime()
-    await runtime.start()
-    try:
-        assert engine._delivery is None  # noqa: SLF001 — 初始未装配策略
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1")],
-            points=[_make_point("p1")],
-            rules=[
-                RouteRule(
-                    name="r1",
-                    match=RouteMatch(all=True),
-                    targets=[RouteTarget(sink="s1", delivery=DeliveryConfig(type="every_n", n=2))],
-                )
+    async def test_device_group_task_expands_to_enabled_group_members(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[
+                _make_device("d1", device_group="turbine"),
+                _make_device("d2", device_group="turbine"),
+                _make_device("d3", device_group="turbine", enabled=False),
+                _make_device("d4", device_group="pcs"),
             ],
+            tasks=[_make_task("tg", device_group="turbine")],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(rules_changed=True))
+        await rt.start()
+        try:
+            assert set(rt.task_instances()) == {"tg:d1", "tg:d2"}
+        finally:
+            await rt.stop()
 
-        assert errors == []
-        delivery = engine._delivery  # noqa: SLF001
-        assert delivery is not None
-        # 策略真实生效：every_n=2 → 第 2 批被抑制
-        routed = {"s1": [PointValue(device_id="d1", point_id="p1", value=1.0)]}
-        assert delivery.evaluate(routed) == routed
-        assert delivery.evaluate(routed) == {}
-    finally:
-        await runtime.stop()
-
-
-async def test_delivery_policy_change_rebuilds_neither_sink_nor_protocol() -> None:
-    """B.4：仅投递策略变化时，不重建 Sink、不重连 Protocol。"""
-    p1 = _make_mock_protocol()
-    s1 = _make_mock_sink()
-    points = {"d1": [_make_point("p1")]}
-    runtime, engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        sinks={"s1": s1},
-        points_by_device=points,
-    )
-    await runtime.start()
-    try:
-        p1.connect.reset_mock()
-        s1.open.reset_mock()
-        delivery_before = engine._delivery  # noqa: SLF001
-
-        new_cfg = _make_full_config(
+    async def test_disabled_task_expands_to_nothing(self) -> None:
+        rt, _, _, _ = _build_runtime(
             devices=[_make_device("d1")],
-            sinks=[SinkConfig(name="s1", type="file")],
-            points=[_make_point("p1")],
-            rules=[
-                RouteRule(
-                    name="r1",
-                    match=RouteMatch(all=True),
-                    targets=[RouteTarget(sink="s1", delivery=DeliveryConfig(type="on_change"))],
-                )
-            ],
+            tasks=[_make_task("t1", device="d1", enabled=False)],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(rules_changed=True))
-
-        assert errors == []
-        assert engine._delivery is not delivery_before  # noqa: SLF001
-        p1.connect.assert_not_awaited()  # 无 Protocol 重连
-        s1.open.assert_not_awaited()  # 无 Sink 重建
-        assert runtime._sinks["s1"] is s1  # noqa: SLF001 — sink 实例原样保留
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 采集失败与设备恢复（故障分类 / backoff 重连 / DeviceRuntimeState）
-#
-# 全程使用假时钟推进 backoff 窗口——不做真实 asyncio.sleep 等待。
-# ---------------------------------------------------------------------------
-
-
-def _fake_clock(start: float = 1000.0) -> tuple[list[float], Callable[[], float]]:
-    """返回 ``([当前时刻], 时钟函数)``——测试通过改写列表元素推进时间。"""
-    now = [start]
-    return now, (lambda: now[0])
-
-
-async def test_read_failure_does_not_remove_periodic_job() -> None:
-    """单次读失败只记 warning——周期 Job 保留，下个周期自然重试。"""
-    p1 = _make_mock_protocol()
-    p1.read.side_effect = OSError("device busy")
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")  # 读失败——不抛、不摘 Job
-        assert "poll:d1:default" in scheduler.jobs
-        assert engine.points_collected == 0
-
-        p1.read.side_effect = None
-        p1.read.return_value = [_value()]
-        await scheduler.trigger_job("poll:d1:default")  # 下个周期恢复
-        assert engine.points_collected == 1
-    finally:
-        await runtime.stop()
-
-
-async def test_device_down_at_start_does_not_stop_runtime() -> None:
-    """设备连接失败 ≠ Runtime 停止：running 仍为 True，状态记入 DeviceRuntimeState。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")}, protocols={"d1": p1}, clock=clock
-    )
-    try:
-        await runtime.start()
-        assert runtime.running is True
-
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is False
-        assert state.consecutive_failures == 1
-        assert "refused" in (state.last_error or "")
-        assert state.next_retry_at == now[0] + 1.0  # 初始 backoff 1s
-    finally:
-        await runtime.stop()
-
-
-async def test_disconnected_collect_skips_read_without_connect_storm() -> None:
-    """断线且未到重试窗口：collect 跳过读，也不发起 connect——
-    1 Hz 轮询不会形成每秒一次的重连风暴。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        assert p1.connect.await_count == 1  # start 时的一次尝试
-
-        await scheduler.trigger_job("poll:d1:default")  # 仍在节流窗口内
-        assert p1.connect.await_count == 1  # 没有新的 connect 尝试
-        p1.read.assert_not_awaited()  # 也没有读
-
-        now[0] += 0.5  # 0.5s < 1s 窗口——仍然节流
-        await scheduler.trigger_job("poll:d1:default")
-        assert p1.connect.await_count == 1
-    finally:
-        await runtime.stop()
-
-
-async def test_backoff_grows_exponentially_and_caps_at_30s() -> None:
-    """重连节流：T_k = min(30, 1·2^k)——1,2,4,8,16,30,30… 无 jitter。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()  # 第 1 次失败（start 阶段）
-        expected_delays = [2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
-        for failures, delay in enumerate(expected_delays, start=2):
-            state = runtime.device_state("d1")
-            assert state is not None
-            now[0] = state.next_retry_at  # 推进到节流窗口
-            await scheduler.trigger_job("poll:d1:default")  # 触发一次重连尝试
-            state = runtime.device_state("d1")
-            assert state is not None
-            assert state.consecutive_failures == failures
-            assert state.next_retry_at == now[0] + delay
-        assert p1.connect.await_count == 1 + len(expected_delays)
-    finally:
-        await runtime.stop()
-
-
-async def test_successful_reconnect_resets_state_and_recovers_collect() -> None:
-    """重连成功后失败计数清零，collect 恢复正常读取。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()  # 失败 1 次
-        now[0] += 1.0
-        await scheduler.trigger_job("poll:d1:default")  # 失败 2 次
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.consecutive_failures == 2
-
-        # 设备恢复：推进到下一个窗口，connect 成功
-        p1.connect.side_effect = None
-        p1.read.return_value = [_value()]
-        now[0] = state.next_retry_at
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is True
-        assert state.consecutive_failures == 0
-        assert state.last_error is None
-        assert engine.points_collected == 1  # 本次 collect 真实读到了数据
-    finally:
-        await runtime.stop()
-
-
-async def test_connection_level_read_failure_triggers_reconnect_on_next_collect() -> None:
-    """运行期连接级读失败（如超时）：标记断线，下次 collect 先重连再读。"""
-    _now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.return_value = [_value()]
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")
-        assert engine.points_collected == 1
-
-        # 传输断开：读抛连接级异常 → 状态转为断线
-        p1.read.side_effect = TimeoutError("read timeout")
-        await scheduler.trigger_job("poll:d1:default")
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is False
-        assert "timeout" in (state.last_error or "")
-
-        # 下次 collect：ensure_connected 先重连（驱动 connect 幂等），随后读恢复
-        p1.read.side_effect = None
-        p1.connect.reset_mock()
-        await scheduler.trigger_job("poll:d1:default")
-        p1.connect.assert_awaited_once()
-        assert engine.points_collected == 2
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is True
-    finally:
-        await runtime.stop()
-
-
-async def test_non_connection_read_failure_keeps_connected() -> None:
-    """协议/编程级读失败（非连接级）：只记录错误，不触发断线与重连。"""
-    _now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.side_effect = ValueError("bad register map")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is True  # 连接本身仍健康
-        assert "bad register map" in (state.last_error or "")
-
-        # 下次 collect 直接读，不走重连路径
-        p1.connect.reset_mock()
-        await scheduler.trigger_job("poll:d1:default")
-        p1.connect.assert_not_awaited()
-    finally:
-        await runtime.stop()
-
-
-async def test_one_device_failure_isolated_from_others() -> None:
-    """单台设备故障不影响其它设备：故障设备节流跳过，健康设备照常采集。"""
-    _now, clock = _fake_clock()
-    p_bad = _make_mock_protocol()
-    p_bad.connect.side_effect = OSError("refused")
-    p_good = _make_mock_protocol()
-    p_good.read.return_value = [_value("d2", "p1")]
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1"), "d2": _make_device("d2")},
-        protocols={"d1": p_bad, "d2": p_good},
-        points_by_device={"d1": [_make_point("p1")], "d2": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")  # 故障设备：节流跳过
-        await scheduler.trigger_job("poll:d2:default")  # 健康设备：正常采集
-
-        assert engine.points_collected == 1
-        p_good.read.assert_awaited_once()
-        p_bad.read.assert_not_awaited()
-
-        good_state = runtime.device_state("d2")
-        assert good_state is not None
-        assert good_state.connected is True
-        assert good_state.consecutive_failures == 0
-        assert runtime.running is True
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# AcquisitionRuntimeState —— 采集 Job 业务执行状态（与设备连接/调度 Job 分维度）
-#
-# 全程使用假时钟验证时间字段——不做真实 asyncio.sleep 等待。
-# ---------------------------------------------------------------------------
-
-
-async def test_acq_state_first_success_records_lifecycle() -> None:
-    """首次成功采集：running 开始/结束翻转、last_success_at/last_duration 记录、
-    失败计数与错误保持清零/空。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.return_value = [_value()]
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        states = runtime.acquisition_states()
-        # Job 注册即建立状态（首次 collect 前 status 即可见）
-        assert "poll:d1:default" in states
-        state = states["poll:d1:default"]
-        assert state.running is False
-        assert state.last_success_at is None
-
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.acquisition_states()["poll:d1:default"]
-        assert state.running is False  # finally 归位
-        assert state.last_started_at == now[0]
-        assert state.last_finished_at == now[0]
-        assert state.last_success_at == now[0]
-        assert state.last_duration == pytest.approx(0.0)
-        assert state.consecutive_failures == 0
-        assert state.last_error is None
-    finally:
-        await runtime.stop()
-
-
-async def test_acq_state_consecutive_failures_then_success_resets() -> None:
-    """连续失败累加 consecutive_failures 与 last_error；成功后清零、错误清空。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.side_effect = OSError("device busy")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")
-        now[0] += 1.0
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.acquisition_states()["poll:d1:default"]
-        assert state.consecutive_failures == 2
-        assert "device busy" in (state.last_error or "")
-        assert state.last_success_at is None
-        assert state.last_duration == pytest.approx(0.0)  # 第二次 collect 耗时
-        assert state.last_finished_at == now[0]
-
-        # 恢复：成功一次 → 计数清零、错误清空、记录成功时刻
-        p1.read.side_effect = None
-        p1.read.return_value = [_value()]
-        now[0] += 1.0
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.acquisition_states()["poll:d1:default"]
-        assert state.consecutive_failures == 0
-        assert state.last_error is None
-        assert state.last_success_at == now[0]
-    finally:
-        await runtime.stop()
-
-
-async def test_acq_state_partial_does_not_count_as_failure() -> None:
-    """PARTIAL（GOOD/BAD 混合）：计为成功——不累加连续失败。"""
-    _now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.return_value = [
-        _value(point_id="p1"),
-        PointValue(device_id="d1", point_id="p2", value=None, quality=Quality.BAD),
-    ]
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1"), _make_point("p2")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        # 先制造一次真失败，再 partial——partial 必须把它清零
-        p1.read.side_effect = OSError("boom")
-        await scheduler.trigger_job("poll:d1:default")
-        assert runtime.acquisition_states()["poll:d1:default"].consecutive_failures == 1
-
-        p1.read.side_effect = None
-        await scheduler.trigger_job("poll:d1:default")
-
-        state = runtime.acquisition_states()["poll:d1:default"]
-        assert state.consecutive_failures == 0
-        assert state.last_error is None
-    finally:
-        await runtime.stop()
-
-
-async def test_acq_state_isolated_per_group_and_device() -> None:
-    """多 group / 多设备的状态互相隔离：一个失败不影响其它 Job 的状态。"""
-    _now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.return_value = [_value()]
-    p2 = _make_mock_protocol()
-    p2.read.side_effect = OSError("d2 down")
-    two_groups = [
-        PollingGroup(group="fast", interval=1.0),
-        PollingGroup(group="slow", interval=10.0),
-    ]
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=two_groups), "d2": _make_device("d2")},
-        protocols={"d1": p1, "d2": p2},
-        points_by_device={
-            "d1": [_make_point("p1", group="fast"), _make_point("p2", group="slow")],
-            "d2": [_make_point("p1")],
-        },
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:fast")  # 成功
-        await scheduler.trigger_job("poll:d2:default")  # 失败
-
-        states = runtime.acquisition_states()
-        assert set(states) == {"poll:d1:fast", "poll:d1:slow", "poll:d2:default"}
-        assert states["poll:d1:fast"].consecutive_failures == 0
-        assert states["poll:d1:fast"].last_success_at is not None
-        # 未执行的 slow Job：零状态
-        assert states["poll:d1:slow"].last_started_at is None
-        assert states["poll:d1:slow"].consecutive_failures == 0
-        # d2 的失败不串到 d1
-        assert states["poll:d2:default"].consecutive_failures == 1
-        assert "d2 down" in (states["poll:d2:default"].last_error or "")
-    finally:
-        await runtime.stop()
-
-
-async def test_acq_state_disconnected_skip_marks_failed_keeps_job() -> None:
-    """断线跳过一次采集：acq 记 FAILED（last_error 指明断线/backoff），
-    周期 Job 保留，Runtime.running 不受影响。"""
-    now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.connect.side_effect = OSError("refused")
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()  # 连接失败 → 断线 + 节流窗口
-        await scheduler.trigger_job("poll:d1:default")  # 节流窗口内：跳过读
-
-        assert "poll:d1:default" in scheduler.jobs  # Job 保留
-        assert runtime.running is True
-        state = runtime.acquisition_states()["poll:d1:default"]
-        assert state.consecutive_failures == 1
-        assert "disconnected" in (state.last_error or "")
-        p1.read.assert_not_awaited()
-        assert now[0] == state.last_finished_at  # 有始有终（running 归位）
-        assert state.running is False
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 应用层 connect 超时（外层 asyncio.wait_for 兜底）
-# ---------------------------------------------------------------------------
-
-
-async def test_connect_timeout_marks_failure_without_stopping_runtime() -> None:
-    """connect 超过 connect_timeout：设备状态记失败（错误语义定位到 connect
-    阶段），Runtime 保持 running，后续按 backoff 节流。"""
-    now, clock = _fake_clock()
-    hang = asyncio.Event()  # 永不 set——connect 挂起直到外层超时
-
-    async def _hanging_connect() -> None:
-        await hang.wait()
-
-    p1 = _make_mock_protocol()
-    p1.connect = AsyncMock(side_effect=_hanging_connect)
-    config = _make_config()
-    config.connect_timeout = 0.05  # 极短外层超时——不做真实长等待
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        config=config,
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        assert runtime.running is True
-
-        state = runtime.device_state("d1")
-        assert state is not None
-        assert state.connected is False
-        assert state.consecutive_failures == 1
-        assert "connect timeout" in (state.last_error or "")
-        assert state.next_retry_at == now[0] + 1.0  # backoff 节流已就位
-
-        # 周期 Job 已注册；节流窗口内 collect 跳过读（不形成重连风暴）
-        await scheduler.trigger_job("poll:d1:default")
-        assert p1.read.await_count == 0
-    finally:
-        await runtime.stop()
-
-
-async def test_read_timeout_marks_device_disconnected_and_keeps_job() -> None:
-    """外层 read_timeout 超时：acq FAILED（read timeout）、设备标记断线
-    （连接级），周期 Job 保留，下次 collect 先走重连。"""
-    now, clock = _fake_clock()
-    hang = asyncio.Event()
-
-    async def _hanging_read(_refs: list) -> list:
-        await hang.wait()
-        return []  # pragma: no cover
-
-    p1 = _make_mock_protocol()
-    p1.read = AsyncMock(side_effect=_hanging_read)
-    config = _make_config()
-    config.read_timeout = 0.05
-    runtime, engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        config=config,
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await scheduler.trigger_job("poll:d1:default")  # 读超时
-
-        assert "poll:d1:default" in scheduler.jobs  # Job 保留
-        assert engine.points_collected == 0
-        acq = runtime.acquisition_states()["poll:d1:default"]
-        assert acq.consecutive_failures == 1
-        assert "read timeout" in (acq.last_error or "")
-        dev = runtime.device_state("d1")
-        assert dev is not None
-        assert dev.connected is False  # 读超时按连接级失败处理
-
-        # 设备恢复：推进到重试窗口 → 先重连、再正常读
-        p1.read.side_effect = None
-        p1.read.return_value = [_value()]
-        now[0] = dev.next_retry_at
-        await scheduler.trigger_job("poll:d1:default")
-        assert engine.points_collected == 1
-        dev = runtime.device_state("d1")
-        assert dev is not None and dev.connected is True
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 热重载 × 采集状态（§10）
-# ---------------------------------------------------------------------------
-
-
-async def test_hot_reload_group_add_creates_state_remove_deletes() -> None:
-    """group 新增 → 建立新采集状态；group 删除 → 状态随 Job 一并清理。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1", group="fast")]},
-    )
-    try:
-        await runtime.start()
-        assert set(runtime.acquisition_states()) == {"poll:d1:fast"}
-
-        # 新增 slow group
-        two_groups = [
-            PollingGroup(group="fast", interval=1.0),
-            PollingGroup(group="slow", interval=10.0),
-        ]
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", polling=two_groups)],
-            points=[_make_point("p1", group="fast"), _make_point("p2", group="slow")],
+        await rt.start()
+        try:
+            assert rt.task_instances() == {}
+        finally:
+            await rt.stop()
+
+    async def test_device_task_on_disabled_device_expands_to_nothing(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1", enabled=False)],
+            tasks=[_make_task("t1", device="d1")],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
-        assert set(runtime.acquisition_states()) == {"poll:d1:fast", "poll:d1:slow"}
+        await rt.start()
+        try:
+            assert rt.task_instances() == {}
+        finally:
+            await rt.stop()
 
-        # 删除 slow group
-        new_cfg2 = _make_full_config(
-            devices=[_make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])],
-            points=[_make_point("p1", group="fast")],
+    async def test_device_task_on_unknown_device_expands_to_nothing(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="ghost")],
         )
-        errors = await runtime.reconfigure(new_cfg2, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
-        assert set(runtime.acquisition_states()) == {"poll:d1:fast"}
-        assert "poll:d1:slow" not in scheduler.jobs
-    finally:
-        await runtime.stop()
+        await rt.start()
+        try:
+            assert rt.task_instances() == {}
+        finally:
+            await rt.stop()
 
-
-async def test_hot_reload_interval_change_preserves_acq_state() -> None:
-    """interval 变化（Job 原地替换）：采集状态对象保留——历史计数不清零。"""
-    _now, clock = _fake_clock()
-    p1 = _make_mock_protocol()
-    p1.read.side_effect = OSError("boom")
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=1.0)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-        clock=clock,
-    )
-    try:
-        await runtime.start()
-        await runtime.engine.collect("d1", "default")  # 制造一次失败
-        before = runtime.acquisition_states()["poll:d1:default"]
-        assert before.consecutive_failures == 1
-
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", polling_interval=5.0)],
-            points=[_make_point("p1")],
+    async def test_instances_registered_stopped(self) -> None:
+        rt, protos, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1")],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
+        await rt.start()
+        try:
+            assert rt.instance_states() == {"t1:d1": TaskInstanceState.STOPPED}
+            # STOPPED 实例不执行任何采集
+            await asyncio.sleep(0.05)
+            assert eng.collect_calls == []
+            # 采集执行状态簿按实例预注册
+            acq = rt.acquisition_states()
+            assert acq["t1:d1"].task_id == "t1"
+            assert acq["t1:d1"].running is False
+            assert protos["d1"].connect.await_count == 1
+        finally:
+            await rt.stop()
 
-        after = runtime.acquisition_states()["poll:d1:default"]
-        assert after is before  # 同一对象——状态保留
-        assert after.consecutive_failures == 1
-    finally:
-        await runtime.stop()
+    def test_task_instance_id_convention(self) -> None:
+        assert task_instance_id("t1", "d1") == "t1:d1"
 
 
-async def test_hot_reload_point_table_change_preserves_acq_state() -> None:
-    """点表换绑：不触碰采集状态（点表变化与 Job 执行状态无关）。"""
-    p1 = _make_mock_protocol()
-    p1.read.side_effect = OSError("boom")
-    runtime, _engine, _scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", point_table="t1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        await runtime.engine.collect("d1", "default")
-        before = runtime.acquisition_states()["poll:d1:default"]
+# ---------------------------------------------------------------------------
+# 启动 / 停止语义
+# ---------------------------------------------------------------------------
 
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1", point_table="t2")],
-            tables={"t1": [_make_point("p1")], "t2": [_make_point("p9")]},
+
+class TestStartStopInstance:
+    async def test_start_instance_begins_polling(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
-        assert runtime.acquisition_states()["poll:d1:default"] is before
-    finally:
-        await runtime.stop()
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
+            device_id, group, targets, execution_id = eng.collect_calls[0]
+            assert (device_id, group, targets, execution_id) == ("d1", "g1", ["s1"], "t1:d1")
+        finally:
+            await rt.stop()
 
-
-async def test_hot_reload_device_removed_cleans_device_and_acq_states() -> None:
-    """设备删除：DeviceRuntimeState 与全部采集状态一并清理，Job 注销。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1"), "d2": _make_device("d2")},
-        protocols={"d1": p1, "d2": _make_mock_protocol()},
-        points_by_device={"d1": [_make_point("p1")], "d2": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        assert runtime.device_state("d1") is not None
-        assert "poll:d1:default" in runtime.acquisition_states()
-
-        new_cfg = _make_full_config(
-            devices=[_make_device("d2")],
-            points=[_make_point("p1")],
+    async def test_start_instance_idempotent_no_second_coroutine(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(removed=["d1"])))
-        assert errors == []
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            first = rt._task_coroutines["t1:d1"]
+            await rt.start_task_instance("t1:d1")
+            await rt.start_task_instance("t1:d1")
+            assert rt._task_coroutines["t1:d1"] is first
+            assert len(rt._task_coroutines) == 1
+            assert len(_instance_coroutine_tasks()) == 1
+            await _wait_for(lambda: len(eng.collect_calls) >= 2, what="polling continues")
+        finally:
+            await rt.stop()
 
-        assert "poll:d1:default" not in scheduler.jobs
-        assert runtime.device_state("d1") is None
-        assert set(runtime.acquisition_states()) == {"poll:d2:default"}
-    finally:
-        await runtime.stop()
+    async def test_start_unknown_instance_raises_key_error(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1")],
+        )
+        await rt.start()
+        try:
+            with pytest.raises(KeyError):
+                await rt.start_task_instance("nope:d1")
+        finally:
+            await rt.stop()
 
+    async def test_stop_instance_cancels_polling(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
+        )
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
+            await rt.stop_task_instance("t1:d1")
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            assert "t1:d1" not in rt._task_coroutines
+            assert _instance_coroutine_tasks() == []
+            # stop 后不再 collect
+            count = len(eng.collect_calls)
+            await asyncio.sleep(0.08)
+            assert len(eng.collect_calls) == count
+        finally:
+            await rt.stop()
 
-async def test_hot_reload_device_added_initializes_states() -> None:
-    """设备新增：DeviceRuntimeState 与采集状态一并建立（Job 注册即建状态）。"""
-    p2 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": _make_mock_protocol()},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda _cfg: p2,
-    )
-    try:
-        await runtime.start()
+    async def test_stop_instance_idempotent(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
+        )
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await rt.stop_task_instance("t1:d1")
+            await rt.stop_task_instance("t1:d1")  # 已 STOPPED——幂等不抛
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+        finally:
+            await rt.stop()
 
-        new_cfg = _make_full_config(
+    async def test_stop_unknown_instance_raises_key_error(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1")],
+        )
+        await rt.start()
+        try:
+            with pytest.raises(KeyError):
+                await rt.stop_task_instance("nope:d1")
+        finally:
+            await rt.stop()
+
+    async def test_stop_instance_does_not_affect_others(self) -> None:
+        rt, _, _, eng = _build_runtime(
             devices=[_make_device("d1"), _make_device("d2")],
-            points=[_make_point("p1")],
-        )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(added=["d2"])))
-        assert errors == []
-
-        assert "poll:d2:default" in scheduler.jobs
-        assert runtime.device_state("d2") is not None
-        assert "poll:d2:default" in runtime.acquisition_states()
-    finally:
-        await runtime.stop()
-
-
-# ---------------------------------------------------------------------------
-# 采集 Job 显式生命周期——启动默认 STOPPED、热重载保状态
-# ---------------------------------------------------------------------------
-
-
-def _two_group_device(device_id: str = "d1") -> DeviceConfig:
-    return _make_device(
-        device_id,
-        polling=[
-            PollingGroup(group="fast", interval=1.0),
-            PollingGroup(group="slow", interval=10.0),
-        ],
-    )
-
-
-async def test_start_registers_all_configured_jobs_stopped() -> None:
-    """启动后：全部配置 Job 已注册（poll:{device}:{group}），且默认 STOPPED；
-    调度器与 Runtime 本身处于运行态。"""
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": _make_mock_protocol()},
-    )
-    try:
-        await runtime.start()
-
-        assert scheduler.started is True
-        assert runtime.running is True
-        assert set(scheduler.jobs) == {"poll:d1:fast", "poll:d1:slow"}
-        infos = {j.job_id: j for j in scheduler.list_jobs()}
-        assert infos["poll:d1:fast"].paused is True
-        assert infos["poll:d1:fast"].state.value == "stopped"
-        assert infos["poll:d1:fast"].next_run_time is None
-        assert infos["poll:d1:slow"].paused is True
-    finally:
-        await runtime.stop()
-
-
-async def test_stopped_jobs_do_not_fire_collect_with_real_scheduler() -> None:
-    """真实调度器端到端：启动后 STOPPED Job 不触发 engine.collect；
-    显式 resume 后按 interval 正常触发。"""
-    from wind_hub.infra.scheduling import APSchedulerAdapter
-
-    device = _make_device("d1", polling_interval=0.05)
-    engine = AcquisitionEngine(
-        protocols={},
-        pipeline=Pipeline([]),
-        router=MagicMock(spec=Router),
-        points_by_device={},
-        read_timeout=1.0,
-    )
-    collect_mock = AsyncMock()
-    engine.collect = collect_mock  # type: ignore[method-assign]
-    scheduler = APSchedulerAdapter()
-    runtime = Runtime(
-        devices={"d1": device},
-        protocols={"d1": _make_mock_protocol()},
-        sinks={},
-        engine=engine,
-        scheduler=scheduler,
-        dispatcher=MagicMock(spec=Dispatcher),
-        config=_make_config(),
-        points_by_device={},
-    )
-    try:
-        await runtime.start()
-        # 远超一个周期的等待窗口内不得有任何采集触发
-        await asyncio.sleep(0.3)
-        collect_mock.assert_not_awaited()
-
-        scheduler.resume_job("poll:d1:default")
-        await asyncio.wait_for(asyncio.to_thread(lambda: None), timeout=0.01)  # 让出循环
-        deadline = asyncio.get_running_loop().time() + 2.0
-        while not collect_mock.await_count and asyncio.get_running_loop().time() < deadline:
-            await asyncio.sleep(0.01)
-        assert collect_mock.await_count >= 1
-    finally:
-        await runtime.stop()
-
-
-async def test_job_usecase_start_stop_roundtrip_on_runtime_jobs() -> None:
-    """TaskService 经 Runtime 注册的 Job 执行 start/stop——只翻转调度状态。"""
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": _make_mock_protocol()},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-
-        job = await service.start_job("poll:d1:fast")
-        assert job.state.value == "running"
-        assert scheduler.paused["poll:d1:fast"] is False
-        # 同设备其他 group 不受影响
-        assert scheduler.paused["poll:d1:slow"] is True
-
-        job = await service.stop_job("poll:d1:fast")
-        assert job.state.value == "stopped"
-        assert scheduler.paused["poll:d1:fast"] is True
-        assert "poll:d1:fast" in scheduler.jobs  # 不删除 Job
-    finally:
-        await runtime.stop()
-
-
-async def test_stop_all_jobs_keeps_runtime_running() -> None:
-    """stop_all_jobs 只停采集调度：Runtime.running、调度器、设备连接均不受影响。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": p1},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        await service.start_all_jobs()
-        assert all(not paused for paused in scheduler.paused.values())
-
-        result = await service.stop_all_jobs()
-
-        assert result.total == 2
-        assert result.changed == 2
-        assert all(scheduler.paused.values())
-        assert runtime.running is True
-        assert scheduler.started is True
-        p1.close.assert_not_awaited()
-    finally:
-        await runtime.stop()
-
-
-async def test_stopped_job_retains_acquisition_state_history() -> None:
-    """stop Job 不清理 AcquisitionRuntimeState——最近执行历史保留。"""
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": _make_mock_protocol()},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        # 模拟一次成功采集留下的历史
-        runtime.report_collect_started("d1", "default")
-        runtime.report_collect_success("d1", "default", partial=False)
-        before = runtime.acquisition_states()["poll:d1:default"]
-        assert before.last_success_at is not None
-
-        await service.stop_job("poll:d1:default")
-
-        after = runtime.acquisition_states()["poll:d1:default"]
-        assert after is before  # 状态对象保留，未重建未清空
-        assert after.last_success_at is not None
-    finally:
-        await runtime.stop()
-
-
-async def test_hot_reload_added_device_job_defaults_stopped() -> None:
-    """热新增设备：其采集 Job 默认 STOPPED——reload 不会自动开始采集。"""
-    p2 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": _make_mock_protocol()},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda _cfg: p2,
-    )
-    try:
-        await runtime.start()
-
-        new_cfg = _make_full_config(
-            devices=[_make_device("d1"), _make_device("d2")],
-            points=[_make_point("p1")],
-        )
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(added=["d2"])))
-
-        assert errors == []
-        assert scheduler.paused["poll:d2:default"] is True
-    finally:
-        await runtime.stop()
-
-
-async def test_hot_reload_added_group_job_defaults_stopped() -> None:
-    """热新增 polling group（轻量更新）：新 Job 默认 STOPPED。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        assert set(scheduler.jobs) == {"poll:d1:fast"}
-
-        new_dev = _make_device(
-            "d1",
-            polling=[
-                PollingGroup(group="fast", interval=1.0),
-                PollingGroup(group="slow", interval=10.0),
+            tasks=[
+                _make_task("t1", device="d1", interval=0.02),
+                _make_task("t2", device="d2", interval=0.02),
             ],
         )
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        assert scheduler.paused["poll:d1:slow"] is True
-    finally:
-        await runtime.stop()
-
-
-async def test_hot_reload_removed_group_removes_job() -> None:
-    """配置删除 (device, group)：对应 Job 正常 remove。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        assert "poll:d1:slow" in scheduler.jobs
-
-        new_dev = _make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        assert set(scheduler.jobs) == {"poll:d1:fast"}
-        assert "poll:d1:slow" not in runtime.acquisition_states()
-    finally:
-        await runtime.stop()
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await rt.start_task_instance("t2:d2")
+            await rt.stop_task_instance("t1:d1")
+            assert rt.instance_states()["t2:d2"] is TaskInstanceState.RUNNING
+            await _wait_for(
+                lambda: any(c[0] == "d2" for c in eng.collect_calls),
+                what="d2 keeps collecting",
+            )
+        finally:
+            await rt.stop()
 
 
-async def test_interval_change_preserves_running_state() -> None:
-    """interval 修改：原 RUNNING 的 Job 更新 interval 后仍 RUNNING。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=1.0)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        await service.start_job("poll:d1:default")
-        assert scheduler.paused["poll:d1:default"] is False
-
-        new_dev = _make_device("d1", polling_interval=5.0)
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        interval, _func, _args = scheduler.jobs["poll:d1:default"]
-        assert interval == 5.0
-        assert scheduler.paused["poll:d1:default"] is False
-    finally:
-        await runtime.stop()
+# ---------------------------------------------------------------------------
+# polling 循环行为
+# ---------------------------------------------------------------------------
 
 
-async def test_interval_change_preserves_stopped_state() -> None:
-    """interval 修改：原 STOPPED 的 Job 更新 interval 后仍 STOPPED（不统一 resume）。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling_interval=1.0)},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-        assert scheduler.paused["poll:d1:default"] is True
-
-        new_dev = _make_device("d1", polling_interval=5.0)
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        interval, _func, _args = scheduler.jobs["poll:d1:default"]
-        assert interval == 5.0
-        assert scheduler.paused["poll:d1:default"] is True
-    finally:
-        await runtime.stop()
-
-
-async def test_point_table_content_change_preserves_job_state() -> None:
-    """点表内容热更新：只重注入点映射，不改变 Job 的 RUNNING/STOPPED 状态。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        await service.start_job("poll:d1:default")
-
-        new_cfg = _make_full_config(
+class TestPollingLoop:
+    async def test_interval_respected_between_cycles(self) -> None:
+        rt, _, _, eng = _build_runtime(
             devices=[_make_device("d1")],
-            points=[_make_point("p1"), _make_point("p2")],
+            tasks=[_make_task("t1", device="d1", interval=10.0)],
         )
-        errors = await runtime.reconfigure(
-            new_cfg, ConfigDiff(points_changed=True, point_tables_changed=["t1"])
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) == 1, what="first collect")
+            # interval 远大于观测窗口——窗口内不应有第二轮
+            await asyncio.sleep(0.1)
+            assert len(eng.collect_calls) == 1
+        finally:
+            await rt.stop()
+
+    async def test_repeated_cycles_with_short_interval(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 3, what="multiple cycles")
+        finally:
+            await rt.stop()
 
-        assert errors == []
-        assert scheduler.paused["poll:d1:default"] is False
-        interval, _func, _args = scheduler.jobs["poll:d1:default"]
-        assert interval == 1.0
-    finally:
-        await runtime.stop()
+    async def test_collect_exception_logged_and_loop_continues(self, caplog) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
+        )
+        await rt.start()
+        try:
+            with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.runtime"):
+                eng.fail_next = 1
+                await rt.start_task_instance("t1:d1")
+                await _wait_for(lambda: len(eng.collect_calls) >= 3, what="loop survives failure")
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            assert rt.running is True
+            assert any(
+                "collect failed unexpectedly" in record.getMessage() for record in caplog.records
+            )
+        finally:
+            await rt.stop()
 
+    async def test_cancelled_error_propagates_during_collect(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
+        )
+        eng.collect_gate = asyncio.Event()  # 永不 set——collect 内阻塞
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) == 1, what="collect entered")
+            # 取消发生在 collect 内部等待期间——CancelledError 必须传播，
+            # 循环不被吞掉、实例正确归位 STOPPED。
+            await rt.stop_task_instance("t1:d1")
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            assert _instance_coroutine_tasks() == []
+        finally:
+            await rt.stop()
 
-async def test_device_group_change_preserves_job_state() -> None:
-    """device_group 热更新（路由维度）：不触碰采集 Job 的运行状态。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1")},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        await service.start_job("poll:d1:default")
-        registered = dict(scheduler.jobs)
-
-        new_dev = _make_device("d1")
-        new_dev.device_group = "pcs"
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        assert scheduler.jobs == registered  # Job 定义未被重建
-        assert scheduler.paused["poll:d1:default"] is False
-    finally:
-        await runtime.stop()
-
-
-async def test_device_rebuild_preserves_job_states() -> None:
-    """设备重建（endpoint 变化）：同名 Job 的运行状态跨重建保持——
-    RUNNING 仍 RUNNING，STOPPED 不因重连自动启动。"""
-    p_old = _make_mock_protocol()
-    p_new = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": p_old},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda _cfg: p_new,
-    )
-    service = JobUseCase(scheduler)
-    try:
-        await runtime.start()
-        await service.start_job("poll:d1:fast")  # fast RUNNING，slow 保持 STOPPED
-
-        changed = _two_group_device()
-        changed.endpoint = Endpoint(host="10.0.9.9", port=502)
-        new_cfg = _make_full_config(devices=[changed], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-
-        assert errors == []
-        assert set(scheduler.jobs) == {"poll:d1:fast", "poll:d1:slow"}
-        assert scheduler.paused["poll:d1:fast"] is False
-        assert scheduler.paused["poll:d1:slow"] is True
-    finally:
-        await runtime.stop()
+    async def test_running_instance_reads_updated_snapshot_next_cycle(self) -> None:
+        """协程每轮从注册表重取实例——interval 快照替换后下一轮生效（不重启协程）。"""
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
+        )
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
+            coro = rt._task_coroutines["t1:d1"]
+            # 就地替换实例快照（reconfigure 的内部机制）
+            rt._task_instances["t1:d1"] = CollectionTaskInstance(
+                instance_id="t1:d1",
+                task_id="t1",
+                device_id="d1",
+                point_group="g2",
+                interval=0.02,
+                targets=["s9"],
+            )
+            await _wait_for(
+                lambda: any(c[1] == "g2" and c[2] == ["s9"] for c in eng.collect_calls),
+                what="new snapshot picked up",
+            )
+            assert rt._task_coroutines["t1:d1"] is coro
+        finally:
+            await rt.stop()
 
 
 # ---------------------------------------------------------------------------
-# Job 业务元数据——注册时显式传入，与 Job ID 解耦
+# 停机
 # ---------------------------------------------------------------------------
 
 
-async def test_start_registers_jobs_with_poll_metadata() -> None:
-    """Runtime 注册的每个采集 Job 都携带显式元数据：
-    ``kind="poll"`` + 正确的 device_id/group。"""
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": _make_mock_protocol()},
-    )
-    try:
-        await runtime.start()
-
-        infos = {j.job_id: j for j in scheduler.list_jobs()}
-        assert infos["poll:d1:fast"].metadata == JobMetadata(
-            kind="poll", device_id="d1", group="fast"
-        )
-        assert infos["poll:d1:slow"].metadata == JobMetadata(
-            kind="poll", device_id="d1", group="slow"
-        )
-    finally:
-        await runtime.stop()
-
-
-async def test_hot_reload_keeps_job_metadata_correct() -> None:
-    """热重载各路径的元数据：热新增 group 默认携带正确元数据；
-    interval 变更（Job 原地替换）后元数据保持正确。"""
-    p1 = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _make_device("d1", polling=[PollingGroup(group="fast", interval=1.0)])},
-        protocols={"d1": p1},
-        points_by_device={"d1": [_make_point("p1")]},
-    )
-    try:
-        await runtime.start()
-
-        # 热新增 group
-        new_dev = _make_device(
-            "d1",
-            polling=[
-                PollingGroup(group="fast", interval=1.0),
-                PollingGroup(group="slow", interval=10.0),
+class TestShutdown:
+    async def test_stop_cancels_all_instance_coroutines_no_orphans(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1"), _make_device("d2")],
+            tasks=[
+                _make_task("t1", device="d1", interval=0.02),
+                _make_task("t2", device="d2", interval=0.02),
             ],
         )
-        new_cfg = _make_full_config(devices=[new_dev], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
-        assert scheduler.metadata["poll:d1:slow"] == JobMetadata(
-            kind="poll", device_id="d1", group="slow"
-        )
+        await rt.start()
+        await rt.start_task_instance("t1:d1")
+        await rt.start_task_instance("t2:d2")
+        await _wait_for(lambda: len(eng.collect_calls) >= 2, what="both polling")
 
-        # interval 变更（replace_existing 路径）
-        changed = _make_device(
-            "d1",
-            polling=[
-                PollingGroup(group="fast", interval=5.0),
-                PollingGroup(group="slow", interval=10.0),
-            ],
+        await rt.stop()
+
+        assert rt._task_coroutines == {}
+        assert _instance_coroutine_tasks() == []
+        assert set(rt.instance_states().values()) == {TaskInstanceState.STOPPED}
+        assert rt.running is False
+        count = len(eng.collect_calls)
+        await asyncio.sleep(0.06)
+        assert len(eng.collect_calls) == count
+
+    async def test_stop_idempotent(self) -> None:
+        rt, _, _, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
-        new_cfg = _make_full_config(devices=[changed], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
-        assert errors == []
-        assert scheduler.metadata["poll:d1:fast"] == JobMetadata(
-            kind="poll", device_id="d1", group="fast"
+        await rt.start()
+        await rt.start_task_instance("t1:d1")
+        await rt.stop()
+        await rt.stop()  # 幂等
+        assert rt.running is False
+        assert _instance_coroutine_tasks() == []
+
+    async def test_restart_requires_explicit_instance_start(self) -> None:
+        rt, _, _, eng = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
-        interval, _func, _args = scheduler.jobs["poll:d1:fast"]
-        assert interval == 5.0
-    finally:
-        await runtime.stop()
+        await rt.start()
+        await rt.start_task_instance("t1:d1")
+        await rt.stop()
+
+        await rt.start()
+        try:
+            # 实例保留、统一 STOPPED——重启后不自动恢复采集
+            assert rt.instance_states() == {"t1:d1": TaskInstanceState.STOPPED}
+            count = len(eng.collect_calls)
+            await asyncio.sleep(0.06)
+            assert len(eng.collect_calls) == count
+        finally:
+            await rt.stop()
 
 
-async def test_device_rebuild_repasses_job_metadata() -> None:
-    """设备重建（注销→重注册）后，同名 Job 的元数据被重新显式传入且正确。"""
-    p_old = _make_mock_protocol()
-    p_new = _make_mock_protocol()
-    runtime, _engine, scheduler = _make_runtime(
-        devices={"d1": _two_group_device()},
-        protocols={"d1": p_old},
-        points_by_device={"d1": [_make_point("p1")]},
-        protocol_factory=lambda _cfg: p_new,
-    )
-    try:
-        await runtime.start()
+# ---------------------------------------------------------------------------
+# 热重载 reconfigure
+# ---------------------------------------------------------------------------
 
-        changed = _two_group_device()
-        changed.endpoint = Endpoint(host="10.0.9.9", port=502)
-        new_cfg = _make_full_config(devices=[changed], points=[_make_point("p1")])
-        errors = await runtime.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
 
-        assert errors == []
-        assert scheduler.metadata["poll:d1:fast"] == JobMetadata(
-            kind="poll", device_id="d1", group="fast"
+class TestReconfigure:
+    async def test_add_task_registers_stopped_instance(self) -> None:
+        devices = [_make_device("d1")]
+        rt, protos, _, eng = _build_runtime(devices=devices, tasks=[])
+        await rt.start()
+        try:
+            assert rt.task_instances() == {}
+            new_cfg = _full_config(devices=devices, tasks=[_make_task("t1", device="d1")])
+            errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(added=["t1"])))
+            assert errors == []
+            assert set(rt.task_instances()) == {"t1:d1"}
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            await asyncio.sleep(0.05)
+            assert eng.collect_calls == []
+            # Task 增删不触碰设备连接
+            assert protos["d1"].connect.await_count == 1
+        finally:
+            await rt.stop()
+
+    async def test_remove_task_unregisters_running_instance(self) -> None:
+        devices = [_make_device("d1")]
+        task = _make_task("t1", device="d1", interval=0.02)
+        rt, _, _, eng = _build_runtime(devices=devices, tasks=[task])
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="polling")
+            new_cfg = _full_config(devices=devices, tasks=[])
+            errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(removed=["t1"])))
+            assert errors == []
+            assert rt.task_instances() == {}
+            assert rt.instance_states() == {}
+            assert rt.acquisition_states() == {}
+            assert _instance_coroutine_tasks() == []
+            count = len(eng.collect_calls)
+            await asyncio.sleep(0.06)
+            assert len(eng.collect_calls) == count
+        finally:
+            await rt.stop()
+
+    async def test_device_group_membership_change_adds_and_removes_instances(self) -> None:
+        """d1 移出分组（轻量更新，不重建连接）+ d2 热增入组 → 实例增删。"""
+        d1 = _make_device("d1", device_group="turbine")
+        task = _make_task("tg", device_group="turbine")
+        factory = MagicMock(side_effect=lambda cfg: _mock_protocol())
+        rt, protos, _, _ = _build_runtime(devices=[d1], tasks=[task], protocol_factory=factory)
+        await rt.start()
+        try:
+            assert set(rt.task_instances()) == {"tg:d1"}
+            d1_new = _make_device("d1", device_group="pcs")
+            d2_new = _make_device("d2", device_group="turbine")
+            new_cfg = _full_config(devices=[d1_new, d2_new], tasks=[task])
+            diff = ConfigDiff(devices=DeviceDiff(added=["d2"], updated=["d1"]))
+            errors = await rt.reconfigure(new_cfg, diff)
+            assert errors == []
+            assert set(rt.task_instances()) == {"tg:d2"}
+            assert rt.instance_states()["tg:d2"] is TaskInstanceState.STOPPED
+            # d1 只改了 device_group——轻量路径，不重建连接
+            assert protos["d1"].connect.await_count == 1
+            assert rt.protocols["d1"] is protos["d1"]
+            # d2 走热增路径：新协议实例由工厂创建并连接
+            assert factory.call_count == 1
+            assert rt.protocols["d2"].connect.await_count == 1
+            assert rt.running is True
+        finally:
+            await rt.stop()
+
+    async def test_device_disable_removes_instances_without_runtime_restart(self) -> None:
+        d1 = _make_device("d1", device_group="turbine")
+        task = _make_task("tg", device_group="turbine")
+        factory = MagicMock(side_effect=lambda cfg: _mock_protocol())
+        rt, protos, _, _ = _build_runtime(devices=[d1], tasks=[task], protocol_factory=factory)
+        await rt.start()
+        try:
+            await rt.start_task_instance("tg:d1")
+            assert rt.instance_states()["tg:d1"] is TaskInstanceState.RUNNING
+            old_proto = protos["d1"]
+            d1_disabled = _make_device("d1", device_group="turbine", enabled=False)
+            new_cfg = _full_config(devices=[d1_disabled], tasks=[task])
+            errors = await rt.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
+            assert errors == []
+            assert rt.task_instances() == {}
+            assert _instance_coroutine_tasks() == []
+            # enabled 翻转走重建路径：旧连接关闭、新驱动由工厂创建并接入
+            # （Runtime 与测试共享同一 protocols 注册表——rebuild 就地把
+            # 条目替换为新实例，因此必须抓旧实例引用断言 close）。
+            assert old_proto.close.await_count == 1
+            assert factory.call_count == 1
+            new_proto = rt.protocols["d1"]
+            assert new_proto is not old_proto
+            assert new_proto.connect.await_count == 1
+            assert rt.running is True
+        finally:
+            await rt.stop()
+
+    async def test_task_update_replaces_snapshot_without_restarting_coroutine(self) -> None:
+        devices = [_make_device("d1")]
+        task = _make_task("t1", device="d1", interval=0.02, sinks=("s1",))
+        rt, protos, _, eng = _build_runtime(devices=devices, tasks=[task], sink_names=("s1", "s2"))
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="polling")
+            coro = rt._task_coroutines["t1:d1"]
+
+            updated = _make_task("t1", device="d1", interval=0.05, sinks=("s2",))
+            new_cfg = _full_config(devices=devices, tasks=[updated])
+            errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(updated=["t1"])))
+            assert errors == []
+            inst = rt.task_instances()["t1:d1"]
+            assert inst.interval == 0.05
+            assert inst.targets == ["s2"]
+            # 运行中的协程不重启——下一轮读到新快照
+            assert rt._task_coroutines["t1:d1"] is coro
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            await _wait_for(
+                lambda: any(c[2] == ["s2"] for c in eng.collect_calls),
+                what="collect with new targets",
+            )
+            # target 变化不重建设备连接
+            assert protos["d1"].connect.await_count == 1
+        finally:
+            await rt.stop()
+
+    async def test_point_table_change_reinjects_mapping_without_reconnect(self) -> None:
+        devices = [_make_device("d1")]
+        task = _make_task("t1", device="d1")
+        points = {"d1": [_make_point("p1")]}
+        rt, protos, _, _ = _build_runtime(devices=devices, tasks=[task], points=points)
+        await rt.start()
+        try:
+            assert protos["d1"].set_points_mapping.call_count == 1
+            new_tables = {"t1": ResolvedPointTable(points=[_make_point("p1"), _make_point("p2")])}
+            new_cfg = _full_config(devices=devices, tasks=[task], tables=new_tables)
+            diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
+            errors = await rt.reconfigure(new_cfg, diff)
+            assert errors == []
+            # 映射重注入（2 个点），连接不重建
+            assert protos["d1"].set_points_mapping.call_count == 2
+            injected = protos["d1"].set_points_mapping.call_args[0][0]
+            assert [p.point_id for p in injected] == ["p1", "p2"]
+            assert protos["d1"].connect.await_count == 1
+            assert [p.point_id for p in rt.points_by_device["d1"]] == ["p1", "p2"]
+        finally:
+            await rt.stop()
+
+
+# ---------------------------------------------------------------------------
+# Sink 派发与背压
+# ---------------------------------------------------------------------------
+
+
+class TestSinkDispatch:
+    async def test_targets_fan_out_to_all_sinks(self) -> None:
+        """真实引擎：task.targets 决定输出——同一批次派发到全部 target sink。"""
+        devices = [_make_device("d1")]
+        protos = {"d1": _mock_protocol()}
+        protos["d1"].read = AsyncMock(return_value=[_value("d1", "p1")])
+        sinks = {"s1": _mock_sink(), "s2": _mock_sink()}
+        points = {"d1": [_make_point("p1", groups=("g1",))]}
+        engine = AcquisitionEngine(
+            protocols=protos,
+            pipeline=Pipeline([]),
+            points_by_device=points,
+            read_timeout=None,
         )
-        assert scheduler.metadata["poll:d1:slow"] == JobMetadata(
-            kind="poll", device_id="d1", group="slow"
+        rt = Runtime(
+            devices={d.device_id: d for d in devices},
+            protocols=protos,
+            sinks=sinks,
+            engine=engine,
+            dispatcher=Dispatcher(protocols=protos),
+            config=_runtime_config(),
+            tasks={"t1": _make_task("t1", device="d1", interval=0.02, sinks=("s1", "s2"))},
+            points_by_device=points,
         )
-    finally:
-        await runtime.stop()
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: sinks["s1"].write.await_count >= 1, what="s1 write")
+            await _wait_for(lambda: sinks["s2"].write.await_count >= 1, what="s2 write")
+            batch_s1 = sinks["s1"].write.await_args[0][0]
+            batch_s2 = sinks["s2"].write.await_args[0][0]
+            assert [v.point_id for v in batch_s1] == ["p1"]
+            assert [v.point_id for v in batch_s2] == ["p1"]
+            assert rt.points_routed == 2  # 1 点 × 2 sink
+            assert rt.points_collected == 1
+        finally:
+            await rt.stop()
+
+    async def test_dispatch_to_unknown_sink_skipped(self) -> None:
+        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
+        await rt.dispatch({"ghost": [_value()]})
+        assert rt.points_routed == 0
+        assert rt.points_dropped == 0
+
+    async def test_backpressure_drop_old_evicts_oldest(self) -> None:
+        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_old", queue_maxsize=1)
+        await rt.dispatch({"s1": [_value(point_id="p1")]})
+        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
+        assert rt.points_dropped == 1  # 最旧批次被驱逐
+        assert rt.points_routed == 3
+        assert rt.sink_queue_depths() == {"s1": 1}
+
+    async def test_backpressure_drop_new_discards_incoming(self) -> None:
+        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_new", queue_maxsize=1)
+        await rt.dispatch({"s1": [_value(point_id="p1")]})
+        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
+        assert rt.points_dropped == 2  # 新批次整体丢弃
+        assert rt.points_routed == 1
+        assert rt.sink_queue_depths() == {"s1": 1}
+
+    async def test_empty_batch_ignored(self) -> None:
+        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
+        await rt.dispatch({"s1": []})
+        assert rt.points_routed == 0
+        assert rt.sink_queue_depths() == {"s1": 0}
+
+
+# ---------------------------------------------------------------------------
+# 健康与组件生命周期（best-effort 语义）
+# ---------------------------------------------------------------------------
+
+
+class TestHealth:
+    async def test_sink_open_failure_exposed_unhealthy(self) -> None:
+        rt, _, sinks, _ = _build_runtime(
+            devices=[_make_device("d1")],
+            tasks=[_make_task("t1", device="d1")],
+        )
+        sinks["s1"].open = AsyncMock(side_effect=RuntimeError("open boom"))
+        await rt.start()
+        try:
+            health = rt.health()
+            assert health["d1"].healthy is True
+            assert health["s1"].healthy is False
+            assert rt.running is True  # 单组件失败不阻塞整体启动
+        finally:
+            await rt.stop()

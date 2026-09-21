@@ -1,7 +1,7 @@
 """``wind-hub probe ports`` — 指定 IP 的 TCP 端口扫描（仅 Linux）。
 
-``--ports`` 未指定时扫描端口集来自端口配置（step24：默认
-``configs/ports.yaml``，缺失时回落内置工业协议端口集，决策 2）；
+``--ports`` 未指定时扫描端口配置的 ``mapping`` 全部端口（默认
+``configs/ports.yaml``，缺失时回落内置工业协议映射，决策 2）；
 默认表格输出，``--json`` / ``--yaml`` 切换机器可读格式（决策 8）。
 """
 
@@ -28,10 +28,10 @@ def ports(
         None, "--ports", help="端口列表（如 502,2404,8000-8100）；缺省用端口配置的默认端口集"
     ),
     timeout: float | None = typer.Option(
-        None, "--timeout", help="单端口超时（秒）；缺省用端口配置的 default_timeout"
+        None, "--timeout", help="单端口超时（秒）；缺省用端口配置的 timeout"
     ),
     concurrency: int | None = typer.Option(
-        None, "--concurrency", help="并发探测数；缺省用端口配置的 default_concurrency"
+        None, "--concurrency", help="并发探测数；缺省用端口配置的 concurrency"
     ),
     ports_config: Path = typer.Option(
         DEFAULT_PORTS_CONFIG_PATH,
@@ -53,8 +53,8 @@ def ports(
             scan_ports(
                 host,
                 port_list,
-                timeout=timeout if timeout is not None else config.default_timeout,
-                concurrency=concurrency if concurrency is not None else config.default_concurrency,
+                timeout=timeout if timeout is not None else config.timeout,
+                concurrency=concurrency if concurrency is not None else config.concurrency,
                 config=config,
             )
         )

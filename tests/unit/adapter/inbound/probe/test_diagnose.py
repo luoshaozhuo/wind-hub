@@ -42,6 +42,7 @@ def _device(host: str = "10.0.1.1", port: int = 2404, protocol: str = "iec104") 
 def _point() -> PointConfig:
     return PointConfig(
         point_id="rotor.speed",
+        point_groups=["default"],
         address={"type": "measured_value", "ioa": 1001},
     )
 

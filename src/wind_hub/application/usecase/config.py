@@ -1,8 +1,9 @@
 """Config use case——配置加载、校验、diff 与热重载的应用编排。
 
 职责边界：本用例只做「load → validate → diff → runtime.reconfigure →
-commit current config」的编排；具体的设备/sink 增删重建、路由表与处理链
-替换全部由 :class:`~wind_hub.application.runtime.runtime.Runtime` 的
+commit current config」的编排；具体的设备/sink 增删重建、Task Instance
+重新展开与处理链替换全部由
+:class:`~wind_hub.application.runtime.runtime.Runtime` 的
 :meth:`Runtime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
 """
 
@@ -10,14 +11,18 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import Config
-from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, ReloadResult, SinkDiff
+from wind_hub.domain.model.reload import (
+    ConfigDiff,
+    DeviceDiff,
+    ReloadResult,
+    SinkDiff,
+    TaskDiff,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +36,9 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
       any field of its ``DeviceConfig`` differs (deep equality via
       ``model_dump()``).
     - **Sinks**: keyed by ``sink.name``, same logic.
+    - **Tasks**: keyed by ``task_id``, same logic.
     - **Point tables**: keyed by table name — 新增/删除/内容变化的表名进入
       ``point_tables_changed``；任意表变化同时置 ``points_changed=True``。
-    - **Rules**: list-level deep comparison — any difference sets
-      ``rules_changed=True``.
     - **Pipeline**: processor list comparison.
 
     This is pure logic — no IO, no side-effects.
@@ -83,7 +87,29 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     sinks.updated = sorted(sink_updated)
     sinks.unchanged = sorted(sink_unchanged)
 
-    # -- point tables / rules / pipeline -------------------------------------
+    # -- tasks ---------------------------------------------------------------
+    old_tasks = {t.task_id: t for t in old.tasks.tasks}
+    new_tasks = {t.task_id: t for t in new.tasks.tasks}
+
+    old_task_set = set(old_tasks)
+    new_task_set = set(new_tasks)
+
+    tasks = TaskDiff(
+        added=sorted(new_task_set - old_task_set),
+        removed=sorted(old_task_set - new_task_set),
+    )
+
+    task_updated: list[str] = []
+    task_unchanged: list[str] = []
+    for tid in old_task_set & new_task_set:
+        if old_tasks[tid].model_dump() != new_tasks[tid].model_dump():
+            task_updated.append(tid)
+        else:
+            task_unchanged.append(tid)
+    tasks.updated = sorted(task_updated)
+    tasks.unchanged = sorted(task_unchanged)
+
+    # -- point tables / pipeline ----------------------------------------------
     old_tables = old.point_tables.tables
     new_tables = new.point_tables.tables
     table_names = set(old_tables) | set(new_tables)
@@ -94,24 +120,16 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         or name not in new_tables
         or old_tables[name].model_dump() != new_tables[name].model_dump()
     )
-    rules_changed = _items_changed(old.routing.rules, new.routing.rules)
     pipeline_changed = old.system.pipeline.processors != new.system.pipeline.processors
 
     return ConfigDiff(
         devices=devices,
         sinks=sinks,
+        tasks=tasks,
         points_changed=bool(point_tables_changed),
         point_tables_changed=point_tables_changed,
-        rules_changed=rules_changed,
         pipeline_changed=pipeline_changed,
     )
-
-
-def _items_changed(old_items: Sequence[Any], new_items: Sequence[Any]) -> bool:
-    """True when two lists of pydantic models differ."""
-    if len(old_items) != len(new_items):
-        return True
-    return any(a.model_dump() != b.model_dump() for a, b in zip(old_items, new_items, strict=True))
 
 
 class ConfigUseCase:
@@ -173,8 +191,9 @@ class ConfigUseCase:
                 duration_ms=(time.monotonic() - t0) * 1000,
             )
 
-        # 3. 全部运行时重构交给 Runtime（设备/sink 增删重建、路由表与处理链
-        #    替换的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
+        # 3. 全部运行时重构交给 Runtime（设备/sink/task 增删重建、点映射
+        #    重注入与处理链替换的执行细节由 Runtime 负责，此处不直接调用
+        #    任何组件操作）。
         errors = await self._runtime.reconfigure(new_cfg, diff)
 
         # 4. Commit new config

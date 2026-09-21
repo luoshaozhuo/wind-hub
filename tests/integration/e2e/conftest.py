@@ -79,6 +79,9 @@ async def runtime(
     """
     rt = assemble(config_dir, sink_factory=sink_factory)
     await start_runtime(rt)
+    # Task Instance 启动后为 STOPPED——显式 start-all 才进入周期采集，
+    # 与旧模型的 scheduler 自动调度语义对齐。
+    await rt.tasks.start_all_instances()
     try:
         yield rt
     finally:

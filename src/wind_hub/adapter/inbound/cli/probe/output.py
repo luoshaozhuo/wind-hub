@@ -39,9 +39,7 @@ def render_yaml_draft(
         points: 发现点列表；point_id 由 :func:`symbol_to_point_id` 生成。
         protocol: 协议名；``"modbus"`` 时追加扫描风险提示注释。
     """
-    entries = [
-        point.to_yaml_dict(point_id=symbol_to_point_id(point.symbol)) for point in points
-    ]
+    entries = [point.to_yaml_dict(point_id=symbol_to_point_id(point.symbol)) for point in points]
     body = yaml.safe_dump(
         {"point_tables": {device_id: {"points": entries}}},
         allow_unicode=True,

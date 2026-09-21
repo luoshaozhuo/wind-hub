@@ -110,7 +110,7 @@ class ProtocolPort(Protocol):
 
         Raises:
             NotImplementedError: If the protocol does not support
-                subscription (e.g. pure-polling drivers).
+                subscription (e.g. drivers without subscription support).
         """
         ...
 

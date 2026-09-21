@@ -9,9 +9,13 @@
   ProtocolError」；
 - ``list_devices`` / ``get_device_info``：按当前注册表与协议健康状态；
 - ``status()``：系统快照聚合（running、组件计数、健康切分、点位统计）；
+- ``status().acquisitions``：按 Task Instance 粒度的业务执行状态
+  （instance_id/task_id/device_id/point_group/running/
+  consecutive_failures/last_error/last_duration）——经 Runtime 的
+  AcquisitionStatePort 公开上报方法真实驱动状态演进；
 - **热重载可见性**：``Runtime.add_device`` 后查询立即可见新设备；
   ``rebuild_device`` 替换协议驱动后 ``read_point`` 使用新驱动；
-  点表变更后 ``read_point`` 按最新点表校验。
+  点表变更后 ``read_point`` 按最新点表校验；``remove_device`` 后不可读。
 """
 
 from __future__ import annotations
@@ -20,14 +24,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.port.scheduling import SchedulerPort
+from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
     PointConfig,
-    SchedulerConfig,
+    RuntimeConfig,
+    TaskTarget,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.command import Dispatcher
@@ -36,7 +42,6 @@ from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 from wind_hub.domain.processing import Pipeline
-from wind_hub.domain.routing import Router
 
 pytestmark = pytest.mark.asyncio
 
@@ -56,7 +61,21 @@ def _device(device_id: str = "d1", protocol: str = "modbus") -> DeviceConfig:
 
 
 def _point(point_id: str = "p1") -> PointConfig:
-    return PointConfig(point_id=point_id, address=PointAddress(type="hr"))
+    return PointConfig(
+        point_id=point_id,
+        point_groups=["g"],
+        address=PointAddress(type="hr"),
+    )
+
+
+def _task(task_id: str = "task-1", device: str = "d1") -> CollectionTaskConfig:
+    return CollectionTaskConfig(
+        task_id=task_id,
+        device=device,
+        point_group="g",
+        interval=1.0,
+        targets=[TaskTarget(sink="s1")],
+    )
 
 
 def _protocol(healthy: bool = True, read_values: list[PointValue] | None = None) -> MagicMock:
@@ -68,6 +87,15 @@ def _protocol(healthy: bool = True, read_values: list[PointValue] | None = None)
     return proto
 
 
+def _sink(healthy: bool = True) -> MagicMock:
+    sink = MagicMock(spec=SinkPort)
+    sink.health = MagicMock(return_value=HealthStatus(healthy=healthy))
+    sink.open = AsyncMock()
+    sink.close = AsyncMock()
+    sink.flush = AsyncMock()
+    return sink
+
+
 def _value(device_id: str = "d1", point_id: str = "p1", value: float = 42.0) -> PointValue:
     return PointValue(device_id=device_id, point_id=point_id, value=value)
 
@@ -75,25 +103,25 @@ def _value(device_id: str = "d1", point_id: str = "p1", value: float = 42.0) -> 
 def _runtime(
     devices: dict[str, DeviceConfig] | None = None,
     protocols: dict[str, MagicMock] | None = None,
+    sinks: dict[str, MagicMock] | None = None,
     points: dict[str, list[PointConfig]] | None = None,
+    tasks: dict[str, CollectionTaskConfig] | None = None,
 ) -> Runtime:
     protocols = protocols if protocols is not None else {}
+    points = points if points is not None else {}
     engine = AcquisitionEngine(
         protocols=protocols,
         pipeline=Pipeline([]),
-        router=MagicMock(spec=Router),
-        points_by_device=points if points is not None else {},
+        points_by_device=points,
     )
-    scheduler = MagicMock(spec=SchedulerPort)
-    scheduler.list_jobs.return_value = []
     return Runtime(
         devices=devices if devices is not None else {},
         protocols=protocols,
-        sinks={},
+        sinks=sinks if sinks is not None else {},
         engine=engine,
-        scheduler=scheduler,
         dispatcher=MagicMock(spec=Dispatcher),
-        config=SchedulerConfig(),
+        config=RuntimeConfig(),
+        tasks=tasks,
         points_by_device=points,
     )
 
@@ -212,6 +240,7 @@ async def test_status_aggregates_runtime_snapshot() -> None:
         _runtime(
             devices={"d1": _device("d1"), "d2": _device("d2")},
             protocols={"d1": _protocol(healthy=True), "d2": _protocol(healthy=False)},
+            sinks={"s1": _sink(healthy=True), "s2": _sink(healthy=False)},
         )
     )
 
@@ -219,12 +248,66 @@ async def test_status_aggregates_runtime_snapshot() -> None:
 
     assert status.running is False  # runtime 未 start
     assert status.device_count == 2
-    assert status.sink_count == 0
+    assert status.sink_count == 2
     assert status.devices_connected == 1
-    assert status.sinks_healthy == 0
+    assert status.sinks_healthy == 1
     assert status.points_collected == 0
     assert status.points_routed == 0
     assert status.points_dropped == 0
+    assert status.acquisitions == []  # 未 start，无 Task Instance 注册
+
+
+async def test_status_acquisitions_reflect_task_instance_states() -> None:
+    """acquisitions 按 Task Instance 粒度映射 Runtime 的采集执行状态。
+
+    状态演进全部经 Runtime 的公开 AcquisitionStatePort 方法
+    （report_collect_started / report_collect_failure）真实驱动。
+    """
+    runtime = _runtime(
+        devices={"d1": _device("d1")},
+        protocols={"d1": _protocol()},
+        points={"d1": [_point()]},
+        tasks={"task-1": _task("task-1", device="d1")},
+    )
+    await runtime.start()  # 注册 Task Instance（默认 STOPPED，无 polling 协程）
+    usecase = QueryUseCase(runtime)
+
+    status = await usecase.status()
+    assert status.running is True
+    assert len(status.acquisitions) == 1
+    acq = status.acquisitions[0]
+    assert acq.instance_id == "task-1:d1"
+    assert acq.task_id == "task-1"
+    assert acq.device_id == "d1"
+    assert acq.point_group == "g"
+    assert acq.running is False
+    assert acq.consecutive_failures == 0
+    assert acq.last_error is None
+    assert acq.last_duration is None
+
+    # 一次 collect 在飞 → running=True
+    runtime.report_collect_started("task-1:d1", "d1", "g")
+    acq = (await usecase.status()).acquisitions[0]
+    assert acq.running is True
+
+    # 失败收尾 → running 归位、失败计数与错误如实呈现
+    runtime.report_collect_failure("task-1:d1", "d1", "g", "read timeout")
+    acq = (await usecase.status()).acquisitions[0]
+    assert acq.running is False
+    assert acq.consecutive_failures == 1
+    assert acq.last_error == "read timeout"
+    assert acq.last_duration is not None
+    assert acq.last_duration >= 0.0
+
+    # 成功收尾 → 连续失败清零、错误清空
+    runtime.report_collect_started("task-1:d1", "d1", "g")
+    runtime.report_collect_success("task-1:d1", "d1", "g", partial=False)
+    acq = (await usecase.status()).acquisitions[0]
+    assert acq.running is False
+    assert acq.consecutive_failures == 0
+    assert acq.last_error is None
+
+    await runtime.stop()
 
 
 # ---------------------------------------------------------------------------

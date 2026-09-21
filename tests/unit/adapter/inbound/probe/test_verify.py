@@ -20,8 +20,8 @@ from wind_hub.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
-    RoutingConfig,
     SystemConfig,
+    TasksConfig,
 )
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ProtocolError, WindHubError
@@ -40,6 +40,7 @@ def _device(device_id: str = "wtg-001", protocol: str = "modbus") -> DeviceConfi
 def _point(point_id: str) -> PointConfig:
     return PointConfig(
         point_id=point_id,
+        point_groups=["verify"],
         address={"type": "holding_register", "address": 0},
         data_type="int16",
     )
@@ -51,7 +52,7 @@ def _config(devices: list[DeviceConfig], points: list[PointConfig]) -> Config:
         system=SystemConfig(),
         devices=DevicesConfig(devices=devices),
         point_tables=ResolvedPointTables(tables={"t1": ResolvedPointTable(points=points)}),
-        routing=RoutingConfig(rules=[]),
+        tasks=TasksConfig(tasks=[]),
     )
 
 

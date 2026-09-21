@@ -77,7 +77,7 @@ def _is_point_level_ads_error(exc: BaseException) -> bool:
 
 
 class ADSDriver:
-    """ADS protocol driver (polling).
+    """ADS protocol driver.
 
     Not thread-safe; a single asyncio event loop owns each instance.  An
     internal :class:`asyncio.Lock` serialises ``read``/``write`` calls.

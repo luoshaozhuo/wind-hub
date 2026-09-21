@@ -12,7 +12,7 @@ from tests.perf.collector import MetricsCollector, _percentile
 
 
 class _Stats:
-    """collector.SchedulerStats 协议的桩实现。"""
+    """collector.RuntimeStats 协议的桩实现。"""
 
     def __init__(self, collected: int, routed: int, dropped: int) -> None:
         self.points_collected = collected

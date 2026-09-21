@@ -33,6 +33,7 @@ def _make_point_config(
     **extra: object,
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(index_group=index_group, index_offset=index_offset, **extra),
         data_type=data_type,

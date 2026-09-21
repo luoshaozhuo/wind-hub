@@ -7,19 +7,23 @@ port interface。
 
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
-from wind_hub.application.usecase.job import JobBatchResult, JobDetail, JobUseCase
 from wind_hub.application.usecase.query import AcquisitionInfo, QueryUseCase, SystemStatus
-from wind_hub.application.usecase.route_query import RouteQueryUseCase
+from wind_hub.application.usecase.task import (
+    TaskBatchResult,
+    TaskDetail,
+    TaskInstanceDetail,
+    TaskUseCase,
+)
 
 __all__ = [
     "AcquisitionInfo",
     "CommandUseCase",
     "ConfigUseCase",
-    "JobBatchResult",
-    "JobDetail",
-    "JobUseCase",
     "QueryUseCase",
-    "RouteQueryUseCase",
     "SystemStatus",
+    "TaskBatchResult",
+    "TaskDetail",
+    "TaskInstanceDetail",
+    "TaskUseCase",
     "compute_diff",
 ]

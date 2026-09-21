@@ -18,9 +18,8 @@ from dataclasses import dataclass
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
-from wind_hub.application.usecase.job import JobUseCase
 from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.application.usecase.route_query import RouteQueryUseCase
+from wind_hub.application.usecase.task import TaskUseCase
 
 
 @dataclass
@@ -30,9 +29,8 @@ class AppContext:
     所有字段都可选：缺失用例由适配器上报 503 / 非零退出而非崩溃。
 
     三类启停语义在本容器中各有归属：Runtime 生命周期经 ``runtime``
-    （组合根/进程入口编排），Scheduled Job 生命周期经 ``jobs``，
-    进程生命周期由 ``main.py`` 信号处理负责——不再有混合语义的
-    「task service」。
+    （组合根/进程入口编排），采集 Task Instance 生命周期经 ``tasks``，
+    进程生命周期由 ``main.py`` 信号处理负责。
     """
 
     command: CommandUseCase | None = None
@@ -45,11 +43,8 @@ class AppContext:
     """可选配置用例（热重载）。引擎可能不带配置用例运行（如只读部署），
     缺失时由适配器上报 503 / 非零退出而非崩溃。"""
 
-    route_query: RouteQueryUseCase | None = None
-    """可选路由查询用例（``route explain``）。缺失时同样由适配器兜底。"""
-
-    jobs: JobUseCase | None = None
-    """可选采集 Job 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
+    tasks: TaskUseCase | None = None
+    """可选采集 Task 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
 
     runtime: Runtime | None = None
     """可选 Runtime，供 ``/metrics`` 读取引擎快照（gauge 数据来源）。"""

@@ -1,18 +1,17 @@
 """组合根（composition root）——依赖装配与生命周期编排。
 
 职责：把 config 层加载出的配置，装配成完整的对象图（协议驱动 / sink /
-处理器 / 路由 / 采集引擎 / 调度适配器 / Runtime / Use Case），并通过
+处理器 / 采集引擎 / Runtime / Use Case），并通过
 :func:`start_runtime` / :func:`stop_runtime` 编排运行时的启动与优雅停机。
 
-装配顺序：Protocol/Sink/Processor/Pipeline/Router → AcquisitionEngine →
-Scheduler 适配器 → Runtime（持有前两者与 Dispatcher）→ Use Case。
-``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime``
-为运行核心——不再由调度组件充当运行核心。
+装配顺序：Protocol/Sink/Processor/Pipeline → AcquisitionEngine →
+Runtime（持有引擎、Task 定义与 Dispatcher）→ Use Case。
+``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime`` 为运行核心。
 
 不负责：Web API 的真实启动与 SIGHUP 热重载监听（见 ``main.py``）、
 ``/metrics`` 端点（见 webapi 适配器）。这里负责把采集计数器回调
-（``on_points_collected``）注入采集引擎，并把命令/查询/配置/路由/Job
-用例装配为对 Dispatcher / Runtime / SchedulerPort 的真实委托。
+（``on_points_collected``）注入采集引擎，并把命令/查询/配置/Task
+用例装配为对 Dispatcher / Runtime 的真实委托。
 
 关键 side effect：导入协议驱动包触发自注册（见
 :mod:`wind_hub.infra.registry`）；构造过程纯同步、无网络 I/O，
@@ -43,16 +42,13 @@ from wind_hub.adapter.inbound.iec104_slave import (
 from wind_hub.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub.application.port.scheduling import SchedulerPort
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
-from wind_hub.application.usecase.job import JobUseCase
 from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.application.usecase.route_query import RouteQueryUseCase
+from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
-from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import (
     Config,
     DeviceConfig,
@@ -69,11 +65,9 @@ from wind_hub.domain.port.outbound import (
     ProtocolPort,
 )
 from wind_hub.domain.processing import Pipeline
-from wind_hub.domain.routing import DeliveryDispatcher, Router, policies_from_rules
 from wind_hub.infra import metrics
 from wind_hub.infra.processor_registry import processor_registry
 from wind_hub.infra.registry import protocol_registry
-from wind_hub.infra.scheduling import APSchedulerAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +77,8 @@ class AssembledRuntime:
     """一次装配的产物——完整的运行时对象图。
 
     ``start_runtime`` / ``stop_runtime`` 依赖其中 ``runtime`` 完成启动与
-    停机；``config`` / ``route_query`` / ``jobs`` / ``command`` / ``query``
-    五个 Use Case 暴露给 inbound 适配器（通过 ``AppContext``）。
+    停机；``config`` / ``tasks`` / ``command`` / ``query``
+    四个 Use Case 暴露给 inbound 适配器（通过 ``AppContext``）。
     """
 
     boot_config: Config
@@ -92,19 +86,13 @@ class AssembledRuntime:
     ``config.current_config`` 为准。"""
 
     runtime: Runtime
-    """运行时——组件生命周期与状态编排核心，持有引擎/调度/分发器。"""
+    """运行时——组件生命周期与状态编排核心，持有引擎/Task 定义/分发器。"""
 
     engine: AcquisitionEngine
     """采集引擎（与 ``runtime.engine`` 同一实例，便于直接注册观察者）。"""
 
-    scheduler: SchedulerPort
-    """调度端口抽象（APScheduler 适配器），Job 生命周期由 JobUseCase 操作。"""
-
     dispatcher: Dispatcher
     """指令分发器，负责写指令路由与幂等。"""
-
-    router: Router
-    """初始点位路由表（热重载后以 ``runtime.current_router`` 为准）。"""
 
     pipeline: Pipeline
     """初始处理器链（热重载后同样可能被替换）。"""
@@ -118,11 +106,8 @@ class AssembledRuntime:
     config: ConfigUseCase
     """配置热重载用例。"""
 
-    route_query: RouteQueryUseCase
-    """只读路由查询用例。"""
-
-    jobs: JobUseCase
-    """采集 Job 生命周期管理用例。"""
+    tasks: TaskUseCase
+    """采集 Task 生命周期管理用例。"""
 
     command: CommandUseCase
     """指令下发用例。"""
@@ -141,7 +126,7 @@ def assemble(
     """同步纯装配——从配置目录构建完整对象图，不做任何网络 I/O。
 
     Args:
-        config_dir: 配置目录，含 system/devices/points/routing.yaml。
+        config_dir: 配置目录，含 system/devices/points/tasks.yaml。
         sink_factory: 可选 sink 工厂，覆盖默认的 ``kafka``/``file``/``db``
             dispatching。供测试注入 ``null`` sink 等非生产实现；为 ``None``
             时回落到 :func:`_create_sink`。
@@ -167,55 +152,39 @@ def assemble(
     ]
     pipeline = Pipeline(processors)
 
-    table = RoutingTable(
-        cfg.routing.rules,
-        points_by_device,
-        cfg.routing.unmatched_policy,
-        device_groups={d.device_id: d.device_group for d in cfg.devices.devices},
-    )
-    router = Router(table)
-    # 投递策略：Router 决定「发到哪些 sink」，DeliveryDispatcher
-    # 按规则上的 delivery 配置决定「这批是否投递」。
-    delivery = DeliveryDispatcher(router, policies_from_rules(cfg.routing.rules))
-
     dispatcher = Dispatcher(
         protocols,
         # 命令计数回调接到 Prometheus 计数器：domain 不依赖 infra，由组合根注入。
         # 默认写超时来自 system.yaml（Command.timeout > 0 时以命令自带值优先）。
-        default_timeout=cfg.system.scheduler.write_timeout,
+        default_timeout=cfg.system.runtime.write_timeout,
         on_command_sent=metrics.commands_sent_total.inc,
         on_command_failed=metrics.commands_failed_total.inc,
     )
 
     devices = {d.device_id: d for d in cfg.devices.devices}
 
-    # 采集引擎：执行「读 → 处理 → 路由 → 派发」单次链路；采集回调接
-    # Prometheus 计数器（domain 不依赖 infra，由组合根注入）。read_timeout
-    # 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
+    # 采集引擎：执行「读 → 处理 → 按 Task targets 派发」单次链路；采集回调
+    # 接 Prometheus 计数器（domain 不依赖 infra，由组合根注入）。
+    # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
     engine = AcquisitionEngine(
         protocols=protocols,
         pipeline=pipeline,
-        router=router,
         points_by_device=points_by_device,
         on_points_collected=lambda n: metrics.points_collected_total.inc(n),
         on_points_bad=lambda n: metrics.points_bad_total.inc(n),
-        delivery=delivery,
-        read_timeout=cfg.system.scheduler.read_timeout,
+        read_timeout=cfg.system.runtime.read_timeout,
     )
 
-    # 调度端口：APScheduler 适配器（infra）；核心代码只依赖 SchedulerPort。
-    scheduler = APSchedulerAdapter()
-
-    # Runtime：组件生命周期与状态编排核心，持有引擎/调度/分发器；热重载
-    # 重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
+    # Runtime：组件生命周期与状态编排核心，持有引擎/Task 定义/分发器；
+    # 热重载重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
     runtime = Runtime(
         devices=devices,
         protocols=protocols,
         sinks=sinks,
         engine=engine,
-        scheduler=scheduler,
         dispatcher=dispatcher,
-        config=cfg.system.scheduler,
+        config=cfg.system.runtime,
+        tasks={t.task_id: t for t in cfg.tasks.tasks},
         points_by_device=points_by_device,
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
@@ -228,10 +197,8 @@ def assemble(
     # ConfigUseCase 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
     # 具体重构委托给 Runtime.reconfigure。
     config = ConfigUseCase(config_dir, runtime)
-    # 路由查询经 Runtime.current_router 做到热重载感知。
-    route_query = RouteQueryUseCase(runtime)
-    # Job 管理经 SchedulerPort；命令/查询用例委托 Dispatcher / Runtime。
-    jobs = JobUseCase(scheduler)
+    # Task 管理经 Runtime；命令/查询用例委托 Dispatcher / Runtime。
+    tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
 
@@ -244,15 +211,12 @@ def assemble(
         boot_config=cfg,
         runtime=runtime,
         engine=engine,
-        scheduler=scheduler,
         dispatcher=dispatcher,
-        router=router,
         pipeline=pipeline,
         sinks=sinks,
         protocols=protocols,
         config=config,
-        route_query=route_query,
-        jobs=jobs,
+        tasks=tasks,
         command=command,
         query=query,
         iec104_slave=iec104_slave,
@@ -271,8 +235,8 @@ async def start_runtime(
          都超时，``/health`` 也已可响应（此刻 ``runtime.running`` 为
          ``False``，健康端点如实报告 ``down``，与「API 可用但引擎尚未
          就绪」的语义区分）。
-      2. 启动 Runtime（连接设备 + 打开 sink + 启动调度器并注册采集
-         Job）——每台不可达设备都要等满 ``connect_timeout``，多台设备时
+      2. 启动 Runtime（连接设备 + 打开 sink + 注册采集 Task
+         Instance）——每台不可达设备都要等满 ``connect_timeout``，多台设备时
          可能耗时数十秒，这正是 API 必须先行的原因。设备连接失败仅记录
          日志并跳过。
       3. 若装配了 IEC104 从站代理，最后启动它（best-effort）。
@@ -302,10 +266,11 @@ async def start_runtime(
 
 
 async def stop_runtime(rt: AssembledRuntime, timeout: float = 30.0) -> None:
-    """优雅停机——先停从站代理，再停调度、清空队列、flush 并关闭 sink。
+    """优雅停机——先停从站代理，再停实例采集协程、清空队列、flush 并关闭
+    sink。
 
     幂等：Runtime 未运行时直接返回。``timeout`` 是外层硬性上限，防止停机
-    无限阻塞（Runtime 内部另受 ``system.yaml`` 的 ``scheduler.shutdown_timeout``
+    无限阻塞（Runtime 内部另受 ``system.yaml`` 的 ``runtime.shutdown_timeout``
     软约束）；若超时则抛 ``TimeoutError``，由调用方决定如何处理。
 
     Args:
@@ -375,9 +340,7 @@ def _create_sink(cfg: SinkConfig) -> SinkPort:
     raise ConfigError(f"Unknown sink type '{cfg.type}' (available: kafka, file, db)")
 
 
-def _create_processor(
-    name: str, points_by_device: dict[str, list[PointConfig]]
-) -> ProcessorPort:
+def _create_processor(name: str, points_by_device: dict[str, list[PointConfig]]) -> ProcessorPort:
     """按处理器名从注册表创建，并注入点表配置（若处理器支持）。
 
     首次组装与 Runtime 热重载共享同一路径，确保热重载后处理器

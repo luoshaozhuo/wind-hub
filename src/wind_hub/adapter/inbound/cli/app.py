@@ -7,14 +7,13 @@ import typer
 from wind_hub.adapter.inbound.cli.commands import (
     cmd,
     devices,
-    jobs,
     point,
     probe,
     reload,
     replay,
-    route,
     run,
     status,
+    tasks,
     validate,
 )
 
@@ -35,10 +34,9 @@ def build_cli() -> typer.Typer:
     app.add_typer(reload.app, name="reload")
     app.add_typer(status.app, name="status")
     app.add_typer(devices.app, name="devices")
-    app.add_typer(jobs.app, name="jobs")
+    app.add_typer(tasks.app, name="tasks")
     app.add_typer(point.app, name="point")
     app.add_typer(cmd.app, name="cmd")
-    app.add_typer(route.app, name="route")
     app.add_typer(replay.app, name="replay")
     app.add_typer(probe.app, name="probe")
     return app

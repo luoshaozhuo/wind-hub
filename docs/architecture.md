@@ -9,12 +9,12 @@
 
 | 术语 | 定义 |
 |---|---|
-| Domain | 核心业务模型与业务规则（model / acquisition / routing / command / processing / domain 扩展点端口），不含应用入口与基础设施语义 |
+| Domain | 核心业务模型与业务规则（model / acquisition / command / processing / domain 扩展点端口），不含应用入口与基础设施语义 |
 | Use Case | application 层完成完整应用业务流程的编排类（`application/usecase/`），接收 inbound adapter 调用，编排 domain 对象、Runtime 与 outbound port |
 | Inbound Adapter | CLI / Web API / IEC104 slave——参数解析、协议转换、调用 Use Case、映射输出 |
 | Inbound Port | 不默认存在：inbound adapter 直接依赖具体 Use Case；只有存在多实现或替换边界时才允许保留，且必须命名为 `xxxPort` |
-| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort、SchedulerPort）与 `domain/port/outbound.py`（ProtocolPort、ProcessorPort——被 domain 服务直接消费，故留在 domain） |
-| Outbound Adapter | outbound port 的实现：Modbus / ADS / IEC104 / Kafka / Postgres / FileSink / APScheduler |
+| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort）与 `domain/port/outbound.py`（ProtocolPort、ProcessorPort——被 domain 服务直接消费，故留在 domain） |
+| Outbound Adapter | outbound port 的实现：Modbus / ADS / IEC104 / Kafka / Postgres / FileSink |
 | Runtime | 运行期组件生命周期与状态编排核心（`application/runtime/`），不是普通 Use Case |
 | Composition Root | `assembly.py`——唯一知道双方具体类型并负责装配的模块 |
 | AppContext | 进程级共享 application context / 依赖容器（`application/app_context.py`），CLI 与 Web API 共享同一实例 |
@@ -37,9 +37,10 @@ main.py → assembly.py（组合根）→ Runtime
 
 ```text
 Runtime
-├── SchedulerPort ← APSchedulerAdapter   （什么时候执行——时间调度）
+├── Task Instance 采集协程                （每实例一个长生命周期 asyncio Task：
+│     while True: collect → asyncio.sleep(interval)——无外部调度器）
 ├── AcquisitionEngine                    （执行一次采集）
-│     read → Pipeline → Router → DeliveryDispatcher → SinkDispatchPort
+│     read → Pipeline → SinkDispatchPort（按 Task targets 扇出）
 └── Dispatcher                           （写命令下发）
 ```
 
@@ -47,29 +48,46 @@ Runtime
 
 | 层 | 内容 | 依赖约束 |
 |---|---|---|
-| `domain` | 模型、扩展点端口（ProtocolPort / ProcessorPort）、AcquisitionEngine、Router、DeliveryDispatcher、Dispatcher、Pipeline | 不得依赖 application / adapter / infra；不得 import APScheduler、FastAPI、pyads、pymodbus、prometheus_client |
-| `application` | Use Case（command / config / job / query / route_query）、Runtime、DeviceRuntimeState、AcquisitionRuntimeState、应用级端口（SinkPort / SchedulerPort）、AppContext | 不得依赖 adapter；指标等经回调/端口注入 |
+| `domain` | 模型、扩展点端口（ProtocolPort / ProcessorPort）、AcquisitionEngine、Dispatcher、Pipeline | 不得依赖 application / adapter / infra；不得 import FastAPI、pyads、pymodbus、prometheus_client |
+| `application` | Use Case（command / config / task / query）、Runtime、DeviceRuntimeState、AcquisitionRuntimeState、TaskInstance、应用级端口（SinkPort）、AppContext | 不得依赖 adapter；指标等经回调/端口注入 |
 | `adapter` | inbound（webapi/cli）、outbound（protocol/sink/processor） | 可依赖 domain / infra |
 | `infra` | metrics、registry、processor_registry | 被各层经组合根接线 |
 
 ## 2. Runtime 与三个状态维度
 
 `Runtime`（`application/runtime/runtime.py`）负责组件生命周期与状态编排：
-连接设备（best-effort，单设备失败不影响整体启动）、注册调度 Job、
-实现引擎的采集前/后钩子、持有 Sink 队列与消费者、执行热重载。
+连接设备（best-effort，单设备失败不影响整体启动）、把 tasks.yaml 的
+Task 展开为 Task Instance 并管理其实例协程、实现引擎的采集前/后钩子、
+持有 Sink 队列与消费者、执行热重载。
+
+**Task / Task Instance**：`tasks.yaml` 的每个 Task 按 `device`（单台）
+或 `device_group`（分组全部启用设备）展开为实例
+（`{task_id}:{device_id}`，`application/runtime/task_instance.py`）。
+每个运行中的实例对应一个长生命周期 asyncio Task：
+
+```text
+while True:
+    collect(device_id, point_group, targets, execution_id=instance_id)
+    await asyncio.sleep(interval)   # 不对齐墙钟，非固定速率
+```
+
+实例协程的引用全部由 Runtime 持有（无裸 `create_task`）；停止实例或
+停机时取消并 await，`CancelledError` 正常传播；单次采集异常只记日志，
+实例继续运行，不会拖垮 Runtime。周期采集**不再依赖 APScheduler** 或
+任何外部调度器。
 
 运行期有**三个互相独立的状态维度**，刻意不合并：
 
-1. **调度 Job 状态**（`SchedulerPort`）：Job 的注册/暂停/下次触发时间。
-   纯粹的时间调度维度——Job 被 pause 不等于设备故障，设备断线也不删除
-   Job。`APSchedulerAdapter` 只翻译调度原语，不持有任何业务状态。
+1. **实例生命周期状态**（`TaskInstanceState`：RUNNING / STOPPED）：
+   实例注册即 STOPPED，需 CLI/Web API 显式 start；stop 只停采集，
+   不删实例、不断设备连接。`enabled: false` 的 Task 不展开实例。
 2. **设备连接状态**（`DeviceRuntimeState`，每台设备一份）：`connected`、
    `consecutive_failures`、`next_retry_at`（重连节流点）、`last_error`。
    回答「设备通不通」。
-3. **采集执行状态**（`AcquisitionRuntimeState`，每个 `(device, group)`
-   一份，即 Job `poll:{device}:{group}`）：`running`、`last_started_at`、
+3. **采集执行状态**（`AcquisitionRuntimeState`，每个实例一份，按
+   `instance_id` 索引）：`running`、`last_started_at`、
    `last_finished_at`、`last_success_at`、`last_duration`、
-   `consecutive_failures`、`last_error`。回答「这个采集 Job 最近跑得怎样」。
+   `consecutive_failures`、`last_error`。回答「这个采集实例最近跑得怎样」。
 
 引擎通过两个端口上报事件，Runtime 持有状态与指标——与 `DeviceStatePort`
 同一 DI 模式：
@@ -77,7 +95,9 @@ Runtime
 - `DeviceStatePort`：`ensure_connected` / `report_read_success` /
   `report_read_failure`（读前问一句、读后如实上报）；
 - `AcquisitionStatePort`：`report_collect_started` /
-  `report_collect_success(partial=...)` / `report_collect_failure(error)`。
+  `report_collect_success(partial=...)` / `report_collect_failure(error)`
+  ——均以 `execution_id`（即实例 ID）为首参，同一 `(device, point_group)`
+  可被多个 Task 采集而状态互不覆盖。
 
 一次 `collect` 的生命周期：`begin`（running=True）→ 成功或失败结束
 → `running` 归位并记录 `last_finished_at` / `last_duration`。无论哪条
@@ -95,7 +115,7 @@ try/except 保证，失败只上报一次（不双报）。
   （如 pyads `set_timeout`、pymodbus `timeout`），由驱动配置管理，
   本层不干预。
 - **应用层外层超时**（上层）：`asyncio.wait_for` 兜底一次业务调用允许
-  占用的最大时间，配置集中在 `system.yaml` 的 `scheduler` 段：
+  占用的最大时间，配置集中在 `system.yaml` 的 `runtime` 段：
 
 | 配置 | 作用点 | 语义 |
 |---|---|---|
@@ -109,7 +129,7 @@ try/except 保证，失败只上报一次（不双报）。
 **错误语义必须定位到阶段**，不允许裸 "timeout"：
 
 - `connect timeout: device=d1 timeout=10.0s — skipped`
-- `read timeout: device=d1 group=fast timeout=5.0s`
+- `read timeout: device=d1 point_group=fast timeout=5.0s`
 - `write timeout: device=d1 point=p001 timeout=3.0s`
 
 未配置外层读超时、驱动自身抛 `TimeoutError` 时，沿用驱动消息并标记为
@@ -130,7 +150,7 @@ T_k = min(30 s, 1 s · 2^k)   ——  1, 2, 4, 8, 16, 30, 30 …
   幂等，与其内部重连监控安全共存）。
 - `ensure_connected=False` 时本次采集判定 **FAILED**（不是 SKIPPED）：
   不重发 `read`，`last_error` 记 `device disconnected (reconnect
-  backoff)`，周期 Job 保留，下周期继续。
+  backoff)`，实例协程保留，下一周期继续。
 - 读失败按故障分类处理：连接级（`TimeoutError` /
   `ConnectionRefusedError` / `OSError`，含 `__cause__` 链）标记断线并
   进入重连路径；协议/编程级只记 `last_error`，连接状态不动。
@@ -138,7 +158,7 @@ T_k = min(30 s, 1 s · 2^k)   ——  1, 2, 4, 8, 16, 30, 30 …
   ensure 路径是两条路径：前者不触发 `device_reconnect_total` 指标，
   后者触发。
 
-一次采集 Job 失败**不会**翻转 `Runtime.running`；设备启动即失败也
+一次采集实例失败**不会**翻转 `Runtime.running`；设备启动即失败也
 不影响整体启动（best-effort）。
 
 ## 5. 批量读部分失败语义
@@ -175,14 +195,22 @@ BAD 批次照常进入管线与派发——数据质量信息应流向 sink。
 | PARTIAL | GOOD/BAD 混合（至少一个有效） | 计为成功：清零失败计数，`last_success_at` 更新；另计 `acquisition_partial_total` |
 | FAILED | 读抛异常 / 读超时 / 断线跳过 / 空批或全 BAD（无任何有效结果） | `consecutive_failures += 1`，记 `last_error` |
 
-## 7. 路由与投递策略
+## 7. Task 分发
 
-`Router` 按路由表（规则 + 点覆盖）把点值映射到目标 sink 集合；
-`RouteTarget` 携带目标级 `DeliveryPolicy`（`always` / `interval` /
-`every_n` / `on_change`）。`DeliveryDispatcher` 在 Router 之后按目标
-维度过滤：Router 决定「发到哪些 sink」，DeliveryDispatcher 决定
-「这批是否投递」。点表快照语义：热重载整体替换 Router/Pipeline/
-DeliveryDispatcher 实例，采集循环总是读当前实例。
+数据流是显式的 **Task → 实例 → targets**：
+
+```text
+Task(device|device_group, point_group, interval, targets)
+  → 展开为 Task Instance（{task_id}:{device_id}）
+  → 实例协程 collect：按 point_group ∈ point.point_groups 选点
+  → Pipeline 处理
+  → SinkDispatchPort.dispatch({sink: batch})——按实例 targets 扇出
+```
+
+没有路由规则、没有点位级 sink 覆盖、没有投递策略（interval / every_n /
+on_change 均不复存在）：每批采集结果全量投递到该实例 `targets` 声明的
+每个 sink。点表快照语义：热重载重注入点映射并整体替换 Pipeline 实例，
+采集循环总是读当前实例。
 
 ## 8. 可观测性
 
@@ -213,22 +241,27 @@ DeliveryDispatcher 实例，采集循环总是读当前实例。
 
 健康与状态查询（`QueryUseCase.status()`）分层返回：
 `running` / 设备计数与连通数 / sink 计数与健康数 / 采集计数 /
-`acquisitions`（各采集 Job 的 `AcquisitionInfo`：running、
-consecutive_failures、last_error、last_duration）。
+`acquisitions`（各采集实例的 `AcquisitionInfo`：instance_id、task_id、
+device_id、point_group、running、consecutive_failures、last_error、
+last_duration）。
 
 ## 9. 热重载
 
 唯一入口：`ConfigUseCase.reload()` → 加载校验配置并 diff →
 `Runtime.reconfigure(new_config, diff)`。状态处理规则：
 
-- **设备删除** → 注销其全部 Job，删除 `DeviceRuntimeState` 与全部
-  `AcquisitionRuntimeState`；
-- **设备新增** → 连接、注册 Job，同时建立两类状态（Job 注册即建
-  采集状态，首次 collect 前 status 即可见）；
-- **group 删除** → 注销对应 Job 并删除其采集状态；
-- **group 新增** → 注册新 Job 并建立新采集状态；
-- **interval 变化** → Job 原地替换（`replace_existing`），采集状态
-  **保留**（历史计数不清零）；
-- **点表变化** → 重注入映射/重建 Router 与管线，不触碰采集状态；
+- **设备删除** → 取消其全部实例协程，删除实例、`DeviceRuntimeState`
+  与对应 `AcquisitionRuntimeState`；
+- **设备新增** → 连接，并按匹配它的 device_group Task 展开新实例
+  （注册为 STOPPED，首次 collect 前 status 即可见）；
+- **Task 新增/删除** → 增删对应实例（删除即取消协程并清理状态），
+  不影响其它实例；
+- **Task 字段变化**（interval / targets / point_group）→ 只影响该
+  Task：运行中的实例协程下一轮读取新快照（interval/targets 原地生效），
+  不重建设备连接；
+- **device_group 成员变化**（设备改分组或 enabled 翻转）→ 按成员差
+  增删实例，不重启 Runtime；
+- **点表变化** → 重注入设备点映射并重建管线，不触碰实例协程与采集
+  状态；
 - **连接参数变化** → 走 `rebuild_device`（关旧连接、工厂建新驱动），
   状态随删除/新建路径重置。

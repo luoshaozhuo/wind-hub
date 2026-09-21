@@ -25,10 +25,8 @@ def runner() -> CliRunner:
 def _write_config(base: Path, devices: list[dict]) -> None:
     (base / "system.yaml").write_text("{}\n", encoding="utf-8")
     (base / "devices.yaml").write_text(yaml.safe_dump({"devices": devices}), encoding="utf-8")
-    (base / "points.yaml").write_text(
-        "point_tables:\n  main:\n    points: []\n", encoding="utf-8"
-    )
-    (base / "routing.yaml").write_text("rules: []\n", encoding="utf-8")
+    (base / "points.yaml").write_text("point_tables:\n  main:\n    points: []\n", encoding="utf-8")
+    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 def _ads_config(base: Path) -> None:

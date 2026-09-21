@@ -1,9 +1,20 @@
-"""Unit tests for the compute_diff function."""
+"""Unit tests for the compute_diff function.
+
+覆盖点：
+
+- devices / sinks：按主键（device_id / sink.name）比较，``model_dump`` 深比较
+  分出 added / removed / updated / unchanged；
+- tasks：按 task_id 比较，``TaskDiff(added/removed/updated/unchanged)``；
+- 点表：新增/删除/内容变化的表名进 ``point_tables_changed``，任一表变化置
+  ``points_changed=True``；
+- pipeline：processor 列表比较。
+"""
 
 from __future__ import annotations
 
 from wind_hub.application.usecase.config import compute_diff
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     Config,
     DeviceConfig,
     DevicesConfig,
@@ -12,19 +23,19 @@ from wind_hub.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
-    RoutingConfig,
     SinkConfig,
     SystemConfig,
+    TasksConfig,
+    TaskTarget,
 )
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 
 
 def _make_config(
     devices: list[DeviceConfig] | None = None,
     sinks: list[SinkConfig] | None = None,
     tables: dict[str, ResolvedPointTable] | None = None,
-    rules: list[RouteRule] | None = None,
+    tasks: list[CollectionTaskConfig] | None = None,
     processors: list[str] | None = None,
 ) -> Config:
     return Config(
@@ -34,7 +45,7 @@ def _make_config(
         ),
         devices=DevicesConfig(devices=devices or []),
         point_tables=ResolvedPointTables(tables=tables or {}),
-        routing=RoutingConfig(rules=rules or []),
+        tasks=TasksConfig(tasks=tasks or []),
     )
 
 
@@ -57,7 +68,33 @@ def _table(*points: PointConfig) -> ResolvedPointTable:
 
 
 def _point(point_id: str = "p1", **kwargs) -> PointConfig:  # type: ignore[no-untyped-def]
-    return PointConfig(point_id=point_id, address=PointAddress(type="hr"), **kwargs)
+    return PointConfig(
+        point_id=point_id,
+        point_groups=["default"],
+        address=PointAddress(type="hr"),
+        **kwargs,
+    )
+
+
+def _task(
+    task_id: str,
+    *,
+    device: str | None = "d1",
+    device_group: str | None = None,
+    point_group: str = "default",
+    interval: float = 1.0,
+    targets: list[str] | None = None,
+    enabled: bool = True,
+) -> CollectionTaskConfig:
+    return CollectionTaskConfig(
+        task_id=task_id,
+        device=device,
+        device_group=device_group,
+        point_group=point_group,
+        interval=interval,
+        targets=[TaskTarget(sink=s) for s in (targets or ["s1"])],
+        enabled=enabled,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -70,9 +107,7 @@ def test_empty_diff_identical_configs() -> None:
         devices=[_device("d1")],
         sinks=[SinkConfig(name="s1", type="file")],
         tables={"t1": _table(_point("p1"))},
-        rules=[
-            RouteRule(match=RouteMatch(all=True), name="default", targets=[RouteTarget(sink="s1")])
-        ],
+        tasks=[_task("task-1")],
         processors=["unit_convert"],
     )
     diff = compute_diff(cfg, cfg)
@@ -80,6 +115,10 @@ def test_empty_diff_identical_configs() -> None:
     assert diff.devices.added == []
     assert diff.devices.removed == []
     assert diff.devices.updated == []
+    assert diff.tasks.added == []
+    assert diff.tasks.removed == []
+    assert diff.tasks.updated == []
+    assert diff.tasks.unchanged == ["task-1"]
     assert not diff.points_changed
     assert diff.point_tables_changed == []
 
@@ -226,7 +265,77 @@ def test_sink_updated() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8. Point tables changed
+# 8. Task added / removed / updated / unchanged
+# ---------------------------------------------------------------------------
+
+
+def test_task_added() -> None:
+    old = _make_config(tasks=[_task("task-1")])
+    new = _make_config(tasks=[_task("task-1"), _task("task-2")])
+    diff = compute_diff(old, new)
+    assert diff.tasks.added == ["task-2"]
+    assert diff.tasks.removed == []
+    assert diff.tasks.updated == []
+    assert diff.tasks.unchanged == ["task-1"]
+
+
+def test_task_removed() -> None:
+    old = _make_config(tasks=[_task("task-1"), _task("task-2")])
+    new = _make_config(tasks=[_task("task-1")])
+    diff = compute_diff(old, new)
+    assert diff.tasks.removed == ["task-2"]
+    assert diff.tasks.added == []
+    assert diff.tasks.unchanged == ["task-1"]
+
+
+def test_task_updated_interval_changed() -> None:
+    old = _make_config(tasks=[_task("task-1", interval=1.0)])
+    new = _make_config(tasks=[_task("task-1", interval=5.0)])
+    diff = compute_diff(old, new)
+    assert diff.tasks.updated == ["task-1"]
+    assert diff.tasks.added == []
+    assert diff.tasks.removed == []
+
+
+def test_task_updated_targets_changed() -> None:
+    old = _make_config(tasks=[_task("task-1", targets=["s1"])])
+    new = _make_config(tasks=[_task("task-1", targets=["s1", "s2"])])
+    diff = compute_diff(old, new)
+    assert diff.tasks.updated == ["task-1"]
+
+
+def test_task_updated_point_group_changed() -> None:
+    old = _make_config(tasks=[_task("task-1", point_group="fast")])
+    new = _make_config(tasks=[_task("task-1", point_group="slow")])
+    diff = compute_diff(old, new)
+    assert diff.tasks.updated == ["task-1"]
+
+
+def test_task_updated_enabled_changed() -> None:
+    old = _make_config(tasks=[_task("task-1", enabled=True)])
+    new = _make_config(tasks=[_task("task-1", enabled=False)])
+    diff = compute_diff(old, new)
+    assert diff.tasks.updated == ["task-1"]
+
+
+def test_task_updated_device_scope_changed() -> None:
+    """device ↔ device_group 切换同样体现为 updated（model_dump 深比较）。"""
+    old = _make_config(tasks=[_task("task-1", device="d1")])
+    new = _make_config(tasks=[_task("task-1", device=None, device_group="turbine")])
+    diff = compute_diff(old, new)
+    assert diff.tasks.updated == ["task-1"]
+
+
+def test_tasks_unchanged() -> None:
+    cfg = _make_config(tasks=[_task("task-1", interval=2.5, targets=["s1", "s2"])])
+    diff = compute_diff(cfg, cfg)
+    assert diff.tasks.unchanged == ["task-1"]
+    assert diff.tasks.updated == []
+    assert not diff.has_any_changes
+
+
+# ---------------------------------------------------------------------------
+# 9. Point tables changed
 # ---------------------------------------------------------------------------
 
 
@@ -270,43 +379,6 @@ def test_tables_unchanged() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 9. Rules changed
-# ---------------------------------------------------------------------------
-
-
-def test_rules_changed() -> None:
-    old = _make_config(
-        rules=[
-            RouteRule(
-                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=0
-            )
-        ],
-    )
-    new = _make_config(
-        # priority changed
-        rules=[
-            RouteRule(
-                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=10
-            )
-        ],
-    )
-    diff = compute_diff(old, new)
-    assert diff.rules_changed
-
-
-def test_rules_unchanged() -> None:
-    cfg = _make_config(
-        rules=[
-            RouteRule(
-                match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")], priority=0
-            )
-        ],
-    )
-    diff = compute_diff(cfg, cfg)
-    assert not diff.rules_changed
-
-
-# ---------------------------------------------------------------------------
 # 10. Pipeline changed
 # ---------------------------------------------------------------------------
 
@@ -340,7 +412,7 @@ def test_comprehensive_diff() -> None:
             SinkConfig(name="s2", type="kafka"),
         ],
         tables={"t1": _table(_point("p1"))},
-        rules=[RouteRule(match=RouteMatch(all=True), name="r1", targets=[RouteTarget(sink="s1")])],
+        tasks=[_task("task-1"), _task("task-2")],
         processors=["a"],
     )
     new = _make_config(
@@ -353,13 +425,7 @@ def test_comprehensive_diff() -> None:
             SinkConfig(name="s3", type="db"),
         ],
         tables={"t1": _table(_point("p1"), _point("p2"))},
-        rules=[
-            RouteRule(
-                match=RouteMatch(all=True),
-                name="r2",
-                targets=[RouteTarget(sink="s1"), RouteTarget(sink="s3")],
-            )
-        ],
+        tasks=[_task("task-1", interval=9.0), _task("task-3")],
         processors=["a", "b"],
     )
     diff = compute_diff(old, new)
@@ -369,8 +435,10 @@ def test_comprehensive_diff() -> None:
     assert diff.sinks.added == ["s3"]
     assert diff.sinks.removed == ["s2"]
     assert diff.sinks.updated == ["s1"]
+    assert diff.tasks.added == ["task-3"]
+    assert diff.tasks.removed == ["task-2"]
+    assert diff.tasks.updated == ["task-1"]
     assert diff.points_changed
     assert diff.point_tables_changed == ["t1"]
-    assert diff.rules_changed
     assert diff.pipeline_changed
     assert diff.has_any_changes

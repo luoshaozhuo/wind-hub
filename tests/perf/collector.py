@@ -53,7 +53,7 @@ def _read_fd_count() -> int:
     return len(os.listdir("/proc/self/fd"))
 
 
-class SchedulerStats(Protocol):
+class RuntimeStats(Protocol):
     """构建指标所需的运行时计数切片（与 ``Runtime`` 同名属性结构对齐）。"""
 
     @property
@@ -163,7 +163,7 @@ class MetricsCollector:
         self,
         protocol: str,
         scenario: str,
-        scheduler_stats: SchedulerStats,
+        runtime_stats: RuntimeStats,
         duration_s: float,
     ) -> PerfMetrics:
         """把采样结果汇聚为最终指标。
@@ -177,10 +177,10 @@ class MetricsCollector:
             protocol=protocol,
             scenario=scenario,
             duration_s=duration_s,
-            points_collected=scheduler_stats.points_collected,
-            points_routed=scheduler_stats.points_routed,
-            points_dropped=scheduler_stats.points_dropped,
-            throughput_pps=scheduler_stats.points_collected / duration_s if duration_s > 0 else 0.0,
+            points_collected=runtime_stats.points_collected,
+            points_routed=runtime_stats.points_routed,
+            points_dropped=runtime_stats.points_dropped,
+            throughput_pps=runtime_stats.points_collected / duration_s if duration_s > 0 else 0.0,
             latency_p50_ms=_percentile(lat, 50),
             latency_p95_ms=_percentile(lat, 95),
             latency_p99_ms=_percentile(lat, 99),

@@ -16,9 +16,6 @@ devices:
         timeout: 2.0
         reconnect_max_retries: 20
         reconnect_backoff_max: 1.0
-    polling:
-      - group: telemetry
-        interval: 0.2
     enabled: true
 
   # IEC104 设备，指向 tests/fixtures/servers/iec104_server.py
@@ -33,7 +30,4 @@ devices:
         t1: 2.0
         t2: 1.0
         t3: 5.0
-    polling:
-      - group: telemetry
-        interval: 0.5
     enabled: true

@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 from wind_hub.adapter.inbound.cli.app import build_cli
 from wind_hub.adapter.inbound.cli.probe.ports import scan_ports
 from wind_hub.adapter.inbound.cli.probe.ports_models import PortScanResult, PortState
-from wind_hub.config.ports_config import load_ports_config
+from wind_hub.config.ports_config import default_ports_config, load_ports_config
 
 
 @pytest.fixture
@@ -95,7 +95,7 @@ def test_cli_default_ports_when_unspecified(
 ) -> None:
     """--ports 缺省时用端口配置的默认端口集（不真扫——替换 scan_ports 验证传参）。
 
-    step24：默认端口集由 configs/ports.yaml 驱动（pytest 从仓库根运行，
+    默认端口集为端口配置 mapping 的全部端口（pytest 从仓库根运行，
     CLI 缺省的 --ports-config 路径命中真实配置文件）。
     """
     captured: dict[str, object] = {}
@@ -112,18 +112,18 @@ def test_cli_default_ports_when_unspecified(
     result = runner.invoke(build_cli(), ["probe", "ports", "--host", "127.0.0.1"])
     assert result.exit_code == 0
     expected = load_ports_config("configs/ports.yaml")
-    assert captured["ports"] == expected.default_ports
+    assert captured["ports"] == list(expected.mapping)
     assert 502 in captured["ports"]  # type: ignore[operator]
     assert 80 in captured["ports"]  # type: ignore[operator]
     # 缺省 timeout/concurrency 也来自配置文件
-    assert captured["timeout"] == expected.default_timeout
-    assert captured["concurrency"] == expected.default_concurrency
+    assert captured["timeout"] == expected.timeout
+    assert captured["concurrency"] == expected.concurrency
 
 
 def test_cli_default_ports_builtin_fallback_without_config(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """--ports-config 指向不存在文件时回落内置默认端口集（向后兼容）。"""
+    """--ports-config 指向不存在文件时回落内置工业协议映射的端口集。"""
     captured: dict[str, object] = {}
 
     async def _fake(
@@ -145,7 +145,7 @@ def test_cli_default_ports_builtin_fallback_without_config(
         ],
     )
     assert result.exit_code == 0
-    assert captured["ports"] == [502, 2404, 48898, 4840, 44818]
+    assert captured["ports"] == list(default_ports_config().mapping)
 
 
 def test_cli_json_output(runner: CliRunner, listening_socket: socket.socket) -> None:

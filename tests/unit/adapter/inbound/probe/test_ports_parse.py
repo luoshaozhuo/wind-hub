@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from wind_hub.adapter.inbound.cli.probe.ports_parse import default_ports, parse_ports
-from wind_hub.config.ports_config import PortsConfig
+from wind_hub.config.ports_config import PortsConfig, default_ports_config
 from wind_hub.domain.model.errors import ConfigError
 
 
@@ -63,18 +63,19 @@ def test_parse_ports_total_limit() -> None:
 
 
 def test_default_ports() -> None:
-    assert default_ports() == [502, 2404, 48898, 4840, 44818]
+    """默认端口集 = 内置工业映射的全部端口（mapping.keys()）。"""
+    assert default_ports() == [502, 2404, 48898, 4840, 44818, 80, 443, 22, 23]
 
 
 def test_default_ports_with_custom_config() -> None:
-    """step24：config 提供时读 config.default_ports（返回副本，不改原表）。"""
-    config = PortsConfig(default_ports=[502, 80, 443])
+    """config 提供时读 config.mapping 的端口（返回副本，不改原表）。"""
+    config = PortsConfig(mapping={502: "modbus", 80: "http", 443: "https"})
     ports = default_ports(config)
     assert ports == [502, 80, 443]
     ports.append(1)
-    assert config.default_ports == [502, 80, 443]
+    assert list(config.mapping) == [502, 80, 443]
 
 
 def test_default_ports_without_config_uses_builtin() -> None:
-    """step24：config 缺省回落内置默认端口集（向后兼容）。"""
-    assert default_ports(None) == [502, 2404, 48898, 4840, 44818]
+    """config 缺省回落内置默认端口集（配置文件缺失的兜底）。"""
+    assert default_ports(None) == list(default_ports_config().mapping)

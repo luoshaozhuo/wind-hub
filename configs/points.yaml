@@ -12,9 +12,10 @@
 #                       也是继承合并的唯一主键
 #     variable_name   — 业务变量名（如 rotor_speed），仅供展示与诊断
 #     address.symbol  — PLC Symbol（协议寻址字段，见下）
-# - `group` 把点归入采集分组；参与周期调度的设备按 polling 分组定义周期，
-#   一个 (device, group) 对应一个调度 Job（不存在逐点 Job）。
-#   `group` 同时也是路由规则的匹配维度（match.point_group，见 routing.yaml）。
+# - `point_groups` 把点归入一个或多个采集分组（多值）；Task 按
+#   point_group 选择点（task.point_group ∈ point.point_groups），
+#   不存在逐点 Task。点不再声明输出 sink——输出去向由 Task 的
+#   targets 决定（见 tasks.yaml）。
 #
 # 点表继承（extends）
 #
@@ -27,11 +28,10 @@
 #     * 普通字段——子表写了就覆盖（显式写 null 也会覆盖为 null），
 #       没写就继承父表值；
 #     * address —— 显式配置即整体替换，不残留父表的 symbol/index 字段；
-#     * sinks   —— 显式配置即整体替换，不做 append。
 # - 解析顺序：父表解析结果 → remove_points → 子表 points override/新增，
 #   全部展开为完整点后统一校验（data_type、min/max、ADS 地址约束等）。
-#   设备绑定校验（polling 覆盖、ADS sum 全 symbol）与路由编译都作用于
-#   继承展开后的最终点集。
+#   设备绑定校验（ADS sum 全 symbol）与 Task 的 point_group 存在性校验
+#   都作用于继承展开后的最终点集。
 #
 # Processor 参数的单位语义（推荐处理链顺序：quality_check → unit_convert → deadband）
 # - min_value / max_value：作用于【原始读数】（换算前）
@@ -62,7 +62,7 @@ point_tables:
 
       - point_id: p001
         variable_name: rotor_speed
-        group: fast               # 快变遥测，设备 polling 中按 fast 组周期采集
+        point_groups: [fast]               # 快变遥测；由 tasks.yaml 的 fast 组 Task 周期采集
         address:
           symbol: MAIN.rotorSpeed # PLC Symbol 寻址（推荐形式）
         data_type: float32
@@ -73,14 +73,10 @@ point_tables:
         deadband: 0.5             # 死区 0.5 rpm：变化量小于该值不输出
         min_value: 0
         max_value: 2000
-        # 点位级 sinks 覆盖默认路由规则
-        sinks:
-          - kafka_main
-          - file_archive
 
       - point_id: p002
         variable_name: gen_power
-        group: fast
+        point_groups: [fast]
         address:
           symbol: MAIN.genPower
         data_type: float32
@@ -94,7 +90,7 @@ point_tables:
 
       - point_id: p003
         variable_name: gen_voltage
-        group: slow               # 慢变量，按 slow 组周期采集
+        point_groups: [slow]               # 慢变量，按 slow 组周期采集
         address:
           symbol: MAIN.genVoltage
           index_group: 0x4020     # symbol 与 index 同时配置：允许，
@@ -107,7 +103,7 @@ point_tables:
 
       - point_id: p004
         variable_name: status_running
-        group: fast
+        point_groups: [fast]
         address:
           symbol: MAIN.statusRunning
         data_type: bool
@@ -130,7 +126,7 @@ point_tables:
 
       - point_id: p005            # 新增点：父表没有的 point_id
         variable_name: converter_temp
-        group: slow
+        point_groups: [slow]
         address:
           symbol: MAIN.converterTemp
         data_type: float32
@@ -146,7 +142,7 @@ point_tables:
     points:
 
       - point_id: p002            # group override：fast → slow（现场功率低频采集）
-        group: slow
+        point_groups: [slow]
 
       - point_id: p005            # address override：现场 PLC 的 Symbol 命名空间
         address:
@@ -154,13 +150,13 @@ point_tables:
 
   # Beckhoff ADS 诊断点表 —— 独立表（不继承），绑定到 read_mode: sequential
   # 的诊断机位（wtg-005）：逐点读，Symbol 优先、无 symbol 回退 index 对；
-  # 不参与周期调度，group 仅作分类与路由匹配用途。
+  # 不参与周期采集（diag 组不出现在任何 Task 中），分组仅作分类用途。
   beckhoff_diag_v1:
     points:
 
       - point_id: p401
         variable_name: legacy_counter
-        group: diag
+        point_groups: [diag]
         address:                  # 兼容寻址：仅 index_group + index_offset（成对）
           index_group: 0x4020
           index_offset: 0x2000
@@ -171,7 +167,7 @@ point_tables:
 
       - point_id: p402
         variable_name: diag_state
-        group: diag
+        point_groups: [diag]
         address:
           symbol: MAIN.diagState  # sequential 下按 Symbol 逐点读
           index_group: 0x4020     # symbol 与 index 同时配置：允许，
@@ -185,7 +181,7 @@ point_tables:
 
       - point_id: p101
         variable_name: rotor_speed
-        group: telemetry
+        point_groups: [telemetry]
         address:
           type: measured_value
           ioa: 1001
@@ -200,7 +196,7 @@ point_tables:
 
       - point_id: p102
         variable_name: gen_power
-        group: telemetry
+        point_groups: [telemetry]
         address:
           type: measured_value
           ioa: 1002
@@ -215,7 +211,7 @@ point_tables:
 
       - point_id: p103
         variable_name: wind_speed
-        group: telemetry
+        point_groups: [telemetry]
         address:
           type: measured_value
           ioa: 1004
@@ -226,19 +222,15 @@ point_tables:
         description: "风速"
         min_value: 0
         max_value: 50
-        sinks:
-          - file_archive          # 仅归档，不发 Kafka
 
       - point_id: p104
         variable_name: status_running
-        group: signals
+        point_groups: [signals]
         address:
           type: single_point
           ioa: 2001
         data_type: bool
         description: "运行状态（遥信）"
-        sinks:
-          - kafka_main
 
   # Modbus 风机点表
   modbus_wtg_v1:
@@ -246,7 +238,7 @@ point_tables:
 
       - point_id: p201
         variable_name: rotor_speed
-        group: telemetry
+        point_groups: [telemetry]
         address:
           type: holding_register
           address: 30001
@@ -258,7 +250,7 @@ point_tables:
 
       - point_id: p202
         variable_name: gen_power
-        group: telemetry
+        point_groups: [telemetry]
         address:
           type: holding_register
           address: 30003
@@ -267,5 +259,3 @@ point_tables:
         offset: 0.0
         unit: kW
         description: "发电机有功功率"
-        sinks:
-          - kafka_main

@@ -5,7 +5,7 @@ TCP protocol.  Points are addressed by ``register_type`` + ``address`` (see
 :mod:`wind_hub.adapter.outbound.protocol.modbus.mapping`); reads of consecutive
 addresses are merged into a single request.
 
-Modbus is a pure polling protocol, so :meth:`subscribe` raises
+Modbus is a pure request/response protocol, so :meth:`subscribe` raises
 ``NotImplementedError``.  Only TCP transport is implemented; ``rtu`` mode raises
 ``NotImplementedError`` (no ``pyserial`` dependency is pulled in).
 """
@@ -445,8 +445,10 @@ class ModbusDriver:
         points: list[PointRef],
         callback: Callable[[PointValue], Awaitable[None]],
     ) -> None:
-        """Modbus is polling-only — subscription is not supported."""
-        raise NotImplementedError("Modbus does not support subscription (polling protocol)")
+        """Modbus is request/response-only — subscription is not supported."""
+        raise NotImplementedError(
+            "Modbus does not support subscription (request/response protocol)"
+        )
 
     def health(self) -> HealthStatus:
         """Return cached connection health."""

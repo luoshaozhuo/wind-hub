@@ -16,7 +16,7 @@ app = typer.Typer(name="validate", help="校验配置（schema + 跨文件一致
 @app.callback(invoke_without_command=True)
 def validate(
     config: Path = typer.Option(
-        ..., "--config", help="配置目录（含 system/devices/points/routing.yaml）"
+        ..., "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
     ),
 ) -> None:
     """加载并校验配置；成功退出码 0，失败退出码 1。"""
@@ -30,8 +30,8 @@ def validate(
     tables = len(cfg.point_tables.tables)
     points = sum(len(t.points) for t in cfg.point_tables.tables.values())
     sinks = len(cfg.system.sinks)
-    rules = len(cfg.routing.rules)
+    tasks = len(cfg.tasks.tasks)
     typer.echo(
         f"配置有效：{devices} 台设备、{tables} 份点表（{points} 个点位）、"
-        f"{sinks} 个 sink、{rules} 条路由规则"
+        f"{sinks} 个 sink、{tasks} 个采集任务"
     )

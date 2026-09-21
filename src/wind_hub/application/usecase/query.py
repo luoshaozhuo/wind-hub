@@ -27,17 +27,23 @@ from wind_hub.domain.model.point import PointRef, PointValue
 
 
 class AcquisitionInfo(BaseModel):
-    """单个采集 Job（``(device, group)``）的业务执行状态快照。
+    """单个采集实例（Task Instance）的业务执行状态快照。
 
-    与调度器的 Job 状态（注册/暂停/下次触发时间）和设备连接状态分维度：
-    本模型只描述「这个采集 Job 最近跑得怎样」。
+    与实例生命周期状态（RUNNING / STOPPED）和设备连接状态分维度：
+    本模型只描述「这个采集实例最近跑得怎样」。
     """
+
+    instance_id: str
+    """Task Instance 标识（``{task_id}:{device_id}``）。"""
+
+    task_id: str
+    """来源 Task Definition。"""
 
     device_id: str
     """Device identifier."""
 
-    group: str
-    """Polling group name."""
+    point_group: str
+    """Point group name."""
 
     running: bool = False
     """``True`` while a collect run is in flight."""
@@ -80,7 +86,7 @@ class SystemStatus(BaseModel):
     """累计丢弃点数——背压策略丢弃的点值总数。"""
 
     acquisitions: list[AcquisitionInfo] = []
-    """各采集 Job 的业务执行状态（按 ``(device, group)`` 粒度）。"""
+    """各采集实例的业务执行状态（按 Task Instance 粒度）。"""
 
 
 class QueryUseCase:
@@ -144,9 +150,9 @@ class QueryUseCase:
           「设备优先、随后 sink」顺序，依 ``device_count`` 切分后统计健康数。
         - 点位统计：采集计数经 Runtime 透传自 AcquisitionEngine，路由/丢弃
           计数来自 Runtime 的 Sink 派发侧。
-        - ``acquisitions``：各采集 Job 的业务执行状态（Runtime 的
-          AcquisitionRuntimeState 快照）——与设备连接状态、调度器 Job
-          注册/暂停状态分维度。
+        - ``acquisitions``：各采集实例的业务执行状态（Runtime 的
+          AcquisitionRuntimeState 快照）——与设备连接状态、实例启停状态
+          分维度。
         """
         health_values = list(self._runtime.health().values())
         device_health = health_values[: self._runtime.device_count]
@@ -166,8 +172,10 @@ class QueryUseCase:
             points_dropped=self._runtime.points_dropped,
             acquisitions=[
                 AcquisitionInfo(
+                    instance_id=state.instance_id,
+                    task_id=state.task_id,
                     device_id=state.device_id,
-                    group=state.group,
+                    point_group=state.point_group,
                     running=state.running,
                     consecutive_failures=state.consecutive_failures,
                     last_error=state.last_error,

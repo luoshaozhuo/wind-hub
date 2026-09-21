@@ -35,6 +35,7 @@ def _make_point_config(
     ioa: int,
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(ioa=ioa),
         data_type="float32",
@@ -120,6 +121,7 @@ class TestPointMapping:
         driver = IEC104Driver(cfg)
         points = [
             PointConfig(
+                point_groups=["default"],
                 point_id="bad",
                 address=PointAddress(),  # No IOA field.
                 data_type="float32",

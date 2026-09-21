@@ -1,4 +1,4 @@
-"""Dispatcher — command routing, idempotency, and timeout handling."""
+"""Dispatcher — command dispatch, idempotency, and timeout handling."""
 
 from __future__ import annotations
 

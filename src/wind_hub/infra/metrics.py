@@ -146,7 +146,7 @@ def update_gauges(
     sinks_total_val: int,
     sinks_healthy_val: int,
 ) -> None:
-    """Overwrite the four engine gauges from a scheduler snapshot."""
+    """Overwrite the four engine gauges from a runtime snapshot."""
     devices_total.set(devices_total_val)
     devices_connected.set(devices_connected_val)
     sinks_total.set(sinks_total_val)

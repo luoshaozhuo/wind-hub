@@ -18,6 +18,7 @@ from wind_hub.domain.processing.pipeline import Pipeline
 def _points() -> list[PointConfig]:
     return [
         PointConfig(
+            point_groups=["default"],
             point_id="meas",
             address=PointAddress(),
             data_type="float32",

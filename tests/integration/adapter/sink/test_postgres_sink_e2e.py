@@ -1,9 +1,9 @@
 """端到端测试 —— 完整运行时 + DBSink（数据库以假连接池替代）。
 
-驱动一条真实链路：Modbus 模拟从站 → 采集 → 路由 → DBSink 批量写入。由于本环境
+驱动一条真实链路：Modbus 模拟从站 → 采集 → Task 分发 → DBSink 批量写入。由于本环境
 无真实 PostgreSQL（无需 Docker），``asyncpg`` 替换为内存假实现（决策 7），验证
 full runtime 下点值被映射成行（``value`` 以 JSON 文本落库）并写入配置的表；
-采集/路由/调度均为真实路径。
+采集/分发/任务调度均为真实路径。
 """
 
 from __future__ import annotations
@@ -57,15 +57,14 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
 
 
 def _write_config(tmp_path: Path) -> Path:
-    """写一份最小完整配置：Modbus 设备 + DB sink + 两个点 + 默认路由。"""
+    """写一份最小完整配置：Modbus 设备 + DB sink + 两个点 + 1 个采集 Task。"""
     cfg_dir = tmp_path / "configs"
     cfg_dir.mkdir()
     _write_yaml(
         cfg_dir,
         "system.yaml",
         {
-            "scheduler": {
-                "default_interval": 0.2,
+            "runtime": {
                 "connect_timeout": 2.0,
                 "read_timeout": 2.0,
                 "shutdown_timeout": 5.0,
@@ -99,7 +98,6 @@ def _write_config(tmp_path: Path) -> Path:
                             "reconnect_backoff_max": 1.0,
                         },
                     },
-                    "polling": [{"group": "telemetry", "interval": 0.2}],
                 }
             ],
         },
@@ -113,13 +111,13 @@ def _write_config(tmp_path: Path) -> Path:
                     "points": [
                         {
                             "point_id": "rotor.speed",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 100},
                             "data_type": "float32",
                         },
                         {
                             "point_id": "gen.power",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 102},
                             "data_type": "float32",
                         },
@@ -130,8 +128,18 @@ def _write_config(tmp_path: Path) -> Path:
     )
     _write_yaml(
         cfg_dir,
-        "routing.yaml",
-        {"rules": [{"name": "default", "targets": [{"sink": "db"}], "priority": 0}]},
+        "tasks.yaml",
+        {
+            "tasks": [
+                {
+                    "task_id": "modbus-telemetry",
+                    "device": "modbus-1",
+                    "point_group": "telemetry",
+                    "interval": 0.2,
+                    "targets": [{"sink": "db"}],
+                }
+            ]
+        },
     )
     return cfg_dir
 
@@ -179,6 +187,8 @@ async def test_db_sink_full_runtime(
     cfg_dir = _write_config(tmp_path)
     rt = assemble(cfg_dir)
     await start_runtime(rt)
+    for instance in rt.runtime.task_instances().values():
+        await rt.runtime.start_task_instance(instance.instance_id)
     try:
         await _wait_for(lambda: _rows_for("rotor.speed"))
     finally:

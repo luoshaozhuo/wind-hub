@@ -6,7 +6,7 @@
 
 - **协议无关**：通过 ProtocolPort 抽象，支持 ADS / Modbus / IEC 60870-5-104
 - **输出无关**：通过 SinkPort 抽象，支持消息中间件 / 文件 / 数据库
-- **配置驱动**：YAML 配置系统 + 路由表，零代码切换数据流向
+- **配置驱动**：YAML 配置 + 采集 Task 声明周期采集与输出去向，零代码切换数据流向
 - **多入口**：CLI（typer） + Web API（FastAPI）
 - **六边形架构**：Domain 核心零外部依赖，所有 I/O 通过 Port/Adapter 接入
 
@@ -139,7 +139,7 @@ sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py
 说明：
 
 - 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
-- Sink 用 NullSink（隔离外部 IO，测采集 + Pipeline + Router）。
+- Sink 用 NullSink（隔离外部 IO，测采集 + Pipeline + Task 分发）。
 - 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
 - 组件单元测试（全部 mock，不需要 root）在 `tests/unit/perf/`。
 

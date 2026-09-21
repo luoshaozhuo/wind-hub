@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     DeviceConfig,
     DevicesConfig,
     PointAddress,
@@ -13,18 +14,18 @@ from wind_hub.config.schema import (
     PointPatch,
     PointTableConfig,
     PointTablesConfig,
-    PollingGroup,
     ResolvedPointTable,
-    RoutingConfig,
+    RuntimeConfig,
     SinkConfig,
     SystemConfig,
+    TasksConfig,
+    TaskTarget,
 )
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 
 # ---------------------------------------------------------------------------
-# SystemConfig
+# SystemConfig / RuntimeConfig
 # ---------------------------------------------------------------------------
 
 
@@ -47,11 +48,28 @@ class TestSinkConfig:
 
     def test_defaults(self) -> None:
         cfg = SystemConfig()
-        assert cfg.scheduler.default_interval == 1.0
-        assert cfg.scheduler.max_concurrent_devices == 32
+        assert cfg.runtime.queue_maxsize == 1000
+        assert cfg.runtime.backpressure_policy == "drop_old"
         assert cfg.pipeline.processors == []
         assert cfg.sinks == []
         assert cfg.interfaces.api.port == 8080
+
+    def test_no_scheduler_section(self) -> None:
+        """scheduler/default_interval/max_concurrent_devices 已移除。"""
+        cfg = SystemConfig()
+        assert not hasattr(cfg, "scheduler")
+        assert not hasattr(cfg.runtime, "default_interval")
+        assert not hasattr(cfg.runtime, "max_concurrent_devices")
+
+
+class TestRuntimeConfig:
+    def test_invalid_backpressure_policy_raises(self) -> None:
+        with pytest.raises(ConfigError, match="backpressure_policy"):
+            RuntimeConfig(backpressure_policy="explode")
+
+    def test_allowed_backpressure_policies(self) -> None:
+        for policy in ("drop_old", "drop_new", "block"):
+            assert RuntimeConfig(backpressure_policy=policy).backpressure_policy == policy
 
 
 # ---------------------------------------------------------------------------
@@ -140,26 +158,18 @@ class TestDevicesConfig:
                 subscribe={"enabled": True},  # type: ignore[call-arg]
             )
 
-    def test_duplicate_polling_group_raises(self) -> None:
-        with pytest.raises(ConfigError, match="duplicate polling groups"):
+    def test_polling_field_removed(self) -> None:
+        """设备不再携带 polling——采集周期由 tasks.yaml 的 Task 定义。"""
+        with pytest.raises(ValidationError, match="extra_forbidden"):
             DeviceConfig(
                 device_id="d1",
                 point_table="t1",
                 protocol="modbus",
                 endpoint=Endpoint(host="10.0.0.1", port=502),
-                polling=[
-                    PollingGroup(group="fast", interval=1.0),
-                    PollingGroup(group="fast", interval=2.0),
-                ],
+                polling=[{"group": "fast", "interval": 1.0}],  # type: ignore[call-arg]
             )
 
-    def test_polling_interval_must_be_positive(self) -> None:
-        with pytest.raises(ConfigError, match="interval must be > 0"):
-            PollingGroup(group="fast", interval=0.0)
-        with pytest.raises(ConfigError, match="interval must be > 0"):
-            PollingGroup(group="fast", interval=-1.0)
-
-    def test_supports_scheduled_polling(self) -> None:
+    def test_supports_scheduled_collection(self) -> None:
         ep = Endpoint(host="10.0.0.1", port=502)
         ads_sum = DeviceConfig(
             device_id="d1", point_table="t1", protocol="ads", endpoint=ep, read_mode="sum"
@@ -172,14 +182,147 @@ class TestDevicesConfig:
             read_mode="sequential",
         )
         modbus = DeviceConfig(device_id="d3", point_table="t1", protocol="modbus", endpoint=ep)
-        assert ads_sum.supports_scheduled_polling is True
-        assert ads_seq.supports_scheduled_polling is False
-        assert modbus.supports_scheduled_polling is True
+        assert ads_sum.supports_scheduled_collection is True
+        assert ads_seq.supports_scheduled_collection is False
+        assert modbus.supports_scheduled_collection is True
 
 
 # ---------------------------------------------------------------------------
-# PointTablesConfig
+# PointConfig / PointPatch / PointTableConfig / ResolvedPointTable
 # ---------------------------------------------------------------------------
+
+
+class TestPointConfig:
+    def test_point_groups_required(self) -> None:
+        """point_groups 是必填字段。"""
+        with pytest.raises(ValidationError):
+            PointConfig(  # type: ignore[call-arg]
+                point_id="p1", address=PointAddress(type="hr"), data_type="float32"
+            )
+
+    def test_point_groups_empty_list_raises(self) -> None:
+        with pytest.raises(ConfigError, match="non-empty"):
+            PointConfig(
+                point_id="p1",
+                point_groups=[],
+                address=PointAddress(type="hr"),
+                data_type="float32",
+            )
+
+    def test_point_groups_duplicates_raise(self) -> None:
+        with pytest.raises(ConfigError, match="duplicate point_groups"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["fast", "fast"],
+                address=PointAddress(type="hr"),
+                data_type="float32",
+            )
+
+    def test_point_groups_blank_string_raises(self) -> None:
+        with pytest.raises(ConfigError, match="non-empty strings"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["  "],
+                address=PointAddress(type="hr"),
+                data_type="float32",
+            )
+
+    def test_multiple_point_groups_ok(self) -> None:
+        point = PointConfig(
+            point_id="p1",
+            point_groups=["fast", "telemetry"],
+            address=PointAddress(type="hr"),
+            data_type="float32",
+        )
+        assert point.point_groups == ["fast", "telemetry"]
+
+    def test_group_and_sinks_fields_removed(self) -> None:
+        """点不再声明 group / sinks——选点走 point_groups，输出走 Task targets。"""
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["fast"],
+                address=PointAddress(type="hr"),
+                group="fast",  # type: ignore[call-arg]
+            )
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["fast"],
+                address=PointAddress(type="hr"),
+                sinks=["kafka"],  # type: ignore[call-arg]
+            )
+
+    def test_point_config_has_no_device_id(self) -> None:
+        """点是设备无关的——``device_id`` 不再是 PointConfig 的字段。"""
+        point = PointConfig(
+            point_id="p001",
+            point_groups=["fast"],
+            address=PointAddress(ioa=1001),
+            data_type="float32",
+        )
+        assert not hasattr(point, "device_id")
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointConfig(
+                point_id="p001",
+                point_groups=["fast"],
+                device_id="wtg-001",  # type: ignore[call-arg]
+                address=PointAddress(ioa=1001),
+            )
+
+    def test_negative_deadband_raises(self) -> None:
+        with pytest.raises(ConfigError, match="deadband"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["fast"],
+                address=PointAddress(type="hr"),
+                deadband=-0.1,
+            )
+
+    def test_min_max_inverted_raises(self) -> None:
+        with pytest.raises(ConfigError, match="min_value"):
+            PointConfig(
+                point_id="p1",
+                point_groups=["fast"],
+                address=PointAddress(type="hr"),
+                min_value=10.0,
+                max_value=5.0,
+            )
+
+    def test_non_numeric_type_skips_bounds_check(self) -> None:
+        """min/max/deadband 仅对数值类型生效——bool/str 不校验。"""
+        point = PointConfig(
+            point_id="p1",
+            point_groups=["signals"],
+            address=PointAddress(type="single_point"),
+            data_type="bool",
+            min_value=10.0,
+            max_value=5.0,
+        )
+        assert point.data_type == "bool"
+
+
+class TestPointPatch:
+    def test_point_groups_default_unset(self) -> None:
+        """point_groups 未写时为 None 且不在 model_fields_set。"""
+        patch = PointPatch(point_id="p001", max_value=2500.0)
+        assert patch.point_groups is None
+        assert patch.model_fields_set == {"point_id", "max_value"}
+
+    def test_explicit_point_groups_replaces_whole(self) -> None:
+        patch = PointPatch(point_id="p001", point_groups=["slow"])
+        assert "point_groups" in patch.model_fields_set
+        assert patch.point_groups == ["slow"]
+
+    def test_group_and_sinks_removed(self) -> None:
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointPatch(point_id="p001", group="fast")  # type: ignore[call-arg]
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            PointPatch(point_id="p001", sinks=["kafka"])  # type: ignore[call-arg]
+
+    def test_empty_point_id_raises(self) -> None:
+        with pytest.raises(ConfigError, match="non-empty"):
+            PointPatch(point_id="")
 
 
 class TestPointTablesConfig:
@@ -198,22 +341,11 @@ class TestPointTablesConfig:
         with pytest.raises(ConfigError, match="Duplicate remove_points"):
             PointTableConfig(extends="base", remove_points=["p001", "p001"])
 
-    def test_empty_point_id_raises(self) -> None:
-        with pytest.raises(ConfigError, match="non-empty"):
-            PointPatch(point_id="")
-
     def test_raw_defaults(self) -> None:
         cfg = PointTableConfig()
         assert cfg.extends is None
         assert cfg.remove_points == []
         assert cfg.points == []
-
-    def test_patch_fields_default_unset(self) -> None:
-        """除 point_id 外全部字段默认未写（不在 model_fields_set）。"""
-        patch = PointPatch(point_id="p001", max_value=2500.0)
-        assert patch.model_fields_set == {"point_id", "max_value"}
-        assert patch.unit is None
-        assert "unit" not in patch.model_fields_set
 
     def test_same_point_id_across_tables_ok(self) -> None:
         """point_id 的命名空间是单份点表——不同表之间允许重复。"""
@@ -233,7 +365,14 @@ class TestResolvedPointTable:
         addr = PointAddress(type="holding_register")
         with pytest.raises(ConfigError, match="data_type"):
             ResolvedPointTable(
-                points=[PointConfig(point_id="p1", address=addr, data_type="imaginary")]
+                points=[
+                    PointConfig(
+                        point_id="p1",
+                        point_groups=["fast"],
+                        address=addr,
+                        data_type="imaginary",
+                    )
+                ]
             )
 
     def test_duplicate_point_id_raises(self) -> None:
@@ -241,8 +380,18 @@ class TestResolvedPointTable:
         with pytest.raises(ConfigError, match="Duplicate"):
             ResolvedPointTable(
                 points=[
-                    PointConfig(point_id="p001", address=addr, data_type="float32"),
-                    PointConfig(point_id="p001", address=addr, data_type="float32"),
+                    PointConfig(
+                        point_id="p001",
+                        point_groups=["fast"],
+                        address=addr,
+                        data_type="float32",
+                    ),
+                    PointConfig(
+                        point_id="p001",
+                        point_groups=["slow"],
+                        address=addr,
+                        data_type="float32",
+                    ),
                 ]
             )
 
@@ -252,38 +401,22 @@ class TestResolvedPointTable:
                 PointConfig(
                     point_id="p001",
                     variable_name="rotor_speed",
-                    group="fast",
+                    point_groups=["fast", "telemetry"],
                     address=PointAddress(ioa=1001),
                     data_type="float32",
-                    sinks=["kafka_main"],
                 ),
                 PointConfig(
                     point_id="p002",
+                    point_groups=["slow"],
                     address=PointAddress(type="measured_value", ioa=1002),
                     data_type="float32",
                 ),
             ]
         )
         assert len(cfg.points) == 2
-        assert cfg.points[0].sinks == ["kafka_main"]
         assert cfg.points[0].variable_name == "rotor_speed"
-        assert cfg.points[0].group == "fast"
-        assert cfg.points[1].sinks is None
-        assert cfg.points[1].group == "default"
-
-    def test_point_config_has_no_device_id(self) -> None:
-        """点是设备无关的——``device_id`` 不再是 PointConfig 的字段。"""
-        point = PointConfig(
-            point_id="p001", address=PointAddress(ioa=1001), data_type="float32"
-        )
-        assert not hasattr(point, "device_id")
-        with pytest.raises(ValidationError, match="extra_forbidden"):
-            PointConfig(
-                point_id="p001",
-                device_id="wtg-001",  # type: ignore[call-arg]
-                address=PointAddress(ioa=1001),
-                data_type="float32",
-            )
+        assert cfg.points[0].point_groups == ["fast", "telemetry"]
+        assert cfg.points[1].point_groups == ["slow"]
 
 
 class TestPointAddress:
@@ -296,51 +429,87 @@ class TestPointAddress:
 
 
 # ---------------------------------------------------------------------------
-# RoutingConfig
+# CollectionTaskConfig / TasksConfig
 # ---------------------------------------------------------------------------
 
 
-class TestRoutingConfig:
-    def test_duplicate_rule_names_raises(self) -> None:
-        r1 = RouteRule(
-            name="r1",
-            match=RouteMatch(all=True),
-            targets=[RouteTarget(sink="kafka")],
-            priority=10,
-        )
-        r2 = RouteRule(
-            name="r1",
-            match=RouteMatch(all=True),
-            targets=[RouteTarget(sink="file")],
-            priority=5,
-        )
-        with pytest.raises(ConfigError, match="Duplicate"):
-            RoutingConfig(rules=[r1, r2])
-
-    def test_empty_rules_ok(self) -> None:
-        cfg = RoutingConfig(rules=[])
-        assert cfg.rules == []
+def _task(**overrides: object) -> CollectionTaskConfig:
+    data: dict[str, object] = {
+        "task_id": "t1",
+        "device": "d1",
+        "point_group": "fast",
+        "interval": 1.0,
+        "targets": [TaskTarget(sink="s1")],
+    }
+    data.update(overrides)
+    return CollectionTaskConfig(**data)  # type: ignore[arg-type]
 
 
-class TestRouteMatch:
-    def test_all_true_accepted(self) -> None:
-        m = RouteMatch(all=True)
-        assert m.all is True
+class TestCollectionTaskConfig:
+    def test_valid_device_task(self) -> None:
+        task = _task()
+        assert task.device == "d1"
+        assert task.device_group is None
+        assert task.enabled is True
 
-    def test_single_dimension_accepted(self) -> None:
-        assert RouteMatch(device_group="turbine").point_group is None
-        assert RouteMatch(point_group="fast").device_group is None
+    def test_valid_device_group_task(self) -> None:
+        task = _task(device=None, device_group="turbine")
+        assert task.device_group == "turbine"
+        assert task.device is None
 
-    def test_both_dimensions_accepted(self) -> None:
-        m = RouteMatch(device_group="turbine", point_group="fast")
-        assert m.device_group == "turbine" and m.point_group == "fast"
+    def test_device_and_device_group_xor_both_set_raises(self) -> None:
+        with pytest.raises(ConfigError, match="XOR"):
+            _task(device="d1", device_group="turbine")
 
-    def test_all_true_with_other_matchers_rejected(self) -> None:
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            RouteMatch(all=True, device_group="turbine")
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            RouteMatch(all=True, point_group="fast")
+    def test_device_and_device_group_xor_neither_set_raises(self) -> None:
+        with pytest.raises(ConfigError, match="XOR"):
+            _task(device=None, device_group=None)
 
-    def test_empty_match_rejected(self) -> None:
-        with pytest.raises(ValueError, match="at least one condition"):
-            RouteMatch()
+    def test_interval_must_be_positive(self) -> None:
+        with pytest.raises(ConfigError, match="interval must be > 0"):
+            _task(interval=0.0)
+        with pytest.raises(ConfigError, match="interval must be > 0"):
+            _task(interval=-1.0)
+
+    def test_interval_required(self) -> None:
+        with pytest.raises(ValidationError):
+            CollectionTaskConfig(  # type: ignore[call-arg]
+                task_id="t1",
+                device="d1",
+                point_group="fast",
+                targets=[TaskTarget(sink="s1")],
+            )
+
+    def test_point_group_blank_raises(self) -> None:
+        with pytest.raises(ConfigError, match="point_group must be non-empty"):
+            _task(point_group="   ")
+
+    def test_task_id_blank_raises(self) -> None:
+        with pytest.raises(ConfigError, match="task_id must be non-empty"):
+            _task(task_id="  ")
+
+    def test_targets_empty_raises(self) -> None:
+        with pytest.raises(ConfigError, match="targets must be non-empty"):
+            _task(targets=[])
+
+    def test_duplicate_target_sinks_raise(self) -> None:
+        with pytest.raises(ConfigError, match="duplicate target sinks"):
+            _task(targets=[TaskTarget(sink="s1"), TaskTarget(sink="s1")])
+
+    def test_multiple_distinct_targets_ok(self) -> None:
+        task = _task(targets=[TaskTarget(sink="s1"), TaskTarget(sink="s2")])
+        assert [t.sink for t in task.targets] == ["s1", "s2"]
+
+
+class TestTasksConfig:
+    def test_duplicate_task_id_raises(self) -> None:
+        with pytest.raises(ConfigError, match="Duplicate task_id"):
+            TasksConfig(tasks=[_task(task_id="t1"), _task(task_id="t1", interval=2.0)])
+
+    def test_empty_tasks_ok(self) -> None:
+        cfg = TasksConfig()
+        assert cfg.tasks == []
+
+    def test_unique_task_ids_ok(self) -> None:
+        cfg = TasksConfig(tasks=[_task(task_id="t1"), _task(task_id="t2")])
+        assert len(cfg.tasks) == 2

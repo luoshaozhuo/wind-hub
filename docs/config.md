@@ -5,10 +5,10 @@ wind-hub 的配置由四个 YAML 文件组成（仓库 `configs/` 下有带详�
 
 | 文件 | 内容 | schema |
 |---|---|---|
-| `system.yaml` | 引擎调度、管线、Sink、接口 | `SystemConfig` |
+| `system.yaml` | 运行时参数、管线、Sink、接口 | `SystemConfig` |
 | `devices.yaml` | 设备列表与协议参数 | `DevicesConfig` |
 | `points.yaml` | 命名点表集合（设备无关） | `PointTablesConfig` |
-| `routing.yaml` | 路由规则与投递策略 | `RoutingConfig` |
+| `tasks.yaml` | 采集任务（周期采集的唯一来源） | `TasksConfig` |
 
 所有 schema 均 `extra="forbid"`：未声明的字段在加载阶段直接报错。
 热重载唯一入口是 `ConfigUseCase.reload()`（重新加载四个文件 → diff →
@@ -17,12 +17,10 @@ wind-hub 的配置由四个 YAML 文件组成（仓库 `configs/` 下有带详�
 
 ## system.yaml
 
-### scheduler — 调度与超时
+### runtime — 队列、背压与超时
 
 ```yaml
-scheduler:
-  default_interval: 1.0        # 设备未配置 polling group 时的默认采集间隔（秒）
-  max_concurrent_devices: 32   # 最大并发轮询设备数
+runtime:
   queue_maxsize: 1000          # 每个 Sink 内部队列容量（背压阈值）
   backpressure_policy: drop_old  # drop_old | drop_new | block
   shutdown_timeout: 30.0       # 优雅停机等待在途操作完成的上限（秒）
@@ -43,7 +41,10 @@ scheduler:
   Dispatcher 使用的默认写超时；`Command.timeout > 0` 时命令值优先。
 
 背压策略（Sink 队列满时）：`drop_old` 丢最旧数据腾位（默认）、
-`drop_new` 丢弃新批次、`block` 阻塞采集直到有空间。
+`drop_new` 丢弃新批次、`block` 阻塞采集任务直到有空间。
+
+采集周期**不在** system.yaml 定义——每个 Task 自带必填的 `interval`
+（见下文 tasks.yaml），不存在全局默认采集间隔。
 
 ### pipeline — 处理链
 
@@ -59,9 +60,9 @@ pipeline:
 
 ### sinks — Sink 定义
 
-每个 sink 有 `name`（路由规则按名引用）、`type`（`kafka` / `db` /
-`file`）、`enabled`、`params`（类型相关，见样例）。Sink 队列与消费者
-归 Runtime 管理；`enabled: false` 的 sink 不创建。
+每个 sink 有 `name`（Task 的 `targets` 按名引用）、`type`（`kafka` /
+`db` / `file`）、`enabled`、`params`（类型相关，见样例）。Sink 队列与
+消费者归 Runtime 管理；`enabled: false` 的 sink 不创建。
 
 ### interfaces — 对外接口
 
@@ -71,38 +72,67 @@ pipeline:
 
 每台设备：`device_id`、`protocol`（`modbus` / `ads` / `iec104`）、
 `point_table`（绑定 points.yaml 中的表名）、`endpoint`（`host` /
-`port` / 协议相关 `extensions`）、`polling`、`enabled`，以及：
+`port` / 协议相关 `extensions`）、`device_group`（业务分组，Task 按它
+成组展开）、`enabled`，以及 ADS 的：
 
-- `mode: poll | subscribe` — 周期轮询或订阅推送（ADS 支持订阅）；
 - `read_mode: sum | sequential` — ADS 批量读策略：sum 为单条 Sum 命令
-  按 Symbol 批量读，sequential 为逐点读（并发受限）。
+  按 Symbol 批量读（参与周期采集）；sequential 为逐点读，只允许
+  CLI/WebAPI 单次读取与诊断——任何 Task 引用 sequential 设备都是配置
+  错误（加载期报错）。
 
-`polling` 按 group 定义采集周期；点表中每个点的 `group` 必须被
-polling 覆盖。一个 `(device, group)` 对应一个调度 Job
-（`poll:{device_id}:{group}`）——不存在逐点 Job。
+设备**不再**定义采集周期或采集分组——周期采集完全由 tasks.yaml 的
+Task 声明。
 
 ## points.yaml
 
 命名点表集合：表是设备无关的完整点集定义，设备经 `point_table` 绑定，
 多台同类型设备共享一份。点位字段：`point_id`（系统内稳定 ID）、
-`name`（业务名）、`group`（采集分组）、`address`（协议寻址，各协议
-字段见样例头部注释）、`data_type`、处理器参数（`min_value` /
-`max_value` / `scale` / `offset` / `deadband`）、`unit` /
-`description`，以及可选的点位级 `sinks` 覆盖（优先级高于一切路由
-规则，始终按 always 投递）。
+`variable_name`（业务名）、`point_groups`（采集分组，**多值**——一个
+点可同时属于多个组；Task 按 `task.point_group ∈ point.point_groups`
+选点）、`address`（协议寻址，各协议字段见样例头部注释）、`data_type`、
+处理器参数（`min_value` / `max_value` / `scale` / `offset` /
+`deadband`）、`unit` / `description`。
 
-## routing.yaml
+点位**不再**声明输出 sink——输出去向完全由 Task 的 `targets` 决定。
+点表支持单继承（`extends` / `remove_points` / 点位补丁），继承展开后
+统一校验（`point_groups` 在合并结果上同样要求非空且不重复）。
 
-`unmatched_policy`（`drop` 默认 / `error` 启动校验）+ `rules` 列表。
-每条规则：`name`、`match_device` / `match_point_prefix`（null 匹配
-全部）、`priority`（高者优先）、`targets`。
+## tasks.yaml
 
-每个 target：`sink` + 可选 `delivery` 投递策略（属于 (规则, sink)
-二元组，不同 sink 节拍独立）：
+`tasks` 列表，每个 Task 在运行时展开为一组 Task Instance
+（`{task_id}:{device_id}`）：
 
-| type | 语义 | 参数 |
-|---|---|---|
-| `always` | 缺省；每批都投递 | — |
-| `interval` | 距上次投递不足 N 秒的批次整批抑制 | `interval`（秒） |
-| `every_n` | 首批投递，之后每 n 批投递一次 | `n` |
-| `on_change` | 按 (sink, 设备, 点) 记忆上次投递值，值变化才投递 | — |
+```yaml
+tasks:
+  - task_id: turbine-fast        # 唯一 ID
+    device_group: turbine_ads    # device / device_group 二选一（XOR）
+    point_group: fast            # 单值；选择 point_groups 含 fast 的点
+    interval: 1.0                # 必填，> 0；采集循环 = collect → sleep(interval)
+    targets:                     # 输出去向（≥1，引用 system.yaml 的 sink 名）
+      - sink: kafka_main
+      - sink: file_archive
+    enabled: true                # false 则不展开实例、不可启动
+```
+
+- `device` — 只采集这一台设备（设备须存在且启用才展开实例）；
+- `device_group` — 展开为该分组下全部**启用**设备，每台一个实例；
+  设备增删或分组变化在热重载时自动增删实例，不重启 Runtime；
+- `targets` 中同一 sink 重复出现是配置错误；
+- 加载期跨文件校验：target sink 存在；device 存在；device_group 至少
+  匹配一台设备；`point_group` 必须存在于每个匹配到的启用设备的点表
+  （报错时列出缺失设备）；引用 ADS `read_mode: sequential` 设备报错。
+
+实例注册为 `STOPPED`，需经 CLI（`wind-hub tasks start`）或 Web API
+（`POST /tasks/instances/{id}/start`）显式启动。
+
+## ports.yaml（probe 端口扫描）
+
+`wind-hub probe ports` 的扫描策略（不参与采集链路）：
+
+```yaml
+mapping:        # 端口 → 服务名；未指定 --ports 时扫描 mapping 的全部端口
+  502: modbus
+  2404: iec104
+timeout: 1.0    # 单端口默认超时（秒）
+concurrency: 128  # 默认并发探测数
+```

@@ -1,4 +1,4 @@
-"""Pydantic configuration models — system, devices, points, routing, and top-level Config."""
+"""Pydantic configuration models — system, devices, points, tasks, and top-level Config."""
 
 from __future__ import annotations
 
@@ -8,34 +8,26 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.model.route import RouteRule
 
 # ---------------------------------------------------------------------------
 # system.yaml
 # ---------------------------------------------------------------------------
 
 
-class SchedulerConfig(BaseModel):
-    """Engine scheduling parameters."""
+class RuntimeConfig(BaseModel):
+    """Engine runtime parameters (queueing, back-pressure, timeouts)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    default_interval: float = 1.0
-    """Default polling interval in seconds when a device has no
-    explicit polling group."""
-
-    max_concurrent_devices: int = 32
-    """Maximum number of devices polled concurrently."""
-
     queue_maxsize: int = 1000
     """Capacity of each Sink's internal queue.  When full, the
-    scheduler applies back-pressure."""
+    runtime applies back-pressure."""
 
     backpressure_policy: str = "drop_old"
     """Behaviour when a Sink queue is full:
     ``'drop_old'`` — discard oldest data to make room (default);
     ``'drop_new'`` — discard new data, keep queue unchanged;
-    ``'block'`` — block the polling task until space frees up."""
+    ``'block'`` — block the collecting task instance until space frees up."""
 
     shutdown_timeout: float = 30.0
     """Maximum wait time in seconds during graceful shutdown for
@@ -53,7 +45,7 @@ class SchedulerConfig(BaseModel):
     （``Command.timeout <= 0``）时 Dispatcher 使用的默认写超时。"""
 
     @model_validator(mode="after")
-    def _validate_backpressure(self) -> SchedulerConfig:
+    def _validate_backpressure(self) -> RuntimeConfig:
         allowed = {"drop_old", "drop_new", "block"}
         if self.backpressure_policy not in allowed:
             raise ConfigError(
@@ -79,7 +71,7 @@ class SinkConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    """Unique sink name, referenced by routing rules and per-point overrides."""
+    """Unique sink name, referenced by collection task targets."""
 
     type: str
     """Sink driver type: ``'kafka'``, ``'file'``, or ``'db'``."""
@@ -124,7 +116,7 @@ class SystemConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     sinks: list[SinkConfig] = Field(default_factory=list)
     interfaces: InterfaceConfig = Field(default_factory=InterfaceConfig)
@@ -142,29 +134,12 @@ class SystemConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class PollingGroup(BaseModel):
-    """A polling group defines how often a device scans a subset of points."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    group: str
-    """Group name (e.g. ``'telemetry'``, ``'signals'``)."""
-
-    interval: float
-    """Polling interval for this group in seconds."""
-
-    @model_validator(mode="after")
-    def _validate_interval(self) -> PollingGroup:
-        if self.interval <= 0:
-            raise ConfigError(
-                f"Polling group '{self.group}': interval must be > 0, "
-                f"got {self.interval}"
-            )
-        return self
-
-
 class DeviceConfig(BaseModel):
-    """Static configuration of a single device."""
+    """Static configuration of a single device.
+
+    设备只描述「身份、协议、连接、点表绑定」——「什么时候采、采哪些点、
+    发到哪些 sink」全部由 ``tasks.yaml`` 的采集 Task 决定。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -176,20 +151,20 @@ class DeviceConfig(BaseModel):
     设备共享同一份点表定义，不逐设备复制。"""
     device_group: str | None = None
     """设备业务类别（如 ``'turbine'`` / ``'pcs'`` / ``'substation'`` /
-    ``'met_mast'``）——同类大量设备共享同一值，路由规则按此维度匹配。"""
-    polling: list[PollingGroup] = Field(default_factory=list)
+    ``'met_mast'``）——同类大量设备共享同一值，采集 Task 按此维度选择
+    设备范围。"""
     enabled: bool = True
     read_mode: str = "sum"
     """ADS 读取策略：``'sum'``（单条 Sum 命令，Symbol 批量寻址，用于周期
     采集）或 ``'sequential'``（逐点 Read，仅用于 CLI/API 单次读取与诊断，
-    不参与周期调度）。仅对 ``protocol == 'ads'`` 有意义。"""
+    不参与周期采集）。仅对 ``protocol == 'ads'`` 有意义。"""
 
     @property
-    def supports_scheduled_polling(self) -> bool:
-        """是否参与周期调度。
+    def supports_scheduled_collection(self) -> bool:
+        """是否参与周期采集。
 
-        ADS ``sequential`` 设备只允许请求驱动的单次读取（CLI/API/诊断），
-        不注册周期 Job——配置加载阶段已禁止其配置 ``polling``。
+        ADS ``sequential`` 设备只允许请求驱动的单次读取（CLI/API/诊断）——
+        配置加载阶段已禁止任何采集 Task 引用此类设备。
         """
         return not (self.protocol == "ads" and self.read_mode == "sequential")
 
@@ -199,11 +174,6 @@ class DeviceConfig(BaseModel):
             raise ConfigError(
                 f"Device '{self.device_id}': read_mode must be 'sum' or 'sequential', "
                 f"got '{self.read_mode}'"
-            )
-        groups = [g.group for g in self.polling]
-        if len(groups) != len(set(groups)):
-            raise ConfigError(
-                f"Device '{self.device_id}': duplicate polling groups: {groups}"
             )
         return self
 
@@ -300,18 +270,16 @@ class PointConfig(BaseModel):
     point_id: str
     variable_name: str | None = None
     """业务变量名（展示/诊断用）；``None`` 表示未命名。"""
-    group: str = "default"
-    """采集分组——设备 ``polling`` 配置按组定义周期；点通过本字段归类，
-    一个 ``(device, group)`` 对应一个调度 Job。"""
+    point_groups: list[str]
+    """点位归属的采集分组集合（多值，至少一个且不重复）——采集 Task 经
+    ``point_group`` 单值选点：``task.point_group in point.point_groups``。
+    同一个点可属于多个分组、被多个不同 Task 采集。"""
     address: PointAddress
     data_type: str = "float32"
     scale: float = 1.0
     offset: float = 0.0
     unit: str | None = None
     description: str | None = None
-    sinks: list[str] | None = None
-    """Optional per-point routing override.  When set, this list
-    replaces the default routing rules for this point."""
     deadband: float | None = None
     """死区阈值（绝对值）。两次输出之差的绝对值小于该值时不再输出该点；
     为 ``None`` 时不过滤。仅对数值类型 ``data_type`` 生效。"""
@@ -324,7 +292,15 @@ class PointConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_processing_bounds(self) -> PointConfig:
-        """校验处理参数边界（仅对数值类型 data_type 生效）。"""
+        """校验分组与处理参数边界（处理参数仅对数值类型 data_type 生效）。"""
+        if not self.point_groups:
+            raise ConfigError(f"Point '{self.point_id}': point_groups must be non-empty")
+        if len(self.point_groups) != len(set(self.point_groups)):
+            raise ConfigError(
+                f"Point '{self.point_id}': duplicate point_groups: {self.point_groups}"
+            )
+        if any(not g.strip() for g in self.point_groups):
+            raise ConfigError(f"Point '{self.point_id}': point_groups must be non-empty strings")
         if self.data_type not in NUMERIC_DATA_TYPES:
             return self
         if self.deadband is not None and self.deadband < 0:
@@ -361,7 +337,8 @@ class PointPatch(BaseModel):
 
     point_id: str
     variable_name: str | None = None
-    group: str | None = None
+    point_groups: list[str] | None = None
+    """显式配置时**整体替换**父表 point_groups（不做 append）。"""
     address: PointAddress | None = None
     """显式配置时**整体替换**父表 address（不做递归深度 merge）。"""
     data_type: str | None = None
@@ -369,8 +346,6 @@ class PointPatch(BaseModel):
     offset: float | None = None
     unit: str | None = None
     description: str | None = None
-    sinks: list[str] | None = None
-    """显式配置时**整体替换**父表 sinks（不做 append）。"""
     deadband: float | None = None
     min_value: float | None = None
     max_value: float | None = None
@@ -415,8 +390,8 @@ class PointTableConfig(BaseModel):
 class ResolvedPointTable(BaseModel):
     """继承展开后的完整点表——同类型设备共享的点集定义（运行模型）。
 
-    Runtime / 协议驱动 / RoutingTable 只接触本模型，不接触
-    :class:`PointPatch`。表内 ``point_id`` 唯一；不同表之间允许重复
+    Runtime / 协议驱动只接触本模型，不接触 :class:`PointPatch`。
+    表内 ``point_id`` 唯一；不同表之间允许重复
     （命名空间相互独立）。
     """
 
@@ -429,9 +404,7 @@ class ResolvedPointTable(BaseModel):
         seen: set[str] = set()
         for p in self.points:
             if p.data_type not in ALLOWED_DATA_TYPES:
-                raise ConfigError(
-                    f"Point '{p.point_id}': unknown data_type '{p.data_type}'"
-                )
+                raise ConfigError(f"Point '{p.point_id}': unknown data_type '{p.data_type}'")
             if p.point_id in seen:
                 raise ConfigError(f"Duplicate point_id in table: '{p.point_id}'")
             seen.add(p.point_id)
@@ -465,35 +438,91 @@ class ResolvedPointTables(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# routing.yaml
+# tasks.yaml — 周期采集任务（Task Definition）
 # ---------------------------------------------------------------------------
 
 
-class RoutingConfig(BaseModel):
-    """Top-level routing configuration (``routing.yaml``)."""
+class TaskTarget(BaseModel):
+    """采集 Task 的输出目标——只引用 Sink 名称。
+
+    Sink 实例与连接参数定义在 ``system.yaml`` 的 ``sinks`` 中；Task 不复制
+    任何连接配置。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    rules: list[RouteRule] = Field(default_factory=list)
-    """Ordered routing rules — evaluated in descending priority."""
+    sink: str
+    """目标 Sink 名（``system.yaml`` 中 ``SinkConfig.name``）。"""
 
-    unmatched_policy: str = "drop"
-    """Behaviour for points not covered by any rule:
-    ``'drop'`` — silently discard (default);
-    ``'error'`` — fail at startup if any point is unmatched;
-    ``'default'`` — reserved for future implementation."""
+
+class CollectionTaskConfig(BaseModel):
+    """周期采集 Task 的业务定义（配置层 Task Definition）。
+
+    语义：
+
+    - ``device`` / ``device_group`` 二选一（XOR）——选择设备范围；
+    - ``point_group`` 单值必填——选择点位范围（匹配
+      ``PointConfig.point_groups`` 多值集合）；
+    - ``interval`` 为本 Task 两轮采集之间的等待时间（秒，> 0）——
+      语义是「本轮 collect 完成 → 等待 interval → 下一轮」，不是严格
+      墙钟周期；
+    - ``targets`` 决定采集结果输出到哪些 Sink；
+    - ``enabled`` 是配置级能力开关：``False`` 时 Runtime 不创建运行实例。
+
+    ``device_group`` Task 在 Runtime 展开为每台命中设备一个 Task Instance
+    （见 ``application/runtime``）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    device: str | None = None
+    """目标单台设备（``device_id``）；与 ``device_group`` 互斥。"""
+    device_group: str | None = None
+    """目标设备业务类别；与 ``device`` 互斥。"""
+    point_group: str
+    """点位分组（单值）——命中 ``point_groups`` 含该值的全部点位。"""
+    interval: float
+    """两轮采集之间的等待时间（秒，必须 > 0）。"""
+    targets: list[TaskTarget]
+    """输出目标 Sink 列表（至少一个，不允许重复）。"""
+    enabled: bool = True
 
     @model_validator(mode="after")
-    def _validate_rules(self) -> RoutingConfig:
-        names = [r.name for r in self.rules]
-        if len(names) != len(set(names)):
-            raise ConfigError(f"Duplicate routing rule names: {names}")
-        allowed = {"drop", "error", "default"}
-        if self.unmatched_policy not in allowed:
+    def _validate_task(self) -> CollectionTaskConfig:
+        if not self.task_id.strip():
+            raise ConfigError("Collection task: task_id must be non-empty")
+        if (self.device is None) == (self.device_group is None):
             raise ConfigError(
-                f"Invalid unmatched_policy '{self.unmatched_policy}'; "
-                f"must be one of {sorted(allowed)}"
+                f"Task '{self.task_id}': exactly one of 'device' / 'device_group' "
+                "must be configured (XOR)"
             )
+        if not self.point_group.strip():
+            raise ConfigError(f"Task '{self.task_id}': point_group must be non-empty")
+        if self.interval <= 0:
+            raise ConfigError(f"Task '{self.task_id}': interval must be > 0, got {self.interval}")
+        if not self.targets:
+            raise ConfigError(f"Task '{self.task_id}': targets must be non-empty")
+        sink_names = [t.sink for t in self.targets]
+        if len(sink_names) != len(set(sink_names)):
+            raise ConfigError(f"Task '{self.task_id}': duplicate target sinks: {sink_names}")
+        return self
+
+
+class TasksConfig(BaseModel):
+    """Top-level tasks configuration (``tasks.yaml``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[CollectionTaskConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_tasks(self) -> TasksConfig:
+        seen: set[str] = set()
+        for t in self.tasks:
+            if t.task_id in seen:
+                raise ConfigError(f"Duplicate task_id: '{t.task_id}'")
+            seen.add(t.task_id)
         return self
 
 
@@ -617,7 +646,8 @@ class Config(BaseModel):
     devices: DevicesConfig
     point_tables: ResolvedPointTables
     """继承解析完成后的点表集——运行链路只使用 resolved 模型。"""
-    routing: RoutingConfig
+    tasks: TasksConfig
+    """周期采集 Task 定义集——没有 Task 就不进行周期采集。"""
     reporting: ReportingConfig | None = None
     """Optional IEC104 slave proxy config; ``None`` disables the proxy."""
 

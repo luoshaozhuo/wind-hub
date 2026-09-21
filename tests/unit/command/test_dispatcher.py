@@ -1,4 +1,4 @@
-"""Unit tests for Dispatcher — command routing, idempotency, timeout."""
+"""Unit tests for Dispatcher — command dispatch, idempotency, timeout."""
 
 from __future__ import annotations
 

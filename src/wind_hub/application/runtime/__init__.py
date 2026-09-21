@@ -6,12 +6,20 @@ from wind_hub.application.runtime.dispatcher import RuntimeSinkDispatcher
 from wind_hub.application.runtime.health import RuntimeHealth
 from wind_hub.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub.application.runtime.runtime import Runtime
+from wind_hub.application.runtime.task_instance import (
+    CollectionTaskInstance,
+    TaskInstanceState,
+    task_instance_id,
+)
 
 __all__ = [
     "AcquisitionRuntimeState",
+    "CollectionTaskInstance",
     "DeviceRuntimeState",
     "Runtime",
     "RuntimeHealth",
     "RuntimeLifecycle",
     "RuntimeSinkDispatcher",
+    "TaskInstanceState",
+    "task_instance_id",
 ]

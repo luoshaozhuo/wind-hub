@@ -72,35 +72,42 @@ class ReloadResponse(BaseModel):
     sinks_added: list[str]
     sinks_removed: list[str]
     sinks_updated: list[str]
-    routing_rebuilt: bool
+    tasks_added: list[str]
+    tasks_removed: list[str]
+    tasks_updated: list[str]
     pipeline_rebuilt: bool
     errors: list[str]
     duration_ms: float
     reloaded_at: datetime
 
 
-class RouteExplainResponse(BaseModel):
-    device_id: str
-    point_id: str
+class TaskResponse(BaseModel):
+    """采集 Task 定义快照（来自 tasks.yaml）。"""
+
+    task_id: str
+    device: str | None = None
+    device_group: str | None = None
+    point_group: str
+    interval: float
     targets: list[str]
-    matched_rule: str | None = None
-    source: str
+    enabled: bool
 
 
-class JobResponse(BaseModel):
-    """采集 Job 的调度生命周期快照。"""
+class TaskInstanceResponse(BaseModel):
+    """Task Instance（task × device 展开）的生命周期快照。"""
 
-    job_id: str
-    device_id: str | None = None
-    group: str | None = None
-    interval: float | None = None
+    instance_id: str
+    task_id: str
+    device_id: str
+    point_group: str
+    interval: float
+    targets: list[str]
     state: str
     """``"running"`` / ``"stopped"``。"""
-    next_run_time: datetime | None = None
 
 
-class JobBatchResponse(BaseModel):
-    """批量 Job 操作（start-all / stop-all）的结果汇总。"""
+class TaskBatchResponse(BaseModel):
+    """批量实例操作（start-all / stop-all）的结果汇总。"""
 
     total: int
     changed: int
@@ -124,9 +131,9 @@ __all__ = [
     "CommandRequest",
     "CommandResponse",
     "ReloadResponse",
-    "RouteExplainResponse",
-    "JobResponse",
-    "JobBatchResponse",
+    "TaskResponse",
+    "TaskInstanceResponse",
+    "TaskBatchResponse",
     "ErrorDetail",
     "ErrorResponse",
 ]

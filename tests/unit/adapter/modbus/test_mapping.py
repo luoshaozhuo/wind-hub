@@ -21,6 +21,7 @@ def _point(
     **extra: object,
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(register_type=register_type, address=address, **extra),
         data_type=data_type,
@@ -87,6 +88,7 @@ class TestParsePoint:
 
     def test_missing_register_type_raises(self) -> None:
         point = PointConfig(
+            point_groups=["default"],
             point_id="p",
             address=PointAddress(address=100),
             data_type="float32",
@@ -96,6 +98,7 @@ class TestParsePoint:
 
     def test_missing_address_raises(self) -> None:
         point = PointConfig(
+            point_groups=["default"],
             point_id="p",
             address=PointAddress(register_type="holding"),
             data_type="float32",

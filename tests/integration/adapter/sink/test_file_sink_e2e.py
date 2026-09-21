@@ -1,6 +1,6 @@
 """端到端测试 —— 完整运行时 + 真实 FileSink 落盘。
 
-驱动一条真实链路：Modbus 模拟从站 → 采集 → 路由 → 真实 FileSink 写入本地文件。
+驱动一条真实链路：Modbus 模拟从站 → 采集 → Task 分发 → 真实 FileSink 写入本地文件。
 验证 ``jsonl`` 与 ``csv`` 两种格式的落盘内容，以及优雅停机后文件依然完整
 （``close`` 强制 flush，无半行残缺）。
 
@@ -33,15 +33,14 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
 
 
 def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
-    """写一份最小完整配置：1 台 modbus 设备 + 1 个 file sink + 2 个点 + 1 条默认路由。"""
+    """写一份最小完整配置：1 台 modbus 设备 + 1 个 file sink + 2 个点 + 1 个采集 Task。"""
     cfg_dir = tmp_path / "configs"
     cfg_dir.mkdir()
     _write_yaml(
         cfg_dir,
         "system.yaml",
         {
-            "scheduler": {
-                "default_interval": 0.2,
+            "runtime": {
                 "connect_timeout": 2.0,
                 "read_timeout": 2.0,
                 "shutdown_timeout": 5.0,
@@ -71,7 +70,6 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
                             "reconnect_backoff_max": 1.0,
                         },
                     },
-                    "polling": [{"group": "telemetry", "interval": 0.2}],
                 }
             ],
         },
@@ -85,13 +83,13 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
                     "points": [
                         {
                             "point_id": "rotor.speed",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 100},
                             "data_type": "float32",
                         },
                         {
                             "point_id": "gen.power",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 102},
                             "data_type": "float32",
                         },
@@ -102,8 +100,18 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
     )
     _write_yaml(
         cfg_dir,
-        "routing.yaml",
-        {"rules": [{"name": "default", "targets": [{"sink": "file"}], "priority": 0}]},
+        "tasks.yaml",
+        {
+            "tasks": [
+                {
+                    "task_id": "modbus-telemetry",
+                    "device": "modbus-1",
+                    "point_group": "telemetry",
+                    "interval": 0.2,
+                    "targets": [{"sink": "file"}],
+                }
+            ]
+        },
     )
     return cfg_dir
 
@@ -146,6 +154,8 @@ async def test_file_sink_jsonl_full_runtime(tmp_path: Path, server: ModbusMockSe
     cfg_dir = _write_config(tmp_path, sink_path, buffer_size=1)
     rt = assemble(cfg_dir)
     await start_runtime(rt)
+    for instance in rt.runtime.task_instances().values():
+        await rt.runtime.start_task_instance(instance.instance_id)
     try:
 
         def _find(point_id: str) -> dict[str, Any] | None:
@@ -182,6 +192,8 @@ async def test_file_sink_csv_full_runtime(tmp_path: Path, server: ModbusMockServ
     cfg_dir = _write_config(tmp_path, sink_path, format="csv", buffer_size=1)
     rt: AssembledRuntime = assemble(cfg_dir)
     await start_runtime(rt)
+    for instance in rt.runtime.task_instances().values():
+        await rt.runtime.start_task_instance(instance.instance_id)
     try:
 
         def _rows() -> list[list[str]]:

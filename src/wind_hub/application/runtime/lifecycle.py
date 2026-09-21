@@ -6,6 +6,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from wind_hub.application.runtime.task_instance import TaskInstanceState
+
 if TYPE_CHECKING:
     from wind_hub.application.runtime.runtime import Runtime
 
@@ -88,9 +90,9 @@ class RuntimeLifecycle:
                 task = asyncio.create_task(self._runtime._sink_consumer(name, sink))
                 self._runtime._sink_tasks[name] = task
 
-            await self._runtime._scheduler.start()
-            for device_id, device_cfg in self._runtime._devices.items():
-                await self._runtime._start_acquisition(device_id, device_cfg)
+            # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
+            # 周期采集，只有 CLI / Web API 的显式 start 才创建实例采集协程。
+            await self._runtime._sync_task_instances()
 
             self._runtime._started = True
 
@@ -102,7 +104,13 @@ class RuntimeLifecycle:
             self._runtime._running = False
             self._runtime._started = False
 
-            await self._runtime._scheduler.stop()
+            # 停全部实例采集协程——逐个取消并等待结束，不留 orphan task。
+            for instance_id in list(self._runtime._task_coroutines):
+                await self._runtime._cancel_instance_coroutine(instance_id)
+            # 停机后实例定义保留，统一标记 STOPPED——重启后需显式 start，
+            # 与启动语义一致。
+            for instance_id in self._runtime._instance_states:
+                self._runtime._instance_states[instance_id] = TaskInstanceState.STOPPED
 
             for queue in self._runtime._queues.values():
                 await queue.put([])

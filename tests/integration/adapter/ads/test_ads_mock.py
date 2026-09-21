@@ -84,6 +84,7 @@ def _make_point_config(
     index_offset: int,
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(index_group=0x4020, index_offset=index_offset),
         data_type=data_type,

@@ -37,8 +37,8 @@ class SinkPort(Protocol):
     async def write(self, batch: list[PointValue]) -> None:
         """Write a batch of point values.
 
-        The batch contains only data that the router assigned to this
-        sink — the sink does not need to know about routing rules.
+        The batch contains only data that a collection task assigned to this
+        sink — the sink does not need to know about task dispatch.
 
         Args:
             batch: Point values to persist/forward.

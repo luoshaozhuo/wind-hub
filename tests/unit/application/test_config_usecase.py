@@ -6,12 +6,16 @@
 覆盖点：
 
 - 初始 load 与 ``current_config``；
-- diff 计算（设备/sink 增删改、点表/规则/管线变更）；
+- diff 计算（设备/sink/task 增删改、点表/管线变更）——含
+  ``diff.tasks: TaskDiff(added/removed/updated/unchanged)``；
+- 旧模型字段已移除：``ConfigDiff`` 不再有 ``rules_changed``，
+  配置目录不再需要 ``routing.yaml``；
 - 非法配置：中止重载、不触碰 Runtime、旧快照保持；
 - 无变更：不调用 reconfigure 直接成功；
 - 有变更：以 ``(new_config, diff)`` 调用 ``Runtime.reconfigure`` 一次；
 - reconfigure 返回错误：``success=False``、错误透传、**快照仍提交**
-  （部分失败语义：已应用的变更不回滚，下次 reload 以新快照为基准）。
+  （部分失败语义：已应用的变更不回滚，下次 reload 以新快照为基准）；
+- 点表继承的父表变化向子表传播。
 
 Runtime 用 mock——本层只验证编排，重构执行由
 ``tests/unit/runtime/test_runtime.py`` 覆盖。
@@ -28,13 +32,14 @@ import yaml
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
     PointConfig,
     SinkConfig,
+    TaskTarget,
 )
 from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.route import RouteMatch, RouteRule, RouteTarget
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,12 +54,13 @@ def _write_configs(
     devices: list[DeviceConfig] | None = None,
     sinks: list[SinkConfig] | None = None,
     points: list[PointConfig] | None = None,
-    rules: list[RouteRule] | None = None,
+    tasks: list[CollectionTaskConfig] | None = None,
     processors: list[str] | None = None,
 ) -> None:
+    """写出一套完整配置目录（system/devices/points/tasks，无 routing.yaml）。"""
     yaml.safe_dump(
         {
-            "scheduler": {"queue_maxsize": 10},
+            "runtime": {"queue_maxsize": 10},
             "sinks": [s.model_dump() for s in (sinks or [])],
             "pipeline": {"processors": processors or []},
         },
@@ -69,8 +75,8 @@ def _write_configs(
         (base / "points.yaml").open("w"),
     )
     yaml.safe_dump(
-        {"rules": [r.model_dump() for r in (rules or [])]},
-        (base / "routing.yaml").open("w"),
+        {"tasks": [t.model_dump() for t in (tasks or [])]},
+        (base / "tasks.yaml").open("w"),
     )
 
 
@@ -86,7 +92,23 @@ def _make_device(device_id: str, protocol: str = "modbus") -> DeviceConfig:
 def _make_point(point_id: str = "p1") -> PointConfig:
     return PointConfig(
         point_id=point_id,
+        point_groups=["g"],
         address=PointAddress(type="hr"),
+    )
+
+
+def _make_task(
+    task_id: str = "task-1",
+    device: str = "d1",
+    interval: float = 1.0,
+    sink: str = "s1",
+) -> CollectionTaskConfig:
+    return CollectionTaskConfig(
+        task_id=task_id,
+        device=device,
+        point_group="g",
+        interval=interval,
+        targets=[TaskTarget(sink=sink)],
     )
 
 
@@ -107,6 +129,7 @@ async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
 
     cfg = usecase.current_config
     assert [d.device_id for d in cfg.devices.devices] == ["d1"]
+    assert cfg.tasks.tasks == []
 
 
 async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
@@ -134,6 +157,33 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
     assert result.errors  # 加载错误如实呈现
     runtime.reconfigure.assert_not_awaited()
     # 旧快照保持——失败的重载不改变 diff 基准
+    assert usecase.current_config is snapshot_before
+
+
+async def test_reload_invalid_task_reference_aborts(tmp_path: Path) -> None:
+    """加载期跨文件校验失败（task 引用未知 sink）同样中止重载。"""
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+        points=[_make_point()],
+    )
+    runtime = _mock_runtime()
+    usecase = ConfigUseCase(tmp_path, runtime)
+    snapshot_before = usecase.current_config
+
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+        points=[_make_point()],
+        tasks=[_make_task(sink="no-such-sink")],
+    )
+    result = await usecase.reload()
+
+    assert result.success is False
+    assert result.errors
+    runtime.reconfigure.assert_not_awaited()
     assert usecase.current_config is snapshot_before
 
 
@@ -225,54 +275,118 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# reload —— Task diff 进入 reconfigure
+# ---------------------------------------------------------------------------
+
+
+async def test_reload_task_changes_reach_runtime(tmp_path: Path) -> None:
+    """tasks.yaml 的变更经 diff.tasks 传递给 Runtime.reconfigure。"""
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+        points=[_make_point()],
+        tasks=[_make_task("task-1")],
+    )
+    runtime = _mock_runtime()
+    usecase = ConfigUseCase(tmp_path, runtime)
+
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+        points=[_make_point()],
+        tasks=[_make_task("task-1", interval=2.0), _make_task("task-2")],
+    )
+    result = await usecase.reload()
+
+    assert result.success is True
+    runtime.reconfigure.assert_awaited_once()
+    _, diff = runtime.reconfigure.await_args.args
+    assert diff.tasks.added == ["task-2"]
+    assert diff.tasks.updated == ["task-1"]
+    assert diff.tasks.removed == []
+    assert diff.tasks.unchanged == []
+
+
+# ---------------------------------------------------------------------------
 # compute_diff 纯函数
 # ---------------------------------------------------------------------------
 
 
-async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path) -> None:
+async def test_compute_diff_detects_tasks_added_removed_updated(tmp_path: Path) -> None:
+    """Task diff 四分类：added / removed / updated / unchanged。"""
+    base_kwargs = {
+        "devices": [_make_device("d1")],
+        "sinks": [SinkConfig(name="s1", type="file")],
+        "points": [_make_point()],
+    }
     _write_configs(
         tmp_path,
-        devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
-        points=[_make_point("p1")],
-        rules=[
-            RouteRule(
-                name="r1",
-                match=RouteMatch(point_group="a"),
-                targets=[RouteTarget(sink="s1")],
-            )
+        tasks=[
+            _make_task("keep"),
+            _make_task("change", interval=1.0),
+            _make_task("drop"),
         ],
-        processors=["scale"],
+        **base_kwargs,
     )
-    usecase = ConfigUseCase(tmp_path, _mock_runtime())
-    old = usecase.current_config
+    old = ConfigUseCase(tmp_path, _mock_runtime()).current_config
 
     _write_configs(
         tmp_path,
-        devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file"), SinkConfig(name="s2", type="file")],
-        points=[_make_point("p2")],
-        rules=[
-            RouteRule(
-                name="r2",
-                match=RouteMatch(point_group="b"),
-                targets=[RouteTarget(sink="s2")],
-            )
+        tasks=[
+            _make_task("keep"),
+            _make_task("change", interval=2.0),  # 内容变化
+            _make_task("new"),
         ],
-        processors=["scale", "filter"],
+        **base_kwargs,
     )
-    usecase2 = ConfigUseCase(tmp_path, _mock_runtime())
-    new = usecase2.current_config
+    new = ConfigUseCase(tmp_path, _mock_runtime()).current_config
 
     diff = compute_diff(old, new)
+
+    assert diff.tasks.added == ["new"]
+    assert diff.tasks.removed == ["drop"]
+    assert diff.tasks.updated == ["change"]
+    assert diff.tasks.unchanged == ["keep"]
+    assert diff.has_any_changes is True
+    # 旧 routing 语义已移除——ConfigDiff 不再携带 rules_changed
+    assert not hasattr(diff, "rules_changed")
+
+
+async def test_compute_diff_detects_points_and_pipeline_changes(tmp_path: Path) -> None:
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        points=[_make_point("p1")],
+        processors=["scale"],
+    )
+    old = ConfigUseCase(tmp_path, _mock_runtime()).current_config
+
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        points=[_make_point("p2")],
+        processors=["scale", "filter"],
+    )
+    new = ConfigUseCase(tmp_path, _mock_runtime()).current_config
+
+    diff = compute_diff(old, new)
+
     assert diff.points_changed is True
-    assert diff.rules_changed is True
+    assert diff.point_tables_changed == ["t1"]
     assert diff.pipeline_changed is True
     assert diff.has_any_changes is True
 
 
 async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) -> None:
-    _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
+    _write_configs(
+        tmp_path,
+        devices=[_make_device("d1")],
+        sinks=[SinkConfig(name="s1", type="file")],
+        points=[_make_point()],
+        tasks=[_make_task("task-1")],
+    )
     usecase = ConfigUseCase(tmp_path, _mock_runtime())
     usecase2 = ConfigUseCase(tmp_path, _mock_runtime())
 
@@ -280,6 +394,7 @@ async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) 
 
     assert diff.has_any_changes is False
     assert diff.devices.unchanged == ["d1"]
+    assert diff.tasks.unchanged == ["task-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +429,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                     "points": [
                         {
                             "point_id": "p1",
+                            "point_groups": ["g"],
                             "address": {"type": "hr"},
                             "data_type": "float32",
                             "unit": base_unit,
@@ -325,6 +441,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                     "points": [
                         {
                             "point_id": "p9",
+                            "point_groups": ["g"],
                             "address": {"type": "hr"},
                             "data_type": "float32",
                         }

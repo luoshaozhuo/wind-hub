@@ -63,14 +63,14 @@ def test_guess_service_unknown_port_returns_none() -> None:
 
 
 def test_guess_service_with_custom_config() -> None:
-    """step24：config 提供时查 config.service_map（可含内置表没有的端口）。"""
-    config = PortsConfig(default_ports=[20000], service_map={20000: "dnp3"})
+    """config 提供时查 config.mapping（可含内置表没有的端口）。"""
+    config = PortsConfig(mapping={20000: "dnp3"})
     assert guess_service(20000, config) == "dnp3"
     # config 提供时以 config 为准——内置表有的 22 不在自定义表里则返回 None
     assert guess_service(22, config) is None
 
 
 def test_guess_service_without_config_uses_builtin() -> None:
-    """step24：config 缺省回落内置 SERVICE_MAP（向后兼容）。"""
+    """config 缺省回落内置工业映射（SERVICE_MAP 已删，由 default_ports_config 兜底）。"""
     assert guess_service(502) == "modbus"
     assert guess_service(19999) is None

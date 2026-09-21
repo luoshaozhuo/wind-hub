@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# wind-hub 采集任务 — 周期采集的唯一来源
+# ---------------------------------------------------------------------------
+#
+# 每个 Task 在运行时展开为一组 Task Instance（``{task_id}:{device_id}``）：
+#
+# - device / device_group 二选一（XOR）：
+#     device       — 只采集这一台设备；
+#     device_group — 展开为该分组下全部【启用】设备，每台一个实例；
+#                    设备增删或分组变化在热重载时自动增删实例。
+# - point_group：单值；只采集绑定设备点表中 `point_groups` 包含该组的点。
+#   该组必须存在于每个匹配到的启用设备的点表中（加载期校验）。
+# - interval：必填，> 0；采集循环为「采集 → sleep(interval)」，
+#   不对齐墙钟。
+# - targets：输出去向，引用 system.yaml 的 sink 名；同一 sink 重复出现是
+#   配置错误。点位自身不再声明 sinks。
+# - enabled: false 的 Task 不展开任何实例、不可启动。
+#
+# 实例注册为 STOPPED，需经 CLI/Web API 显式 start（与旧 Job 语义一致）。
+#
+# 注意：read_mode: sequential 的 ADS 设备（如 wtg-005）不参与周期采集，
+# 任何引用它的 Task 都会在加载期报错。
+
+tasks:
+
+  # IEC104 风机遥测（单设备）
+  - task_id: wtg001-telemetry
+    device: wtg-001
+    point_group: telemetry
+    interval: 1.0
+    targets:
+      - sink: kafka_main
+      - sink: file_archive
+
+  # IEC104 风机遥信（单设备）
+  - task_id: wtg001-signals
+    device: wtg-001
+    point_group: signals
+    interval: 5.0
+    targets:
+      - sink: kafka_main
+
+  # Modbus 风机遥测（单设备）
+  - task_id: wtg002-telemetry
+    device: wtg-002
+    point_group: telemetry
+    interval: 2.0
+    targets:
+      - sink: kafka_main
+      - sink: file_archive
+
+  # ADS 机组快变量（按 device_group 展开：wtg-003 / wtg-004）
+  - task_id: turbine-fast
+    device_group: turbine_ads
+    point_group: fast
+    interval: 1.0
+    targets:
+      - sink: kafka_main
+      - sink: file_archive
+
+  # ADS 机组慢变量（按 device_group 展开）
+  - task_id: turbine-slow
+    device_group: turbine_ads
+    point_group: slow
+    interval: 10.0
+    targets:
+      - sink: file_archive

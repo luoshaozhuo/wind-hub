@@ -1,9 +1,9 @@
 """端到端测试 —— 完整运行时 + KafkaSink（broker 以假生产者替代）。
 
-驱动一条真实链路：Modbus 模拟从站 → 采集 → 路由 → KafkaSink 投递。由于本环境无
+驱动一条真实链路：Modbus 模拟从站 → 采集 → Task 分发 → KafkaSink 投递。由于本环境无
 真实 Kafka broker（无需 Docker），``AIOKafkaProducer`` 替换为内存假实现
 （决策 7），验证 full runtime 下点值被序列化成 UTF-8 JSON、带正确 key 投递到
-配置的主题；采集/路由/调度均为真实路径。
+配置的主题；采集/分发/任务调度均为真实路径。
 """
 
 from __future__ import annotations
@@ -52,15 +52,14 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
 
 
 def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
-    """写一份最小完整配置：Modbus 设备 + Kafka sink + 两个点 + 默认路由。"""
+    """写一份最小完整配置：Modbus 设备 + Kafka sink + 两个点 + 1 个采集 Task。"""
     cfg_dir = tmp_path / "configs"
     cfg_dir.mkdir()
     _write_yaml(
         cfg_dir,
         "system.yaml",
         {
-            "scheduler": {
-                "default_interval": 0.2,
+            "runtime": {
                 "connect_timeout": 2.0,
                 "read_timeout": 2.0,
                 "shutdown_timeout": 5.0,
@@ -98,7 +97,6 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
                             "reconnect_backoff_max": 1.0,
                         },
                     },
-                    "polling": [{"group": "telemetry", "interval": 0.2}],
                 }
             ],
         },
@@ -112,13 +110,13 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
                     "points": [
                         {
                             "point_id": "rotor.speed",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 100},
                             "data_type": "float32",
                         },
                         {
                             "point_id": "gen.power",
-                            "group": "telemetry",
+                            "point_groups": ["telemetry"],
                             "address": {"register_type": "holding", "address": 102},
                             "data_type": "float32",
                         },
@@ -129,8 +127,18 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
     )
     _write_yaml(
         cfg_dir,
-        "routing.yaml",
-        {"rules": [{"name": "default", "targets": [{"sink": "kafka"}], "priority": 0}]},
+        "tasks.yaml",
+        {
+            "tasks": [
+                {
+                    "task_id": "modbus-telemetry",
+                    "device": "modbus-1",
+                    "point_group": "telemetry",
+                    "interval": 0.2,
+                    "targets": [{"sink": "kafka"}],
+                }
+            ]
+        },
     )
     return cfg_dir
 
@@ -169,6 +177,8 @@ async def test_kafka_sink_full_runtime(
     cfg_dir = _write_config(tmp_path, key_field="device_id")
     rt = assemble(cfg_dir)
     await start_runtime(rt)
+    for instance in rt.runtime.task_instances().values():
+        await rt.runtime.start_task_instance(instance.instance_id)
     try:
         await _wait_for(lambda: _tagged_msgs("rotor.speed"))
     finally:

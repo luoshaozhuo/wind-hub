@@ -4,17 +4,19 @@
 
 - Protocol 实例生命周期（连接 / 关闭 / 重建）；
 - Sink 生命周期（打开 / 队列 / 消费者任务 / 背压 / 关闭）；
-- Pipeline / Router 当前实例管理（经 :class:`AcquisitionEngine` 原子替换）；
+- 采集 Task：Task Definition（``tasks.yaml``）按设备展开为
+  :class:`CollectionTaskInstance`，每个运行实例一个长期采集协程
+  （``while True: collect → sleep(interval)``），显式 start/stop 生命周期；
+- Pipeline 当前实例管理（经 :class:`AcquisitionEngine` 原子替换）；
 - 设备与 Sink 的增删 / 重建，配置热重载时的运行时重构（:meth:`reconfigure`）；
 - Runtime 状态（running / health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()``。
 
-持有：:class:`~wind_hub.application.port.scheduling.SchedulerPort`（决定「何时
-执行」）、:class:`~wind_hub.domain.acquisition.AcquisitionEngine`（执行
-「一次采集」）、:class:`~wind_hub.domain.command.Dispatcher`（命令分发）。
+持有：:class:`~wind_hub.domain.acquisition.AcquisitionEngine`（执行「一次
+采集」）、:class:`~wind_hub.domain.command.Dispatcher`（命令分发）。
 
-不负责：具体时间调度算法（SchedulerPort 的实现细节）、协议实现细节
-（ProtocolPort 适配器）、配置加载与 diff（ConfigUseCase）。
+不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
+（ConfigUseCase）。
 
 失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
 其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
@@ -27,27 +29,26 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, Protocol
+from functools import partial
+from typing import Protocol
 
-from wind_hub.application.port.scheduling import (
-    POLL_JOB_KIND,
-    JobInfo,
-    JobMetadata,
-    SchedulerPort,
-)
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub.application.runtime.device_state import DeviceRuntimeState
 from wind_hub.application.runtime.dispatcher import RuntimeSinkDispatcher
 from wind_hub.application.runtime.health import RuntimeHealth
 from wind_hub.application.runtime.lifecycle import RuntimeLifecycle
-from wind_hub.config.routing import RoutingTable
+from wind_hub.application.runtime.task_instance import (
+    CollectionTaskInstance,
+    TaskInstanceState,
+    task_instance_id,
+)
 from wind_hub.config.schema import (
+    CollectionTaskConfig,
     Config,
     DeviceConfig,
     PointConfig,
-    PollingGroup,
-    SchedulerConfig,
+    RuntimeConfig,
     SinkConfig,
 )
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
@@ -60,13 +61,11 @@ from wind_hub.domain.port.outbound import (
     ProtocolPort,
 )
 from wind_hub.domain.processing.pipeline import Pipeline
-from wind_hub.domain.routing.delivery import DeliveryDispatcher, policies_from_rules
-from wind_hub.domain.routing.router import Router
 
 logger = logging.getLogger(__name__)
 
 #: 设备更新走轻量路径（不重建 Protocol 连接）所允许的变更字段集。
-_LIGHTWEIGHT_DEVICE_FIELDS = frozenset({"polling", "point_table", "device_group"})
+_LIGHTWEIGHT_DEVICE_FIELDS = frozenset({"point_table", "device_group"})
 
 
 def _changed_fields(old: DeviceConfig, new: DeviceConfig) -> set[str]:
@@ -126,10 +125,9 @@ class Runtime:
     - ``devices`` / ``protocols`` / ``sinks`` — 组件注册表；与
       ``AcquisitionEngine`` 共享同一 dict，热重载就地增删后双方立即可见；
     - ``engine`` — 采集引擎；本类构造时向其绑定 Sink 派发端口；
-    - ``scheduler`` — 调度端口；轮询 Job 以 ``poll:{device_id}:{group}``
-      为 id 注册，执行体为 ``engine.collect``；
+    - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``）；
     - ``dispatcher`` — 命令分发器（持有以便组合根单点管理生命周期）；
-    - ``config`` — ``SchedulerConfig``（队列容量、背压策略、超时）；
+    - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
     - ``points_by_device`` — 按设备分组的点表；
     - ``protocol_factory`` / ``sink_factory`` / ``processor_factory`` —
       热重载重建组件用的工厂（由组合根注入，Runtime 不依赖具体适配器）。
@@ -141,9 +139,9 @@ class Runtime:
         protocols: dict[str, ProtocolPort],
         sinks: dict[str, SinkPort],
         engine: AcquisitionEngine,
-        scheduler: SchedulerPort,
         dispatcher: Dispatcher,
-        config: SchedulerConfig,
+        config: RuntimeConfig,
+        tasks: dict[str, CollectionTaskConfig] | None = None,
         points_by_device: dict[str, list[PointConfig]] | None = None,
         protocol_factory: Callable[[DeviceConfig], ProtocolPort] | None = None,
         sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
@@ -156,9 +154,9 @@ class Runtime:
         self._protocols = protocols
         self._sinks = sinks
         self._engine = engine
-        self._scheduler = scheduler
         self._dispatcher = dispatcher
         self._config = config
+        self._task_defs: dict[str, CollectionTaskConfig] = dict(tasks or {})
         self._points_by_device = points_by_device if points_by_device is not None else {}
         self._protocol_factory = protocol_factory
         self._sink_factory = sink_factory
@@ -173,16 +171,27 @@ class Runtime:
             device_id: DeviceRuntimeState() for device_id in devices
         }
 
-        # 每个采集 Job（(device, group)）的业务执行状态——与设备连接状态
-        # 分维度，与调度器的 Job 注册/暂停状态也是不同维度。Job 注册时
-        # 建立、注销时删除；引擎 collect 经 AcquisitionStatePort 上报演进。
+        # 采集 Task 运行时三簿记：
+        # - ``_task_instances``：展开后的 Task Instance 快照（不可变，热重载
+        #   整体替换）；
+        # - ``_instance_states``：实例生命周期状态（RUNNING/STOPPED，显式
+        #   簿记——协程是否存在由它决定，不反向推断）；
+        # - ``_task_coroutines``：运行中实例的采集协程引用（不留
+        #   orphan asyncio task）。
+        self._task_instances: dict[str, CollectionTaskInstance] = {}
+        self._instance_states: dict[str, TaskInstanceState] = {}
+        self._task_coroutines: dict[str, asyncio.Task[None]] = {}
+
+        # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
+        # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
+        # 上报演进。
         self._acq_states: dict[str, AcquisitionRuntimeState] = {}
 
         self._lifecycle = RuntimeLifecycle(self)
         self._sink_dispatcher = RuntimeSinkDispatcher(self)
         self._health = RuntimeHealth(self)
 
-        # Sink 派发的落点：引擎路由结果进入本类的队列/背压/消费者机制。
+        # Sink 派发的落点：引擎采集结果进入本类的队列/背压/消费者机制。
         self._engine.attach_sink_dispatch(self)
         # 设备连接状态的落点：引擎采集前经 ensure_connected 完成带节流的
         # 重连，采集后上报 read 结果（本类实现 DeviceStatePort）。
@@ -196,8 +205,8 @@ class Runtime:
             name: asyncio.Queue(maxsize=config.queue_maxsize) for name in sinks
         }
 
-        # Sink 消费者任务簿记（设备侧由调度器 Job 承担，不再有设备任务）
-        self._sink_tasks: dict[str, asyncio.Task[Any]] = {}
+        # Sink 消费者任务簿记
+        self._sink_tasks: dict[str, asyncio.Task[None]] = {}
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
         # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
         self._lifecycle_lock = asyncio.Lock()
@@ -208,7 +217,7 @@ class Runtime:
         # and surfaced as unhealthy by :meth:`health`.
         self._unhealthy_sinks: set[str] = set()
 
-        # 运行期统计（决策 7）：路由/丢弃在 Sink 派发侧计数；
+        # 运行期统计：派发/丢弃在 Sink 派发侧计数；
         # 采集计数在引擎侧（经 ``points_collected`` 属性透传）。
         self._points_routed = 0
         self._points_dropped = 0
@@ -242,21 +251,18 @@ class Runtime:
         """命令分发器。"""
         return self._dispatcher
 
-    @property
-    def current_router(self) -> Router:
-        """当前路由表实例——热替换后立即可见。"""
-        return self._engine.current_router
-
     # ------------------------------------------------------------------
     # Runtime 整体生命周期
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动运行时——连接设备、打开 sink、启动调度器并注册采集 Job。"""
+        """启动运行时——连接设备、打开 sink、注册采集 Task Instance（默认
+        STOPPED，显式 start 才进入周期采集）。"""
         await self._lifecycle.start()
 
     async def stop(self) -> None:
-        """优雅停机——停调度、排空队列、flush 并关闭 sink、关闭设备连接。"""
+        """优雅停机——停全部实例采集协程、排空队列、flush 并关闭 sink、
+        关闭设备连接。"""
         await self._lifecycle.stop()
 
     # ------------------------------------------------------------------
@@ -272,9 +278,9 @@ class Runtime:
         """运行时是否完整就绪。
 
         ``True`` 仅在 :meth:`start` 完成全部步骤（设备连接尝试、sink
-        打开、调度器与 Job 注册）之后、:meth:`stop` 开始之前。启动进行中
+        打开、Task Instance 注册）之后、:meth:`stop` 开始之前。启动进行中
         （如不可达设备仍在 ``connect_timeout`` 内）为 ``False``，使
-        ``/health`` 能区分「启动中」与「已就绪」（决策 1）。
+        ``/health`` 能区分「启动中」与「已就绪」。
         """
         return self._running and self._started
 
@@ -288,17 +294,17 @@ class Runtime:
 
     @property
     def points_collected(self) -> int:
-        """累计采集点数（引擎侧口径，含轮询与订阅推送）。"""
+        """累计采集点数（引擎侧口径）。"""
         return self._engine.points_collected
 
     @property
     def points_routed(self) -> int:
-        """累计路由点数——成功进入 sink 队列的点值总数（单调不减，决策 7）。"""
+        """累计派发点数——成功进入 sink 队列的点值总数（单调不减）。"""
         return self._points_routed
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（单调不减，决策 7）。"""
+        """累计丢弃点数——背压策略丢弃的点值总数（单调不减）。"""
         return self._points_dropped
 
     def sink_queue_depths(self) -> dict[str, int]:
@@ -307,11 +313,195 @@ class Runtime:
         return {name: queue.qsize() for name, queue in self._queues.items()}
 
     # ------------------------------------------------------------------
+    # 采集 Task——定义查询与实例生命周期（TaskUseCase 的操作面）
+    # ------------------------------------------------------------------
+
+    def task_definitions(self) -> dict[str, CollectionTaskConfig]:
+        """当前 Task Definition 注册表（浅拷贝）。"""
+        return dict(self._task_defs)
+
+    def task_instances(self) -> dict[str, CollectionTaskInstance]:
+        """当前展开后的 Task Instance 注册表（浅拷贝）。"""
+        return dict(self._task_instances)
+
+    def instance_states(self) -> dict[str, TaskInstanceState]:
+        """各 Task Instance 的生命周期状态（浅拷贝）。"""
+        return dict(self._instance_states)
+
+    async def start_task_instance(self, instance_id: str) -> None:
+        """启动单个 Task Instance 的周期采集（创建实例协程）。
+
+        幂等：已 RUNNING 的实例不触碰——同一实例绝不会出现两份协程。
+
+        Raises:
+            KeyError: ``instance_id`` 不存在。
+        """
+        if instance_id not in self._task_instances:
+            raise KeyError(instance_id)
+        if self._instance_states[instance_id] is TaskInstanceState.RUNNING:
+            return
+        self._instance_states[instance_id] = TaskInstanceState.RUNNING
+        task = asyncio.create_task(self._run_task_instance(instance_id))
+        task.add_done_callback(partial(self._on_instance_done, instance_id))
+        self._task_coroutines[instance_id] = task
+
+    async def stop_task_instance(self, instance_id: str) -> None:
+        """停止单个 Task Instance 的周期采集（取消实例协程）。
+
+        幂等：已 STOPPED 的实例不触碰。不删除实例、不清理采集执行状态、
+        不关闭设备连接，也不影响其他实例。
+
+        Raises:
+            KeyError: ``instance_id`` 不存在。
+        """
+        if instance_id not in self._task_instances:
+            raise KeyError(instance_id)
+        if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
+            return
+        self._instance_states[instance_id] = TaskInstanceState.STOPPED
+        await self._cancel_instance_coroutine(instance_id)
+
+    def _on_instance_done(self, instance_id: str, task: asyncio.Task[None]) -> None:
+        """实例采集协程结束的簿记回调——摘除协程引用并暴露意外退出。
+
+        正常路径（stop / shutdown / 实例注销）都是先摘引用再 cancel，这里
+        的 pop 是幂等兜底；循环体已捕获全部 ``Exception``，能走到
+        ``task.exception()`` 非空的只有 ``BaseException`` 级缺陷——如实
+        记录，不静默。
+        """
+        self._task_coroutines.pop(instance_id, None)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "Task instance '%s' collection coroutine exited unexpectedly: %s",
+                instance_id,
+                exc,
+                exc_info=exc,
+            )
+
+    async def _cancel_instance_coroutine(self, instance_id: str) -> None:
+        """取消并等待实例的采集协程结束（引用已摘除，幂等）。"""
+        task = self._task_coroutines.pop(instance_id, None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _run_task_instance(self, instance_id: str) -> None:
+        """Task Instance 的长期采集循环：``collect → sleep(interval)``。
+
+        轮询语义是「本轮 collect 完成 → 等待 interval → 下一轮」，不是严格
+        墙钟周期（collect 耗时 0.3 s + interval 1 s ⇒ 下一轮约 1.3 s 后）。
+
+        - 实例对象每轮从注册表现取——热重载替换实例（interval / targets /
+          point_group 变化）无需重启协程，下一轮自然生效；
+        - 实例被注销（Task 删除 / 设备移出分组 / 设备禁用）时循环退出；
+        - 单次 collect 抛出的异常（引擎已吞掉读异常，这里只剩管线/派发级
+          意外）记录后继续下一轮——一个实例的失败不影响其他实例；
+        - ``CancelledError`` 原样传播（stop / shutdown 语义），绝不吞掉。
+        """
+        while True:
+            instance = self._task_instances.get(instance_id)
+            if instance is None:
+                return
+            try:
+                await self._engine.collect(
+                    instance.device_id,
+                    instance.point_group,
+                    list(instance.targets),
+                    instance.instance_id,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "Task instance '%s' collect failed unexpectedly — " "continuing next cycle",
+                    instance_id,
+                    exc_info=True,
+                )
+            await asyncio.sleep(instance.interval)
+
+    async def _sync_task_instances(self) -> None:
+        """把 Task Instance 注册表同步为「当前 Task 定义 × 当前设备」的展开
+        结果。
+
+        - 消失的实例：取消协程、删除实例与其生命周期/执行状态；
+        - 新增的实例：以 STOPPED 注册（与启动语义一致——显式 start 才运行）；
+        - 仍存在的实例：整体替换为最新快照（运行中协程下一轮读取新值，
+          启停状态保持不变）。
+
+        本方法幂等，设备增删/重建/轻量更新与 Task diff 应用后都会调用。
+        """
+        desired = self._desired_instances()
+
+        for iid in set(self._task_instances) - set(desired):
+            await self._cancel_instance_coroutine(iid)
+            self._task_instances.pop(iid, None)
+            self._instance_states.pop(iid, None)
+            self._acq_states.pop(iid, None)
+            logger.info("Task instance '%s' unregistered", iid)
+
+        for iid, instance in desired.items():
+            is_new = iid not in self._task_instances
+            self._task_instances[iid] = instance
+            if is_new:
+                self._instance_states[iid] = TaskInstanceState.STOPPED
+                logger.info("Task instance '%s' registered (stopped)", iid)
+            state = self._acq_states.get(iid)
+            if (
+                state is None
+                or state.task_id != instance.task_id
+                or state.point_group != instance.point_group
+            ):
+                self._acq_states[iid] = AcquisitionRuntimeState(
+                    instance_id=iid,
+                    task_id=instance.task_id,
+                    device_id=instance.device_id,
+                    point_group=instance.point_group,
+                )
+
+    def _desired_instances(self) -> dict[str, CollectionTaskInstance]:
+        """展开当前 Task 定义为 Task Instance 集。
+
+        - ``enabled: false`` 的 Task 不展开（不创建运行实例）；
+        - ``device`` Task 只在设备存在且 enabled 时展开；
+        - ``device_group`` Task 对每台 enabled 且 ``device_group`` 匹配的
+          设备展开一个实例（disabled 设备不参与周期采集）。
+        """
+        desired: dict[str, CollectionTaskInstance] = {}
+        for task in self._task_defs.values():
+            if not task.enabled:
+                continue
+            if task.device is not None:
+                dev = self._devices.get(task.device)
+                device_ids = [task.device] if dev is not None and dev.enabled else []
+            else:
+                device_ids = [
+                    d.device_id
+                    for d in self._devices.values()
+                    if d.enabled and d.device_group == task.device_group
+                ]
+            for device_id in device_ids:
+                iid = task_instance_id(task.task_id, device_id)
+                desired[iid] = CollectionTaskInstance(
+                    instance_id=iid,
+                    task_id=task.task_id,
+                    device_id=device_id,
+                    point_group=task.point_group,
+                    interval=task.interval,
+                    targets=[t.sink for t in task.targets],
+                )
+        return desired
+
+    # ------------------------------------------------------------------
     # Sink 派发端口实现（AcquisitionEngine → Runtime 的落点）
     # ------------------------------------------------------------------
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
-        """把路由结果按 sink 入队，应用背压策略（实现 ``SinkDispatchPort``）。"""
+        """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。"""
         await self._sink_dispatcher.dispatch(routed)
 
     # ------------------------------------------------------------------
@@ -358,9 +548,7 @@ class Runtime:
             if _is_connection_level(exc):
                 logger.warning("Device '%s' reconnect attempt failed: %s", device_id, exc)
             else:
-                logger.warning(
-                    "Device '%s' reconnect attempt failed", device_id, exc_info=True
-                )
+                logger.warning("Device '%s' reconnect attempt failed", device_id, exc_info=True)
             return False
         state.mark_success(now)
         if self._metrics is not None:
@@ -405,39 +593,51 @@ class Runtime:
     # 采集执行状态端口实现（AcquisitionEngine → Runtime 的 collect 钩子）
     # ------------------------------------------------------------------
 
-    def report_collect_started(self, device_id: str, group: str) -> None:
+    def report_collect_started(self, execution_id: str, device_id: str, group: str) -> None:
         """一次 collect 开始（实现 ``AcquisitionStatePort``）。"""
-        self._acq_state_for(device_id, group).begin(self._clock())
+        self._acq_state_for(execution_id, device_id, group).begin(self._clock())
 
-    def report_collect_success(self, device_id: str, group: str, *, partial: bool) -> None:
+    def report_collect_success(
+        self, execution_id: str, device_id: str, group: str, *, partial: bool
+    ) -> None:
         """一次 collect 成功（含 partial——GOOD/BAD 混合不计连续失败）。"""
-        state = self._acq_state_for(device_id, group)
+        state = self._acq_state_for(execution_id, device_id, group)
         state.finish_success(self._clock(), partial=partial)
         if self._metrics is not None:
             self._metrics.acquisition_run_finished(
                 device_id, group, "partial" if partial else "success", state.last_duration
             )
 
-    def report_collect_failure(self, device_id: str, group: str, error: str) -> None:
+    def report_collect_failure(
+        self, execution_id: str, device_id: str, group: str, error: str
+    ) -> None:
         """一次 collect 失败（读异常/读超时/断线跳过/无有效结果）。"""
-        state = self._acq_state_for(device_id, group)
+        state = self._acq_state_for(execution_id, device_id, group)
         state.finish_failure(self._clock(), error)
         if self._metrics is not None:
-            self._metrics.acquisition_run_finished(
-                device_id, group, "failed", state.last_duration
-            )
+            self._metrics.acquisition_run_finished(device_id, group, "failed", state.last_duration)
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
-        """当前采集 Job 状态簿（``{job_id: state}`` 浅拷贝，QueryUseCase 用）。"""
+        """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，
+        QueryUseCase 用）。"""
         return dict(self._acq_states)
 
-    def _acq_state_for(self, device_id: str, group: str) -> AcquisitionRuntimeState:
-        """取采集 Job 状态；缺失时惰性创建（与 Job 注册路径的提前建立互补）。"""
-        job_id = self._job_id(device_id, group)
-        return self._acq_states.setdefault(
-            job_id,
-            AcquisitionRuntimeState(job_id=job_id, device_id=device_id, group=group),
-        )
+    def _acq_state_for(
+        self, execution_id: str, device_id: str, group: str
+    ) -> AcquisitionRuntimeState:
+        """取采集执行状态；缺失时按当前实例信息创建（引擎只对运行中实例
+        上报，实例必然已注册）。"""
+        state = self._acq_states.get(execution_id)
+        if state is None:
+            inst = self._task_instances[execution_id]
+            state = AcquisitionRuntimeState(
+                instance_id=execution_id,
+                task_id=inst.task_id,
+                device_id=device_id,
+                point_group=group,
+            )
+            self._acq_states[execution_id] = state
+        return state
 
     # ------------------------------------------------------------------
     # 热重载——设备管理
@@ -450,7 +650,7 @@ class Runtime:
         protocol: ProtocolPort,
         points: list[PointConfig],
     ) -> None:
-        """运行时新增设备——注入点表、连接、注册采集 Job（默认 STOPPED）。"""
+        """运行时新增设备——注入点表、连接、同步采集实例（默认 STOPPED）。"""
         self._devices[device_id] = cfg
         self._protocols[device_id] = protocol
         protocol.set_points_mapping(points)
@@ -471,18 +671,16 @@ class Runtime:
         except Exception as exc:
             self._note_connect_failure(device_id, exc)
             logger.warning(
-                "Hot-reload: device '%s' failed to connect — task launched anyway",
+                "Hot-reload: device '%s' failed to connect",
                 device_id,
                 exc_info=True,
             )
 
-        if cfg.enabled and self._running:
-            await self._start_acquisition(device_id, cfg)
+        # 新设备可能落入某些 device_group Task 的展开范围。
+        await self._sync_task_instances()
 
     async def remove_device(self, device_id: str) -> None:
-        """运行时移除设备——注销其全部调度 Job 并关闭连接。"""
-        self._remove_device_jobs(device_id)
-
+        """运行时移除设备——停止并注销其全部采集实例并关闭连接。"""
         proto = self._protocols.pop(device_id, None)
         if proto is not None:
             try:
@@ -497,6 +695,7 @@ class Runtime:
         self._devices.pop(device_id, None)
         self._points_by_device.pop(device_id, None)
         self._device_states.pop(device_id, None)
+        await self._sync_task_instances()
         logger.info("Hot-reload: device '%s' removed", device_id)
 
     async def rebuild_device(
@@ -506,19 +705,12 @@ class Runtime:
         new_protocol: ProtocolPort,
         points: list[PointConfig],
     ) -> None:
-        """重建设备——注销旧 Job、关闭旧连接，换入新配置/驱动后重新接入。
+        """重建设备——关闭旧连接，换入新配置/驱动后重新接入。
 
-        采集 Job 的调度状态（RUNNING/STOPPED）跨重建保持：注销前记录各
-        Job 的暂停态，重新注册时原样恢复——设备重连或协议重建不会让
-        STOPPED Job 自动启动，也不会打断 RUNNING Job。
+        采集实例以 ``{task_id}:{device_id}`` 为键，设备重建不改变展开
+        结果——实例与其启停状态、协程跨重建保持（运行中协程经共享注册表
+        读到新驱动），不会被打断。
         """
-        job_states = {
-            job.job_id: job.paused
-            for job in self._scheduler.list_jobs()
-            if self._owns_job(device_id, job)
-        }
-        self._remove_device_jobs(device_id)
-
         old_proto = self._protocols.pop(device_id, None)
         if old_proto is not None:
             try:
@@ -557,8 +749,8 @@ class Runtime:
                 exc_info=True,
             )
 
-        if new_cfg.enabled and self._running:
-            await self._start_acquisition(device_id, new_cfg, job_states=job_states)
+        # device_group / enabled 可能随新配置变化——重新展开采集实例。
+        await self._sync_task_instances()
 
     # ------------------------------------------------------------------
     # 热重载——sink 管理
@@ -655,12 +847,8 @@ class Runtime:
             self._sink_tasks[sink_name] = new_task
 
     # ------------------------------------------------------------------
-    # 热重载——router / pipeline 替换
+    # 热重载——pipeline 替换
     # ------------------------------------------------------------------
-
-    async def replace_router(self, new_router: Router) -> None:
-        """原子替换路由表（点表/规则变更时）。Sink 队列不受影响。"""
-        await self._engine.replace_router(new_router)
 
     async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
         """原子替换处理链（处理器列表或点表变更时）。"""
@@ -671,11 +859,12 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def reconfigure(self, new_config: Config, diff: ConfigDiff) -> list[str]:
-        """按 diff 重构运行时——设备/sink 增删重建、路由表与处理链替换。
+        """按 diff 重构运行时——设备/sink/task 增删重建、点映射重注入与
+        处理链替换。
 
-        各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行
-        （与旧 ConfigUseCase 的部分失败语义一致）。本方法不修改配置快照——
-        ``current_config`` 的提交时机由 ConfigUseCase 决定。
+        各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
+        本方法不修改配置快照——``current_config`` 的提交时机由
+        ConfigUseCase 决定。
 
         Args:
             new_config: 已加载并通过校验的新配置。
@@ -685,15 +874,6 @@ class Runtime:
             错误描述列表；空列表表示全部阶段成功。
         """
         errors: list[str] = []
-
-        # device_group 变化影响路由匹配——必须在设备 diff 应用前用旧配置比较
-        # （_apply_device_diff 会用新配置覆盖 self._devices）。
-        new_devices_by_id = {d.device_id: d for d in new_config.devices.devices}
-        device_group_changed = any(
-            (old := self._devices.get(did)) is not None
-            and old.device_group != new_devices_by_id[did].device_group
-            for did in diff.devices.updated
-        )
 
         try:
             await self._apply_device_diff(diff, new_config)
@@ -708,7 +888,7 @@ class Runtime:
             errors.append(f"sink: {exc}")
 
         # 点表内容变化：对绑定受影响表、且未在设备 diff 中增删重建的设备，
-        # 仅重注入点映射——不重建 Protocol 连接（A.10）。
+        # 仅重注入点映射——不重建 Protocol 连接。
         if diff.point_tables_changed:
             try:
                 self._reinject_changed_tables(new_config, diff)
@@ -716,33 +896,18 @@ class Runtime:
                 logger.error("Point mapping re-inject failed: %s", exc, exc_info=True)
                 errors.append(f"points: {exc}")
 
-        routing_stale = diff.points_changed or diff.rules_changed or device_group_changed
-        if routing_stale:
-            try:
-                table = RoutingTable(
-                    new_config.routing.rules,
-                    new_config.points_by_device(),
-                    new_config.routing.unmatched_policy,
-                    device_groups={
-                        d.device_id: d.device_group for d in new_config.devices.devices
-                    },
-                )
-                router = Router(table)
-                await self.replace_router(router)
-                # 投递策略随路由表整体重建（B.4）——只替换策略/dispatcher
-                # 状态，不触碰 Sink 与 Protocol。
-                await self._engine.replace_delivery(
-                    DeliveryDispatcher(router, policies_from_rules(new_config.routing.rules))
-                )
-                logger.info("Routing table rebuilt (%d entries)", table.size)
-            except Exception as exc:
-                logger.error("Routing table rebuild failed: %s", exc, exc_info=True)
-                errors.append(f"routing: {exc}")
+        # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
+        # 改变展开结果（device_group 成员、enabled 翻转），统一在此收尾同步
+        # ——实例增删只影响对应实例，不触碰任何 Protocol 连接。
+        try:
+            self._task_defs = {t.task_id: t for t in new_config.tasks.tasks}
+            await self._sync_task_instances()
+        except Exception as exc:
+            logger.error("Task instance sync failed: %s", exc, exc_info=True)
+            errors.append(f"tasks: {exc}")
 
         # 点表变更也让 Processor 重新注入新点表（死区状态重置可接受）
-        if (
-            diff.pipeline_changed or diff.points_changed
-        ) and self._processor_factory is not None:
+        if (diff.pipeline_changed or diff.points_changed) and self._processor_factory is not None:
             try:
                 points_by_device = new_config.points_by_device()
                 processors = [
@@ -783,8 +948,8 @@ class Runtime:
     async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
         """按 diff 增删重建设备；新增/重建的协议实例由工厂创建。
 
-        仅 ``polling`` / ``point_table`` 变化的设备走轻量路径——就地更新
-        配置、同步调度 Job、按需重注入点映射，不重建 Protocol 连接。
+        仅 ``point_table`` / ``device_group`` 变化的设备走轻量路径——就地
+        更新配置、按需重注入点映射，不重建 Protocol 连接。
         """
         new_devices = {d.device_id: d for d in new_cfg.devices.devices}
 
@@ -822,10 +987,11 @@ class Runtime:
     def _apply_lightweight_device_update(
         self, device_id: str, new_dev: DeviceConfig, new_cfg: Config
     ) -> None:
-        """轻量设备更新（仅 polling / point_table 变化）——不重建连接。
+        """轻量设备更新（仅 point_table / device_group 变化）——不重建连接。
 
         - ``point_table`` 变化：仅向既有 Protocol 重注入新点映射；
-        - ``polling`` 变化：仅同步调度 Job（增删/替换受影响 Job）。
+        - ``device_group`` 变化：不触碰连接，仅影响 ``device_group`` Task
+          的展开结果（由 ``reconfigure`` 末尾的统一同步处理）。
         """
         old_dev = self._devices[device_id]
         self._devices[device_id] = new_dev
@@ -837,50 +1003,7 @@ class Runtime:
                 proto.set_points_mapping(points)
             self._points_by_device[device_id] = points
 
-        if new_dev.polling != old_dev.polling:
-            self._sync_device_jobs(device_id, new_dev)
-
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
-
-    def _sync_device_jobs(self, device_id: str, device_cfg: DeviceConfig) -> None:
-        """把设备的轮询 Job 同步为当前 polling 配置。
-
-        只增删/替换受影响的 Job：消失的 group 注销 Job；现存 group 经
-        ``replace_existing=True`` 按新 interval 重建，并**保持其当前
-        RUNNING/STOPPED 状态**（interval 修改不统一 resume）；热新增的
-        group 一律以 STOPPED 注册；未运行或非轮询设备不新建 Job。
-        """
-        desired = {self._job_id(device_id, g.group): g for g in self._polling_groups(device_cfg)}
-        existing = {
-            job.job_id: job for job in self._scheduler.list_jobs() if self._owns_job(device_id, job)
-        }
-        for job_id in existing:
-            if job_id not in desired:
-                self._scheduler.remove_job(job_id)
-                # 消失的 group 连同其采集状态一起清理。
-                self._acq_states.pop(job_id, None)
-
-        if not (
-            device_cfg.enabled and self._running and device_cfg.supports_scheduled_polling
-        ):
-            return
-        for job_id, group in desired.items():
-            # 已存在的 Job 保持原调度状态；新 Job 默认 STOPPED（显式启动才运行）。
-            start_paused = existing[job_id].paused if job_id in existing else True
-            self._scheduler.add_interval_job(
-                job_id=job_id,
-                interval_seconds=group.interval,
-                func=self._engine.collect,
-                metadata=self._job_metadata(device_id, group.group),
-                args=(device_id, group.group),
-                replace_existing=True,
-                start_paused=start_paused,
-            )
-            # 新 group 建立新状态；interval 变化（Job 原地替换）保留原状态。
-            self._acq_states.setdefault(
-                job_id,
-                AcquisitionRuntimeState(job_id=job_id, device_id=device_id, group=group.group),
-            )
 
     @staticmethod
     def _points_for_device(config: Config, device_id: str) -> list[PointConfig]:
@@ -911,124 +1034,8 @@ class Runtime:
             await self.rebuild_sink(name, cfg, sink)
 
     # ------------------------------------------------------------------
-    # 私有——采集接入（调度 Job 注册）
-    # ------------------------------------------------------------------
-
-    def _polling_groups(self, device_cfg: DeviceConfig) -> list[PollingGroup]:
-        """返回设备的轮询分组；未配置时使用默认分组（默认间隔）。"""
-        groups = list(device_cfg.polling)
-        if not groups:
-            groups = [PollingGroup(group="default", interval=self._config.default_interval)]
-        return groups
-
-    @staticmethod
-    def _job_id(device_id: str, group: str) -> str:
-        """轮询 Job 标识约定：``poll:{device_id}:{group}``。"""
-        return f"poll:{device_id}:{group}"
-
-    @staticmethod
-    def _job_metadata(device_id: str, group: str) -> JobMetadata:
-        """轮询 Job 的业务元数据——注册时显式传入，与 Job ID 解耦。"""
-        return JobMetadata(kind=POLL_JOB_KIND, device_id=device_id, group=group)
-
-    @staticmethod
-    def _owns_job(device_id: str, job: JobInfo) -> bool:
-        """该 Job 是否属于指定设备的采集 Job——按元数据判定，不解析 Job ID。
-
-        元数据里的 ``device_id`` 是精确匹配，天然免疫「id 前缀歧义」
-        （如设备 ``d1`` 与 ``d1:sub`` 的 Job ID 前缀互相包含）。
-        """
-        return job.metadata.kind == POLL_JOB_KIND and job.metadata.device_id == device_id
-
-    def _remove_device_jobs(self, device_id: str) -> None:
-        """注销某设备的全部轮询 Job（按元数据归属匹配）。
-
-        未知 Job 的 ``remove_job`` 会抛 ``KeyError``——设备可能不参与周期
-        调度而没有轮询 Job，故缺席是正常情况，静默跳过。
-        采集执行状态随 Job 一并清理。
-        """
-        for job in self._scheduler.list_jobs():
-            if self._owns_job(device_id, job):
-                self._scheduler.remove_job(job.job_id)
-                self._acq_states.pop(job.job_id, None)
-
-    async def _start_acquisition(
-        self,
-        device_id: str,
-        device_cfg: DeviceConfig,
-        *,
-        job_states: dict[str, bool] | None = None,
-    ) -> None:
-        """为启用且参与周期调度的设备注册轮询 Job；禁用或
-        ADS ``sequential`` 设备跳过（后者只允许请求驱动的单次读取）。
-
-        新 Job 一律以 STOPPED（paused）注册——程序启动与热新增都不会自动
-        开始周期采集，只有 CLI / Web API 的显式 start 才恢复调度。
-        ``job_states``（``{job_id: paused}``）用于设备重建路径恢复既有
-        Job 的调度状态。
-        """
-        if not (device_cfg.enabled and device_cfg.supports_scheduled_polling):
-            return
-        for group in self._polling_groups(device_cfg):
-            job_id = self._job_id(device_id, group.group)
-            start_paused = job_states.get(job_id, True) if job_states else True
-            self._scheduler.add_interval_job(
-                job_id=job_id,
-                interval_seconds=group.interval,
-                func=self._engine.collect,
-                metadata=self._job_metadata(device_id, group.group),
-                args=(device_id, group.group),
-                replace_existing=True,
-                start_paused=start_paused,
-            )
-            # Job 注册即建立采集状态（首次 collect 前 status 即可见）。
-            self._acq_states.setdefault(
-                job_id,
-                AcquisitionRuntimeState(
-                    job_id=job_id, device_id=device_id, group=group.group
-                ),
-            )
-
-    # ------------------------------------------------------------------
     # 私有——sink 背压与消费者
     # ------------------------------------------------------------------
-
-    async def _handle_backpressure(
-        self,
-        queue: asyncio.Queue[list[PointValue]],
-        batch: list[PointValue],
-        sink_name: str,
-    ) -> None:
-        """按配置的背压策略把批次送入队列，并维护路由/丢弃计数。"""
-        policy = self._config.backpressure_policy
-
-        if policy == "drop_new":
-            if queue.full():
-                self._points_dropped += len(batch)
-                logger.warning(
-                    "Sink '%s' queue full (%d) — dropping new batch (%d points)",
-                    sink_name,
-                    queue.maxsize,
-                    len(batch),
-                )
-                return
-            await queue.put(batch)
-            self._points_routed += len(batch)
-
-        elif policy == "drop_old":
-            # Drain oldest entries until there is room
-            while queue.full():
-                try:
-                    evicted = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                self._points_dropped += len(evicted)
-            await queue.put(batch)
-            self._points_routed += len(batch)
-
-        elif policy == "block":
-            await queue.put(batch)
-            self._points_routed += len(batch)
 
     async def _sink_consumer(self, sink_name: str, sink: SinkPort) -> None:
         """Per-sink 消费者任务——从队列取批次并写入 SinkPort。"""

@@ -5,7 +5,7 @@
 1. 启动对应协议的本地 server（:mod:`tests.perf.servers`）；
 2. 在 veth 两端应用 netem 场景（中断场景改为测量中触发一次）；
 3. 生成压测专用配置（单设备、NullSink、空 pipeline——隔离处理器
-   耗时，专注采集 + 路由链路；背压队列放大到不可能触顶，丢点只可能
+   耗时，专注采集 + 分发链路；背压队列放大到不可能触顶，丢点只可能
    来自网络侧）；
 4. ``assemble`` + ``start_runtime`` 起真实引擎；
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
@@ -86,7 +86,7 @@ _OUTAGE_TRIGGER_DELAY_S = 2.0
 
 
 def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
-    """生成对应协议的设备配置（决策 5 的轮询间隔来自 :data:`PLANS`）。"""
+    """生成对应协议的设备配置（决策 5 的采集间隔来自 :data:`PLANS`）。"""
     plan = PLANS[protocol]
     if protocol == "modbus":
         extensions: dict[str, object] = {"unit_id": 1}
@@ -106,7 +106,6 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
         protocol=protocol,
         point_table="perf",
         endpoint=Endpoint(host=host, port=port, extensions=extensions),
-        polling=[{"group": "default", "interval": plan.poll_interval_s}],
         enabled=True,
     )
 
@@ -132,6 +131,7 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
         points.append(
             PointConfig(
                 point_id=point_id,
+                point_groups=["default"],
                 address=address,
                 data_type=data_type,
             )
@@ -140,18 +140,18 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
 
 
 def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> None:
-    """把压测配置写入目录（system/devices/points/routing 四件套）。
+    """把压测配置写入目录（system/devices/points/tasks 四件套）。
 
     pipeline 为空（隔离处理器耗时）；背压队列放大到 100 万，确保丢点
     只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble`` 的
     ``sink_factory`` 替换为 NullSink，``type`` 字段仅占位。
     """
+    plan = PLANS[protocol]
     device = get_device_config(protocol, host, port)
-    points = get_point_configs(protocol, PLANS[protocol].num_points)
+    points = get_point_configs(protocol, plan.num_points)
 
     system = {
-        "scheduler": {
-            "default_interval": PLANS[protocol].poll_interval_s,
+        "runtime": {
             "queue_maxsize": 1_000_000,
             "backpressure_policy": "drop_old",
             "shutdown_timeout": 10.0,
@@ -162,24 +162,22 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
         "sinks": [{"name": "perf_null", "type": "null", "enabled": True}],
         "interfaces": {"api": {"enabled": False}, "cli": {"enabled": False}},
     }
-    routing = {
-        "unmatched_policy": "drop",
-        "rules": [
+    tasks = {
+        "tasks": [
             {
-                "name": "all-to-null",
-                "match": {"all": True},
+                "task_id": "perf",
+                "device": plan.device_id,
+                "point_group": "default",
+                "interval": plan.poll_interval_s,
                 "targets": [{"sink": "perf_null"}],
-                "priority": 0,
             }
         ],
     }
     files = {
         "system.yaml": system,
         "devices.yaml": {"devices": [device.model_dump()]},
-        "points.yaml": {
-            "point_tables": {"perf": {"points": [p.model_dump() for p in points]}}
-        },
-        "routing.yaml": routing,
+        "points.yaml": {"point_tables": {"perf": {"points": [p.model_dump() for p in points]}}},
+        "tasks.yaml": tasks,
     }
     for name, payload in files.items():
         (config_dir / name).write_text(
@@ -194,7 +192,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
 
 @dataclass
 class _StatsDelta:
-    """测量窗口内的运行时计数差值（满足 collector 的 SchedulerStats 协议）。"""
+    """测量窗口内的运行时计数差值（满足 collector 的 RuntimeStats 协议）。"""
 
     points_collected: int
     points_routed: int
@@ -271,6 +269,9 @@ async def run_benchmark(
             rt.engine.add_observer(_make_latency_observer(collector))
 
             await start_runtime(rt)
+            # 实例注册为 STOPPED，压测需显式启动全部 Task Instance
+            for instance in runtime.task_instances().values():
+                await runtime.start_task_instance(instance.instance_id)
             health_task = asyncio.create_task(
                 _health_watch(rt.protocols[plan.device_id], collector)
             )

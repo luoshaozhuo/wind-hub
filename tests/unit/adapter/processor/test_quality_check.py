@@ -15,6 +15,7 @@ def _point(
     data_type: str = "float32",
 ) -> PointConfig:
     return PointConfig(
+        point_groups=["default"],
         point_id=point_id,
         address=PointAddress(),
         data_type=data_type,

@@ -14,12 +14,9 @@ from wind_hub.adapter.inbound.webapi.routes import (
     config,
     devices,
     health,
-    jobs,
     metrics,
     points,
-)
-from wind_hub.adapter.inbound.webapi.routes import (
-    routes as explain_routes,
+    tasks,
 )
 
 
@@ -53,8 +50,7 @@ def build_api() -> FastAPI:
     app.include_router(points.router)
     app.include_router(commands.router)
     app.include_router(config.router)
-    app.include_router(jobs.router)
-    app.include_router(explain_routes.router)
+    app.include_router(tasks.router)
     app.include_router(metrics.router)
     return app
 

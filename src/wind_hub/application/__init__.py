@@ -4,18 +4,16 @@ from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase import (
     CommandUseCase,
     ConfigUseCase,
-    JobUseCase,
     QueryUseCase,
-    RouteQueryUseCase,
+    TaskUseCase,
     compute_diff,
 )
 
 __all__ = [
     "CommandUseCase",
     "ConfigUseCase",
-    "JobUseCase",
     "QueryUseCase",
-    "RouteQueryUseCase",
     "Runtime",
+    "TaskUseCase",
     "compute_diff",
 ]

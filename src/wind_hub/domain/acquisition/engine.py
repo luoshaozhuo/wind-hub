@@ -2,18 +2,19 @@
 
 架构位置：domain 层。职责严格限定为「执行一次采集」：
 
-``Protocol read → Pipeline → Router → Sink 派发``
+``Protocol read → Pipeline → 按 Task targets 派发``
 
 不负责：
 
-- 「什么时候执行」——那是 :class:`~wind_hub.application.port.scheduling.SchedulerPort`
-  的职责，由 Runtime 把本引擎的 :meth:`collect` 注册为调度 Job；
+- 「什么时候执行」——那是 application/runtime 的实例采集协程的职责
+  （每个 Task Instance 一个 ``while True: collect → sleep(interval)`` 循环）；
 - Protocol / Sink 实例的创建、连接与关闭——那是 Runtime 的生命周期职责；
 - Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托给
-  实现方（Runtime），本引擎只见「把路由结果派发出去」这一抽象。
+  实现方（Runtime），本引擎只见「把批次派发到哪些 sink」这一抽象。
 
-并发语义：:meth:`collect` 可能被调度器按周期并发触发（不同设备/分组之间），
-同一 Job 由调度端口保证不重入；本引擎自身无锁，依赖各 Port 实现的并发安全。
+并发语义：不同 Task Instance 的 :meth:`collect` 可并发执行；同一实例由
+其实例采集协程串行驱动（上一轮完成并 sleep 后才进入下一轮），天然不重入。
+本引擎自身无锁，依赖各 Port 实现的并发安全。
 """
 
 from __future__ import annotations
@@ -27,21 +28,19 @@ from wind_hub.config.schema import PointConfig
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
 from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.domain.processing.pipeline import Pipeline
-from wind_hub.domain.routing.delivery import DeliveryDispatcher
-from wind_hub.domain.routing.router import Router
 
 logger = logging.getLogger(__name__)
 
 
 class SinkDispatchPort(Protocol):
-    """Sink 派发端口——把路由结果交给 Sink 侧（队列/背压/消费者）。
+    """Sink 派发端口——把按 sink 分组的批次交给 Sink 侧（队列/背压/消费者）。
 
-    由 Runtime 实现：引擎不感知队列与背压策略，只保证「路由到哪个 sink、
+    由 Runtime 实现：引擎不感知队列与背压策略，只保证「发到哪个 sink、
     批次内容是什么」如实传递。派发过程中的丢弃/阻塞语义由实现方定义。
     """
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
-        """派发一批按 sink 名分组的路由结果。
+        """派发一批按 sink 名分组的点值。
 
         Args:
             routed: ``{sink_name: [PointValue, …]}``；空批次由实现方忽略。
@@ -74,10 +73,13 @@ class DeviceStatePort(Protocol):
 class AcquisitionStatePort(Protocol):
     """采集执行状态端口——一次 collect 的开始/成功/失败上报。
 
-    由 Runtime 实现（持有 ``{(device, group): AcquisitionRuntimeState}``）。
+    由 Runtime 实现（持有 ``{execution_id: AcquisitionRuntimeState}``）。
     与 :class:`DeviceStatePort` 分维度：本端口描述**业务执行**（这个采集
-    Job 最近跑得怎样），不描述设备连接。调度器的 Job 注册/暂停状态属于
-    第三维度（SchedulerPort），三者不混淆。
+    执行最近跑得怎样），不描述设备连接。
+
+    ``execution_id`` 是调用方提供的本次周期采集执行标识（Runtime 传
+    Task Instance 的 ``instance_id``）——同一个 ``(device, point_group)``
+    可能被多个 Task 采集，状态必须按执行标识区分，不能按设备/分组合并。
 
     一次 collect 的判定口径：
 
@@ -87,55 +89,52 @@ class AcquisitionStatePort(Protocol):
       或批次没有任何有效结果（全 BAD / 空批）。
     """
 
-    def report_collect_started(self, device_id: str, group: str) -> None:
+    def report_collect_started(self, execution_id: str, device_id: str, group: str) -> None:
         """一次 collect 开始（running=True）。"""
         ...
 
-    def report_collect_success(self, device_id: str, group: str, *, partial: bool) -> None:
+    def report_collect_success(
+        self, execution_id: str, device_id: str, group: str, *, partial: bool
+    ) -> None:
         """一次 collect 成功结束；``partial`` 表示批次含 BAD 点的混合结果。"""
         ...
 
-    def report_collect_failure(self, device_id: str, group: str, error: str) -> None:
+    def report_collect_failure(
+        self, execution_id: str, device_id: str, group: str, error: str
+    ) -> None:
         """一次 collect 失败结束（描述已压成一行文本）。"""
         ...
 
 
 class AcquisitionEngine:
-    """采集引擎——执行单次「读 → 处理 → 路由 → 派发」链路。
+    """采集引擎——执行单次「读 → 处理 → 按 targets 派发」链路。
 
     注入依赖：
 
     - ``protocols`` — 按 device_id 索引的协议驱动注册表（与 Runtime 共享同一
       dict，Runtime 热重载时就地增删，引擎总是读到当前实例）；
-    - ``pipeline`` / ``router`` / ``delivery`` — 当前处理链、路由表与投递
-      策略实例，可被 :meth:`replace_pipeline` / :meth:`replace_router` /
-      :meth:`replace_delivery` 原子替换；
+    - ``pipeline`` — 当前处理链实例，可被 :meth:`replace_pipeline` 原子替换；
     - ``points_by_device`` — 按 device_id 分组的点表（同样与 Runtime 共享）；
     - ``on_points_collected`` / ``on_points_bad`` — 采集/BAD 点计数回调
       （组合根接 Prometheus 计数器，domain 不依赖 infra）；
     - ``read_timeout`` — 应用层读超时（外层兜底）；协议驱动内部的底层
       超时各自保留，``None`` 表示不加外层超时。
 
-    运行期统计（决策 7 口径）：``points_collected`` 在
-    :meth:`process_and_route` 入口统一计数，轮询与订阅推送两条路径口径一致；
-    路由/丢弃计数属于 Sink 派发侧（Runtime）。
+    运行期统计：``points_collected`` 在 :meth:`process_and_dispatch` 入口
+    统一计数；路由/丢弃计数属于 Sink 派发侧（Runtime）。
     """
 
     def __init__(
         self,
         protocols: dict[str, ProtocolPort],
         pipeline: Pipeline,
-        router: Router,
         points_by_device: dict[str, list[PointConfig]] | None = None,
         on_points_collected: Callable[[int], None] | None = None,
         on_points_bad: Callable[[int], None] | None = None,
-        delivery: DeliveryDispatcher | None = None,
         read_timeout: float | None = None,
     ) -> None:
         self._protocols = protocols
         self._pipeline = pipeline
-        self._router = router
-        self._delivery = delivery
         self._points_by_device = points_by_device if points_by_device is not None else {}
         self._on_points_collected = on_points_collected or (lambda _n: None)
         # BAD 质量点计数回调（协议采集结果中的 Quality.BAD——数据质量问题，
@@ -147,7 +146,7 @@ class AcquisitionEngine:
         self._read_timeout = read_timeout
 
         # Sink 派发端口由 Runtime 在装配完成后注入（engine 先于 runtime 创建，
-        # 无法构造期传入）；未绑定前调用 collect/process_and_route 会抛
+        # 无法构造期传入）；未绑定前调用 collect/process_and_dispatch 会抛
         # RuntimeError——组合根保证绑定发生在任何采集触发之前。
         self._sink_dispatch: SinkDispatchPort | None = None
 
@@ -189,8 +188,8 @@ class AcquisitionEngine:
     def attach_acquisition_state(self, acquisition_state: AcquisitionStatePort) -> None:
         """绑定采集执行状态端口——由 Runtime 在自身构造时调用一次。
 
-        绑定后 :meth:`collect` 上报每次执行的开始/成功/失败（粒度
-        ``(device, group)``）；订阅推送路径不是调度 Job 运行，不上报。
+        绑定后 :meth:`collect` 上报每次执行的开始/成功/失败（以上传入的
+        ``execution_id`` 为粒度）。
         """
         self._acquisition_state = acquisition_state
 
@@ -205,18 +204,27 @@ class AcquisitionEngine:
     # 采集执行
     # ------------------------------------------------------------------
 
-    async def collect(self, device_id: str, group: str) -> None:
-        """执行一次轮询采集：读设备该 group 的点 → 处理 → 路由 → 派发。
+    async def collect(
+        self,
+        device_id: str,
+        point_group: str,
+        targets: list[str],
+        execution_id: str,
+    ) -> None:
+        """执行一次轮询采集：读设备该 point_group 的点 → 处理 → 派发到 targets。
 
-        这是调度 Job 的执行体入口。引擎根据当前点表找到该设备该 group 的
-        所有点并批量读取（一个 ``(device, group)`` 对应一个调度 Job）。
+        这是 Task Instance 采集协程每轮调用的执行体。引擎根据当前点表
+        找到该设备 ``point_groups`` 含 ``point_group`` 的所有点并批量读取。
         单次采集失败（设备不可达、驱动异常等）只记录 warning，不上抛——
-        否则一次失败会让调度 Job 持续打堆栈甚至影响其他 Job；下个周期会
-        自然重试，与旧设备循环的容错语义一致。
+        下个周期会自然重试。
 
         Args:
             device_id: 目标设备。
-            group: 轮询分组名——只采集 ``PointConfig.group`` 等于该值的点。
+            point_group: 点位分组——采集 ``point_groups`` 含该值的点。
+            targets: 输出目标 Sink 名列表（来自 Task Instance）。
+            execution_id: 本次周期采集的执行标识（Task Instance ID）——
+                采集状态上报按此键区分，允许同一 ``(device, point_group)``
+                被多个 Task 采集。
 
         Raises:
             RuntimeError: Sink 派发端口尚未绑定（装配未完成）。
@@ -228,15 +236,15 @@ class AcquisitionEngine:
         refs = [
             PointRef(device_id=device_id, point_id=p.point_id)
             for p in self._points_by_device.get(device_id, [])
-            if p.group == group
+            if point_group in p.point_groups
         ]
         if not refs:
-            logger.debug("设备 '%s' 分组 '%s' 无点位——跳过采集", device_id, group)
+            logger.debug("设备 '%s' 分组 '%s' 无点位——跳过采集", device_id, point_group)
             return
 
         acq = self._acquisition_state
         if acq is not None:
-            acq.report_collect_started(device_id, group)
+            acq.report_collect_started(execution_id, device_id, point_group)
         failure: str | None = None
         partial = False
         batch: list[PointValue] | None = None
@@ -244,16 +252,14 @@ class AcquisitionEngine:
             if self._device_state is not None and not await self._device_state.ensure_connected(
                 device_id
             ):
-                # 断线且重连节流中：本次判定 FAILED（不重发 read），Job 保留，
+                # 断线且重连节流中：本次判定 FAILED（不重发 read），实例保留，
                 # 下一周期继续尝试。
                 failure = "device disconnected (reconnect backoff)"
                 logger.debug("设备 '%s' 断线且重连节流中——跳过本次采集", device_id)
             else:
                 try:
                     if self._read_timeout is not None:
-                        batch = await asyncio.wait_for(
-                            proto.read(refs), timeout=self._read_timeout
-                        )
+                        batch = await asyncio.wait_for(proto.read(refs), timeout=self._read_timeout)
                     else:
                         batch = await proto.read(refs)
                 except TimeoutError as exc:
@@ -265,7 +271,7 @@ class AcquisitionEngine:
                         logger.warning(
                             "read timeout: device=%s group=%s timeout=%.1fs",
                             device_id,
-                            group,
+                            point_group,
                             self._read_timeout,
                         )
                     else:
@@ -273,7 +279,7 @@ class AcquisitionEngine:
                         logger.warning(
                             "read timeout: device=%s group=%s (driver-level)",
                             device_id,
-                            group,
+                            point_group,
                         )
                     if self._device_state is not None:
                         self._device_state.report_read_failure(
@@ -286,7 +292,7 @@ class AcquisitionEngine:
                     logger.warning(
                         "设备 '%s' 分组 '%s' 轮询失败——下个周期重试",
                         device_id,
-                        group,
+                        point_group,
                         exc_info=True,
                     )
                 else:
@@ -302,25 +308,26 @@ class AcquisitionEngine:
                     else:
                         partial = bad > 0
             if batch is not None:
-                await self.process_and_route(batch)
+                await self.process_and_dispatch(batch, targets)
         except Exception as exc:
-            # 管线/路由/派发阶段的意外异常：如实记为失败后原样上抛
-            # （保持既有「非读异常传播给调度器记录」语义），running 归位。
+            # 管线/派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
+            # 实例采集协程——记录并继续下一轮），running 归位。
             if acq is not None:
-                acq.report_collect_failure(device_id, group, str(exc) or type(exc).__name__)
+                acq.report_collect_failure(
+                    execution_id, device_id, point_group, str(exc) or type(exc).__name__
+                )
             raise
         if acq is not None:
             if failure is not None:
-                acq.report_collect_failure(device_id, group, failure)
+                acq.report_collect_failure(execution_id, device_id, point_group, failure)
             else:
-                acq.report_collect_success(device_id, group, partial=partial)
+                acq.report_collect_success(execution_id, device_id, point_group, partial=partial)
 
-    async def process_and_route(self, batch: list[PointValue]) -> None:
-        """处理 → 路由 → 派发一批点值（订阅推送路径同样经此入口）。
+    async def process_and_dispatch(self, batch: list[PointValue], targets: list[str]) -> None:
+        """处理 → 按 targets 派发一批点值。
 
-        采集统计在本方法入口统一计数（决策 0.1）：轮询（:meth:`collect`
-        调用）与订阅推送（Runtime 的订阅回调调用）两条路径都经过这里，因此
-        ``points_collected`` 与注入的 ``on_points_collected`` 回调口径一致。
+        采集统计在本方法入口统一计数。同一个点被多个不同 Task 采集时，各
+        Task 的 targets 独立派发——不做按 ``point_id`` 的全局去重。
 
         Raises:
             RuntimeError: Sink 派发端口尚未绑定（装配未完成）。
@@ -328,9 +335,7 @@ class AcquisitionEngine:
         if not batch:
             return
         if self._sink_dispatch is None:
-            raise RuntimeError(
-                "AcquisitionEngine 未绑定 Sink 派发端口——组合根未完成装配"
-            )
+            raise RuntimeError("AcquisitionEngine 未绑定 Sink 派发端口——组合根未完成装配")
         self._points_collected += len(batch)
         self._on_points_collected(len(batch))
         # BAD 质量点单独计数（数据质量问题）——不计入 points_dropped
@@ -340,39 +345,16 @@ class AcquisitionEngine:
             self._on_points_bad(bad)
         processed = await self._pipeline.process(batch)
         self._notify_observers(processed)
-        routed = self._router.route(processed)
-        if self._delivery is not None:
-            # 投递策略过滤（interval/every_n/on_change）——Router 决定
-            # 「发到哪些 sink」，DeliveryDispatcher 决定「这批是否投递」。
-            routed = self._delivery.evaluate(routed)
-        await self._sink_dispatch.dispatch(routed)
+        await self._sink_dispatch.dispatch({sink: processed for sink in targets})
 
     # ------------------------------------------------------------------
     # 当前实例管理（Runtime 热替换的落点）
     # ------------------------------------------------------------------
 
-    async def replace_router(self, new_router: Router) -> None:
-        """原子替换路由表（点表/规则变更时由 Runtime 调用）。"""
-        self._router = new_router
-        logger.info("Router replaced (%d entries)", new_router.table_size)
-
     async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
         """原子替换处理链（处理器列表或点表变更时由 Runtime 调用）。"""
         self._pipeline = new_pipeline
         logger.info("Pipeline replaced (%d processors)", new_pipeline.processor_count)
-
-    async def replace_delivery(self, new_delivery: DeliveryDispatcher | None) -> None:
-        """原子替换投递策略（规则/投递配置变更时由 Runtime 调用）。
-
-        只替换策略状态，不涉及 Sink/Protocol 重建（B.4）。
-        """
-        self._delivery = new_delivery
-        logger.info("Delivery dispatcher replaced")
-
-    @property
-    def current_router(self) -> Router:
-        """返回当前路由表实例——热替换后调用方立即看到新实例。"""
-        return self._router
 
     # ------------------------------------------------------------------
     # 状态
@@ -380,8 +362,7 @@ class AcquisitionEngine:
 
     @property
     def points_collected(self) -> int:
-        """累计采集点数——进入处理管线的点值总数，含轮询与订阅推送
-        （单调不减，决策 7 / 0.1 口径统一）。"""
+        """累计采集点数——进入处理管线的点值总数（单调不减）。"""
         return self._points_collected
 
     # ------------------------------------------------------------------
