@@ -20,12 +20,11 @@ import uvicorn
 
 from wind_hub.application.config_service import ConfigService
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub.infra.signal_handler import ReloadSignalHandler
 
 logger = logging.getLogger(__name__)
 
 
-def _start_api(rt: AssembledRuntime, host: str, port: int) -> uvicorn.Server:
+def _build_api_server(rt: AssembledRuntime, host: str, port: int) -> uvicorn.Server:
     """构建内嵌 uvicorn :class:`Server`（尚未开始 serving）。
 
     真正的 ``serve()`` 由调用方以 ``asyncio.Task`` 启动，以便与引擎停机的
@@ -58,6 +57,18 @@ async def _handle_sighup(config_service: ConfigService) -> None:
         logger.info("配置热重载成功")
     else:
         logger.warning("配置热重载失败：%s", result.errors)
+
+
+async def _reload_loop(reload_event: asyncio.Event, config_service: ConfigService) -> None:
+    """长期运行的 SIGHUP 监听协程——每次事件触发执行一次热重载。
+
+    连续多次 SIGHUP 只会折叠为事件置位，循环逐次消费；协程由
+    :func:`run_engine` 启动一次，并在停机时取消。
+    """
+    while True:
+        await reload_event.wait()
+        reload_event.clear()
+        await _handle_sighup(config_service)
 
 
 async def run_engine(
@@ -99,16 +110,16 @@ async def run_engine(
     )
 
     shutdown_event = asyncio.Event()
-    reload_handler = ReloadSignalHandler()
+    reload_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, shutdown_event.set)
-    reload_handler.install(loop)
+    loop.add_signal_handler(signal.SIGINT, shutdown_event.set)
+    loop.add_signal_handler(signal.SIGTERM, shutdown_event.set)
+    loop.add_signal_handler(signal.SIGHUP, reload_event.set)
 
     # 决策 1：API 先于 Runtime 监听——设备连接超时（每台等满 connect_timeout）
     # 不再阻塞 /health 的可用性；Runtime 未就绪期间 /health 如实报告 down。
-    server = _start_api(rt, host, port)
+    server = _build_api_server(rt, host, port)
     api_task = await start_runtime(rt, api_server=server)
     logger.info(
         "wind-hub 引擎已启动（%d 台设备，%d 个 sink）；Web API 已监听 %s:%d",
@@ -118,21 +129,14 @@ async def run_engine(
         port,
     )
 
+    reload_task = asyncio.create_task(_reload_loop(reload_event, rt.config_service))
+
     try:
-        while True:
-            shutdown_task = asyncio.create_task(shutdown_event.wait())
-            reload_task = asyncio.create_task(reload_handler.wait())
-            done, pending = await asyncio.wait(
-                {shutdown_task, reload_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
-            if shutdown_task in done:
-                logger.info("收到停机信号，开始优雅停机")
-                break
-            await _handle_sighup(rt.config_service)
+        await shutdown_event.wait()
+        logger.info("收到停机信号，开始优雅停机")
     finally:
+        reload_task.cancel()
+
         # 1. 先停 API（请求额度不再接收新连接）
         server.should_exit = True
         if api_task is not None:
