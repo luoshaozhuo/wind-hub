@@ -97,6 +97,7 @@ async def _received(
         host="192.168.0.100",
         loop=asyncio.get_running_loop(),
         on_data=on_data,
+        cycle_time=0.02,
     )
     await sub.subscribe(points)
     conn = sub._connections[0]  # noqa: SLF001
@@ -113,6 +114,7 @@ class TestRegistration:
             host="192.168.0.100",
             loop=asyncio.get_running_loop(),
             on_data=_noop,
+            cycle_time=0.02,
         )
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
 
@@ -127,6 +129,7 @@ class TestRegistration:
             host="192.168.0.100",
             loop=asyncio.get_running_loop(),
             on_data=_noop,
+            cycle_time=0.02,
         )
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b"), _point("c", "MAIN.c")])
 
@@ -142,6 +145,7 @@ class TestRegistration:
             host="192.168.0.100",
             loop=asyncio.get_running_loop(),
             on_data=_noop,
+            cycle_time=0.02,
         )
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
         await sub.subscribe([_point("b", "MAIN.b"), _point("c", "MAIN.c")])
@@ -174,6 +178,7 @@ class TestDelivery:
             host="192.168.0.100",
             loop=asyncio.get_running_loop(),
             on_data=_noop,
+            cycle_time=0.02,
         )
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
         await sub.close()

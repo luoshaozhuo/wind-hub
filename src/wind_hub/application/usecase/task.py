@@ -35,7 +35,7 @@ class TaskDetail(BaseModel):
     device: str | None = None
     device_group: str | None = None
     point_group: str
-    interval: float
+    interval: float | None
     targets: list[str]
     enabled: bool
 
@@ -49,7 +49,7 @@ class TaskInstanceDetail(BaseModel):
     task_id: str
     device_id: str
     point_group: str
-    interval: float
+    interval: float | None
     targets: list[str]
     state: TaskInstanceState
     """二态生命周期：``RUNNING`` / ``STOPPED``。"""
@@ -111,8 +111,8 @@ class TaskUseCase:
         return self._to_detail(inst, self._runtime.instance_states()[instance_id])
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
-        """启动单个实例的周期采集（幂等；不立即执行额外采集——协程第一
-        轮 collect 在创建后随即开始，之后按 interval 循环）。
+        """启动单个实例的持续采集（幂等；POLL 协议第一轮按 fixed-rate
+        节拍立即开始，订阅协议注册后等待远端推送）。
 
         Raises:
             KeyError: ``instance_id`` 不存在。

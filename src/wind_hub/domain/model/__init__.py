@@ -1,7 +1,7 @@
 """Domain model — Point / Command / Device / Errors."""
 
 from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.device import Device, DeviceInfo, Endpoint
+from wind_hub.domain.model.device import DeviceInfo, Endpoint
 from wind_hub.domain.model.errors import (
     CommandError,
     ConfigError,
@@ -19,7 +19,6 @@ __all__ = [
     "Quality",
     "Command",
     "CommandResult",
-    "Device",
     "Endpoint",
     "DeviceInfo",
     "WindHubError",

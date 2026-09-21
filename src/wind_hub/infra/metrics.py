@@ -138,6 +138,25 @@ acquisition_duration_seconds = Histogram(
     "Acquisition collect run duration in seconds.",
     labelnames=["device_id", "group"],
 )
+# Fixed-rate poll 时序统计（标签 device_id/group——与采集 Job 同口径，
+# 基数受控）。jitter = 实际启动时刻 − 计划时刻（monotonic）；overrun 为
+# 本轮结束越过下一计划时刻的次数；missed 为跳过的完整周期数（catch-up
+# 至多一次，不爆发补采）。
+poll_jitter_seconds = Histogram(
+    "wind_hub_poll_jitter_seconds",
+    "Fixed-rate poll start jitter (actual - scheduled) in seconds.",
+    labelnames=["device_id", "group"],
+)
+poll_overrun_total = Counter(
+    "wind_hub_poll_overrun",
+    "Cumulative poll cycles that finished past the next scheduled deadline.",
+    labelnames=["device_id", "group"],
+)
+poll_missed_cycles_total = Counter(
+    "wind_hub_poll_missed_cycles",
+    "Cumulative scheduled poll cycles skipped after overrun (no catch-up burst).",
+    labelnames=["device_id", "group"],
+)
 
 
 def update_gauges(
@@ -204,6 +223,17 @@ class PrometheusRuntimeMetrics:
         if duration is not None:
             acquisition_duration_seconds.labels(**labels).observe(duration)
 
+    def acquisition_poll_stats(
+        self, device_id: str, group: str, jitter: float, overrun: bool, missed: int
+    ) -> None:
+        """观测一次 fixed-rate poll 的 jitter，并累加 overrun / missed 计数。"""
+        labels = {"device_id": device_id, "group": group}
+        poll_jitter_seconds.labels(**labels).observe(jitter)
+        if overrun:
+            poll_overrun_total.labels(**labels).inc()
+        if missed:
+            poll_missed_cycles_total.labels(**labels).inc(missed)
+
     def device_connect_failed(self, device_id: str, protocol: str) -> None:
         """累加一次 connect 失败。"""
         device_connect_failures_total.labels(device_id=device_id, protocol=protocol).inc()
@@ -238,6 +268,9 @@ __all__ = [
     "acquisition_failures_total",
     "acquisition_partial_total",
     "acquisition_duration_seconds",
+    "poll_jitter_seconds",
+    "poll_overrun_total",
+    "poll_missed_cycles_total",
     "PrometheusRuntimeMetrics",
     "update_gauges",
     "update_device_gauges",

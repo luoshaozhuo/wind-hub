@@ -8,16 +8,21 @@
 - ``device_group`` Task：每台命中的 enabled 设备展开为一个实例。
 
 实例 ID 稳定且唯一：``{task_id}:{device_id}``。实例是**不可变快照**——
-热重载修改 interval / targets / point_group 时整体替换实例对象，运行中的
-实例采集协程每轮从 Runtime 注册表读取最新实例，无需重启协程即可生效。
+热重载修改 interval / targets / point_group 时整体替换实例对象；运行中
+实例的采集回调每轮从 Runtime 注册表读取最新实例，interval / point_group
+变化时由 Runtime 重建对应的 acquisition handle。
+
+实例的实际执行机制（fixed-rate polling 或协议订阅）由 Device 按协议
+capability 决定——Task Instance 只是「Task Definition 在具体 Device 上
+展开出的持续采集实例」，不表达协议差异。
 
 与两个相邻概念严格分维度：
 
 - :class:`AcquisitionRuntimeState`——业务执行状态（最近一次 collect 成功/
   失败/耗时），以 ``instance_id`` 为键；
-- 实例生命周期状态（RUNNING / STOPPED）——由 Runtime 以
-  ``{instance_id: bool}`` 显式簿记（见 ``Runtime.instance_states``），
-  决定实例采集协程是否存在。
+- 实例生命周期状态（RUNNING / STOPPED）——由 Runtime 显式簿记
+  （见 ``Runtime.instance_states``），决定实例的 acquisition handle
+  （fixed-rate polling 或协议订阅）是否存在。
 """
 
 from __future__ import annotations
@@ -35,10 +40,10 @@ class TaskInstanceState(str, Enum):
     """
 
     RUNNING = "running"
-    """实例采集协程存在——按「collect → sleep(interval)」循环执行。"""
+    """实例的 acquisition handle 存在——fixed-rate polling 或协议订阅正在执行。"""
 
     STOPPED = "stopped"
-    """实例已注册但协程不存在——保留定义，不执行采集。"""
+    """实例已注册但采集未启动——保留定义，不执行采集。"""
 
 
 class CollectionTaskInstance(BaseModel):
@@ -58,8 +63,9 @@ class CollectionTaskInstance(BaseModel):
     point_group: str
     """采集的点位分组（匹配 ``PointConfig.point_groups``）。"""
 
-    interval: float
-    """两轮采集之间的等待时间（秒）。"""
+    interval: float | None
+    """采集节拍（秒）——POLL 协议（Modbus / ADS Sum）与 ADS 订阅必填；
+    纯 IEC104 订阅实例可为 ``None``（数据到达时机由远端决定）。"""
 
     targets: list[str]
     """输出目标 Sink 名列表（引用 ``system.yaml`` 的 sink 定义）。"""

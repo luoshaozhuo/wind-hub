@@ -42,7 +42,7 @@ class RuntimeConfig(BaseModel):
 
     write_timeout: float = 5.0
     """Per-write default timeout in seconds — 命令未自带 ``timeout``
-    （``Command.timeout <= 0``）时 Dispatcher 使用的默认写超时。"""
+    （``Command.timeout <= 0``）时 CommandDispatcher 使用的默认写超时。"""
 
     @model_validator(mode="after")
     def _validate_backpressure(self) -> RuntimeConfig:
@@ -463,9 +463,11 @@ class CollectionTaskConfig(BaseModel):
     - ``device`` / ``device_group`` 二选一（XOR）——选择设备范围；
     - ``point_group`` 单值必填——选择点位范围（匹配
       ``PointConfig.point_groups`` 多值集合）；
-    - ``interval`` 为本 Task 两轮采集之间的等待时间（秒，> 0）——
-      语义是「本轮 collect 完成 → 等待 interval → 下一轮」，不是严格
-      墙钟周期；
+    - ``interval`` 为采集节拍（秒，> 0）——主动轮询协议（Modbus、ADS
+      Sum）作为 fixed-rate 采样周期，ADS 订阅作为 notification
+      cycle_time；纯 IEC104 订阅 Task 可不配置（数据到达时机由远端
+      spontaneous / periodic 决定）。是否必填由加载期跨文件校验按
+      命中设备的协议能力判定；
     - ``targets`` 决定采集结果输出到哪些 Sink；
     - ``enabled`` 是配置级能力开关：``False`` 时 Runtime 不创建运行实例。
 
@@ -482,8 +484,9 @@ class CollectionTaskConfig(BaseModel):
     """目标设备业务类别；与 ``device`` 互斥。"""
     point_group: str
     """点位分组（单值）——命中 ``point_groups`` 含该值的全部点位。"""
-    interval: float
-    """两轮采集之间的等待时间（秒，必须 > 0）。"""
+    interval: float | None = None
+    """采集节拍（秒，配置时必须 > 0）。主动轮询与 ADS 订阅必填；
+    纯 IEC104 订阅 Task 可省略。"""
     targets: list[TaskTarget]
     """输出目标 Sink 列表（至少一个，不允许重复）。"""
     enabled: bool = True
@@ -499,7 +502,7 @@ class CollectionTaskConfig(BaseModel):
             )
         if not self.point_group.strip():
             raise ConfigError(f"Task '{self.task_id}': point_group must be non-empty")
-        if self.interval <= 0:
+        if self.interval is not None and self.interval <= 0:
             raise ConfigError(f"Task '{self.task_id}': interval must be > 0, got {self.interval}")
         if not self.targets:
             raise ConfigError(f"Task '{self.task_id}': targets must be non-empty")

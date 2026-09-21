@@ -9,7 +9,8 @@ Two inbound request families are handled:
   then closed with ``ACT_TERM``;
 * **remote control commands** (``C_SC_NA_1`` / ``C_DC_NA_1`` / ``C_SE_NC_1``
   activation) — resolved IOA → point, forwarded through the bridge to the
-  :class:`Dispatcher`, and answered ``ACT_CON`` + ``ACT_TERM`` on success or a
+  :class:`~wind_hub.application.command_dispatcher.CommandDispatcher`,
+  and answered ``ACT_CON`` + ``ACT_TERM`` on success or a
   single negative ``ACT_CON`` on failure.
 """
 
@@ -200,7 +201,7 @@ class IEC104SlaveHandlers:
         )
 
     async def handle_command(self, asdu: ASDU, session: SlaveSession) -> None:
-        """Forward each command object to the Dispatcher and echo the outcome.
+        """Forward each command object to the CommandDispatcher and echo the outcome.
 
         Success → positive ``ACT_CON`` + ``ACT_TERM``; failure (unknown IOA or
         a non-successful dispatch) → a single negative ``ACT_CON``.

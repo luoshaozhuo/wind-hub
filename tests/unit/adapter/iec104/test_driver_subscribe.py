@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from wind_hub.adapter.outbound.protocol.iec104.codec.asdu import ASDU
 from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+    InterrogationCommand,
     MeasuredValueShort,
     SinglePoint,
+    encode_c_ic_na_1,
 )
 from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
     CauseOfTransmission,
@@ -19,7 +23,9 @@ from wind_hub.adapter.outbound.protocol.iec104.subscriptions import (
     SubscriptionRegistry,
 )
 from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub.domain.model.errors import ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub.domain.port.outbound import AcquisitionMode
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -234,6 +240,50 @@ class TestSubscriptionRegistry:
         assert len(global_received) == 1
         assert len(ioa_received) == 1
 
+    async def test_close_unsubscribes_only_own_callback(self) -> None:
+        """关闭订阅句柄只注销自己的回调——同 IOA 的其他订阅不受影响。"""
+        reg = SubscriptionRegistry()
+        r1: list[PointValue] = []
+        r2: list[PointValue] = []
+
+        async def cb1(pv: PointValue) -> None:
+            r1.append(pv)
+
+        async def cb2(pv: PointValue) -> None:
+            r2.append(pv)
+
+        refs = [PointRef(device_id="d1", point_id="p1")]
+        sub_a = reg.subscribe(refs, cb1, lambda _: 100)
+        reg.subscribe(refs, cb2, lambda _: 100)
+
+        await sub_a.close()
+        assert reg.ioa_count == 1
+
+        pv = PointValue(
+            device_id="d1",
+            point_id="p1",
+            value=1.0,
+            quality=Quality.GOOD,
+            source="iec104",
+        )
+        await reg.dispatch(pv, 100)
+        await asyncio.sleep(0)
+
+        assert r1 == []
+        assert len(r2) == 1
+
+    async def test_close_is_idempotent(self) -> None:
+        """重复 close 不报错、不重复注销。"""
+        reg = SubscriptionRegistry()
+
+        async def cb(pv: PointValue) -> None:
+            pass
+
+        sub = reg.subscribe([], cb, lambda _: None)
+        await sub.close()
+        await sub.close()
+        assert reg.global_count == 0
+
     async def test_no_subscribers_no_error(self) -> None:
         """Dispatching when no one is subscribed should not raise."""
         reg = SubscriptionRegistry()
@@ -322,6 +372,89 @@ class TestDriverSubscribe:
         await asyncio.sleep(0.05)
         assert len(received) == 1
         assert received[0].point_id == "p1"
+
+    async def test_acquisition_mode_is_subscribe(self) -> None:
+        """IEC104 是订阅式采集——POLL 分支永远不会选中它。"""
+        driver = IEC104Driver(_make_device_config())
+        assert driver.acquisition_mode is AcquisitionMode.SUBSCRIBE
+
+    async def test_stop_handle_unsubscribes_without_closing_driver(self) -> None:
+        """停止一个订阅句柄只注销该订阅——驱动与其他订阅保持活跃。"""
+        driver = IEC104Driver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("p1", 100)])
+
+        r1: list[PointValue] = []
+        r2: list[PointValue] = []
+
+        async def cb1(pv: PointValue) -> None:
+            r1.append(pv)
+
+        async def cb2(pv: PointValue) -> None:
+            r2.append(pv)
+
+        ref = PointRef(device_id="d1", point_id="p1")
+        sub_a = await driver.subscribe([ref], cb1)
+        await driver.subscribe([ref], cb2)
+
+        await sub_a.close()
+
+        pv = PointValue(
+            device_id="d1",
+            point_id="p1",
+            value=1.0,
+            quality=Quality.GOOD,
+            source="iec104",
+        )
+        await driver._subscriptions.dispatch(pv, 100)
+        await asyncio.sleep(0.05)
+
+        assert r1 == []
+        assert len(r2) == 1
+
+
+class _FakeSession:
+    """IEC104Session 替身——记录 send_asdu 调用。"""
+
+    def __init__(self, started: bool = True) -> None:
+        self.is_started = started
+        self.sent: list[ASDU] = []
+
+    def send_asdu(self, asdu: ASDU) -> None:
+        self.sent.append(asdu)
+
+
+class TestDriverInterrogate:
+    async def test_interrogate_sends_general_interrogation(self) -> None:
+        """interrogate 发送一次 C_IC_NA_1 / ACTIVATION / QOI=20 总召。"""
+        driver = IEC104Driver(_make_device_config())
+        session = _FakeSession()
+        driver._session = session  # noqa: SLF001 —— 绕过真实 TCP 连接
+
+        await driver.interrogate()
+
+        assert len(session.sent) == 1
+        asdu = session.sent[0]
+        assert asdu.type_id is TypeID.C_IC_NA_1
+        assert asdu.cause is CauseOfTransmission.ACTIVATION
+        assert len(asdu.objects) == 1
+        cmd = asdu.objects[0]
+        assert isinstance(cmd, InterrogationCommand)
+        assert cmd.ioa == 0
+        # QOI=20（station interrogation）由编码器写入——经编码字节流验证
+        assert encode_c_ic_na_1(cmd)[-1] == 20
+
+    async def test_interrogate_not_connected_raises(self) -> None:
+        """未连接时 interrogate 显式失败（不静默吞掉）。"""
+        driver = IEC104Driver(_make_device_config())
+        with pytest.raises(ProtocolError, match="not connected"):
+            await driver.interrogate()
+
+    async def test_interrogate_session_stopped_raises(self) -> None:
+        """session 存在但已停止同样视为未连接。"""
+        driver = IEC104Driver(_make_device_config())
+        driver._session = _FakeSession(started=False)  # noqa: SLF001
+        with pytest.raises(ProtocolError, match="not connected"):
+            await driver.interrogate()
 
 
 # ===========================================================================

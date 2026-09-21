@@ -8,7 +8,7 @@ import wind_hub.adapter.outbound.protocol  # noqa: F401 — trigger self-registr
 from wind_hub.config.schema import DeviceConfig, Endpoint
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.port.outbound import HealthStatus
-from wind_hub.infra.registry import (
+from wind_hub.infra.protocol_registry import (
     ProtocolRegistry,
     protocol_registry,
     register_protocol,

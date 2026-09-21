@@ -40,13 +40,12 @@ class RuntimeLifecycle:
             self._runtime._running = True
             self._runtime._started = False
 
-            for device_id, proto in self._runtime._protocols.items():
-                proto.set_points_mapping(self._runtime._points_by_device.get(device_id, []))
-
-            for device_id, proto in self._runtime._protocols.items():
+            # 点映射已在装配期（组合根 / add_device / rebuild_device）注入
+            # 到各 Device 的协议实例，这里只做连接。
+            for device_id, device in self._runtime._devices.items():
                 try:
                     await asyncio.wait_for(
-                        proto.connect(),
+                        device.connect(),
                         timeout=self._runtime._config.connect_timeout,
                     )
                     self._runtime._state_for(device_id).mark_success(self._runtime._clock())
@@ -91,7 +90,7 @@ class RuntimeLifecycle:
                 self._runtime._sink_tasks[name] = task
 
             # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
-            # 周期采集，只有 CLI / Web API 的显式 start 才创建实例采集协程。
+            # 采集，只有 CLI / Web API 的显式 start 才启动 acquisition。
             await self._runtime._sync_task_instances()
 
             self._runtime._started = True
@@ -104,9 +103,10 @@ class RuntimeLifecycle:
             self._runtime._running = False
             self._runtime._started = False
 
-            # 停全部实例采集协程——逐个取消并等待结束，不留 orphan task。
-            for instance_id in list(self._runtime._task_coroutines):
-                await self._runtime._cancel_instance_coroutine(instance_id)
+            # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
+            # orphan task / orphan subscription。
+            for instance_id in list(self._runtime._acquisition_handles):
+                await self._runtime._close_acquisition_handle(instance_id)
             # 停机后实例定义保留，统一标记 STOPPED——重启后需显式 start，
             # 与启动语义一致。
             for instance_id in self._runtime._instance_states:
@@ -136,8 +136,8 @@ class RuntimeLifecycle:
                 except Exception:
                     logger.warning("Sink '%s' close failed", name, exc_info=True)
 
-            for device_id, proto in self._runtime._protocols.items():
+            for device_id, device in self._runtime._devices.items():
                 try:
-                    await proto.close()
+                    await device.close()
                 except Exception:
                     logger.warning("Device '%s' close failed", device_id, exc_info=True)

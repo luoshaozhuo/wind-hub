@@ -1,20 +1,29 @@
-"""AcquisitionEngine —— 一次完整采集执行链。
+"""AcquisitionEngine —— PointValue 数据流的统一处理入口。
 
-架构位置：domain 层。职责严格限定为「执行一次采集」：
+架构位置：domain 层。职责一句话：
 
-``Protocol read → Pipeline → 按 Task targets 派发``
+    把一次获得的 PointValue 批次经过 Pipeline、Observer 和 targets 投递
+    到 Sink；对于主动采集，也提供 ``Device.read → process`` 的薄封装
+    （:meth:`collect`）。
+
+数据在 ``PointValue[]`` 这一层汇合——主动轮询（Modbus / ADS Sum）与
+订阅推送（ADS notification / IEC104 spontaneous）最终都进入
+:meth:`process`：
+
+    主动轮询：Device.read()        → engine.collect()（内含 process）
+    订阅推送：协议 callback        → engine.process()
 
 不负责：
 
-- 「什么时候执行」——那是 application/runtime 的实例采集协程的职责
-  （每个 Task Instance 一个 ``while True: collect → sleep(interval)`` 循环）；
-- Protocol / Sink 实例的创建、连接与关闭——那是 Runtime 的生命周期职责；
+- 「什么时候执行」——那是 application/runtime 的 acquisition handle
+  （fixed-rate polling / subscription）的职责；
+- Protocol / Device 的创建、连接与关闭——那是 Runtime 的生命周期职责；
 - Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托给
-  实现方（Runtime），本引擎只见「把批次派发到哪些 sink」这一抽象。
+  实现方（Runtime）。
 
-并发语义：不同 Task Instance 的 :meth:`collect` 可并发执行；同一实例由
-其实例采集协程串行驱动（上一轮完成并 sleep 后才进入下一轮），天然不重入。
-本引擎自身无锁，依赖各 Port 实现的并发安全。
+并发语义：不同 Task Instance 的 :meth:`collect` / :meth:`process` 可并发
+执行；同一实例由其 acquisition handle 串行驱动，天然不重入。本引擎自身
+无锁，依赖各 Port 实现的并发安全。
 """
 
 from __future__ import annotations
@@ -24,12 +33,31 @@ import logging
 from collections.abc import Callable
 from typing import Protocol
 
-from wind_hub.config.schema import PointConfig
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.domain.processing.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
+
+
+class ReadableDevice(Protocol):
+    """主动读取路径对运行时设备的结构化依赖（避免 domain → application 反向依赖）。
+
+    由 application/runtime 的 ``Device`` 结构化满足；引擎只依赖这三件
+    事：设备身份、按 point_group 选点、按 point_group 批量读。
+    """
+
+    @property
+    def device_id(self) -> str:
+        """设备标识（状态上报与日志用）。"""
+        ...
+
+    def point_refs(self, point_group: str) -> list[PointRef]:
+        """该 point_group 的批量读寻址引用。"""
+        ...
+
+    async def read(self, point_group: str) -> list[PointValue]:
+        """批量读取该 point_group 的全部点位。"""
+        ...
 
 
 class SinkDispatchPort(Protocol):
@@ -107,35 +135,32 @@ class AcquisitionStatePort(Protocol):
 
 
 class AcquisitionEngine:
-    """采集引擎——执行单次「读 → 处理 → 按 targets 派发」链路。
+    """采集引擎——PointValue 批次的统一处理入口。
 
     注入依赖：
 
-    - ``protocols`` — 按 device_id 索引的协议驱动注册表（与 Runtime 共享同一
-      dict，Runtime 热重载时就地增删，引擎总是读到当前实例）；
     - ``pipeline`` — 当前处理链实例，可被 :meth:`replace_pipeline` 原子替换；
-    - ``points_by_device`` — 按 device_id 分组的点表（同样与 Runtime 共享）；
     - ``on_points_collected`` / ``on_points_bad`` — 采集/BAD 点计数回调
       （组合根接 Prometheus 计数器，domain 不依赖 infra）；
     - ``read_timeout`` — 应用层读超时（外层兜底）；协议驱动内部的底层
       超时各自保留，``None`` 表示不加外层超时。
 
-    运行期统计：``points_collected`` 在 :meth:`process_and_dispatch` 入口
-    统一计数；路由/丢弃计数属于 Sink 派发侧（Runtime）。
+    引擎**不持有**协议注册表、设备索引或点表——设备以
+    :class:`ReadableDevice` 结构化参数传入；Task 时序（interval /
+    调度）完全属于 application/runtime 的 acquisition handle。
+
+    运行期统计：``points_collected`` 在 :meth:`process` 入口统一计数；
+    路由/丢弃计数属于 Sink 派发侧（Runtime）。
     """
 
     def __init__(
         self,
-        protocols: dict[str, ProtocolPort],
         pipeline: Pipeline,
-        points_by_device: dict[str, list[PointConfig]] | None = None,
         on_points_collected: Callable[[int], None] | None = None,
         on_points_bad: Callable[[int], None] | None = None,
         read_timeout: float | None = None,
     ) -> None:
-        self._protocols = protocols
         self._pipeline = pipeline
-        self._points_by_device = points_by_device if points_by_device is not None else {}
         self._on_points_collected = on_points_collected or (lambda _n: None)
         # BAD 质量点计数回调（协议采集结果中的 Quality.BAD——数据质量问题，
         # 与背压丢弃 points_dropped 语义不同，分开计数）。
@@ -146,7 +171,7 @@ class AcquisitionEngine:
         self._read_timeout = read_timeout
 
         # Sink 派发端口由 Runtime 在装配完成后注入（engine 先于 runtime 创建，
-        # 无法构造期传入）；未绑定前调用 collect/process_and_dispatch 会抛
+        # 无法构造期传入）；未绑定前调用 collect/process 会抛
         # RuntimeError——组合根保证绑定发生在任何采集触发之前。
         self._sink_dispatch: SinkDispatchPort | None = None
 
@@ -201,25 +226,24 @@ class AcquisitionEngine:
         self._observers.append(callback)
 
     # ------------------------------------------------------------------
-    # 采集执行
+    # 主动采集（薄封装：Device.read → process）
     # ------------------------------------------------------------------
 
     async def collect(
         self,
-        device_id: str,
+        device: ReadableDevice,
         point_group: str,
         targets: list[str],
         execution_id: str,
     ) -> None:
-        """执行一次轮询采集：读设备该 point_group 的点 → 处理 → 派发到 targets。
+        """执行一次主动轮询采集：读设备该 point_group 的点 → :meth:`process`。
 
-        这是 Task Instance 采集协程每轮调用的执行体。引擎根据当前点表
-        找到该设备 ``point_groups`` 含 ``point_group`` 的所有点并批量读取。
-        单次采集失败（设备不可达、驱动异常等）只记录 warning，不上抛——
-        下个周期会自然重试。
+        这是 POLL 型 acquisition handle 每 tick 调用的执行体。单次采集
+        失败（设备不可达、驱动异常等）只记录 warning，不上抛——下个
+        周期会自然重试。
 
         Args:
-            device_id: 目标设备。
+            device: 目标运行时设备（持有配置、点表与协议实例）。
             point_group: 点位分组——采集 ``point_groups`` 含该值的点。
             targets: 输出目标 Sink 名列表（来自 Task Instance）。
             execution_id: 本次周期采集的执行标识（Task Instance ID）——
@@ -229,15 +253,8 @@ class AcquisitionEngine:
         Raises:
             RuntimeError: Sink 派发端口尚未绑定（装配未完成）。
         """
-        proto = self._protocols.get(device_id)
-        if proto is None:
-            logger.warning("采集跳过：设备 '%s' 无协议驱动", device_id)
-            return
-        refs = [
-            PointRef(device_id=device_id, point_id=p.point_id)
-            for p in self._points_by_device.get(device_id, [])
-            if point_group in p.point_groups
-        ]
+        device_id = device.device_id
+        refs = device.point_refs(point_group)
         if not refs:
             logger.debug("设备 '%s' 分组 '%s' 无点位——跳过采集", device_id, point_group)
             return
@@ -259,9 +276,11 @@ class AcquisitionEngine:
             else:
                 try:
                     if self._read_timeout is not None:
-                        batch = await asyncio.wait_for(proto.read(refs), timeout=self._read_timeout)
+                        batch = await asyncio.wait_for(
+                            device.read(point_group), timeout=self._read_timeout
+                        )
                     else:
-                        batch = await proto.read(refs)
+                        batch = await device.read(point_group)
                 except TimeoutError as exc:
                     # 读超时：错误语义定位到 read 阶段。两种来源——外层
                     # ``asyncio.wait_for`` 兜底（read_timeout 已配置），或驱动
@@ -308,10 +327,10 @@ class AcquisitionEngine:
                     else:
                         partial = bad > 0
             if batch is not None:
-                await self.process_and_dispatch(batch, targets)
+                await self.process(batch, targets)
         except Exception as exc:
             # 管线/派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
-            # 实例采集协程——记录并继续下一轮），running 归位。
+            # polling handle——记录并继续下一周期），running 归位。
             if acq is not None:
                 acq.report_collect_failure(
                     execution_id, device_id, point_group, str(exc) or type(exc).__name__
@@ -323,8 +342,16 @@ class AcquisitionEngine:
             else:
                 acq.report_collect_success(execution_id, device_id, point_group, partial=partial)
 
-    async def process_and_dispatch(self, batch: list[PointValue], targets: list[str]) -> None:
-        """处理 → 按 targets 派发一批点值。
+    # ------------------------------------------------------------------
+    # 统一数据处理入口（主动轮询与订阅推送在此汇合）
+    # ------------------------------------------------------------------
+
+    async def process(self, batch: list[PointValue], targets: list[str]) -> None:
+        """统计 → Pipeline → Observers → 按 targets 派发到 Sink。
+
+        主动轮询（:meth:`collect`）与订阅推送（ADS notification /
+        IEC104 spontaneous 的协议回调）都经本入口处理数据——订阅数据
+        已经到达，不得再绕回 :meth:`collect`。
 
         采集统计在本方法入口统一计数。同一个点被多个不同 Task 采集时，各
         Task 的 targets 独立派发——不做按 ``point_id`` 的全局去重。

@@ -6,7 +6,7 @@
 - 设备列表与单设备信息；
 - 系统状态快照（``status()``）。
 
-本用例**不缓存** protocols / devices / points 静态副本，每次查询都经
+本用例**不缓存** devices / points 静态副本，每次查询都经
 Runtime 的当前注册表读取——热重载增删/重建组件后，查询立即看到最新对象。
 
 ``read_point`` 的错误语义：
@@ -92,8 +92,8 @@ class SystemStatus(BaseModel):
 class QueryUseCase:
     """只读查询用例——所有读取都穿透到 Runtime 当前状态。
 
-    Runtime 的热重载是就地增删注册表（``devices`` / ``protocols`` /
-    ``points_by_device``），因此本用例持有的唯一引用就是 Runtime 本身，
+    Runtime 的热重载是就地增删 ``devices`` 注册表（Device 聚合配置、
+    点表与协议实例），因此本用例持有的唯一引用就是 Runtime 本身，
     天然免疫「静态快照失效」问题。
     """
 
@@ -107,18 +107,14 @@ class QueryUseCase:
             CommandError: 设备或点未知。
             ProtocolError: 协议驱动读失败（设备不可达等）。
         """
-        if device_id not in self._runtime.devices:
+        device = self._runtime.devices.get(device_id)
+        if device is None:
             raise CommandError(f"unknown device '{device_id}'", "")
 
-        device_points = self._runtime.points_by_device.get(device_id, [])
-        if not any(p.point_id == point_id for p in device_points):
+        if not any(p.point_id == point_id for p in device.points):
             raise CommandError(f"unknown point '{device_id}/{point_id}'", "")
 
-        proto = self._runtime.protocols.get(device_id)
-        if proto is None:
-            raise CommandError(f"no protocol driver for device '{device_id}'", "")
-
-        values = await proto.read([PointRef(device_id=device_id, point_id=point_id)])
+        values = await device.read_points([PointRef(device_id=device_id, point_id=point_id)])
         if not values:
             raise ProtocolError(f"read returned no value for '{device_id}/{point_id}'")
         return values[0]
@@ -126,7 +122,8 @@ class QueryUseCase:
     async def list_devices(self) -> list[DeviceInfo]:
         """返回所有配置设备的运行时状态（按当前注册表）。"""
         return [
-            self._device_info(device_id, cfg) for device_id, cfg in self._runtime.devices.items()
+            self._device_info(device_id, device.config)
+            for device_id, device in self._runtime.devices.items()
         ]
 
     async def get_device_info(self, device_id: str) -> DeviceInfo:
@@ -135,10 +132,10 @@ class QueryUseCase:
         Raises:
             CommandError: 设备未知。
         """
-        cfg = self._runtime.devices.get(device_id)
-        if cfg is None:
+        device = self._runtime.devices.get(device_id)
+        if device is None:
             raise CommandError(f"unknown device '{device_id}'", "")
-        return self._device_info(device_id, cfg)
+        return self._device_info(device_id, device.config)
 
     async def status(self) -> SystemStatus:
         """返回系统运行时快照。
@@ -192,12 +189,12 @@ class QueryUseCase:
         ``last_seen`` 暂无逐设备读取墙钟时间戳追踪，恒为 ``None``（诚实
         空缺）；连接健康与重连计数来自 Runtime 的 DeviceRuntimeState。
         """
-        proto = self._runtime.protocols.get(device_id)
+        device = self._runtime.devices.get(device_id)
         state = self._runtime.device_state(device_id)
         # connected 以驱动实时 health 为准（驱动自带重连监控时比 Runtime
         # 的记账更新）；consecutive_failures/last_error 来自 Runtime 的
         # 重连节流状态。
-        connected = proto.health().healthy if proto is not None else False
+        connected = device.health().healthy if device is not None else False
         return DeviceInfo(
             device_id=device_id,
             protocol=cfg.protocol,

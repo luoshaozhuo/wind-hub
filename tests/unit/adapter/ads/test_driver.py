@@ -7,8 +7,9 @@ import pytest
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
 from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub.domain.model.errors import ConfigError, ProtocolError
 from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub.domain.port.outbound import AcquisitionMode
 
 
 def _make_device_config(**extensions: object) -> DeviceConfig:
@@ -84,10 +85,35 @@ class FakeConnection:
             raise RuntimeError("connection is closed")
         self.symbol_values[symbol] = value
 
+    def add_device_notification(
+        self, symbol: str, attr: object, callback: object, user_handle: object = None
+    ) -> tuple[object, object]:
+        if not self.is_open:
+            raise RuntimeError("connection is closed")
+        handle: tuple[object, object] = (symbol, "handle")
+        return (handle, user_handle)
+
+    def del_device_notification(self, handle: object, user_handle: object) -> None:
+        pass
+
+
+class FakeNotificationAttrib:
+    """``pyads.NotificationAttrib`` 替身——记录订阅方传入的 cycle_time。"""
+
+    instances: list[FakeNotificationAttrib] = []
+
+    def __init__(self, length: int, cycle_time: float = 0.0, max_delay: float = 0.0) -> None:
+        self.length = length
+        self.cycle_time = cycle_time
+        self.max_delay = max_delay
+        FakeNotificationAttrib.instances.append(self)
+
 
 @pytest.fixture
 def patched(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeNotificationAttrib.instances = []
     monkeypatch.setattr("pyads.Connection", FakeConnection)
+    monkeypatch.setattr("pyads.NotificationAttrib", FakeNotificationAttrib)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +413,79 @@ class TestSubscribe:
         driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
         with pytest.raises(NotImplementedError):
             await driver.subscribe([], lambda v: None)  # type: ignore[arg-type]
+
+    async def test_acquisition_mode_follows_subscribe_enabled(self) -> None:
+        """subscribe_enabled → SUBSCRIBE；否则 POLL。"""
+        poll_driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        sub_driver = ADSDriver(
+            _make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True)
+        )
+        assert poll_driver.acquisition_mode is AcquisitionMode.POLL
+        assert sub_driver.acquisition_mode is AcquisitionMode.SUBSCRIBE
+
+    async def test_subscribe_requires_interval(self, patched: None) -> None:
+        """interval 缺失/非正 → ConfigError（cycle_time 必须来自 Task.interval）。"""
+        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
+        ref = PointRef(device_id="test-dev", point_id="speed")
+
+        async def _noop(pv: object) -> None:
+            return None
+
+        with pytest.raises(ConfigError, match="interval"):
+            await driver.subscribe([ref], _noop)  # type: ignore[arg-type]
+        with pytest.raises(ConfigError, match="interval"):
+            await driver.subscribe([ref], _noop, interval=0.0)  # type: ignore[arg-type]
+
+    async def test_interval_becomes_notification_cycle_time(self, patched: None) -> None:
+        """Task.interval → NotificationAttrib.cycle_time。"""
+        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
+        ref = PointRef(device_id="test-dev", point_id="speed")
+
+        async def _noop(pv: object) -> None:
+            return None
+
+        handle = await driver.subscribe([ref], _noop, interval=0.25)  # type: ignore[arg-type]
+        try:
+            assert FakeNotificationAttrib.instances
+            assert all(attr.cycle_time == 0.25 for attr in FakeNotificationAttrib.instances)
+        finally:
+            await handle.close()
+
+    async def test_independent_subscriptions_stop_a_keeps_b(self, patched: None) -> None:
+        """同一 symbol 的两份订阅互不影响：关闭 A 的句柄后 B 仍活跃。"""
+        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
+        ref = PointRef(device_id="test-dev", point_id="speed")
+
+        async def _noop(pv: object) -> None:
+            return None
+
+        handle_a = await driver.subscribe([ref], _noop, interval=0.1)  # type: ignore[arg-type]
+        handle_b = await driver.subscribe([ref], _noop, interval=0.5)  # type: ignore[arg-type]
+        assert len(driver._subscriptions) == 2  # noqa: SLF001
+
+        await handle_a.close()
+        assert len(driver._subscriptions) == 1  # noqa: SLF001
+        remaining = next(iter(driver._subscriptions))  # noqa: SLF001
+        assert remaining._cycle_time == 0.5  # noqa: SLF001
+        await handle_b.close()
+        assert driver._subscriptions == set()  # noqa: SLF001
+
+    async def test_driver_close_closes_all_subscriptions(self, patched: None) -> None:
+        """驱动整体关闭时全部订阅随之清理。"""
+        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
+        ref = PointRef(device_id="test-dev", point_id="speed")
+
+        async def _noop(pv: object) -> None:
+            return None
+
+        await driver.subscribe([ref], _noop, interval=0.1)  # type: ignore[arg-type]
+        await driver.subscribe([ref], _noop, interval=0.2)  # type: ignore[arg-type]
+        await driver.close()
+        assert driver._subscriptions == set()  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------

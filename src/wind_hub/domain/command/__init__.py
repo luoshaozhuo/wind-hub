@@ -1,5 +1,10 @@
-"""Command — 指令分发（Dispatcher）。"""
+"""Command — 指令领域模型（Command / CommandResult）。
 
-from wind_hub.domain.command.dispatcher import Dispatcher
+命令分发器（CommandDispatcher）位于 application 层
+（``wind_hub.application.command_dispatcher``）——它依赖 application
+runtime 的 ``Device``，不再属于 domain。
+"""
 
-__all__ = ["Dispatcher"]
+from wind_hub.domain.model.command import Command, CommandResult
+
+__all__ = ["Command", "CommandResult"]

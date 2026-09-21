@@ -1,16 +1,16 @@
 """采集引擎（``domain/acquisition``）的单元测试。
 
-验证对象：:class:`AcquisitionEngine`——单次「Protocol read → Pipeline →
+验证对象：:class:`AcquisitionEngine`——单次「Device read → Pipeline →
 按 Task targets 扇出到 Sink」链路（无 Router / Delivery）。
 
 覆盖点：
 
-- ``collect(device_id, point_group, targets, execution_id)``：按
-  ``point_group in p.point_groups`` 选点构造 PointRef、读取失败只记日志
-  不上抛、未知设备跳过；
-- ``process_and_dispatch(batch, targets)``：sink fan-out（batch 按 targets
-  列表扇出，dispatch 收到 ``{sink_name: batch}``）、空 targets 派发空 dict、
-  计数口径、回调、观察者通知与异常隔离、空批次短路、未绑定派发端口显式失败；
+- ``collect(device, point_group, targets, execution_id)``：设备经
+  ``point_refs(point_group)`` 选点构造 PointRef、读取失败只记日志不上抛、
+  无点位跳过；
+- ``process(batch, targets)``：sink fan-out（batch 按 targets 列表扇出，
+  dispatch 收到 ``{sink_name: batch}``）、空 targets 派发空 dict、计数口径、
+  回调、观察者通知与异常隔离、空批次短路、未绑定派发端口显式失败；
 - ``AcquisitionStatePort`` 生命周期上报（首参为 execution_id）；
 - 读超时 / 断线跳过 / 部分失败（GOOD+BAD 混合 / 全 BAD）语义；
 - ``replace_pipeline``。
@@ -49,6 +49,30 @@ def _make_mock_protocol() -> ProtocolPort:
     return proto
 
 
+class _FakeDevice:
+    """结构化满足引擎 ``ReadableDevice`` 依赖的测试设备——包装 mock 协议
+    与点表，按 ``point_group in p.point_groups`` 选点。"""
+
+    def __init__(self, device_id: str, proto: ProtocolPort, points: list[PointConfig]) -> None:
+        self._device_id = device_id
+        self._proto = proto
+        self._points = points
+
+    @property
+    def device_id(self) -> str:
+        return self._device_id
+
+    def point_refs(self, point_group: str) -> list[PointRef]:
+        return [
+            PointRef(device_id=self._device_id, point_id=p.point_id)
+            for p in self._points
+            if point_group in p.point_groups
+        ]
+
+    async def read(self, point_group: str) -> list[PointValue]:
+        return await self._proto.read(self.point_refs(point_group))
+
+
 def _make_point(point_id: str, point_groups: list[str] | None = None) -> PointConfig:
     return PointConfig(
         point_id=point_id,
@@ -76,17 +100,13 @@ class _RecordingDispatch:
 
 
 def _make_engine(
-    protocols: dict[str, ProtocolPort] | None = None,
-    points_by_device: dict[str, list[PointConfig]] | None = None,
     on_points_collected=None,
     on_points_bad=None,
     read_timeout: float | None = None,
 ) -> tuple[AcquisitionEngine, _RecordingDispatch]:
     """构造绑定好录制派发端口的引擎，返回 (engine, dispatch)。"""
     engine = AcquisitionEngine(
-        protocols=protocols if protocols is not None else {},
         pipeline=Pipeline([]),
-        points_by_device=points_by_device,
         on_points_collected=on_points_collected,
         on_points_bad=on_points_bad,
         read_timeout=read_timeout,
@@ -105,11 +125,10 @@ async def test_collect_reads_point_refs_from_table() -> None:
     """collect 按设备点表构造 PointRef 调用 read，结果进入完整链路。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
-    protocols = {"d1": proto}
-    points = {"d1": [_make_point("p1"), _make_point("p2")]}
-    engine, dispatch = _make_engine(protocols, points)
+    device = _FakeDevice("d1", proto, [_make_point("p1"), _make_point("p2")])
+    engine, dispatch = _make_engine()
 
-    await engine.collect("d1", "default", ["s1"], "task-1:d1")
+    await engine.collect(device, "default", ["s1"], "task-1:d1")
 
     proto.read.assert_awaited_once()
     refs = proto.read.await_args.args[0]
@@ -122,16 +141,18 @@ async def test_collect_reads_only_points_of_group() -> None:
     """collect 只读取 ``point_groups`` 含目标 point_group 的点。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
-    points = {
-        "d1": [
+    device = _FakeDevice(
+        "d1",
+        proto,
+        [
             _make_point("p1", ["fast"]),
             _make_point("p2", ["slow"]),
             _make_point("p3", ["fast"]),
-        ]
-    }
-    engine, _dispatch = _make_engine({"d1": proto}, points)
+        ],
+    )
+    engine, _dispatch = _make_engine()
 
-    await engine.collect("d1", "fast", ["s1"], "task-1:d1")
+    await engine.collect(device, "fast", ["s1"], "task-1:d1")
 
     refs = proto.read.await_args.args[0]
     assert [r.point_id for r in refs] == ["p1", "p3"]
@@ -141,20 +162,22 @@ async def test_collect_point_in_multiple_groups_selected_by_each() -> None:
     """point_groups 多值：同一个点可被多个分组命中——不同 collect 各自选中它。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
-    points = {
-        "d1": [
+    device = _FakeDevice(
+        "d1",
+        proto,
+        [
             _make_point("p1", ["fast", "alarm"]),  # 多分组点
             _make_point("p2", ["alarm"]),
             _make_point("p3", ["fast"]),
-        ]
-    }
-    engine, _dispatch = _make_engine({"d1": proto}, points)
+        ],
+    )
+    engine, _dispatch = _make_engine()
 
-    await engine.collect("d1", "fast", ["s1"], "t-fast:d1")
+    await engine.collect(device, "fast", ["s1"], "t-fast:d1")
     refs_fast = proto.read.await_args.args[0]
     assert [r.point_id for r in refs_fast] == ["p1", "p3"]
 
-    await engine.collect("d1", "alarm", ["s1"], "t-alarm:d1")
+    await engine.collect(device, "alarm", ["s1"], "t-alarm:d1")
     refs_alarm = proto.read.await_args.args[0]
     assert [r.point_id for r in refs_alarm] == ["p1", "p2"]
 
@@ -162,19 +185,12 @@ async def test_collect_point_in_multiple_groups_selected_by_each() -> None:
 async def test_collect_group_without_points_reads_nothing() -> None:
     """该 point_group 无点位时不调用 read、不派发。"""
     proto = _make_mock_protocol()
-    points = {"d1": [_make_point("p1", ["fast"])]}
-    engine, dispatch = _make_engine({"d1": proto}, points)
+    device = _FakeDevice("d1", proto, [_make_point("p1", ["fast"])])
+    engine, dispatch = _make_engine()
 
-    await engine.collect("d1", "slow", ["s1"], "t1:d1")
+    await engine.collect(device, "slow", ["s1"], "t1:d1")
 
     proto.read.assert_not_awaited()
-    assert dispatch.dispatched == []
-
-
-async def test_collect_unknown_device_skips() -> None:
-    """无协议驱动的设备：记日志并返回，不抛异常、不派发。"""
-    engine, dispatch = _make_engine()
-    await engine.collect("ghost", "default", ["s1"], "t1:ghost")
     assert dispatch.dispatched == []
 
 
@@ -182,9 +198,10 @@ async def test_collect_read_failure_swallowed() -> None:
     """单次读取失败只记 warning 不上抛（下个周期自然重试）。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(side_effect=OSError("device unreachable"))
-    engine, dispatch = _make_engine({"d1": proto}, {"d1": [_make_point("p1")]})
+    device = _FakeDevice("d1", proto, [_make_point("p1")])
+    engine, dispatch = _make_engine()
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")  # 不抛异常
+    await engine.collect(device, "default", ["s1"], "t1:d1")  # 不抛异常
 
     assert dispatch.dispatched == []
     assert engine.points_collected == 0
@@ -192,26 +209,27 @@ async def test_collect_read_failure_swallowed() -> None:
 
 async def test_collect_empty_batch_counts_nothing() -> None:
     proto = _make_mock_protocol()  # read 返回 []
-    engine, dispatch = _make_engine({"d1": proto}, {"d1": [_make_point("p1")]})
+    device = _FakeDevice("d1", proto, [_make_point("p1")])
+    engine, dispatch = _make_engine()
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")
+    await engine.collect(device, "default", ["s1"], "t1:d1")
 
     assert engine.points_collected == 0
     assert dispatch.dispatched == []
 
 
 # ---------------------------------------------------------------------------
-# process_and_dispatch —— sink fan-out 与计数
+# process —— sink fan-out 与计数
 # ---------------------------------------------------------------------------
 
 
-async def test_process_and_dispatch_fans_out_to_multiple_sinks() -> None:
+async def test_process_fans_out_to_multiple_sinks() -> None:
     """batch 按 targets 列表扇出：dispatch 收到 {sink_name: batch}，每个 sink
     拿到同一批处理后的点值。"""
     engine, dispatch = _make_engine()
 
     batch = [_value(), _value(point_id="p2")]
-    await engine.process_and_dispatch(batch, ["s1", "s2", "s3"])
+    await engine.process(batch, ["s1", "s2", "s3"])
 
     assert len(dispatch.dispatched) == 1
     routed = dispatch.dispatched[0]
@@ -220,41 +238,41 @@ async def test_process_and_dispatch_fans_out_to_multiple_sinks() -> None:
         assert [v.point_id for v in routed[sink]] == ["p1", "p2"]
 
 
-async def test_process_and_dispatch_empty_targets_dispatches_empty_dict() -> None:
+async def test_process_empty_targets_dispatches_empty_dict() -> None:
     """空 targets：批次照常处理，dispatch 收到空 dict（以源码语义为准）。"""
     engine, dispatch = _make_engine()
 
-    await engine.process_and_dispatch([_value()], [])
+    await engine.process([_value()], [])
 
     assert dispatch.dispatched == [{}]
     assert engine.points_collected == 1
 
 
-async def test_process_and_dispatch_counts_and_notifies() -> None:
+async def test_process_counts_and_notifies() -> None:
     """采集计数在入口统一累加，注入回调口径一致。"""
     collected: list[int] = []
     engine, _dispatch = _make_engine(on_points_collected=collected.append)
 
-    await engine.process_and_dispatch([_value(), _value(point_id="p2")], ["s1"])
-    await engine.process_and_dispatch([_value(point_id="p3")], ["s1"])
+    await engine.process([_value(), _value(point_id="p2")], ["s1"])
+    await engine.process([_value(point_id="p3")], ["s1"])
 
     assert engine.points_collected == 3
     assert collected == [2, 1]
 
 
-async def test_process_and_dispatch_bad_points_counted_separately() -> None:
+async def test_process_bad_points_counted_separately() -> None:
     """BAD 质量点计入 points_collected（质量信息流向 sink），同时单独经
     on_points_bad 计数。"""
     bad_counts: list[int] = []
     engine, _dispatch = _make_engine(on_points_bad=bad_counts.append)
 
-    await engine.process_and_dispatch([_value(), _bad_value()], ["s1"])
+    await engine.process([_value(), _bad_value()], ["s1"])
 
     assert engine.points_collected == 2
     assert bad_counts == [1]
 
 
-async def test_process_and_dispatch_runs_pipeline_before_dispatch() -> None:
+async def test_process_runs_pipeline_before_dispatch() -> None:
     """Pipeline 先执行，dispatch 拿到的是处理后的点值。"""
     engine, dispatch = _make_engine()
 
@@ -268,23 +286,23 @@ async def test_process_and_dispatch_runs_pipeline_before_dispatch() -> None:
 
     await engine.replace_pipeline(Pipeline([_TagProcessor()]))
 
-    await engine.process_and_dispatch([_value()], ["s1"])
+    await engine.process([_value()], ["s1"])
 
     routed = dispatch.dispatched[0]
     assert [v.value for v in routed["s1"]] == [99.0]
 
 
-async def test_process_and_dispatch_raises_when_unbound() -> None:
+async def test_process_raises_when_unbound() -> None:
     """未绑定 Sink 派发端口时显式失败——装配时序错误不得静默。"""
-    engine = AcquisitionEngine(protocols={}, pipeline=Pipeline([]))
+    engine = AcquisitionEngine(pipeline=Pipeline([]))
     with pytest.raises(RuntimeError, match="派发端口"):
-        await engine.process_and_dispatch([_value()], ["s1"])
+        await engine.process([_value()], ["s1"])
 
 
-async def test_process_and_dispatch_empty_batch_noop() -> None:
+async def test_process_empty_batch_noop() -> None:
     """空批次短路：不计数、不触发管线/派发，未绑定端口也不报错。"""
-    engine = AcquisitionEngine(protocols={}, pipeline=Pipeline([]))
-    await engine.process_and_dispatch([], ["s1"])  # 不抛异常
+    engine = AcquisitionEngine(pipeline=Pipeline([]))
+    await engine.process([], ["s1"])  # 不抛异常
     assert engine.points_collected == 0
 
 
@@ -299,7 +317,7 @@ async def test_observers_receive_processed_values() -> None:
     engine.add_observer(received.append)
 
     batch = [_value()]
-    await engine.process_and_dispatch(batch, ["s1"])
+    await engine.process(batch, ["s1"])
 
     assert received == [batch]
 
@@ -315,7 +333,7 @@ async def test_observer_exception_isolated() -> None:
     engine.add_observer(_bad_observer)
     engine.add_observer(received.append)
 
-    await engine.process_and_dispatch([_value()], ["s1"])
+    await engine.process([_value()], ["s1"])
 
     assert len(received) == 1
     assert len(dispatch.dispatched) == 1
@@ -336,7 +354,7 @@ async def test_replace_pipeline_takes_effect_immediately() -> None:
             return []
 
     await engine.replace_pipeline(Pipeline([_DropAll()]))
-    await engine.process_and_dispatch([_value()], ["s1"])
+    await engine.process([_value()], ["s1"])
 
     assert dispatch.dispatched[0]["s1"] == []
 
@@ -392,11 +410,15 @@ def _make_engine_with_states(
     read_timeout: float | None = None,
     ensure_result: bool = True,
     on_points_bad=None,
-) -> tuple[AcquisitionEngine, _RecordingDispatch, _RecordingDeviceState, _RecordingAcqState]:
-    """构造绑定录制版 DeviceStatePort / AcquisitionStatePort 的引擎。"""
+) -> tuple[
+    AcquisitionEngine,
+    _RecordingDispatch,
+    _RecordingDeviceState,
+    _RecordingAcqState,
+    _FakeDevice,
+]:
+    """构造绑定录制版 DeviceStatePort / AcquisitionStatePort 的引擎与设备。"""
     engine, dispatch = _make_engine(
-        {"d1": proto},
-        {"d1": points},
         read_timeout=read_timeout,
         on_points_bad=on_points_bad,
     )
@@ -404,7 +426,8 @@ def _make_engine_with_states(
     acq_state = _RecordingAcqState()
     engine.attach_device_state(device_state)
     engine.attach_acquisition_state(acq_state)
-    return engine, dispatch, device_state, acq_state
+    device = _FakeDevice("d1", proto, points)
+    return engine, dispatch, device_state, acq_state, device
 
 
 async def test_collect_acq_state_keyed_by_execution_id() -> None:
@@ -412,12 +435,12 @@ async def test_collect_acq_state_keyed_by_execution_id() -> None:
     采集时，各自的生命周期事件携带各自的 execution_id。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
-    engine, _dispatch, _device_state, acq_state = _make_engine_with_states(
+    engine, _dispatch, _device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")]
     )
 
-    await engine.collect("d1", "default", ["s1"], "task-a:d1")
-    await engine.collect("d1", "default", ["s2"], "task-b:d1")
+    await engine.collect(device, "default", ["s1"], "task-a:d1")
+    await engine.collect(device, "default", ["s2"], "task-b:d1")
 
     assert [e[0] for e in acq_state.events] == ["started", "success", "started", "success"]
     assert acq_state.events[0][1] == "task-a:d1"
@@ -439,11 +462,11 @@ async def test_collect_read_timeout_reports_failure_and_marks_device() -> None:
 
     proto = _make_mock_protocol()
     proto.read = AsyncMock(side_effect=_hanging_read)
-    engine, dispatch, device_state, acq_state = _make_engine_with_states(
+    engine, dispatch, device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")], read_timeout=0.05
     )
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")  # 不抛异常
+    await engine.collect(device, "default", ["s1"], "t1:d1")  # 不抛异常
 
     assert dispatch.dispatched == []
     assert engine.points_collected == 0
@@ -461,11 +484,11 @@ async def test_collect_without_read_timeout_keeps_driver_timeout_message() -> No
     """未配置外层超时、驱动自身抛 TimeoutError：沿用驱动消息，不格式化 None。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(side_effect=TimeoutError("socket timed out"))
-    engine, _dispatch, _device_state, acq_state = _make_engine_with_states(
+    engine, _dispatch, _device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")]
     )
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")
+    await engine.collect(device, "default", ["s1"], "t1:d1")
 
     assert [e[0] for e in acq_state.events] == ["started", "failure"]
     assert acq_state.events[-1][4] == "socket timed out"
@@ -474,11 +497,11 @@ async def test_collect_without_read_timeout_keeps_driver_timeout_message() -> No
 async def test_collect_disconnected_reports_failed_without_read() -> None:
     """断线且重连节流中（ensure_connected=False）：本次 FAILED，不重发 read。"""
     proto = _make_mock_protocol()
-    engine, dispatch, _device_state, acq_state = _make_engine_with_states(
+    engine, dispatch, _device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")], ensure_result=False
     )
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")
+    await engine.collect(device, "default", ["s1"], "t1:d1")
 
     proto.read.assert_not_awaited()
     assert dispatch.dispatched == []
@@ -490,7 +513,7 @@ async def test_collect_pipeline_exception_reports_failure_and_reraises() -> None
     """管线/派发阶段异常：acq 记 failure 后原样上抛（保持既有传播语义）。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
-    engine, _dispatch, _device_state, acq_state = _make_engine_with_states(
+    engine, _dispatch, _device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")]
     )
 
@@ -501,7 +524,7 @@ async def test_collect_pipeline_exception_reports_failure_and_reraises() -> None
     engine.attach_sink_dispatch(_ExplodingDispatch())
 
     with pytest.raises(RuntimeError, match="sink exploded"):
-        await engine.collect("d1", "default", ["s1"], "t1:d1")
+        await engine.collect(device, "default", ["s1"], "t1:d1")
 
     # 恰好一次 started + 一次 failure（无双报）
     assert [e[0] for e in acq_state.events] == ["started", "failure"]
@@ -520,13 +543,13 @@ async def test_collect_partial_batch_keeps_order_and_reports_partial() -> None:
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=batch)
     bad_counts: list[int] = []
-    engine, dispatch, device_state, acq_state = _make_engine_with_states(
+    engine, dispatch, device_state, acq_state, device = _make_engine_with_states(
         proto,
         [_make_point("p1"), _make_point("p2"), _make_point("p3")],
         on_points_bad=bad_counts.append,
     )
 
-    await engine.collect("d1", "default", ["s1", "s2"], "t1:d1")
+    await engine.collect(device, "default", ["s1", "s2"], "t1:d1")
 
     # 批次三点全量保留、顺序不变，且扇出到两个 sink
     assert len(dispatch.dispatched) == 1
@@ -551,11 +574,11 @@ async def test_collect_all_bad_batch_reports_failure() -> None:
     """全 BAD 批 = 没有任何有效结果 → FAILED；批次仍流向 sink（质量信息）。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_bad_value(point_id="p1")])
-    engine, dispatch, _device_state, acq_state = _make_engine_with_states(
+    engine, dispatch, _device_state, acq_state, device = _make_engine_with_states(
         proto, [_make_point("p1")]
     )
 
-    await engine.collect("d1", "default", ["s1"], "t1:d1")
+    await engine.collect(device, "default", ["s1"], "t1:d1")
 
     assert [e[0] for e in acq_state.events] == ["started", "failure"]
     assert "no valid values" in str(acq_state.events[-1][4])
@@ -593,24 +616,20 @@ async def test_real_pipeline_processors_tolerate_bad_values() -> None:
     for proc in (qc, uc, db):
         proc.set_points_config({"d1": points})
 
-    engine, dispatch = _make_engine({"d1": _make_mock_protocol()}, {"d1": points})
+    engine, dispatch = _make_engine()
     await engine.replace_pipeline(Pipeline([qc, uc, db]))
 
     # 第一批：GOOD 1.0（首次，记录死区基线）+ BAD（透传，不进死区状态）
-    await engine.process_and_dispatch([_value(point_id="p1"), _bad_value(point_id="p2")], ["s1"])
+    await engine.process([_value(point_id="p1"), _bad_value(point_id="p2")], ["s1"])
     seen = dispatch.dispatched[-1]["s1"]
     assert len(seen) == 2
     assert seen[1].quality is Quality.BAD
     assert seen[1].value is None
 
     # 第二批：p1 变化 0.1 < deadband 0.5 → 被死区丢弃（BAD 未污染基线）
-    await engine.process_and_dispatch(
-        [PointValue(device_id="d1", point_id="p1", value=1.1)], ["s1"]
-    )
+    await engine.process([PointValue(device_id="d1", point_id="p1", value=1.1)], ["s1"])
     assert dispatch.dispatched[-1]["s1"] == []
 
     # 第三批：p2 首次 GOOD 值——此前 BAD 没有建立基线，按首次遇见输出
-    await engine.process_and_dispatch(
-        [PointValue(device_id="d1", point_id="p2", value=9.0)], ["s1"]
-    )
+    await engine.process([PointValue(device_id="d1", point_id="p2", value=9.0)], ["s1"])
     assert [v.point_id for v in dispatch.dispatched[-1]["s1"]] == ["p2"]

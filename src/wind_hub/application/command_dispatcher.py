@@ -1,4 +1,19 @@
-"""Dispatcher — command dispatch, idempotency, and timeout handling."""
+"""CommandDispatcher —— 指令分发、幂等与写超时（application 层）。
+
+持有 ``dict[str, Device]``（与 Runtime 共享同一注册表），按
+``Command.device_id`` 定位运行时 :class:`Device` 并委托 ``Device.write``
+完成真实写入；本类不再感知 ``ProtocolPort``。
+
+保留的职责：
+
+- ``command_id`` 幂等（LRU + TTL，进程内）；
+- 写超时（``Command.timeout > 0`` 优先，否则系统默认）；
+- 异常 → ``CommandResult``（协议级失败内联，不上抛）；
+- 成功/失败 metrics 回调；
+- ``send_batch`` 并发下发。
+
+``Command`` / ``CommandResult`` 领域模型仍在 ``domain.model.command``。
+"""
 
 from __future__ import annotations
 
@@ -8,22 +23,22 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable
 
+from wind_hub.application.runtime.device import Device
 from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.port.outbound import ProtocolPort
 
 logger = logging.getLogger(__name__)
 
 
-class Dispatcher:
-    """Command-dispatch engine (Domain component).
+class CommandDispatcher:
+    """Command-dispatch engine.
 
     Responsibilities:
-      - Route a ``Command`` to the correct ``ProtocolPort``.
+      - Route a ``Command`` to the correct runtime ``Device``.
       - Idempotency: same ``command_id`` executes only once.
-      - Timeout: wrap ``ProtocolPort.write`` in ``asyncio.wait_for``.
+      - Timeout: wrap ``Device.write`` in ``asyncio.wait_for``.
 
     Non-responsibilities:
-      - Protocol implementation (delegated to ``ProtocolPort``).
+      - Protocol implementation (delegated to the device's ``ProtocolPort``).
       - Permission checks / audit (delegated to the use cases above).
 
     The idempotency cache combines LRU eviction with TTL expiry and
@@ -33,21 +48,21 @@ class Dispatcher:
 
     def __init__(
         self,
-        protocols: dict[str, ProtocolPort],
+        devices: dict[str, Device],
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
         default_timeout: float = 5.0,
         on_command_sent: Callable[[], None] | None = None,
         on_command_failed: Callable[[], None] | None = None,
     ) -> None:
-        self._protocols = protocols
+        self._devices = devices
         self._cache_max = idempotency_cache_size
         self._cache_ttl = idempotency_ttl
         # 命令未自带超时（``Command.timeout <= 0``）时使用的系统默认写超时，
-        # 由组合根从 ``system.yaml`` 的 ``scheduler.write_timeout`` 注入。
+        # 由组合根从 ``system.yaml`` 的 ``runtime.write_timeout`` 注入。
         self._default_timeout = default_timeout
-        # 命令成功/失败回调（决策 6）：组合根注入 Prometheus 计数器递增；
-        # domain 不得依赖 infra（import-linter），故不在此直接 import metrics。
+        # 命令成功/失败回调：组合根注入 Prometheus 计数器递增；
+        # application 不得依赖 infra，故不在此直接 import metrics。
         self._on_command_sent = on_command_sent or (lambda: None)
         self._on_command_failed = on_command_failed or (lambda: None)
         # OrderedDict gives us LRU: most-recently-accessed item at the end.
@@ -62,8 +77,8 @@ class Dispatcher:
 
         1. Check idempotency cache — return cached result if present
            (cache hits are *not* re-counted in the sent/failed metrics).
-        2. Look up the device's ``ProtocolPort`` — fail if unknown.
-        3. Wrap ``ProtocolPort.write([cmd])`` with ``asyncio.wait_for``.
+        2. Look up the target ``Device`` — fail if unknown.
+        3. Wrap ``Device.write([cmd])`` with ``asyncio.wait_for``.
         4. Fire the sent/failed callback, cache the result, and return it.
         """
         # --- step 1: idempotency check ----------------------------------
@@ -74,8 +89,8 @@ class Dispatcher:
             return cached
 
         # --- step 2: resolve target device ------------------------------
-        proto = self._protocols.get(cmd.device_id)
-        if proto is None:
+        device = self._devices.get(cmd.device_id)
+        if device is None:
             result = CommandResult(
                 command_id=cmd.command_id,
                 success=False,
@@ -90,7 +105,7 @@ class Dispatcher:
         timeout = cmd.timeout if cmd.timeout > 0 else self._default_timeout
         try:
             results = await asyncio.wait_for(
-                proto.write([cmd]),
+                device.write([cmd]),
                 timeout=timeout,
             )
             result = (
@@ -99,7 +114,7 @@ class Dispatcher:
                 else CommandResult(
                     command_id=cmd.command_id,
                     success=False,
-                    error="ProtocolPort.write returned empty list",
+                    error="Device.write returned empty list",
                 )
             )
         except TimeoutError:

@@ -1,6 +1,6 @@
 """Processor registry — global singleton for processor lookup by name.
 
-Mirrors :mod:`wind_hub.infra.registry` (the protocol-driver registry):
+Mirrors :mod:`wind_hub.infra.protocol_registry` (the protocol-driver registry):
 processors self-register at module-import time via the
 :func:`register_processor` decorator, and the composition root creates
 instances by name through :meth:`create` using the names listed in

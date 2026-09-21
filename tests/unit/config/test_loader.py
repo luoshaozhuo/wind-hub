@@ -291,6 +291,99 @@ class TestCrossFileValidation:
             with pytest.raises(ConfigError, match="matches no device"):
                 load_config(str(base))
 
+    def test_task_without_interval_on_poll_device_raises(self) -> None:
+        """Modbus（主动轮询）Task 省略 interval → 加载期报错。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(interval=None)],
+            )
+            with pytest.raises(ConfigError, match="interval is required"):
+                load_config(str(base))
+
+    def test_task_without_interval_on_iec104_only_accepted(self) -> None:
+        """纯 IEC104（订阅式）Task 可省略 interval。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    {
+                        "device_id": "d1",
+                        "protocol": "iec104",
+                        "point_table": "t1",
+                        "endpoint": {"host": "10.0.0.1", "port": 2404},
+                    }
+                ],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"ioa": 100},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+                tasks=[_task(interval=None)],
+            )
+            cfg = load_config(str(base))
+            assert cfg.tasks.tasks[0].interval is None
+
+    def test_task_without_interval_on_mixed_group_raises(self) -> None:
+        """device_group 同时命中 IEC104 与 Modbus → interval 必填。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    _modbus_device(device_id="d1", device_group="mixed"),
+                    {
+                        "device_id": "d2",
+                        "protocol": "iec104",
+                        "point_table": "t1",
+                        "device_group": "mixed",
+                        "endpoint": {"host": "10.0.0.2", "port": 2404},
+                    },
+                ],
+                point_tables=_table([_modbus_point()]),
+                tasks=[_task(device=None, device_group="mixed", interval=None)],
+            )
+            with pytest.raises(ConfigError, match="interval is required"):
+                load_config(str(base))
+
+    def test_interval_configured_on_iec104_only_accepted(self) -> None:
+        """纯 IEC104 Task 配置 interval 允许存在（仅不用于 IEC104 调度）。"""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            _write_config_dir(
+                base,
+                devices=[
+                    {
+                        "device_id": "d1",
+                        "protocol": "iec104",
+                        "point_table": "t1",
+                        "endpoint": {"host": "10.0.0.1", "port": 2404},
+                    }
+                ],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"ioa": 100},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+                tasks=[_task(interval=5.0)],
+            )
+            cfg = load_config(str(base))
+            assert cfg.tasks.tasks[0].interval == 5.0
+
     def test_task_point_group_missing_in_device_table_raises(self) -> None:
         """task.point_group 必须存在于命中设备的点表——报错信息列出缺失设备。"""
         with tempfile.TemporaryDirectory() as td:

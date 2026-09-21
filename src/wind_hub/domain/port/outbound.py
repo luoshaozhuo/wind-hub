@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -18,6 +19,40 @@ from wind_hub.domain.model.point import PointRef, PointValue
 
 if TYPE_CHECKING:
     from wind_hub.config.schema import PointConfig
+
+
+class AcquisitionMode(str, Enum):
+    """协议驱动的持续采集能力——由驱动声明，与 Task 配置无关。
+
+    - ``POLL``：协议是请求/响应式（或配置为主动读取），由调用方按
+      Task interval 主动发起批量读；
+    - ``SUBSCRIBE``：协议支持设备侧推送（ADS Device Notification、
+      IEC104 spontaneous/periodic/interrogation），数据到达即回调。
+    """
+
+    POLL = "poll"
+    SUBSCRIBE = "subscribe"
+
+
+class SubscriptionHandle(Protocol):
+    """一次订阅的句柄——关闭即注销本次订阅，不影响同设备的其他订阅。"""
+
+    async def close(self) -> None:
+        """注销订阅并释放其独占资源（必须幂等）。"""
+        ...
+
+
+@runtime_checkable
+class InterrogationCapable(Protocol):
+    """可选能力：master 侧总召（General Interrogation）。
+
+    仅 IEC104 这类主站协议实现；``Device.start_acquisition`` 在订阅建立
+    后探测本能力并触发一次总召，使总召响应经既有订阅链路上报。
+    """
+
+    async def interrogate(self) -> None:
+        """发送一次 General Interrogation（C_IC_NA_1，QOI=20）。"""
+        ...
 
 
 class HealthStatus(BaseModel):
@@ -96,17 +131,36 @@ class ProtocolPort(Protocol):
         """
         ...
 
+    @property
+    def acquisition_mode(self) -> AcquisitionMode:
+        """本驱动的持续采集能力（``POLL`` / ``SUBSCRIBE``）。
+
+        这是协议 capability，不是 Task 配置：Modbus 恒为 ``POLL``；
+        ADS 由 ``subscribe_enabled`` 决定；IEC104 恒为 ``SUBSCRIBE``。
+        """
+        ...
+
     async def subscribe(
-        self, points: list[PointRef], callback: Callable[[PointValue], Awaitable[None]]
-    ) -> None:
+        self,
+        points: list[PointRef],
+        callback: Callable[[PointValue], Awaitable[None]],
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
         """Subscribe to spontaneous updates for the given points.
 
-        When a device pushes data (e.g. IEC104 change-of-state), the
-        adapter calls ``callback(value)`` for each update.
+        Each call creates an **independent** subscription: multiple callers
+        may subscribe the same point with different intervals/callbacks
+        without interfering with each other.  Closing the returned handle
+        unregisters exactly this subscription.
 
         Args:
             points: Points to subscribe to.
             callback: Async callable invoked with each ``PointValue``.
+            interval: Requested device-side cycle time in seconds
+                (e.g. ADS ``NotificationAttrib.cycle_time``); ignored by
+                protocols whose data timing is decided by the remote end
+                (IEC104 spontaneous/periodic).
 
         Raises:
             NotImplementedError: If the protocol does not support

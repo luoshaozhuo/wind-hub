@@ -5,16 +5,16 @@
 :func:`start_runtime` / :func:`stop_runtime` 编排运行时的启动与优雅停机。
 
 装配顺序：Protocol/Sink/Processor/Pipeline → AcquisitionEngine →
-Runtime（持有引擎、Task 定义与 Dispatcher）→ Use Case。
+Runtime（持有引擎、Task 定义与 CommandDispatcher）→ Use Case。
 ``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime`` 为运行核心。
 
 不负责：Web API 的真实启动与 SIGHUP 热重载监听（见 ``main.py``）、
 ``/metrics`` 端点（见 webapi 适配器）。这里负责把采集计数器回调
 （``on_points_collected``）注入采集引擎，并把命令/查询/配置/Task
-用例装配为对 Dispatcher / Runtime 的真实委托。
+用例装配为对 CommandDispatcher / Runtime 的真实委托。
 
 关键 side effect：导入协议驱动包触发自注册（见
-:mod:`wind_hub.infra.registry`）；构造过程纯同步、无网络 I/O，
+:mod:`wind_hub.infra.protocol_registry`）；构造过程纯同步、无网络 I/O，
 真正的连接发生在 :func:`start_runtime` 时由 Runtime 完成。
 """
 
@@ -42,8 +42,9 @@ from wind_hub.adapter.inbound.iec104_slave import (
 from wind_hub.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
+from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
-from wind_hub.application.runtime import Runtime
+from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.query import QueryUseCase
@@ -57,7 +58,6 @@ from wind_hub.config.schema import (
     SinkConfig,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.command import Dispatcher
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.port.outbound import (
     PointsConfigurable,
@@ -67,7 +67,7 @@ from wind_hub.domain.port.outbound import (
 from wind_hub.domain.processing import Pipeline
 from wind_hub.infra import metrics
 from wind_hub.infra.processor_registry import processor_registry
-from wind_hub.infra.registry import protocol_registry
+from wind_hub.infra.protocol_registry import protocol_registry
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class AssembledRuntime:
     engine: AcquisitionEngine
     """采集引擎（与 ``runtime.engine`` 同一实例，便于直接注册观察者）。"""
 
-    dispatcher: Dispatcher
+    dispatcher: CommandDispatcher
     """指令分发器，负责写指令路由与幂等。"""
 
     pipeline: Pipeline
@@ -99,9 +99,6 @@ class AssembledRuntime:
 
     sinks: dict[str, SinkPort]
     """按 sink 名索引的 sink 实例。"""
-
-    protocols: dict[str, ProtocolPort]
-    """按 device_id 索引的协议驱动实例。"""
 
     config: ConfigUseCase
     """配置热重载用例。"""
@@ -145,31 +142,39 @@ def assemble(
     # 被多设备共享时，各设备键指向同一 list 对象（不逐设备复制）。
     points_by_device = cfg.points_by_device()
 
-    protocols = {d.device_id: _create_protocol(d) for d in cfg.devices.devices}
+    # Device 是运行时设备的唯一聚合（配置 + 点表 + 协议实例）——不再
+    # 平行维护 protocols / points_by_device 索引。
+    devices: dict[str, Device] = {}
+    for device_cfg in cfg.devices.devices:
+        protocol = _create_protocol(device_cfg)
+        points = cfg.points_for_device(device_cfg.device_id)
+        protocol.set_points_mapping(points)
+        devices[device_cfg.device_id] = Device(
+            config=device_cfg,
+            points=points,
+            protocol=protocol,
+        )
+
     sinks = {s.name: make_sink(s) for s in cfg.system.sinks}
     processors = [
         _create_processor(name, points_by_device) for name in cfg.system.pipeline.processors
     ]
     pipeline = Pipeline(processors)
 
-    dispatcher = Dispatcher(
-        protocols,
-        # 命令计数回调接到 Prometheus 计数器：domain 不依赖 infra，由组合根注入。
+    dispatcher = CommandDispatcher(
+        devices,
+        # 命令计数回调接到 Prometheus 计数器：application 不依赖 infra，由组合根注入。
         # 默认写超时来自 system.yaml（Command.timeout > 0 时以命令自带值优先）。
         default_timeout=cfg.system.runtime.write_timeout,
         on_command_sent=metrics.commands_sent_total.inc,
         on_command_failed=metrics.commands_failed_total.inc,
     )
 
-    devices = {d.device_id: d for d in cfg.devices.devices}
-
-    # 采集引擎：执行「读 → 处理 → 按 Task targets 派发」单次链路；采集回调
-    # 接 Prometheus 计数器（domain 不依赖 infra，由组合根注入）。
+    # 采集引擎：PointValue 数据流的统一处理入口；采集回调接 Prometheus
+    # 计数器（domain 不依赖 infra，由组合根注入）。
     # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
     engine = AcquisitionEngine(
-        protocols=protocols,
         pipeline=pipeline,
-        points_by_device=points_by_device,
         on_points_collected=lambda n: metrics.points_collected_total.inc(n),
         on_points_bad=lambda n: metrics.points_bad_total.inc(n),
         read_timeout=cfg.system.runtime.read_timeout,
@@ -179,25 +184,24 @@ def assemble(
     # 热重载重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
     runtime = Runtime(
         devices=devices,
-        protocols=protocols,
         sinks=sinks,
         engine=engine,
         dispatcher=dispatcher,
         config=cfg.system.runtime,
         tasks={t.task_id: t for t in cfg.tasks.tasks},
-        points_by_device=points_by_device,
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
         processor_factory=_create_processor,
-        # 运行时事件指标（connect 失败/重连/collect 完成）接 Prometheus；
-        # application 不 import infra.metrics，由组合根注入结构化实现。
+        # 运行时事件指标（connect 失败/重连/collect 完成/poll 时序）接
+        # Prometheus；application 不 import infra.metrics，由组合根注入
+        # 结构化实现。
         metrics_hook=metrics.PrometheusRuntimeMetrics(),
     )
 
     # ConfigUseCase 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
     # 具体重构委托给 Runtime.reconfigure。
     config = ConfigUseCase(config_dir, runtime)
-    # Task 管理经 Runtime；命令/查询用例委托 Dispatcher / Runtime。
+    # Task 管理经 Runtime；命令/查询用例委托 CommandDispatcher / Runtime。
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
@@ -214,7 +218,6 @@ def assemble(
         dispatcher=dispatcher,
         pipeline=pipeline,
         sinks=sinks,
-        protocols=protocols,
         config=config,
         tasks=tasks,
         command=command,
@@ -298,7 +301,7 @@ def _create_protocol(cfg: DeviceConfig) -> ProtocolPort:
 def _build_iec104_slave(
     reporting: ReportingConfig,
     engine: AcquisitionEngine,
-    dispatcher: Dispatcher,
+    dispatcher: CommandDispatcher,
 ) -> IEC104SlaveServer:
     """装配 IEC104 从站代理对象图并把它挂到采集引擎的 observer 上。
 

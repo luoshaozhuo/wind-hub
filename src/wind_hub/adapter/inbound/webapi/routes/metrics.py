@@ -51,12 +51,10 @@ async def metrics_endpoint() -> Response:
             [
                 (
                     device_id,
-                    cfg.protocol,
-                    runtime.protocols[device_id].health().healthy
-                    if device_id in runtime.protocols
-                    else False,
+                    device.config.protocol,
+                    device.health().healthy,
                 )
-                for device_id, cfg in runtime.devices.items()
+                for device_id, device in runtime.devices.items()
             ]
         )
         # sink 队列深度 gauge（队列归 Runtime 所有）。

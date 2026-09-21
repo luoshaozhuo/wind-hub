@@ -137,13 +137,13 @@ def _write_two_device_config(base: Path) -> None:
                         {
                             "point_id": "rotor.speed",
                             "point_groups": ["fast"],
-                            "address": {"type": "holding_register", "register": 30001},
+                            "address": {"register_type": "holding", "address": 100},
                             "data_type": "float32",
                         },
                         {
                             "point_id": "gen.power",
                             "point_groups": ["fast"],
-                            "address": {"type": "holding_register", "register": 30003},
+                            "address": {"register_type": "holding", "address": 102},
                             "data_type": "float32",
                         },
                     ],
@@ -175,7 +175,7 @@ def test_assemble_builds_runtime_object_graph() -> None:
 
         rt = assemble(base)
 
-        assert set(rt.protocols) == {"d1"}
+        assert set(rt.runtime.devices) == {"d1"}
         assert set(rt.sinks) == {"archive"}
         assert rt.pipeline.processor_count == 1
         assert rt.runtime.device_count == 1
@@ -194,9 +194,10 @@ def test_assemble_accepts_string_config_dir() -> None:
 def test_assemble_shares_point_table_between_devices() -> None:
     """两台绑定同一 ``point_table`` 的设备共享同一点位表内容。
 
-    新架构下点位设备无关：``points_by_device`` 按设备绑定解析点表，
-    绑定同一表的设备获得内容一致的独立快照副本（每次调用返回新的
-    list 对象，共享语义体现在引用同一 table_id 且内容相等）。
+    点位设备无关：装配按设备绑定解析点表并聚合进各自的运行时
+    ``Device``——绑定同一表的设备获得内容一致的独立快照副本（每次
+    解析返回新的 list 对象，共享语义体现在引用同一 table_id 且内容
+    相等）。
     """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
@@ -204,15 +205,13 @@ def test_assemble_shares_point_table_between_devices() -> None:
 
         rt = assemble(base)
 
-        by_device = rt.runtime.points_by_device
+        by_device = {did: dev.points for did, dev in rt.runtime.devices.items()}
         assert set(by_device) == {"d1", "d2"}
         # 同一表被多设备共享——两个设备引用同一 table_id，点表内容一致
         assert by_device["d1"] == by_device["d2"]
         # …但各自持有独立的快照副本（非同一 list 对象）
         assert by_device["d1"] is not by_device["d2"]
         assert [p.point_id for p in by_device["d1"]] == ["rotor.speed", "gen.power"]
-        # 引擎与 Runtime 看到的是同一份共享映射
-        assert rt.engine._points_by_device["d1"] is by_device["d1"]  # noqa: SLF001
 
 
 def test_assemble_wires_runtime_engine_and_usecases() -> None:
@@ -233,9 +232,9 @@ def test_assemble_wires_runtime_engine_and_usecases() -> None:
         assert set(rt.runtime._task_defs) == {"fast"}  # noqa: SLF001
         # Runtime 与 AssembledRuntime 暴露的引擎是同一实例
         assert rt.runtime.engine is rt.engine
-        # 引擎与 Runtime 共享协议/点表注册表（热重载立即可见的前提）
-        assert rt.runtime.protocols is rt.protocols
-        assert rt.runtime.points_by_device is rt.engine._points_by_device  # noqa: SLF001
+        # Runtime 与 CommandDispatcher 共享同一 Device 注册表
+        # （热重载就地增删后双方立即可见的前提）
+        assert rt.dispatcher._devices is rt.runtime.devices  # noqa: SLF001
         # Runtime 持有分发器；Use Case 按职责委托
         assert rt.runtime.dispatcher is rt.dispatcher
         assert isinstance(rt.tasks, TaskUseCase)

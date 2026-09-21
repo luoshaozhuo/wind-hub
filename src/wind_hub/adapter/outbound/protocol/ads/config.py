@@ -56,9 +56,6 @@ class ADSConfig:
     subscribe_enabled: bool = False
     """Whether device-notification subscription is enabled."""
 
-    cycle_time: float = 0.02
-    """Notification cycle time in seconds."""
-
     max_delay: float = 0.06
     """Maximum notification delay in seconds."""
 
@@ -121,10 +118,10 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
         read_mode=cfg.read_mode,
         max_subs_per_sum=int(ext.get("max_subs_per_sum", 500)),
         max_concurrent_reads=int(ext.get("max_concurrent_reads", 16)),
-        # 订阅参数不经正式配置 Schema——由 endpoint.extensions 透传，
-        # 供诊断/实验性订阅使用（Runtime 不含订阅路径）。
+        # 订阅开关与协议参数由 endpoint.extensions 透传；notification 的
+        # cycle_time 不再是设备级配置——采集节拍属于 Task（Task.interval），
+        # 订阅建立时由调用方传入。
         subscribe_enabled=bool(ext.get("subscribe_enabled", False)),
-        cycle_time=float(ext.get("cycle_time", 0.02)),
         max_delay=float(ext.get("max_delay", 0.06)),
         max_notifications_per_connection=int(ext.get("max_notifications_per_connection", 550)),
     )

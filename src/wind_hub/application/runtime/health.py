@@ -18,8 +18,8 @@ class RuntimeHealth:
 
     def health(self) -> dict[str, HealthStatus]:
         result: dict[str, HealthStatus] = {}
-        for device_id, proto in self._runtime._protocols.items():
-            result[device_id] = proto.health()
+        for device_id, device in self._runtime._devices.items():
+            result[device_id] = device.health()
         for name, sink in self._runtime._sinks.items():
             if name in self._runtime._unhealthy_sinks:
                 result[name] = HealthStatus(healthy=False, message="open failed")

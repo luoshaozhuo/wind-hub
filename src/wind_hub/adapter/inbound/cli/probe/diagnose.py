@@ -30,7 +30,7 @@ from wind_hub.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.model.point import PointRef
 from wind_hub.domain.port.outbound import ProtocolPort
-from wind_hub.infra.registry import protocol_registry
+from wind_hub.infra.protocol_registry import protocol_registry
 
 logger = logging.getLogger(__name__)
 

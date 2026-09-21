@@ -180,6 +180,19 @@ def _validate_task_targets(
             "scheduled collection (ADS read_mode='sequential' is single-read only)"
         )
 
+    # interval 是否必填按命中设备的协议采集能力判定：主动轮询（Modbus、
+    # ADS Sum）与 ADS 订阅（notification cycle_time）都需要节拍；纯
+    # IEC104 订阅由远端决定数据到达时机，不要求 interval。混合命中时
+    # （如 device_group 同时含 IEC104 与 Modbus）仍必须配置。
+    if task.interval is None:
+        requiring = [d.device_id for d in matched if _device_requires_interval(d)]
+        if requiring:
+            raise ConfigError(
+                f"Task '{task.task_id}': interval is required — devices {requiring} "
+                "collect actively (poll) or via ADS notification cycle_time; "
+                "only pure IEC104-subscription tasks may omit interval"
+            )
+
     missing = [
         d.device_id
         for d in matched
@@ -191,6 +204,17 @@ def _validate_task_targets(
             f"Task '{task.task_id}': point_group '{task.point_group}' does not "
             f"exist in the point tables of devices {missing}"
         )
+
+
+def _device_requires_interval(device: DeviceConfig) -> bool:
+    """设备的采集机制是否需要 Task 提供节拍（interval）。
+
+    - IEC104：订阅式（spontaneous / periodic），不需要；
+    - ADS 且 ``subscribe_enabled``：订阅式，但 interval 用作 notification
+      ``cycle_time``——需要；
+    - 其余（Modbus、ADS Sum 主动轮询）：需要。
+    """
+    return device.protocol != "iec104"
 
 
 def _validate_device_binding(

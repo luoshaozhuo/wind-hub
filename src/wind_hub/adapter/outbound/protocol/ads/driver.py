@@ -28,9 +28,14 @@ from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint, parse_point
 from wind_hub.adapter.outbound.protocol.ads.subscription import ADSSubscription
 from wind_hub.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub.domain.model.errors import ConfigError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub.domain.port.outbound import (
+    AcquisitionMode,
+    HealthStatus,
+    ProtocolPort,
+    SubscriptionHandle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +106,10 @@ class ADSDriver:
         # third-party type never leaks into this module's API).
         self._connection: Any = None
 
-        # Device-notification subscription, created lazily on first subscribe.
-        self._subscription: ADSSubscription | None = None
+        # 活跃的 device-notification 订阅——每次 subscribe 调用创建一个
+        # 独立实例（独立连接池 / cycle_time / 回调），按订阅句柄独立管理，
+        # 互不影响。
+        self._subscriptions: set[ADSSubscription] = set()
 
     # ------------------------------------------------------------------
     # point mapping
@@ -143,9 +150,10 @@ class ADSDriver:
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._monitor_task
             self._monitor_task = None
-            if self._subscription is not None:
-                await self._subscription.close()
-                self._subscription = None
+            for subscription in list(self._subscriptions):
+                with contextlib.suppress(Exception):
+                    await subscription.close()
+            self._subscriptions.clear()
             self._close_connection()
             self._connected = False
             self._failed = False
@@ -403,33 +411,59 @@ class ADSDriver:
     # ProtocolPort — subscribe / health
     # ------------------------------------------------------------------
 
+    @property
+    def acquisition_mode(self) -> AcquisitionMode:
+        """``subscribe_enabled`` → 订阅推送；否则主动轮询（Sum read）。"""
+        if self._config.subscribe_enabled:
+            return AcquisitionMode.SUBSCRIBE
+        return AcquisitionMode.POLL
+
     async def subscribe(
         self,
         points: list[PointRef],
         callback: Callable[[PointValue], Awaitable[None]],
-    ) -> None:
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
         """Subscribe to spontaneous device-notification updates.
 
-        Requires ``subscribe.enabled`` in the device config; otherwise raises
+        Requires ``subscribe_enabled`` in the device config; otherwise raises
         :class:`NotImplementedError`.  Unknown points (not in the point table)
-        are skipped.  Calls may be repeated to add points; the subscription
-        registers the set difference against its current handles.
+        are skipped.
+
+        每次调用创建一个**独立**订阅（独立连接池、独立 ``cycle_time``、
+        独立回调）——同一 symbol 可被多个 TaskInstance 以不同节拍订阅，
+        互不覆盖；关闭返回的句柄只注销本次订阅。
+
+        ``interval`` 即 notification 的 ``cycle_time``（秒，来自
+        Task.interval），必填且 > 0。
         """
         if not self._config.subscribe_enabled:
             raise NotImplementedError(
-                "ADS subscription is not enabled — set subscribe.enabled=true "
+                "ADS subscription is not enabled — set subscribe_enabled=true "
                 "in the device config"
             )
-        if self._subscription is None:
-            self._subscription = ADSSubscription(
-                config=self._config,
-                device_id=self._cfg.device_id,
-                host=self._host,
-                loop=asyncio.get_running_loop(),
-                on_data=callback,
+        if interval is None or interval <= 0:
+            raise ConfigError(
+                f"ADS subscription on device '{self._cfg.device_id}' requires "
+                f"interval > 0 (used as notification cycle_time), got {interval}"
             )
+        subscription = ADSSubscription(
+            config=self._config,
+            device_id=self._cfg.device_id,
+            host=self._host,
+            loop=asyncio.get_running_loop(),
+            on_data=callback,
+            cycle_time=interval,
+        )
         ads_points = [self._points[ref.point_id] for ref in points if ref.point_id in self._points]
-        await self._subscription.subscribe(ads_points)
+        try:
+            await subscription.subscribe(ads_points)
+        except Exception:
+            await subscription.close()
+            raise
+        self._subscriptions.add(subscription)
+        return _ADSSubscriptionHandle(self, subscription)
 
     def health(self) -> HealthStatus:
         """Return cached connection health."""
@@ -440,11 +474,23 @@ class ADSDriver:
         return HealthStatus(healthy=True)
 
 
+class _ADSSubscriptionHandle:
+    """一次 ADS 订阅的句柄——close 只注销本次订阅（实现 SubscriptionHandle）。"""
+
+    def __init__(self, driver: ADSDriver, subscription: ADSSubscription) -> None:
+        self._driver = driver
+        self._subscription = subscription
+
+    async def close(self) -> None:
+        self._driver._subscriptions.discard(self._subscription)
+        await self._subscription.close()
+
+
 # ---------------------------------------------------------------------------
 # self-registration
 # ---------------------------------------------------------------------------
 
-from wind_hub.infra.registry import register_protocol  # noqa: E402
+from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 
 @register_protocol("ads")

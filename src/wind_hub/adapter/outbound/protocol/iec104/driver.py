@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from wind_hub.adapter.outbound.protocol.iec104.codec.asdu import ASDU
 from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
     DoubleCommand,
+    InterrogationCommand,
     SetpointCommandShort,
     SingleCommand,
 )
@@ -35,7 +36,12 @@ from wind_hub.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.model.command import Command, CommandResult
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub.domain.port.outbound import (
+    AcquisitionMode,
+    HealthStatus,
+    ProtocolPort,
+    SubscriptionHandle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +233,9 @@ class IEC104Driver:
 
             # Fail any pending commands.
             self._fail_all_pending("connection closed")
+
+            # 注销全部订阅（重连不清——只有整体 close 才清理注册表）。
+            self._subscriptions.clear()
 
             self._failed = False
 
@@ -453,13 +462,45 @@ class IEC104Driver:
     # ProtocolPort — subscribe
     # ==================================================================
 
+    @property
+    def acquisition_mode(self) -> AcquisitionMode:
+        """IEC104 天然接收 spontaneous / periodic / interrogation 数据——订阅式。"""
+        return AcquisitionMode.SUBSCRIBE
+
     async def subscribe(
         self,
         points: list[PointRef],
         callback: Callable[[PointValue], Awaitable[None]],
-    ) -> None:
-        """Register a subscription."""
-        self._subscriptions.subscribe(points, callback, self._resolve_ioa)
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
+        """Register a subscription and return its independent handle.
+
+        数据到达时机由远端决定（spontaneous / periodic / interrogation
+        response），``interval`` 对 IEC104 无调度意义，仅透传忽略。
+        关闭句柄只注销本次订阅，不关闭设备连接；重连后注册表保留，
+        数据流自然恢复。
+        """
+        return self._subscriptions.subscribe(points, callback, self._resolve_ioa)
+
+    async def interrogate(self) -> None:
+        """发送一次 General Interrogation（C_IC_NA_1，QOI=20，master 侧）。
+
+        总召响应经既有 ASDU 接收链进入各订阅回调，不另设返回通道。
+        由 ``Device.start_acquisition`` 在订阅建立后触发一次；不做周期
+        总召。
+        """
+        session = self._session
+        if session is None or not session.is_started:
+            raise ProtocolError("IEC104: cannot interrogate — driver is not connected")
+        asdu = ASDU(
+            type_id=TypeID.C_IC_NA_1,
+            cause=CauseOfTransmission.ACTIVATION,
+            common_address=self._cfg.common_addr,
+            objects=[InterrogationCommand(ioa=0)],
+        )
+        session.send_asdu(asdu)
+        logger.info("IEC104: general interrogation sent to %s:%d", self._cfg.host, self._cfg.port)
 
     # ==================================================================
     # ProtocolPort — health
@@ -686,7 +727,7 @@ class IEC104Driver:
 # self-registration
 # ---------------------------------------------------------------------------
 
-from wind_hub.infra.registry import register_protocol  # noqa: E402
+from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 
 @register_protocol("iec104")

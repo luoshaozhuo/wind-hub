@@ -22,23 +22,6 @@ class Endpoint(BaseModel):
     Modbus ``unit_id``, ADS ``ams_net_id``)."""
 
 
-class Device(BaseModel):
-    """Static configuration of a device."""
-
-    device_id: str
-    """Unique identifier for the device (e.g. 'turbine-01')."""
-
-    protocol: str
-    """Protocol driver name: ``'ads'``, ``'modbus'``, or ``'iec104'``."""
-
-    endpoint: Endpoint
-    """Network endpoint of the device."""
-
-    enabled: bool = True
-    """Whether the device is active. Disabled devices are skipped
-    by the scheduler."""
-
-
 class DeviceInfo(BaseModel):
     """Runtime status snapshot of a device — returned by query operations."""
 

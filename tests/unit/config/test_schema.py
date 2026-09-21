@@ -471,12 +471,23 @@ class TestCollectionTaskConfig:
         with pytest.raises(ConfigError, match="interval must be > 0"):
             _task(interval=-1.0)
 
-    def test_interval_required(self) -> None:
-        with pytest.raises(ValidationError):
-            CollectionTaskConfig(  # type: ignore[call-arg]
+    def test_interval_optional_at_schema_level(self) -> None:
+        """interval 在 schema 层可选——是否必填由加载期按协议能力跨文件校验。"""
+        task = CollectionTaskConfig(
+            task_id="t1",
+            device="d1",
+            point_group="fast",
+            targets=[TaskTarget(sink="s1")],
+        )
+        assert task.interval is None
+
+    def test_interval_must_be_positive_when_set(self) -> None:
+        with pytest.raises(ConfigError, match="interval must be > 0"):
+            CollectionTaskConfig(
                 task_id="t1",
                 device="d1",
                 point_group="fast",
+                interval=0.0,
                 targets=[TaskTarget(sink="s1")],
             )
 

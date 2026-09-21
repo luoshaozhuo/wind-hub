@@ -24,8 +24,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.runtime.device import Device
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.config.schema import (
     CollectionTaskConfig,
@@ -36,7 +38,6 @@ from wind_hub.config.schema import (
     TaskTarget,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.command import Dispatcher
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
@@ -87,6 +88,18 @@ def _protocol(healthy: bool = True, read_values: list[PointValue] | None = None)
     return proto
 
 
+def _build_device_map(
+    devices: dict[str, DeviceConfig],
+    protocols: dict[str, MagicMock],
+    points: dict[str, list[PointConfig]],
+) -> dict[str, Device]:
+    """按装配语义聚合 Device：配置 + 点表 + 协议实例。"""
+    return {
+        device_id: Device(cfg, points.get(device_id, []), protocols[device_id])
+        for device_id, cfg in devices.items()
+    }
+
+
 def _sink(healthy: bool = True) -> MagicMock:
     sink = MagicMock(spec=SinkPort)
     sink.health = MagicMock(return_value=HealthStatus(healthy=healthy))
@@ -107,22 +120,20 @@ def _runtime(
     points: dict[str, list[PointConfig]] | None = None,
     tasks: dict[str, CollectionTaskConfig] | None = None,
 ) -> Runtime:
+    devices = devices if devices is not None else {}
     protocols = protocols if protocols is not None else {}
     points = points if points is not None else {}
-    engine = AcquisitionEngine(
-        protocols=protocols,
-        pipeline=Pipeline([]),
-        points_by_device=points,
-    )
+    # 没有协议实例的设备使用默认 mock——Runtime 只持有聚合后的 Device。
+    full_protocols = {device_id: protocols.get(device_id) or _protocol() for device_id in devices}
+    device_map = _build_device_map(devices, full_protocols, points)
+    engine = AcquisitionEngine(pipeline=Pipeline([]))
     return Runtime(
-        devices=devices if devices is not None else {},
-        protocols=protocols,
+        devices=device_map,
         sinks=sinks if sinks is not None else {},
         engine=engine,
-        dispatcher=MagicMock(spec=Dispatcher),
+        dispatcher=MagicMock(spec=CommandDispatcher),
         config=RuntimeConfig(),
         tasks=tasks,
-        points_by_device=points,
     )
 
 
@@ -163,13 +174,6 @@ async def test_read_point_unknown_point_raises_command_error() -> None:
         await usecase.read_point("d1", "nope")
 
 
-async def test_read_point_missing_driver_raises_command_error() -> None:
-    usecase = QueryUseCase(_runtime(devices={"d1": _device()}, points={"d1": [_point()]}))
-
-    with pytest.raises(CommandError, match="no protocol driver"):
-        await usecase.read_point("d1", "p1")
-
-
 async def test_read_point_empty_result_raises_protocol_error() -> None:
     proto = _protocol(read_values=[])
     usecase = QueryUseCase(
@@ -200,16 +204,6 @@ async def test_list_devices_reports_health() -> None:
     assert by_id["d1"].connected is True
     assert by_id["d1"].protocol == "modbus"
     assert by_id["d2"].connected is False
-
-
-async def test_list_devices_missing_driver_reports_disconnected() -> None:
-    usecase = QueryUseCase(_runtime(devices={"d1": _device()}))
-
-    infos = await usecase.list_devices()
-
-    assert len(infos) == 1
-    assert infos[0].connected is False
-    assert infos[0].last_seen is None
 
 
 async def test_get_device_info_known() -> None:

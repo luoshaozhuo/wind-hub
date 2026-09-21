@@ -2,12 +2,12 @@
 
 Lets wind-hub act as an IEC 60870-5-104 **server** (slave): it listens for
 a dispatch master, answers general interrogation from the live data snapshot,
-and accepts remote-control commands routed through the engine Dispatcher.
+and accepts remote-control commands routed through the CommandDispatcher.
 
 Reuses the pure :mod:`~wind_hub.adapter.outbound.protocol.iec104.codec`
 encode/decode layer; depends on the
 :class:`~wind_hub.domain.acquisition.AcquisitionEngine` observer mechanism
-and the :class:`~wind_hub.domain.command.dispatcher`.
+and the :class:`~wind_hub.application.command_dispatcher.CommandDispatcher`.
 """
 
 from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge

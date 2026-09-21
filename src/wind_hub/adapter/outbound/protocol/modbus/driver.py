@@ -29,7 +29,12 @@ from wind_hub.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.model.command import Command, CommandResult
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub.domain.port.outbound import (
+    AcquisitionMode,
+    HealthStatus,
+    ProtocolPort,
+    SubscriptionHandle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -440,11 +445,18 @@ class ModbusDriver:
     # ProtocolPort — subscribe / health
     # ------------------------------------------------------------------
 
+    @property
+    def acquisition_mode(self) -> AcquisitionMode:
+        """Modbus 是纯请求/响应协议——只能主动轮询。"""
+        return AcquisitionMode.POLL
+
     async def subscribe(
         self,
         points: list[PointRef],
         callback: Callable[[PointValue], Awaitable[None]],
-    ) -> None:
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
         """Modbus is request/response-only — subscription is not supported."""
         raise NotImplementedError(
             "Modbus does not support subscription (request/response protocol)"
@@ -463,7 +475,7 @@ class ModbusDriver:
 # self-registration
 # ---------------------------------------------------------------------------
 
-from wind_hub.infra.registry import register_protocol  # noqa: E402
+from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 
 @register_protocol("modbus")

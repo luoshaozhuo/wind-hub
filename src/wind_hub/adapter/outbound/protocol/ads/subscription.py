@@ -56,12 +56,16 @@ class ADSSubscription:
         host: str,
         loop: asyncio.AbstractEventLoop,
         on_data: Callable[[PointValue], Awaitable[None]],
+        cycle_time: float,
     ) -> None:
         self._config = config
         self._device_id = device_id
         self._host = host
         self._loop = loop
         self._on_data = on_data
+        # Notification cycle time（秒）——来自 Task.interval，由调用方在
+        # 订阅建立时传入；不再是设备级配置。
+        self._cycle_time = cycle_time
 
         # symbol name → resolved point
         self._points: dict[str, ADSPoint] = {}
@@ -150,7 +154,7 @@ class ADSSubscription:
             conn = self._connections[idx]
             attr = pyads.NotificationAttrib(
                 max(ap.size, 1),
-                cycle_time=self._config.cycle_time,
+                cycle_time=self._cycle_time,
                 max_delay=self._config.max_delay,
             )
             handle, user_handle = await asyncio.to_thread(

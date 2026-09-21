@@ -273,7 +273,7 @@ async def run_benchmark(
             for instance in runtime.task_instances().values():
                 await runtime.start_task_instance(instance.instance_id)
             health_task = asyncio.create_task(
-                _health_watch(rt.protocols[plan.device_id], collector)
+                _health_watch(rt.runtime.devices[plan.device_id].protocol, collector)
             )
             outage_task: asyncio.Task[None] | None = None
             try:

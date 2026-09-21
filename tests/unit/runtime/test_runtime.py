@@ -1,7 +1,7 @@
 """Runtime（``application/runtime``）的单元测试——Task / Task Instance 模型。
 
 验证对象：:class:`Runtime`（组件生命周期、Task Instance 展开与启停、
-polling 循环、热重载、Sink 背压/派发）。
+acquisition handle 管理、热重载、Sink 背压/派发）。
 
 覆盖点（对应重构简报 spec §30）：
 
@@ -10,12 +10,12 @@ polling 循环、热重载、Sink 背压/派发）。
   device Task 不展开；
 - 启动语义：实例初始 STOPPED；``start_task_instance`` 幂等且对未知
   instance_id 抛 KeyError；
-- 停止：``stop_task_instance`` 取消协程、幂等、stop 后不再 collect；
-- 循环行为：``collect → sleep(interval)``（非墙钟对齐）；单次 collect
+- 停止：``stop_task_instance`` 关闭采集句柄、幂等、stop 后不再 collect；
+- polling 行为：fixed-rate（首次立即执行、interval 间隔）；单次 acquire
   异常只记日志继续；CancelledError 传播；
-- 停机：``stop()`` 取消全部实例协程、无孤儿 task；
+- 停机：``stop()`` 关闭全部采集句柄、无孤儿协程；
 - 热重载 ``reconfigure``：Task 增删 / device_group 成员变化 / interval
-  与 targets 快照替换（协程不重启）/ 点表重注入 / 连接不重建；
+  变化重建句柄、targets 快照替换（句柄不重启）/ 点表重注入 / 连接不重建；
 - Sink 派发与背压：targets fan-out、未知 sink 跳过、drop_old / drop_new。
 
 引擎侧循环测试使用内存 ``_FakeEngine``（只实现 Runtime 依赖的装配缝与
@@ -30,8 +30,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.runtime.device import Device
 from wind_hub.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -53,11 +55,10 @@ from wind_hub.config.schema import (
     TaskTarget,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.command import Dispatcher
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, TaskDiff
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, ProtocolPort
 from wind_hub.domain.processing import Pipeline
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ from wind_hub.domain.processing import Pipeline
 # ---------------------------------------------------------------------------
 
 
-def _make_device(
+def _make_device_config(
     device_id: str,
     device_group: str | None = None,
     enabled: bool = True,
@@ -118,6 +119,9 @@ def _mock_protocol() -> ProtocolPort:
     proto.read = AsyncMock(return_value=[])
     proto.write = AsyncMock()
     proto.health = MagicMock(return_value=HealthStatus(healthy=True))
+    # 默认主动轮询型设备（Modbus 语义）——经 Device.start_acquisition
+    # 走 PollingAcquisitionHandle。
+    proto.acquisition_mode = AcquisitionMode.POLL
     return proto
 
 
@@ -151,11 +155,12 @@ class _FakeEngine:
     记录每次 ``collect`` 调用的完整参数；``fail_next`` 让下一次 collect
     抛异常（验证 polling 循环的异常韧性）；``collect_gate`` 可阻塞 collect
     （验证 CancelledError 传播）。不模拟引擎内部读/管线逻辑——那是
-    ``tests/unit/engine`` 的职责。
+    ``tests/unit/acquisition`` 的职责。
     """
 
     def __init__(self) -> None:
         self.collect_calls: list[tuple[str, str, list[str], str]] = []
+        self.process_calls: list[tuple[list[PointValue], list[str]]] = []
         self.fail_next = 0
         self.collect_gate: asyncio.Event | None = None
         self.sink_dispatch: object | None = None
@@ -179,17 +184,36 @@ class _FakeEngine:
 
     async def collect(
         self,
-        device_id: str,
+        device: Device,
         point_group: str,
         targets: list[str],
         execution_id: str,
     ) -> None:
-        self.collect_calls.append((device_id, point_group, list(targets), execution_id))
+        self.collect_calls.append((device.device_id, point_group, list(targets), execution_id))
         if self.fail_next:
             self.fail_next -= 1
             raise RuntimeError("collect boom")
         if self.collect_gate is not None:
             await self.collect_gate.wait()
+
+    async def process(self, batch: list[PointValue], targets: list[str]) -> None:
+        self.process_calls.append((batch, list(targets)))
+
+
+def _build_devices(
+    configs: list[DeviceConfig],
+    protos: dict[str, ProtocolPort],
+    points: dict[str, list[PointConfig]],
+) -> dict[str, Device]:
+    """按装配语义构建运行时 Device：注入点映射后聚合配置/点表/协议。"""
+    devices: dict[str, Device] = {}
+    for cfg in configs:
+        proto = protos[cfg.device_id]
+        device_points = points.get(cfg.device_id, [])
+        if device_points:
+            proto.set_points_mapping(device_points)
+        devices[cfg.device_id] = Device(cfg, device_points, proto)
+    return devices
 
 
 def _build_runtime(
@@ -208,15 +232,14 @@ def _build_runtime(
     protos = {d.device_id: _mock_protocol() for d in devices}
     sinks = {name: _mock_sink() for name in sink_names}
     eng = engine if engine is not None else _FakeEngine()
+    device_map = _build_devices(devices, protos, points if points is not None else {})
     rt = Runtime(
-        devices={d.device_id: d for d in devices},
-        protocols=protos,
+        devices=device_map,
         sinks=sinks,
         engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 Runtime 依赖面
-        dispatcher=Dispatcher(protocols=protos),
+        dispatcher=CommandDispatcher(device_map),
         config=_runtime_config(backpressure, queue_maxsize),
         tasks={t.task_id: t for t in tasks},
-        points_by_device=points if points is not None else {},
         protocol_factory=protocol_factory,
         sink_factory=sink_factory,
         processor_factory=processor_factory,
@@ -254,11 +277,11 @@ async def _wait_for(cond, timeout: float = 2.0, what: str = "condition") -> None
 
 
 def _instance_coroutine_tasks() -> list[asyncio.Task]:
-    """当前事件循环中仍在跑的 Task Instance polling 协程（孤儿检测用）。"""
+    """当前事件循环中仍在跑的 polling 协程（孤儿检测用）。"""
     result = []
     for task in asyncio.all_tasks():
         coro = task.get_coro()
-        if coro is not None and "_run_task_instance" in coro.__qualname__:
+        if coro is not None and "PollingAcquisitionHandle._run" in coro.__qualname__:
             result.append(task)
     return result
 
@@ -271,7 +294,7 @@ def _instance_coroutine_tasks() -> list[asyncio.Task]:
 class TestTaskExpansion:
     async def test_device_task_expands_to_single_instance(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=1.0, sinks=("s1", "s2"))],
             sink_names=("s1", "s2"),
         )
@@ -292,10 +315,10 @@ class TestTaskExpansion:
     async def test_device_group_task_expands_to_enabled_group_members(self) -> None:
         rt, _, _, _ = _build_runtime(
             devices=[
-                _make_device("d1", device_group="turbine"),
-                _make_device("d2", device_group="turbine"),
-                _make_device("d3", device_group="turbine", enabled=False),
-                _make_device("d4", device_group="pcs"),
+                _make_device_config("d1", device_group="turbine"),
+                _make_device_config("d2", device_group="turbine"),
+                _make_device_config("d3", device_group="turbine", enabled=False),
+                _make_device_config("d4", device_group="pcs"),
             ],
             tasks=[_make_task("tg", device_group="turbine")],
         )
@@ -307,7 +330,7 @@ class TestTaskExpansion:
 
     async def test_disabled_task_expands_to_nothing(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", enabled=False)],
         )
         await rt.start()
@@ -318,7 +341,7 @@ class TestTaskExpansion:
 
     async def test_device_task_on_disabled_device_expands_to_nothing(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1", enabled=False)],
+            devices=[_make_device_config("d1", enabled=False)],
             tasks=[_make_task("t1", device="d1")],
         )
         await rt.start()
@@ -329,7 +352,7 @@ class TestTaskExpansion:
 
     async def test_device_task_on_unknown_device_expands_to_nothing(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="ghost")],
         )
         await rt.start()
@@ -340,7 +363,7 @@ class TestTaskExpansion:
 
     async def test_instances_registered_stopped(self) -> None:
         rt, protos, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1")],
         )
         await rt.start()
@@ -369,7 +392,7 @@ class TestTaskExpansion:
 class TestStartStopInstance:
     async def test_start_instance_begins_polling(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -382,19 +405,19 @@ class TestStartStopInstance:
         finally:
             await rt.stop()
 
-    async def test_start_instance_idempotent_no_second_coroutine(self) -> None:
+    async def test_start_instance_idempotent_no_second_handle(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
-            first = rt._task_coroutines["t1:d1"]
+            first = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
             await rt.start_task_instance("t1:d1")
             await rt.start_task_instance("t1:d1")
-            assert rt._task_coroutines["t1:d1"] is first
-            assert len(rt._task_coroutines) == 1
+            assert rt._acquisition_handles["t1:d1"] is first  # noqa: SLF001
+            assert len(rt._acquisition_handles) == 1  # noqa: SLF001
             assert len(_instance_coroutine_tasks()) == 1
             await _wait_for(lambda: len(eng.collect_calls) >= 2, what="polling continues")
         finally:
@@ -402,7 +425,7 @@ class TestStartStopInstance:
 
     async def test_start_unknown_instance_raises_key_error(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1")],
         )
         await rt.start()
@@ -412,9 +435,9 @@ class TestStartStopInstance:
         finally:
             await rt.stop()
 
-    async def test_stop_instance_cancels_polling(self) -> None:
+    async def test_stop_instance_closes_handle(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -423,7 +446,7 @@ class TestStartStopInstance:
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
             await rt.stop_task_instance("t1:d1")
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" not in rt._task_coroutines
+            assert "t1:d1" not in rt._acquisition_handles  # noqa: SLF001
             assert _instance_coroutine_tasks() == []
             # stop 后不再 collect
             count = len(eng.collect_calls)
@@ -434,7 +457,7 @@ class TestStartStopInstance:
 
     async def test_stop_instance_idempotent(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -448,7 +471,7 @@ class TestStartStopInstance:
 
     async def test_stop_unknown_instance_raises_key_error(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1")],
         )
         await rt.start()
@@ -460,7 +483,7 @@ class TestStartStopInstance:
 
     async def test_stop_instance_does_not_affect_others(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1"), _make_device("d2")],
+            devices=[_make_device_config("d1"), _make_device_config("d2")],
             tasks=[
                 _make_task("t1", device="d1", interval=0.02),
                 _make_task("t2", device="d2", interval=0.02),
@@ -488,7 +511,7 @@ class TestStartStopInstance:
 class TestPollingLoop:
     async def test_interval_respected_between_cycles(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=10.0)],
         )
         await rt.start()
@@ -503,7 +526,7 @@ class TestPollingLoop:
 
     async def test_repeated_cycles_with_short_interval(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -513,28 +536,26 @@ class TestPollingLoop:
         finally:
             await rt.stop()
 
-    async def test_collect_exception_logged_and_loop_continues(self, caplog) -> None:
+    async def test_acquire_exception_logged_and_loop_continues(self, caplog) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
         try:
-            with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.runtime"):
+            with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.device"):
                 eng.fail_next = 1
                 await rt.start_task_instance("t1:d1")
                 await _wait_for(lambda: len(eng.collect_calls) >= 3, what="loop survives failure")
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             assert rt.running is True
-            assert any(
-                "collect failed unexpectedly" in record.getMessage() for record in caplog.records
-            )
+            assert any("Polling acquire failed" in record.getMessage() for record in caplog.records)
         finally:
             await rt.stop()
 
     async def test_cancelled_error_propagates_during_collect(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         eng.collect_gate = asyncio.Event()  # 永不 set——collect 内阻塞
@@ -551,30 +572,30 @@ class TestPollingLoop:
             await rt.stop()
 
     async def test_running_instance_reads_updated_snapshot_next_cycle(self) -> None:
-        """协程每轮从注册表重取实例——interval 快照替换后下一轮生效（不重启协程）。"""
+        """采集回调每轮现取实例——targets 快照替换后下一轮生效（不重启句柄）。"""
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
-            coro = rt._task_coroutines["t1:d1"]
-            # 就地替换实例快照（reconfigure 的内部机制）
-            rt._task_instances["t1:d1"] = CollectionTaskInstance(
+            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            # 就地替换实例快照（reconfigure 的内部机制）——仅 targets 变化
+            rt._task_instances["t1:d1"] = CollectionTaskInstance(  # noqa: SLF001
                 instance_id="t1:d1",
                 task_id="t1",
                 device_id="d1",
-                point_group="g2",
+                point_group="g1",
                 interval=0.02,
                 targets=["s9"],
             )
             await _wait_for(
-                lambda: any(c[1] == "g2" and c[2] == ["s9"] for c in eng.collect_calls),
+                lambda: any(c[2] == ["s9"] for c in eng.collect_calls),
                 what="new snapshot picked up",
             )
-            assert rt._task_coroutines["t1:d1"] is coro
+            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
         finally:
             await rt.stop()
 
@@ -585,9 +606,9 @@ class TestPollingLoop:
 
 
 class TestShutdown:
-    async def test_stop_cancels_all_instance_coroutines_no_orphans(self) -> None:
+    async def test_stop_closes_all_handles_no_orphans(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1"), _make_device("d2")],
+            devices=[_make_device_config("d1"), _make_device_config("d2")],
             tasks=[
                 _make_task("t1", device="d1", interval=0.02),
                 _make_task("t2", device="d2", interval=0.02),
@@ -600,7 +621,7 @@ class TestShutdown:
 
         await rt.stop()
 
-        assert rt._task_coroutines == {}
+        assert rt._acquisition_handles == {}  # noqa: SLF001
         assert _instance_coroutine_tasks() == []
         assert set(rt.instance_states().values()) == {TaskInstanceState.STOPPED}
         assert rt.running is False
@@ -610,7 +631,7 @@ class TestShutdown:
 
     async def test_stop_idempotent(self) -> None:
         rt, _, _, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -622,7 +643,7 @@ class TestShutdown:
 
     async def test_restart_requires_explicit_instance_start(self) -> None:
         rt, _, _, eng = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1", interval=0.02)],
         )
         await rt.start()
@@ -647,7 +668,7 @@ class TestShutdown:
 
 class TestReconfigure:
     async def test_add_task_registers_stopped_instance(self) -> None:
-        devices = [_make_device("d1")]
+        devices = [_make_device_config("d1")]
         rt, protos, _, eng = _build_runtime(devices=devices, tasks=[])
         await rt.start()
         try:
@@ -665,7 +686,7 @@ class TestReconfigure:
             await rt.stop()
 
     async def test_remove_task_unregisters_running_instance(self) -> None:
-        devices = [_make_device("d1")]
+        devices = [_make_device_config("d1")]
         task = _make_task("t1", device="d1", interval=0.02)
         rt, _, _, eng = _build_runtime(devices=devices, tasks=[task])
         await rt.start()
@@ -687,15 +708,15 @@ class TestReconfigure:
 
     async def test_device_group_membership_change_adds_and_removes_instances(self) -> None:
         """d1 移出分组（轻量更新，不重建连接）+ d2 热增入组 → 实例增删。"""
-        d1 = _make_device("d1", device_group="turbine")
+        d1 = _make_device_config("d1", device_group="turbine")
         task = _make_task("tg", device_group="turbine")
         factory = MagicMock(side_effect=lambda cfg: _mock_protocol())
         rt, protos, _, _ = _build_runtime(devices=[d1], tasks=[task], protocol_factory=factory)
         await rt.start()
         try:
             assert set(rt.task_instances()) == {"tg:d1"}
-            d1_new = _make_device("d1", device_group="pcs")
-            d2_new = _make_device("d2", device_group="turbine")
+            d1_new = _make_device_config("d1", device_group="pcs")
+            d2_new = _make_device_config("d2", device_group="turbine")
             new_cfg = _full_config(devices=[d1_new, d2_new], tasks=[task])
             diff = ConfigDiff(devices=DeviceDiff(added=["d2"], updated=["d1"]))
             errors = await rt.reconfigure(new_cfg, diff)
@@ -704,16 +725,16 @@ class TestReconfigure:
             assert rt.instance_states()["tg:d2"] is TaskInstanceState.STOPPED
             # d1 只改了 device_group——轻量路径，不重建连接
             assert protos["d1"].connect.await_count == 1
-            assert rt.protocols["d1"] is protos["d1"]
+            assert rt.devices["d1"].protocol is protos["d1"]
             # d2 走热增路径：新协议实例由工厂创建并连接
             assert factory.call_count == 1
-            assert rt.protocols["d2"].connect.await_count == 1
+            assert rt.devices["d2"].protocol.connect.await_count == 1
             assert rt.running is True
         finally:
             await rt.stop()
 
     async def test_device_disable_removes_instances_without_runtime_restart(self) -> None:
-        d1 = _make_device("d1", device_group="turbine")
+        d1 = _make_device_config("d1", device_group="turbine")
         task = _make_task("tg", device_group="turbine")
         factory = MagicMock(side_effect=lambda cfg: _mock_protocol())
         rt, protos, _, _ = _build_runtime(devices=[d1], tasks=[task], protocol_factory=factory)
@@ -722,43 +743,40 @@ class TestReconfigure:
             await rt.start_task_instance("tg:d1")
             assert rt.instance_states()["tg:d1"] is TaskInstanceState.RUNNING
             old_proto = protos["d1"]
-            d1_disabled = _make_device("d1", device_group="turbine", enabled=False)
+            d1_disabled = _make_device_config("d1", device_group="turbine", enabled=False)
             new_cfg = _full_config(devices=[d1_disabled], tasks=[task])
             errors = await rt.reconfigure(new_cfg, ConfigDiff(devices=DeviceDiff(updated=["d1"])))
             assert errors == []
             assert rt.task_instances() == {}
             assert _instance_coroutine_tasks() == []
-            # enabled 翻转走重建路径：旧连接关闭、新驱动由工厂创建并接入
-            # （Runtime 与测试共享同一 protocols 注册表——rebuild 就地把
-            # 条目替换为新实例，因此必须抓旧实例引用断言 close）。
+            # enabled 翻转走重建路径：旧连接关闭、新驱动由工厂创建并接入。
             assert old_proto.close.await_count == 1
             assert factory.call_count == 1
-            new_proto = rt.protocols["d1"]
+            new_proto = rt.devices["d1"].protocol
             assert new_proto is not old_proto
             assert new_proto.connect.await_count == 1
             assert rt.running is True
         finally:
             await rt.stop()
 
-    async def test_task_update_replaces_snapshot_without_restarting_coroutine(self) -> None:
-        devices = [_make_device("d1")]
+    async def test_task_targets_update_keeps_handle(self) -> None:
+        """仅 targets 变化：快照替换，运行中的采集句柄不重建。"""
+        devices = [_make_device_config("d1")]
         task = _make_task("t1", device="d1", interval=0.02, sinks=("s1",))
         rt, protos, _, eng = _build_runtime(devices=devices, tasks=[task], sink_names=("s1", "s2"))
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="polling")
-            coro = rt._task_coroutines["t1:d1"]
+            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
 
-            updated = _make_task("t1", device="d1", interval=0.05, sinks=("s2",))
+            updated = _make_task("t1", device="d1", interval=0.02, sinks=("s2",))
             new_cfg = _full_config(devices=devices, tasks=[updated])
             errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(updated=["t1"])))
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
-            assert inst.interval == 0.05
             assert inst.targets == ["s2"]
-            # 运行中的协程不重启——下一轮读到新快照
-            assert rt._task_coroutines["t1:d1"] is coro
+            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             await _wait_for(
                 lambda: any(c[2] == ["s2"] for c in eng.collect_calls),
@@ -769,8 +787,40 @@ class TestReconfigure:
         finally:
             await rt.stop()
 
+    async def test_task_interval_update_replaces_handle(self) -> None:
+        """interval 变化：运行中实例的采集句柄被替换（poll 重新对齐节拍），
+        实例保持 RUNNING。"""
+        devices = [_make_device_config("d1")]
+        task = _make_task("t1", device="d1", interval=10.0, sinks=("s1",))
+        rt, protos, _, eng = _build_runtime(devices=devices, tasks=[task], sink_names=("s1", "s2"))
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
+            old_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            # 长 interval——窗口内只有一轮
+            await asyncio.sleep(0.05)
+            assert len(eng.collect_calls) == 1
+
+            updated = _make_task("t1", device="d1", interval=0.02, sinks=("s1",))
+            new_cfg = _full_config(devices=devices, tasks=[updated])
+            errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(updated=["t1"])))
+            assert errors == []
+            inst = rt.task_instances()["t1:d1"]
+            assert inst.interval == 0.02
+            new_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            assert new_handle is not old_handle
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            # 旧句柄已关闭——无孤儿协程
+            assert len(_instance_coroutine_tasks()) == 1
+            # 新节拍生效：短 interval 下连续多轮
+            await _wait_for(lambda: len(eng.collect_calls) >= 3, what="new cadence")
+            assert protos["d1"].connect.await_count == 1
+        finally:
+            await rt.stop()
+
     async def test_point_table_change_reinjects_mapping_without_reconnect(self) -> None:
-        devices = [_make_device("d1")]
+        devices = [_make_device_config("d1")]
         task = _make_task("t1", device="d1")
         points = {"d1": [_make_point("p1")]}
         rt, protos, _, _ = _build_runtime(devices=devices, tasks=[task], points=points)
@@ -787,7 +837,7 @@ class TestReconfigure:
             injected = protos["d1"].set_points_mapping.call_args[0][0]
             assert [p.point_id for p in injected] == ["p1", "p2"]
             assert protos["d1"].connect.await_count == 1
-            assert [p.point_id for p in rt.points_by_device["d1"]] == ["p1", "p2"]
+            assert [p.point_id for p in rt.devices["d1"].points] == ["p1", "p2"]
         finally:
             await rt.stop()
 
@@ -800,26 +850,23 @@ class TestReconfigure:
 class TestSinkDispatch:
     async def test_targets_fan_out_to_all_sinks(self) -> None:
         """真实引擎：task.targets 决定输出——同一批次派发到全部 target sink。"""
-        devices = [_make_device("d1")]
+        devices = [_make_device_config("d1")]
         protos = {"d1": _mock_protocol()}
         protos["d1"].read = AsyncMock(return_value=[_value("d1", "p1")])
         sinks = {"s1": _mock_sink(), "s2": _mock_sink()}
         points = {"d1": [_make_point("p1", groups=("g1",))]}
+        device_map = _build_devices(devices, protos, points)
         engine = AcquisitionEngine(
-            protocols=protos,
             pipeline=Pipeline([]),
-            points_by_device=points,
             read_timeout=None,
         )
         rt = Runtime(
-            devices={d.device_id: d for d in devices},
-            protocols=protos,
+            devices=device_map,
             sinks=sinks,
             engine=engine,
-            dispatcher=Dispatcher(protocols=protos),
+            dispatcher=CommandDispatcher(device_map),
             config=_runtime_config(),
             tasks={"t1": _make_task("t1", device="d1", interval=0.02, sinks=("s1", "s2"))},
-            points_by_device=points,
         )
         await rt.start()
         try:
@@ -872,7 +919,7 @@ class TestSinkDispatch:
 class TestHealth:
     async def test_sink_open_failure_exposed_unhealthy(self) -> None:
         rt, _, sinks, _ = _build_runtime(
-            devices=[_make_device("d1")],
+            devices=[_make_device_config("d1")],
             tasks=[_make_task("t1", device="d1")],
         )
         sinks["s1"].open = AsyncMock(side_effect=RuntimeError("open boom"))

@@ -88,7 +88,7 @@ class TaskResponse(BaseModel):
     device: str | None = None
     device_group: str | None = None
     point_group: str
-    interval: float
+    interval: float | None
     targets: list[str]
     enabled: bool
 
@@ -100,7 +100,7 @@ class TaskInstanceResponse(BaseModel):
     task_id: str
     device_id: str
     point_group: str
-    interval: float
+    interval: float | None
     targets: list[str]
     state: str
     """``"running"`` / ``"stopped"``。"""

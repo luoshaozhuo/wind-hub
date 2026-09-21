@@ -21,7 +21,7 @@ async def _wait_until(coro_factory, timeout: float = 15.0) -> None:
 
 def _modbus_healthy(runtime: AssembledRuntime, expected: bool):
     async def _check() -> bool:
-        return runtime.protocols["modbus-1"].health().healthy is expected
+        return runtime.runtime.devices["modbus-1"].protocol.health().healthy is expected
 
     return _check
 
