@@ -29,14 +29,12 @@
 #       没写就继承父表值；
 #     * address —— 显式配置即整体替换，不残留父表的 symbol/index 字段；
 # - 解析顺序：父表解析结果 → remove_points → 子表 points override/新增，
-#   全部展开为完整点后统一校验（data_type、min/max、ADS 地址约束等）。
+#   全部展开为完整点后统一校验（data_type、ADS 地址约束等）。
 #   设备绑定校验（ADS sum 全 symbol）与 Task 的 point_group 存在性校验
 #   都作用于继承展开后的最终点集。
 #
-# Processor 参数的单位语义（推荐处理链顺序：quality_check → unit_convert → deadband）
-# - min_value / max_value：作用于【原始读数】（换算前）
-# - deadband：作用于【换算后读数】（换算后）
-# - scale / offset：unit_convert 的换算参数
+# scale / offset：工程值换算参数（value = raw * scale + offset），
+# 由运行时 Device 在采集出口统一应用（轮询与订阅同语义）。
 #
 # 各协议的 address 字段
 # - IEC104: `type` + `ioa`，如 type: measured_value / ioa: 1001
@@ -70,9 +68,6 @@ point_tables:
         offset: 0.0
         unit: rpm
         description: "风轮转速"
-        deadband: 0.5             # 死区 0.5 rpm：变化量小于该值不输出
-        min_value: 0
-        max_value: 2000
 
       - point_id: p002
         variable_name: gen_power
@@ -84,9 +79,6 @@ point_tables:
         offset: 0.0
         unit: kW
         description: "发电机有功功率"
-        deadband: 1.0
-        min_value: 0
-        max_value: 10000
 
       - point_id: p003
         variable_name: gen_voltage
@@ -119,10 +111,9 @@ point_tables:
 
     points:
 
-      - point_id: p002            # override：address 整体替换 + max_value 覆盖
+      - point_id: p002            # override：address 整体替换；其余字段继承父表
         address:
           symbol: MAIN.power.genActivePower
-        max_value: 2500           # 2MW 机型功率上限；其余字段继承父表
 
       - point_id: p005            # 新增点：父表没有的 point_id
         variable_name: converter_temp
@@ -132,8 +123,6 @@ point_tables:
         data_type: float32
         unit: degC
         description: "变流器温度"
-        min_value: -40
-        max_value: 120
 
   # 现场 A 变体点表 —— 继承 2MW 机型表，按现场 PLC 调整分组与 Symbol。
   beckhoff_2mw_site_a:
@@ -190,9 +179,6 @@ point_tables:
         offset: 0.0
         unit: rpm
         description: "风轮转速"
-        deadband: 0.5
-        min_value: 0
-        max_value: 2000
 
       - point_id: p102
         variable_name: gen_power
@@ -205,9 +191,6 @@ point_tables:
         offset: 0.0
         unit: kW
         description: "发电机有功功率"
-        deadband: 1.0
-        min_value: 0
-        max_value: 10000
 
       - point_id: p103
         variable_name: wind_speed
@@ -220,8 +203,6 @@ point_tables:
         offset: 0.0
         unit: m/s
         description: "风速"
-        min_value: 0
-        max_value: 50
 
       - point_id: p104
         variable_name: status_running

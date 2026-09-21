@@ -201,9 +201,9 @@ def test_config_reload_returns_tasks_diff() -> None:
     assert body["tasks_removed"] == ["t0"]
     assert body["tasks_updated"] == ["t1"]
     assert body["devices_added"] == []
-    assert body["pipeline_rebuilt"] is False
-    # 旧路由模型字段已删除
+    # 旧路由/处理链模型字段已删除
     assert "routing_rebuilt" not in body
+    assert "pipeline_rebuilt" not in body
 
 
 def test_config_reload_unavailable_returns_503() -> None:

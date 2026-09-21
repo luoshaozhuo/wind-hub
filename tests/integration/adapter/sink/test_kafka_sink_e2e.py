@@ -64,7 +64,6 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
                 "read_timeout": 2.0,
                 "shutdown_timeout": 5.0,
             },
-            "pipeline": {"processors": []},
             "sinks": [
                 {
                     "name": "kafka",

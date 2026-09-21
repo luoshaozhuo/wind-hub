@@ -2,9 +2,9 @@
 
 架构位置：domain 层。职责一句话：
 
-    把一次获得的 PointValue 批次经过 Pipeline、Observer 和 targets 投递
-    到 Sink；对于主动采集，也提供 ``Device.read → process`` 的薄封装
-    （:meth:`collect`）。
+    把一次获得的 PointValue 批次经过 Observer 和 targets 投递到 Sink
+    并维护采集执行状态/统计；对于主动采集，也提供
+    ``Device.read → process`` 的薄封装（:meth:`collect`）。
 
 数据在 ``PointValue[]`` 这一层汇合——主动轮询（Modbus / ADS Sum）与
 订阅推送（ADS notification / IEC104 spontaneous）最终都进入
@@ -34,7 +34,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.processing.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +138,6 @@ class AcquisitionEngine:
 
     注入依赖：
 
-    - ``pipeline`` — 当前处理链实例，可被 :meth:`replace_pipeline` 原子替换；
     - ``on_points_collected`` / ``on_points_bad`` — 采集/BAD 点计数回调
       （组合根接 Prometheus 计数器，domain 不依赖 infra）；
     - ``read_timeout`` — 应用层读超时（外层兜底）；协议驱动内部的底层
@@ -155,12 +153,10 @@ class AcquisitionEngine:
 
     def __init__(
         self,
-        pipeline: Pipeline,
         on_points_collected: Callable[[int], None] | None = None,
         on_points_bad: Callable[[int], None] | None = None,
         read_timeout: float | None = None,
     ) -> None:
-        self._pipeline = pipeline
         self._on_points_collected = on_points_collected or (lambda _n: None)
         # BAD 质量点计数回调（协议采集结果中的 Quality.BAD——数据质量问题，
         # 与背压丢弃 points_dropped 语义不同，分开计数）。
@@ -221,7 +217,7 @@ class AcquisitionEngine:
     def add_observer(self, callback: Callable[[list[PointValue]], None]) -> None:
         """注册采集观察者——每批处理完成后同步回调一次。
 
-        观察者在事件循环上同步执行，异常被捕获并记录，不会干扰采集管线。
+        观察者在事件循环上同步执行，异常被捕获并记录，不会干扰采集链路。
         """
         self._observers.append(callback)
 
@@ -319,8 +315,8 @@ class AcquisitionEngine:
                         self._device_state.report_read_success(device_id)
                     # 批量读允许部分失败（协议驱动以 quality=BAD 表达单点失败）：
                     # 全 GOOD → SUCCESS；GOOD+BAD 混合 → PARTIAL（不计连续失败）；
-                    # 空批或全 BAD → 没有任何有效结果 → FAILED。BAD 批次照常进入
-                    # 管线与派发（数据质量信息应流向 sink）。
+                    # 空批或全 BAD → 没有任何有效结果 → FAILED。BAD 批次照常
+                    # 派发（数据质量信息应流向 sink）。
                     bad = sum(1 for v in batch if v.quality == Quality.BAD)
                     if not batch or bad == len(batch):
                         failure = f"no valid values ({bad}/{len(batch)} BAD)"
@@ -329,7 +325,7 @@ class AcquisitionEngine:
             if batch is not None:
                 await self.process(batch, targets)
         except Exception as exc:
-            # 管线/派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
+            # 派发阶段的意外异常：如实记为失败后原样上抛（由调用方——
             # polling handle——记录并继续下一周期），running 归位。
             if acq is not None:
                 acq.report_collect_failure(
@@ -347,7 +343,7 @@ class AcquisitionEngine:
     # ------------------------------------------------------------------
 
     async def process(self, batch: list[PointValue], targets: list[str]) -> None:
-        """统计 → Pipeline → Observers → 按 targets 派发到 Sink。
+        """统计 → Observers → 按 targets 原样派发到 Sink。
 
         主动轮询（:meth:`collect`）与订阅推送（ADS notification /
         IEC104 spontaneous 的协议回调）都经本入口处理数据——订阅数据
@@ -370,18 +366,8 @@ class AcquisitionEngine:
         bad = sum(1 for v in batch if v.quality == Quality.BAD)
         if bad:
             self._on_points_bad(bad)
-        processed = await self._pipeline.process(batch)
-        self._notify_observers(processed)
-        await self._sink_dispatch.dispatch({sink: processed for sink in targets})
-
-    # ------------------------------------------------------------------
-    # 当前实例管理（Runtime 热替换的落点）
-    # ------------------------------------------------------------------
-
-    async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
-        """原子替换处理链（处理器列表或点表变更时由 Runtime 调用）。"""
-        self._pipeline = new_pipeline
-        logger.info("Pipeline replaced (%d processors)", new_pipeline.processor_count)
+        self._notify_observers(batch)
+        await self._sink_dispatch.dispatch({sink: batch for sink in targets})
 
     # ------------------------------------------------------------------
     # 状态
@@ -389,7 +375,7 @@ class AcquisitionEngine:
 
     @property
     def points_collected(self) -> int:
-        """累计采集点数——进入处理管线的点值总数（单调不减）。"""
+        """累计采集点数——进入引擎的点值总数（单调不减）。"""
         return self._points_collected
 
     # ------------------------------------------------------------------

@@ -36,13 +36,13 @@ class PointRef(BaseModel):
 
 
 class PointValue(BaseModel):
-    """A single collected measurement — the universal currency of the pipeline.
+    """A single collected measurement — the universal currency of the system.
 
-    Every protocol adapter produces PointValue instances.  Downstream
-    processors transform and enrich them, and sinks persist or forward
-    them.  This model carries *what* was measured (*value*), *where*
-    it came from (*device_id* / *point_id*), *how good* it is
-    (*quality*), and *when* it was captured (*timestamp*).
+    Every protocol adapter produces PointValue instances; the ``Device``
+    layer applies per-point engineering-value normalization (scale/offset),
+    and sinks persist or forward them.  This model carries *what* was
+    measured (*value*), *where* it came from (*device_id* / *point_id*),
+    *how good* it is (*quality*), and *when* it was captured (*timestamp*).
     """
 
     device_id: str

@@ -6,7 +6,6 @@ from wind_hub.domain.model.errors import (
     CommandError,
     ConfigError,
     OperationTimeoutError,
-    ProcessorError,
     ProtocolError,
     SinkError,
     WindHubError,
@@ -27,5 +26,4 @@ __all__ = [
     "SinkError",
     "CommandError",
     "OperationTimeoutError",
-    "ProcessorError",
 ]

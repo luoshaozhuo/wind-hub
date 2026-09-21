@@ -6,7 +6,7 @@
 覆盖点：
 
 - 初始 load 与 ``current_config``；
-- diff 计算（设备/sink/task 增删改、点表/管线变更）——含
+- diff 计算（设备/sink/task 增删改、点表变更）——含
   ``diff.tasks: TaskDiff(added/removed/updated/unchanged)``；
 - 旧模型字段已移除：``ConfigDiff`` 不再有 ``rules_changed``，
   配置目录不再需要 ``routing.yaml``；
@@ -55,14 +55,12 @@ def _write_configs(
     sinks: list[SinkConfig] | None = None,
     points: list[PointConfig] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
-    processors: list[str] | None = None,
 ) -> None:
     """写出一套完整配置目录（system/devices/points/tasks，无 routing.yaml）。"""
     yaml.safe_dump(
         {
             "runtime": {"queue_maxsize": 10},
             "sinks": [s.model_dump() for s in (sinks or [])],
-            "pipeline": {"processors": processors or []},
         },
         (base / "system.yaml").open("w"),
     )
@@ -354,12 +352,11 @@ async def test_compute_diff_detects_tasks_added_removed_updated(tmp_path: Path) 
     assert not hasattr(diff, "rules_changed")
 
 
-async def test_compute_diff_detects_points_and_pipeline_changes(tmp_path: Path) -> None:
+async def test_compute_diff_detects_points_changes(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
         points=[_make_point("p1")],
-        processors=["scale"],
     )
     old = ConfigUseCase(tmp_path, _mock_runtime()).current_config
 
@@ -367,7 +364,6 @@ async def test_compute_diff_detects_points_and_pipeline_changes(tmp_path: Path) 
         tmp_path,
         devices=[_make_device("d1")],
         points=[_make_point("p2")],
-        processors=["scale", "filter"],
     )
     new = ConfigUseCase(tmp_path, _mock_runtime()).current_config
 
@@ -375,7 +371,6 @@ async def test_compute_diff_detects_points_and_pipeline_changes(tmp_path: Path) 
 
     assert diff.points_changed is True
     assert diff.point_tables_changed == ["t1"]
-    assert diff.pipeline_changed is True
     assert diff.has_any_changes is True
 
 

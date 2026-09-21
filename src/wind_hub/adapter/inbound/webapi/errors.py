@@ -23,7 +23,6 @@ from wind_hub.domain.model.errors import (
     CommandError,
     ConfigError,
     OperationTimeoutError,
-    ProcessorError,
     ProtocolError,
     SinkError,
     WindHubError,
@@ -58,7 +57,6 @@ _WINDHUB_ERROR_STATUS: list[tuple[type[WindHubError], int]] = [
     (ConfigError, 400),
     (SinkError, 502),
     (OperationTimeoutError, 504),
-    (ProcessorError, 500),
 ]
 
 _WINDHUB_ERROR_CODES: list[tuple[type[WindHubError], str]] = [
@@ -67,7 +65,6 @@ _WINDHUB_ERROR_CODES: list[tuple[type[WindHubError], str]] = [
     (ConfigError, "CONFIG_ERROR"),
     (SinkError, "SINK_ERROR"),
     (OperationTimeoutError, "OPERATION_TIMEOUT"),
-    (ProcessorError, "PROCESSOR_ERROR"),
 ]
 
 

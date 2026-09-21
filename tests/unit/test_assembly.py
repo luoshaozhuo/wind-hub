@@ -34,13 +34,12 @@ def _write_yaml(dir_path: Path, name: str, data: dict) -> Path:
 
 def _write_minimal_config(base: Path) -> None:
     """写一份最小但完整的配置目录：1 台 Modbus 设备 + 1 个 file sink
-    + 1 个点位（point_groups=[fast]）+ 1 个采集 Task + 1 个 unit_convert 处理器。"""
+    + 1 个点位（point_groups=[fast]）+ 1 个采集 Task。"""
     _write_yaml(
         base,
         "system.yaml",
         {
             "runtime": {"connect_timeout": 0.2},
-            "pipeline": {"processors": ["unit_convert"]},
             "sinks": [
                 {"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}},
             ],
@@ -177,7 +176,7 @@ def test_assemble_builds_runtime_object_graph() -> None:
 
         assert set(rt.runtime.devices) == {"d1"}
         assert set(rt.sinks) == {"archive"}
-        assert rt.pipeline.processor_count == 1
+        assert not hasattr(rt, "pipeline")  # 处理链已删除——Device 直挂引擎
         assert rt.runtime.device_count == 1
         assert rt.runtime.sink_count == 1
         # Task 定义传入 Runtime（实例在 runtime.start() 时展开注册）

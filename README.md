@@ -27,7 +27,7 @@
 │   └──────┘  └──────┘  └────────┘   │
 ├─────────────────────────────────────┤
 │         Adapter (outbound)          │
-│   Protocol / Sink / Processor       │
+│   Protocol / Sink                   │
 └─────────────────────────────────────┘
 ```
 
@@ -139,7 +139,7 @@ sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py
 说明：
 
 - 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
-- Sink 用 NullSink（隔离外部 IO，测采集 + Pipeline + Task 分发）。
+- Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
 - 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
 - 组件单元测试（全部 mock，不需要 root）在 `tests/unit/perf/`。
 

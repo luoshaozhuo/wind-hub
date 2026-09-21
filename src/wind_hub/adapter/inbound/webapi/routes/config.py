@@ -39,7 +39,6 @@ def _to_response(result: ReloadResult) -> ReloadResponse:
         tasks_added=diff.tasks.added,
         tasks_removed=diff.tasks.removed,
         tasks_updated=diff.tasks.updated,
-        pipeline_rebuilt=diff.pipeline_changed,
         errors=result.errors,
         duration_ms=result.duration_ms,
         reloaded_at=result.reloaded_at,

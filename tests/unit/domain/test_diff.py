@@ -6,8 +6,7 @@
   分出 added / removed / updated / unchanged；
 - tasks：按 task_id 比较，``TaskDiff(added/removed/updated/unchanged)``；
 - 点表：新增/删除/内容变化的表名进 ``point_tables_changed``，任一表变化置
-  ``points_changed=True``；
-- pipeline：processor 列表比较。
+  ``points_changed=True``。
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from wind_hub.config.schema import (
     Config,
     DeviceConfig,
     DevicesConfig,
-    PipelineConfig,
     PointAddress,
     PointConfig,
     ResolvedPointTable,
@@ -36,12 +34,10 @@ def _make_config(
     sinks: list[SinkConfig] | None = None,
     tables: dict[str, ResolvedPointTable] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
-    processors: list[str] | None = None,
 ) -> Config:
     return Config(
         system=SystemConfig(
             sinks=sinks or [],
-            pipeline=PipelineConfig(processors=processors or []),
         ),
         devices=DevicesConfig(devices=devices or []),
         point_tables=ResolvedPointTables(tables=tables or {}),
@@ -108,7 +104,6 @@ def test_empty_diff_identical_configs() -> None:
         sinks=[SinkConfig(name="s1", type="file")],
         tables={"t1": _table(_point("p1"))},
         tasks=[_task("task-1")],
-        processors=["unit_convert"],
     )
     diff = compute_diff(cfg, cfg)
     assert not diff.has_any_changes
@@ -379,24 +374,6 @@ def test_tables_unchanged() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10. Pipeline changed
-# ---------------------------------------------------------------------------
-
-
-def test_pipeline_changed() -> None:
-    old = _make_config(processors=["proc_a"])
-    new = _make_config(processors=["proc_a", "proc_b"])
-    diff = compute_diff(old, new)
-    assert diff.pipeline_changed
-
-
-def test_pipeline_unchanged() -> None:
-    cfg = _make_config(processors=["proc_a", "proc_b"])
-    diff = compute_diff(cfg, cfg)
-    assert not diff.pipeline_changed
-
-
-# ---------------------------------------------------------------------------
 # Edge: all diff types at once
 # ---------------------------------------------------------------------------
 
@@ -413,7 +390,6 @@ def test_comprehensive_diff() -> None:
         ],
         tables={"t1": _table(_point("p1"))},
         tasks=[_task("task-1"), _task("task-2")],
-        processors=["a"],
     )
     new = _make_config(
         devices=[
@@ -426,7 +402,6 @@ def test_comprehensive_diff() -> None:
         ],
         tables={"t1": _table(_point("p1"), _point("p2"))},
         tasks=[_task("task-1", interval=9.0), _task("task-3")],
-        processors=["a", "b"],
     )
     diff = compute_diff(old, new)
     assert diff.devices.added == ["d3"]
@@ -440,5 +415,4 @@ def test_comprehensive_diff() -> None:
     assert diff.tasks.updated == ["task-1"]
     assert diff.points_changed
     assert diff.point_tables_changed == ["t1"]
-    assert diff.pipeline_changed
     assert diff.has_any_changes

@@ -42,7 +42,6 @@ from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import CommandError, ProtocolError
 from wind_hub.domain.model.point import PointRef, PointValue
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
-from wind_hub.domain.processing import Pipeline
 
 pytestmark = pytest.mark.asyncio
 
@@ -126,7 +125,7 @@ def _runtime(
     # 没有协议实例的设备使用默认 mock——Runtime 只持有聚合后的 Device。
     full_protocols = {device_id: protocols.get(device_id) or _protocol() for device_id in devices}
     device_map = _build_device_map(devices, full_protocols, points)
-    engine = AcquisitionEngine(pipeline=Pipeline([]))
+    engine = AcquisitionEngine()
     return Runtime(
         devices=device_map,
         sinks=sinks if sinks is not None else {},

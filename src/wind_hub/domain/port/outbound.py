@@ -1,9 +1,8 @@
 """Domain 扩展点端口——由 domain 服务直接消费、由适配器实现的接口。
 
-``ProtocolPort`` 被 ``domain.acquisition`` / ``domain.command`` 消费，
-``ProcessorPort`` 被 ``domain.processing`` 消费——它们是 domain 的扩展点，
-因此保留在 domain 层。application 消费的端口（Sink / 调度）位于
-``wind_hub.application.port``。
+``ProtocolPort`` 被 ``domain.acquisition`` / ``domain.command`` 消费——它是
+domain 的扩展点，因此保留在 domain 层。application 消费的端口
+（Sink / 调度）位于 ``wind_hub.application.port``。
 """
 
 from __future__ import annotations
@@ -173,63 +172,5 @@ class ProtocolPort(Protocol):
 
         Callers poll this cheaply; the implementation returns cached
         state rather than probing the wire.
-        """
-        ...
-
-
-class ProcessorPort(Protocol):
-    """Processing extension point.
-
-    Processors transform a batch of ``PointValue`` instances in place
-    — filtering, enriching, or computing derived values.  They are
-    chained together in the order specified by configuration.
-    """
-
-    @property
-    def name(self) -> str:
-        """Unique processor name used for logging and configuration."""
-        ...
-
-    async def process(self, batch: list[PointValue]) -> list[PointValue]:
-        """Transform a batch of point values.
-
-        The output list may differ in length from the input (filters
-        drop values; derived-point processors add values).
-
-        Args:
-            batch: Input point values.
-
-        Returns:
-            Transformed point values.
-
-        Raises:
-            ProcessorError: On any transformation failure (e.g.
-                external service enrichment fails).
-        """
-        ...
-
-
-@runtime_checkable
-class PointsConfigurable(Protocol):
-    """An optional capability of a ``ProcessorPort`` implementation.
-
-    Processors that transform values based on per-point configuration
-    (scale/offset, deadband, min/max bounds) implement this to receive
-    the full point table at assembly time, before any batch is processed.
-    Processors without per-point config simply do not implement it; the
-    composition root probes for this capability before injecting points.
-    """
-
-    def set_points_config(self, points_by_device: dict[str, list[PointConfig]]) -> None:
-        """Inject the resolved point tables; build per-point lookup tables.
-
-        Pure in-memory and synchronous — no I/O.  Called once by the
-        composition root after the processor is created.
-
-        Args:
-            points_by_device: ``{device_id: [PointConfig, …]}``——设备绑定
-                点表后的解析结果（同一表被多设备共享时，各设备键指向同一
-                list 对象）。处理器通常据此建立 ``(device_id, point_id)``
-                键的查找表。
         """
         ...

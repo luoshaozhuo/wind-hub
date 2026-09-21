@@ -217,6 +217,194 @@ class TestReadWriteDelegation:
 
 
 # ---------------------------------------------------------------------------
+# 点值解释（scale/offset —— 轮询与订阅同语义）
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeValues:
+    async def test_read_applies_scale_and_offset(self) -> None:
+        """read 返回工程值：value = raw * scale + offset。"""
+        proto = _FakeProtocol(read_values=[_value("p1")])  # raw 1.0
+        device = _make_device(
+            proto,
+            [
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    scale=2.0,
+                    offset=10.0,
+                )
+            ],
+        )
+
+        values = await device.read("g")
+
+        assert values[0].value == 12.0
+
+    async def test_read_points_applies_scale_and_offset(self) -> None:
+        proto = _FakeProtocol(read_values=[_value("p1")])
+        device = _make_device(
+            proto,
+            [
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    scale=0.5,
+                    offset=-1.0,
+                )
+            ],
+        )
+
+        values = await device.read_points([PointRef(device_id="d1", point_id="p1")])
+
+        assert values[0].value == -0.5
+
+    async def test_identity_transform_returns_same_object(self) -> None:
+        """scale=1/offset=0（默认）——原样透传，不复制。"""
+        pushed = _value("p1")
+        proto = _FakeProtocol(read_values=[pushed])
+        device = _make_device(proto, [_point("p1", ("g",))])
+
+        values = await device.read("g")
+
+        assert values[0] is pushed
+
+    async def test_non_numeric_values_not_scaled(self) -> None:
+        """None / str / bool 原样透传（即使配置了 scale/offset）。"""
+        proto = _FakeProtocol(
+            read_values=[
+                PointValue(device_id="d1", point_id="p1", value=None, quality=Quality.BAD),
+                PointValue(device_id="d1", point_id="p2", value="OPEN"),
+                PointValue(device_id="d1", point_id="p3", value=True),
+            ]
+        )
+        scaled = PointConfig(
+            point_id="p1",
+            point_groups=["g"],
+            address=PointAddress(type="holding_register"),
+            scale=2.0,
+            offset=10.0,
+        )
+        device = _make_device(
+            proto,
+            [
+                scaled,
+                PointConfig(
+                    point_id="p2",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    data_type="str",
+                    scale=2.0,
+                ),
+                PointConfig(
+                    point_id="p3",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    data_type="bool",
+                    scale=2.0,
+                ),
+            ],
+        )
+
+        values = await device.read("g")
+
+        assert [v.value for v in values] == [None, "OPEN", True]
+        assert values[0].quality is Quality.BAD
+
+    async def test_metadata_preserved_after_scaling(self) -> None:
+        """quality / timestamp / source 不因换算改变。"""
+        src = PointValue(
+            device_id="d1",
+            point_id="p1",
+            value=2.0,
+            quality=Quality.UNCERTAIN,
+            source="test",
+        )
+        proto = _FakeProtocol(read_values=[src])
+        device = _make_device(
+            proto,
+            [
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    scale=3.0,
+                    offset=1.0,
+                )
+            ],
+        )
+
+        values = await device.read("g")
+
+        assert values[0].value == 7.0
+        assert values[0].quality is Quality.UNCERTAIN
+        assert values[0].timestamp == src.timestamp
+        assert values[0].source == "test"
+        assert values[0].device_id == "d1"
+        assert values[0].point_id == "p1"
+
+    async def test_unknown_point_passthrough(self) -> None:
+        """点表查不到的点（防御性分支）原样透传。"""
+        proto = _FakeProtocol(read_values=[_value("ghost")])
+        device = _make_device(proto, [_point("p1", ("g",))])
+
+        values = await device.read_points([PointRef(device_id="d1", point_id="ghost")])
+
+        assert values[0].value == 1.0
+
+    async def test_subscribe_normalizes_same_as_read(self) -> None:
+        """订阅回调同样经 Device normalize——与轮询同语义。"""
+        proto = _FakeProtocol(mode=AcquisitionMode.SUBSCRIBE)
+        device = _make_device(
+            proto,
+            [
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    scale=2.0,
+                    offset=10.0,
+                )
+            ],
+        )
+        batches: list[list[PointValue]] = []
+
+        async def on_data(values: list[PointValue]) -> None:
+            batches.append(values)
+
+        handle = await device.start_acquisition(point_group="g", interval=0.5, on_data=on_data)
+
+        pushed = _value("p1")  # raw 1.0
+        await proto.push(pushed)
+        assert batches[0][0].value == 12.0
+        assert batches[0][0].quality is pushed.quality
+        assert batches[0][0].timestamp == pushed.timestamp
+
+        await handle.close()
+
+    async def test_set_points_applies_new_scale_offset(self) -> None:
+        """热重载 set_points 后按新点表换算——新 scale/offset 立即生效。"""
+        proto = _FakeProtocol(read_values=[_value("p1")])
+        device = _make_device(proto, [_point("p1", ("g",))])  # 默认 scale=1/offset=0
+
+        assert (await device.read("g"))[0].value == 1.0
+
+        device.set_points(
+            [
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["g"],
+                    address=PointAddress(type="holding_register"),
+                    scale=10.0,
+                )
+            ]
+        )
+        assert (await device.read("g"))[0].value == 10.0
+
+
+# ---------------------------------------------------------------------------
 # start_acquisition —— POLL 分支
 # ---------------------------------------------------------------------------
 

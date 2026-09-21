@@ -222,6 +222,33 @@ class Device:
         ]
 
     # ------------------------------------------------------------------
+    # 点值解释（scale/offset——采集链路中唯一的值变换）
+    # ------------------------------------------------------------------
+
+    def _normalize_values(self, values: list[PointValue]) -> list[PointValue]:
+        """把协议原生值按点表换算为工程值：``value = raw * scale + offset``。
+
+        仅对数值（``int`` / ``float``，``bool`` 除外）值执行；``None`` /
+        ``str`` / ``bool`` 原样透传。``quality`` / ``timestamp`` / ``source``
+        等元数据一律不变——quality 只来自协议原生判定。点表查不到的点
+        （防御性分支，正常不会发生）原样透传。
+        """
+        by_id = {p.point_id: p for p in self._points}
+        out: list[PointValue] = []
+        for pv in values:
+            point = by_id.get(pv.point_id)
+            if (
+                point is None
+                or (point.scale == 1.0 and point.offset == 0.0)
+                or not isinstance(pv.value, int | float)
+                or isinstance(pv.value, bool)
+            ):
+                out.append(pv)
+                continue
+            out.append(pv.model_copy(update={"value": pv.value * point.scale + point.offset}))
+        return out
+
+    # ------------------------------------------------------------------
     # 连接生命周期（委托协议实例）
     # ------------------------------------------------------------------
 
@@ -239,12 +266,12 @@ class Device:
     # ------------------------------------------------------------------
 
     async def read(self, point_group: str) -> list[PointValue]:
-        """批量读取该 point_group 的全部点位。"""
-        return await self._protocol.read(self.point_refs(point_group))
+        """批量读取该 point_group 的全部点位，返回工程值（scale/offset 已应用）。"""
+        return self._normalize_values(await self._protocol.read(self.point_refs(point_group)))
 
     async def read_points(self, refs: list[PointRef]) -> list[PointValue]:
-        """按显式引用批量读取（CLI/API 单次读取路径）。"""
-        return await self._protocol.read(refs)
+        """按显式引用批量读取（CLI/API 单次读取路径），返回工程值。"""
+        return self._normalize_values(await self._protocol.read(refs))
 
     async def write(self, cmds: list[Command]) -> list[CommandResult]:
         """批量写命令——每个命令对应一个 :class:`CommandResult`。"""
@@ -303,7 +330,8 @@ class Device:
             )
 
         async def _forward(value: PointValue) -> None:
-            await on_data([value])
+            # 订阅与轮询同语义：协议原生值经 Device 统一换算为工程值。
+            await on_data(self._normalize_values([value]))
 
         subscription = await self._protocol.subscribe(
             self.point_refs(point_group), _forward, interval=interval

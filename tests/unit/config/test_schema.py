@@ -50,7 +50,7 @@ class TestSinkConfig:
         cfg = SystemConfig()
         assert cfg.runtime.queue_maxsize == 1000
         assert cfg.runtime.backpressure_policy == "drop_old"
-        assert cfg.pipeline.processors == []
+        assert not hasattr(cfg, "pipeline")  # 处理链已删除——extra="forbid" 拒绝旧配置
         assert cfg.sinks == []
         assert cfg.interfaces.api.port == 8080
 
@@ -270,44 +270,24 @@ class TestPointConfig:
                 address=PointAddress(ioa=1001),
             )
 
-    def test_negative_deadband_raises(self) -> None:
-        with pytest.raises(ConfigError, match="deadband"):
-            PointConfig(
-                point_id="p1",
-                point_groups=["fast"],
-                address=PointAddress(type="hr"),
-                deadband=-0.1,
-            )
-
-    def test_min_max_inverted_raises(self) -> None:
-        with pytest.raises(ConfigError, match="min_value"):
-            PointConfig(
-                point_id="p1",
-                point_groups=["fast"],
-                address=PointAddress(type="hr"),
-                min_value=10.0,
-                max_value=5.0,
-            )
-
-    def test_non_numeric_type_skips_bounds_check(self) -> None:
-        """min/max/deadband 仅对数值类型生效——bool/str 不校验。"""
-        point = PointConfig(
-            point_id="p1",
-            point_groups=["signals"],
-            address=PointAddress(type="single_point"),
-            data_type="bool",
-            min_value=10.0,
-            max_value=5.0,
-        )
-        assert point.data_type == "bool"
+    def test_removed_processing_fields_forbidden(self) -> None:
+        """deadband / min_value / max_value 已从点位模型删除——extra="forbid" 拒绝。"""
+        for field in ("deadband", "min_value", "max_value"):
+            with pytest.raises(ValidationError, match="extra_forbidden"):
+                PointConfig(
+                    point_id="p1",
+                    point_groups=["fast"],
+                    address=PointAddress(type="hr"),
+                    **{field: 0.5},  # type: ignore[arg-type]
+                )
 
 
 class TestPointPatch:
     def test_point_groups_default_unset(self) -> None:
         """point_groups 未写时为 None 且不在 model_fields_set。"""
-        patch = PointPatch(point_id="p001", max_value=2500.0)
+        patch = PointPatch(point_id="p001", scale=2.5)
         assert patch.point_groups is None
-        assert patch.model_fields_set == {"point_id", "max_value"}
+        assert patch.model_fields_set == {"point_id", "scale"}
 
     def test_explicit_point_groups_replaces_whole(self) -> None:
         patch = PointPatch(point_id="p001", point_groups=["slow"])

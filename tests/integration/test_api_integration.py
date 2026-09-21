@@ -37,7 +37,6 @@ def _write_minimal_config(base: Path) -> None:
         "system.yaml",
         {
             "runtime": {},
-            "pipeline": {"processors": ["unit_convert"]},
             "sinks": [
                 {"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}},
             ],

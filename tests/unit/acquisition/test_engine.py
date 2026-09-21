@@ -1,7 +1,7 @@
 """采集引擎（``domain/acquisition``）的单元测试。
 
-验证对象：:class:`AcquisitionEngine`——单次「Device read → Pipeline →
-按 Task targets 扇出到 Sink」链路（无 Router / Delivery）。
+验证对象：:class:`AcquisitionEngine`——单次「Device read → 按 Task
+targets 扇出到 Sink」链路（无 Router / Delivery / Pipeline）。
 
 覆盖点：
 
@@ -12,8 +12,7 @@
   dispatch 收到 ``{sink_name: batch}``）、空 targets 派发空 dict、计数口径、
   回调、观察者通知与异常隔离、空批次短路、未绑定派发端口显式失败；
 - ``AcquisitionStatePort`` 生命周期上报（首参为 execution_id）；
-- 读超时 / 断线跳过 / 部分失败（GOOD+BAD 混合 / 全 BAD）语义；
-- ``replace_pipeline``。
+- 读超时 / 断线跳过 / 部分失败（GOOD+BAD 混合 / 全 BAD）语义。
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.point import PointRef, PointValue, Quality
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
-from wind_hub.domain.processing import Pipeline
 
 pytestmark = pytest.mark.asyncio
 
@@ -106,7 +104,6 @@ def _make_engine(
 ) -> tuple[AcquisitionEngine, _RecordingDispatch]:
     """构造绑定好录制派发端口的引擎，返回 (engine, dispatch)。"""
     engine = AcquisitionEngine(
-        pipeline=Pipeline([]),
         on_points_collected=on_points_collected,
         on_points_bad=on_points_bad,
         read_timeout=read_timeout,
@@ -272,36 +269,27 @@ async def test_process_bad_points_counted_separately() -> None:
     assert bad_counts == [1]
 
 
-async def test_process_runs_pipeline_before_dispatch() -> None:
-    """Pipeline 先执行，dispatch 拿到的是处理后的点值。"""
+async def test_process_dispatches_batch_unchanged() -> None:
+    """引擎不做任何值变换——dispatch 拿到的就是传入的批次对象。"""
     engine, dispatch = _make_engine()
 
-    class _TagProcessor:
-        name = "tag"
-
-        async def process(self, values: list[PointValue]) -> list[PointValue]:
-            return [
-                PointValue(device_id=v.device_id, point_id=v.point_id, value=99.0) for v in values
-            ]
-
-    await engine.replace_pipeline(Pipeline([_TagProcessor()]))
-
-    await engine.process([_value()], ["s1"])
+    batch = [_value()]
+    await engine.process(batch, ["s1"])
 
     routed = dispatch.dispatched[0]
-    assert [v.value for v in routed["s1"]] == [99.0]
+    assert routed["s1"] is batch
 
 
 async def test_process_raises_when_unbound() -> None:
     """未绑定 Sink 派发端口时显式失败——装配时序错误不得静默。"""
-    engine = AcquisitionEngine(pipeline=Pipeline([]))
+    engine = AcquisitionEngine()
     with pytest.raises(RuntimeError, match="派发端口"):
         await engine.process([_value()], ["s1"])
 
 
 async def test_process_empty_batch_noop() -> None:
     """空批次短路：不计数、不触发管线/派发，未绑定端口也不报错。"""
-    engine = AcquisitionEngine(pipeline=Pipeline([]))
+    engine = AcquisitionEngine()
     await engine.process([], ["s1"])  # 不抛异常
     assert engine.points_collected == 0
 
@@ -337,26 +325,6 @@ async def test_observer_exception_isolated() -> None:
 
     assert len(received) == 1
     assert len(dispatch.dispatched) == 1
-
-
-# ---------------------------------------------------------------------------
-# replace_pipeline
-# ---------------------------------------------------------------------------
-
-
-async def test_replace_pipeline_takes_effect_immediately() -> None:
-    engine, dispatch = _make_engine()
-
-    class _DropAll:
-        name = "drop_all"
-
-        async def process(self, values: list[PointValue]) -> list[PointValue]:
-            return []
-
-    await engine.replace_pipeline(Pipeline([_DropAll()]))
-    await engine.process([_value()], ["s1"])
-
-    assert dispatch.dispatched[0]["s1"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -509,8 +477,8 @@ async def test_collect_disconnected_reports_failed_without_read() -> None:
     assert "disconnected" in str(acq_state.events[-1][4])
 
 
-async def test_collect_pipeline_exception_reports_failure_and_reraises() -> None:
-    """管线/派发阶段异常：acq 记 failure 后原样上抛（保持既有传播语义）。"""
+async def test_collect_dispatch_exception_reports_failure_and_reraises() -> None:
+    """派发阶段异常：acq 记 failure 后原样上抛（保持既有传播语义）。"""
     proto = _make_mock_protocol()
     proto.read = AsyncMock(return_value=[_value()])
     engine, _dispatch, _device_state, acq_state, device = _make_engine_with_states(
@@ -583,53 +551,3 @@ async def test_collect_all_bad_batch_reports_failure() -> None:
     assert [e[0] for e in acq_state.events] == ["started", "failure"]
     assert "no valid values" in str(acq_state.events[-1][4])
     assert len(dispatch.dispatched) == 1  # BAD 批次照常派发
-
-
-async def test_real_pipeline_processors_tolerate_bad_values() -> None:
-    """真实内置管线（quality_check/unit_convert/deadband）吃 BAD 点不崩溃：
-    BAD 透传、不参与死区比较也不污染死区状态，GOOD 点正常处理。"""
-    from wind_hub.adapter.outbound.processor.builtin.deadband import DeadbandProcessor
-    from wind_hub.adapter.outbound.processor.builtin.quality_check import (
-        QualityCheckProcessor,
-    )
-    from wind_hub.adapter.outbound.processor.builtin.unit_convert import UnitConvertProcessor
-
-    points = [
-        PointConfig(
-            point_id="p1",
-            point_groups=["default"],
-            address=PointAddress(type="holding_register"),
-            data_type="float32",
-            deadband=0.5,
-        ),
-        PointConfig(
-            point_id="p2",
-            point_groups=["default"],
-            address=PointAddress(type="holding_register"),
-            data_type="float32",
-            deadband=0.5,
-        ),
-    ]
-    qc = QualityCheckProcessor()
-    uc = UnitConvertProcessor()
-    db = DeadbandProcessor()
-    for proc in (qc, uc, db):
-        proc.set_points_config({"d1": points})
-
-    engine, dispatch = _make_engine()
-    await engine.replace_pipeline(Pipeline([qc, uc, db]))
-
-    # 第一批：GOOD 1.0（首次，记录死区基线）+ BAD（透传，不进死区状态）
-    await engine.process([_value(point_id="p1"), _bad_value(point_id="p2")], ["s1"])
-    seen = dispatch.dispatched[-1]["s1"]
-    assert len(seen) == 2
-    assert seen[1].quality is Quality.BAD
-    assert seen[1].value is None
-
-    # 第二批：p1 变化 0.1 < deadband 0.5 → 被死区丢弃（BAD 未污染基线）
-    await engine.process([PointValue(device_id="d1", point_id="p1", value=1.1)], ["s1"])
-    assert dispatch.dispatched[-1]["s1"] == []
-
-    # 第三批：p2 首次 GOOD 值——此前 BAD 没有建立基线，按首次遇见输出
-    await engine.process([PointValue(device_id="d1", point_id="p2", value=9.0)], ["s1"])
-    assert [v.point_id for v in dispatch.dispatched[-1]["s1"]] == ["p2"]

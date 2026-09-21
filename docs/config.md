@@ -46,18 +46,6 @@ runtime:
 采集周期**不在** system.yaml 定义——每个 Task 自带必填的 `interval`
 （见下文 tasks.yaml），不存在全局默认采集间隔。
 
-### pipeline — 处理链
-
-```yaml
-pipeline:
-  processors: [quality_check, unit_convert, deadband]
-```
-
-按声明顺序执行（推荐：先校验、再换算、再过滤）。处理器参数
-（`min_value` / `max_value` / `scale` / `offset` / `deadband`）在点位
-上声明，单位语义见 `configs/points.yaml` 头部注释。管线对
-`Quality.BAD` 点透传安全（见 architecture.md §5）。
-
 ### sinks — Sink 定义
 
 每个 sink 有 `name`（Task 的 `targets` 按名引用）、`type`（`kafka` /
@@ -90,8 +78,9 @@ Task 声明。
 `variable_name`（业务名）、`point_groups`（采集分组，**多值**——一个
 点可同时属于多个组；Task 按 `task.point_group ∈ point.point_groups`
 选点）、`address`（协议寻址，各协议字段见样例头部注释）、`data_type`、
-处理器参数（`min_value` / `max_value` / `scale` / `offset` /
-`deadband`）、`unit` / `description`。
+`scale` / `offset`（工程值换算，由运行时 Device 在采集出口统一应用，
+轮询与订阅同语义）、`unit` / `description`。点值 quality 只来自协议
+原生判定（如 IEC104 品质位），采集链路不做值域校验。
 
 点位**不再**声明输出 sink——输出去向完全由 Task 的 `targets` 决定。
 点表支持单继承（`extends` / `remove_points` / 点位补丁），继承展开后

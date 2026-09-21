@@ -1,10 +1,10 @@
 """组合根（composition root）——依赖装配与生命周期编排。
 
 职责：把 config 层加载出的配置，装配成完整的对象图（协议驱动 / sink /
-处理器 / 采集引擎 / Runtime / Use Case），并通过
+采集引擎 / Runtime / Use Case），并通过
 :func:`start_runtime` / :func:`stop_runtime` 编排运行时的启动与优雅停机。
 
-装配顺序：Protocol/Sink/Processor/Pipeline → AcquisitionEngine →
+装配顺序：Protocol/Sink → AcquisitionEngine →
 Runtime（持有引擎、Task 定义与 CommandDispatcher）→ Use Case。
 ``assemble()`` 返回的 :class:`AssembledRuntime` 以 ``runtime`` 为运行核心。
 
@@ -28,7 +28,6 @@ from pathlib import Path
 
 import uvicorn
 
-import wind_hub.adapter.outbound.processor  # noqa: F401 触发处理器自注册
 import wind_hub.adapter.outbound.protocol  # noqa: F401 触发协议驱动自注册
 from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
@@ -53,20 +52,13 @@ from wind_hub.config.loader import load_config
 from wind_hub.config.schema import (
     Config,
     DeviceConfig,
-    PointConfig,
     ReportingConfig,
     SinkConfig,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.port.outbound import (
-    PointsConfigurable,
-    ProcessorPort,
-    ProtocolPort,
-)
-from wind_hub.domain.processing import Pipeline
+from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.infra import metrics
-from wind_hub.infra.processor_registry import processor_registry
 from wind_hub.infra.protocol_registry import protocol_registry
 
 logger = logging.getLogger(__name__)
@@ -93,9 +85,6 @@ class AssembledRuntime:
 
     dispatcher: CommandDispatcher
     """指令分发器，负责写指令路由与幂等。"""
-
-    pipeline: Pipeline
-    """初始处理器链（热重载后同样可能被替换）。"""
 
     sinks: dict[str, SinkPort]
     """按 sink 名索引的 sink 实例。"""
@@ -132,18 +121,14 @@ def assemble(
         装配完成的 :class:`AssembledRuntime`。
 
     Raises:
-        ConfigError: 配置缺失/非法，或引用了未注册的协议/sink/处理器。
+        ConfigError: 配置缺失/非法，或引用了未注册的协议/sink。
     """
     cfg = load_config(config_dir)
 
     make_sink = sink_factory or _create_sink
 
-    # 设备无关点表经设备绑定解析为 {device_id: [PointConfig, …]}——同一表
-    # 被多设备共享时，各设备键指向同一 list 对象（不逐设备复制）。
-    points_by_device = cfg.points_by_device()
-
-    # Device 是运行时设备的唯一聚合（配置 + 点表 + 协议实例）——不再
-    # 平行维护 protocols / points_by_device 索引。
+    # Device 是运行时设备的唯一聚合（配置 + 点表 + 协议实例）——设备无关
+    # 点表经设备绑定解析；同一表被多设备共享时指向同一 list 对象。
     devices: dict[str, Device] = {}
     for device_cfg in cfg.devices.devices:
         protocol = _create_protocol(device_cfg)
@@ -156,10 +141,6 @@ def assemble(
         )
 
     sinks = {s.name: make_sink(s) for s in cfg.system.sinks}
-    processors = [
-        _create_processor(name, points_by_device) for name in cfg.system.pipeline.processors
-    ]
-    pipeline = Pipeline(processors)
 
     dispatcher = CommandDispatcher(
         devices,
@@ -174,7 +155,6 @@ def assemble(
     # 计数器（domain 不依赖 infra，由组合根注入）。
     # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
     engine = AcquisitionEngine(
-        pipeline=pipeline,
         on_points_collected=lambda n: metrics.points_collected_total.inc(n),
         on_points_bad=lambda n: metrics.points_bad_total.inc(n),
         read_timeout=cfg.system.runtime.read_timeout,
@@ -191,7 +171,6 @@ def assemble(
         tasks={t.task_id: t for t in cfg.tasks.tasks},
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
-        processor_factory=_create_processor,
         # 运行时事件指标（connect 失败/重连/collect 完成/poll 时序）接
         # Prometheus；application 不 import infra.metrics，由组合根注入
         # 结构化实现。
@@ -216,7 +195,6 @@ def assemble(
         runtime=runtime,
         engine=engine,
         dispatcher=dispatcher,
-        pipeline=pipeline,
         sinks=sinks,
         config=config,
         tasks=tasks,
@@ -341,15 +319,3 @@ def _create_sink(cfg: SinkConfig) -> SinkPort:
     if cfg.type == "db":
         return DBSink(cfg)
     raise ConfigError(f"Unknown sink type '{cfg.type}' (available: kafka, file, db)")
-
-
-def _create_processor(name: str, points_by_device: dict[str, list[PointConfig]]) -> ProcessorPort:
-    """按处理器名从注册表创建，并注入点表配置（若处理器支持）。
-
-    首次组装与 Runtime 热重载共享同一路径，确保热重载后处理器
-    拿到新的点表（换算/过滤/校验参数），而非回退成空映射。
-    """
-    processor = processor_registry.create(name)
-    if isinstance(processor, PointsConfigurable):
-        processor.set_points_config(points_by_device)
-    return processor

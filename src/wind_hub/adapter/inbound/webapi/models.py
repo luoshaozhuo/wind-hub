@@ -75,7 +75,6 @@ class ReloadResponse(BaseModel):
     tasks_added: list[str]
     tasks_removed: list[str]
     tasks_updated: list[str]
-    pipeline_rebuilt: bool
     errors: list[str]
     duration_ms: float
     reloaded_at: datetime

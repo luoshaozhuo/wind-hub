@@ -11,7 +11,7 @@
 
 三个读取函数是模块级 seam（单测可替换，等效 spec 的「mock psutil」）。
 
-延迟口径：engine observer 在 pipeline 之后收到批次，``utcnow -
+延迟口径：engine observer 在批次派发前收到通知，``utcnow -
 PointValue.timestamp`` 即「采集 → 处理完成」的单点耗时。
 """
 

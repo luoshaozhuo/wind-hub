@@ -69,7 +69,6 @@ def _write_config(tmp_path: Path) -> Path:
                 "read_timeout": 2.0,
                 "shutdown_timeout": 5.0,
             },
-            "pipeline": {"processors": []},
             "sinks": [
                 {
                     "name": "db",

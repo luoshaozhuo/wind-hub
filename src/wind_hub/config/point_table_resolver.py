@@ -122,7 +122,7 @@ def _create_point(patch: PointPatch, table: str) -> PointConfig:
 def _validate_resolved_point(data: dict[str, Any], table: str) -> PointConfig:
     """把 merge/新建结果校验为完整 PointConfig（继承后统一校验入口）。
 
-    PointConfig 自身的业务约束（deadband、min/max 等）抛 ConfigError，
+    PointConfig 自身的业务约束（point_groups 等）抛 ConfigError，
     原样上抛；结构性错误（缺 address、类型不符等）包装为带表名与点
     上下文的 ConfigError。
     """

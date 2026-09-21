@@ -55,16 +55,6 @@ class RuntimeConfig(BaseModel):
         return self
 
 
-class PipelineConfig(BaseModel):
-    """Processor pipeline definition."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    processors: list[str] = Field(default_factory=list)
-    """Ordered list of processor names.  Each name must match a
-    registered ``ProcessorPort.name``."""
-
-
 class SinkConfig(BaseModel):
     """Definition of a single data sink."""
 
@@ -117,7 +107,6 @@ class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
-    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     sinks: list[SinkConfig] = Field(default_factory=list)
     interfaces: InterfaceConfig = Field(default_factory=InterfaceConfig)
 
@@ -277,22 +266,14 @@ class PointConfig(BaseModel):
     address: PointAddress
     data_type: str = "float32"
     scale: float = 1.0
+    """工程值换算系数——``Device`` 对数值读数应用 ``value * scale + offset``。"""
     offset: float = 0.0
+    """工程值换算偏移——见 ``scale``。"""
     unit: str | None = None
     description: str | None = None
-    deadband: float | None = None
-    """死区阈值（绝对值）。两次输出之差的绝对值小于该值时不再输出该点；
-    为 ``None`` 时不过滤。仅对数值类型 ``data_type`` 生效。"""
-    min_value: float | None = None
-    """质量校验下限（含）。低于该值的读数 quality 标记为 BAD；
-    为 ``None`` 时不校验下限。"""
-    max_value: float | None = None
-    """质量校验上限（含）。高于该值的读数 quality 标记为 BAD；
-    为 ``None`` 时不校验上限。"""
 
     @model_validator(mode="after")
-    def _validate_processing_bounds(self) -> PointConfig:
-        """校验分组与处理参数边界（处理参数仅对数值类型 data_type 生效）。"""
+    def _validate_point_groups(self) -> PointConfig:
         if not self.point_groups:
             raise ConfigError(f"Point '{self.point_id}': point_groups must be non-empty")
         if len(self.point_groups) != len(set(self.point_groups)):
@@ -301,21 +282,6 @@ class PointConfig(BaseModel):
             )
         if any(not g.strip() for g in self.point_groups):
             raise ConfigError(f"Point '{self.point_id}': point_groups must be non-empty strings")
-        if self.data_type not in NUMERIC_DATA_TYPES:
-            return self
-        if self.deadband is not None and self.deadband < 0:
-            raise ConfigError(
-                f"Point '{self.point_id}': deadband must be >= 0, got {self.deadband}"
-            )
-        if (
-            self.min_value is not None
-            and self.max_value is not None
-            and self.min_value >= self.max_value
-        ):
-            raise ConfigError(
-                f"Point '{self.point_id}': "
-                f"min_value ({self.min_value}) must be < max_value ({self.max_value})"
-            )
         return self
 
 
@@ -329,8 +295,8 @@ class PointPatch(BaseModel):
     - 未写（不在 ``model_fields_set``）→ 继承父表值；
     - 写了（含显式 ``null``）→ 覆盖父表值。
 
-    本模型**不做**完整点校验（``data_type`` 白名单、deadband、min/max、
-    地址约束等）——这些在继承展开为完整 :class:`PointConfig` 后统一执行。
+    本模型**不做**完整点校验（``data_type`` 白名单、地址约束等）——这些在
+    继承展开为完整 :class:`PointConfig` 后统一执行。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -346,9 +312,6 @@ class PointPatch(BaseModel):
     offset: float | None = None
     unit: str | None = None
     description: str | None = None
-    deadband: float | None = None
-    min_value: float | None = None
-    max_value: float | None = None
 
     @model_validator(mode="after")
     def _validate_patch(self) -> PointPatch:

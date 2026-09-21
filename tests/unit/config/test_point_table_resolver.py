@@ -77,16 +77,14 @@ class TestInheritance:
         """多级继承：A → B → C，基础表字段穿透到最底层。"""
         tables = {
             "a": PointTableConfig(points=[_full_patch("p001", unit="rpm")]),
-            "b": PointTableConfig(
-                extends="a", points=[PointPatch(point_id="p001", max_value=2000.0)]
-            ),
+            "b": PointTableConfig(extends="a", points=[PointPatch(point_id="p001", scale=2000.0)]),
             "c": PointTableConfig(
                 extends="b", points=[PointPatch(point_id="p001", point_groups=["slow"])]
             ),
         }
         points = _resolve_points(tables, "c")
         assert points["p001"].unit == "rpm"  # 来自 a
-        assert points["p001"].max_value == 2000.0  # 来自 b
+        assert points["p001"].scale == 2000.0  # 来自 b
         assert points["p001"].point_groups == ["slow"]  # 来自 c
 
     def test_shared_parent_resolved_once_for_multiple_children(self) -> None:
@@ -104,16 +102,14 @@ class TestInheritance:
         """普通字段 override：只覆盖写出的字段，其余继承。"""
         tables = {
             "base": PointTableConfig(
-                points=[
-                    _full_patch("p002", variable_name="gen_power", unit="kW", max_value=10000.0)
-                ]
+                points=[_full_patch("p002", variable_name="gen_power", unit="kW", scale=10000.0)]
             ),
             "child": PointTableConfig(
-                extends="base", points=[PointPatch(point_id="p002", max_value=2500.0)]
+                extends="base", points=[PointPatch(point_id="p002", scale=2500.0)]
             ),
         }
         points = _resolve_points(tables, "child")
-        assert points["p002"].max_value == 2500.0  # 覆盖
+        assert points["p002"].scale == 2500.0  # 覆盖
         assert points["p002"].unit == "kW"  # 继承
         assert points["p002"].variable_name == "gen_power"  # 继承
 
@@ -122,7 +118,7 @@ class TestInheritance:
         tables = {
             "base": PointTableConfig(points=[_full_patch("p002", unit="kW")]),
             "child": PointTableConfig(
-                extends="base", points=[PointPatch(point_id="p002", max_value=2500.0)]
+                extends="base", points=[PointPatch(point_id="p002", scale=2500.0)]
             ),
         }
         assert _resolve_points(tables, "child")["p002"].unit == "kW"
@@ -271,14 +267,14 @@ class TestResolveErrors:
             resolve_point_tables(_raw(tables))
 
     def test_override_resulting_in_invalid_point_raises(self) -> None:
-        """override 后完整点非法（min_value >= max_value）→ 配置错误。"""
+        """override 后完整点非法（point_groups 置空）→ 配置错误。"""
         tables = {
-            "base": PointTableConfig(points=[_full_patch("p001", max_value=5.0)]),
+            "base": PointTableConfig(points=[_full_patch("p001")]),
             "child": PointTableConfig(
-                extends="base", points=[PointPatch(point_id="p001", min_value=10.0)]
+                extends="base", points=[PointPatch(point_id="p001", point_groups=[])]
             ),
         }
-        with pytest.raises(ConfigError, match="min_value"):
+        with pytest.raises(ConfigError, match="point_groups"):
             resolve_point_tables(_raw(tables))
 
     def test_invalid_data_type_rejected_after_resolve(self) -> None:

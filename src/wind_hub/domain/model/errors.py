@@ -54,11 +54,3 @@ class OperationTimeoutError(WindHubError):
     Distinct from Python's built-in ``TimeoutError`` to avoid
     accidental shadowing.
     """
-
-
-class ProcessorError(WindHubError):
-    """Raised when a processor fails during transformation.
-
-    Covers enrichment service failures, filter configuration errors,
-    and derived-point computation errors.
-    """

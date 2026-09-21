@@ -163,7 +163,7 @@ def _summary_section(results: list[PerfMetrics], runs: int = 1) -> list[str]:
         f"- 协议：{', '.join(protocols) if protocols else '(无)'}",
         f"- 场景数：{len(scenarios)}（{', '.join(scenarios) if scenarios else '(无)'}）",
         f"- 单场景测量时长：{duration:g}s（另有预热，不计入统计）",
-        "- Sink：NullSink（隔离外部 IO，测采集 + Pipeline + Task 分发）",
+        "- Sink：NullSink（隔离外部 IO，测采集 + Task 分发）",
     ]
     if runs > 1:
         lines.append(
@@ -195,7 +195,7 @@ def _latency_section(results: list[PerfMetrics]) -> list[str]:
         "",
         "## 3. 延迟分布",
         "",
-        "单点延迟 = 采集时间戳 → pipeline 处理完成（engine observer 口径）。",
+        "单点延迟 = 采集时间戳 → 引擎处理完成（engine observer 口径）。",
         "",
         "| 协议 | 场景 | P50 (ms) | P95 (ms) | P99 (ms) | 最大 (ms) |",
         "|---|---|---|---|---|---|",

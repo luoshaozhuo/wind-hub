@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 端到端测试用系统配置 —— 短超时 + 空管道 + null sink
+# 端到端测试用系统配置 —— 短超时 + null sink
 # ---------------------------------------------------------------------------
 
 runtime:
@@ -8,9 +8,6 @@ runtime:
   shutdown_timeout: 5.0
   queue_maxsize: 100
   backpressure_policy: drop_old
-
-pipeline:
-  processors: []
 
 sinks:
   - name: null_sink

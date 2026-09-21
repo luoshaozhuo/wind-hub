@@ -9,11 +9,11 @@
 
 | 术语 | 定义 |
 |---|---|
-| Domain | 核心业务模型与业务规则（model / acquisition / command / processing / domain 扩展点端口），不含应用入口与基础设施语义 |
+| Domain | 核心业务模型与业务规则（model / acquisition / command / domain 扩展点端口），不含应用入口与基础设施语义 |
 | Use Case | application 层完成完整应用业务流程的编排类（`application/usecase/`），接收 inbound adapter 调用，编排 domain 对象、Runtime 与 outbound port |
 | Inbound Adapter | CLI / Web API / IEC104 slave——参数解析、协议转换、调用 Use Case、映射输出 |
 | Inbound Port | 不默认存在：inbound adapter 直接依赖具体 Use Case；只有存在多实现或替换边界时才允许保留，且必须命名为 `xxxPort` |
-| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort）与 `domain/port/outbound.py`（ProtocolPort、ProcessorPort——被 domain 服务直接消费，故留在 domain） |
+| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort）与 `domain/port/outbound.py`（ProtocolPort——被 domain 服务直接消费，故留在 domain） |
 | Outbound Adapter | outbound port 的实现：Modbus / ADS / IEC104 / Kafka / Postgres / FileSink |
 | Runtime | 运行期组件生命周期与状态编排核心（`application/runtime/`），不是普通 Use Case |
 | Composition Root | `assembly.py`——唯一知道双方具体类型并负责装配的模块 |
@@ -31,8 +31,8 @@
 main.py → assembly.py（组合根）→ Runtime
 ```
 
-`assembly.py` 是唯一组合根：加载配置、创建协议驱动 / Sink / 处理器、
-构造 `AcquisitionEngine` 与 `Dispatcher`，最后组装 `Runtime` 并注入全部
+`assembly.py` 是唯一组合根：加载配置、创建协议驱动 / Sink、
+构造 `AcquisitionEngine` 与 `CommandDispatcher`，最后组装 `Runtime` 并注入全部
 回调（指标、超时等）。`Runtime` 是应用层编排核心，向下分三类协作对象：
 
 ```text
@@ -40,7 +40,7 @@ Runtime
 ├── Task Instance 采集协程                （每实例一个长生命周期 asyncio Task：
 │     while True: collect → asyncio.sleep(interval)——无外部调度器）
 ├── AcquisitionEngine                    （执行一次采集）
-│     read → Pipeline → SinkDispatchPort（按 Task targets 扇出）
+│     read → SinkDispatchPort（按 Task targets 扇出）
 └── Dispatcher                           （写命令下发）
 ```
 
@@ -48,10 +48,10 @@ Runtime
 
 | 层 | 内容 | 依赖约束 |
 |---|---|---|
-| `domain` | 模型、扩展点端口（ProtocolPort / ProcessorPort）、AcquisitionEngine、Dispatcher、Pipeline | 不得依赖 application / adapter / infra；不得 import FastAPI、pyads、pymodbus、prometheus_client |
+| `domain` | 模型、扩展点端口（ProtocolPort）、AcquisitionEngine | 不得依赖 application / adapter / infra；不得 import FastAPI、pyads、pymodbus、prometheus_client |
 | `application` | Use Case（command / config / task / query）、Runtime、DeviceRuntimeState、AcquisitionRuntimeState、TaskInstance、应用级端口（SinkPort）、AppContext | 不得依赖 adapter；指标等经回调/端口注入 |
-| `adapter` | inbound（webapi/cli）、outbound（protocol/sink/processor） | 可依赖 domain / infra |
-| `infra` | metrics、registry、processor_registry | 被各层经组合根接线 |
+| `adapter` | inbound（webapi/cli）、outbound（protocol/sink） | 可依赖 domain / infra |
+| `infra` | metrics、registry | 被各层经组合根接线 |
 
 ## 2. Runtime 与三个状态维度
 
@@ -181,9 +181,10 @@ T_k = min(30 s, 1 s · 2^k)   ——  1, 2, 4, 8, 16, 30, 30 …
 - **IEC104**：读来自会话点值缓存，未知/未缓存 IOA 逐点 BAD；会话无效
   抛 `ProtocolError`。
 
-管线对 BAD 天然安全（透传语义）：`quality_check` 非数值不校验、
-`unit_convert` 不重标、`deadband` 非数值不参与比较也不污染基线。
-BAD 批次照常进入管线与派发——数据质量信息应流向 sink。
+BAD 批次照常派发——数据质量信息应流向 sink。点值 quality 只来自
+协议原生判定；工程值换算（scale/offset）由运行时 `Device` 在采集
+出口统一应用（轮询与订阅同语义），非数值（None / str / bool）不参与
+换算。
 
 ## 6. 采集结果判定口径
 
@@ -203,13 +204,12 @@ BAD 批次照常进入管线与派发——数据质量信息应流向 sink。
 Task(device|device_group, point_group, interval, targets)
   → 展开为 Task Instance（{task_id}:{device_id}）
   → 实例协程 collect：按 point_group ∈ point.point_groups 选点
-  → Pipeline 处理
   → SinkDispatchPort.dispatch({sink: batch})——按实例 targets 扇出
 ```
 
 没有路由规则、没有点位级 sink 覆盖、没有投递策略（interval / every_n /
 on_change 均不复存在）：每批采集结果全量投递到该实例 `targets` 声明的
-每个 sink。点表快照语义：热重载重注入点映射并整体替换 Pipeline 实例，
+每个 sink。点表快照语义：热重载经 `Device.set_points` 重注入点表，
 采集循环总是读当前实例。
 
 ## 8. 可观测性

@@ -68,14 +68,11 @@ class ConfigDiff(BaseModel):
     """采集 Task 定义级变化——Runtime 据此重新展开 Task Instance。"""
 
     points_changed: bool = False
-    """``True`` when any point table changed — 触发点映射重注入与处理链重建。"""
+    """``True`` when any point table changed — 触发 Device.set_points 重注入。"""
 
     point_tables_changed: list[str] = Field(default_factory=list)
     """发生变化（新增/删除/内容修改）的点表名——Runtime 据此对绑定这些表的
     设备做点映射重注入（不重建 Protocol 连接）。"""
-
-    pipeline_changed: bool = False
-    """``True`` when the processor pipeline has changed."""
 
     @property
     def has_any_changes(self) -> bool:
@@ -91,7 +88,6 @@ class ConfigDiff(BaseModel):
             or self.tasks.removed
             or self.tasks.updated
             or self.points_changed
-            or self.pipeline_changed
         )
 
 

@@ -59,7 +59,6 @@ from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, TaskDiff
 from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, ProtocolPort
-from wind_hub.domain.processing import Pipeline
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -154,7 +153,7 @@ class _FakeEngine:
 
     记录每次 ``collect`` 调用的完整参数；``fail_next`` 让下一次 collect
     抛异常（验证 polling 循环的异常韧性）；``collect_gate`` 可阻塞 collect
-    （验证 CancelledError 传播）。不模拟引擎内部读/管线逻辑——那是
+    （验证 CancelledError 传播）。不模拟引擎内部读/派发逻辑——那是
     ``tests/unit/acquisition`` 的职责。
     """
 
@@ -164,7 +163,6 @@ class _FakeEngine:
         self.fail_next = 0
         self.collect_gate: asyncio.Event | None = None
         self.sink_dispatch: object | None = None
-        self.replaced_pipelines: list[Pipeline] = []
 
     def attach_sink_dispatch(self, dispatch: object) -> None:
         self.sink_dispatch = dispatch
@@ -178,9 +176,6 @@ class _FakeEngine:
     @property
     def points_collected(self) -> int:
         return 0
-
-    async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
-        self.replaced_pipelines.append(new_pipeline)
 
     async def collect(
         self,
@@ -227,7 +222,6 @@ def _build_runtime(
     queue_maxsize: int = 10,
     protocol_factory=None,
     sink_factory=None,
-    processor_factory=None,
 ) -> tuple[Runtime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
     protos = {d.device_id: _mock_protocol() for d in devices}
     sinks = {name: _mock_sink() for name in sink_names}
@@ -242,7 +236,6 @@ def _build_runtime(
         tasks={t.task_id: t for t in tasks},
         protocol_factory=protocol_factory,
         sink_factory=sink_factory,
-        processor_factory=processor_factory,
     )
     return rt, protos, sinks, eng
 
@@ -856,10 +849,7 @@ class TestSinkDispatch:
         sinks = {"s1": _mock_sink(), "s2": _mock_sink()}
         points = {"d1": [_make_point("p1", groups=("g1",))]}
         device_map = _build_devices(devices, protos, points)
-        engine = AcquisitionEngine(
-            pipeline=Pipeline([]),
-            read_timeout=None,
-        )
+        engine = AcquisitionEngine(read_timeout=None)
         rt = Runtime(
             devices=device_map,
             sinks=sinks,

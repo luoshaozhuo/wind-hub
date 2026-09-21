@@ -8,7 +8,6 @@
   :class:`CollectionTaskInstance`；显式 start 时经
   ``Device.start_acquisition`` 获得 :class:`AcquisitionHandle`（底层是
   fixed-rate polling 或协议订阅，Runtime 不感知），stop 时关闭句柄；
-- Pipeline 当前实例管理（经 :class:`AcquisitionEngine` 原子替换）；
 - 设备与 Sink 的增删 / 重建，配置热重载时的运行时重构（:meth:`reconfigure`）；
 - Runtime 状态（running / health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()``。
@@ -58,12 +57,7 @@ from wind_hub.config.schema import (
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff
-from wind_hub.domain.port.outbound import (
-    HealthStatus,
-    ProcessorPort,
-    ProtocolPort,
-)
-from wind_hub.domain.processing.pipeline import Pipeline
+from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +138,8 @@ class Runtime:
     - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``）；
     - ``dispatcher`` — 命令分发器（持有以便组合根单点管理生命周期）；
     - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
-    - ``protocol_factory`` / ``sink_factory`` / ``processor_factory`` —
-      热重载重建组件用的工厂（由组合根注入，Runtime 不依赖具体适配器）。
+    - ``protocol_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
+      （由组合根注入，Runtime 不依赖具体适配器）。
     """
 
     def __init__(
@@ -158,8 +152,6 @@ class Runtime:
         tasks: dict[str, CollectionTaskConfig] | None = None,
         protocol_factory: Callable[[DeviceConfig], ProtocolPort] | None = None,
         sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
-        processor_factory: Callable[[str, dict[str, list[PointConfig]]], ProcessorPort]
-        | None = None,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
@@ -171,7 +163,6 @@ class Runtime:
         self._task_defs: dict[str, CollectionTaskConfig] = dict(tasks or {})
         self._protocol_factory = protocol_factory
         self._sink_factory = sink_factory
-        self._processor_factory = processor_factory
         self._clock = clock
         # 运行时指标端口（可选）：组合根接 Prometheus；未注入时跳过计数。
         self._metrics = metrics_hook
@@ -885,14 +876,6 @@ class Runtime:
             self._sink_tasks[sink_name] = new_task
 
     # ------------------------------------------------------------------
-    # 热重载——pipeline 替换
-    # ------------------------------------------------------------------
-
-    async def replace_pipeline(self, new_pipeline: Pipeline) -> None:
-        """原子替换处理链（处理器列表或点表变更时）。"""
-        await self._engine.replace_pipeline(new_pipeline)
-
-    # ------------------------------------------------------------------
     # 热重载编排（ConfigUseCase 的唯一入口）
     # ------------------------------------------------------------------
 
@@ -943,20 +926,6 @@ class Runtime:
         except Exception as exc:
             logger.error("Task instance sync failed: %s", exc, exc_info=True)
             errors.append(f"tasks: {exc}")
-
-        # 点表变更也让 Processor 重新注入新点表（死区状态重置可接受）
-        if (diff.pipeline_changed or diff.points_changed) and self._processor_factory is not None:
-            try:
-                points_by_device = new_config.points_by_device()
-                processors = [
-                    self._processor_factory(name, points_by_device)
-                    for name in new_config.system.pipeline.processors
-                ]
-                await self.replace_pipeline(Pipeline(processors))
-                logger.info("Pipeline rebuilt (%d processors)", len(processors))
-            except Exception as exc:
-                logger.error("Pipeline rebuild failed: %s", exc, exc_info=True)
-                errors.append(f"pipeline: {exc}")
 
         return errors
 

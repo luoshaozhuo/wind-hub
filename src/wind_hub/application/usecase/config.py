@@ -39,7 +39,6 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     - **Tasks**: keyed by ``task_id``, same logic.
     - **Point tables**: keyed by table name — 新增/删除/内容变化的表名进入
       ``point_tables_changed``；任意表变化同时置 ``points_changed=True``。
-    - **Pipeline**: processor list comparison.
 
     This is pure logic — no IO, no side-effects.
     """
@@ -109,7 +108,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     tasks.updated = sorted(task_updated)
     tasks.unchanged = sorted(task_unchanged)
 
-    # -- point tables / pipeline ----------------------------------------------
+    # -- point tables ----------------------------------------------------------
     old_tables = old.point_tables.tables
     new_tables = new.point_tables.tables
     table_names = set(old_tables) | set(new_tables)
@@ -120,15 +119,12 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         or name not in new_tables
         or old_tables[name].model_dump() != new_tables[name].model_dump()
     )
-    pipeline_changed = old.system.pipeline.processors != new.system.pipeline.processors
-
     return ConfigDiff(
         devices=devices,
         sinks=sinks,
         tasks=tasks,
         points_changed=bool(point_tables_changed),
         point_tables_changed=point_tables_changed,
-        pipeline_changed=pipeline_changed,
     )
 
 

@@ -4,14 +4,14 @@
 
 1. 启动对应协议的本地 server（:mod:`tests.perf.servers`）；
 2. 在 veth 两端应用 netem 场景（中断场景改为测量中触发一次）；
-3. 生成压测专用配置（单设备、NullSink、空 pipeline——隔离处理器
+3. 生成压测专用配置（单设备、NullSink——隔离外部 IO
    耗时，专注采集 + 分发链路；背压队列放大到不可能触顶，丢点只可能
    来自网络侧）；
 4. ``assemble`` + ``start_runtime`` 起真实引擎；
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
 6. 停引擎、清 netem、返回 :class:`~tests.perf.collector.PerfMetrics`。
 
-延迟经 engine observer 采集（pipeline 后口径）；重连经每秒轮询
+延迟经 engine observer 采集（派发前口径）；重连经每秒轮询
 驱动 ``health()`` 的跳变识别（不修改任何驱动）。
 """
 
@@ -142,7 +142,7 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
 def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> None:
     """把压测配置写入目录（system/devices/points/tasks 四件套）。
 
-    pipeline 为空（隔离处理器耗时）；背压队列放大到 100 万，确保丢点
+    背压队列放大到 100 万，确保丢点
     只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble`` 的
     ``sink_factory`` 替换为 NullSink，``type`` 字段仅占位。
     """
@@ -158,7 +158,6 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
         },
-        "pipeline": {"processors": []},
         "sinks": [{"name": "perf_null", "type": "null", "enabled": True}],
         "interfaces": {"api": {"enabled": False}, "cli": {"enabled": False}},
     }
