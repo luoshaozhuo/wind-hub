@@ -16,7 +16,7 @@ app = typer.Typer(name="status", help="查看系统运行状态")
 def status(
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
-    """调用 query_service.status() 并打印。"""
+    """调用 ``QueryUseCase.status()`` 并打印。"""
     asyncio.run(_status(json))
 
 

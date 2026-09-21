@@ -1,6 +1,6 @@
 """ConfigUseCase 的单元测试。
 
-验证对象：``application/config_service.py`` 的热重载编排——
+验证对象：``application/usecase/config.py`` 的热重载编排——
 「load → validate → diff → Runtime.reconfigure → commit current config」。
 
 覆盖点：
@@ -103,9 +103,9 @@ def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
 
 async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
-    service = ConfigUseCase(tmp_path, _mock_runtime())
+    usecase = ConfigUseCase(tmp_path, _mock_runtime())
 
-    cfg = service.current_config
+    cfg = usecase.current_config
     assert [d.device_id for d in cfg.devices.devices] == ["d1"]
 
 
@@ -123,18 +123,18 @@ async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
 async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
-    snapshot_before = service.current_config
+    usecase = ConfigUseCase(tmp_path, runtime)
+    snapshot_before = usecase.current_config
 
     # 破坏 devices.yaml
     (tmp_path / "devices.yaml").write_text("devices: [broken")
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is False
     assert result.errors  # 加载错误如实呈现
     runtime.reconfigure.assert_not_awaited()
     # 旧快照保持——失败的重载不改变 diff 基准
-    assert service.current_config is snapshot_before
+    assert usecase.current_config is snapshot_before
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +145,9 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
 async def test_reload_no_changes_skips_reconfigure(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
+    usecase = ConfigUseCase(tmp_path, runtime)
 
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is True
     assert result.errors == []
@@ -165,7 +165,7 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
 ) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
+    usecase = ConfigUseCase(tmp_path, runtime)
 
     # 新增一台设备
     _write_configs(
@@ -173,7 +173,7 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
         devices=[_make_device("d1"), _make_device("d2")],
         points=[_make_point()],
     )
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is True
     runtime.reconfigure.assert_awaited_once()
@@ -181,22 +181,22 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     assert diff.devices.added == ["d2"]
     assert [d.device_id for d in new_cfg.devices.devices] == ["d1", "d2"]
     # 成功后提交新快照
-    assert service.current_config is new_cfg
+    assert usecase.current_config is new_cfg
 
 
 async def test_reload_commits_snapshot_even_on_partial_failure(tmp_path: Path) -> None:
     """reconfigure 部分失败：success=False、错误透传，但快照仍提交。"""
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime(reconfigure_errors=["sink: open failed"])
-    service = ConfigUseCase(tmp_path, runtime)
+    usecase = ConfigUseCase(tmp_path, runtime)
 
     _write_configs(tmp_path, devices=[_make_device("d1"), _make_device("d2")])
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is False
     assert result.errors == ["sink: open failed"]
     # 快照已提交：再次 reload 同一目录内容时 diff 基准是新快照 → 无变更
-    result2 = await service.reload()
+    result2 = await usecase.reload()
     assert result2.success is True
     assert result2.diff.has_any_changes is False
     assert runtime.reconfigure.await_count == 1  # 第二轮不再调用
@@ -209,14 +209,14 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
         sinks=[SinkConfig(name="s1", type="file")],
     )
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
+    usecase = ConfigUseCase(tmp_path, runtime)
 
     _write_configs(
         tmp_path,
         devices=[_make_device("d2")],  # d1 删除、d2 新增
         sinks=[SinkConfig(name="s1", type="kafka")],  # s1 变更
     )
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is True
     assert result.diff.devices.added == ["d2"]
@@ -244,8 +244,8 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         ],
         processors=["scale"],
     )
-    service = ConfigUseCase(tmp_path, _mock_runtime())
-    old = service.current_config
+    usecase = ConfigUseCase(tmp_path, _mock_runtime())
+    old = usecase.current_config
 
     _write_configs(
         tmp_path,
@@ -261,8 +261,8 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
         ],
         processors=["scale", "filter"],
     )
-    service2 = ConfigUseCase(tmp_path, _mock_runtime())
-    new = service2.current_config
+    usecase2 = ConfigUseCase(tmp_path, _mock_runtime())
+    new = usecase2.current_config
 
     diff = compute_diff(old, new)
     assert diff.points_changed is True
@@ -273,10 +273,10 @@ async def test_compute_diff_detects_points_rules_pipeline_changes(tmp_path: Path
 
 async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")], points=[_make_point()])
-    service = ConfigUseCase(tmp_path, _mock_runtime())
-    service2 = ConfigUseCase(tmp_path, _mock_runtime())
+    usecase = ConfigUseCase(tmp_path, _mock_runtime())
+    usecase2 = ConfigUseCase(tmp_path, _mock_runtime())
 
-    diff = compute_diff(service.current_config, service2.current_config)
+    diff = compute_diff(usecase.current_config, usecase2.current_config)
 
     assert diff.has_any_changes is False
     assert diff.devices.unchanged == ["d1"]
@@ -340,11 +340,11 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     """父表变化：diff 基于 resolved 结果，子表被标记变更并携带新点集进入 Runtime。"""
     _write_inheritance_configs(tmp_path, base_unit="rpm")
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
-    assert service.current_config.point_tables.tables["child"].points[0].unit == "rpm"
+    usecase = ConfigUseCase(tmp_path, runtime)
+    assert usecase.current_config.point_tables.tables["child"].points[0].unit == "rpm"
 
     _write_inheritance_configs(tmp_path, base_unit="rps")  # 只改父表
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is True
     runtime.reconfigure.assert_awaited_once()
@@ -358,16 +358,16 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     # 无关表与无关设备不受影响
     assert "other" not in diff.point_tables_changed
     assert diff.devices.unchanged == ["d1", "d2"]
-    assert service.current_config is new_cfg
+    assert usecase.current_config is new_cfg
 
 
 async def test_reload_unmodified_inheritance_chain_is_noop(tmp_path: Path) -> None:
     """继承链配置未变：reload 无 diff、不触碰 Runtime。"""
     _write_inheritance_configs(tmp_path)
     runtime = _mock_runtime()
-    service = ConfigUseCase(tmp_path, runtime)
+    usecase = ConfigUseCase(tmp_path, runtime)
 
-    result = await service.reload()
+    result = await usecase.reload()
 
     assert result.success is True
     assert result.diff.has_any_changes is False

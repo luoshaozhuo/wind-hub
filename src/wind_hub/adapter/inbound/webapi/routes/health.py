@@ -18,7 +18,7 @@ async def health() -> HealthResponse:
     if ctx.query is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "query_service is not configured",
+            "query use case is not configured",
             status_code=503,
         )
     snapshot = await ctx.query.status()

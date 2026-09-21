@@ -18,7 +18,7 @@ async def read_point(device_id: str, point_id: str) -> PointValueResponse:
     """Read a single point's value (404 unknown, 503 device unreachable)."""
     ctx = get_ctx()
     if ctx.query is None:
-        raise APIError("SERVICE_UNAVAILABLE", "query_service is not configured", status_code=503)
+        raise APIError("SERVICE_UNAVAILABLE", "query use case is not configured", status_code=503)
     try:
         value = await ctx.query.read_point(device_id, point_id)
     except CommandError as exc:

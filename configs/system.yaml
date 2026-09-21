@@ -59,7 +59,7 @@ sinks:
     type: file
     enabled: true
     params:
-      path: ./data/archive.jsonl
+      path: /var/tmp/wind-hub/archive.jsonl
       format: jsonl
       # 滚动后是否对旧分片 gzip 压缩（关闭即以 .jsonl 原文归档）
       compress: false

@@ -24,7 +24,7 @@ class Dispatcher:
 
     Non-responsibilities:
       - Protocol implementation (delegated to ``ProtocolPort``).
-      - Permission checks / audit (delegated to application services above).
+      - Permission checks / audit (delegated to the use cases above).
 
     The idempotency cache combines LRU eviction with TTL expiry and
     lives entirely in-process.  Cross-process idempotency belongs to a

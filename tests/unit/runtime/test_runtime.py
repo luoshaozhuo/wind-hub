@@ -2016,7 +2016,7 @@ async def test_stopped_jobs_do_not_fire_collect_with_real_scheduler() -> None:
         await runtime.stop()
 
 
-async def test_job_service_start_stop_roundtrip_on_runtime_jobs() -> None:
+async def test_job_usecase_start_stop_roundtrip_on_runtime_jobs() -> None:
     """TaskService 经 Runtime 注册的 Job 执行 start/stop——只翻转调度状态。"""
     runtime, _engine, scheduler = _make_runtime(
         devices={"d1": _two_group_device()},

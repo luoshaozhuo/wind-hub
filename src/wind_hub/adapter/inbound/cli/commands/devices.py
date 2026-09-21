@@ -16,7 +16,7 @@ app = typer.Typer(name="devices", help="列出设备")
 def devices(
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
-    """调用 query_service.list_devices() 并打印。"""
+    """调用 ``QueryUseCase.list_devices()`` 并打印。"""
     asyncio.run(_devices(json))
 
 

@@ -17,7 +17,7 @@ app = typer.Typer(name="reload", help="热加载配置（无需重启）")
 def reload(
     json: bool = typer.Option(False, "--json", help="输出 JSON 格式"),
 ) -> None:
-    """调用 config_service.reload() 并打印结果。"""
+    """调用 ``ConfigUseCase.reload()`` 并打印结果。"""
     asyncio.run(_reload(json))
 
 

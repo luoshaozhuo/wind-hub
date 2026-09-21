@@ -1,6 +1,6 @@
-"""Unit tests for the CommandUseCase application service.
+"""Unit tests for the CommandUseCase application usecase.
 
-验证对象：``application/command_service.py`` 把指令下发委托给
+验证对象：``application/usecase/command.py`` 把指令下发委托给
 :class:`~wind_hub.domain.command.dispatcher.Dispatcher`——``send`` /
 ``send_batch`` 原样转发，幂等与超时由 Dispatcher 保证，服务本身不增加语义。
 """

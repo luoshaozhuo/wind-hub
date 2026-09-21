@@ -23,12 +23,12 @@ def test_build_api_server_returns_embedded_uvicorn_server() -> None:
 
 
 async def test_handle_sighup_calls_config_reload() -> None:
-    config_service = AsyncMock()
-    config_service.reload.return_value = ReloadResult(
+    config = AsyncMock()
+    config.reload.return_value = ReloadResult(
         success=True,
         diff=ConfigDiff(),
         errors=[],
         duration_ms=1.0,
     )
-    await _handle_sighup(config_service)
-    config_service.reload.assert_awaited_once()
+    await _handle_sighup(config)
+    config.reload.assert_awaited_once()

@@ -11,7 +11,7 @@ wind-hub 的配置由四个 YAML 文件组成（仓库 `configs/` 下有带详�
 | `routing.yaml` | 路由规则与投递策略 | `RoutingConfig` |
 
 所有 schema 均 `extra="forbid"`：未声明的字段在加载阶段直接报错。
-热重载唯一入口是 `ConfigService.reload()`（重新加载四个文件 → diff →
+热重载唯一入口是 `ConfigUseCase.reload()`（重新加载四个文件 → diff →
 `Runtime.reconfigure`），状态处理规则见
 [architecture.md §9](architecture.md)。
 

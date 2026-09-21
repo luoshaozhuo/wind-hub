@@ -127,7 +127,7 @@ def test_route_explain_uses_real_router() -> None:
     clear_context()
 
 
-def test_config_reload_runs_real_config_service() -> None:
+def test_config_reload_runs_real_config_usecase() -> None:
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
         set_context(AppContext(config=rt.config, runtime=rt.runtime))
@@ -138,8 +138,8 @@ def test_config_reload_runs_real_config_service() -> None:
     clear_context()
 
 
-def test_health_returns_503_when_query_service_missing() -> None:
-    """查询服务未接入上下文时，``/health`` 应 503 而非崩溃。"""
+def test_health_returns_503_when_query_usecase_missing() -> None:
+    """查询用例未接入上下文时，``/health`` 应 503 而非崩溃。"""
     with tempfile.TemporaryDirectory() as td:
         rt = _assemble(Path(td))
         set_context(AppContext(runtime=rt.runtime))

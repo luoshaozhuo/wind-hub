@@ -15,7 +15,7 @@ async def test_full_startup_health_and_devices(
     # 引擎运行中
     assert runtime.runtime.running is True
 
-    # /health 返回 200（query_service 已真实装配）
+    # /health 返回 200（query 用例已真实装配）
     resp = await api_client.get("/health")
     assert resp.status_code == 200
     body = resp.json()

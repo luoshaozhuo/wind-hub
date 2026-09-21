@@ -24,7 +24,7 @@ async def send_command(request: CommandRequest) -> CommandResponse:
     """
     ctx = get_ctx()
     if ctx.command is None:
-        raise APIError("SERVICE_UNAVAILABLE", "command_service is not configured", status_code=503)
+        raise APIError("SERVICE_UNAVAILABLE", "command use case is not configured", status_code=503)
     command = Command(
         command_id=request.command_id or str(uuid.uuid4()),
         device_id=request.device_id,

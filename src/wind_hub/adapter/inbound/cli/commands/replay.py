@@ -5,8 +5,8 @@
 MQ / DB。
 
 用法：
-    wind-hub replay --input ./data/archive.jsonl --sink kafka_main
-    wind-hub replay --input ./data/archive.csv --sink kafka_main --rate 1000
+    wind-hub replay --input /var/tmp/wind-hub/archive.jsonl --sink kafka_main
+    wind-hub replay --input /var/tmp/wind-hub/archive.csv --sink kafka_main --rate 1000
 """
 
 from __future__ import annotations
