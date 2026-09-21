@@ -31,6 +31,9 @@ from typing import Any, Protocol
 
 from wind_hub.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub.application.runtime.device_state import DeviceRuntimeState
+from wind_hub.application.runtime.dispatcher import RuntimeSinkDispatcher
+from wind_hub.application.runtime.health import RuntimeHealth
+from wind_hub.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub.config.routing import RoutingTable
 from wind_hub.config.schema import (
     Config,
@@ -175,6 +178,10 @@ class Runtime:
         # 建立、注销时删除；引擎 collect 经 AcquisitionStatePort 上报演进。
         self._acq_states: dict[str, AcquisitionRuntimeState] = {}
 
+        self._lifecycle = RuntimeLifecycle(self)
+        self._sink_dispatcher = RuntimeSinkDispatcher(self)
+        self._health = RuntimeHealth(self)
+
         # Sink 派发的落点：引擎路由结果进入本类的队列/背压/消费者机制。
         self._engine.attach_sink_dispatch(self)
         # 设备连接状态的落点：引擎采集前经 ensure_connected 完成带节流的
@@ -191,10 +198,10 @@ class Runtime:
 
         # Sink 消费者任务簿记（设备侧由调度器 Job 承担，不再有设备任务）
         self._sink_tasks: dict[str, asyncio.Task[Any]] = {}
+        # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
+        # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
+        self._lifecycle_lock = asyncio.Lock()
         self._running = False
-        # ``start()`` 完整完成（设备连接尝试结束、任务已拉起）才置位；
-        # ``running`` 属性把它与 ``_running`` 取与，让 /health 能区分
-        # 「启动进行中」（决策 1）与「已就绪」。
         self._started = False
 
         # Sinks whose ``open()`` raised during ``start()`` — they are skipped
@@ -245,120 +252,12 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动运行时——连接设备、打开 sink、启动调度器并注册采集 Job。
-
-        全部采集 Job 注册后默认 STOPPED（paused，``next_run_time=None``）：
-        启动完成只意味着基础设施就绪，周期采集要等 CLI / Web API 的显式
-        start 指令才开始（见 :class:`~wind_hub.application.job_service.JobService`）。
-
-        单台设备连接失败或单个 sink 打开失败只记录日志并跳过，其余组件
-        照常启动。幂等：已运行时重复调用为无操作。
-        """
-        if self._running:
-            return
-        self._running = True
-        self._started = False
-
-        # 0. Inject each device's point table into its protocol driver.  This is
-        #    pure in-memory and must precede any read; a ConfigError (bad point
-        #    table) fails fast here rather than mid-poll.
-        for device_id, proto in self._protocols.items():
-            proto.set_points_mapping(self._points_by_device.get(device_id, []))
-
-        # 1. Connect all devices (best-effort, failures logged)
-        for device_id, proto in self._protocols.items():
-            try:
-                await asyncio.wait_for(proto.connect(), timeout=self._config.connect_timeout)
-                self._state_for(device_id).mark_success(self._clock())
-                logger.info("Device '%s' connected", device_id)
-            except TimeoutError:
-                # 错误语义区分操作阶段：connect timeout 不模糊成 "timeout"。
-                self._note_connect_failure(device_id, TimeoutError("connect timeout"))
-                logger.warning(
-                    "connect timeout: device=%s timeout=%.1fs — skipped",
-                    device_id,
-                    self._config.connect_timeout,
-                )
-            except Exception as exc:
-                # 决策 0.3：连接级故障（拒连/网络不可达，含驱动包装链
-                # 里的底层 OSError）是现场日常，简洁 warning 不打堆栈；
-                # 其他异常（编程错误、协议实现缺陷）保留完整堆栈以便排查。
-                self._note_connect_failure(device_id, exc)
-                if _is_connection_level(exc):
-                    logger.warning("Device '%s' failed to connect — skipped: %s", device_id, exc)
-                else:
-                    logger.warning(
-                        "Device '%s' failed to connect — skipped", device_id, exc_info=True
-                    )
-
-        # 2. Open all sinks (best-effort — a single failing sink is skipped so
-        #    the runtime still starts; it is surfaced as unhealthy by health()).
-        for name, sink in self._sinks.items():
-            try:
-                await sink.open()
-                logger.info("Sink '%s' opened", name)
-            except Exception:
-                logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
-                self._unhealthy_sinks.add(name)
-
-        # 3. Launch sink consumer tasks (only for sinks that opened)
-        for name, sink in self._sinks.items():
-            if name in self._unhealthy_sinks:
-                continue
-            task = asyncio.create_task(self._sink_consumer(name, sink))
-            self._sink_tasks[name] = task
-
-        # 4. Start the scheduler, then register acquisition per device
-        await self._scheduler.start()
-        for device_id, device_cfg in self._devices.items():
-            await self._start_acquisition(device_id, device_cfg)
-
-        # 全部启动步骤完成后才对外报告 running（决策 1：/health 可区分
-        # 「启动进行中」——设备连接超时期间 running 保持 False）。
-        self._started = True
+        """启动运行时——连接设备、打开 sink、启动调度器并注册采集 Job。"""
+        await self._lifecycle.start()
 
     async def stop(self) -> None:
-        """优雅停机——停调度、排空队列、flush 并关闭 sink、关闭设备连接。
-
-        幂等：未运行时直接返回。各环节失败只记录日志，保证停机链路走完。
-        """
-        if not self._running:
-            return
-        self._running = False
-        self._started = False
-
-        # 1. Stop the scheduler — no new job fires from here on
-        await self._scheduler.stop()
-
-        # 2. Signal sink loops to finish by putting sentinel + cancel
-        for queue in self._queues.values():
-            await queue.put([])  # empty list = shutdown sentinel
-        for task in self._sink_tasks.values():
-            try:
-                await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
-            except TimeoutError:
-                task.cancel()
-            except asyncio.CancelledError:
-                pass
-        self._sink_tasks.clear()
-
-        # 3. Flush and close sinks
-        for name, sink in self._sinks.items():
-            try:
-                await sink.flush()
-            except Exception:
-                logger.warning("Sink '%s' flush failed", name, exc_info=True)
-            try:
-                await sink.close()
-            except Exception:
-                logger.warning("Sink '%s' close failed", name, exc_info=True)
-
-        # 4. Close protocols
-        for device_id, proto in self._protocols.items():
-            try:
-                await proto.close()
-            except Exception:
-                logger.warning("Device '%s' close failed", device_id, exc_info=True)
+        """优雅停机——停调度、排空队列、flush 并关闭 sink、关闭设备连接。"""
+        await self._lifecycle.stop()
 
     # ------------------------------------------------------------------
     # 状态
@@ -366,15 +265,7 @@ class Runtime:
 
     def health(self) -> dict[str, HealthStatus]:
         """返回全部设备与 sink 的健康状态（设备优先、随后 sink）。"""
-        result: dict[str, HealthStatus] = {}
-        for device_id, proto in self._protocols.items():
-            result[device_id] = proto.health()
-        for name, sink in self._sinks.items():
-            if name in self._unhealthy_sinks:
-                result[name] = HealthStatus(healthy=False, message="open failed")
-            else:
-                result[name] = sink.health()
-        return result
+        return self._health.health()
 
     @property
     def running(self) -> bool:
@@ -421,13 +312,7 @@ class Runtime:
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
         """把路由结果按 sink 入队，应用背压策略（实现 ``SinkDispatchPort``）。"""
-        for sink_name, batch in routed.items():
-            if not batch:
-                continue
-            queue = self._queues.get(sink_name)
-            if queue is None:
-                continue
-            await self._handle_backpressure(queue, batch, sink_name)
+        await self._sink_dispatcher.dispatch(routed)
 
     # ------------------------------------------------------------------
     # 设备状态端口实现（AcquisitionEngine → Runtime 的采集前/后钩子）

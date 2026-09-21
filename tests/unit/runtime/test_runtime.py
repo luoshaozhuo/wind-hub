@@ -563,6 +563,32 @@ async def test_running_false_while_start_in_progress() -> None:
         await runtime.stop()
 
 
+async def test_stop_waits_for_start_to_finish() -> None:
+    """stop 必须等待 start 完成，不能在启动过程中覆写状态字段。"""
+    p1 = _make_mock_protocol()
+    connect_gate = asyncio.Event()
+
+    async def _gated_connect():
+        await connect_gate.wait()
+
+    p1.connect.side_effect = _gated_connect
+    runtime, _engine, _scheduler = _make_runtime(
+        devices={"d1": _make_device("d1")}, protocols={"d1": p1}
+    )
+    start_task = asyncio.create_task(runtime.start())
+    await asyncio.sleep(0)
+
+    stop_task = asyncio.create_task(runtime.stop())
+    await asyncio.sleep(0)
+    assert not stop_task.done(), "stop should wait until start finishes"
+
+    connect_gate.set()
+    await start_task
+    await stop_task
+    assert runtime.running is False
+    assert runtime._started is False
+
+
 # ---------------------------------------------------------------------------
 # 设备热管理
 # ---------------------------------------------------------------------------
