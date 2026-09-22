@@ -202,7 +202,7 @@ tests/issue_trace.md
 
 ## 9. 代码变更后的测试同步
 
-发生以下变化时，必须同步评估和更新测试、fixture、fake/mock/stub、测试索引及必要文档：
+发生以下变化时，必须同步评估和更新测试、fixture、fake/mock/stub 和测试索引：
 
 1. 行为变化；
 2. public interface、port、Protocol、ABC、API、CLI 变化；

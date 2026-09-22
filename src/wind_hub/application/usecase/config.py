@@ -145,12 +145,14 @@ class ConfigUseCase:
     变更不回滚，下一次 reload 以新快照为 diff 基准）。
     """
 
-    def __init__(self, config_dir: str | Path, runtime: Runtime) -> None:
+    def __init__(self, config_dir: str | Path, runtime: Runtime, current_config: Config) -> None:
         self._config_dir = Path(config_dir)
         self._runtime = runtime
 
-        # Load initial config
-        self._current = load_config(self._config_dir)
+        # 初始快照必须由组合根注入（assemble 启动阶段的唯一一次
+        # load_config 结果）——本类不自行加载，避免启动配置被重复加载、
+        # 以及两次加载之间文件变化导致 Runtime 实际配置与 diff 基线不一致。
+        self._current = current_config
 
     @property
     def current_config(self) -> Config:

@@ -84,17 +84,26 @@ class PollingAcquisitionHandle:
         self._acquire = acquire
         self._on_stats = on_stats
         self._task: asyncio.Task[None] | None = None
+        self._closed = False
 
     async def start(self) -> None:
         """启动轮询协程（幂等——重复调用不产生第二个协程）。"""
         if self._task is None:
+            self._closed = False
             self._task = asyncio.create_task(self._run())
 
     async def close(self) -> None:
-        """取消轮询协程并等待其退出（幂等）。"""
+        """取消轮询协程并等待其退出（幂等）。
+
+        先置 ``_closed`` 再 cancel：acquire 在途时协议库可能把取消
+        转换成自家异常吞掉（pymodbus 的 “Request cancelled outside
+        library”），task.cancel() 单独无法终止协程——``_closed``
+        标志保证本轮 acquire 结束后循环退出，close 不会无限等待。
+        """
         task, self._task = self._task, None
         if task is None:
             return
+        self._closed = True
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -102,7 +111,7 @@ class PollingAcquisitionHandle:
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
         next_deadline = loop.time()
-        while True:
+        while not self._closed:
             now = loop.time()
             if now < next_deadline:
                 # 只在 event loop 上提前唤醒等待；真正的 acquire 不在
@@ -330,8 +339,11 @@ class Device:
             )
 
         async def _forward(value: PointValue) -> None:
-            # 订阅与轮询同语义：协议原生值经 Device 统一换算为工程值。
-            await on_data(self._normalize_values([value]))
+            # 订阅上送没有 PointRef 上下文，协议驱动无法保证盖上设备身份
+            # （IEC104 上送 device_id 为空）——采集句柄本就属于本设备，
+            # 由 Device 聚合统一补盖；协议原生值换算为工程值（与轮询同语义）。
+            stamped = value.model_copy(update={"device_id": self.device_id})
+            await on_data(self._normalize_values([stamped]))
 
         subscription = await self._protocol.subscribe(
             self.point_refs(point_group), _forward, interval=interval

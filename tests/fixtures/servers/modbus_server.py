@@ -83,3 +83,22 @@ class ModbusMockServer:
         if self._server is not None:
             await self._server.shutdown()
             self._server = None
+
+    async def read_holding(self, unit_id: int, address: int, count: int = 1) -> list[int]:
+        """用一条独立客户端连接回读从站保持寄存器。
+
+        用于在 **Server 侧** 确认写入确实到达从站（与被测驱动不共享
+        任何连接/缓存；pymodbus 3.15 起旧式 context 的内部存储与写入
+        路径解耦，直读数据块拿不到写入结果）。
+        """
+        from pymodbus.client import AsyncModbusTcpClient
+
+        client = AsyncModbusTcpClient("127.0.0.1", port=self._port)
+        await client.connect()
+        try:
+            rr = await client.read_holding_registers(address, count=count, device_id=unit_id)
+            if rr.isError():
+                raise RuntimeError(f"read_holding 回读失败: {rr}")
+            return list(rr.registers)
+        finally:
+            client.close()

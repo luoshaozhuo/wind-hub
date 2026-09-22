@@ -97,10 +97,13 @@ class TestAdsNotificationIntegration:
 
         try:
             await driver.subscribe(
-                [PointRef(device_id="test-plc", point_id="rotor.speed")], on_data
+                [PointRef(device_id="test-plc", point_id="rotor.speed")],
+                on_data,
+                interval=0.1,  # notification cycle_time（秒），驱动要求 > 0
             )
             # Simulate pyads' worker thread firing the callback.
-            conn = driver._subscription._connections[0]  # noqa: SLF001
+            sub = next(iter(driver._subscriptions))  # noqa: SLF001
+            conn = sub._connections[0]  # noqa: SLF001
             conn.callbacks["MAIN.rotorSpeed"](None, "MAIN.rotorSpeed", None, 1500.5)
             await asyncio.sleep(0.05)  # let the loop deliver through on_data
         finally:

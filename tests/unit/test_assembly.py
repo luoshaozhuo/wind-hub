@@ -183,6 +183,30 @@ def test_assemble_builds_runtime_object_graph() -> None:
         assert set(rt.runtime.task_definitions()) == {"fast"}
 
 
+def test_assemble_loads_config_exactly_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """启动阶段 load_config 只调用一次——ConfigUseCase 复用同一快照。"""
+    import wind_hub.assembly as assembly_mod
+
+    real_load = assembly_mod.load_config
+    calls = 0
+
+    def _counting_load(config_dir):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_load(config_dir)
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        _write_minimal_config(base)
+        monkeypatch.setattr(assembly_mod, "load_config", _counting_load)
+
+        rt = assemble(base)
+
+        assert calls == 1
+        # ConfigUseCase.current_config 与装配使用同一启动快照
+        assert rt.config.current_config is rt.boot_config
+
+
 def test_assemble_accepts_string_config_dir() -> None:
     with tempfile.TemporaryDirectory() as td:
         _write_minimal_config(Path(td))

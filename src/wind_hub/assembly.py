@@ -177,9 +177,14 @@ def assemble(
         metrics_hook=metrics.PrometheusRuntimeMetrics(),
     )
 
-    # ConfigUseCase 在构造时二次加载配置作为初始快照，用于后续热重载 diff；
-    # 具体重构委托给 Runtime.reconfigure。
-    config = ConfigUseCase(config_dir, runtime)
+    # 初始快照直接复用启动时唯一一次 load_config 的结果（单一快照：
+    # Runtime 实际配置与热重载 diff 基线同源）；具体重构委托给
+    # Runtime.reconfigure。
+    config = ConfigUseCase(
+        config_dir=config_dir,
+        runtime=runtime,
+        current_config=cfg,
+    )
     # Task 管理经 Runtime；命令/查询用例委托 CommandDispatcher / Runtime。
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)

@@ -46,4 +46,4 @@ mixed 文件必须标记 `MIXED_INDEX_FILE`。检查命令仍运行在当前完�
 6. 普通编码反馈不输出检查状态或例行检查命令。
 7. 不把工具或实验模块引入生产路径。
 8. 不自动执行 commit、push、reset、clean 或其他 Git/GitHub 写操作。
-9. 规则、需求、报告、project_tree 和 heavy regression 只在用户明确要求时更新或执行。
+9. 规则、需求、报告、独立文档（docs/、README 等）、project_tree 和 heavy regression 只在用户明确要求时更新或执行；不主动维护或编写文档。
