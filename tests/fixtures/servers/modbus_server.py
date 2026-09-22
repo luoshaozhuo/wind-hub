@@ -55,10 +55,22 @@ class ModbusMockServer:
 
     同一实例可 ``start()`` → ``stop()`` → ``start()`` 反复起停（供故障恢复
     测试），每次 ``start()`` 都会重建 server 并绑定同一端口。
+
+    默认寄存器布局见模块 docstring；``holding`` / ``inputs`` 可整体替换
+    unit 1 的保持/输入寄存器块（按 wire address 索引的完整寄存器列表），
+    供需要自定义点表布局的测试使用（如 site_wtg_modbus 现场配置联调）。
     """
 
-    def __init__(self, port: int = MODBUS_PORT) -> None:
+    def __init__(
+        self,
+        port: int = MODBUS_PORT,
+        *,
+        holding: list[int] | None = None,
+        inputs: list[int] | None = None,
+    ) -> None:
         self._port = port
+        self._holding = holding
+        self._inputs = inputs
         self._server: ModbusTcpServer | None = None
 
     @property
@@ -67,8 +79,10 @@ class ModbusMockServer:
 
     async def start(self) -> None:
         """启动从站（后台 serve，非阻塞）。"""
+        unit1_hr = self._holding if self._holding is not None else _holding_registers(1200.5, 800.0)
         unit1 = ModbusDeviceContext(
-            hr=ModbusSequentialDataBlock(1, _holding_registers(1200.5, 800.0)),
+            hr=ModbusSequentialDataBlock(1, unit1_hr),
+            ir=ModbusSequentialDataBlock(1, self._inputs) if self._inputs is not None else None,
         )
         unit2 = ModbusDeviceContext(
             hr=ModbusSequentialDataBlock(1, _holding_registers(900.5, 700.0)),
