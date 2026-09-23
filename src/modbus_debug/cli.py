@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -255,43 +256,74 @@ async def read_all_devices(
 # ---------------------------------------------------------------------------
 
 
-def format_watch(device: DeviceConfig, results: list[tuple[PointConfig, Any]]) -> str:
-    """watch 一帧的文本输出。"""
-    host, port, _, _ = device_conn_params(device)
+def format_watch(
+    device: DeviceConfig,
+    results: list[tuple[PointConfig, Any]] | None = None,
+    error: Exception | None = None,
+) -> str:
+    """watch 一帧的纯文本（不含 ANSI 控制码）。
+
+    ``error`` 非空时生成错误帧（读取失败但继续重试）。
+    """
+    host, _, _, _ = device_conn_params(device)
     lines = [f"device: {device.device_id}", f"host:   {host}", ""]
-    lines.append(f"{'point':<22} {'value':>12}")
-    lines.append("-" * 36)
-    for p, v in results:
-        lines.append(f"{p.point_id:<22} {v!s:>12}")
+    if error is not None:
+        lines.append(f"读取失败：{error}")
+        lines.append("正在继续重试...")
+    else:
+        lines.append(f"{'point':<22} {'value':>12}")
+        lines.append("-" * 36)
+        for p, v in results or []:
+            lines.append(f"{p.point_id:<22} {v!s:>12}")
     lines.append("")
     lines.append("Ctrl+C 退出")
     return "\n".join(lines)
+
+
+def render_watch(text: str) -> None:
+    """终端原地刷新：首次清屏，之后每帧光标回首页并清除残留。
+
+    首次清屏状态记录在函数属性上（单进程内只有一个 watch 实例）。
+    """
+    if not getattr(render_watch, "_cleared", False):
+        sys.stdout.write("\033[2J")  # 首次：清屏
+        render_watch._cleared = True  # type: ignore[attr-defined]
+    sys.stdout.write("\033[H")  # 光标回左上角（不整屏清，避免闪烁）
+    sys.stdout.write(text)
+    sys.stdout.write("\033[J")  # 清除 frame 之后残留的旧内容
+    sys.stdout.flush()
 
 
 async def watch_loop(
     device: DeviceConfig,
     points: list[PointConfig],
     interval: float = 1.0,
-    render: Callable[[str], None] = print,
+    render: Callable[[str], None] | None = None,
 ) -> None:
     """持续读取并刷新输出，直到被取消（Ctrl+C）；退出前关闭连接。
 
-    单次读取失败只输出错误并继续；连接在循环内复用，不每次重建。
+    单次读取失败渲染完整错误帧并继续；连接在循环内复用，不每次重建。
+    ``render`` 为 None 时使用终端原地刷新 :func:`render_watch`。
     """
+    if render is None:
+        render = render_watch
     client = await connect_device(device)
     try:
         while True:
             try:
                 results = [(p, await read_point(client, device, p)) for p in points]
-                # 原地刷新：清屏后重绘
-                render("\033[2J\033[H" + format_watch(device, results))
+                render(format_watch(device, results))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                render(f"读取失败：{exc}（继续重试）")
+                render(format_watch(device, error=exc))
             await asyncio.sleep(interval)
     finally:
         client.close()
+        if render is render_watch:
+            # 补一个换行，避免 shell 提示符紧贴最后一帧
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
 
 # ---------------------------------------------------------------------------

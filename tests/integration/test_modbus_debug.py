@@ -192,13 +192,69 @@ class TestWatch:
         finally:
             await server.stop()
 
-        # 连续读取多帧，内容含设备信息与原始值
+        # 连续读取多帧，内容含设备信息与原始值；每帧都是完整 frame
         assert len(frames) >= 2
-        assert "device: wtg-002" in frames[-1]
+        for frame in frames:
+            assert frame.startswith("device: wtg-002")
+            assert frame.endswith("Ctrl+C 退出")
         assert "123456" in frames[-1]
         # 只建连一次（连接复用），取消后连接已关闭
         assert len(clients) == 1
         assert clients[0].connected is False  # type: ignore[attr-defined]
+
+    def test_format_watch_is_plain_text(self, site_config: Config) -> None:
+        """format_watch 只生成纯文本，不含 ANSI 转义字符。"""
+        from modbus_debug.cli import format_watch
+
+        device = _local_device(site_config, "wtg-002", PORT_A)
+        points = site_config.points_for_device("wtg-002")
+        frame = format_watch(device, [(p, 123) for p in points])
+        assert "\033[" not in frame
+        err_frame = format_watch(device, error=TimeoutError("timeout"))
+        assert "\033[" not in err_frame
+
+    async def test_watch_error_renders_complete_error_frame(
+        self, site_config: Config, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """单次读取异常时渲染完整错误帧（含 device 头部），而不是追加错误行。"""
+        import modbus_debug.cli as cli_module
+
+        device = _local_device(site_config, "wtg-002", PORT_A)
+        points = [p for p in site_config.points_for_device("wtg-002") if "all" in p.point_groups]
+
+        server = ModbusMockServer(port=PORT_A, inputs=_site_input_registers())
+        await server.start()
+
+        real_read_point = cli_module.read_point
+        state = {"fail": False}
+
+        async def _maybe_fail(client: object, dev: DeviceConfig, point: object) -> object:
+            if state["fail"]:
+                raise TimeoutError("modbus timeout")
+            return await real_read_point(client, dev, point)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(cli_module, "read_point", _maybe_fail)
+
+        frames: list[str] = []
+        try:
+            task = asyncio.create_task(watch_loop(device, points, interval=0.05, render=frames.append))
+            await asyncio.sleep(0.15)
+            state["fail"] = True  # 后续每轮读取失败
+            await asyncio.sleep(0.15)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            await server.stop()
+
+        # 前段为正常帧，后段为完整错误帧；错误帧同样是整帧（以 device 头开头）
+        assert any("123456" in f for f in frames)
+        error_frames = [f for f in frames if "读取失败" in f]
+        assert len(error_frames) >= 2
+        for f in error_frames:
+            assert f.startswith("device: wtg-002")
+            assert "正在继续重试" in f
+            assert "modbus timeout" in f
 
 
 class TestRaw:
