@@ -4,7 +4,7 @@ import struct
 from pymodbus.client import AsyncModbusTcpClient
 
 
-HOST = "192.168.100.102"
+HOST = "192.168.100.103"
 PORT = 502
 UNIT_ID = 1
 
@@ -48,7 +48,7 @@ async def main() -> None:
             wind_speed *= 0.01
             print(f"风速: {wind_speed:.2f} m/s")
 
-        # 2. 有功功率
+        # # 2. 有功功率
         response = await client.read_input_registers(
             178,
             count=2,
@@ -63,31 +63,6 @@ async def main() -> None:
 
             print("功率原始寄存器:", response.registers)
             print(f"有功功率: {active_power:.2f} kW")
-
-        # 3. 写有功指令
-        # 注意：这里示例写 1000。
-        # 是否允许写、地址是否正确、是否有倍率，必须现场确认后再执行。
-        value = 1000
-        registers = encode_int32(value)
-
-        print(f"准备写有功指令: {value}")
-        print("写入寄存器:", registers)
-
-        confirm = input("确认写入？输入 yes: ")
-
-        if confirm == "yes":
-            response = await client.write_registers(
-                2001,
-                registers,
-                device_id=UNIT_ID,
-            )
-
-            if response.isError():
-                print("写入失败:", response)
-            else:
-                print("写入成功")
-        else:
-            print("取消写入")
 
     finally:
         client.close()

@@ -1,5 +1,6 @@
-"""modbus_debug — 现场 Modbus 单机调试工具（最简版）。
+"""modbus_debug — 现场 Modbus 单机调试工具。
 
-机组与点表以字面量维护在 cli.py 文件头（DEVICES / POINTS），不依赖
-wind-hub 配置与生产代码；每次命令只连接一台设备，读完即断开。
+固定读取 ``configs/site_wtg_modbus`` 正式配置，但通信直接使用 pymodbus
+``AsyncModbusTcpClient``，不经 wind-hub Runtime / ModbusDriver，用于独立
+验证现场 PLC 与 site_wtg_modbus 配置。
 """

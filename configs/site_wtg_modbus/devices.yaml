@@ -19,7 +19,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-003
     protocol: modbus
@@ -32,7 +32,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-004
     protocol: modbus
@@ -45,7 +45,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-011
     protocol: modbus
@@ -58,7 +58,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-042
     protocol: modbus
@@ -71,7 +71,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-043
     protocol: modbus
@@ -84,7 +84,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-044
     protocol: modbus
@@ -97,7 +97,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-045
     protocol: modbus
@@ -110,7 +110,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-046
     protocol: modbus
@@ -123,7 +123,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-047
     protocol: modbus
@@ -136,7 +136,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-049
     protocol: modbus
@@ -149,7 +149,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-050
     protocol: modbus
@@ -162,7 +162,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-051
     protocol: modbus
@@ -175,7 +175,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-052
     protocol: modbus
@@ -188,7 +188,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-054
     protocol: modbus
@@ -201,7 +201,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-055
     protocol: modbus
@@ -214,7 +214,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-056
     protocol: modbus
@@ -227,7 +227,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-057
     protocol: modbus
@@ -240,7 +240,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-058
     protocol: modbus
@@ -253,7 +253,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-059
     protocol: modbus
@@ -266,7 +266,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-060
     protocol: modbus
@@ -279,7 +279,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-061
     protocol: modbus
@@ -292,7 +292,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-069
     protocol: modbus
@@ -305,7 +305,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-070
     protocol: modbus
@@ -318,7 +318,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-071
     protocol: modbus
@@ -331,7 +331,7 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian
 
   - device_id: wtg-072
     protocol: modbus
@@ -344,4 +344,4 @@ devices:
       extensions:
         unit_id: 1
         timeout: 3.0
-        byte_order: big_endian
+        word_order: little_endian

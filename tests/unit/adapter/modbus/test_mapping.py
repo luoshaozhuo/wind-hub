@@ -42,7 +42,7 @@ class TestParsePoint:
             address=5,
             count=1,
             data_type="bool",
-            byte_order="big_endian",
+            word_order="little_endian",
         )
 
     def test_holding_float32_two_registers(self) -> None:
@@ -67,16 +67,20 @@ class TestParsePoint:
         mp = parse_point(_point("v", "float32", "holding", 100, count=4))
         assert mp.count == 4
 
-    def test_little_endian(self) -> None:
-        mp = parse_point(_point("v", "float32", "holding", 100, byte_order="little_endian"))
-        assert mp.byte_order == "little_endian"
+    def test_default_word_order_is_little_endian(self) -> None:
+        mp = parse_point(_point("v", "float32", "holding", 100))
+        assert mp.word_order == "little_endian"
 
-    def test_default_byte_order_parameter(self) -> None:
+    def test_point_word_order_overrides_default(self) -> None:
+        mp = parse_point(_point("v", "float32", "holding", 100, word_order="big_endian"))
+        assert mp.word_order == "big_endian"
+
+    def test_default_word_order_parameter(self) -> None:
         mp = parse_point(
             _point("v", "float32", "holding", 100),
-            default_byte_order="little_endian",
+            default_word_order="big_endian",
         )
-        assert mp.byte_order == "little_endian"
+        assert mp.word_order == "big_endian"
 
     def test_holding_register_alias(self) -> None:
         mp = parse_point(_point("v", "float32", "holding_register", 100))
@@ -114,9 +118,9 @@ class TestParsePoint:
         with pytest.raises(ConfigError, match="data_type"):
             parse_point(_point("p", "str", "holding", 100))
 
-    def test_invalid_byte_order_raises(self) -> None:
-        with pytest.raises(ConfigError, match="byte_order"):
-            parse_point(_point("p", "float32", "holding", 100, byte_order="middle"))
+    def test_invalid_word_order_raises(self) -> None:
+        with pytest.raises(ConfigError, match="word_order"):
+            parse_point(_point("p", "float32", "holding", 100, word_order="middle"))
 
 
 # ---------------------------------------------------------------------------

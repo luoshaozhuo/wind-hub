@@ -94,6 +94,8 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
                             "timeout": 2.0,
                             "reconnect_max_retries": 20,
                             "reconnect_backoff_max": 1.0,
+                            # mock server 寄存器布局为 big-endian float32
+                            "word_order": "big_endian",
                         },
                     },
                 }

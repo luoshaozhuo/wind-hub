@@ -74,7 +74,7 @@ def _make_device_config(port: int) -> DeviceConfig:
         endpoint=Endpoint(
             host="127.0.0.1",
             port=port,
-            extensions={"unit_id": 1, "timeout": 3.0},
+            extensions={"unit_id": 1, "timeout": 3.0, "word_order": "big_endian"},
         ),
     )
 

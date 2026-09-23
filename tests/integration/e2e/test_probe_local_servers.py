@@ -49,7 +49,7 @@ def _modbus_device_config(port: int, device_id: str = "probe-modbus") -> DeviceC
         endpoint=Endpoint(
             host="127.0.0.1",
             port=port,
-            extensions={"unit_id": 1, "timeout": 2.0},
+            extensions={"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
         ),
     )
 
@@ -255,7 +255,7 @@ def _write_cli_config(base: Path, port: int) -> None:
                         "endpoint": {
                             "host": "127.0.0.1",
                             "port": port,
-                            "extensions": {"unit_id": 1, "timeout": 2.0},
+                            "extensions": {"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
                         },
                     }
                 ]

@@ -43,12 +43,15 @@ class ModbusConfig:
     reconnect_backoff_max: float = 30.0
     """Upper bound (seconds) for exponential reconnect backoff."""
 
-    byte_order: str = "big_endian"
-    """Default multi-register byte order: ``"big_endian"`` or ``"little_endian"``."""
+    word_order: str = "little_endian"
+    """Default multi-register word order: ``"big_endian"`` or ``"little_endian"``.
+
+    ``big_endian``: 低地址寄存器 = 高 16 位；
+    ``little_endian``: 低地址寄存器 = 低 16 位。"""
 
 
 _VALID_MODES = frozenset({"tcp", "rtu"})
-_VALID_BYTE_ORDERS = frozenset({"big_endian", "little_endian"})
+_VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 
 
 def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
@@ -56,7 +59,7 @@ def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
 
     Raises:
         ConfigError: On an invalid ``mode``, out-of-range ``unit_id``,
-            non-positive ``timeout``, or invalid ``byte_order``.
+            non-positive ``timeout``, or invalid ``word_order``.
     """
     ext = cfg.endpoint.extensions
 
@@ -75,11 +78,11 @@ def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
     if timeout <= 0:
         raise ConfigError(f"Modbus device '{cfg.device_id}': timeout must be > 0, got {timeout}")
 
-    byte_order = str(ext.get("byte_order", "big_endian"))
-    if byte_order not in _VALID_BYTE_ORDERS:
+    word_order = str(ext.get("word_order", "little_endian"))
+    if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(
-            f"Modbus device '{cfg.device_id}': invalid byte_order '{byte_order}'; "
-            f"must be one of {sorted(_VALID_BYTE_ORDERS)}"
+            f"Modbus device '{cfg.device_id}': invalid word_order '{word_order}'; "
+            f"must be one of {sorted(_VALID_WORD_ORDERS)}"
         )
 
     return ModbusConfig(
@@ -90,5 +93,5 @@ def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
         timeout=timeout,
         reconnect_max_retries=int(ext.get("reconnect_max_retries", 5)),
         reconnect_backoff_max=float(ext.get("reconnect_backoff_max", 30.0)),
-        byte_order=byte_order,
+        word_order=word_order,
     )

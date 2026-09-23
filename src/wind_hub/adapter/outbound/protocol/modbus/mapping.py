@@ -7,7 +7,7 @@ whose ``extra`` fields carry::
     address:      0-based register/coil offset
     count:        (optional) number of coils/registers — derived from
                   ``data_type`` when omitted
-    byte_order:   (optional) "big_endian" (default) | "little_endian"
+    word_order:   (optional) "big_endian" | "little_endian" (default)
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ _REGISTER_TYPE_ALIASES: dict[str, str] = {
     "holding_register": "holding",
 }
 
-_VALID_BYTE_ORDERS = frozenset({"big_endian", "little_endian"})
+_VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 
 # Number of 16-bit registers occupied by each data type (for holding/input).
 _REGISTER_COUNTS: dict[str, int] = {
@@ -63,8 +63,11 @@ class ModbusPoint:
     data_type: str
     """Declared point data type (e.g. ``"float32"``)."""
 
-    byte_order: str = "big_endian"
-    """Multi-register byte order: ``"big_endian"`` or ``"little_endian"``."""
+    word_order: str = "little_endian"
+    """Multi-register word order: ``"big_endian"`` or ``"little_endian"``.
+
+    ``big_endian``: 低地址寄存器 = 高 16 位；
+    ``little_endian``: 低地址寄存器 = 低 16 位。"""
 
 
 def _extra(address: PointAddress, key: str) -> object:
@@ -112,7 +115,7 @@ def _count_for_data_type(register_type: str, data_type: str) -> int:
     return count
 
 
-def parse_point(point: PointConfig, default_byte_order: str = "big_endian") -> ModbusPoint:
+def parse_point(point: PointConfig, default_word_order: str = "little_endian") -> ModbusPoint:
     """Resolve a :class:`~wind_hub.config.schema.PointConfig` to a :class:`ModbusPoint`.
 
     The ``register_type`` may be given in the ``address`` extra field, or via
@@ -121,7 +124,7 @@ def parse_point(point: PointConfig, default_byte_order: str = "big_endian") -> M
 
     Raises:
         ConfigError: On a missing/invalid ``register_type``, missing/negative
-            ``address``, non-positive ``count``, or an invalid ``byte_order``.
+            ``address``, non-positive ``count``, or an invalid ``word_order``.
     """
     address = point.address
     register_type = _normalize_register_type(
@@ -145,11 +148,11 @@ def parse_point(point: PointConfig, default_byte_order: str = "big_endian") -> M
     else:
         count = _count_for_data_type(register_type, point.data_type)
 
-    byte_order = str(_extra(address, "byte_order") or default_byte_order)
-    if byte_order not in _VALID_BYTE_ORDERS:
+    word_order = str(_extra(address, "word_order") or default_word_order)
+    if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(
-            f"Modbus point '{point.point_id}': invalid byte_order '{byte_order}'; "
-            f"must be one of {sorted(_VALID_BYTE_ORDERS)}"
+            f"Modbus point '{point.point_id}': invalid word_order '{word_order}'; "
+            f"must be one of {sorted(_VALID_WORD_ORDERS)}"
         )
 
     return ModbusPoint(
@@ -158,7 +161,7 @@ def parse_point(point: PointConfig, default_byte_order: str = "big_endian") -> M
         address=addr,
         count=count,
         data_type=point.data_type,
-        byte_order=byte_order,
+        word_order=word_order,
     )
 
 

@@ -151,7 +151,7 @@ class TestRead:
         )
         _patch_client(monkeypatch, client)
 
-        driver = ModbusDriver(_make_device_config())
+        driver = ModbusDriver(_make_device_config(word_order="big_endian"))
         driver.set_points_mapping([_make_point_config("gen.power", "holding", 100)])
 
         await driver.connect()
@@ -204,7 +204,7 @@ class TestRead:
         )
         _patch_client(monkeypatch, client)
 
-        driver = ModbusDriver(_make_device_config())
+        driver = ModbusDriver(_make_device_config(word_order="big_endian"))
         driver.set_points_mapping(
             [
                 _make_point_config("a", "holding", 100),
@@ -238,7 +238,7 @@ class TestRead:
         )
         _patch_client(monkeypatch, client)
 
-        driver = ModbusDriver(_make_device_config())
+        driver = ModbusDriver(_make_device_config(word_order="big_endian"))
         driver.set_points_mapping(
             [
                 _make_point_config("a", "holding", 100),
@@ -273,7 +273,7 @@ class TestWrite:
         client.write_registers.return_value = _FakeResponse()
         _patch_client(monkeypatch, client)
 
-        driver = ModbusDriver(_make_device_config())
+        driver = ModbusDriver(_make_device_config(word_order="big_endian"))
         driver.set_points_mapping([_make_point_config("setpoint", "holding", 300)])
 
         await driver.connect()
@@ -410,3 +410,107 @@ class TestReconnectLogging:
         assert isinstance(last_exc, OSError)
         assert any("failed" in r.message for r in caplog.records)
         assert not any("timed out" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# word_order
+# ---------------------------------------------------------------------------
+
+
+def _int32_registers_le(value: int) -> list[int]:
+    """int32 → 两个寄存器，little_endian：低地址寄存器 = 低 16 位。"""
+    return [value & 0xFFFF, (value >> 16) & 0xFFFF]
+
+
+class TestWordOrder:
+    async def test_device_default_little_endian_int32_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """设备默认 word_order=little_endian：低地址寄存器为低 16 位。"""
+        client = _FakeClient()
+        client.read_input_registers.return_value = _FakeResponse(
+            registers=_int32_registers_le(123456)
+        )
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())  # 默认 little_endian
+        driver.set_points_mapping([_make_point_config("p", "input", 178, data_type="int32")])
+
+        await driver.connect()
+        values = await driver.read([PointRef(device_id="test-dev", point_id="p")])
+        await driver.close()
+
+        assert values[0].value == 123456
+        assert values[0].quality == Quality.GOOD
+
+    async def test_point_word_order_overrides_device_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """点级 word_order=big_endian 覆盖设备默认 little_endian。"""
+        client = _FakeClient()
+        client.read_input_registers.return_value = _FakeResponse(
+            registers=list(reversed(_int32_registers_le(123456)))  # 高字在前
+        )
+        _patch_client(monkeypatch, client)
+
+        point = _make_point_config("p", "input", 178, data_type="int32").model_copy(
+            update={
+                "address": PointAddress(register_type="input", address=178, word_order="big_endian")
+            }
+        )
+        driver = ModbusDriver(_make_device_config())  # 设备默认 little_endian
+        driver.set_points_mapping([point])
+
+        await driver.connect()
+        values = await driver.read([PointRef(device_id="test-dev", point_id="p")])
+        await driver.close()
+
+        assert values[0].value == 123456
+
+    async def test_write_encode_matches_read_decode_little_endian(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """little_endian 下写入 encode 与读取 decode 语义一致（回环）。"""
+        client = _FakeClient()
+        client.write_registers.return_value = _FakeResponse()
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())  # 默认 little_endian
+        driver.set_points_mapping([_make_point_config("sp", "holding", 300, data_type="int32")])
+
+        await driver.connect()
+        results = await driver.write(
+            [Command(command_id="c1", device_id="test-dev", point_id="sp", value=123456)]
+        )
+        assert results[0].success is True
+        written = client.write_registers.await_args.args[1]
+        assert written == _int32_registers_le(123456)
+
+        # 同一组寄存器读回应解出同一值
+        client.read_holding_registers.return_value = _FakeResponse(registers=written)
+        values = await driver.read([PointRef(device_id="test-dev", point_id="sp")])
+        await driver.close()
+        assert values[0].value == 123456
+
+    async def test_write_encode_matches_read_decode_big_endian(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """big_endian 设备：写入/读取回环一致，低地址寄存器 = 高 16 位。"""
+        client = _FakeClient()
+        client.write_registers.return_value = _FakeResponse()
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config(word_order="big_endian"))
+        driver.set_points_mapping([_make_point_config("sp", "holding", 300, data_type="int32")])
+
+        await driver.connect()
+        await driver.write(
+            [Command(command_id="c1", device_id="test-dev", point_id="sp", value=123456)]
+        )
+        written = client.write_registers.await_args.args[1]
+        assert written == list(reversed(_int32_registers_le(123456)))  # 高字在前
+
+        client.read_holding_registers.return_value = _FakeResponse(registers=written)
+        values = await driver.read([PointRef(device_id="test-dev", point_id="sp")])
+        await driver.close()
+        assert values[0].value == 123456

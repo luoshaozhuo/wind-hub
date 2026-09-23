@@ -31,7 +31,7 @@ def test_defaults() -> None:
     assert c.timeout == 5.0
     assert c.reconnect_max_retries == 5
     assert c.reconnect_backoff_max == 30.0
-    assert c.byte_order == "big_endian"
+    assert c.word_order == "little_endian"
 
 
 def test_custom_values() -> None:
@@ -40,7 +40,7 @@ def test_custom_values() -> None:
             mode="rtu",
             unit_id=7,
             timeout=2.5,
-            byte_order="little_endian",
+            word_order="big_endian",
             reconnect_max_retries=3,
             reconnect_backoff_max=10.0,
         )
@@ -48,7 +48,7 @@ def test_custom_values() -> None:
     assert c.mode == "rtu"
     assert c.unit_id == 7
     assert c.timeout == 2.5
-    assert c.byte_order == "little_endian"
+    assert c.word_order == "big_endian"
     assert c.reconnect_max_retries == 3
     assert c.reconnect_backoff_max == 10.0
 
@@ -81,6 +81,12 @@ def test_non_positive_timeout_raises(timeout: float) -> None:
         from_device_config(_cfg(timeout=timeout))
 
 
-def test_invalid_byte_order_raises() -> None:
-    with pytest.raises(ConfigError, match="byte_order"):
-        from_device_config(_cfg(byte_order="middle_endian"))
+def test_invalid_word_order_raises() -> None:
+    with pytest.raises(ConfigError, match="word_order"):
+        from_device_config(_cfg(word_order="middle_endian"))
+
+
+def test_byte_order_is_not_accepted() -> None:
+    """旧字段 byte_order 已删除——配置中出现时不生效（落回默认 little_endian）。"""
+    c = from_device_config(_cfg(byte_order="big_endian"))
+    assert c.word_order == "little_endian"

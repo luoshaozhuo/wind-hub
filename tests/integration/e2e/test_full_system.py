@@ -104,6 +104,8 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
                             "timeout": 2.0,
                             "reconnect_max_retries": 20,
                             "reconnect_backoff_max": 0.5,
+                            # mock server 寄存器布局为 big-endian float32
+                            "word_order": "big_endian",
                         },
                     },
                     "device_group": "wtg",

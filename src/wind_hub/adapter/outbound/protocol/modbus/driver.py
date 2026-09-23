@@ -62,7 +62,7 @@ _MULTI_REGISTER_FMT: dict[str, str] = {
 }
 
 
-def _decode_registers(registers: list[int], data_type: str, byte_order: str) -> Any:
+def _decode_registers(registers: list[int], data_type: str, word_order: str) -> Any:
     """Decode contiguous 16-bit register words into a Python value."""
     if data_type == "bool":
         return bool(registers[0] & 0x01)
@@ -77,7 +77,7 @@ def _decode_registers(registers: list[int], data_type: str, byte_order: str) -> 
 
     fmt = _MULTI_REGISTER_FMT[data_type]
     words = list(registers)
-    if byte_order == "little_endian":
+    if word_order == "little_endian":
         # Lowest-address register holds the least-significant word.
         words = list(reversed(words))
     raw = b"".join(struct.pack(">H", w) for w in words)
@@ -89,7 +89,7 @@ def _decode_registers(registers: list[int], data_type: str, byte_order: str) -> 
 _DECODE_FAILED: Any = object()
 
 
-def _encode_registers(value: Any, data_type: str, byte_order: str) -> list[int]:
+def _encode_registers(value: Any, data_type: str, word_order: str) -> list[int]:
     """Encode a Python value into 16-bit register words."""
     if data_type == "bool":
         return [1 if value else 0]
@@ -105,7 +105,7 @@ def _encode_registers(value: Any, data_type: str, byte_order: str) -> list[int]:
     fmt = _MULTI_REGISTER_FMT[data_type]
     raw = struct.pack(fmt, value)
     words = list(struct.unpack(">" + "H" * (len(raw) // 2), raw))
-    if byte_order == "little_endian":
+    if word_order == "little_endian":
         words = list(reversed(words))
     return words
 
@@ -148,7 +148,7 @@ class ModbusDriver:
         """
         mapping: dict[str, ModbusPoint] = {}
         for point in points:
-            mp = parse_point(point, default_byte_order=self._config.byte_order)
+            mp = parse_point(point, default_word_order=self._config.word_order)
             mapping[point.point_id] = mp
         self._points = mapping
 
@@ -366,7 +366,7 @@ class ModbusDriver:
                         bool(segment[0]) if p.data_type == "bool" else int(segment[0])
                     )
                 else:
-                    values[p.point_id] = _decode_registers(segment, p.data_type, p.byte_order)
+                    values[p.point_id] = _decode_registers(segment, p.data_type, p.word_order)
             except Exception:
                 # 单点 decode 失败（寄存器数不足/类型不符，多为点表配置问题）
                 # 只影响该点——标记 BAD，不让整组失败（部分失败语义）。
@@ -425,7 +425,7 @@ class ModbusDriver:
         if mp.register_type == "coil":
             response = await client.write_coil(mp.address, bool(cmd.value), device_id=device_id)
         else:  # holding
-            words = _encode_registers(cmd.value, mp.data_type, mp.byte_order)
+            words = _encode_registers(cmd.value, mp.data_type, mp.word_order)
             if len(words) == 1:
                 response = await client.write_register(mp.address, words[0], device_id=device_id)
             else:
