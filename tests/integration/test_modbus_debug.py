@@ -7,7 +7,7 @@ input 点禁止写 / 无 --confirm 禁止写 / raw-read / address-check。
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from modbus_debug.cli import (
     app,
+    check_address_candidates,
     raw_read_registers,
     read_device,
     write_device,
@@ -56,6 +57,72 @@ def _site_input_registers() -> list[int]:
     values[357] = _RAW_WIND_SPEED
     put_i32(859, _RAW_PITCH_ANGLE)
     return values
+
+
+@pytest.fixture
+def site_server_thread() -> Iterator[None]:
+    """在后台线程的独立事件循环上运行 site 布局 mock server。
+
+    CLI 级测试是同步函数（CliRunner 内部 ``asyncio.run`` 不能嵌套在
+    运行中的事件循环里），无法用 pytest-asyncio 的 async fixture——
+    server 必须在另一个线程的事件循环上 serve。
+    """
+    import asyncio
+    import threading
+
+    loop = asyncio.new_event_loop()
+    server = ModbusMockServer(
+        port=SERVER_PORT,
+        holding=[0] * 2048,
+        inputs=_site_input_registers(),
+    )
+    ready = threading.Event()
+
+    async def _serve() -> None:
+        await server.start()
+        ready.set()
+        await asyncio.Event().wait()  # serve 直到线程结束
+
+    def _run() -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_serve())
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=10), "site mock server 启动超时"
+    try:
+        yield
+    finally:
+        # 在线程自己的 loop 上优雅 shutdown 后停 loop。
+        stop_done = threading.Event()
+
+        async def _stop() -> None:
+            await server.stop()
+            stop_done.set()
+
+        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_stop()))
+        assert stop_done.wait(timeout=10), "site mock server 停止超时"
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=10)
+        loop.close()
+
+
+def _local_config_copy(tmp_path: Path) -> Path:
+    """把 site 配置拷到临时目录，并将 wtg-002 endpoint 指向 localhost mock server。
+
+    供 CLI 级测试使用——CLI 只接受 --config 目录，不能注入 DeviceConfig。
+    """
+    import shutil
+
+    dst = tmp_path / "site_local"
+    shutil.copytree(SITE_DIR, dst)
+    devices = dst / "devices.yaml"
+    text = devices.read_text(encoding="utf-8")
+    text = text.replace("host: 192.168.100.102", "host: 127.0.0.1").replace(
+        "port: 502", f"port: {SERVER_PORT}", 1
+    )
+    devices.write_text(text, encoding="utf-8")
+    return dst
 
 
 @pytest.fixture
@@ -207,10 +274,113 @@ class TestRawDiagnostics:
         le = struct.unpack(">i", struct.pack(">HH", w1, w0))[0]
         assert le != _RAW_ACTIVE_POWER
 
-    async def test_address_check_window(
+    async def test_address_check_count1(
         self, local_device: DeviceConfig, site_server: ModbusMockServer
     ) -> None:
-        # address-check 读取 address-1 / address / address+1
-        registers = await raw_read_registers(local_device, "input", 357 - 1, 3)
-        assert [r.address for r in registers] == [356, 357, 358]
-        assert registers[1].value == _RAW_WIND_SPEED
+        # count=1：address-1 / address / address+1 三次独立读取
+        candidates = await check_address_candidates(local_device, "input", 357, 1)
+        assert [c.start for c in candidates] == [356, 357, 358]
+        assert all(c.error is None for c in candidates)
+        assert all(len(c.registers) == 1 for c in candidates)
+        assert candidates[1].registers[0].value == _RAW_WIND_SPEED
+
+    async def test_address_check_candidate_failure_isolated(
+        self, local_device: DeviceConfig, site_server: ModbusMockServer
+    ) -> None:
+        # address=1023：候选 1024 超出 mock server 输入块（1024 寄存器），
+        # 该候选 ERROR；1022 / 1023 仍正常执行，整体不中断。
+        candidates = await check_address_candidates(local_device, "input", 1023, 1)
+        assert [c.start for c in candidates] == [1022, 1023, 1024]
+        assert candidates[0].error is None and len(candidates[0].registers) == 1
+        assert candidates[1].error is None and len(candidates[1].registers) == 1
+        assert candidates[2].error is not None
+        assert candidates[2].registers == ()
+
+    async def test_address_check_count2(
+        self, local_device: DeviceConfig, site_server: ModbusMockServer
+    ) -> None:
+        # count=2：分别读取 177~178 / 178~179 / 179~180 三个窗口
+        candidates = await check_address_candidates(local_device, "input", 178, 2)
+        assert [c.start for c in candidates] == [177, 178, 179]
+        assert all(c.error is None for c in candidates)
+        assert [[r.address for r in c.registers] for c in candidates] == [
+            [177, 178],
+            [178, 179],
+            [179, 180],
+        ]
+        # start=178 窗口即 S32 原始值（big_endian 高字在前）
+        assert [r.value for r in candidates[1].registers] == [0x0001, 0xE240]
+
+    def test_address_check_count2_cli_outputs_word_order_candidates(
+        self, site_server_thread: None, tmp_path: Path
+    ) -> None:
+        config_dir = _local_config_copy(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "address-check",
+                "--config",
+                str(config_dir),
+                "--device",
+                "wtg-002",
+                "--type",
+                "input",
+                "--address",
+                "178",
+                "--count",
+                "2",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "candidate start=177" in result.output
+        assert "candidate start=178" in result.output
+        assert "candidate start=179" in result.output
+        assert "int32 big_endian" in result.output
+        assert "int32 little_endian" in result.output
+        assert "uint32 big_endian" in result.output
+        assert "uint32 little_endian" in result.output
+        assert f"int32 big_endian: {_RAW_ACTIVE_POWER}" in result.output
+
+    def test_address_check_cli_partial_failure(
+        self, site_server_thread: None, tmp_path: Path
+    ) -> None:
+        # CLI 整体正常输出三项结果，失败候选显示 ERROR
+        config_dir = _local_config_copy(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [
+                "address-check",
+                "--config",
+                str(config_dir),
+                "--device",
+                "wtg-002",
+                "--type",
+                "input",
+                "--address",
+                "1023",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "candidate start=1022:  OK" in result.output
+        assert "candidate start=1023:  OK" in result.output
+        assert "candidate start=1024:  ERROR" in result.output
+
+    def test_address_check_invalid_params_rejected(self) -> None:
+        runner = CliRunner()
+        for extra in (["--address", "0"], ["--address", "178", "--count", "0"]):
+            result = runner.invoke(
+                app,
+                [
+                    "address-check",
+                    "--config",
+                    str(SITE_DIR),
+                    "--device",
+                    "wtg-002",
+                    "--type",
+                    "input",
+                    *extra,
+                ],
+            )
+            assert result.exit_code == 1, extra

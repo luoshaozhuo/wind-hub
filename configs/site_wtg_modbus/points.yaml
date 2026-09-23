@@ -23,7 +23,7 @@ point_tables:
           type: input
           address: 178
         data_type: int32
-        scale: 0.01
+        scale: 0.001
         offset: 0.0
         unit: kW
         description: "有功功率瞬时值"
@@ -35,7 +35,7 @@ point_tables:
           type: input
           address: 204
         data_type: int32
-        scale: 0.01
+        scale: 0.001
         offset: 0.0
         unit: kW
         description: "有功功率1分钟值"
@@ -47,7 +47,7 @@ point_tables:
           type: input
           address: 180
         data_type: int32
-        scale: 0.01
+        scale: 0.001
         offset: 0.0
         unit: kVar
         description: "无功功率瞬时值"
