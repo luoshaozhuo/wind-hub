@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
@@ -123,7 +125,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class TestConnect:
     async def test_connect_and_close(self, patched: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="192.168.0.100.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="192.168.0.100.1.1"))
         await driver.connect()
         conn = driver._connection
         assert driver.health().healthy is True
@@ -136,7 +138,7 @@ class TestConnect:
     async def test_connect_passes_net_id_and_port(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="192.168.0.100.1.1", target_port=900))
+        driver = ADSDriver(_make_device_config(target_net_id="192.168.0.100.1.1", target_port=900))
         await driver.connect()
         try:
             conn = driver._connection
@@ -152,7 +154,7 @@ class TestConnect:
 
 class TestRead:
     async def test_read_real(self, patched: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32")])
         await driver.connect()
         driver._connection.values[(0x4020, 0)] = 42.5
@@ -165,7 +167,7 @@ class TestRead:
         assert values[0].source == "ads"
 
     async def test_read_bool(self, patched: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("flag", "bool", index_offset=4)])
         await driver.connect()
         driver._connection.values[(0x4020, 4)] = True
@@ -178,7 +180,7 @@ class TestRead:
     async def test_read_unknown_point_bad(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         await driver.connect()
 
         values = await driver.read([PointRef(device_id="test-dev", point_id="no.point")])
@@ -188,7 +190,7 @@ class TestRead:
         assert values[0].quality == Quality.BAD
 
     async def test_read_not_connected_raises(self, patched: None) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         with pytest.raises(ProtocolError, match="not connected"):
             await driver.read([PointRef(device_id="test-dev", point_id="p")])
 
@@ -196,7 +198,7 @@ class TestRead:
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """symbol+index 同时存在时，sequential 读用 read_by_name（symbol 优先）。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         await driver.connect()
         conn = driver._connection
@@ -214,7 +216,7 @@ class TestRead:
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """只有 index 对时，sequential 读用 index read。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32")])
         await driver.connect()
         conn = driver._connection
@@ -230,7 +232,7 @@ class TestRead:
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """sequential 语义：一批 N 个点 = N 次独立读（无 sum 合并）。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [
                 _make_point_config("p1", index_offset=0),
@@ -266,7 +268,7 @@ class TestRead:
                 return super().read_by_name(symbol, plc_datatype)
 
         monkeypatch.setattr("pyads.Connection", _SymbolErrorConnection)
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [
                 _make_point_config("speed", "float32", symbol="MAIN.speed"),
@@ -309,7 +311,7 @@ class TestRead:
                 raise pyads.ADSError(1861, "timeout elapsed")
 
         monkeypatch.setattr("pyads.Connection", _TimeoutConnection)
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         await driver.connect()
 
@@ -326,7 +328,7 @@ class TestRead:
 
 class TestWrite:
     async def test_write_real(self, patched: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("setpoint", "float32")])
         await driver.connect()
         conn = driver._connection
@@ -342,7 +344,7 @@ class TestWrite:
     async def test_write_unknown_point_fails(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         await driver.connect()
 
         results = await driver.write(
@@ -354,21 +356,21 @@ class TestWrite:
         assert "unknown point" in (results[0].error or "")
 
     async def test_write_not_connected_raises(self, patched: None) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         with pytest.raises(ProtocolError, match="not connected"):
             await driver.write(
                 [Command(command_id="c1", device_id="test-dev", point_id="p", value=1.0)]
             )
 
     async def test_write_empty_returns_empty(self) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         assert await driver.write([]) == []
 
     async def test_write_prefers_symbol(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """symbol 存在时写入调 write_by_name，不调 index write。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [_make_point_config("setpoint", "float32", symbol="MAIN.setpoint")]
         )
@@ -388,7 +390,7 @@ class TestWrite:
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """无 symbol 时写入调 index write。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("setpoint", "float32")])
         await driver.connect()
         conn = driver._connection
@@ -410,22 +412,22 @@ class TestWrite:
 
 class TestSubscribe:
     async def test_subscribe_raises_not_implemented(self) -> None:
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         with pytest.raises(NotImplementedError):
             await driver.subscribe([], lambda v: None)  # type: ignore[arg-type]
 
     async def test_acquisition_mode_follows_subscribe_enabled(self) -> None:
         """subscribe_enabled → SUBSCRIBE；否则 POLL。"""
-        poll_driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1"))
+        poll_driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         sub_driver = ADSDriver(
-            _make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True)
+            _make_device_config(target_net_id="1.1.1.1.1.1", subscribe_enabled=True)
         )
         assert poll_driver.acquisition_mode is AcquisitionMode.POLL
         assert sub_driver.acquisition_mode is AcquisitionMode.SUBSCRIBE
 
     async def test_subscribe_requires_interval(self, patched: None) -> None:
         """interval 缺失/非正 → ConfigError（cycle_time 必须来自 Task.interval）。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1", subscribe_enabled=True))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         ref = PointRef(device_id="test-dev", point_id="speed")
 
@@ -439,7 +441,7 @@ class TestSubscribe:
 
     async def test_interval_becomes_notification_cycle_time(self, patched: None) -> None:
         """Task.interval → NotificationAttrib.cycle_time。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1", subscribe_enabled=True))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         ref = PointRef(device_id="test-dev", point_id="speed")
 
@@ -455,7 +457,7 @@ class TestSubscribe:
 
     async def test_independent_subscriptions_stop_a_keeps_b(self, patched: None) -> None:
         """同一 symbol 的两份订阅互不影响：关闭 A 的句柄后 B 仍活跃。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1", subscribe_enabled=True))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         ref = PointRef(device_id="test-dev", point_id="speed")
 
@@ -475,7 +477,7 @@ class TestSubscribe:
 
     async def test_driver_close_closes_all_subscriptions(self, patched: None) -> None:
         """驱动整体关闭时全部订阅随之清理。"""
-        driver = ADSDriver(_make_device_config(ams_net_id="1.1.1.1.1.1", subscribe_enabled=True))
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1", subscribe_enabled=True))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         ref = PointRef(device_id="test-dev", point_id="speed")
 
@@ -533,3 +535,153 @@ class TestReconnectLogging:
         assert isinstance(last_exc, OSError)
         assert any("failed" in r.message for r in caplog.records)
         assert not any("timed out" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# route 自动修复（每台设备每进程最多一次，且仅首次连接成功之前）
+# ---------------------------------------------------------------------------
+
+
+class _RepairRecorder:
+    """``ads_router.repair_route_once`` 的替身——记录调用并按配置返回。"""
+
+    def __init__(self, result: bool) -> None:
+        self.result = result
+        self.hosts: list[str] = []
+
+    async def __call__(self, plc_ip: str) -> bool:
+        self.hosts.append(plc_ip)
+        return self.result
+
+
+class TestRouteRepair:
+    async def test_no_repair_when_first_connect_succeeds(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorder = _RepairRecorder(result=True)
+        monkeypatch.setattr(ads_driver_module.ads_router, "repair_route_once", recorder)
+
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
+        await driver.connect()
+        await driver.close()
+
+        assert recorder.hosts == []  # 首次连接成功不触发 add_route_to_plc
+
+    async def test_repair_once_then_reconnect_succeeds(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorder = _RepairRecorder(result=True)
+        monkeypatch.setattr(ads_driver_module.ads_router, "repair_route_once", recorder)
+        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+
+        driver = ADSDriver(
+            _make_device_config(target_net_id="1.1.1.1.1.1", reconnect_max_retries=1)
+        )
+        attempts = 0
+        real_do_connect = driver._do_connect  # noqa: SLF001
+
+        async def _flaky_connect() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OSError("no route to host")
+            await real_do_connect()
+
+        monkeypatch.setattr(driver, "_do_connect", _flaky_connect)
+        await driver.connect()
+        try:
+            assert driver.health().healthy is True
+            assert recorder.hosts == ["192.168.0.100"]  # 恰好修复一次
+            assert attempts == 2  # 首次失败 + 修复后重连成功
+        finally:
+            await driver.close()
+
+    async def test_repair_not_repeated_when_still_failing(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recorder = _RepairRecorder(result=True)
+        monkeypatch.setattr(ads_driver_module.ads_router, "repair_route_once", recorder)
+        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+
+        driver = ADSDriver(
+            _make_device_config(target_net_id="1.1.1.1.1.1", reconnect_max_retries=2)
+        )
+
+        async def _always_fail() -> None:
+            raise OSError("no route to host")
+
+        monkeypatch.setattr(driver, "_do_connect", _always_fail)
+        with pytest.raises(ProtocolError):
+            await driver.connect()
+        await driver.close()
+
+        assert recorder.hosts == ["192.168.0.100"]  # 整轮 retry 只修复一次
+
+    async def test_no_repair_after_ever_connected(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """已成功连接过的设备掉线后只 reconnect，不再 add route。"""
+        recorder = _RepairRecorder(result=True)
+        monkeypatch.setattr(ads_driver_module.ads_router, "repair_route_once", recorder)
+        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+
+        driver = ADSDriver(
+            _make_device_config(target_net_id="1.1.1.1.1.1", reconnect_max_retries=1)
+        )
+        await driver.connect()
+
+        async def _always_fail() -> None:
+            raise OSError("connection reset")
+
+        monkeypatch.setattr(driver, "_do_connect", _always_fail)
+        driver._signal_disconnect()  # noqa: SLF001
+        last_exc = await driver._connect_with_retry()  # noqa: SLF001
+        await driver.close()
+
+        assert isinstance(last_exc, OSError)
+        assert recorder.hosts == []
+
+
+# ---------------------------------------------------------------------------
+# 长期重连：retry budget 耗尽后 monitor 不退出，PLC 恢复后仍能连上
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorRecovery:
+    async def test_monitor_survives_exhausted_round_and_recovers(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+        driver = ADSDriver(
+            _make_device_config(
+                target_net_id="1.1.1.1.1.1",
+                reconnect_max_retries=0,
+                reconnect_backoff_max=0.01,
+            )
+        )
+        plc_up = False
+        real_do_connect = driver._do_connect  # noqa: SLF001
+
+        async def _plc_controlled_connect() -> None:
+            if not plc_up:
+                raise OSError("plc not started")
+            await real_do_connect()
+
+        monkeypatch.setattr(driver, "_do_connect", _plc_controlled_connect)
+
+        # PLC 未启动：首轮连接失败，connect() 抛出，但后台 monitor 继续重连
+        with pytest.raises(ProtocolError):
+            await driver.connect()
+        assert driver.health().healthy is False
+        assert "degraded" in (driver.health().message or "")
+
+        plc_up = True  # PLC 数十秒后启动
+        try:
+            for _ in range(200):  # 最多等 ~2s，重连间隔 0.01s
+                if driver._connected:  # noqa: SLF001
+                    break
+                await asyncio.sleep(0.01)
+            assert driver._connected is True  # noqa: SLF001
+            assert driver.health().healthy is True
+        finally:
+            await driver.close()

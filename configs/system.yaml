@@ -16,6 +16,21 @@ runtime:
   # 单次写入默认超时（秒）——Command.timeout <= 0 时生效
   write_timeout: 5.0
 
+# 进程级 ADS 本机配置（Linux / WSL mirrored / 容器下本机作为 AMS 路由器）
+# —— 不属于任何单台 Device；进程启动时 open_port + set_local_address 一次。
+# 不需要 ADS 时整段删除即可（或无 ADS 设备时不会初始化）。
+ads:
+  # 本机（wind-hub 所在主机/容器）AMS Net ID 与 IP
+  local_ams_net_id: "192.168.151.244.1.2"
+  local_ip: "192.168.151.244"
+  # route 自动修复：首次连接 PLC 失败时执行一次 add_route_to_plc 后重连；
+  # 每台 PLC 每进程生命周期最多一次
+  route_repair:
+    enabled: true
+    route_name: "PFR"
+    username: "Administrator"
+    password: ""
+
 sinks:
   # Sink 定义 — Task 的 targets 通过名称引用它们
 

@@ -19,7 +19,7 @@ class Endpoint(BaseModel):
 
     extensions: dict[str, Any] = Field(default_factory=dict)
     """Protocol-specific parameters (e.g. IEC104 ``common_addr``,
-    Modbus ``unit_id``, ADS ``ams_net_id``)."""
+    Modbus ``unit_id``, ADS ``target_net_id``)."""
 
 
 class DeviceInfo(BaseModel):

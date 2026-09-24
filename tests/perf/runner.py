@@ -97,7 +97,7 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
         # testserver 的 4096 接收缓冲（截断后永不应答），256 留足余量
         # （驱动默认 500，经 endpoint extensions 覆盖，不改驱动）。
         extensions = {
-            "ams_net_id": f"{host}.1.1",
+            "target_net_id": f"{host}.1.1",
             "twincat_version": "2",
             "max_subs_per_sum": 256,
         }

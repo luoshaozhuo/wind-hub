@@ -24,7 +24,6 @@ def _cfg(**extensions: object) -> DeviceConfig:
 
 def test_defaults() -> None:
     c = from_device_config(_cfg())
-    assert c.ams_net_id == ""
     assert c.target_net_id == ""
     assert c.twincat_version == "2"
     assert c.target_port == 801
@@ -33,24 +32,18 @@ def test_defaults() -> None:
     assert c.reconnect_backoff_max == 30.0
 
 
-def test_custom_net_ids() -> None:
-    c = from_device_config(_cfg(ams_net_id="192.168.0.10.1.1", target_net_id="192.168.0.100.1.1"))
-    assert c.ams_net_id == "192.168.0.10.1.1"
-    assert c.target_net_id == "192.168.0.100.1.1"
-
-
-def test_target_net_id_defaults_to_ams_net_id() -> None:
-    c = from_device_config(_cfg(ams_net_id="192.168.0.100.1.1"))
+def test_custom_target_net_id() -> None:
+    c = from_device_config(_cfg(target_net_id="192.168.0.100.1.1"))
     assert c.target_net_id == "192.168.0.100.1.1"
 
 
 def test_ams_port_alias() -> None:
-    c = from_device_config(_cfg(ams_net_id="1.1.1.1.1.1", ams_port=852))
+    c = from_device_config(_cfg(target_net_id="1.1.1.1.1.1", ams_port=852))
     assert c.target_port == 852
 
 
 def test_target_port_override() -> None:
-    c = from_device_config(_cfg(ams_net_id="1.1.1.1.1.1", target_port=900))
+    c = from_device_config(_cfg(target_net_id="1.1.1.1.1.1", target_port=900))
     assert c.target_port == 900
 
 
@@ -92,17 +85,57 @@ def test_read_mode_sequential() -> None:
 
 
 @pytest.mark.parametrize("net_id", ["not-a-net-id", "1.2.3", "1.2.3.4.5.6.7", "a.b.c.d.e.f"])
-def test_invalid_ams_net_id_raises(net_id: str) -> None:
-    with pytest.raises(ConfigError, match="ams_net_id"):
-        from_device_config(_cfg(ams_net_id=net_id))
-
-
-def test_invalid_target_net_id_raises() -> None:
+def test_invalid_target_net_id_raises(net_id: str) -> None:
     with pytest.raises(ConfigError, match="target_net_id"):
-        from_device_config(_cfg(target_net_id="not-valid"))
+        from_device_config(_cfg(target_net_id=net_id))
 
 
 def test_empty_net_id_allowed() -> None:
     """A driver may be instantiated for a health check without a Net ID."""
     c = from_device_config(_cfg())
-    assert c.ams_net_id == ""
+    assert c.target_net_id == ""
+
+
+# ---------------------------------------------------------------------------
+# 进程级 ADS 本机配置（system.yaml 的 ads 段）
+# ---------------------------------------------------------------------------
+
+
+def test_system_ads_config_parsing() -> None:
+    from wind_hub.config.schema import SystemConfig
+
+    sc = SystemConfig(
+        ads={
+            "local_ams_net_id": "192.168.151.244.1.2",
+            "local_ip": "192.168.151.244",
+            "route_repair": {
+                "enabled": True,
+                "route_name": "PFR",
+                "username": "Administrator",
+                "password": "",
+            },
+        }
+    )
+    assert sc.ads is not None
+    assert sc.ads.local_ams_net_id == "192.168.151.244.1.2"
+    assert sc.ads.local_ip == "192.168.151.244"
+    assert sc.ads.route_repair.enabled is True
+    assert sc.ads.route_repair.route_name == "PFR"
+
+
+def test_system_ads_config_defaults() -> None:
+    from wind_hub.config.schema import SystemConfig
+
+    assert SystemConfig().ads is None
+    sc = SystemConfig(
+        ads={"local_ams_net_id": "192.168.151.244.1.2", "local_ip": "192.168.151.244"}
+    )
+    assert sc.ads is not None
+    assert sc.ads.route_repair.enabled is False
+
+
+def test_system_ads_invalid_local_net_id_raises() -> None:
+    from wind_hub.config.schema import SystemConfig
+
+    with pytest.raises(ConfigError, match="AMS Net ID"):
+        SystemConfig(ads={"local_ams_net_id": "bad", "local_ip": "192.168.151.244"})

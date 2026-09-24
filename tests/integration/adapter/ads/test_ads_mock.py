@@ -71,7 +71,7 @@ def _make_device_config() -> DeviceConfig:
         endpoint=Endpoint(
             host="192.168.0.100",
             port=48898,
-            extensions={"ams_net_id": _AMS_NET_ID, "timeout": 3.0},
+            extensions={"target_net_id": _AMS_NET_ID, "timeout": 3.0},
         ),
         point_table="t1",
         read_mode="sequential",

@@ -65,7 +65,7 @@ def _make_device_config_enabled() -> DeviceConfig:
             host="192.168.0.100",
             port=48898,
             extensions={
-                "ams_net_id": _AMS_NET_ID,
+                "target_net_id": _AMS_NET_ID,
                 "timeout": 3.0,
                 # 订阅参数不经正式 Schema——经 endpoint.extensions 透传（诊断用）
                 "subscribe_enabled": True,
@@ -123,7 +123,7 @@ class TestAdsNotificationIntegration:
                 endpoint=Endpoint(
                     host="192.168.0.100",
                     port=48898,
-                    extensions={"ams_net_id": _AMS_NET_ID},
+                    extensions={"target_net_id": _AMS_NET_ID},
                 ),
                 point_table="t1",
             )

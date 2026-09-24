@@ -18,12 +18,11 @@ from wind_hub.domain.model.errors import ConfigError
 class ADSConfig:
     """ADS (Automation Device Specification) connection parameters."""
 
-    ams_net_id: str
-    """Local AMS Net ID (dotted-numeric, e.g. ``"192.168.0.10.1.1"``).
-    Empty when unspecified — the driver falls back to the target Net ID."""
-
     target_net_id: str
-    """Target PLC AMS Net ID.  Defaults to ``ams_net_id`` when omitted."""
+    """Target PLC AMS Net ID (dotted-numeric, e.g. ``"192.168.151.40.1.1"``).
+    Empty when unspecified — the driver lets pyads auto-detect the Net ID from
+    the IP address.  The local AMS Net ID is process-level (``system.yaml``
+    ``ads.local_ams_net_id``), not per-device."""
 
     target_port: int = 801
     """Target AMS port (TwinCAT 2 default 801; TwinCAT 3 uses 851)."""
@@ -74,23 +73,16 @@ def _is_valid_ams_net_id(net_id: str) -> bool:
 def from_device_config(cfg: DeviceConfig) -> ADSConfig:
     """Build a :class:`ADSConfig` from *cfg*.
 
-    ``ams_net_id`` / ``target_net_id`` are validated only when non-empty, so a
-    driver can be instantiated (e.g. for a health check) without a full AMS
-    configuration.  A malformed Net ID raises :class:`ConfigError`.
+    ``target_net_id`` is validated only when non-empty, so a driver can be
+    instantiated (e.g. for a health check) without a full AMS configuration.
+    A malformed Net ID raises :class:`ConfigError`.
 
     Raises:
-        ConfigError: On a malformed ``ams_net_id`` or ``target_net_id``.
+        ConfigError: On a malformed ``target_net_id``.
     """
     ext = cfg.endpoint.extensions
 
-    ams_net_id = str(ext.get("ams_net_id", ""))
-    if ams_net_id and not _is_valid_ams_net_id(ams_net_id):
-        raise ConfigError(
-            f"ADS device '{cfg.device_id}': invalid ams_net_id '{ams_net_id}'; "
-            f"expected dotted-numeric 'a.b.c.d.e.f'"
-        )
-
-    target_net_id = str(ext.get("target_net_id", ams_net_id))
+    target_net_id = str(ext.get("target_net_id", ""))
     if target_net_id and not _is_valid_ams_net_id(target_net_id):
         raise ConfigError(
             f"ADS device '{cfg.device_id}': invalid target_net_id '{target_net_id}'; "
@@ -108,7 +100,6 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
     default_port = 851 if twincat_version == "3" else 801
 
     return ADSConfig(
-        ams_net_id=ams_net_id,
         target_net_id=target_net_id,
         target_port=int(ext.get("target_port", ext.get("ams_port", default_port))),
         timeout=float(ext.get("timeout", 5.0)),

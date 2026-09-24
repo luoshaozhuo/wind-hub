@@ -21,7 +21,6 @@ from wind_hub.domain.model.point import PointValue
 
 def _config(max_notifications_per_connection: int = 550) -> ADSConfig:
     return ADSConfig(
-        ams_net_id="",
         target_net_id="",
         max_notifications_per_connection=max_notifications_per_connection,
     )

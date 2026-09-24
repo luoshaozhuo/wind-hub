@@ -23,6 +23,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from wind_hub.adapter.outbound.protocol.ads import router as ads_router
 from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig, from_device_config
 from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint, parse_point
 from wind_hub.adapter.outbound.protocol.ads.subscription import ADSSubscription
@@ -98,6 +99,10 @@ class ADSDriver:
         self._connected = False
         self._failed = False
         self._shutdown = False
+        # route 自动修复：每个进程生命周期内每台设备最多一次，且只发生在首次
+        # 连接成功之前——已成功连接过的设备掉线只走 reconnect，不再 add route。
+        self._route_repair_attempted = False
+        self._ever_connected = False
 
         self._reconnect_event = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
@@ -127,18 +132,24 @@ class ADSDriver:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Open the ADS connection, retrying with exponential backoff."""
+        """Open the ADS connection, retrying with exponential backoff.
+
+        首轮 retry budget 耗尽仍失败时：启动后台 monitor 持续重连（覆盖
+        「PLC 比 wind-hub 晚启动/断电恢复」场景），随后仍向调用方抛出
+        :class:`ProtocolError`——Runtime 如实记录连接失败，后台恢复并行进行。
+        """
         async with self._lock:
             if self._connected:
                 return
             self._shutdown = False
             last_exc = await self._connect_with_retry()
+            self._monitor_task = asyncio.create_task(self._monitor_loop())
             if last_exc is not None:
+                self._reconnect_event.set()
                 raise ProtocolError(
                     f"ADS: failed to connect to {self._host} "
                     f"after {self._config.reconnect_max_retries + 1} attempts: {last_exc}"
                 ) from last_exc
-            self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     async def close(self) -> None:
         """Close the connection and stop the reconnect monitor."""
@@ -170,8 +181,9 @@ class ADSDriver:
         budget = self._config.reconnect_max_retries + 1
         for attempt in range(budget):
             try:
-                await self._do_connect()
+                await self._connect_once_with_repair()
                 self._connected = True
+                self._ever_connected = True
                 self._failed = False
                 logger.info(
                     "ADS: connected to %s (net id %s)", self._host, self._config.target_net_id
@@ -198,11 +210,33 @@ class ADSDriver:
         self._failed = True
         return last_exc
 
+    async def _connect_once_with_repair(self) -> None:
+        """One connect attempt, with a one-shot route repair on first failure.
+
+        流程：正常连接 → 成功即返回；失败且 route 修复可用（``route_repair``
+        启用、本设备尚未修复过、且从未成功连接过）→ 执行一次
+        ``add_route_to_plc`` 后再连接一次。修复或重连仍失败则异常原样上抛，
+        由外层 retry/reconnect 机制接管；之后不再触发 add route。
+        """
+        try:
+            await self._do_connect()
+            return
+        except Exception as first_exc:
+            if (
+                self._route_repair_attempted
+                or self._ever_connected
+                or not await ads_router.repair_route_once(self._host)
+            ):
+                raise first_exc
+            self._route_repair_attempted = True
+            logger.info("ADS: route repaired for %s — retrying connect once", self._host)
+        await self._do_connect()
+
     async def _do_connect(self) -> None:
         """Create and open the pyads connection (blocking calls on a thread)."""
         pyads = _pyads()
-        # ``target_net_id`` defaults to ``ams_net_id``; ``None`` lets pyads
-        # auto-detect the Net ID from the IP address, as its ``open()`` does.
+        # ``None`` lets pyads auto-detect the Net ID from the IP address, as its
+        # ``open()`` does.
         net_id = self._config.target_net_id or None
         connection = pyads.Connection(net_id, self._config.target_port, self._host)
         connection.set_timeout(int(self._config.timeout * 1000))
@@ -219,7 +253,13 @@ class ADSDriver:
                 connection.close()
 
     async def _monitor_loop(self) -> None:
-        """Reconnect in the background after a transport failure is signalled."""
+        """Reconnect in the background after a transport failure is signalled.
+
+        一轮 retry budget 耗尽不代表放弃（断电/PLC 晚启动是现场常态）：标记为
+        degraded（``_failed``），等待 ``reconnect_backoff_max`` 后开启新一轮，
+        直到连接成功或 driver shutdown。``close()`` 会 cancel 本协程，故
+        ``asyncio.sleep`` 期间的停机由 CancelledError 保证。
+        """
         while not self._shutdown:
             await self._reconnect_event.wait()
             self._reconnect_event.clear()
@@ -229,8 +269,15 @@ class ADSDriver:
                 continue
             last_exc = await self._connect_with_retry()
             if last_exc is not None:
-                logger.error("ADS: reconnection retries exhausted: %s", last_exc)
-                return
+                logger.error(
+                    "ADS: reconnect round exhausted (%s) — degraded; "
+                    "next round in %.0fs",
+                    last_exc,
+                    self._config.reconnect_backoff_max,
+                )
+                await asyncio.sleep(self._config.reconnect_backoff_max)
+                if not self._shutdown and not self._connected:
+                    self._reconnect_event.set()
 
     def _signal_disconnect(self) -> None:
         """Mark the connection as dropped and request a background reconnect."""
@@ -468,7 +515,7 @@ class ADSDriver:
     def health(self) -> HealthStatus:
         """Return cached connection health."""
         if self._failed:
-            return HealthStatus(healthy=False, message="FAILED: reconnection retries exhausted")
+            return HealthStatus(healthy=False, message="degraded: reconnecting in background")
         if not self._connected:
             return HealthStatus(healthy=False, message="not connected")
         return HealthStatus(healthy=True)

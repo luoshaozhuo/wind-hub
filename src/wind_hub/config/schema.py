@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ConfigError
@@ -101,12 +101,62 @@ class InterfaceConfig(BaseModel):
     cli: CliConfig = Field(default_factory=CliConfig)
 
 
+def _validate_ams_net_id(net_id: str) -> str:
+    """Validate a dotted-numeric 6-octet AMS Net ID (``a.b.c.d.e.f``)."""
+    parts = net_id.split(".")
+    if len(parts) != 6 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        raise ConfigError(
+            f"Invalid AMS Net ID '{net_id}'; expected dotted-numeric 'a.b.c.d.e.f'"
+        )
+    return net_id
+
+
+class ADSRouteRepairConfig(BaseModel):
+    """一次性 ADS route 自动修复参数（进程级）。
+
+    仅当 PLC 首次连接失败时触发一次 ``add_route_to_plc``——用于
+    Linux/WSL/容器环境下本机到 PLC 的 AMS route 缺失的自恢复。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    route_name: str = "PFR"
+    username: str = "Administrator"
+    password: str = ""
+
+
+class ADSSystemConfig(BaseModel):
+    """进程级 ADS 本机配置（``system.yaml`` 的 ``ads`` 段）。
+
+    描述 wind-hub 所在 Linux/容器作为 AMS 路由器的本机身份，不属于任何单台
+    Device；进程启动时用于 ``open_port`` + ``set_local_address``。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    local_ams_net_id: str
+    """本机 AMS Net ID（dotted-numeric，如 ``"192.168.151.244.1.2"``）。"""
+
+    local_ip: str
+    """本机 IP——route 修复时向 PLC 注册的本机地址。"""
+
+    route_repair: ADSRouteRepairConfig = Field(default_factory=ADSRouteRepairConfig)
+
+    @field_validator("local_ams_net_id")
+    @classmethod
+    def _check_local_ams_net_id(cls, v: str) -> str:
+        return _validate_ams_net_id(v)
+
+
 class SystemConfig(BaseModel):
     """Top-level system configuration (``system.yaml``)."""
 
     model_config = ConfigDict(extra="forbid")
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    ads: ADSSystemConfig | None = None
+    """进程级 ADS 本机配置；为 ``None`` 时（或无 ADS 设备）不做 ADS 本机初始化。"""
     sinks: list[SinkConfig] = Field(default_factory=list)
     interfaces: InterfaceConfig = Field(default_factory=InterfaceConfig)
 

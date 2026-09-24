@@ -54,7 +54,7 @@ devices:
       host: "10.0.3.1"
       port: 48898
       extensions:
-        ams_net_id: "10.0.3.1.1.1"
+        target_net_id: "10.0.3.1.1.1"
         twincat_version: "2"    # '2' → 默认端口 801（默认），'3' → 851
     enabled: true
 
@@ -69,7 +69,7 @@ devices:
       host: "10.0.3.2"
       port: 48898
       extensions:
-        ams_net_id: "10.0.3.2.1.1"
+        target_net_id: "10.0.3.2.1.1"
         twincat_version: "2"
     enabled: true
 
@@ -85,6 +85,6 @@ devices:
       host: "10.0.3.3"
       port: 48898
       extensions:
-        ams_net_id: "10.0.3.3.1.1"
+        target_net_id: "10.0.3.3.1.1"
         twincat_version: "2"
     enabled: true

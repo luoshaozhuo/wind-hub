@@ -241,6 +241,7 @@ async def start_runtime(
     api_task: asyncio.Task[None] | None = None
     if api_server is not None:
         api_task = asyncio.create_task(api_server.serve())
+    await _maybe_init_ads_local(rt)
     await rt.runtime.start()
     if rt.iec104_slave is not None:
         try:
@@ -249,6 +250,24 @@ async def start_runtime(
         except Exception:
             logger.warning("IEC104 从站代理启动失败——引擎继续运行", exc_info=True)
     return api_task
+
+
+async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
+    """进程级 ADS 本机初始化——配置了 ``system.ads`` 且存在 ADS 设备时执行一次。
+
+    Best-effort：失败仅告警，设备连接仍按各自 reconnect 机制尝试。
+    """
+    ads_cfg = rt.boot_config.system.ads
+    if ads_cfg is None:
+        return
+    if not any(d.protocol == "ads" for d in rt.boot_config.devices.devices):
+        return
+    from wind_hub.adapter.outbound.protocol.ads import router as ads_router
+
+    try:
+        await ads_router.ensure_local_initialized(ads_cfg)
+    except Exception:
+        logger.warning("ADS 本机初始化失败——ADS 设备连接将继续尝试", exc_info=True)
 
 
 async def stop_runtime(rt: AssembledRuntime, timeout: float = 30.0) -> None:
