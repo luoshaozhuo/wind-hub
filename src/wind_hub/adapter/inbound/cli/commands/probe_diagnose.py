@@ -44,7 +44,7 @@ _LAYERS: list[tuple[str, tuple[str, ...]]] = [
 def diagnose(
     device: str = typer.Option(..., "--device", help="设备 ID"),
     config: Path = typer.Option(
-        Path("configs"), "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
+        Path("configs"), "--config", help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）"
     ),
     timeout: float = typer.Option(1.0, "--timeout", help="单步超时（秒）"),
     connect_timeout: float = typer.Option(

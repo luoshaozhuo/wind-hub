@@ -32,7 +32,7 @@ _SECTION = "─" * 55
 def verify(
     device: str | None = typer.Option(None, "--device", help="只验证指定设备（默认所有设备）"),
     config: Path = typer.Option(
-        Path("configs"), "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
+        Path("configs"), "--config", help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）"
     ),
     connect_timeout: float = typer.Option(5.0, "--connect-timeout", help="连接超时（秒）"),
     read_timeout: float = typer.Option(10.0, "--read-timeout", help="读取超时（秒）"),

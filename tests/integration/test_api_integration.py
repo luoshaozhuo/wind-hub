@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from wind_hub.adapter.inbound.webapi.app import build_api
 from wind_hub.application.app_context import AppContext, clear_context, set_context
+from tests.config_helper import write_config_tree
 from wind_hub.assembly import assemble
 
 
@@ -27,73 +28,46 @@ def _clean_context() -> None:
     clear_context()
 
 
-def _write_yaml(base: Path, name: str, data: dict) -> None:
-    (base / name).write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-
-
-def _write_minimal_config(base: Path) -> None:
-    _write_yaml(
+def _write_minimal_config(base: Path) -> Path:
+    """写出最小完整配置树（common/ + site/），返回 site 配置目录。"""
+    return write_config_tree(
         base,
-        "system.yaml",
-        {
-            "runtime": {},
-            "sinks": [
-                {"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}},
-            ],
-        },
-    )
-    _write_yaml(
-        base,
-        "devices.yaml",
-        {
-            "devices": [
-                {
-                    "device_id": "d1",
-                    "protocol": "modbus",
-                    "point_table": "wtg",
-                    "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
-                },
-            ],
-        },
-    )
-    _write_yaml(
-        base,
-        "points.yaml",
-        {
-            "point_tables": {
-                "wtg": {
-                    "points": [
-                        {
-                            "point_id": "rotor.speed",
-                            "point_groups": ["telemetry"],
-                            "address": {"register_type": "holding", "address": 100},
-                            "data_type": "float32",
-                        },
-                    ],
-                },
+        devices=[
+            {
+                "device_id": "d1",
+                "protocol": "modbus",
+                "point_table": "wtg",
+                "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
+            },
+        ],
+        point_tables={
+            "wtg": {
+                "points": [
+                    {
+                        "point_id": "rotor.speed",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    },
+                ],
             },
         },
-    )
-    _write_yaml(
-        base,
-        "tasks.yaml",
-        {
-            "tasks": [
-                {
-                    "task_id": "d1-telemetry",
-                    "device": "d1",
-                    "point_group": "telemetry",
-                    "interval": 1.0,
-                    "targets": [{"sink": "archive"}],
-                },
-            ],
-        },
+        sinks=[{"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}}],
+        tasks=[
+            {
+                "task_id": "d1-telemetry",
+                "device": "d1",
+                "point_group": "telemetry",
+                "interval": 1.0,
+                "targets": [{"sink": "archive"}],
+            },
+        ],
+        system={"runtime": {}},
     )
 
 
 def _assemble(tmp: Path):
-    _write_minimal_config(tmp)
-    return assemble(tmp)
+    return assemble(_write_minimal_config(tmp))
 
 
 def test_metrics_renders_prometheus_text() -> None:
@@ -115,6 +89,7 @@ def test_tasks_endpoints_use_real_task_usecase() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         rt = _assemble(base)
+        site = base / "site"
         set_context(AppContext(config=rt.config, tasks=rt.tasks, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.get("/tasks")
@@ -130,7 +105,7 @@ def test_tasks_endpoints_use_real_task_usecase() -> None:
 
             # 修改 Task interval 制造真实 diff，经 /config/reload 触发实例展开
             # （无 diff 的 reload 会短路，不触碰运行时）。
-            tasks_path = base / "tasks.yaml"
+            tasks_path = site / "tasks.yaml"
             task_data = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
             task_data["tasks"][0]["interval"] = 2.0
             tasks_path.write_text(yaml.safe_dump(task_data, sort_keys=False), encoding="utf-8")
@@ -193,9 +168,10 @@ def test_config_reload_reports_tasks_diff() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         rt = _assemble(base)
+        site = base / "site"
         set_context(AppContext(config=rt.config, runtime=rt.runtime))
 
-        tasks_path = base / "tasks.yaml"
+        tasks_path = site / "tasks.yaml"
         tasks = yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
         tasks["tasks"].append(
             {

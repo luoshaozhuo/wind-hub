@@ -14,8 +14,7 @@ import contextlib
 import tempfile
 from pathlib import Path
 
-import yaml
-
+from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.task import TaskUseCase
@@ -25,154 +24,104 @@ from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.port.outbound import HealthStatus
 
 
-def _write_yaml(dir_path: Path, name: str, data: dict) -> Path:
-    p = dir_path / name
-    with open(p, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f)
-    return p
-
-
-def _write_minimal_config(base: Path) -> None:
-    """写一份最小但完整的配置目录：1 台 Modbus 设备 + 1 个 file sink
-    + 1 个点位（point_groups=[fast]）+ 1 个采集 Task。"""
-    _write_yaml(
+def _write_minimal_config(base: Path) -> Path:
+    """写一份最小但完整的配置树（common/ + site/）：1 台 Modbus 设备
+    + 1 个 file sink + 1 个点位（point_groups=[fast]）+ 1 个采集 Task。
+    返回 site 配置目录。"""
+    return write_config_tree(
         base,
-        "system.yaml",
-        {
-            "runtime": {"connect_timeout": 0.2},
-            "sinks": [
-                {"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}},
-            ],
-        },
-    )
-    _write_yaml(
-        base,
-        "devices.yaml",
-        {
-            "devices": [
-                {
-                    "device_id": "d1",
-                    "protocol": "modbus",
-                    "point_table": "wtg",
-                    "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
-                }
-            ],
-        },
-    )
-    _write_yaml(
-        base,
-        "points.yaml",
-        {
-            "point_tables": {
-                "wtg": {
-                    "points": [
-                        {
-                            "point_id": "rotor.speed",
-                            "point_groups": ["fast"],
-                            "address": {"register_type": "holding", "address": 100},
-                            "data_type": "float32",
-                        }
-                    ],
-                },
+        devices=[
+            {
+                "device_id": "d1",
+                "protocol": "modbus",
+                "point_table": "wtg",
+                "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
+            }
+        ],
+        point_tables={
+            "wtg": {
+                "points": [
+                    {
+                        "point_id": "rotor.speed",
+                        "point_groups": ["fast"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    }
+                ],
             },
         },
-    )
-    _write_yaml(
-        base,
-        "tasks.yaml",
-        {
-            "tasks": [
-                {
-                    "task_id": "fast",
-                    "device": "d1",
-                    "point_group": "fast",
-                    "interval": 1.0,
-                    "targets": [{"sink": "archive"}],
-                },
-            ],
-        },
+        sinks=[{"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}}],
+        tasks=[
+            {
+                "task_id": "fast",
+                "device": "d1",
+                "point_group": "fast",
+                "interval": 1.0,
+                "targets": [{"sink": "archive"}],
+            },
+        ],
+        system={"runtime": {"connect_timeout": 0.2}},
     )
 
 
-def _write_two_device_config(base: Path) -> None:
-    """写一份两台设备绑定同一共享点表的配置——用于验证设备无关点表
-    经 ``DeviceConfig.point_table`` 绑定后由多设备共享。"""
-    _write_yaml(
+def _write_two_device_config(base: Path) -> Path:
+    """写一份两台设备绑定同一共享点表的配置树——用于验证设备无关点表
+    经型号绑定后由多设备共享。返回 site 配置目录。"""
+    return write_config_tree(
         base,
-        "system.yaml",
-        {
-            "sinks": [{"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}}],
-        },
-    )
-    _write_yaml(
-        base,
-        "devices.yaml",
-        {
-            "devices": [
-                {
-                    "device_id": "d1",
-                    "protocol": "modbus",
-                    "point_table": "wtg",
-                    "device_group": "turbine",
-                    "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
-                },
-                {
-                    "device_id": "d2",
-                    "protocol": "modbus",
-                    "point_table": "wtg",
-                    "device_group": "turbine",
-                    "endpoint": {"host": "10.0.0.2", "port": 502, "extensions": {"unit_id": 2}},
-                },
-            ],
-        },
-    )
-    _write_yaml(
-        base,
-        "points.yaml",
-        {
-            "point_tables": {
-                "wtg": {
-                    "points": [
-                        {
-                            "point_id": "rotor.speed",
-                            "point_groups": ["fast"],
-                            "address": {"register_type": "holding", "address": 100},
-                            "data_type": "float32",
-                        },
-                        {
-                            "point_id": "gen.power",
-                            "point_groups": ["fast"],
-                            "address": {"register_type": "holding", "address": 102},
-                            "data_type": "float32",
-                        },
-                    ],
-                },
+        devices=[
+            {
+                "device_id": "d1",
+                "protocol": "modbus",
+                "point_table": "wtg",
+                "device_group": "turbine",
+                "endpoint": {"host": "10.0.0.1", "port": 502, "extensions": {"unit_id": 1}},
+            },
+            {
+                "device_id": "d2",
+                "protocol": "modbus",
+                "point_table": "wtg",
+                "device_group": "turbine",
+                "endpoint": {"host": "10.0.0.2", "port": 502, "extensions": {"unit_id": 2}},
+            },
+        ],
+        point_tables={
+            "wtg": {
+                "points": [
+                    {
+                        "point_id": "rotor.speed",
+                        "point_groups": ["fast"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    },
+                    {
+                        "point_id": "gen.power",
+                        "point_groups": ["fast"],
+                        "address": {"register_type": "holding", "address": 102},
+                        "data_type": "float32",
+                    },
+                ],
             },
         },
-    )
-    _write_yaml(
-        base,
-        "tasks.yaml",
-        {
-            "tasks": [
-                {
-                    "task_id": "fast",
-                    "device_group": "turbine",
-                    "point_group": "fast",
-                    "interval": 1.0,
-                    "targets": [{"sink": "archive"}],
-                },
-            ],
-        },
+        sinks=[{"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}}],
+        tasks=[
+            {
+                "task_id": "fast",
+                "device_group": "turbine",
+                "point_group": "fast",
+                "interval": 1.0,
+                "targets": [{"sink": "archive"}],
+            },
+        ],
     )
 
 
 def test_assemble_builds_runtime_object_graph() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
+        site = _write_minimal_config(base)
 
-        rt = assemble(base)
+        rt = assemble(site)
 
         assert set(rt.runtime.devices) == {"d1"}
         assert set(rt.sinks) == {"archive"}
@@ -197,10 +146,10 @@ def test_assemble_loads_config_exactly_once(monkeypatch) -> None:  # type: ignor
 
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
+        site = _write_minimal_config(base)
         monkeypatch.setattr(assembly_mod, "load_config", _counting_load)
 
-        rt = assemble(base)
+        rt = assemble(site)
 
         assert calls == 1
         # ConfigUseCase.current_config 与装配使用同一启动快照
@@ -210,7 +159,7 @@ def test_assemble_loads_config_exactly_once(monkeypatch) -> None:  # type: ignor
 def test_assemble_accepts_string_config_dir() -> None:
     with tempfile.TemporaryDirectory() as td:
         _write_minimal_config(Path(td))
-        rt = assemble(td)
+        rt = assemble(Path(td) / 'site')
         assert rt.runtime.device_count == 1
 
 
@@ -224,9 +173,9 @@ def test_assemble_shares_point_table_between_devices() -> None:
     """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_two_device_config(base)
+        site = _write_two_device_config(base)
 
-        rt = assemble(base)
+        rt = assemble(site)
 
         by_device = {did: dev.points for did, dev in rt.runtime.devices.items()}
         assert set(by_device) == {"d1", "d2"}
@@ -244,9 +193,9 @@ def test_assemble_wires_runtime_engine_and_usecases() -> None:
     """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
+        site = _write_minimal_config(base)
 
-        rt = assemble(base)
+        rt = assemble(site)
 
         # Runtime 持有 RuntimeConfig（原 SchedulerConfig）与 Task 定义
         assert isinstance(rt.runtime, Runtime)
@@ -271,9 +220,9 @@ def test_assembled_runtime_has_no_legacy_components() -> None:
     """旧模型组件（scheduler / router / route_query / jobs）已从对象图删除。"""
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
+        site = _write_minimal_config(base)
 
-        rt = assemble(base)
+        rt = assemble(site)
 
         for attr in ("scheduler", "router", "route_query", "jobs"):
             assert not hasattr(rt, attr), f"legacy attribute still present: {attr}"
@@ -315,8 +264,8 @@ async def test_start_runtime_starts_api_before_runtime_finishes() -> None:
     """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
-        rt = assemble(base, sink_factory=_null_sink_factory)
+        site = _write_minimal_config(base)
+        rt = assemble(site, sink_factory=_null_sink_factory)
 
         api_started = asyncio.Event()
 
@@ -345,8 +294,8 @@ async def test_start_runtime_without_api_server_returns_none() -> None:
     """不传 api_server 时返回 None，Runtime 正常启动。"""
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        _write_minimal_config(base)
-        rt = assemble(base, sink_factory=_null_sink_factory)
+        site = _write_minimal_config(base)
+        rt = assemble(site, sink_factory=_null_sink_factory)
         try:
             result = await start_runtime(rt)
             assert result is None

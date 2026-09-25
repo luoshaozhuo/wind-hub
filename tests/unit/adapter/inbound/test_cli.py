@@ -10,6 +10,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+from tests.config_helper import write_config_tree
 from wind_hub.adapter.inbound.cli.app import build_cli
 from wind_hub.application.app_context import AppContext, clear_context, set_context
 from wind_hub.application.runtime.task_instance import TaskInstanceState
@@ -86,16 +87,13 @@ def test_no_jobs_or_route_subcommands(runner: CliRunner) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write_valid_config(base: Path) -> None:
-    (base / "system.yaml").write_text("{}\n", encoding="utf-8")
-    (base / "devices.yaml").write_text("devices: []\n", encoding="utf-8")
-    (base / "points.yaml").write_text("point_tables: {}\n", encoding="utf-8")
-    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
+def _write_valid_config(base: Path) -> Path:
+    return write_config_tree(base, devices=[], point_tables={})
 
 
 def test_validate_success_exit_zero(runner: CliRunner, tmp_path: Path) -> None:
-    _write_valid_config(tmp_path)
-    result = runner.invoke(build_cli(), ["validate", "--config", str(tmp_path)])
+    site = _write_valid_config(tmp_path)
+    result = runner.invoke(build_cli(), ["validate", "--config", str(site)])
     assert result.exit_code == 0
     assert "配置有效" in result.output
     assert "0 个采集任务" in result.output
@@ -103,38 +101,40 @@ def test_validate_success_exit_zero(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_validate_reports_task_count(runner: CliRunner, tmp_path: Path) -> None:
     """validate 输出包含「N 个采集任务」（tasks.yaml 取代 routing.yaml）。"""
-    (tmp_path / "system.yaml").write_text(
-        "sinks:\n  - {name: archive, type: file, params: {path: /tmp/x.csv}}\n",
-        encoding="utf-8",
+    site = write_config_tree(
+        tmp_path,
+        devices=[
+            {
+                "device_id": "d1",
+                "protocol": "modbus",
+                "point_table": "wtg",
+                "endpoint": {"host": "10.0.0.1", "port": 502},
+            }
+        ],
+        point_tables={
+            "wtg": {
+                "points": [
+                    {
+                        "point_id": "p1",
+                        "point_groups": ["fast"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    }
+                ]
+            }
+        },
+        sinks=[{"name": "archive", "type": "file", "params": {"path": "/tmp/x.csv"}}],
+        tasks=[
+            {
+                "task_id": "fast",
+                "device": "d1",
+                "point_group": "fast",
+                "interval": 1.0,
+                "targets": [{"sink": "archive"}],
+            }
+        ],
     )
-    (tmp_path / "devices.yaml").write_text(
-        "devices:\n"
-        "  - device_id: d1\n"
-        "    protocol: modbus\n"
-        "    point_table: wtg\n"
-        "    endpoint: {host: 10.0.0.1, port: 502}\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "points.yaml").write_text(
-        "point_tables:\n"
-        "  wtg:\n"
-        "    points:\n"
-        "      - point_id: p1\n"
-        "        point_groups: [fast]\n"
-        "        address: {register_type: holding, address: 100}\n"
-        "        data_type: float32\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "tasks.yaml").write_text(
-        "tasks:\n"
-        "  - task_id: fast\n"
-        "    device: d1\n"
-        "    point_group: fast\n"
-        "    interval: 1.0\n"
-        "    targets: [{sink: archive}]\n",
-        encoding="utf-8",
-    )
-    result = runner.invoke(build_cli(), ["validate", "--config", str(tmp_path)])
+    result = runner.invoke(build_cli(), ["validate", "--config", str(site)])
     assert result.exit_code == 0
     assert "1 个采集任务" in result.output
 

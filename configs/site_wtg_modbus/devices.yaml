@@ -1,35 +1,21 @@
 # ---------------------------------------------------------------------------
-# wind-hub 现场 Modbus 配置 — 设备（26 台风机，Modbus TCP）
+# wind-hub 现场 Modbus 配置 — 设备实例（2 台风机，Modbus TCP）
+# 协议、点表、端口(502)、unit_id、word_order 等由型号
+# wtg_modbus_site（common/device_models.yaml）提供；实例只写 host。
 # ---------------------------------------------------------------------------
-#
-# 全部设备：protocol=modbus、device_group=turbine_modbus、
-# 绑定点表 wtg_modbus_site_v1、enabled=true。
-# unit_id 暂按 1 配置——是否为 1 需现场确认。
 
 devices:
 
   - device_id: wtg-002
-    protocol: modbus
+    model: wtg_modbus_site
     device_group: turbine_modbus
-    point_table: wtg_modbus_site_v1
     enabled: true
     endpoint:
-      host: 192.168.100.102
-      port: 502
-      extensions:
-        unit_id: 1
-        timeout: 3.0
-        word_order: little_endian
+      host: "192.168.100.102"
 
   - device_id: wtg-003
-    protocol: modbus
+    model: wtg_modbus_site
     device_group: turbine_modbus
-    point_table: wtg_modbus_site_v1
     enabled: true
     endpoint:
-      host: 192.168.100.103
-      port: 502
-      extensions:
-        unit_id: 1
-        timeout: 3.0
-        word_order: little_endian
+      host: "192.168.100.103"

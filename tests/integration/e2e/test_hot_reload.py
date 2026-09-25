@@ -30,12 +30,10 @@ def _append_device_and_task(config_dir: Path) -> None:
     devices["devices"].append(
         {
             "device_id": "modbus-2",
-            "protocol": "modbus",
-            "point_table": "modbus",
+            "model": "modbus_fixture",
             "endpoint": {
                 "host": "127.0.0.1",
-                "port": 15020,
-                "extensions": {"unit_id": 2, "timeout": 2.0, "reconnect_max_retries": 20, "word_order": "big_endian"},
+                "extensions": {"unit_id": 2},
             },
             "enabled": True,
         }

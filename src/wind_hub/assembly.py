@@ -112,7 +112,7 @@ def assemble(
     """同步纯装配——从配置目录构建完整对象图，不做任何网络 I/O。
 
     Args:
-        config_dir: 配置目录，含 system/devices/points/tasks.yaml。
+        config_dir: 现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）。
         sink_factory: 可选 sink 工厂，覆盖默认的 ``kafka``/``file``/``db``
             dispatching。供测试注入 ``null`` sink 等非生产实现；为 ``None``
             时回落到 :func:`_create_sink`。

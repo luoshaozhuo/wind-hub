@@ -2,6 +2,11 @@
 # wind-hub 现场 Modbus 配置 — 系统（引擎、Sink、接口）
 # ---------------------------------------------------------------------------
 
+# 当前现场身份 —— 一个 wind-hub 运行实例只对应一个现场
+site:
+  site_id: wtg_modbus
+  name: Modbus 现场风场
+
 runtime:
   # 每个 Sink 的内部队列容量（背压阈值）
   queue_maxsize: 1000

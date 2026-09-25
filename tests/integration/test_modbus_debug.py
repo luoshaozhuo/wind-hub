@@ -97,21 +97,33 @@ def _servers_in_thread(*servers: ModbusMockServer) -> Iterator[None]:
 
 
 def _local_config_copy(tmp_path: Path) -> Path:
-    """把 site 配置拷到临时目录，三台设备分别指向两个 live server 与一个死端口。"""
-    dst = tmp_path / "site_local"
-    shutil.copytree(SITE_DIR, dst)
-    raw = yaml.safe_load((dst / "devices.yaml").read_text(encoding="utf-8"))
-    devices = raw["devices"][:3]
+    """把 site + common 配置树拷到临时目录，三台设备分别指向两个 live
+    server 与一个死端口。返回 site 配置目录。"""
+    dst = tmp_path / "cfg"
+    site = shutil.copytree(SITE_DIR, dst / "site")
+    shutil.copytree(SITE_DIR.parent / "common", dst / "common")
+    raw = yaml.safe_load((site / "devices.yaml").read_text(encoding="utf-8"))
+    # 现场配置为两台机组；第三台（死端口）由测试补齐，用于失败隔离用例。
+    devices = raw["devices"][:2]
+    devices.append(
+        {
+            "device_id": "wtg-004",
+            "model": devices[0]["model"],
+            "device_group": devices[0].get("device_group"),
+            "enabled": True,
+            "endpoint": {"host": "127.0.0.1"},
+        }
+    )
     devices[0]["endpoint"]["host"] = "127.0.0.1"
     devices[0]["endpoint"]["port"] = PORT_A
     devices[1]["endpoint"]["host"] = "127.0.0.1"
     devices[1]["endpoint"]["port"] = PORT_B
     devices[2]["endpoint"]["host"] = "127.0.0.1"
     devices[2]["endpoint"]["port"] = PORT_DEAD
-    (dst / "devices.yaml").write_text(
+    (site / "devices.yaml").write_text(
         yaml.safe_dump({"devices": devices}, allow_unicode=True), encoding="utf-8"
     )
-    return dst
+    return site
 
 
 @pytest.fixture(scope="module")

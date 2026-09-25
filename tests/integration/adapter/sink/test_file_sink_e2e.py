@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.config_helper import write_config_tree
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 
 _CSV_HEADER = ["device_id", "point_id", "value", "quality", "timestamp", "source"]
@@ -33,88 +34,63 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
 
 
 def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
-    """写一份最小完整配置：1 台 modbus 设备 + 1 个 file sink + 2 个点 + 1 个采集 Task。"""
-    cfg_dir = tmp_path / "configs"
-    cfg_dir.mkdir()
-    _write_yaml(
-        cfg_dir,
-        "system.yaml",
-        {
-            "runtime": {
-                "connect_timeout": 2.0,
-                "read_timeout": 2.0,
-                "shutdown_timeout": 5.0,
-            },
-            "sinks": [
-                {"name": "file", "type": "file", "params": {"path": str(sink_path), **sink_params}},
-            ],
-        },
-    )
-    _write_yaml(
-        cfg_dir,
-        "devices.yaml",
-        {
-            "devices": [
-                {
-                    "device_id": "modbus-1",
-                    "protocol": "modbus",
-                    "point_table": "modbus",
-                    "endpoint": {
-                        "host": "127.0.0.1",
-                        "port": 15020,
-                        "extensions": {
-                            "unit_id": 1,
-                            "timeout": 2.0,
-                            "reconnect_max_retries": 20,
-                            "reconnect_backoff_max": 1.0,
-                            # mock server 寄存器布局为 big-endian float32
-                            "word_order": "big_endian",
-                        },
+    """写一份最小完整配置树（common/ + site/）：1 台 modbus 设备 + 1 个
+    file sink + 2 个点 + 1 个采集 Task。返回 site 配置目录。"""
+    return write_config_tree(
+        tmp_path,
+        devices=[
+            {
+                "device_id": "modbus-1",
+                "protocol": "modbus",
+                "point_table": "modbus",
+                "endpoint": {
+                    "host": "127.0.0.1",
+                    "port": 15020,
+                    "extensions": {
+                        "unit_id": 1,
+                        "timeout": 2.0,
+                        "reconnect_max_retries": 20,
+                        "reconnect_backoff_max": 1.0,
+                        # mock server 寄存器布局为 big-endian float32
+                        "word_order": "big_endian",
                     },
-                }
-            ],
-        },
-    )
-    _write_yaml(
-        cfg_dir,
-        "points.yaml",
-        {
-            "point_tables": {
-                "modbus": {
-                    "points": [
-                        {
-                            "point_id": "rotor.speed",
-                            "point_groups": ["telemetry"],
-                            "address": {"register_type": "holding", "address": 100},
-                            "data_type": "float32",
-                        },
-                        {
-                            "point_id": "gen.power",
-                            "point_groups": ["telemetry"],
-                            "address": {"register_type": "holding", "address": 102},
-                            "data_type": "float32",
-                        },
-                    ],
                 },
+            }
+        ],
+        point_tables={
+            "modbus": {
+                "points": [
+                    {
+                        "point_id": "rotor.speed",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    },
+                    {
+                        "point_id": "gen.power",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 102},
+                        "data_type": "float32",
+                    },
+                ],
             },
         },
-    )
-    _write_yaml(
-        cfg_dir,
-        "tasks.yaml",
-        {
-            "tasks": [
-                {
-                    "task_id": "modbus-telemetry",
-                    "device": "modbus-1",
-                    "point_group": "telemetry",
-                    "interval": 0.2,
-                    "targets": [{"sink": "file"}],
-                }
-            ]
+        sinks=[
+            {"name": "file", "type": "file", "params": {"path": str(sink_path), **sink_params}},
+        ],
+        tasks=[
+            {
+                "task_id": "modbus-telemetry",
+                "device": "modbus-1",
+                "point_group": "telemetry",
+                "interval": 0.2,
+                "targets": [{"sink": "file"}],
+            }
+        ],
+        system={
+            "runtime": {"connect_timeout": 2.0, "read_timeout": 2.0, "shutdown_timeout": 5.0}
         },
     )
-    return cfg_dir
 
 
 def _jsonl_lines(path: Path) -> list[dict[str, Any]]:

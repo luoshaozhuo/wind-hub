@@ -33,7 +33,7 @@ _LARGE_SYMBOL_COUNT = 10000
 def discover(
     device: str = typer.Option(..., "--device", help="设备 ID"),
     config: Path = typer.Option(
-        Path("configs"), "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
+        Path("configs"), "--config", help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）"
     ),
     output: Path | None = typer.Option(None, "--output", help="输出 YAML 文件路径（默认 stdout）"),
     filter_prefix: str | None = typer.Option(

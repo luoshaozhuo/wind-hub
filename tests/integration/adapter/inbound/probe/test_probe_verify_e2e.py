@@ -15,6 +15,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from tests.config_helper import write_config_tree
 from wind_hub.adapter.inbound.cli.app import build_cli
 from wind_hub.adapter.inbound.cli.probe import verify as verify_mod
 from wind_hub.domain.model.errors import ProtocolError
@@ -28,63 +29,50 @@ def runner() -> CliRunner:
 
 def _write_config(base: Path) -> None:
     """两台设备（modbus / iec104），共 3 个点。"""
-    (base / "system.yaml").write_text("{}\n", encoding="utf-8")
-    (base / "devices.yaml").write_text(
-        yaml.safe_dump(
+    write_config_tree(
+        base,
+        devices=[
             {
-                "devices": [
+                "device_id": "wtg-001",
+                "protocol": "modbus",
+                "point_table": "modbus-table",
+                "endpoint": {"host": "10.0.1.1", "port": 502},
+            },
+            {
+                "device_id": "wtg-002",
+                "protocol": "iec104",
+                "point_table": "iec104-table",
+                "endpoint": {"host": "10.0.1.2", "port": 2404},
+            },
+        ],
+        point_tables={
+            "modbus-table": {
+                "points": [
                     {
-                        "device_id": "wtg-001",
-                        "protocol": "modbus",
-                        "point_table": "modbus-table",
-                        "endpoint": {"host": "10.0.1.1", "port": 502},
+                        "point_id": "rotor.speed",
+                        "point_groups": ["telemetry"],
+                        "address": {"type": "holding_register", "address": 0},
+                        "data_type": "int16",
                     },
                     {
-                        "device_id": "wtg-002",
-                        "protocol": "iec104",
-                        "point_table": "iec104-table",
-                        "endpoint": {"host": "10.0.1.2", "port": 2404},
+                        "point_id": "gen.power",
+                        "point_groups": ["telemetry"],
+                        "address": {"type": "holding_register", "address": 1},
+                        "data_type": "int16",
                     },
                 ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    (base / "points.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "point_tables": {
-                    "modbus-table": {
-                        "points": [
-                            {
-                                "point_id": "rotor.speed",
-                                "point_groups": ["telemetry"],
-                                "address": {"type": "holding_register", "address": 0},
-                                "data_type": "int16",
-                            },
-                            {
-                                "point_id": "gen.power",
-                                "point_groups": ["telemetry"],
-                                "address": {"type": "holding_register", "address": 1},
-                                "data_type": "int16",
-                            },
-                        ]
+            },
+            "iec104-table": {
+                "points": [
+                    {
+                        "point_id": "nacelle.temp",
+                        "point_groups": ["telemetry"],
+                        "address": {"type": "measured_value", "ioa": 1001},
                     },
-                    "iec104-table": {
-                        "points": [
-                            {
-                                "point_id": "nacelle.temp",
-                                "point_groups": ["telemetry"],
-                                "address": {"type": "measured_value", "ioa": 1001},
-                            },
-                        ]
-                    },
-                }
-            }
-        ),
-        encoding="utf-8",
+                ]
+            },
+        },
     )
-    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 class _FakeDriver:
@@ -142,7 +130,7 @@ def test_verify_all_ok_exit_zero(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
 
     assert result.exit_code == 0, result.output
     assert "点表只读验证" in result.output
@@ -163,7 +151,7 @@ def test_verify_partial_failure_exit_one(
             "wtg-002": _FakeDriver(connect_exc=ProtocolError("connection refused")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
 
     assert result.exit_code == 1, result.output
     assert "连接:        ❌ FAIL" in result.output
@@ -184,7 +172,7 @@ def test_verify_bad_quality_exit_two(
             "wtg-002": _FakeDriver(values=[bad]),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
 
     assert result.exit_code == 2, result.output
     assert "质量 BAD 点:" in result.output
@@ -202,7 +190,7 @@ def test_verify_specific_device(
     )
     result = runner.invoke(
         build_cli(),
-        ["probe", "verify", "--config", str(tmp_path), "--device", "wtg-001"],
+        ["probe", "verify", "--config", str(tmp_path / "site"), "--device", "wtg-001"],
     )
 
     assert result.exit_code == 0, result.output
@@ -214,7 +202,7 @@ def test_verify_unknown_device_exit_one(runner: CliRunner, tmp_path: Path) -> No
     _write_config(tmp_path)
     result = runner.invoke(
         build_cli(),
-        ["probe", "verify", "--config", str(tmp_path), "--device", "no-such"],
+        ["probe", "verify", "--config", str(tmp_path / "site"), "--device", "no-such"],
     )
     assert result.exit_code == 1
     assert "不存在" in result.output
@@ -236,7 +224,7 @@ def test_verify_json_output(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path), "--json"])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--json"])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -259,7 +247,7 @@ def test_verify_yaml_output(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path), "--yaml"])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--yaml"])
 
     assert result.exit_code == 0, result.output
     payload = yaml.safe_load(result.output)
@@ -269,7 +257,7 @@ def test_verify_yaml_output(
 def test_verify_json_yaml_conflict(runner: CliRunner, tmp_path: Path) -> None:
     _write_config(tmp_path)
     result = runner.invoke(
-        build_cli(), ["probe", "verify", "--config", str(tmp_path), "--json", "--yaml"]
+        build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--json", "--yaml"]
     )
     assert result.exit_code == 1
     assert "二选一" in result.output

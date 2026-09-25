@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import yaml
 
+from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.config.loader import load_config
@@ -56,26 +57,29 @@ def _write_configs(
     sinks: list[SinkConfig] | None = None,
     points: list[PointConfig] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
-) -> None:
-    """写出一套完整配置目录（system/devices/points/tasks，无 routing.yaml）。"""
-    yaml.safe_dump(
-        {
-            "runtime": {"queue_maxsize": 10},
-            "sinks": [s.model_dump() for s in (sinks or [])],
-        },
-        (base / "system.yaml").open("w"),
-    )
-    yaml.safe_dump(
-        {"devices": [d.model_dump() for d in (devices or [])]},
-        (base / "devices.yaml").open("w"),
-    )
-    yaml.safe_dump(
-        {"point_tables": {"t1": {"points": [p.model_dump() for p in (points or [])]}}},
-        (base / "points.yaml").open("w"),
-    )
-    yaml.safe_dump(
-        {"tasks": [t.model_dump() for t in (tasks or [])]},
-        (base / "tasks.yaml").open("w"),
+) -> Path:
+    """写出一套完整配置树（common/ + site/），返回 site 配置目录。"""
+    raw_devices: list[dict] = []
+    for d in devices or []:
+        dump = d.model_dump()
+        raw: dict = {
+            "device_id": dump["device_id"],
+            "protocol": dump["protocol"],
+            "point_table": dump["point_table"],
+            "device_group": dump["device_group"],
+            "enabled": dump["enabled"],
+            "endpoint": dump["endpoint"],
+        }
+        if dump["protocol"] == "ads":
+            raw["read_mode"] = dump["read_mode"]
+        raw_devices.append(raw)
+    return write_config_tree(
+        base,
+        devices=raw_devices,
+        point_tables={"t1": {"points": [p.model_dump() for p in (points or [])]}},
+        sinks=[s.model_dump() for s in (sinks or [])],
+        tasks=[t.model_dump() for t in (tasks or [])],
+        system={"runtime": {"queue_maxsize": 10}},
     )
 
 
@@ -119,7 +123,8 @@ def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
 
 def _usecase(base: Path, runtime: MagicMock | None = None) -> ConfigUseCase:
     """按装配语义构造 ConfigUseCase——加载一次配置并显式注入快照。"""
-    return ConfigUseCase(base, runtime or _mock_runtime(), load_config(base))
+    site = base / "site"
+    return ConfigUseCase(site, runtime or _mock_runtime(), load_config(site))
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +143,9 @@ async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
 
 async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
     """启动快照由组合根加载——非法配置在加载期（而非用例构造期）暴露。"""
-    (tmp_path / "system.yaml").write_text("not: [valid")
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "system.yaml").write_text("not: [valid")
     with pytest.raises(Exception):  # noqa: B017 — 加载失败类型由 loader 决定
         _usecase(tmp_path, _mock_runtime())
 
@@ -146,13 +153,13 @@ async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
 async def test_init_does_not_load_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """ConfigUseCase 构造不触发 load_config——启动快照由组合根注入。"""
     _write_configs(tmp_path, devices=[_make_device("d1")])
-    cfg = load_config(tmp_path)
+    cfg = load_config(tmp_path / "site")
 
     def _boom(_dir: Path) -> None:
         raise AssertionError("load_config must not be called by ConfigUseCase.__init__")
 
     monkeypatch.setattr("wind_hub.application.usecase.config.load_config", _boom)
-    usecase = ConfigUseCase(tmp_path, _mock_runtime(), cfg)
+    usecase = ConfigUseCase(tmp_path / "site", _mock_runtime(), cfg)
     assert usecase.current_config is cfg
 
 
@@ -168,7 +175,7 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
     snapshot_before = usecase.current_config
 
     # 破坏 devices.yaml
-    (tmp_path / "devices.yaml").write_text("devices: [broken")
+    (tmp_path / "site" / "devices.yaml").write_text("devices: [broken")
     result = await usecase.reload()
 
     assert result.success is False
@@ -464,7 +471,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                 },
             }
         },
-        (base / "points.yaml").open("w"),
+        (base / "common" / "points.yaml").open("w"),
     )
 
 

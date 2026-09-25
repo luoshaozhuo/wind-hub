@@ -1,34 +1,19 @@
 # ---------------------------------------------------------------------------
-# 端到端测试用设备配置 —— 指向本地模拟从站
+# 端到端测试用设备实例 —— 指向本地模拟从站
 # ---------------------------------------------------------------------------
 
 devices:
 
   # Modbus 设备（unit 1），指向 tests/fixtures/servers/modbus_server.py
   - device_id: modbus-1
-    protocol: modbus
-    point_table: modbus
+    model: modbus_fixture
     endpoint:
       host: "127.0.0.1"
-      port: 15020
-      extensions:
-        unit_id: 1
-        timeout: 2.0
-        word_order: big_endian
-        reconnect_max_retries: 20
-        reconnect_backoff_max: 1.0
     enabled: true
 
   # IEC104 设备，指向 tests/fixtures/servers/iec104_server.py
   - device_id: iec104-1
-    protocol: iec104
-    point_table: iec104
+    model: iec104_fixture
     endpoint:
       host: "127.0.0.1"
-      port: 12404
-      extensions:
-        common_addr: 1
-        t1: 2.0
-        t2: 1.0
-        t3: 5.0
     enabled: true

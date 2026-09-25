@@ -64,10 +64,42 @@ def _write_yaml(config_dir: Path, name: str, data: dict) -> None:
     (config_dir / name).write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
-def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_path: Path) -> None:
-    """写出完整配置目录（system/devices/points/tasks.yaml）。"""
+def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_path: Path) -> Path:
+    """写出完整配置树（common/ + site/），返回 site 配置目录。"""
+    common = config_dir / "common"
+    site = config_dir / "site"
+    common.mkdir(parents=True)
+    site.mkdir(parents=True)
     _write_yaml(
-        config_dir,
+        common,
+        "device_models.yaml",
+        {
+            "device_types": {"turbine": {"name": "风机"}},
+            "device_models": {
+                "modbus_fixture": {
+                    "device_type": "turbine",
+                    "protocol": "modbus",
+                    "point_table": "modbus",
+                    "connection_defaults": {
+                        "unit_id": 1,
+                        "timeout": 2.0,
+                        "reconnect_max_retries": 20,
+                        "reconnect_backoff_max": 0.5,
+                        # mock server 寄存器布局为 big-endian float32
+                        "word_order": "big_endian",
+                    },
+                },
+                "iec104_fixture": {
+                    "device_type": "turbine",
+                    "protocol": "iec104",
+                    "point_table": "iec104",
+                    "connection_defaults": {"common_addr": 1, "t1": 2.0, "t2": 1.0, "t3": 5.0},
+                },
+            },
+        },
+    )
+    _write_yaml(
+        site,
         "system.yaml",
         {
             "runtime": {
@@ -88,38 +120,21 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
         },
     )
     _write_yaml(
-        config_dir,
+        site,
         "devices.yaml",
         {
             "devices": [
                 {
                     "device_id": "modbus-1",
-                    "protocol": "modbus",
-                    "point_table": "modbus",
-                    "endpoint": {
-                        "host": "127.0.0.1",
-                        "port": modbus_port,
-                        "extensions": {
-                            "unit_id": 1,
-                            "timeout": 2.0,
-                            "reconnect_max_retries": 20,
-                            "reconnect_backoff_max": 0.5,
-                            # mock server 寄存器布局为 big-endian float32
-                            "word_order": "big_endian",
-                        },
-                    },
+                    "model": "modbus_fixture",
+                    "endpoint": {"host": "127.0.0.1", "port": modbus_port},
                     "device_group": "wtg",
                     "enabled": True,
                 },
                 {
                     "device_id": "iec104-1",
-                    "protocol": "iec104",
-                    "point_table": "iec104",
-                    "endpoint": {
-                        "host": "127.0.0.1",
-                        "port": iec104_port,
-                        "extensions": {"common_addr": 1, "t1": 2.0, "t2": 1.0, "t3": 5.0},
-                    },
+                    "model": "iec104_fixture",
+                    "endpoint": {"host": "127.0.0.1", "port": iec104_port},
                     "device_group": "wtg",
                     "enabled": True,
                 },
@@ -127,7 +142,7 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
         },
     )
     _write_yaml(
-        config_dir,
+        common,
         "points.yaml",
         {
             "point_tables": {
@@ -182,7 +197,7 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
         },
     )
     _write_yaml(
-        config_dir,
+        site,
         "tasks.yaml",
         {
             "tasks": [
@@ -210,6 +225,7 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
             ]
         },
     )
+    return site
 
 
 @pytest.fixture
@@ -242,12 +258,12 @@ async def system(
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     sink_path = tmp_path / "out" / "data.jsonl"
-    _build_config(config_dir, modbus_server.port, iec104_server.port, sink_path)
+    site = _build_config(config_dir, modbus_server.port, iec104_server.port, sink_path)
 
-    rt = assemble(config_dir)
+    rt = assemble(site)
     await start_runtime(rt)
     try:
-        yield rt, config_dir, sink_path
+        yield rt, site, sink_path
     finally:
         from wind_hub.assembly import stop_runtime
 
@@ -554,9 +570,9 @@ async def test_reload_task_change_and_point_table_scale(system) -> None:
     assert rt.config.current_config.tasks.tasks[0].interval == 0.1
 
     # 点表轻量变化（scale）——不重建连接，set_points 新值立即生效
-    points = yaml.safe_load((config_dir / "points.yaml").read_text(encoding="utf-8"))
+    points = yaml.safe_load((config_dir.parent / "common" / "points.yaml").read_text(encoding="utf-8"))
     points["point_tables"]["modbus"]["points"][0]["scale"] = 3.0
-    _write_yaml(config_dir, "points.yaml", points)
+    _write_yaml(config_dir.parent / "common", "points.yaml", points)
 
     result = await rt.config.reload()
     assert result.success is True

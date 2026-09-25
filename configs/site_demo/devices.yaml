@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# wind-hub 演示现场 — 设备实例
+# ---------------------------------------------------------------------------
+#
+# 实例只描述「身份、型号引用、连接差异」；协议、点表、读取策略与连接默认
+# 值全部来自 common/device_models.yaml 的型号定义。endpoint 覆盖型号的
+# connection_defaults（实例优先）。
+#
+# `device_group` 是采集分组——Task 可按它成组下发（见 tasks.yaml）。
+# 设备本身不定义采集周期——周期采集由 tasks.yaml 的 Task 定义。
+
+devices:
+
+  # IEC104 风机控制器（遥测 + 遥信）
+  - device_id: wtg-001
+    model: iec104_wtg
+    device_group: turbine
+    endpoint:
+      host: "10.0.1.1"
+    enabled: true
+
+  # Modbus 风机控制器
+  - device_id: wtg-002
+    model: modbus_wtg
+    device_group: turbine
+    endpoint:
+      host: "10.0.2.1"
+    enabled: true
+
+  # ADS 风机控制器 1 号（TwinCAT 2）— Sum 批量周期采集
+  - device_id: wtg-003
+    model: beckhoff_2mw
+    device_group: turbine_ads
+    endpoint:
+      host: "10.0.3.1"
+      extensions:
+        target_net_id: "10.0.3.1.1.1"
+    enabled: true
+
+  # ADS 风机控制器 2 号 — 同机型现场 A 变体
+  - device_id: wtg-004
+    model: beckhoff_2mw_site_a
+    device_group: turbine_ads
+    endpoint:
+      host: "10.0.3.2"
+      extensions:
+        target_net_id: "10.0.3.2.1.1"
+    enabled: true
+
+  # ADS 诊断机位 — 型号 read_mode 为 sequential：逐点 Read，只允许
+  # CLI/WebAPI 单次读取与诊断，不参与周期采集（tasks.yaml 中任何引用它
+  # 的 Task 都会在加载期报错）。
+  - device_id: wtg-005
+    model: beckhoff_diag
+    device_group: turbine_diag
+    endpoint:
+      host: "10.0.3.3"
+      extensions:
+        target_net_id: "10.0.3.3.1.1"
+    enabled: true

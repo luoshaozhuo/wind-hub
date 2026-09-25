@@ -139,8 +139,8 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
     return points
 
 
-def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> None:
-    """把压测配置写入目录（system/devices/points/tasks 四件套）。
+def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> Path:
+    """把压测配置写入两级配置树（common/ + site/），返回 site 配置目录。
 
     背压队列放大到 100 万，确保丢点
     只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble`` 的
@@ -149,6 +149,23 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
     plan = PLANS[protocol]
     device = get_device_config(protocol, host, port)
     points = get_point_configs(protocol, plan.num_points)
+
+    device_models = {
+        "device_types": {"turbine": {"name": "风机"}},
+        "device_models": {
+            "perf_model": {
+                "device_type": "turbine",
+                "protocol": device.protocol,
+                "point_table": "perf",
+            }
+        },
+    }
+    instance = {
+        "device_id": device.device_id,
+        "model": "perf_model",
+        "enabled": device.enabled,
+        "endpoint": device.endpoint.model_dump(),
+    }
 
     system = {
         "runtime": {
@@ -172,16 +189,22 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             }
         ],
     }
+    common = config_dir / "common"
+    site = config_dir / "site"
+    common.mkdir(parents=True, exist_ok=True)
+    site.mkdir(parents=True, exist_ok=True)
     files = {
-        "system.yaml": system,
-        "devices.yaml": {"devices": [device.model_dump()]},
-        "points.yaml": {"point_tables": {"perf": {"points": [p.model_dump() for p in points]}}},
-        "tasks.yaml": tasks,
+        common / "device_models.yaml": device_models,
+        common / "points.yaml": {
+            "point_tables": {"perf": {"points": [p.model_dump() for p in points]}}
+        },
+        site / "system.yaml": system,
+        site / "devices.yaml": {"devices": [instance]},
+        site / "tasks.yaml": tasks,
     }
-    for name, payload in files.items():
-        (config_dir / name).write_text(
-            yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8"
-        )
+    for path, payload in files.items():
+        path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
+    return site
 
 
 # ---------------------------------------------------------------------------
@@ -256,8 +279,7 @@ async def run_benchmark(
     collector = MetricsCollector()
 
     with tempfile.TemporaryDirectory(prefix=f"windhub-perf-{protocol}-") as tmp:
-        config_dir = Path(tmp)
-        write_perf_config(config_dir, protocol, host, port)
+        config_dir = write_perf_config(Path(tmp), protocol, host, port)
 
         async with _server_for(protocol, host, port):
             for c in controllers:

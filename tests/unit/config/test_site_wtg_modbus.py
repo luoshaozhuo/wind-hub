@@ -1,7 +1,9 @@
 """site_wtg_modbus 现场配置加载与点映射测试。
 
-验证 configs/site_wtg_modbus 能被 load_config 直接加载，且设备 / 点表 /
-Task 定义满足现场要求（26 台 Modbus 风机、单一共享点表、单一采集 Task）。
+验证 configs/site_wtg_modbus 能被 load_config 直接加载：设备实例经
+common/device_models.yaml 的型号 wtg_modbus_site resolve 为完整
+DeviceConfig，点表（common/points.yaml 的 wtg_modbus_site_v1）与 Task
+定义满足现场要求。
 """
 
 from __future__ import annotations
@@ -15,34 +17,7 @@ from wind_hub.config.loader import load_config
 
 SITE_DIR = Path(__file__).resolve().parents[3] / "configs" / "site_wtg_modbus"
 
-EXPECTED_DEVICE_IDS = {
-    "wtg-002",
-    "wtg-003",
-    "wtg-004",
-    "wtg-011",
-    "wtg-042",
-    "wtg-043",
-    "wtg-044",
-    "wtg-045",
-    "wtg-046",
-    "wtg-047",
-    "wtg-049",
-    "wtg-050",
-    "wtg-051",
-    "wtg-052",
-    "wtg-054",
-    "wtg-055",
-    "wtg-056",
-    "wtg-057",
-    "wtg-058",
-    "wtg-059",
-    "wtg-060",
-    "wtg-061",
-    "wtg-069",
-    "wtg-070",
-    "wtg-071",
-    "wtg-072",
-}
+EXPECTED_DEVICE_IDS = {"wtg-002", "wtg-003"}
 
 ACQUISITION_POINTS = {
     "active_power",
@@ -70,19 +45,30 @@ def site_config():
 class TestSiteConfigLoading:
     def test_load_config_succeeds(self, site_config) -> None:
         assert site_config.reporting is None  # 现场配置不启用 IEC104 slave proxy
+        assert site_config.system.site is not None
+        assert site_config.system.site.site_id == "wtg_modbus"
 
-    def test_26_devices_all_present(self, site_config) -> None:
+    def test_devices_all_present(self, site_config) -> None:
         ids = {d.device_id for d in site_config.devices.devices}
-        assert len(ids) == 26
         assert ids == EXPECTED_DEVICE_IDS
 
-    def test_all_devices_same_group_and_table(self, site_config) -> None:
+    def test_devices_resolved_from_model(self, site_config) -> None:
+        """实例不配置协议/点表——resolve 后来自型号 wtg_modbus_site。"""
+        model = site_config.device_models["wtg_modbus_site"]
+        assert model.protocol == "modbus"
+        assert model.point_table == "wtg_modbus_site_v1"
+        assert model.device_type == "turbine"
         for d in site_config.devices.devices:
+            assert d.model == "wtg_modbus_site"
+            assert d.device_type == "turbine"
             assert d.protocol == "modbus"
             assert d.device_group == "turbine_modbus"
             assert d.point_table == "wtg_modbus_site_v1"
             assert d.enabled is True
+            # 连接默认值自型号 connection_defaults 合并
             assert d.endpoint.port == 502
+            assert d.endpoint.extensions["unit_id"] == 1
+            assert d.endpoint.extensions["word_order"] == "little_endian"
 
     def test_single_task(self, site_config) -> None:
         tasks = site_config.tasks.tasks
@@ -95,7 +81,7 @@ class TestSiteConfigLoading:
         assert task.enabled is True
         assert [t.sink for t in task.targets] == ["file_archive"]
 
-    def test_task_expands_to_26_instances(self, site_config) -> None:
+    def test_task_expands_to_all_devices(self, site_config) -> None:
         """device_group Task 展开数量 = 命中的 enabled 设备数（Runtime 语义）。"""
         task = site_config.tasks.tasks[0]
         matched = [
@@ -103,7 +89,7 @@ class TestSiteConfigLoading:
             for d in site_config.devices.devices
             if d.enabled and d.device_group == task.device_group
         ]
-        assert len(matched) == 26
+        assert len(matched) == len(EXPECTED_DEVICE_IDS)
 
     def test_all_group_has_only_8_acquisition_points(self, site_config) -> None:
         points = site_config.point_tables.tables["wtg_modbus_site_v1"].points
@@ -154,14 +140,9 @@ class TestSitePointMapping:
         points = {
             p.point_id: p for p in site_config.point_tables.tables["wtg_modbus_site_v1"].points
         }
-        for pid in (
-            "active_power",
-            "active_power_1min",
-            "reactive_power",
-            "wind_speed",
-            "generator_speed",
-            "pitch_angle",
-        ):
+        for pid in ("active_power", "active_power_1min", "reactive_power"):
+            assert points[pid].scale == pytest.approx(0.001), pid
+        for pid in ("wind_speed", "generator_speed", "pitch_angle"):
             assert points[pid].scale == pytest.approx(0.01), pid
         for pid in ("fault_code", "turbine_status", *CONTROL_POINTS):
             assert points[pid].scale == pytest.approx(1.0), pid

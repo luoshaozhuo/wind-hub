@@ -24,12 +24,11 @@ FIXTURE_CONFIGS = Path(__file__).resolve().parents[2] / "fixtures" / "configs"
 
 @pytest.fixture
 def config_dir(tmp_path: Path) -> Path:
-    """把 fixture 配置拷到独立临时目录，测试可自由改写而不污染 fixtures/。"""
+    """把 fixture 配置树（common/ + site/）拷到独立临时目录，返回 site
+    配置目录——测试可自由改写而不污染 fixtures/。"""
     dst = tmp_path / "configs"
-    dst.mkdir()
-    for src in FIXTURE_CONFIGS.glob("*.yaml"):
-        shutil.copy(src, dst / src.name)
-    return dst
+    shutil.copytree(FIXTURE_CONFIGS, dst)
+    return dst / "site"
 
 
 @pytest.fixture

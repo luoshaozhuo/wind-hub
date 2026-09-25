@@ -1,0 +1,113 @@
+# ---------------------------------------------------------------------------
+# wind-hub 公共产品定义 — 设备类型 / 设备型号
+# ---------------------------------------------------------------------------
+#
+# 三层抽象：
+#
+#   DeviceType  — 设备业务类型（turbine / pcs / met_mast …），仅业务分类
+#   DeviceModel — 设备型号：协议、点表绑定、读取策略、连接默认值
+#   DeviceInstance（<site>/devices.yaml）— 现场设备实例：引用型号，
+#                 只写连接差异（endpoint 覆盖 connection_defaults，实例优先）
+#
+# 点表绑定在型号层（point_table → common/points.yaml 的 point_tables 键），
+# 同型号全部实例共享；实例不再配置 protocol / point_table / read_mode。
+#
+# connection_defaults：
+#   - port 并入 Endpoint.port（实例 endpoint.port 优先）；
+#   - 其余键并入 Endpoint.extensions（实例 endpoint.extensions 同名键优先）。
+#
+# read_mode 仅 ADS 型号可配置：sum（Symbol 批量周期采集，缺省）/
+# sequential（逐点 Read，仅单次读取与诊断，不参与周期采集）。
+
+device_types:
+
+  turbine:
+    name: 风力发电机组
+
+  pcs:
+    name: 储能变流器
+
+  met_mast:
+    name: 测风塔
+
+
+device_models:
+
+  # IEC104 风机控制器（遥测 + 遥信）
+  iec104_wtg:
+    device_type: turbine
+    protocol: iec104
+    point_table: iec104_wtg_v1
+    connection_defaults:
+      port: 2404
+      common_addr: 1
+
+  # Modbus 风机控制器
+  modbus_wtg:
+    device_type: turbine
+    protocol: modbus
+    point_table: modbus_wtg_v1
+    connection_defaults:
+      port: 502
+      unit_id: 1
+
+  # Beckhoff 2MW 机组（TwinCAT 2 / ADS）— Sum 批量周期采集
+  beckhoff_2mw:
+    device_type: turbine
+    manufacturer: Beckhoff
+    model: 2MW
+    protocol: ads
+    point_table: beckhoff_2mw_v1
+    read_mode: sum
+    properties:
+      rated_power_kw: 2000
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"      # '2' → 默认 AMS 端口 801，'3' → 851
+
+  # 同机型现场 A 变体 —— 分组与个别 Symbol 按现场 PLC 调整
+  beckhoff_2mw_site_a:
+    device_type: turbine
+    manufacturer: Beckhoff
+    model: 2MW
+    protocol: ads
+    point_table: beckhoff_2mw_site_a
+    read_mode: sum
+    properties:
+      rated_power_kw: 2000
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"
+
+  # Beckhoff ADS 诊断机位 —— sequential 逐点读，仅单次读取与诊断
+  beckhoff_diag:
+    device_type: turbine
+    manufacturer: Beckhoff
+    protocol: ads
+    point_table: beckhoff_diag_v1
+    read_mode: sequential
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"
+
+  # ADS 现场机组（wtg_ads 风场，TwinCAT 2）
+  wtg_ads_site:
+    device_type: turbine
+    protocol: ads
+    point_table: wtg_ads_site_v1
+    read_mode: sum
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"
+      timeout: 3.0
+
+  # Modbus 现场机组（wtg_modbus 风场）
+  wtg_modbus_site:
+    device_type: turbine
+    protocol: modbus
+    point_table: wtg_modbus_site_v1
+    connection_defaults:
+      port: 502
+      unit_id: 1                # 是否为 1 需现场确认
+      timeout: 3.0
+      word_order: little_endian

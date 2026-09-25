@@ -1,0 +1,314 @@
+# ---------------------------------------------------------------------------
+# wind-hub 现场 ADS 配置 — 设备实例（34 台机组，TwinCAT 2 / ADS TCP）
+# 协议、点表、read_mode(sum)、端口(48898)、twincat_version 等由型号
+# wtg_ads_site（common/device_models.yaml）提供；实例只写 host 与
+# target_net_id（AMS Net ID = PLC IP + ".1.1"）。
+# ---------------------------------------------------------------------------
+
+devices:
+
+  - device_id: wtg-001
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.1"
+      extensions:
+        target_net_id: "192.168.151.1.1.1"
+
+  - device_id: wtg-005
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.5"
+      extensions:
+        target_net_id: "192.168.151.5.1.1"
+
+  - device_id: wtg-006
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.6"
+      extensions:
+        target_net_id: "192.168.151.6.1.1"
+
+  - device_id: wtg-007
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.7"
+      extensions:
+        target_net_id: "192.168.151.7.1.1"
+
+  - device_id: wtg-008
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.8"
+      extensions:
+        target_net_id: "192.168.151.8.1.1"
+
+  - device_id: wtg-012
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.12"
+      extensions:
+        target_net_id: "192.168.151.12.1.1"
+
+  - device_id: wtg-013
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.13"
+      extensions:
+        target_net_id: "192.168.151.13.1.1"
+
+  - device_id: wtg-014
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.14"
+      extensions:
+        target_net_id: "192.168.151.14.1.1"
+
+  - device_id: wtg-015
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.15"
+      extensions:
+        target_net_id: "192.168.151.15.1.1"
+
+  - device_id: wtg-016
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.16"
+      extensions:
+        target_net_id: "192.168.151.16.1.1"
+
+  - device_id: wtg-017
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.17"
+      extensions:
+        target_net_id: "192.168.151.17.1.1"
+
+  - device_id: wtg-018
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.18"
+      extensions:
+        target_net_id: "192.168.151.18.1.1"
+
+  - device_id: wtg-019
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.19"
+      extensions:
+        target_net_id: "192.168.151.19.1.1"
+
+  - device_id: wtg-020
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.20"
+      extensions:
+        target_net_id: "192.168.151.20.1.1"
+
+  - device_id: wtg-021
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.21"
+      extensions:
+        target_net_id: "192.168.151.21.1.1"
+
+  - device_id: wtg-022
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.22"
+      extensions:
+        target_net_id: "192.168.151.22.1.1"
+
+  - device_id: wtg-023
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.23"
+      extensions:
+        target_net_id: "192.168.151.23.1.1"
+
+  - device_id: wtg-024
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.24"
+      extensions:
+        target_net_id: "192.168.151.24.1.1"
+
+  - device_id: wtg-025
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.25"
+      extensions:
+        target_net_id: "192.168.151.25.1.1"
+
+  - device_id: wtg-026
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.26"
+      extensions:
+        target_net_id: "192.168.151.26.1.1"
+
+  - device_id: wtg-027
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.27"
+      extensions:
+        target_net_id: "192.168.151.27.1.1"
+
+  - device_id: wtg-028
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.28"
+      extensions:
+        target_net_id: "192.168.151.28.1.1"
+
+  - device_id: wtg-030
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.30"
+      extensions:
+        target_net_id: "192.168.151.30.1.1"
+
+  - device_id: wtg-031
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.31"
+      extensions:
+        target_net_id: "192.168.151.31.1.1"
+
+  - device_id: wtg-032
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.32"
+      extensions:
+        target_net_id: "192.168.151.32.1.1"
+
+  - device_id: wtg-048
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.48"
+      extensions:
+        target_net_id: "192.168.151.48.1.1"
+
+  - device_id: wtg-053
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.53"
+      extensions:
+        target_net_id: "192.168.151.53.1.1"
+
+  - device_id: wtg-062
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.62"
+      extensions:
+        target_net_id: "192.168.151.62.1.1"
+
+  - device_id: wtg-063
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.63"
+      extensions:
+        target_net_id: "192.168.151.63.1.1"
+
+  - device_id: wtg-064
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.64"
+      extensions:
+        target_net_id: "192.168.151.64.1.1"
+
+  - device_id: wtg-065
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.65"
+      extensions:
+        target_net_id: "192.168.151.65.1.1"
+
+  - device_id: wtg-066
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.66"
+      extensions:
+        target_net_id: "192.168.151.66.1.1"
+
+  - device_id: wtg-067
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.67"
+      extensions:
+        target_net_id: "192.168.151.67.1.1"
+
+  - device_id: wtg-068
+    model: wtg_ads_site
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.151.68"
+      extensions:
+        target_net_id: "192.168.151.68.1.1"

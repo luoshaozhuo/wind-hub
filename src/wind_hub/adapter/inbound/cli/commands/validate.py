@@ -16,7 +16,7 @@ app = typer.Typer(name="validate", help="校验配置（schema + 跨文件一致
 @app.callback(invoke_without_command=True)
 def validate(
     config: Path = typer.Option(
-        ..., "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
+        ..., "--config", help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）"
     ),
 ) -> None:
     """加载并校验配置；成功退出码 0，失败退出码 1。"""

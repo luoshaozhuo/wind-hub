@@ -22,6 +22,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from tests.config_helper import write_config_tree
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from wind_hub.adapter.inbound.cli.app import build_cli
 from wind_hub.adapter.inbound.cli.probe.diagnose import diagnose_device
@@ -241,56 +242,43 @@ def _modbus_server_in_thread(port: int) -> Iterator[ModbusMockServer]:
         loop.close()
 
 
-def _write_cli_config(base: Path, port: int) -> None:
-    """probe verify CLI 的最小配置目录（设备指向本测试 Server）。"""
-    (base / "system.yaml").write_text("{}\n", encoding="utf-8")
-    (base / "devices.yaml").write_text(
-        yaml.safe_dump(
+def _write_cli_config(base: Path, port: int) -> Path:
+    """probe verify CLI 的最小配置树（设备指向本测试 Server），返回 site 目录。"""
+    return write_config_tree(
+        base,
+        devices=[
             {
-                "devices": [
+                "device_id": "probe-modbus",
+                "protocol": "modbus",
+                "point_table": "probe-table",
+                "endpoint": {
+                    "host": "127.0.0.1",
+                    "port": port,
+                    "extensions": {"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
+                },
+            }
+        ],
+        point_tables={
+            "probe-table": {
+                "points": [
                     {
-                        "device_id": "probe-modbus",
-                        "protocol": "modbus",
-                        "point_table": "probe-table",
-                        "endpoint": {
-                            "host": "127.0.0.1",
-                            "port": port,
-                            "extensions": {"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
-                        },
+                        "point_id": "rotor.speed",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
                     }
                 ]
             }
-        ),
-        encoding="utf-8",
+        },
     )
-    (base / "points.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "point_tables": {
-                    "probe-table": {
-                        "points": [
-                            {
-                                "point_id": "rotor.speed",
-                                "point_groups": ["telemetry"],
-                                "address": {"register_type": "holding", "address": 100},
-                                "data_type": "float32",
-                            }
-                        ]
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 def test_cli_probe_verify_real_modbus(tmp_path: Path) -> None:
     """CLI 主链 1：``probe verify`` 真实驱动读真实 Server → exit 0 全 ok。"""
     port = _free_port()
     with _modbus_server_in_thread(port):
-        _write_cli_config(tmp_path, port)
-        result = CliRunner().invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
+        site = _write_cli_config(tmp_path, port)
+        result = CliRunner().invoke(build_cli(), ["probe", "verify", "--config", str(site)])
 
     assert result.exit_code == 0, result.output
     assert "设备: probe-modbus (modbus)" in result.output

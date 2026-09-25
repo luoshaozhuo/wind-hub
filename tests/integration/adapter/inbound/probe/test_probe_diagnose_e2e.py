@@ -17,6 +17,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from tests.config_helper import write_config_tree
 from wind_hub.adapter.inbound.cli.app import build_cli
 from wind_hub.adapter.inbound.cli.commands import probe_diagnose
 from wind_hub.adapter.inbound.cli.probe import diagnose as diag
@@ -54,22 +55,6 @@ def _write_config(
     port: int = 502,
     with_point: bool = True,
 ) -> None:
-    (base / "system.yaml").write_text("{}\n", encoding="utf-8")
-    (base / "devices.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "devices": [
-                    {
-                        "device_id": device_id,
-                        "protocol": protocol,
-                        "point_table": "wtg-table",
-                        "endpoint": {"host": host, "port": port, "extensions": {"unit_id": 1}},
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
     points: list[dict[str, Any]] = []
     if with_point:
         points.append(
@@ -80,11 +65,18 @@ def _write_config(
                 "data_type": "int16",
             }
         )
-    (base / "points.yaml").write_text(
-        yaml.safe_dump({"point_tables": {"wtg-table": {"points": points}}}),
-        encoding="utf-8",
+    write_config_tree(
+        base,
+        devices=[
+            {
+                "device_id": device_id,
+                "protocol": protocol,
+                "point_table": "wtg-table",
+                "endpoint": {"host": host, "port": port, "extensions": {"unit_id": 1}},
+            }
+        ],
+        point_tables={"wtg-table": {"points": points}},
     )
-    (base / "tasks.yaml").write_text("tasks: []\n", encoding="utf-8")
 
 
 class _FakeDriver:
@@ -125,7 +117,7 @@ def test_diagnose_loopback_all_ok(
     _patch_driver(monkeypatch)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path)],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site")],
     )
     assert result.exit_code == 0, result.output
     assert "诊断结论: ✅ OK" in result.output
@@ -150,7 +142,7 @@ def test_diagnose_unreachable_ip_fails(
             "--device",
             "wtg-001",
             "--config",
-            str(tmp_path),
+            str(tmp_path / "site"),
             "--timeout",
             "1",
         ],
@@ -200,7 +192,7 @@ def test_exit_code_semantics(
     monkeypatch.setattr(probe_diagnose, "diagnose_device", _fake)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path)],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site")],
     )
     assert result.exit_code == expected_exit, result.output
 
@@ -216,7 +208,7 @@ def test_json_output(runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(probe_diagnose, "diagnose_device", _fake)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path), "--json"],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site"), "--json"],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -230,7 +222,7 @@ def test_unknown_device_exit_one(runner: CliRunner, tmp_path: Path) -> None:
     _write_config(tmp_path)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "no-such", "--config", str(tmp_path)],
+        ["probe", "diagnose", "--device", "no-such", "--config", str(tmp_path / "site")],
     )
     assert result.exit_code == 1
     assert "不存在" in result.output

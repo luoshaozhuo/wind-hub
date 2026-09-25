@@ -19,7 +19,7 @@ app = typer.Typer(name="run", help="启动引擎（前台阻塞，由 systemd/su
 @app.callback(invoke_without_command=True)
 def run(
     config: Path = typer.Option(
-        ..., "--config", help="配置目录（含 system/devices/points/tasks.yaml）"
+        ..., "--config", help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）"
     ),
     host: str = typer.Option("127.0.0.1", "--host", help="API 监听地址"),
     port: int = typer.Option(8080, "--port", help="API 监听端口"),

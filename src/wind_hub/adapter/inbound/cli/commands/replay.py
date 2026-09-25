@@ -32,7 +32,7 @@ def replay(
     sink: str = typer.Option(..., "--sink", help="目标 Sink 名称"),
     rate: int = typer.Option(0, "--rate", help="每秒重放条数（0=不限速）"),
     fmt: str = typer.Option("auto", "--format", help="auto / csv / jsonl（默认按扩展名推断）"),
-    config: Path = typer.Option("configs", "--config", help="配置目录（含 system.yaml）"),
+    config: Path = typer.Option("configs", "--config", help="现场配置目录（<site>/）"),
 ) -> None:
     """读回归档文件并按速率重放到指定 sink，打印统计。"""
     asyncio.run(_run(input_path, sink, rate, fmt, config))

@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.config_helper import write_config_tree
 from wind_hub.assembly import assemble, start_runtime, stop_runtime
 
 _MODULE = "wind_hub.adapter.outbound.sink.db.postgres"
@@ -57,93 +58,66 @@ def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> None:
 
 
 def _write_config(tmp_path: Path) -> Path:
-    """写一份最小完整配置：Modbus 设备 + DB sink + 两个点 + 1 个采集 Task。"""
-    cfg_dir = tmp_path / "configs"
-    cfg_dir.mkdir()
-    _write_yaml(
-        cfg_dir,
-        "system.yaml",
-        {
-            "runtime": {
-                "connect_timeout": 2.0,
-                "read_timeout": 2.0,
-                "shutdown_timeout": 5.0,
-            },
-            "sinks": [
-                {
-                    "name": "db",
-                    "type": "db",
-                    "params": {"dsn": "postgresql://u:p@localhost/windhub", "table": "points"},
-                },
-            ],
-        },
-    )
-    _write_yaml(
-        cfg_dir,
-        "devices.yaml",
-        {
-            "devices": [
-                {
-                    "device_id": "modbus-1",
-                    "protocol": "modbus",
-                    "point_table": "modbus",
-                    "endpoint": {
-                        "host": "127.0.0.1",
-                        "port": _PORT,
-                        "extensions": {
-                            "unit_id": 1,
-                            "timeout": 2.0,
-                            "reconnect_max_retries": 20,
-                            "reconnect_backoff_max": 1.0,
-                            # mock server 寄存器布局为 big-endian float32
-                            "word_order": "big_endian",
-                        },
+    """写一份最小完整配置树（common/ + site/）。返回 site 配置目录。"""
+    return write_config_tree(
+        tmp_path,
+        devices=[
+            {
+                "device_id": "modbus-1",
+                "protocol": "modbus",
+                "point_table": "modbus",
+                "endpoint": {
+                    "host": "127.0.0.1",
+                    "port": _PORT,
+                    "extensions": {
+                        "unit_id": 1,
+                        "timeout": 2.0,
+                        "reconnect_max_retries": 20,
+                        "reconnect_backoff_max": 1.0,
+                        # mock server 寄存器布局为 big-endian float32
+                        "word_order": "big_endian",
                     },
-                }
-            ],
-        },
-    )
-    _write_yaml(
-        cfg_dir,
-        "points.yaml",
-        {
-            "point_tables": {
-                "modbus": {
-                    "points": [
-                        {
-                            "point_id": "rotor.speed",
-                            "point_groups": ["telemetry"],
-                            "address": {"register_type": "holding", "address": 100},
-                            "data_type": "float32",
-                        },
-                        {
-                            "point_id": "gen.power",
-                            "point_groups": ["telemetry"],
-                            "address": {"register_type": "holding", "address": 102},
-                            "data_type": "float32",
-                        },
-                    ],
                 },
+            }
+        ],
+        point_tables={
+            "modbus": {
+                "points": [
+                    {
+                        "point_id": "rotor.speed",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 100},
+                        "data_type": "float32",
+                    },
+                    {
+                        "point_id": "gen.power",
+                        "point_groups": ["telemetry"],
+                        "address": {"register_type": "holding", "address": 102},
+                        "data_type": "float32",
+                    },
+                ],
             },
         },
-    )
-    _write_yaml(
-        cfg_dir,
-        "tasks.yaml",
-        {
-            "tasks": [
-                {
-                    "task_id": "modbus-telemetry",
-                    "device": "modbus-1",
-                    "point_group": "telemetry",
-                    "interval": 0.2,
-                    "targets": [{"sink": "db"}],
-                }
-            ]
+        sinks=[
+            {
+                "name": "db",
+                "type": "db",
+                "params": {"dsn": "postgresql://u:p@localhost/windhub", "table": "points"},
+            },
+        ],
+        tasks=[
+            {
+                "task_id": "modbus-telemetry",
+                "device": "modbus-1",
+                "point_group": "telemetry",
+                "interval": 0.2,
+                "targets": [{"sink": "db"}],
+            }
+        ],
+        system={
+            "runtime": {"connect_timeout": 2.0, "read_timeout": 2.0, "shutdown_timeout": 5.0}
         },
     )
-    return cfg_dir
-
 
 async def _wait_for(predicate: Callable[[], Any], timeout: float = 10.0) -> None:
     """轮询直到 ``predicate()`` 返回真值，否则超时失败。"""

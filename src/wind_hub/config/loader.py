@@ -7,12 +7,15 @@ from typing import Any, cast
 
 import yaml
 
+from wind_hub.config.device_resolver import resolve_devices
 from wind_hub.config.point_table_resolver import resolve_point_tables
 from wind_hub.config.reporting import load_reporting
 from wind_hub.config.schema import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
+    DeviceInstancesConfig,
+    DeviceModelsConfig,
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
@@ -51,11 +54,20 @@ def load_system(path: Path) -> SystemConfig:
         raise ConfigError(f"Invalid system config [{path}]: {exc}") from exc
 
 
-def load_devices(path: Path) -> DevicesConfig:
-    """Load and validate ``devices.yaml``."""
+def load_device_models(path: Path) -> DeviceModelsConfig:
+    """Load and validate ``common/device_models.yaml``（设备类型 + 设备型号）。"""
     raw = _read_yaml(path)
     try:
-        return DevicesConfig(**raw)
+        return DeviceModelsConfig(**raw)
+    except Exception as exc:
+        raise ConfigError(f"Invalid device models config [{path}]: {exc}") from exc
+
+
+def load_devices(path: Path) -> DeviceInstancesConfig:
+    """Load and validate ``<site>/devices.yaml``（现场设备实例）。"""
+    raw = _read_yaml(path)
+    try:
+        return DeviceInstancesConfig(**raw)
     except Exception as exc:
         raise ConfigError(f"Invalid devices config [{path}]: {exc}") from exc
 
@@ -78,42 +90,60 @@ def load_tasks(path: Path) -> TasksConfig:
         raise ConfigError(f"Invalid tasks config [{path}]: {exc}") from exc
 
 
-def load_config(config_dir: str | Path) -> Config:
-    """Load all configuration files from a directory, validate each,
-    run cross-file consistency checks, and return an aggregate ``Config``.
+def load_config(config_dir: str | Path, common_dir: str | Path | None = None) -> Config:
+    """Load all configuration files, validate each, run cross-file
+    consistency checks, and return an aggregate ``Config``.
 
-    Expected files:
-        ``system.yaml``, ``devices.yaml``, ``points.yaml``, ``tasks.yaml``
-        （``reporting.yaml`` 可选）
+    配置目录组织为「公共产品定义 + 单现场实例配置」：
 
-    点表继承：``points.yaml`` 先按 Raw Schema 解析，再经
-    ``point_table_resolver.resolve_point_tables`` 展开 ``extends`` /
-    ``remove_points`` / override 为完整点集；以下全部交叉校验均作用于
-    **resolved** 点表。
+    - ``config_dir`` — 现场配置目录（``<site>/``），含 ``system.yaml``、
+      ``devices.yaml``、``tasks.yaml``（``reporting.yaml`` 可选）；
+    - ``common_dir`` — 公共定义目录，含 ``device_models.yaml``、
+      ``points.yaml``；缺省为 ``config_dir`` 的同级 ``common/``
+      （即 ``config_dir.parent / 'common'``）。
 
-    Cross-file checks:
-        - 设备引用的 ``point_table`` 必须存在；
+    加载顺序：
+
+    1. ``<site>/system.yaml``（含 site 现场身份）；
+    2. ``common/device_models.yaml``（设备类型 + 设备型号）；
+    3. ``common/points.yaml`` → 点表继承展开（extends / remove_points /
+       override，见 ``point_table_resolver``）；
+    4. ``<site>/devices.yaml``（设备实例）；
+    5. ``device_resolver.resolve_devices`` — 实例 + 型号合并为 resolved
+       运行时 ``DeviceConfig``；
+    6. ``<site>/tasks.yaml``；
+    7. ``<site>/reporting.yaml``（可选）；
+    8. 跨文件校验（见下）；
+    9. 聚合为 ``Config``。
+
+    Cross-file checks（全部作用于 resolved 模型）:
+
+        - 型号引用的 ``point_table`` 必须存在；
+        - 设备（resolved）绑定点表的协议约束——ADS 地址形式合法
+          （symbol 单独合法；index_group 与 index_offset 必须成对；三者
+          不得全空），ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``；
         - Task 的 ``device`` 必须存在；``device_group`` 至少匹配一台 enabled
           设备；
         - Task 的 ``point_group`` 必须在其命中的每台 enabled 设备绑定点表
           中存在；
         - Task 的 ``targets`` 必须引用已定义的 sink；
         - 任何 Task 不得命中 ADS ``read_mode='sequential'`` 的设备（该模式
-          只允许请求驱动的单次读取，不参与周期采集）；
-        - ADS 设备点表的地址形式合法（symbol 单独合法；index_group 与
-          index_offset 必须成对；三者不得全空）；
-        - ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``。
+          只允许请求驱动的单次读取，不参与周期采集）。
 
     Raises:
         ConfigError: On any validation or consistency failure.
     """
     base = Path(config_dir)
+    common = Path(common_dir) if common_dir is not None else base.parent / "common"
 
     system = load_system(base / "system.yaml")
-    devices = load_devices(base / "devices.yaml")
+    device_models = load_device_models(common / "device_models.yaml")
     # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
     # resolved 结果（ADS sum symbol、Task point_group 覆盖均按最终点集）。
-    point_tables = resolve_point_tables(load_points(base / "points.yaml"))
+    point_tables = resolve_point_tables(load_points(common / "points.yaml"))
+    # 设备实例 + 型号 → resolved 运行时 DeviceConfig（Runtime 不再回查
+    # 原始 DeviceModel）。
+    devices = resolve_devices(load_devices(base / "devices.yaml"), device_models)
     tasks = load_tasks(base / "tasks.yaml")
 
     # Optional IEC104 slave proxy config — absent means no proxy.
@@ -122,6 +152,7 @@ def load_config(config_dir: str | Path) -> Config:
     if reporting_path.is_file():
         reporting = load_reporting(reporting_path)
 
+    _validate_model_point_tables(device_models, point_tables)
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
 
@@ -131,11 +162,27 @@ def load_config(config_dir: str | Path) -> Config:
 
     return Config(
         system=system,
+        device_types=device_models.device_types,
+        device_models=device_models.device_models,
         devices=devices,
         point_tables=point_tables,
         tasks=tasks,
         reporting=reporting,
     )
+
+
+def _validate_model_point_tables(
+    device_models: DeviceModelsConfig,
+    point_tables: ResolvedPointTables,
+) -> None:
+    """校验全部型号引用的点表存在（未被实例引用的型号同样校验——
+    公共定义库自身必须自洽）。"""
+    for model_id, m in device_models.device_models.items():
+        if m.point_table not in point_tables.tables:
+            raise ConfigError(
+                f"Device model '{model_id}' references unknown point_table "
+                f"'{m.point_table}' (available: {sorted(point_tables.tables)})"
+            )
 
 
 def _validate_task_targets(

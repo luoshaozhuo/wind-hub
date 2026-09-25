@@ -149,11 +149,35 @@ class ADSSystemConfig(BaseModel):
         return _validate_ams_net_id(v)
 
 
+class SiteConfig(BaseModel):
+    """当前部署实例所属现场的身份（``system.yaml`` 的 ``site`` 段）。
+
+    一个 wind-hub 运行实例只对应一个现场；不存在多现场嵌套配置。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    site_id: str
+    """现场唯一标识（如 ``'wind_farm_a'``）。"""
+
+    name: str | None = None
+    """现场显示名（如 ``'某某风电场'``）。"""
+
+    @field_validator("site_id")
+    @classmethod
+    def _check_site_id(cls, v: str) -> str:
+        if not v.strip():
+            raise ConfigError("site_id must be non-empty")
+        return v
+
+
 class SystemConfig(BaseModel):
     """Top-level system configuration (``system.yaml``)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    site: SiteConfig | None = None
+    """当前现场身份；``None`` 表示未声明（仅标识用途，不影响运行链路）。"""
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     ads: ADSSystemConfig | None = None
     """进程级 ADS 本机配置；为 ``None`` 时（或无 ADS 设备）不做 ADS 本机初始化。"""
@@ -169,15 +193,155 @@ class SystemConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# devices.yaml
+# common/device_models.yaml — 设备类型 / 设备型号（公共产品定义）
+# ---------------------------------------------------------------------------
+
+SUPPORTED_PROTOCOLS = frozenset({"ads", "modbus", "iec104"})
+"""现有协议驱动支持的协议集合。"""
+
+ADS_READ_MODES = frozenset({"sum", "sequential"})
+
+
+class DeviceTypeConfig(BaseModel):
+    """设备业务类型（如 ``turbine`` / ``pcs`` / ``bms`` / ``met_mast`` /
+    ``substation``）——仅承载业务分类语义，字段保持精简。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    """类型显示名（如 ``'风力发电机组'``）。"""
+
+
+class DeviceModelConfig(BaseModel):
+    """设备型号——某一设备型号的通用属性与连接默认值（公共产品定义）。
+
+    点表绑定在型号层（``point_table``），同型号全部设备实例共享；实例只
+    描述现场差异（``endpoint`` 覆盖 ``connection_defaults``）。
+    """
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    device_type: str
+    """所属设备类型（``device_types`` 的键）。"""
+    manufacturer: str | None = None
+    model: str | None = None
+    """厂商硬件型号名（如 ``'2MW'``）；与配置键（型号 ID）区分。"""
+    protocol: str
+    point_table: str
+    """绑定的点表名（``common/points.yaml`` 中 ``point_tables`` 的键）。"""
+    read_mode: str | None = None
+    """ADS 读取策略（``'sum'`` / ``'sequential'``，缺省 ``'sum'``）。
+    仅 ``protocol == 'ads'`` 可配置；其他协议配置此字段是配置错误。"""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    """型号级开放属性（如 ``rated_power_kw``）——不做强类型约束。"""
+    connection_defaults: dict[str, Any] = Field(default_factory=dict)
+    """连接默认值——``port`` 并入 Endpoint.port，其余键并入
+    ``Endpoint.extensions``；实例 ``endpoint`` 同名字段优先。"""
+
+    @model_validator(mode="after")
+    def _validate_model(self) -> DeviceModelConfig:
+        if self.protocol not in SUPPORTED_PROTOCOLS:
+            raise ConfigError(
+                f"Device model: protocol '{self.protocol}' must be one of "
+                f"{sorted(SUPPORTED_PROTOCOLS)}"
+            )
+        if self.protocol == "ads":
+            if self.read_mode is not None and self.read_mode not in ADS_READ_MODES:
+                raise ConfigError(
+                    f"ADS device model: read_mode must be 'sum' or 'sequential', "
+                    f"got '{self.read_mode}'"
+                )
+        elif self.read_mode is not None:
+            raise ConfigError(
+                f"Device model (protocol '{self.protocol}'): read_mode is "
+                "ADS-specific and must not be configured for other protocols"
+            )
+        return self
+
+
+class DeviceModelsConfig(BaseModel):
+    """Top-level device models configuration (``common/device_models.yaml``)。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    device_types: dict[str, DeviceTypeConfig] = Field(default_factory=dict)
+    device_models: dict[str, DeviceModelConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_refs(self) -> DeviceModelsConfig:
+        for model_id, m in self.device_models.items():
+            if m.device_type not in self.device_types:
+                raise ConfigError(
+                    f"Device model '{model_id}' references unknown device_type "
+                    f"'{m.device_type}' (available: {sorted(self.device_types)})"
+                )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# <site>/devices.yaml — 现场设备实例
+# ---------------------------------------------------------------------------
+
+
+class InstanceEndpoint(BaseModel):
+    """设备实例的连接端点——只写现场差异；``port`` 可省略，由型号的
+    ``connection_defaults.port`` 提供。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    host: str
+    port: int | None = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceInstanceConfig(BaseModel):
+    """现场设备实例（``devices.yaml`` 的原始 Schema）。
+
+    实例只描述「身份、型号引用、连接差异」——协议、点表、读取策略、连接
+    默认值全部来自 :class:`DeviceModelConfig`；合并为运行时
+    :class:`DeviceConfig` 由 ``config/device_resolver.py`` 完成。
+    """
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    device_id: str
+    model: str
+    """设备型号 ID（``common/device_models.yaml`` 中 ``device_models`` 的键）。"""
+    device_group: str | None = None
+    endpoint: InstanceEndpoint
+    enabled: bool = True
+
+
+class DeviceInstancesConfig(BaseModel):
+    """Top-level device instances configuration（``<site>/devices.yaml`` 的
+    解析目标）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    devices: list[DeviceInstanceConfig]
+
+    @model_validator(mode="after")
+    def _validate_unique(self) -> DeviceInstancesConfig:
+        seen: set[str] = set()
+        for d in self.devices:
+            if d.device_id in seen:
+                raise ConfigError(f"Duplicate device_id: '{d.device_id}'")
+            seen.add(d.device_id)
+        return self
+
+
+# ---------------------------------------------------------------------------
+# resolved DeviceConfig — 运行时设备模型
 # ---------------------------------------------------------------------------
 
 
 class DeviceConfig(BaseModel):
-    """Static configuration of a single device.
+    """Static configuration of a single device（resolved 运行时模型）。
 
-    设备只描述「身份、协议、连接、点表绑定」——「什么时候采、采哪些点、
-    发到哪些 sink」全部由 ``tasks.yaml`` 的采集 Task 决定。
+    由 ``DeviceInstanceConfig`` + ``DeviceModelConfig`` 在 Loader 阶段合并
+    展开——Runtime / Device / Task / Driver 只接触本模型，不回查原始
+    DeviceModel。「什么时候采、采哪些点、发到哪些 sink」全部由
+    ``tasks.yaml`` 的采集 Task 决定。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -186,11 +350,14 @@ class DeviceConfig(BaseModel):
     protocol: str
     endpoint: Endpoint
     point_table: str
-    """绑定的点表名（``points.yaml`` 中 ``point_tables`` 的键）。同类型
-    设备共享同一份点表定义，不逐设备复制。"""
+    """绑定的点表名（继承自设备型号；``common/points.yaml`` 中
+    ``point_tables`` 的键）。同型号设备共享同一份点表定义。"""
+    device_type: str | None = None
+    """设备业务类型（继承自设备型号，如 ``'turbine'``）。"""
+    model: str | None = None
+    """设备型号 ID（继承来源；``common/device_models.yaml`` 的键）。"""
     device_group: str | None = None
-    """设备业务类别（如 ``'turbine'`` / ``'pcs'`` / ``'substation'`` /
-    ``'met_mast'``）——同类大量设备共享同一值，采集 Task 按此维度选择
+    """设备采集分组——同类大量设备共享同一值，采集 Task 按此维度选择
     设备范围。"""
     enabled: bool = True
     read_mode: str = "sum"
@@ -226,12 +393,12 @@ class DevicesConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_devices(self) -> DevicesConfig:
-        allowed = {"ads", "modbus", "iec104"}
         seen: set[str] = set()
         for d in self.devices:
-            if d.protocol not in allowed:
+            if d.protocol not in SUPPORTED_PROTOCOLS:
                 raise ConfigError(
-                    f"Device '{d.device_id}': protocol '{d.protocol}' " f"must be one of {allowed}"
+                    f"Device '{d.device_id}': protocol '{d.protocol}' must be one of "
+                    f"{sorted(SUPPORTED_PROTOCOLS)}"
                 )
             if d.device_id in seen:
                 raise ConfigError(f"Duplicate device_id: '{d.device_id}'")
@@ -659,6 +826,11 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: SystemConfig
+    device_types: dict[str, DeviceTypeConfig] = Field(default_factory=dict)
+    """公共设备类型定义（``common/device_models.yaml``）——仅业务分类元数据。"""
+    device_models: dict[str, DeviceModelConfig] = Field(default_factory=dict)
+    """公共设备型号定义——运行链路不直接消费（设备已 resolve 为
+    :class:`DeviceConfig`），保留用于 diff、诊断与导出。"""
     devices: DevicesConfig
     point_tables: ResolvedPointTables
     """继承解析完成后的点表集——运行链路只使用 resolved 模型。"""

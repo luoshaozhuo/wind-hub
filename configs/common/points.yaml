@@ -240,3 +240,205 @@ point_tables:
         offset: 0.0
         unit: kW
         description: "发电机有功功率"
+
+  # -------------------------------------------------------------------------
+  # 现场点表（ADS / Modbus 实际风场）
+  # -------------------------------------------------------------------------
+
+  # ADS 现场机组点表 —— Symbol 严格使用现场 PLC 名；scale=1、offset=0。
+  wtg_ads_site_v1:
+    points:
+
+      - point_id: wind_speed
+        variable_name: wind_speed
+        point_groups: [all]
+        address:
+          symbol: ".wind_speed"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: m/s
+        description: "风速"
+
+      - point_id: wind_vane_wind_direction
+        variable_name: wind_vane_wind_direction
+        point_groups: [all]
+        address:
+          symbol: ".wind_vane_wind_direction"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: deg
+        description: "风向"
+
+      - point_id: grid_active_power
+        variable_name: grid_active_power
+        point_groups: [all]
+        address:
+          symbol: ".grid_active_power"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: kW
+        description: "并网有功功率"
+
+      - point_id: grid_reactive_power
+        variable_name: grid_reactive_power
+        point_groups: [all]
+        address:
+          symbol: ".grid_reactive_power"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: kVar
+        description: "并网无功功率"
+
+      - point_id: generator_speed
+        variable_name: overspeed_modul_generator_speed_signal_1
+        point_groups: [all]
+        address:
+          symbol: ".overspeed_modul_generator_speed_signal_1"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: rpm
+        description: "发电机转速信号"
+
+  # Modbus 现场机组点表 —— 地址为 0-based protocol offset（文档值是否
+  # 需要 -1 属现场待确认项）；FC04 → input register（只读），控制点为
+  # holding register；S32 → int32（2 寄存器），S16 → int16（1 寄存器）。
+  wtg_modbus_site_v1:
+    points:
+
+      # ---- 采集点（point_group: all，FC04 / input register） ----
+
+      - point_id: active_power
+        variable_name: active_power
+        point_groups: [all]
+        address:
+          type: input
+          address: 178
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kW
+        description: "有功功率瞬时值"
+
+      - point_id: active_power_1min
+        variable_name: active_power_1min
+        point_groups: [all]
+        address:
+          type: input
+          address: 204
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kW
+        description: "有功功率1分钟值"
+
+      - point_id: reactive_power
+        variable_name: reactive_power
+        point_groups: [all]
+        address:
+          type: input
+          address: 180
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kVar
+        description: "无功功率瞬时值"
+
+      - point_id: wind_speed
+        variable_name: wind_speed
+        point_groups: [all]
+        address:
+          type: input
+          address: 357
+        data_type: int16
+        scale: 0.01
+        offset: 0.0
+        unit: m/s
+        description: "风速"
+
+      - point_id: generator_speed
+        variable_name: generator_speed
+        point_groups: [all]
+        address:
+          type: input
+          address: 104
+        data_type: int32
+        scale: 0.01
+        offset: 0.0
+        unit: rpm
+        description: "发电机转速"
+
+      - point_id: pitch_angle
+        variable_name: pitch_angle
+        point_groups: [all]
+        address:
+          type: input
+          address: 859
+        data_type: int32
+        scale: 0.01
+        offset: 0.0
+        unit: deg
+        description: "桨距角"
+
+      - point_id: fault_code
+        variable_name: fault_code
+        point_groups: [all]
+        address:
+          type: input
+          address: 19
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "最新故障代码"
+
+      - point_id: turbine_status
+        variable_name: turbine_status
+        point_groups: [all]
+        address:
+          type: input
+          address: 0
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "风机状态"
+
+      # ---- 控制点（point_group: control，holding register，可写） ----
+
+      - point_id: active_power_setpoint
+        variable_name: active_power_setpoint
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2001
+        data_type: int32
+        scale: 1.0
+        offset: 0.0
+        unit: kW
+        description: "有功功率最大设定值"
+
+      - point_id: reactive_power_setpoint
+        variable_name: reactive_power_setpoint
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2003
+        data_type: int32
+        scale: 1.0
+        offset: 0.0
+        unit: kVar
+        description: "无功功率最大设定值"
+
+      - point_id: turbine_command
+        variable_name: turbine_command
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2005
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "1=起机，2=停机，3=复位"

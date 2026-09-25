@@ -1,0 +1,2 @@
+<template><div><div class="page-head"><div><h1>Config</h1><p>配置查看、校验、Reload、Diff 与导出</p></div><div><el-button>Validate</el-button><el-button>Export</el-button><el-button type="primary">Reload</el-button></div></div>
+<div class="two-col"><el-card shadow="never"><el-tree :data="[{label:'system.yaml'},{label:'devices.yaml'},{label:'points.yaml'},{label:'tasks.yaml'},{label:'reporting.yaml'}]"/></el-card><el-card shadow="never"><pre class="code"># mock config\nruntime:\n  queue_maxsize: 1000\ninterfaces:\n  api:\n    enabled: true</pre></el-card></div></div></template>

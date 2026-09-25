@@ -416,3 +416,47 @@ def test_comprehensive_diff() -> None:
     assert diff.points_changed
     assert diff.point_tables_changed == ["t1"]
     assert diff.has_any_changes
+
+
+# ---------------------------------------------------------------------------
+# DeviceModel 修改 → 引用该型号的全部设备视为 affected
+# ---------------------------------------------------------------------------
+
+
+class TestModelChangeDiff:
+    """型号层修改（点表换绑、连接默认值调整）经 resolved DeviceConfig 的深
+    比较映射到全部引用设备——热重载保持增量，不需要全量重启。"""
+
+    def _load(self, tmp: str, point_table: str):  # type: ignore[no-untyped-def]
+        from pathlib import Path
+
+        from tests.config_helper import write_config_tree
+        from wind_hub.config.loader import load_config
+
+        site = write_config_tree(
+            Path(tmp),
+            devices=[
+                {"device_id": "d1", "model": "m1", "endpoint": {"host": "10.0.0.1", "port": 502}},
+                {"device_id": "d2", "model": "m1", "endpoint": {"host": "10.0.0.2", "port": 502}},
+                {"device_id": "d3", "model": "m2", "endpoint": {"host": "10.0.0.3", "port": 502}},
+            ],
+            device_models={
+                "m1": {"device_type": "turbine", "protocol": "modbus", "point_table": point_table},
+                "m2": {"device_type": "turbine", "protocol": "modbus", "point_table": "t2"},
+            },
+            point_tables={
+                "t1": {"points": [{"point_id": "p1", "point_groups": ["g"], "address": {}}]},
+                "t2": {"points": [{"point_id": "p2", "point_groups": ["g"], "address": {}}]},
+            },
+        )
+        return load_config(site)
+
+    def test_model_point_table_change_marks_all_referencing_devices(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        old = self._load(str(tmp_path / "a"), "t1")
+        new = self._load(str(tmp_path / "b"), "t2")
+        diff = compute_diff(old, new)
+        # m1 的点表换绑 → 引用 m1 的 d1/d2 全部 updated；m2 的 d3 不受影响
+        assert diff.devices.updated == ["d1", "d2"]
+        assert diff.devices.added == []
+        assert diff.devices.removed == []
+        assert "d3" in diff.devices.unchanged

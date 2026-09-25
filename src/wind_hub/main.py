@@ -76,7 +76,7 @@ async def run_application(
     """装配并启动引擎与 Web API，阻塞直到收到 SIGINT/SIGTERM，随后优雅停机。
 
     Args:
-        config_dir: 配置目录（含 system/devices/points/tasks.yaml）。
+        config_dir: 现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）。
         host: Web API 监听地址。
         port: Web API 监听端口。
         shutdown_timeout: 优雅停机整体超时（秒），透传给
@@ -148,7 +148,7 @@ def main() -> int:
     parser.add_argument(
         "--config",
         required=True,
-        help="配置目录（含 system/devices/points/tasks.yaml）",
+        help="现场配置目录（<site>/，含 system/devices/tasks.yaml；公共定义在同级 common/）",
     )
     parser.add_argument("--host", default="127.0.0.1", help="API 监听地址")
     parser.add_argument("--port", type=int, default=8080, help="API 监听端口")
