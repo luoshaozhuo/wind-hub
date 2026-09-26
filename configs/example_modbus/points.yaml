@@ -1,0 +1,161 @@
+# ---------------------------------------------------------------------------
+# wind-hub Modbus 示例配置 — 命名点表集合
+# ---------------------------------------------------------------------------
+#
+# - 点表是【设备无关】的完整点集定义；设备型号经 `point_table: <表名>`
+#   绑定获得点集，多台同型号设备共享同一份定义。
+# - `protocol` 是点表协议（基础表必填），决定点 address 的形式与校验；
+#   设备型号的 protocol 必须与绑定点表一致。
+# - `point_groups` 把点归入一个或多个采集分组（多值）；Task 按
+#   point_group 选择点（task.point_group ∈ point.point_groups）。
+# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - 点表支持单继承（extends / remove_points / 点位补丁）；子表缺省继承
+#   父表 protocol，显式配置必须与父表一致（禁止跨协议继承）。
+#
+# scale / offset：工程值换算参数（value = raw * scale + offset），
+# 由运行时 Device 在采集出口统一应用。
+#
+# Modbus address 字段：`type`（register_type 别名）+ `address`
+# （0-based protocol offset）；FC04 → input register（只读），控制点为
+# holding register；S32 → int32（2 寄存器），S16 → int16（1 寄存器）。
+
+point_tables:
+
+  # Modbus 现场机组点表 —— 地址为 0-based protocol offset（文档值是否
+  # 需要 -1 属现场待确认项）。
+  wtg_modbus_site_v1:
+    protocol: modbus
+    points:
+
+      # ---- 采集点（point_group: all，FC04 / input register） ----
+
+      - point_id: active_power
+        variable_name: active_power
+        point_groups: [all]
+        address:
+          type: input
+          address: 178
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kilowatt
+        description: "有功功率瞬时值"
+
+      - point_id: active_power_1min
+        variable_name: active_power_1min
+        point_groups: [all]
+        address:
+          type: input
+          address: 204
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kilowatt
+        description: "有功功率1分钟值"
+
+      - point_id: reactive_power
+        variable_name: reactive_power
+        point_groups: [all]
+        address:
+          type: input
+          address: 180
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kilovar
+        description: "无功功率瞬时值"
+
+      - point_id: wind_speed
+        variable_name: wind_speed
+        point_groups: [all]
+        address:
+          type: input
+          address: 357
+        data_type: int16
+        scale: 0.01
+        offset: 0.0
+        unit: meter_per_second
+        description: "风速"
+
+      - point_id: generator_speed
+        variable_name: generator_speed
+        point_groups: [all]
+        address:
+          type: input
+          address: 104
+        data_type: int32
+        scale: 0.01
+        offset: 0.0
+        unit: rpm
+        description: "发电机转速"
+
+      - point_id: pitch_angle
+        variable_name: pitch_angle
+        point_groups: [all]
+        address:
+          type: input
+          address: 859
+        data_type: int32
+        scale: 0.01
+        offset: 0.0
+        unit: degree
+        description: "桨距角"
+
+      - point_id: fault_code
+        variable_name: fault_code
+        point_groups: [all]
+        address:
+          type: input
+          address: 19
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "最新故障代码"
+
+      - point_id: turbine_status
+        variable_name: turbine_status
+        point_groups: [all]
+        address:
+          type: input
+          address: 0
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "风机状态"
+
+      # ---- 控制点（point_group: control，holding register，可写） ----
+
+      - point_id: active_power_setpoint
+        variable_name: active_power_setpoint
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2001
+        data_type: int32
+        scale: 1.0
+        offset: 0.0
+        unit: kilowatt
+        description: "有功功率最大设定值"
+
+      - point_id: reactive_power_setpoint
+        variable_name: reactive_power_setpoint
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2003
+        data_type: int32
+        scale: 1.0
+        offset: 0.0
+        unit: kilovar
+        description: "无功功率最大设定值"
+
+      - point_id: turbine_command
+        variable_name: turbine_command
+        point_groups: [control]
+        address:
+          type: holding
+          address: 2005
+        data_type: int16
+        scale: 1.0
+        offset: 0.0
+        description: "1=起机，2=停机，3=复位"

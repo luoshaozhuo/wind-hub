@@ -181,12 +181,7 @@ def test_default_ports_without_config_uses_builtin() -> None:
     assert default_ports() == list(default_ports_config().mapping.keys())
 
 
-def test_load_ports_config_repo_default_file() -> None:
-    """仓库自带的 configs/ports.yaml 必须能加载且含关键映射（防配置漂移）。"""
-    repo_root = Path(__file__).resolve().parents[3]
-    cfg = load_ports_config(repo_root / "configs" / "ports.yaml")
-    assert cfg.mapping[502] == "modbus"
-    assert cfg.mapping[80] == "http"
-    assert cfg.mapping[2404] == "iec104"
-    assert cfg.timeout == 1.0
-    assert cfg.concurrency == 128
+def test_load_ports_config_without_path_returns_builtin() -> None:
+    """未提供配置文件路径（未指定 --ports-config）时返回内置默认值。"""
+    cfg = load_ports_config()
+    assert cfg == default_ports_config()

@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# 端到端测试用点表 —— 覆盖 Modbus / IEC104，含一个可写点
+# ---------------------------------------------------------------------------
+
+point_tables:
+
+  # ---- Modbus（unit 1）：holding 寄存器 ----
+  modbus:
+    protocol: modbus
+    points:
+      - point_id: rotor.speed
+        point_groups: [telemetry]
+        address:
+          register_type: holding
+          address: 100
+        data_type: float32
+
+      - point_id: gen.power
+        point_groups: [telemetry]
+        address:
+          register_type: holding
+          address: 102
+        data_type: float32
+
+      - point_id: temp.int
+        point_groups: [telemetry]
+        address:
+          register_type: holding
+          address: 104
+        data_type: int16
+
+      - point_id: setpoint.power
+        point_groups: [telemetry]
+        address:
+          register_type: holding
+          address: 200
+        data_type: float32
+
+  # ---- IEC104：信息对象地址（IOA）----
+  iec104:
+    protocol: iec104
+    points:
+      - point_id: rotor.speed
+        point_groups: [telemetry]
+        address:
+          ioa: 100
+        data_type: float32
+
+      - point_id: gen.power
+        point_groups: [telemetry]
+        address:
+          ioa: 200
+        data_type: float32

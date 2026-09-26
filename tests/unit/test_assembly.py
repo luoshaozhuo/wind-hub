@@ -25,9 +25,8 @@ from wind_hub.domain.port.outbound import HealthStatus
 
 
 def _write_minimal_config(base: Path) -> Path:
-    """写一份最小但完整的配置树（common/ + site/）：1 台 Modbus 设备
-    + 1 个 file sink + 1 个点位（point_groups=[fast]）+ 1 个采集 Task。
-    返回 site 配置目录。"""
+    """写一份最小自包含配置目录：1 台 Modbus 设备 + 1 个 file sink +
+    1 个点位（point_groups=[fast]）+ 1 个采集 Task。返回该目录。"""
     return write_config_tree(
         base,
         devices=[
@@ -66,7 +65,7 @@ def _write_minimal_config(base: Path) -> Path:
 
 def _write_two_device_config(base: Path) -> Path:
     """写一份两台设备绑定同一共享点表的配置树——用于验证设备无关点表
-    经型号绑定后由多设备共享。返回 site 配置目录。"""
+    经型号绑定后由多设备共享。返回配置目录。"""
     return write_config_tree(
         base,
         devices=[
@@ -159,7 +158,7 @@ def test_assemble_loads_config_exactly_once(monkeypatch) -> None:  # type: ignor
 def test_assemble_accepts_string_config_dir() -> None:
     with tempfile.TemporaryDirectory() as td:
         _write_minimal_config(Path(td))
-        rt = assemble(Path(td) / 'site')
+        rt = assemble(Path(td))
         assert rt.runtime.device_count == 1
 
 

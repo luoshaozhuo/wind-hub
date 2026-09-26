@@ -74,6 +74,10 @@ class ConfigDiff(BaseModel):
     """发生变化（新增/删除/内容修改）的点表名——Runtime 据此对绑定这些表的
     设备做点映射重注入（不重建 Protocol 连接）。"""
 
+    units_changed: bool = False
+    """``True`` when the units definition set changed — 纯展示元数据，
+    不触发任何设备/sink/task 重构，仅促使新配置快照提交。"""
+
     @property
     def has_any_changes(self) -> bool:
         """``True`` if any diff field indicates a change."""
@@ -88,6 +92,7 @@ class ConfigDiff(BaseModel):
             or self.tasks.removed
             or self.tasks.updated
             or self.points_changed
+            or self.units_changed
         )
 
 

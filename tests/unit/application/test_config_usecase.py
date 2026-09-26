@@ -58,7 +58,7 @@ def _write_configs(
     points: list[PointConfig] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
 ) -> Path:
-    """写出一套完整配置树（common/ + site/），返回 site 配置目录。"""
+    """写出一套自包含配置目录，返回该目录。"""
     raw_devices: list[dict] = []
     for d in devices or []:
         dump = d.model_dump()
@@ -96,7 +96,7 @@ def _make_point(point_id: str = "p1") -> PointConfig:
     return PointConfig(
         point_id=point_id,
         point_groups=["g"],
-        address=PointAddress(type="hr"),
+        address=PointAddress(type="holding_register", address=1),
     )
 
 
@@ -121,10 +121,9 @@ def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
     return runtime
 
 
-def _usecase(base: Path, runtime: MagicMock | None = None) -> ConfigUseCase:
+def _usecase(config_dir: Path, runtime: MagicMock | None = None) -> ConfigUseCase:
     """按装配语义构造 ConfigUseCase——加载一次配置并显式注入快照。"""
-    site = base / "site"
-    return ConfigUseCase(site, runtime or _mock_runtime(), load_config(site))
+    return ConfigUseCase(config_dir, runtime or _mock_runtime(), load_config(config_dir))
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +142,7 @@ async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
 
 async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
     """启动快照由组合根加载——非法配置在加载期（而非用例构造期）暴露。"""
-    site = tmp_path / "site"
-    site.mkdir()
-    (site / "system.yaml").write_text("not: [valid")
+    (tmp_path / "system.yaml").write_text("not: [valid")
     with pytest.raises(Exception):  # noqa: B017 — 加载失败类型由 loader 决定
         _usecase(tmp_path, _mock_runtime())
 
@@ -153,13 +150,13 @@ async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
 async def test_init_does_not_load_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """ConfigUseCase 构造不触发 load_config——启动快照由组合根注入。"""
     _write_configs(tmp_path, devices=[_make_device("d1")])
-    cfg = load_config(tmp_path / "site")
+    cfg = load_config(tmp_path)
 
     def _boom(_dir: Path) -> None:
         raise AssertionError("load_config must not be called by ConfigUseCase.__init__")
 
     monkeypatch.setattr("wind_hub.application.usecase.config.load_config", _boom)
-    usecase = ConfigUseCase(tmp_path / "site", _mock_runtime(), cfg)
+    usecase = ConfigUseCase(tmp_path, _mock_runtime(), cfg)
     assert usecase.current_config is cfg
 
 
@@ -175,7 +172,7 @@ async def test_reload_invalid_config_aborts_without_touching_runtime(tmp_path: P
     snapshot_before = usecase.current_config
 
     # 破坏 devices.yaml
-    (tmp_path / "site" / "devices.yaml").write_text("devices: [broken")
+    (tmp_path / "devices.yaml").write_text("devices: [broken")
     result = await usecase.reload()
 
     assert result.success is False
@@ -448,11 +445,12 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
         {
             "point_tables": {
                 "base": {
+                    "protocol": "modbus",
                     "points": [
                         {
                             "point_id": "p1",
                             "point_groups": ["g"],
-                            "address": {"type": "hr"},
+                            "address": {"type": "holding_register", "address": 1},
                             "data_type": "float32",
                             "unit": base_unit,
                         }
@@ -460,18 +458,19 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                 },
                 "child": {"extends": "base"},
                 "other": {
+                    "protocol": "modbus",
                     "points": [
                         {
                             "point_id": "p9",
                             "point_groups": ["g"],
-                            "address": {"type": "hr"},
+                            "address": {"type": "holding_register", "address": 9},
                             "data_type": "float32",
                         }
                     ]
                 },
             }
         },
-        (base / "common" / "points.yaml").open("w"),
+        (base / "points.yaml").open("w"),
     )
 
 
@@ -482,7 +481,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     usecase = _usecase(tmp_path, runtime)
     assert usecase.current_config.point_tables.tables["child"].points[0].unit == "rpm"
 
-    _write_inheritance_configs(tmp_path, base_unit="rps")  # 只改父表
+    _write_inheritance_configs(tmp_path, base_unit="celsius")  # 只改父表
     result = await usecase.reload()
 
     assert result.success is True
@@ -493,7 +492,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     assert diff.points_changed is True
     assert diff.point_tables_changed == ["base", "child"]
     child_points = {p.point_id: p for p in new_cfg.point_tables.tables["child"].points}
-    assert child_points["p1"].unit == "rps"
+    assert child_points["p1"].unit == "celsius"
     # 无关表与无关设备不受影响
     assert "other" not in diff.point_tables_changed
     assert diff.devices.unchanged == ["d1", "d2"]

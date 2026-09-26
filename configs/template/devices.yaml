@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — 设备实例
+# ---------------------------------------------------------------------------
+#
+# 实例只描述「身份、型号引用、连接差异」；协议、点表、读取策略与连接默认
+# 值全部来自 device_models.yaml 的型号定义。endpoint 覆盖型号的
+# connection_defaults（实例优先）。
+#
+# `device_group` 是采集分组——Task 可按它成组下发（见 tasks.yaml）。
+
+devices:
+
+  # Modbus 风机控制器
+  - device_id: wtg-001
+    model: modbus_wtg
+    device_group: turbine_modbus
+    enabled: true
+    endpoint:
+      host: "192.168.1.101"
+
+  # ADS 风机控制器（TwinCAT 2）
+  - device_id: wtg-002
+    model: beckhoff_wtg
+    device_group: turbine_ads
+    enabled: true
+    endpoint:
+      host: "192.168.1.102"
+      extensions:
+        target_net_id: "192.168.1.102.1.1"   # AMS Net ID = PLC IP + ".1.1"

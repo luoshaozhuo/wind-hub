@@ -89,7 +89,7 @@ def test_tasks_endpoints_use_real_task_usecase() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         rt = _assemble(base)
-        site = base / "site"
+        site = base
         set_context(AppContext(config=rt.config, tasks=rt.tasks, runtime=rt.runtime))
         with TestClient(build_api()) as client:
             resp = client.get("/tasks")
@@ -168,7 +168,7 @@ def test_config_reload_reports_tasks_diff() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         rt = _assemble(base)
-        site = base / "site"
+        site = base
         set_context(AppContext(config=rt.config, runtime=rt.runtime))
 
         tasks_path = site / "tasks.yaml"

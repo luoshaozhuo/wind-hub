@@ -1,0 +1,94 @@
+# ---------------------------------------------------------------------------
+# wind-hub 单位定义 — Point 的 unit 字段引用本文件的 unit ID
+# ---------------------------------------------------------------------------
+#
+# point.unit 存储的是本文件 `units` 的键（unit ID），而不是显示符号：
+#
+#     unit: kilowatt      # 正确 —— 引用 unit ID
+#     unit: kW            # 错误 —— 显示符号不是合法 ID
+#
+# 展示层经 `units[unit_id].symbol` 取显示符号（kilowatt → kW）。
+# `none` 表示无量纲（symbol 为空字符串），是 point.unit 的默认值。
+# 点表继承展开后统一校验：引用不存在的 unit ID 是配置错误。
+
+units:
+
+  none:
+    symbol: ""
+    name: Dimensionless
+
+  percent:
+    symbol: "%"
+    name: Percent
+
+  volt:
+    symbol: V
+    name: Volt
+
+  kilovolt:
+    symbol: kV
+    name: Kilovolt
+
+  ampere:
+    symbol: A
+    name: Ampere
+
+  watt:
+    symbol: W
+    name: Watt
+
+  kilowatt:
+    symbol: kW
+    name: Kilowatt
+
+  megawatt:
+    symbol: MW
+    name: Megawatt
+
+  var:
+    symbol: var
+    name: Reactive power
+
+  kilovar:
+    symbol: kVar
+    name: Kilovar
+
+  megavar:
+    symbol: MVar
+    name: Megavar
+
+  hertz:
+    symbol: Hz
+    name: Hertz
+
+  rpm:
+    symbol: rpm
+    name: Revolutions per minute
+
+  meter_per_second:
+    symbol: m/s
+    name: Meter per second
+
+  degree:
+    symbol: deg
+    name: Degree
+
+  celsius:
+    symbol: °C
+    name: Degree Celsius
+
+  pascal:
+    symbol: Pa
+    name: Pascal
+
+  bar:
+    symbol: bar
+    name: Bar
+
+  second:
+    symbol: s
+    name: Second
+
+  millisecond:
+    symbol: ms
+    name: Millisecond

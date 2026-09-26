@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — 采集任务（周期采集的唯一来源）
+# ---------------------------------------------------------------------------
+#
+# - device / device_group 二选一（XOR）：选择设备范围；
+# - point_group：单值；只采集绑定设备点表中 `point_groups` 含该组的点，
+#   该组必须存在于每个匹配到的启用设备的点表中（加载期校验）；
+# - interval：主动轮询（Modbus、ADS Sum）与 ADS 订阅必填，> 0；
+#   纯 IEC104 订阅 Task 可省略；
+# - targets：输出去向，引用 system.yaml 的 sink 名；
+# - enabled: false 的 Task 不展开任何实例、不可启动。
+#
+# 实例注册为 STOPPED，需经 CLI/Web API 显式 start 才开始采集。
+
+tasks:
+
+  # Modbus 机组遥测（按 device_group 展开）
+  - task_id: turbine-modbus-all
+    device_group: turbine_modbus
+    point_group: all
+    interval: 1.0
+    targets:
+      - sink: file_archive
+    enabled: true
+
+  # ADS 机组遥测（按 device_group 展开）
+  - task_id: turbine-ads-all
+    device_group: turbine_ads
+    point_group: all
+    interval: 1.0
+    targets:
+      - sink: file_archive
+    enabled: true

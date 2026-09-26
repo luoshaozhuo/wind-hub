@@ -42,7 +42,7 @@ def _write_config_dir(
     sinks: list[dict[str, Any]] | None = None,
     tasks: list[dict[str, Any]] | None = None,
 ) -> Path:
-    """写出一套最小完整配置树（common/ + site/），返回 site 目录。"""
+    """写出一套最小自包含配置目录，返回该目录。"""
     return write_config_tree(
         base,
         devices=devices,
@@ -104,59 +104,35 @@ def _task(task_id: str = "task1", **overrides: Any) -> dict[str, Any]:
 
 
 class TestLoadConfig:
-    def test_load_example_configs(self) -> None:
-        """Loading the project's configs/site_demo directory succeeds."""
-        cfg = load_config("configs/site_demo")
-        assert cfg.system.runtime.backpressure_policy == "drop_old"
+    def test_load_template_config_dir(self) -> None:
+        """configs/template 是完整自包含配置集，可独立加载。"""
+        cfg = load_config("configs/template")
         assert cfg.system.site is not None
-        assert cfg.system.site.site_id == "demo"
-        assert len(cfg.system.sinks) == 3
-        assert len(cfg.devices.devices) == 5
-        # 公共定义：设备类型与型号进入 Config 聚合
-        assert "turbine" in cfg.device_types
-        assert "beckhoff_2mw" in cfg.device_models
-        # 6 张演示表 + 2 张现场表（ADS / Modbus）
-        assert len(cfg.point_tables.tables) == 8
-        # 继承展开后的点表：base 4 / 2mw 4 / site_a 4 / diag 2 / iec104 4 /
-        # modbus 2 / ads 现场 5 / modbus 现场 11
-        assert sum(len(t.points) for t in cfg.point_tables.tables.values()) == 36
-        # 采集 Task：旧 routing 已由 tasks.yaml 取代
-        assert len(cfg.tasks.tasks) == 5
-        tasks = {t.task_id: t for t in cfg.tasks.tasks}
-        # 单设备 Task
-        assert tasks["wtg001-telemetry"].device == "wtg-001"
-        assert tasks["wtg001-telemetry"].device_group is None
-        assert [t.sink for t in tasks["wtg001-telemetry"].targets] == [
-            "kafka_main",
-            "file_archive",
-        ]
-        # device_group Task
-        fast = tasks["turbine-fast"]
-        assert fast.device is None
-        assert fast.device_group == "turbine_ads"
-        assert fast.point_group == "fast"
-        assert fast.interval == 1.0
-        # 点表绑定在型号层：wtg-003 机型表，wtg-004 现场变体子表
-        dev = {d.device_id: d for d in cfg.devices.devices}
-        assert dev["wtg-003"].point_table == "beckhoff_2mw_v1"
-        assert dev["wtg-003"].model == "beckhoff_2mw"
-        assert dev["wtg-003"].device_type == "turbine"
-        assert dev["wtg-004"].point_table == "beckhoff_2mw_site_a"
-        # 连接默认值自型号合并：端口与 twincat_version 不写在实例上
-        assert dev["wtg-003"].endpoint.port == 48898
-        assert (dev["wtg-003"].endpoint.extensions or {}).get("twincat_version") == "2"
-        by_device = {d: {p.point_id: p for p in pts} for d, pts in cfg.points_by_device().items()}
-        # 原样继承：p001 在机型表与现场表中完全一致
-        assert by_device["wtg-003"]["p001"] == by_device["wtg-004"]["p001"]
-        # remove_points：p003 已不在任何继承展开结果中
-        assert "p003" not in by_device["wtg-003"]
-        assert "p003" not in by_device["wtg-004"]
-        # point_groups override：现场表 p002 从 fast 改为 slow（机型表仍为 fast）
-        assert by_device["wtg-003"]["p002"].point_groups == ["fast"]
-        assert by_device["wtg-004"]["p002"].point_groups == ["slow"]
-        # address 整体替换：现场表 p005 使用现场 Symbol
-        addr = by_device["wtg-004"]["p005"].address
-        assert (addr.model_extra or {}).get("symbol") == "PLC1.Measurements.converterTemp"
+        assert "none" in cfg.units.units
+        assert cfg.units.units["kilowatt"].symbol == "kW"
+        assert len(cfg.devices.devices) == 2
+        # 点表 protocol 进入 resolved 结果
+        assert cfg.point_tables.tables["modbus_wtg_v1"].protocol == "modbus"
+        assert cfg.point_tables.tables["beckhoff_wtg_v1"].protocol == "ads"
+        # 继承展开：子表带父表点 + 新增点
+        child = cfg.point_tables.tables["beckhoff_wtg_v1"].points
+        assert {p.point_id for p in child} == {"rotor_speed", "gen_power", "converter_temp"}
+
+    def test_load_example_modbus_config_dir(self) -> None:
+        """configs/example_modbus 可独立加载。"""
+        cfg = load_config("configs/example_modbus")
+        assert cfg.system.site is not None
+        assert cfg.system.site.site_id == "example_modbus"
+        assert {d.device_id for d in cfg.devices.devices} == {"wtg-002", "wtg-003"}
+        assert cfg.point_tables.tables["wtg_modbus_site_v1"].protocol == "modbus"
+
+    def test_load_example_ads_config_dir(self) -> None:
+        """configs/example_ads 可独立加载。"""
+        cfg = load_config("configs/example_ads")
+        assert cfg.system.site is not None
+        assert cfg.system.site.site_id == "example_ads"
+        assert len(cfg.devices.devices) == 34
+        assert cfg.point_tables.tables["wtg_ads_site_v1"].protocol == "ads"
 
     def test_load_minimal_valid_config(self) -> None:
         """A minimal valid configuration loads without error."""
@@ -210,7 +186,7 @@ class TestMissingFile:
             site = _write_config_dir(
                 Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
             )
-            (Path(td) / "common" / "device_models.yaml").unlink()
+            (site / "device_models.yaml").unlink()
             with pytest.raises(ConfigError, match="not found"):
                 load_config(site)
 
@@ -228,7 +204,16 @@ class TestMissingFile:
             site = _write_config_dir(
                 Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
             )
-            (Path(td) / "common" / "points.yaml").unlink()
+            (site / "points.yaml").unlink()
+            with pytest.raises(ConfigError, match="not found"):
+                load_config(site)
+
+    def test_missing_units_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
+            )
+            (site / "units.yaml").unlink()
             with pytest.raises(ConfigError, match="not found"):
                 load_config(site)
 
@@ -535,12 +520,23 @@ class TestCrossFileValidation:
                     {
                         "device_id": "d2",
                         "protocol": "iec104",
-                        "point_table": "t1",
+                        "point_table": "t2",
                         "device_group": "mixed",
                         "endpoint": {"host": "10.0.0.2", "port": 2404},
                     },
                 ],
-                point_tables=_table([_modbus_point()]),
+                point_tables={
+                    "t1": {"points": [_modbus_point()]},
+                    "t2": {
+                        "points": [
+                            {
+                                "point_id": "p2",
+                                "point_groups": ["default"],
+                                "address": {"ioa": 100},
+                            }
+                        ]
+                    },
+                },
                 tasks=[_task(device=None, device_group="mixed", interval=None)],
             )
             with pytest.raises(ConfigError, match="interval is required"):
@@ -983,7 +979,7 @@ class TestIndividualLoaders:
                 },
             )
             cfg = load_points(p)
-            assert cfg.tables["t1"].points[0].unit is None
+            assert cfg.tables["t1"].points[0].unit is None  # Raw Patch：未写即「未设置」
             assert cfg.tables["t1"].points[0].point_groups == ["default"]
 
     def test_load_points_empty_tables(self) -> None:
@@ -1014,3 +1010,145 @@ class TestIndividualLoaders:
             assert len(cfg.tasks) == 1
             assert cfg.tasks[0].device_group == "turbine"
             assert cfg.tasks[0].enabled is True
+
+
+# ---------------------------------------------------------------------------
+# Cross-file validation — 单位与点表 protocol
+# ---------------------------------------------------------------------------
+
+
+class TestUnitValidation:
+    def test_unknown_unit_raises(self) -> None:
+        """点引用 units.yaml 中不存在的 unit ID → 加载失败。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([{**_modbus_point(), "unit": "KW"}]),
+            )
+            with pytest.raises(ConfigError, match="p1.*unknown unit 'KW'"):
+                load_config(site)
+
+    def test_valid_unit_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([{**_modbus_point(), "unit": "kilowatt"}]),
+            )
+            cfg = load_config(site)
+            assert cfg.points_for_device("d1")[0].unit == "kilowatt"
+            assert cfg.units.units["kilowatt"].symbol == "kW"
+
+    def test_unit_validated_after_inheritance_override(self) -> None:
+        """继承 override 后的最终 unit 同样校验。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device(point_table="child")],
+                point_tables={
+                    "base": {"points": [{**_modbus_point(), "unit": "kilowatt"}]},
+                    "child": {
+                        "extends": "base",
+                        "points": [{"point_id": "p1", "unit": "ghost_unit"}],
+                    },
+                },
+            )
+            with pytest.raises(ConfigError, match="unknown unit 'ghost_unit'"):
+                load_config(site)
+
+
+class TestPointTableProtocolValidation:
+    def test_model_protocol_mismatch_with_table_raises(self) -> None:
+        """DeviceModel.protocol 与绑定点表 protocol 不一致 → 加载失败。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[
+                    {
+                        "device_id": "d1",
+                        "model": "m1",
+                        "endpoint": {"host": "10.0.0.1", "port": 502},
+                    }
+                ],
+                device_models={
+                    "m1": {
+                        "device_type": "turbine",
+                        "protocol": "modbus",
+                        "point_table": "t1",
+                    }
+                },
+                point_tables={
+                    "t1": {
+                        "protocol": "ads",
+                        "points": [
+                            {
+                                "point_id": "p1",
+                                "point_groups": ["default"],
+                                "address": {"symbol": "MAIN.p"},
+                            }
+                        ],
+                    }
+                },
+            )
+            with pytest.raises(ConfigError, match="m1.*does not match"):
+                load_config(site)
+
+    def test_cross_protocol_inheritance_raises(self) -> None:
+        """点表跨协议继承 → 加载失败。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device(point_table="child")],
+                point_tables={
+                    "base": {"protocol": "ads", "points": []},
+                    "child": {"extends": "base", "protocol": "modbus"},
+                },
+            )
+            with pytest.raises(ConfigError, match="cross-protocol"):
+                load_config(site)
+
+    def test_modbus_address_validated_by_table_protocol(self) -> None:
+        """Modbus 点缺 address → 加载失败（按点表 protocol 校验）。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"type": "holding_register"},
+                        }
+                    ]
+                ),
+            )
+            with pytest.raises(ConfigError, match="Modbus point 'p1'.*address"):
+                load_config(site)
+
+    def test_iec104_address_validated_by_table_protocol(self) -> None:
+        """IEC104 点缺 ioa → 加载失败。"""
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[
+                    {
+                        "device_id": "d1",
+                        "protocol": "iec104",
+                        "point_table": "t1",
+                        "endpoint": {"host": "10.0.0.1", "port": 2404},
+                    }
+                ],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"type": "measured_value"},
+                        }
+                    ]
+                ),
+            )
+            with pytest.raises(ConfigError, match="IEC104 point 'p1'.*ioa"):
+                load_config(site)

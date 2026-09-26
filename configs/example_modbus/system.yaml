@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# wind-hub Modbus 示例配置 — 系统（引擎、Sink、接口）
+# ---------------------------------------------------------------------------
+
+# 当前现场身份 —— 一个 wind-hub 运行实例只对应一个现场
+site:
+  site_id: example_modbus
+  name: Modbus 示例风场
+
+runtime:
+  # 每个 Sink 的内部队列容量（背压阈值）
+  queue_maxsize: 1000
+  # 背压策略：drop_old（丢最旧）/ drop_new（丢最新）/ block（阻塞）
+  backpressure_policy: drop_old
+  # 优雅停机超时（秒）
+  shutdown_timeout: 30.0
+  # 设备连接超时（秒）
+  connect_timeout: 10.0
+  # 单次读取超时（秒）——一次批量读的应用层外层兜底
+  read_timeout: 5.0
+  # 单次写入默认超时（秒）——Command.timeout <= 0 时生效
+  write_timeout: 5.0
+
+sinks:
+  # kafka 默认关闭（现场未启用）
+  - name: kafka_main
+    type: kafka
+    enabled: false
+    params:
+      bootstrap_servers: "localhost:9092"
+      topic: wind-hub.raw
+
+  # db 默认关闭（现场未启用）
+  - name: db_main
+    type: db
+    enabled: false
+    params:
+      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
+      table: points
+      batch_size: 1000
+
+  # 唯一启用的 Sink：本地 JSONL 归档
+  - name: file_archive
+    type: file
+    enabled: true
+    params:
+      path: /var/tmp/wind-hub/archive.jsonl
+      format: jsonl
+      compress: false
+
+interfaces:
+  api:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8080
+  cli:
+    enabled: true

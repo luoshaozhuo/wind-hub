@@ -57,11 +57,16 @@ def _write_config(
 ) -> None:
     points: list[dict[str, Any]] = []
     if with_point:
+        address: dict[str, Any] = (
+            {"ioa": 100}
+            if protocol == "iec104"
+            else {"type": "holding_register", "address": 0}
+        )
         points.append(
             {
                 "point_id": "rotor.speed",
                 "point_groups": ["telemetry"],
-                "address": {"type": "holding_register", "address": 0},
+                "address": address,
                 "data_type": "int16",
             }
         )
@@ -117,7 +122,7 @@ def test_diagnose_loopback_all_ok(
     _patch_driver(monkeypatch)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site")],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path)],
     )
     assert result.exit_code == 0, result.output
     assert "诊断结论: ✅ OK" in result.output
@@ -142,7 +147,7 @@ def test_diagnose_unreachable_ip_fails(
             "--device",
             "wtg-001",
             "--config",
-            str(tmp_path / "site"),
+            str(tmp_path),
             "--timeout",
             "1",
         ],
@@ -192,7 +197,7 @@ def test_exit_code_semantics(
     monkeypatch.setattr(probe_diagnose, "diagnose_device", _fake)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site")],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path)],
     )
     assert result.exit_code == expected_exit, result.output
 
@@ -208,7 +213,7 @@ def test_json_output(runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(probe_diagnose, "diagnose_device", _fake)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path / "site"), "--json"],
+        ["probe", "diagnose", "--device", "wtg-001", "--config", str(tmp_path), "--json"],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -222,7 +227,7 @@ def test_unknown_device_exit_one(runner: CliRunner, tmp_path: Path) -> None:
     _write_config(tmp_path)
     result = runner.invoke(
         build_cli(),
-        ["probe", "diagnose", "--device", "no-such", "--config", str(tmp_path / "site")],
+        ["probe", "diagnose", "--device", "no-such", "--config", str(tmp_path)],
     )
     assert result.exit_code == 1
     assert "不存在" in result.output

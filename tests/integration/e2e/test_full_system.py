@@ -65,13 +65,11 @@ def _write_yaml(config_dir: Path, name: str, data: dict) -> None:
 
 
 def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_path: Path) -> Path:
-    """写出完整配置树（common/ + site/），返回 site 配置目录。"""
-    common = config_dir / "common"
-    site = config_dir / "site"
-    common.mkdir(parents=True)
-    site.mkdir(parents=True)
+    """写出自包含配置目录，返回该目录。"""
+    site = config_dir
+    site.mkdir(parents=True, exist_ok=True)
     _write_yaml(
-        common,
+        site,
         "device_models.yaml",
         {
             "device_types": {"turbine": {"name": "风机"}},
@@ -142,11 +140,17 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
         },
     )
     _write_yaml(
-        common,
+        site,
+        "units.yaml",
+        {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
+    )
+    _write_yaml(
+        site,
         "points.yaml",
         {
             "point_tables": {
                 "modbus": {
+                    "protocol": "modbus",
                     "points": [
                         {
                             "point_id": "rotor.speed",
@@ -171,6 +175,7 @@ def _build_config(config_dir: Path, modbus_port: int, iec104_port: int, sink_pat
                     ]
                 },
                 "iec104": {
+                    "protocol": "iec104",
                     "points": [
                         {
                             "point_id": "rotor.speed",
@@ -570,9 +575,9 @@ async def test_reload_task_change_and_point_table_scale(system) -> None:
     assert rt.config.current_config.tasks.tasks[0].interval == 0.1
 
     # 点表轻量变化（scale）——不重建连接，set_points 新值立即生效
-    points = yaml.safe_load((config_dir.parent / "common" / "points.yaml").read_text(encoding="utf-8"))
+    points = yaml.safe_load((config_dir / "points.yaml").read_text(encoding="utf-8"))
     points["point_tables"]["modbus"]["points"][0]["scale"] = 3.0
-    _write_yaml(config_dir.parent / "common", "points.yaml", points)
+    _write_yaml(config_dir, "points.yaml", points)
 
     result = await rt.config.reload()
     assert result.success is True

@@ -193,7 +193,48 @@ class SystemConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# common/device_models.yaml — 设备类型 / 设备型号（公共产品定义）
+# units.yaml — 单位定义（配置元数据）
+# ---------------------------------------------------------------------------
+
+
+class UnitConfig(BaseModel):
+    """单个单位定义——``units.yaml`` 中 ``units`` 字典的值。
+
+    点（:class:`PointConfig`）经 unit ID（``units`` 的键）引用单位；
+    ``symbol`` 是展示层使用的显示符号（``kilowatt → kW``）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    """显示符号（如 ``'kW'``）；允许空字符串表示无量纲。"""
+
+    name: str | None = None
+    """单位显示名（如 ``'Kilowatt'``）。"""
+
+
+class UnitsConfig(BaseModel):
+    """Top-level units configuration（``units.yaml``）。
+
+    unit ID 唯一性由 dict 键自然保证；ID 非空在此校验。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    units: dict[str, UnitConfig]
+
+    @model_validator(mode="after")
+    def _validate_units(self) -> UnitsConfig:
+        for unit_id in self.units:
+            if not unit_id.strip():
+                raise ConfigError("units: unit ID must be non-empty")
+        if "none" not in self.units:
+            raise ConfigError("units: must define the 'none' (dimensionless) unit")
+        return self
+
+
+# ---------------------------------------------------------------------------
+# device_models.yaml — 设备类型 / 设备型号
 # ---------------------------------------------------------------------------
 
 SUPPORTED_PROTOCOLS = frozenset({"ads", "modbus", "iec104"})
@@ -228,7 +269,7 @@ class DeviceModelConfig(BaseModel):
     """厂商硬件型号名（如 ``'2MW'``）；与配置键（型号 ID）区分。"""
     protocol: str
     point_table: str
-    """绑定的点表名（``common/points.yaml`` 中 ``point_tables`` 的键）。"""
+    """绑定的点表名（``points.yaml`` 中 ``point_tables`` 的键）。"""
     read_mode: str | None = None
     """ADS 读取策略（``'sum'`` / ``'sequential'``，缺省 ``'sum'``）。
     仅 ``protocol == 'ads'`` 可配置；其他协议配置此字段是配置错误。"""
@@ -260,7 +301,7 @@ class DeviceModelConfig(BaseModel):
 
 
 class DeviceModelsConfig(BaseModel):
-    """Top-level device models configuration (``common/device_models.yaml``)。"""
+    """Top-level device models configuration (``device_models.yaml``)。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -279,7 +320,7 @@ class DeviceModelsConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# <site>/devices.yaml — 现场设备实例
+# devices.yaml — 现场设备实例
 # ---------------------------------------------------------------------------
 
 
@@ -306,15 +347,14 @@ class DeviceInstanceConfig(BaseModel):
 
     device_id: str
     model: str
-    """设备型号 ID（``common/device_models.yaml`` 中 ``device_models`` 的键）。"""
+    """设备型号 ID（``device_models.yaml`` 中 ``device_models`` 的键）。"""
     device_group: str | None = None
     endpoint: InstanceEndpoint
     enabled: bool = True
 
 
 class DeviceInstancesConfig(BaseModel):
-    """Top-level device instances configuration（``<site>/devices.yaml`` 的
-    解析目标）。"""
+    """Top-level device instances configuration（``devices.yaml`` 的解析目标）。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -350,12 +390,12 @@ class DeviceConfig(BaseModel):
     protocol: str
     endpoint: Endpoint
     point_table: str
-    """绑定的点表名（继承自设备型号；``common/points.yaml`` 中
+    """绑定的点表名（继承自设备型号；``points.yaml`` 中
     ``point_tables`` 的键）。同型号设备共享同一份点表定义。"""
     device_type: str | None = None
     """设备业务类型（继承自设备型号，如 ``'turbine'``）。"""
     model: str | None = None
-    """设备型号 ID（继承来源；``common/device_models.yaml`` 的键）。"""
+    """设备型号 ID（继承来源；``device_models.yaml`` 的键）。"""
     device_group: str | None = None
     """设备采集分组——同类大量设备共享同一值，采集 Task 按此维度选择
     设备范围。"""
@@ -486,7 +526,10 @@ class PointConfig(BaseModel):
     """工程值换算系数——``Device`` 对数值读数应用 ``value * scale + offset``。"""
     offset: float = 0.0
     """工程值换算偏移——见 ``scale``。"""
-    unit: str | None = None
+    unit: str = "none"
+    """单位 ID——引用 ``units.yaml`` 中 ``units`` 的键（如 ``kilowatt``，
+    展示符号 ``kW`` 由单位定义提供）；``'none'`` 表示无量纲。ID 合法性
+    由 Loader 在继承展开后统一跨文件校验。"""
     description: str | None = None
 
     @model_validator(mode="after")
@@ -540,6 +583,9 @@ class PointPatch(BaseModel):
 class PointTableConfig(BaseModel):
     """Raw 点表（``points.yaml`` 中的表定义）——可复用、可单继承。
 
+    - ``protocol``：点表协议——决定点 ``address`` 的编辑与校验形式。
+      基础表（无 ``extends``）必填；子表可省略（继承父表），显式配置时
+      必须与父表一致（禁止跨协议继承，由 resolver 校验）；
     - ``extends``：父表名（单继承，允许多级链）；``None`` 表示基础表；
     - ``remove_points``：按 ``point_id`` 从父表解析结果中删除；
     - ``points``：补丁列表——``point_id`` 已存在于父表结果为 override，
@@ -551,12 +597,20 @@ class PointTableConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    protocol: str | None = None
+    """点表协议（``ads`` / ``modbus`` / ``iec104``）；基础表必填，子表
+    缺省时继承父表。"""
     extends: str | None = None
     remove_points: list[str] = Field(default_factory=list)
     points: list[PointPatch] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_raw(self) -> PointTableConfig:
+        if self.protocol is not None and self.protocol not in SUPPORTED_PROTOCOLS:
+            raise ConfigError(
+                f"Point table: protocol '{self.protocol}' must be one of "
+                f"{sorted(SUPPORTED_PROTOCOLS)}"
+            )
         seen: set[str] = set()
         for p in self.points:
             if p.point_id in seen:
@@ -577,6 +631,8 @@ class ResolvedPointTable(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    protocol: str
+    """点表协议（继承展开后的最终值）——运行态与 admin 直接读取。"""
     points: list[PointConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -826,8 +882,11 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: SystemConfig
+    units: UnitsConfig
+    """单位定义集（``units.yaml``）——``PointConfig.unit`` 引用的 unit ID
+    命名空间；展示层经 ``units[unit_id].symbol`` 取显示符号。"""
     device_types: dict[str, DeviceTypeConfig] = Field(default_factory=dict)
-    """公共设备类型定义（``common/device_models.yaml``）——仅业务分类元数据。"""
+    """公共设备类型定义（``device_models.yaml``）——仅业务分类元数据。"""
     device_models: dict[str, DeviceModelConfig] = Field(default_factory=dict)
     """公共设备型号定义——运行链路不直接消费（设备已 resolve 为
     :class:`DeviceConfig`），保留用于 diff、诊断与导出。"""

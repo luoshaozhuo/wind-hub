@@ -1,0 +1,16 @@
+# ---------------------------------------------------------------------------
+# wind-hub Modbus 示例配置 — 采集任务
+# ---------------------------------------------------------------------------
+#
+# 唯一 Task：按 device_group 展开为每台设备一个 Task Instance。
+# 实例启动后为 STOPPED，必须经 CLI/Web API 显式 start 才开始采集。
+
+tasks:
+
+  - task_id: turbine-modbus-all
+    device_group: turbine_modbus
+    point_group: all
+    interval: 1.0
+    targets:
+      - sink: file_archive
+    enabled: true

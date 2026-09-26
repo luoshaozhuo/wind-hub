@@ -53,6 +53,8 @@ from wind_hub.config.schema import (
     SystemConfig,
     TasksConfig,
     TaskTarget,
+    UnitConfig,
+    UnitsConfig,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.device import Endpoint
@@ -248,12 +250,13 @@ def _full_config(
     sink_names: tuple[str, ...] = ("s1", "s2"),
 ) -> Config:
     if tables is None:
-        tables = {"t1": ResolvedPointTable(points=[_make_point("p1")])}
+        tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
     return Config(
         system=SystemConfig(
             runtime=_runtime_config(),
             sinks=[SinkConfig(name=n, type="file") for n in sink_names],
         ),
+        units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=list(devices)),
         point_tables=ResolvedPointTables(tables=tables),
         tasks=TasksConfig(tasks=list(tasks)),
@@ -820,7 +823,7 @@ class TestReconfigure:
         await rt.start()
         try:
             assert protos["d1"].set_points_mapping.call_count == 1
-            new_tables = {"t1": ResolvedPointTable(points=[_make_point("p1"), _make_point("p2")])}
+            new_tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1"), _make_point("p2")])}
             new_cfg = _full_config(devices=devices, tasks=[task], tables=new_tables)
             diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
             errors = await rt.reconfigure(new_cfg, diff)

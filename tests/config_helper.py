@@ -1,15 +1,10 @@
-"""测试辅助——写出两级配置目录（``common/`` + ``site/``）。
+"""测试辅助——写出自包含的单目录配置集。
 
-生产配置组织为「公共产品定义 + 单现场实例配置」：
-
-- ``common/device_models.yaml`` — 设备类型 + 设备型号（点表绑定在型号层）；
-- ``common/points.yaml`` — 命名点表；
-- ``site/system.yaml`` / ``devices.yaml`` / ``tasks.yaml``（``reporting.yaml``
-  可选）——现场实例配置。
-
-:func:`write_config_tree` 在 ``base`` 下生成 ``base/common`` 与
-``base/site`` 并返回 **site 目录**（``load_config`` 的参数；公共目录按
-``site.parent / 'common'`` 默认解析，与生产一致）。
+生产配置目录是完全独立、自包含的完整配置集（``system.yaml`` /
+``units.yaml`` / ``device_models.yaml`` / ``points.yaml`` /
+``devices.yaml`` / ``tasks.yaml``，``reporting.yaml`` 可选）。
+:func:`write_config_tree` 把整套文件直接写进 ``base`` 并返回 ``base``
+（即 ``load_config`` 的参数），与生产 loader 的目录规则一致。
 
 ``devices`` 接受两种写法：
 
@@ -18,6 +13,10 @@
 - 旧式便捷写法：带 ``protocol`` / ``point_table`` / ``read_mode`` 的 dict——
   helper 自动按 ``(protocol, point_table, read_mode)`` 派生型号并改写为
   实例式（端口留在实例 endpoint 上，``connection_defaults`` 为空）。
+
+点表 ``protocol``：基础表必填。测试传入的 Raw 表未写 ``protocol`` 时，
+helper 按「绑定该表（或经 extends 与同组件表连通）的型号协议」自动补全；
+无法推断时回落 ``"modbus"``。显式写出的 ``protocol`` 原样保留。
 """
 
 from __future__ import annotations
@@ -26,6 +25,31 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+# 与 configs/template/units.yaml 保持一致的标准单位集（测试点引用的
+# unit ID 默认都在其中）。
+_DEFAULT_UNITS: dict[str, Any] = {
+    "none": {"symbol": "", "name": "Dimensionless"},
+    "percent": {"symbol": "%", "name": "Percent"},
+    "volt": {"symbol": "V", "name": "Volt"},
+    "kilovolt": {"symbol": "kV", "name": "Kilovolt"},
+    "ampere": {"symbol": "A", "name": "Ampere"},
+    "watt": {"symbol": "W", "name": "Watt"},
+    "kilowatt": {"symbol": "kW", "name": "Kilowatt"},
+    "megawatt": {"symbol": "MW", "name": "Megawatt"},
+    "var": {"symbol": "var", "name": "Reactive power"},
+    "kilovar": {"symbol": "kVar", "name": "Kilovar"},
+    "megavar": {"symbol": "MVar", "name": "Megavar"},
+    "hertz": {"symbol": "Hz", "name": "Hertz"},
+    "rpm": {"symbol": "rpm", "name": "Revolutions per minute"},
+    "meter_per_second": {"symbol": "m/s", "name": "Meter per second"},
+    "degree": {"symbol": "deg", "name": "Degree"},
+    "celsius": {"symbol": "°C", "name": "Degree Celsius"},
+    "pascal": {"symbol": "Pa", "name": "Pascal"},
+    "bar": {"symbol": "bar", "name": "Bar"},
+    "second": {"symbol": "s", "name": "Second"},
+    "millisecond": {"symbol": "ms", "name": "Millisecond"},
+}
 
 
 def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> Path:
@@ -62,6 +86,46 @@ def _derive_models(
     return instances, device_types, device_models
 
 
+def _infer_table_protocols(
+    point_tables: dict[str, Any],
+    device_models: dict[str, Any],
+) -> dict[str, str]:
+    """推断每张 Raw 点表的 protocol（用于补全未显式写的表）。
+
+    规则：型号直接绑定的表取型号协议；其余表沿 ``extends`` 边（双向）
+    找同继承组件内已确定协议的表；都无法确定时回落 ``"modbus"``。
+    """
+    known: dict[str, str] = {}
+    for m in device_models.values():
+        table = m.get("point_table")
+        if table in point_tables:
+            known[table] = m["protocol"]
+
+    # extends 无向连通组件
+    parent = {name: name for name in point_tables}
+
+    def _find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: str, b: str) -> None:
+        parent[_find(a)] = _find(b)
+
+    for name, t in point_tables.items():
+        ext = t.get("extends") if isinstance(t, dict) else None
+        if ext in point_tables:
+            _union(name, ext)
+
+    comp_protocol: dict[str, str] = {}
+    for name in point_tables:
+        if name in known:
+            comp_protocol[_find(name)] = known[name]
+
+    return {name: known.get(name) or comp_protocol.get(_find(name), "modbus") for name in point_tables}
+
+
 def write_config_tree(
     base: Path,
     *,
@@ -69,15 +133,14 @@ def write_config_tree(
     point_tables: dict[str, Any],
     device_models: dict[str, Any] | None = None,
     device_types: dict[str, Any] | None = None,
+    units: dict[str, Any] | None = None,
     sinks: list[dict[str, Any]] | None = None,
     tasks: list[dict[str, Any]] | None = None,
     system: dict[str, Any] | None = None,
     reporting: dict[str, Any] | None = None,
 ) -> Path:
-    """在 ``base`` 下写出完整配置树，返回 site 配置目录。"""
+    """在 ``base`` 下写出自包含配置集，返回配置目录（即 ``base``）。"""
     base = Path(base)
-    common = base / "common"
-    site = base / "site"
 
     if device_models is None:
         instances, derived_types, derived_models = _derive_models(devices)
@@ -87,21 +150,27 @@ def write_config_tree(
         instances = devices
         device_types = device_types or {"turbine": {"name": "风机"}}
 
+    tables = {name: dict(t) for name, t in point_tables.items()}
+    inferred = _infer_table_protocols(tables, device_models)
+    for name, t in tables.items():
+        t.setdefault("protocol", inferred[name])
+
+    _write_yaml(base, "units.yaml", {"units": units or dict(_DEFAULT_UNITS)})
     _write_yaml(
-        common,
+        base,
         "device_models.yaml",
         {"device_types": device_types, "device_models": device_models},
     )
-    _write_yaml(common, "points.yaml", {"point_tables": point_tables})
+    _write_yaml(base, "points.yaml", {"point_tables": tables})
 
     system_data: dict[str, Any] = {
         "sinks": sinks if sinks is not None else [{"name": "s1", "type": "file"}]
     }
     if system:
         system_data.update(system)
-    _write_yaml(site, "system.yaml", system_data)
-    _write_yaml(site, "devices.yaml", {"devices": instances})
-    _write_yaml(site, "tasks.yaml", {"tasks": tasks or []})
+    _write_yaml(base, "system.yaml", system_data)
+    _write_yaml(base, "devices.yaml", {"devices": instances})
+    _write_yaml(base, "tasks.yaml", {"tasks": tasks or []})
     if reporting is not None:
-        _write_yaml(site, "reporting.yaml", reporting)
-    return site
+        _write_yaml(base, "reporting.yaml", reporting)
+    return base

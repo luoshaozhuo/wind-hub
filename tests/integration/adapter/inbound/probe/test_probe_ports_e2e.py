@@ -111,11 +111,11 @@ def test_cli_default_ports_when_unspecified(
     monkeypatch.setattr("wind_hub.adapter.inbound.cli.commands.probe_ports.scan_ports", _fake)
     result = runner.invoke(build_cli(), ["probe", "ports", "--host", "127.0.0.1"])
     assert result.exit_code == 0
-    expected = load_ports_config("configs/ports.yaml")
+    expected = load_ports_config()  # 未指定 --ports-config → 内置工业协议映射
     assert captured["ports"] == list(expected.mapping)
     assert 502 in captured["ports"]  # type: ignore[operator]
-    assert 80 in captured["ports"]  # type: ignore[operator]
-    # 缺省 timeout/concurrency 也来自配置文件
+    assert 2404 in captured["ports"]  # type: ignore[operator]
+    # 缺省 timeout/concurrency 也来自内置配置
     assert captured["timeout"] == expected.timeout
     assert captured["concurrency"] == expected.concurrency
 

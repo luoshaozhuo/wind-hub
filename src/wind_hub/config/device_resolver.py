@@ -1,7 +1,7 @@
 """Device resolver — DeviceInstance + DeviceModel → resolved DeviceConfig。
 
 与 :mod:`wind_hub.config.point_table_resolver` 同级：Loader 阶段把
-``devices.yaml`` 的现场设备实例与 ``common/device_models.yaml`` 的型号
+``devices.yaml`` 的现场设备实例与 ``device_models.yaml`` 的型号
 定义合并为完整的运行时 :class:`DeviceConfig`，Runtime / Device / Task /
 Driver 不再回查原始 DeviceModel。
 

@@ -345,6 +345,7 @@ class TestResolvedPointTable:
         addr = PointAddress(type="holding_register")
         with pytest.raises(ConfigError, match="data_type"):
             ResolvedPointTable(
+                protocol="modbus",
                 points=[
                     PointConfig(
                         point_id="p1",
@@ -359,6 +360,7 @@ class TestResolvedPointTable:
         addr = PointAddress(type="holding_register")
         with pytest.raises(ConfigError, match="Duplicate"):
             ResolvedPointTable(
+                protocol="modbus",
                 points=[
                     PointConfig(
                         point_id="p001",
@@ -377,6 +379,7 @@ class TestResolvedPointTable:
 
     def test_valid_config_builds(self) -> None:
         cfg = ResolvedPointTable(
+            protocol="iec104",
             points=[
                 PointConfig(
                     point_id="p001",

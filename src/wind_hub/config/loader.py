@@ -23,6 +23,7 @@ from wind_hub.config.schema import (
     ResolvedPointTables,
     SystemConfig,
     TasksConfig,
+    UnitsConfig,
 )
 from wind_hub.domain.model.errors import ConfigError
 
@@ -54,8 +55,17 @@ def load_system(path: Path) -> SystemConfig:
         raise ConfigError(f"Invalid system config [{path}]: {exc}") from exc
 
 
+def load_units(path: Path) -> UnitsConfig:
+    """Load and validate ``units.yaml``（单位定义集）。"""
+    raw = _read_yaml(path)
+    try:
+        return UnitsConfig(**raw)
+    except Exception as exc:
+        raise ConfigError(f"Invalid units config [{path}]: {exc}") from exc
+
+
 def load_device_models(path: Path) -> DeviceModelsConfig:
-    """Load and validate ``common/device_models.yaml``（设备类型 + 设备型号）。"""
+    """Load and validate ``device_models.yaml``（设备类型 + 设备型号）。"""
     raw = _read_yaml(path)
     try:
         return DeviceModelsConfig(**raw)
@@ -64,7 +74,7 @@ def load_device_models(path: Path) -> DeviceModelsConfig:
 
 
 def load_devices(path: Path) -> DeviceInstancesConfig:
-    """Load and validate ``<site>/devices.yaml``（现场设备实例）。"""
+    """Load and validate ``devices.yaml``（现场设备实例）。"""
     raw = _read_yaml(path)
     try:
         return DeviceInstancesConfig(**raw)
@@ -90,38 +100,48 @@ def load_tasks(path: Path) -> TasksConfig:
         raise ConfigError(f"Invalid tasks config [{path}]: {exc}") from exc
 
 
-def load_config(config_dir: str | Path, common_dir: str | Path | None = None) -> Config:
-    """Load all configuration files, validate each, run cross-file
-    consistency checks, and return an aggregate ``Config``.
+def load_config(config_dir: str | Path) -> Config:
+    """Load all configuration files from a single self-contained config
+    directory, validate each, run cross-file consistency checks, and return
+    an aggregate ``Config``.
 
-    配置目录组织为「公共产品定义 + 单现场实例配置」：
+    配置目录是完全独立、自包含的完整配置集，包含：
 
-    - ``config_dir`` — 现场配置目录（``<site>/``），含 ``system.yaml``、
-      ``devices.yaml``、``tasks.yaml``（``reporting.yaml`` 可选）；
-    - ``common_dir`` — 公共定义目录，含 ``device_models.yaml``、
-      ``points.yaml``；缺省为 ``config_dir`` 的同级 ``common/``
-      （即 ``config_dir.parent / 'common'``）。
+    - ``system.yaml`` — 运行时参数、Sink、接口（含 site 现场身份）；
+    - ``units.yaml`` — 单位定义集（``PointConfig.unit`` 引用的 unit ID）；
+    - ``device_models.yaml`` — 设备类型 + 设备型号；
+    - ``points.yaml`` — 命名点表（含 protocol）；
+    - ``devices.yaml`` — 现场设备实例；
+    - ``tasks.yaml`` — 周期采集 Task；
+    - ``reporting.yaml`` — IEC104 slave proxy（可选；缺失或 ``reporting``
+      列表为空均表示不启用代理）。
 
     加载顺序：
 
-    1. ``<site>/system.yaml``（含 site 现场身份）；
-    2. ``common/device_models.yaml``（设备类型 + 设备型号）；
-    3. ``common/points.yaml`` → 点表继承展开（extends / remove_points /
-       override，见 ``point_table_resolver``）；
-    4. ``<site>/devices.yaml``（设备实例）；
-    5. ``device_resolver.resolve_devices`` — 实例 + 型号合并为 resolved
-       运行时 ``DeviceConfig``；
-    6. ``<site>/tasks.yaml``；
-    7. ``<site>/reporting.yaml``（可选）；
+    1. ``system.yaml``；
+    2. ``units.yaml``；
+    3. ``device_models.yaml``；
+    4. ``points.yaml`` → 点表继承展开（extends / remove_points /
+       override，含 protocol 继承规则，见 ``point_table_resolver``）；
+    5. ``devices.yaml`` → ``device_resolver.resolve_devices``——实例 +
+       型号合并为 resolved 运行时 ``DeviceConfig``；
+    6. ``tasks.yaml``；
+    7. ``reporting.yaml``（可选）；
     8. 跨文件校验（见下）；
     9. 聚合为 ``Config``。
 
     Cross-file checks（全部作用于 resolved 模型）:
 
-        - 型号引用的 ``point_table`` 必须存在；
-        - 设备（resolved）绑定点表的协议约束——ADS 地址形式合法
-          （symbol 单独合法；index_group 与 index_offset 必须成对；三者
-          不得全空），ADS ``sum`` 设备绑定表的全部点位必须配置 ``symbol``；
+        - 型号引用的 ``point_table`` 必须存在，且型号的 ``protocol`` 必须
+          与绑定点表的 ``protocol`` 一致；
+        - 每个 resolved 点的 ``unit`` 必须是 ``units.yaml`` 中定义的
+          unit ID；
+        - 点地址按其点表 ``protocol`` 校验——ADS 地址形式合法（symbol
+          单独合法；index_group 与 index_offset 必须成对；三者不得全
+          空），Modbus 必须有合法 register_type 与非负 address，
+          IEC104 必须有合法 ioa；
+        - 设备（resolved）绑定点表必须存在；ADS ``sum`` 设备绑定表的
+          全部点位必须配置 ``symbol``；
         - Task 的 ``device`` 必须存在；``device_group`` 至少匹配一台 enabled
           设备；
         - Task 的 ``point_group`` 必须在其命中的每台 enabled 设备绑定点表
@@ -134,13 +154,13 @@ def load_config(config_dir: str | Path, common_dir: str | Path | None = None) ->
         ConfigError: On any validation or consistency failure.
     """
     base = Path(config_dir)
-    common = Path(common_dir) if common_dir is not None else base.parent / "common"
 
     system = load_system(base / "system.yaml")
-    device_models = load_device_models(common / "device_models.yaml")
+    units = load_units(base / "units.yaml")
+    device_models = load_device_models(base / "device_models.yaml")
     # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
     # resolved 结果（ADS sum symbol、Task point_group 覆盖均按最终点集）。
-    point_tables = resolve_point_tables(load_points(common / "points.yaml"))
+    point_tables = resolve_point_tables(load_points(base / "points.yaml"))
     # 设备实例 + 型号 → resolved 运行时 DeviceConfig（Runtime 不再回查
     # 原始 DeviceModel）。
     devices = resolve_devices(load_devices(base / "devices.yaml"), device_models)
@@ -153,6 +173,8 @@ def load_config(config_dir: str | Path, common_dir: str | Path | None = None) ->
         reporting = load_reporting(reporting_path)
 
     _validate_model_point_tables(device_models, point_tables)
+    _validate_point_units(point_tables, units)
+    _validate_table_addresses(point_tables)
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
 
@@ -162,6 +184,7 @@ def load_config(config_dir: str | Path, common_dir: str | Path | None = None) ->
 
     return Config(
         system=system,
+        units=units,
         device_types=device_models.device_types,
         device_models=device_models.device_models,
         devices=devices,
@@ -175,14 +198,47 @@ def _validate_model_point_tables(
     device_models: DeviceModelsConfig,
     point_tables: ResolvedPointTables,
 ) -> None:
-    """校验全部型号引用的点表存在（未被实例引用的型号同样校验——
-    公共定义库自身必须自洽）。"""
+    """校验全部型号引用的点表存在、且型号协议与点表协议一致（未被实例
+    引用的型号同样校验——型号定义自身必须自洽）。"""
     for model_id, m in device_models.device_models.items():
-        if m.point_table not in point_tables.tables:
+        table = point_tables.tables.get(m.point_table)
+        if table is None:
             raise ConfigError(
                 f"Device model '{model_id}' references unknown point_table "
                 f"'{m.point_table}' (available: {sorted(point_tables.tables)})"
             )
+        if m.protocol != table.protocol:
+            raise ConfigError(
+                f"Device model '{model_id}': protocol '{m.protocol}' does not match "
+                f"point table '{m.point_table}' protocol '{table.protocol}'"
+            )
+
+
+def _validate_point_units(
+    point_tables: ResolvedPointTables,
+    units: UnitsConfig,
+) -> None:
+    """校验继承展开后全部点的 ``unit`` 是已定义的 unit ID。"""
+    for table_name, table in point_tables.tables.items():
+        for p in table.points:
+            if p.unit not in units.units:
+                raise ConfigError(
+                    f"Point '{p.point_id}' (table '{table_name}') references "
+                    f"unknown unit '{p.unit}' (available: {sorted(units.units)})"
+                )
+
+
+def _validate_table_addresses(point_tables: ResolvedPointTables) -> None:
+    """按点表 protocol 校验全部 resolved 点的地址形式（配置期失败，不等
+    运行时读失败）。"""
+    for table_name, table in point_tables.tables.items():
+        for p in table.points:
+            if table.protocol == "ads":
+                _validate_ads_address(table_name, p)
+            elif table.protocol == "modbus":
+                _validate_modbus_address(table_name, p)
+            elif table.protocol == "iec104":
+                _validate_iec104_address(table_name, p)
 
 
 def _validate_task_targets(
@@ -268,10 +324,13 @@ def _validate_device_binding(
     device: DeviceConfig,
     point_tables: ResolvedPointTables,
 ) -> None:
-    """校验单台设备的点表绑定与协议相关约束。
+    """校验单台设备的点表绑定与 read_mode 组合约束。
+
+    点地址形式已在 ``_validate_table_addresses`` 按点表 protocol 统一
+    校验；此处只保留设备级约束（ADS ``sum`` 的全 symbol 要求）。
 
     Raises:
-        ConfigError: 点表缺失、ADS 地址非法或 read_mode 组合非法。
+        ConfigError: 点表缺失或 read_mode 组合非法。
     """
     table = point_tables.tables.get(device.point_table)
     if table is None:
@@ -280,22 +339,20 @@ def _validate_device_binding(
             f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
         )
 
-    if device.protocol == "ads":
+    if device.protocol == "ads" and device.read_mode == "sum":
         for p in table.points:
-            _validate_ads_address(device.device_id, p)
             # sum 模式按 symbol 批量读，绑定表必须全部 symbol 寻址
-            if device.read_mode == "sum":
-                symbol = (p.address.model_extra or {}).get("symbol")
-                if symbol is None:
-                    raise ConfigError(
-                        f"ADS point '{p.point_id}' (device '{device.device_id}'): "
-                        f"read_mode='sum' requires 'symbol' on every point of "
-                        f"table '{device.point_table}'"
-                    )
+            symbol = (p.address.model_extra or {}).get("symbol")
+            if symbol is None:
+                raise ConfigError(
+                    f"ADS point '{p.point_id}' (device '{device.device_id}'): "
+                    f"read_mode='sum' requires 'symbol' on every point of "
+                    f"table '{device.point_table}'"
+                )
 
 
-def _validate_ads_address(device_id: str, point: PointConfig) -> None:
-    """校验 ADS 点位地址形式（配置期失败，不等运行时读失败）。
+def _validate_ads_address(table: str, point: PointConfig) -> None:
+    """校验 ADS 点位地址形式。
 
     合法形式：
       1. 仅 ``symbol``——Symbol 寻址（推荐）；
@@ -312,11 +369,68 @@ def _validate_ads_address(device_id: str, point: PointConfig) -> None:
 
     if (index_group is None) != (index_offset is None):
         raise ConfigError(
-            f"ADS point '{point.point_id}' (device '{device_id}'): "
+            f"ADS point '{point.point_id}' (table '{table}'): "
             f"'index_group' and 'index_offset' must be configured together"
         )
     if symbol is None and index_group is None:
         raise ConfigError(
-            f"ADS point '{point.point_id}' (device '{device_id}'): address must "
+            f"ADS point '{point.point_id}' (table '{table}'): address must "
             f"define 'symbol' or 'index_group' + 'index_offset'"
+        )
+
+
+# Modbus register_type 合法取值（与 ``adapter/outbound/protocol/modbus/
+# mapping.py`` 的驱动解析保持一致；loader 不反向依赖 adapter 层）。
+_MODBUS_REGISTER_TYPES = frozenset(
+    {
+        "coil",
+        "discrete_input",
+        "discrete",
+        "input",
+        "input_register",
+        "holding",
+        "holding_register",
+    }
+)
+
+
+def _validate_modbus_address(table: str, point: PointConfig) -> None:
+    """校验 Modbus 点位地址形式（与驱动 ``parse_point`` 的必填字段一致）。
+
+    - ``register_type``（extra 字段）或 ``type``（address 模型字段）必须
+      是 coil / discrete_input / holding / input 之一（含别名）；
+    - ``address`` 必须是非负整数（0-based 寄存器/线圈偏移）。
+
+    Raises:
+        ConfigError: register_type 缺失/非法，或 address 缺失/非法。
+    """
+    extra = point.address.model_extra or {}
+    register_type = extra.get("register_type")
+    if register_type is None:
+        register_type = point.address.type
+    if register_type is None or str(register_type).lower() not in _MODBUS_REGISTER_TYPES:
+        raise ConfigError(
+            f"Modbus point '{point.point_id}' (table '{table}'): missing or invalid "
+            f"register_type '{register_type}' (expected coil/discrete_input/holding/input)"
+        )
+    address = extra.get("address")
+    if isinstance(address, bool) or not isinstance(address, int) or address < 0:
+        raise ConfigError(
+            f"Modbus point '{point.point_id}' (table '{table}'): address must be "
+            f"a non-negative integer, got {address!r}"
+        )
+
+
+def _validate_iec104_address(table: str, point: PointConfig) -> None:
+    """校验 IEC104 点位地址形式——``ioa`` 必须是 [0, 0xFFFFFF] 的整数。
+
+    Raises:
+        ConfigError: ioa 缺失或越界。
+    """
+    extra = point.address.model_extra or {}
+    ioa = extra.get("ioa")
+    if isinstance(ioa, bool) or not isinstance(ioa, int) or not 0 <= ioa <= 0xFFFFFF:
+        raise ConfigError(
+            f"IEC104 point '{point.point_id}' (table '{table}'): ioa must be "
+            f"an integer in [0, 0xFFFFFF], got {ioa!r}"
         )

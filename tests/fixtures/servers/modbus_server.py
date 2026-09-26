@@ -58,7 +58,7 @@ class ModbusMockServer:
 
     默认寄存器布局见模块 docstring；``holding`` / ``inputs`` 可整体替换
     unit 1 的保持/输入寄存器块（按 wire address 索引的完整寄存器列表），
-    供需要自定义点表布局的测试使用（如 site_wtg_modbus 现场配置联调）。
+    供需要自定义点表布局的测试使用（如 example_modbus 配置联调）。
     """
 
     def __init__(

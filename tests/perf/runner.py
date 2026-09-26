@@ -140,7 +140,7 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
 
 
 def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> Path:
-    """把压测配置写入两级配置树（common/ + site/），返回 site 配置目录。
+    """把压测配置写为自包含配置目录，返回该目录。
 
     背压队列放大到 100 万，确保丢点
     只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble`` 的
@@ -189,14 +189,18 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             }
         ],
     }
-    common = config_dir / "common"
-    site = config_dir / "site"
-    common.mkdir(parents=True, exist_ok=True)
+    site = config_dir
     site.mkdir(parents=True, exist_ok=True)
     files = {
-        common / "device_models.yaml": device_models,
-        common / "points.yaml": {
-            "point_tables": {"perf": {"points": [p.model_dump() for p in points]}}
+        site / "units.yaml": {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
+        site / "device_models.yaml": device_models,
+        site / "points.yaml": {
+            "point_tables": {
+                "perf": {
+                    "protocol": device.protocol,
+                    "points": [p.model_dump() for p in points],
+                }
+            }
         },
         site / "system.yaml": system,
         site / "devices.yaml": {"devices": [instance]},

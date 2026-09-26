@@ -22,6 +22,8 @@ from wind_hub.config.schema import (
     ResolvedPointTables,
     SystemConfig,
     TasksConfig,
+    UnitConfig,
+    UnitsConfig,
 )
 from wind_hub.domain.model.device import Endpoint
 from wind_hub.domain.model.errors import ProtocolError, WindHubError
@@ -50,8 +52,11 @@ def _config(devices: list[DeviceConfig], points: list[PointConfig]) -> Config:
     """全部设备共享表 ``t1``——点表设备无关、经绑定复用。"""
     return Config(
         system=SystemConfig(),
+        units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=devices),
-        point_tables=ResolvedPointTables(tables={"t1": ResolvedPointTable(points=points)}),
+        point_tables=ResolvedPointTables(
+            tables={"t1": ResolvedPointTable(protocol="modbus", points=points)}
+        ),
         tasks=TasksConfig(tasks=[]),
     )
 

@@ -130,7 +130,7 @@ def test_verify_all_ok_exit_zero(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
     assert "点表只读验证" in result.output
@@ -151,7 +151,7 @@ def test_verify_partial_failure_exit_one(
             "wtg-002": _FakeDriver(connect_exc=ProtocolError("connection refused")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
 
     assert result.exit_code == 1, result.output
     assert "连接:        ❌ FAIL" in result.output
@@ -172,7 +172,7 @@ def test_verify_bad_quality_exit_two(
             "wtg-002": _FakeDriver(values=[bad]),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site")])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path)])
 
     assert result.exit_code == 2, result.output
     assert "质量 BAD 点:" in result.output
@@ -190,7 +190,7 @@ def test_verify_specific_device(
     )
     result = runner.invoke(
         build_cli(),
-        ["probe", "verify", "--config", str(tmp_path / "site"), "--device", "wtg-001"],
+        ["probe", "verify", "--config", str(tmp_path), "--device", "wtg-001"],
     )
 
     assert result.exit_code == 0, result.output
@@ -202,7 +202,7 @@ def test_verify_unknown_device_exit_one(runner: CliRunner, tmp_path: Path) -> No
     _write_config(tmp_path)
     result = runner.invoke(
         build_cli(),
-        ["probe", "verify", "--config", str(tmp_path / "site"), "--device", "no-such"],
+        ["probe", "verify", "--config", str(tmp_path), "--device", "no-such"],
     )
     assert result.exit_code == 1
     assert "不存在" in result.output
@@ -224,7 +224,7 @@ def test_verify_json_output(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--json"])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path), "--json"])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -247,7 +247,7 @@ def test_verify_yaml_output(
             "wtg-002": _FakeDriver(values=_good_values("wtg-002", "nacelle.temp")),
         },
     )
-    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--yaml"])
+    result = runner.invoke(build_cli(), ["probe", "verify", "--config", str(tmp_path), "--yaml"])
 
     assert result.exit_code == 0, result.output
     payload = yaml.safe_load(result.output)
@@ -257,7 +257,7 @@ def test_verify_yaml_output(
 def test_verify_json_yaml_conflict(runner: CliRunner, tmp_path: Path) -> None:
     _write_config(tmp_path)
     result = runner.invoke(
-        build_cli(), ["probe", "verify", "--config", str(tmp_path / "site"), "--json", "--yaml"]
+        build_cli(), ["probe", "verify", "--config", str(tmp_path), "--json", "--yaml"]
     )
     assert result.exit_code == 1
     assert "二选一" in result.output

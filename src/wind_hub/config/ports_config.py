@@ -1,8 +1,9 @@
 """端口扫描策略配置加载。
 
-``wind-hub probe ports`` 的「端口 → 服务名」映射从 ``configs/ports.yaml``
-读取；未指定 ``--ports`` 时扫描 ``mapping`` 的全部端口。文件缺失时回落到
-内置工业协议映射；YAML 非法或校验失败抛 :class:`ConfigError`。
+``wind-hub probe ports`` 的「端口 → 服务名」映射可经 ``--ports-config``
+从 YAML 文件读取；未提供配置文件时使用内置工业协议映射。未指定
+``--ports`` 时扫描 ``mapping`` 的全部端口。YAML 非法或校验失败抛
+:class:`ConfigError`。
 
 纯加载 + 校验逻辑，无 I/O 副作用（不引入新依赖，只用已依赖的 PyYAML）。
 """
@@ -16,10 +17,6 @@ from typing import Any, cast
 import yaml
 
 from wind_hub.domain.model.errors import ConfigError
-
-# CLI 未显式给 --ports-config 时的默认查找路径（相对当前工作目录，
-# 与 system.yaml 等配置同一部署约定）。
-DEFAULT_PORTS_CONFIG_PATH = Path("configs/ports.yaml")
 
 # 内置「端口 → 服务名」映射：工业协议为主，辅以少量通用管理端口。
 # 未加载配置文件时作为兜底（文件缺失的部署保持可扫描）。
@@ -56,14 +53,16 @@ def default_ports_config() -> PortsConfig:
 def load_ports_config(path: str | Path | None = None) -> PortsConfig:
     """加载端口扫描配置。
 
-    - ``path`` 为 ``None`` 时用 :data:`DEFAULT_PORTS_CONFIG_PATH`；
-    - 文件不存在时返回内置默认值；
+    - ``path`` 为 ``None``（未提供 ``--ports-config``）或文件不存在时
+      返回内置默认值；
     - YAML 解析失败或校验不通过抛 :class:`ConfigError`。
 
     校验：``mapping`` 必须是非空映射，键为合法端口（1..65535）、值为非空
     字符串；``timeout`` > 0；``concurrency`` >= 1。
     """
-    p = Path(path) if path is not None else DEFAULT_PORTS_CONFIG_PATH
+    if path is None:
+        return default_ports_config()
+    p = Path(path)
     if not p.is_file():
         return default_ports_config()
     try:

@@ -106,7 +106,7 @@ def test_discover_ads_to_stdout(
     _fake_ads_points(monkeypatch)
 
     result = runner.invoke(
-        build_cli(), ["probe", "discover", "--device", "plc-001", "--config", str(tmp_path / "site")]
+        build_cli(), ["probe", "discover", "--device", "plc-001", "--config", str(tmp_path)]
     )
 
     assert result.exit_code == 0
@@ -134,7 +134,7 @@ def test_discover_ads_to_file(
             "--device",
             "plc-001",
             "--config",
-            str(tmp_path / "site"),
+            str(tmp_path),
             "--output",
             str(out),
         ],
@@ -166,7 +166,7 @@ def test_discover_ads_filter_prefix(
             "--device",
             "plc-001",
             "--config",
-            str(tmp_path / "site"),
+            str(tmp_path),
             "--filter",
             "MAIN.",
         ],
@@ -186,7 +186,7 @@ def test_discover_ads_filter_prefix(
 def test_discover_modbus_requires_unsafe(runner: CliRunner, tmp_path: Path) -> None:
     _modbus_config(tmp_path)
     result = runner.invoke(
-        build_cli(), ["probe", "discover", "--device", "wtg-002", "--config", str(tmp_path / "site")]
+        build_cli(), ["probe", "discover", "--device", "wtg-002", "--config", str(tmp_path)]
     )
     assert result.exit_code == 1
     assert "--unsafe" in result.output
@@ -196,7 +196,7 @@ def test_discover_modbus_requires_range_with_unsafe(runner: CliRunner, tmp_path:
     _modbus_config(tmp_path)
     result = runner.invoke(
         build_cli(),
-        ["probe", "discover", "--device", "wtg-002", "--config", str(tmp_path / "site"), "--unsafe"],
+        ["probe", "discover", "--device", "wtg-002", "--config", str(tmp_path), "--unsafe"],
     )
     assert result.exit_code == 1
     assert "--range" in result.output
@@ -229,7 +229,7 @@ def test_discover_modbus_scan_outputs_register_draft(
             "--device",
             "wtg-002",
             "--config",
-            str(tmp_path / "site"),
+            str(tmp_path),
             "--unsafe",
             "--range",
             "0-2",
@@ -253,7 +253,7 @@ def test_discover_modbus_scan_outputs_register_draft(
 def test_discover_iec104_reports_unsupported(runner: CliRunner, tmp_path: Path) -> None:
     _iec104_config(tmp_path)
     result = runner.invoke(
-        build_cli(), ["probe", "discover", "--device", "wtg-001", "--config", str(tmp_path / "site")]
+        build_cli(), ["probe", "discover", "--device", "wtg-001", "--config", str(tmp_path)]
     )
     assert result.exit_code == 1
     assert "IEC104 不支持点表发现" in result.output
@@ -262,7 +262,7 @@ def test_discover_iec104_reports_unsupported(runner: CliRunner, tmp_path: Path) 
 def test_discover_unknown_device(runner: CliRunner, tmp_path: Path) -> None:
     _ads_config(tmp_path)
     result = runner.invoke(
-        build_cli(), ["probe", "discover", "--device", "no-such", "--config", str(tmp_path / "site")]
+        build_cli(), ["probe", "discover", "--device", "no-such", "--config", str(tmp_path)]
     )
     assert result.exit_code == 1
     assert "不存在" in result.output
@@ -270,7 +270,7 @@ def test_discover_unknown_device(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_discover_invalid_config_dir(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(
-        build_cli(), ["probe", "discover", "--device", "plc-001", "--config", str(tmp_path / "site")]
+        build_cli(), ["probe", "discover", "--device", "plc-001", "--config", str(tmp_path)]
     )
     assert result.exit_code == 1
 

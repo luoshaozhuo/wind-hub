@@ -34,7 +34,7 @@ class PortState(str, Enum):
 def guess_service(port: int, config: PortsConfig | None = None) -> str | None:
     """端口 → 服务名（纯映射）；未识别的端口返回 ``None``。
 
-    查端口配置的 ``mapping``（configs/ports.yaml 驱动）；``config`` 为
+    查端口配置的 ``mapping``（内置映射或 ``--ports-config`` 驱动）；``config`` 为
     ``None`` 时用内置工业协议映射（配置文件缺失的兜底）。
     """
     if config is None:

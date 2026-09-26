@@ -1,7 +1,7 @@
 """``wind-hub probe ports`` — 指定 IP 的 TCP 端口扫描（仅 Linux）。
 
-``--ports`` 未指定时扫描端口配置的 ``mapping`` 全部端口（默认
-``configs/ports.yaml``，缺失时回落内置工业协议映射，决策 2）；
+``--ports`` 未指定时扫描端口配置的 ``mapping`` 全部端口（缺省为内置
+工业协议映射，可经 ``--ports-config`` 提供自定义 YAML，决策 2）；
 默认表格输出，``--json`` / ``--yaml`` 切换机器可读格式（决策 8）。
 """
 
@@ -18,7 +18,7 @@ from wind_hub.adapter.inbound.cli.output import print_error, print_json, print_t
 from wind_hub.adapter.inbound.cli.probe.ports import scan_ports
 from wind_hub.adapter.inbound.cli.probe.ports_models import PortScanResult, PortState
 from wind_hub.adapter.inbound.cli.probe.ports_parse import default_ports, parse_ports
-from wind_hub.config.ports_config import DEFAULT_PORTS_CONFIG_PATH, load_ports_config
+from wind_hub.config.ports_config import load_ports_config
 from wind_hub.domain.model.errors import ConfigError, WindHubError
 
 
@@ -33,10 +33,10 @@ def ports(
     concurrency: int | None = typer.Option(
         None, "--concurrency", help="并发探测数；缺省用端口配置的 concurrency"
     ),
-    ports_config: Path = typer.Option(
-        DEFAULT_PORTS_CONFIG_PATH,
+    ports_config: Path | None = typer.Option(
+        None,
         "--ports-config",
-        help="端口扫描配置文件（缺省 configs/ports.yaml；文件不存在时用内置默认值）",
+        help="端口扫描配置文件（缺省用内置工业协议映射）",
     ),
     output_json: bool = typer.Option(False, "--json", help="JSON 输出"),
     output_yaml: bool = typer.Option(False, "--yaml", help="YAML 输出"),

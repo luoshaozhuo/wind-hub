@@ -1,9 +1,9 @@
 """modbus_debug — 现场 Modbus 单机调试工具。
 
-固定读取 ``configs/site_wtg_modbus`` 正式配置（设备、点表、word_order 等），
+固定读取 ``configs/example_modbus`` 正式配置（设备、点表、word_order 等），
 但不走 wind-hub Runtime / Scheduler / Task / Device / ModbusDriver——实际
 通信直接使用 pymodbus ``AsyncModbusTcpClient``，用于独立验证现场 PLC 与
-site_wtg_modbus 配置是否匹配。
+example_modbus 配置是否匹配。
 
 用法：
     python -m modbus_debug read-all
@@ -30,10 +30,10 @@ from pymodbus.client import AsyncModbusTcpClient
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import Config, DeviceConfig, PointConfig
 
-# 固定配置目录（仓库根下的 configs/site_wtg_modbus）
-SITE_DIR = Path(__file__).resolve().parents[2] / "configs" / "site_wtg_modbus"
+# 固定配置目录（仓库根下的 configs/example_modbus）
+SITE_DIR = Path(__file__).resolve().parents[2] / "configs" / "example_modbus"
 
-app = typer.Typer(name="modbus_debug", help="现场 Modbus 单机调试工具（读取 site_wtg_modbus 配置）")
+app = typer.Typer(name="modbus_debug", help="现场 Modbus 单机调试工具（读取 example_modbus 配置）")
 
 # 多寄存器数据类型的 struct 格式（大端字节序；字序在寄存器层面处理）。
 _MULTI_REGISTER_FMT: dict[str, str] = {
@@ -63,7 +63,7 @@ _REGISTER_COUNTS: dict[str, int] = {
 
 
 def load_site_config(config_dir: Path = SITE_DIR) -> Config:
-    """加载 site_wtg_modbus 正式配置。"""
+    """加载 example_modbus 正式配置。"""
     return load_config(config_dir)
 
 
@@ -333,7 +333,7 @@ async def watch_loop(
 
 @app.command(name="read-all")
 def read_all_cmd(
-    config_dir: Path = typer.Option(SITE_DIR, "--config", help="配置目录（默认 configs/site_wtg_modbus）"),
+    config_dir: Path = typer.Option(SITE_DIR, "--config", help="配置目录（默认 configs/example_modbus）"),
 ) -> None:
     """读取所有 enabled 的 modbus 设备的 all 组点（各机并发，读完退出）。"""
     config = load_site_config(config_dir)

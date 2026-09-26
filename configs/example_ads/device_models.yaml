@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# wind-hub ADS 示例配置 — 设备类型 / 设备型号
+# ---------------------------------------------------------------------------
+#
+# 三层抽象：DeviceType（业务分类）→ DeviceModel（协议、点表绑定、读取
+# 策略、连接默认值）→ DeviceInstance（devices.yaml，只写连接差异）。
+#
+# read_mode 仅 ADS 型号可配置：sum（Symbol 批量周期采集，缺省）/
+# sequential（逐点 Read，仅单次读取与诊断，不参与周期采集）。
+
+device_types:
+
+  turbine:
+    name: 风力发电机组
+
+
+device_models:
+
+  # ADS 现场机组（TwinCAT 2）
+  wtg_ads_site:
+    device_type: turbine
+    protocol: ads
+    point_table: wtg_ads_site_v1
+    read_mode: sum
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"      # '2' → 默认 AMS 端口 801，'3' → 851
+      timeout: 3.0

@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — 设备类型 / 设备型号
+# ---------------------------------------------------------------------------
+#
+# 三层抽象：
+#
+#   DeviceType  — 设备业务类型（turbine / pcs / met_mast …），仅业务分类
+#   DeviceModel — 设备型号：协议、点表绑定、读取策略、连接默认值
+#   DeviceInstance（devices.yaml）— 现场设备实例：引用型号，只写连接
+#                 差异（endpoint 覆盖 connection_defaults，实例优先）
+#
+# 点表绑定在型号层（point_table → points.yaml 的 point_tables 键），同型号
+# 全部实例共享；型号的 protocol 必须与绑定点表的 protocol 一致。
+#
+# connection_defaults：
+#   - port 并入 Endpoint.port（实例 endpoint.port 优先）；
+#   - 其余键并入 Endpoint.extensions（实例 endpoint.extensions 同名键优先）。
+#
+# read_mode 仅 ADS 型号可配置：sum（Symbol 批量周期采集，缺省）/
+# sequential（逐点 Read，仅单次读取与诊断，不参与周期采集）。
+
+device_types:
+
+  turbine:
+    name: 风力发电机组
+
+
+device_models:
+
+  # Modbus 风机控制器
+  modbus_wtg:
+    device_type: turbine
+    protocol: modbus
+    point_table: modbus_wtg_v1
+    connection_defaults:
+      port: 502
+      unit_id: 1
+      word_order: little_endian
+
+  # Beckhoff 风机控制器（TwinCAT 2 / ADS）— Sum 批量周期采集
+  beckhoff_wtg:
+    device_type: turbine
+    manufacturer: Beckhoff
+    protocol: ads
+    point_table: beckhoff_wtg_v1
+    read_mode: sum
+    connection_defaults:
+      port: 48898
+      twincat_version: "2"      # '2' → 默认 AMS 端口 801，'3' → 851

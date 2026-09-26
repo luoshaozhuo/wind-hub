@@ -88,11 +88,12 @@ source .env.local
 ## 快速开始
 
 ```bash
-# 校验配置（无副作用）
-wind-hub validate --config configs/
+# 校验配置（无副作用）——configs/ 下的 template / example_modbus /
+# example_ads 都是完整自包含的配置目录，可直接作为 --config 参数
+wind-hub validate --config configs/template
 
 # 前台启动引擎，SIGINT/SIGTERM 优雅停机
-wind-hub run --config configs/
+wind-hub run --config configs/template
 
 # 仅查看 run 子命令参数
 wind-hub run --help

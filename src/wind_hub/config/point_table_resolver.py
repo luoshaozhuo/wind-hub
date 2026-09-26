@@ -12,6 +12,7 @@
         cache 命中 → 直接返回
         name 已在 stack → ConfigError（cycle path）
         extends → 递归解析父表并拷贝其结果
+        protocol → 基础表必填；子表缺省继承父表，显式配置必须与父表一致
         remove_points → 逐个点校验存在后删除
         points → point_id 已存在则 merge（override），否则新建（append）
         全部结果经 PointConfig.model_validate 完整校验
@@ -39,26 +40,38 @@ def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
     解析顺序：父表结果 → ``remove_points`` → 本表 points override/append。
 
     Raises:
-        ConfigError: 父表不存在、继承环、``remove_points`` 引用未知点、
-            或 merge/新建结果不构成合法完整点。
+        ConfigError: 父表不存在、继承环、protocol 规则违反（基础表缺失 /
+            子表与父表不一致）、``remove_points`` 引用未知点、或
+            merge/新建结果不构成合法完整点。
     """
-    cache: dict[str, dict[str, PointConfig]] = {}
+    cache: dict[str, _ResolvedTable] = {}
     for name in raw.tables:
         _resolve_table(name, raw.tables, [], cache)
     return ResolvedPointTables(
         tables={
-            name: ResolvedPointTable(points=list(points.values())) for name, points in cache.items()
+            name: ResolvedPointTable(protocol=t.protocol, points=list(t.points.values()))
+            for name, t in cache.items()
         }
     )
+
+
+class _ResolvedTable:
+    """单张表的中间解析结果——最终 protocol + 有序点集。"""
+
+    __slots__ = ("protocol", "points")
+
+    def __init__(self, protocol: str, points: dict[str, PointConfig]) -> None:
+        self.protocol = protocol
+        self.points = points
 
 
 def _resolve_table(
     name: str,
     tables: dict[str, PointTableConfig],
     stack: list[str],
-    cache: dict[str, dict[str, PointConfig]],
-) -> dict[str, PointConfig]:
-    """解析单张表为 ``{point_id: PointConfig}``（保持声明顺序）。"""
+    cache: dict[str, _ResolvedTable],
+) -> _ResolvedTable:
+    """解析单张表（保持点声明顺序），结果缓存。"""
     if name in cache:
         return cache[name]
     if name in stack:
@@ -71,10 +84,14 @@ def _resolve_table(
         raise ConfigError(f"Point table '{parent}' extends unknown table '{name}'")
 
     points: dict[str, PointConfig] = {}
+    parent_protocol: str | None = None
     if table.extends is not None:
         base = _resolve_table(table.extends, tables, [*stack, name], cache)
+        parent_protocol = base.protocol
         # PointConfig 加载后即不可变快照——拷贝 dict 结构即可，不逐点深拷
-        points = dict(base)
+        points = dict(base.points)
+
+    protocol = _resolve_protocol(name, table, parent_protocol)
 
     for point_id in table.remove_points:
         if point_id not in points:
@@ -90,8 +107,33 @@ def _resolve_table(
         else:
             points[patch.point_id] = _create_point(patch, name)
 
-    cache[name] = points
-    return points
+    resolved = _ResolvedTable(protocol, points)
+    cache[name] = resolved
+    return resolved
+
+
+def _resolve_protocol(
+    name: str, table: PointTableConfig, parent_protocol: str | None
+) -> str:
+    """解析点表的最终 protocol。
+
+    - 基础表（无 ``extends``）：``protocol`` 必填；
+    - 子表：缺省继承父表；显式配置时必须与父表一致（禁止跨协议继承）。
+    """
+    if parent_protocol is None:
+        if table.protocol is None:
+            raise ConfigError(
+                f"Point table '{name}': protocol is required on a base table "
+                "(one of ads/modbus/iec104)"
+            )
+        return table.protocol
+    if table.protocol is not None and table.protocol != parent_protocol:
+        raise ConfigError(
+            f"Point table '{name}': protocol '{table.protocol}' does not match "
+            f"parent table '{table.extends}' protocol '{parent_protocol}' "
+            "(cross-protocol inheritance is not allowed)"
+        )
+    return parent_protocol
 
 
 def _merge_point(base: PointConfig, patch: PointPatch, table: str) -> PointConfig:

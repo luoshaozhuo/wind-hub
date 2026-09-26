@@ -25,6 +25,8 @@ from wind_hub.config.schema import (
     SystemConfig,
     TasksConfig,
     TaskTarget,
+    UnitConfig,
+    UnitsConfig,
 )
 from wind_hub.domain.model.device import Endpoint
 
@@ -39,6 +41,7 @@ def _make_config(
         system=SystemConfig(
             sinks=sinks or [],
         ),
+        units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=devices or []),
         point_tables=ResolvedPointTables(tables=tables or {}),
         tasks=TasksConfig(tasks=tasks or []),
@@ -60,7 +63,7 @@ def _device(device_id: str, protocol: str = "modbus", **kwargs) -> DeviceConfig:
 
 
 def _table(*points: PointConfig) -> ResolvedPointTable:
-    return ResolvedPointTable(points=list(points))
+    return ResolvedPointTable(protocol="modbus", points=list(points))
 
 
 def _point(point_id: str = "p1", **kwargs) -> PointConfig:  # type: ignore[no-untyped-def]
@@ -445,8 +448,24 @@ class TestModelChangeDiff:
                 "m2": {"device_type": "turbine", "protocol": "modbus", "point_table": "t2"},
             },
             point_tables={
-                "t1": {"points": [{"point_id": "p1", "point_groups": ["g"], "address": {}}]},
-                "t2": {"points": [{"point_id": "p2", "point_groups": ["g"], "address": {}}]},
+                "t1": {
+                    "points": [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["g"],
+                            "address": {"type": "holding_register", "address": 1},
+                        }
+                    ]
+                },
+                "t2": {
+                    "points": [
+                        {
+                            "point_id": "p2",
+                            "point_groups": ["g"],
+                            "address": {"type": "holding_register", "address": 2},
+                        }
+                    ]
+                },
             },
         )
         return load_config(site)

@@ -125,6 +125,8 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         tasks=tasks,
         points_changed=bool(point_tables_changed),
         point_tables_changed=point_tables_changed,
+        # units 是纯展示元数据：变化不触发设备重连，但要让新快照提交
+        units_changed=old.units != new.units,
     )
 
 

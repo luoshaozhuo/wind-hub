@@ -4,7 +4,7 @@
 覆盖：read-all（多机并发 / 单机失败隔离）/ watch（连续读取、取消后关闭连接）/
 raw（int16 原始输出、int32 四种字序候选、配置解析结果）。
 
-site_wtg_modbus 设备统一 ``word_order: little_endian``（低地址寄存器 = 低 16 位），
+example_modbus 设备统一 ``word_order: little_endian``（低地址寄存器 = 低 16 位），
 mock server 寄存器布局与之对应。
 """
 
@@ -27,7 +27,7 @@ from wind_hub.config.loader import load_config
 from wind_hub.config.schema import Config, DeviceConfig
 from wind_hub.domain.model.device import Endpoint
 
-SITE_DIR = Path(__file__).resolve().parents[2] / "configs" / "site_wtg_modbus"
+SITE_DIR = Path(__file__).resolve().parents[2] / "configs" / "example_modbus"
 PORT_A = 15202
 PORT_B = 15203
 PORT_DEAD = 15299  # 无 server 监听——连接即失败
@@ -41,7 +41,7 @@ _RAW_TURBINE_STATUS = 7
 
 
 def _site_input_registers() -> list[int]:
-    """按 site_wtg_modbus 点表布局构造输入寄存器块（little_endian）。"""
+    """按 example_modbus 点表布局构造输入寄存器块（little_endian）。"""
     values = [0] * 1024
 
     def put_i32(addr: int, raw: int) -> None:
@@ -97,11 +97,10 @@ def _servers_in_thread(*servers: ModbusMockServer) -> Iterator[None]:
 
 
 def _local_config_copy(tmp_path: Path) -> Path:
-    """把 site + common 配置树拷到临时目录，三台设备分别指向两个 live
-    server 与一个死端口。返回 site 配置目录。"""
+    """把配置目录拷到临时目录，三台设备分别指向两个 live server 与一个
+    死端口。返回配置目录。"""
     dst = tmp_path / "cfg"
-    site = shutil.copytree(SITE_DIR, dst / "site")
-    shutil.copytree(SITE_DIR.parent / "common", dst / "common")
+    site = shutil.copytree(SITE_DIR, dst)
     raw = yaml.safe_load((site / "devices.yaml").read_text(encoding="utf-8"))
     # 现场配置为两台机组；第三台（死端口）由测试补齐，用于失败隔离用例。
     devices = raw["devices"][:2]

@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# wind-hub ADS 示例配置 — 命名点表集合
+# ---------------------------------------------------------------------------
+#
+# - `protocol` 是点表协议（基础表必填），决定点 address 的形式与校验；
+#   设备型号的 protocol 必须与绑定点表一致。
+# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - 点表支持单继承（extends / remove_points / 点位补丁）；子表缺省继承
+#   父表 protocol，显式配置必须与父表一致（禁止跨协议继承）。
+#
+# ADS address 字段（Symbol 优先）：
+#     symbol: .wind_speed                   # 推荐：仅 Symbol 寻址
+#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset 成对
+#     index_offset: 0x1234                  #   出现（只写一个是配置错误）
+#   symbol 与 index 同时配置是允许的——实际读写永远以 symbol 优先；
+#   三者全空是配置错误。
+#   注意：read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位
+#   配置 symbol（Sum 命令按 Symbol 批量读）。
+
+point_tables:
+
+  # ADS 现场机组点表 —— Symbol 严格使用现场 PLC 名；scale=1、offset=0。
+  wtg_ads_site_v1:
+    protocol: ads
+    points:
+
+      - point_id: wind_speed
+        variable_name: wind_speed
+        point_groups: [all]
+        address:
+          symbol: ".wind_speed"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: meter_per_second
+        description: "风速"
+
+      - point_id: wind_vane_wind_direction
+        variable_name: wind_vane_wind_direction
+        point_groups: [all]
+        address:
+          symbol: ".wind_vane_wind_direction"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: degree
+        description: "风向"
+
+      - point_id: grid_active_power
+        variable_name: grid_active_power
+        point_groups: [all]
+        address:
+          symbol: ".grid_active_power"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: kilowatt
+        description: "并网有功功率"
+
+      - point_id: grid_reactive_power
+        variable_name: grid_reactive_power
+        point_groups: [all]
+        address:
+          symbol: ".grid_reactive_power"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: kilovar
+        description: "并网无功功率"
+
+      - point_id: generator_speed
+        variable_name: overspeed_modul_generator_speed_signal_1
+        point_groups: [all]
+        address:
+          symbol: ".overspeed_modul_generator_speed_signal_1"
+        data_type: float32
+        scale: 1.0
+        offset: 0.0
+        unit: rpm
+        description: "发电机转速信号"

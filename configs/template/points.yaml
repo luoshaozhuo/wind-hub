@@ -1,0 +1,99 @@
+# ---------------------------------------------------------------------------
+# wind-hub 配置模板 — 命名点表集合（设备无关、可单继承）
+# ---------------------------------------------------------------------------
+#
+# - 点表是【设备无关】的完整点集定义；设备型号经 `point_table: <表名>`
+#   绑定获得点集，多台同型号设备共享同一份定义。
+# - `protocol` 是点表协议（基础表必填，ads / modbus / iec104），决定点
+#   address 的形式与校验；设备型号的 protocol 必须与绑定点表一致。
+# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - 点表继承（extends）：
+#     * 单继承，允许多级链；子表缺省继承父表 protocol，显式配置必须与
+#       父表一致（禁止跨协议继承）；
+#     * 子表写了父表已有的 point_id → override；没有的 → 新增；
+#     * remove_points 按 point_id 从父表结果中删除；
+#     * address 显式配置即整体替换，不残留父表字段。
+#
+# 各协议的 address 字段：
+# - Modbus: `type` + `address`，如 type: holding_register / address: 30001
+#   （type 取值 coil / discrete_input / holding / input 及其别名；
+#    address 为 0-based 寄存器/线圈偏移）
+# - ADS（Symbol 优先）：
+#     symbol: MAIN.rotorSpeed               # 推荐：仅 Symbol 寻址
+#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset 成对
+#     index_offset: 0x1234                  #   出现（只写一个是配置错误）
+#   read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位配置 symbol。
+# - IEC104: `type` + `ioa`，如 type: measured_value / ioa: 1001
+
+point_tables:
+
+  # ---- Modbus 风机点表 ----
+  modbus_wtg_v1:
+    protocol: modbus
+    points:
+
+      - point_id: active_power
+        variable_name: active_power
+        point_groups: [all]
+        address:
+          type: input
+          address: 178
+        data_type: int32
+        scale: 0.001
+        offset: 0.0
+        unit: kilowatt
+        description: "有功功率"
+
+      - point_id: wind_speed
+        variable_name: wind_speed
+        point_groups: [all]
+        address:
+          type: input
+          address: 357
+        data_type: int16
+        scale: 0.01
+        offset: 0.0
+        unit: meter_per_second
+        description: "风速"
+
+  # ---- ADS 风机基础点表（继承基座，不直接绑定） ----
+  beckhoff_base_v1:
+    protocol: ads
+    points:
+
+      - point_id: rotor_speed
+        variable_name: rotor_speed
+        point_groups: [all]
+        address:
+          symbol: MAIN.rotorSpeed
+        data_type: float32
+        unit: rpm
+        description: "风轮转速"
+
+      - point_id: gen_power
+        variable_name: gen_power
+        point_groups: [all]
+        address:
+          symbol: MAIN.genPower
+        data_type: float32
+        unit: kilowatt
+        description: "发电机有功功率"
+
+  # ---- ADS 机型点表：继承基础表并覆盖 Symbol ----
+  beckhoff_wtg_v1:
+    extends: beckhoff_base_v1
+    # protocol 缺省继承父表（ads）；显式写必须与父表一致
+    points:
+
+      - point_id: gen_power           # override：address 整体替换
+        address:
+          symbol: MAIN.power.genActivePower
+
+      - point_id: converter_temp      # 新增点
+        variable_name: converter_temp
+        point_groups: [all]
+        address:
+          symbol: MAIN.converterTemp
+        data_type: float32
+        unit: celsius
+        description: "变流器温度"
