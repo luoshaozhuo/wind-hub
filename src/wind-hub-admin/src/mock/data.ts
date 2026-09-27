@@ -7,7 +7,13 @@ import type {
   PointAddress, PointDef, PointGroupDef, PointTableDef, SinkDef, TaskDef, UnitDef,
 } from './types'
 
-// units.yaml（template 子集，key 为 unit ID）
+const systemInfo = {
+  collectorVersion: 'v0.3.0',
+  adminVersion: 'v0.3.0',
+  runtimeStatus: 'RUNNING',
+  configSet: 'template',
+}
+
 const units: Record<string, UnitDef> = {
   none: { symbol: '', name: 'Dimensionless' },
   percent: { symbol: '%', name: 'Percent' },
@@ -69,12 +75,15 @@ const pgroupIds = pointGroups.map(g => g.id)
 const unitIds = Object.keys(units).filter(u => u !== 'none')
 const adDTypes = ['float32', 'float32', 'int16', 'int32', 'bool', 'uint16']
 
-// ADS 点表（Symbol 寻址为主；混入少量 index_group/index_offset 兼容寻址点）
 function adsPoints(prefix: string, count: number): PointDef[] {
   return Array.from({ length: count }, (_, i) => {
     const name = `${prefix}_${String(i + 1).padStart(3, '0')}`
-    const legacy = i % 19 === 18 // 少量兼容寻址点：index_group + index_offset 成对
-    const groups = [...new Set([pgroupIds[i % pgroupIds.length], ...(i % 7 === 0 ? ['all'] : []), ...(i % 11 === 0 ? ['control'] : [])])]
+    const legacy = i % 19 === 18
+    const groups = [...new Set([
+      pgroupIds[i % pgroupIds.length],
+      ...(i % 7 === 0 ? ['all'] : []),
+      ...(i % 11 === 0 ? ['control'] : []),
+    ])]
     return {
       point_id: name,
       variable_name: name,
@@ -91,7 +100,6 @@ function adsPoints(prefix: string, count: number): PointDef[] {
   })
 }
 
-// Modbus 点表（type + 0-based address）
 function modbusPoints(prefix: string, count: number): PointDef[] {
   const rtypes = ['input', 'holding', 'holding', 'input']
   return Array.from({ length: count }, (_, i) => {
@@ -99,7 +107,11 @@ function modbusPoints(prefix: string, count: number): PointDef[] {
     return {
       point_id: name,
       variable_name: name,
-      point_groups: [pgroupIds[i % pgroupIds.length], ...(i % 7 === 0 ? ['all'] : []), ...(i % 11 === 0 ? ['control'] : [])],
+      point_groups: [
+        pgroupIds[i % pgroupIds.length],
+        ...(i % 7 === 0 ? ['all'] : []),
+        ...(i % 11 === 0 ? ['control'] : []),
+      ],
       address: { type: rtypes[i % rtypes.length], address: 100 + i * 2 },
       data_type: ['float32', 'int32', 'int16', 'uint16', 'bool'][i % 5],
       scale: i % 6 === 0 ? 0.01 : 1,
@@ -110,7 +122,6 @@ function modbusPoints(prefix: string, count: number): PointDef[] {
   })
 }
 
-// 点表数据：原型阶段各表保存继承展开后的完整点集（extends 仅作元信息展示）
 const points: Record<string, PointDef[]> = {
   beckhoff_base_v1: adsPoints('base', 12),
   beckhoff_wtg_v1: adsPoints('wtg_ads', 40),
@@ -118,8 +129,6 @@ const points: Record<string, PointDef[]> = {
   pcs_modbus_v1: modbusPoints('pcs_mb', 24),
 }
 
-// 设备实例：wtg-001..024 → modbus_wtg / turbine_modbus；
-// wtg-025..048 → beckhoff_wtg / turbine_ads；pcs-01..08 → pcs_modbus_a / storage_pcs
 const devices: DeviceInst[] = []
 for (let i = 1; i <= 48; i++) {
   const modbus = i < 25
@@ -159,6 +168,7 @@ const tasks: TaskDef[] = [
 ]
 
 export const store = reactive({
+  systemInfo,
   units,
   deviceTypes,
   deviceGroups,
@@ -170,8 +180,6 @@ export const store = reactive({
   sinks,
   tasks,
 })
-
-// ---- 引用关系访问 helper ----
 
 export function modelOf(d: DeviceInst): DeviceModelDef | undefined {
   return store.deviceModels.find(m => m.id === d.model)
@@ -197,7 +205,6 @@ export function unitSymbol(unitId: string): string {
   return store.units[unitId]?.symbol ?? unitId
 }
 
-// 点地址的展示形式（数据本身保持协议字段结构，仅展示层拼接）
 export function addressText(protocol: string, p: PointDef): string {
   const a = p.address
   if (protocol === 'ads') {
@@ -209,7 +216,6 @@ export function addressText(protocol: string, p: PointDef): string {
   return `ioa ${a.ioa ?? ''}${a.type ? ` · ${a.type}` : ''}`
 }
 
-// loader.py 的地址校验规则（原型侧复刻，用于 Add/Edit Point 表单校验）
 export function validateAddress(protocol: string, a: PointAddress): string {
   if (protocol === 'ads') {
     const hasSymbol = !!(a.symbol && a.symbol.trim())
@@ -224,6 +230,8 @@ export function validateAddress(protocol: string, a: PointAddress): string {
     if (a.address === undefined || a.address === null || a.address < 0) return 'Modbus point must define a 0-based address'
     return ''
   }
-  if (a.ioa === undefined || a.ioa === null || a.ioa < 0 || a.ioa > 0xFFFFFF) return 'IEC104 ioa must be an integer in [0, 0xFFFFFF]'
+  if (a.ioa === undefined || a.ioa === null || a.ioa < 0 || a.ioa > 0xFFFFFF) {
+    return 'IEC104 ioa must be an integer in [0, 0xFFFFFF]'
+  }
   return ''
 }
