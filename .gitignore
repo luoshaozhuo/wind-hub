@@ -51,3 +51,4 @@ Thumbs.db
 
 # Project
 **/node_modules/
+**/.vite/
