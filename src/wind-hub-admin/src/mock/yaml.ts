@@ -195,6 +195,15 @@ host: "127.0.0.1"
 port: 12404`,
 })
 
+export function updateMockSiteYaml(siteId: string, siteName: string) {
+  const source = yamlFiles['system.yaml']
+  const next = source
+    .replace(/(^site:\s*\n\s*site_id:\s*).+$/m, `$1${siteId}`)
+    .replace(/(^site:\s*\n\s*site_id:.*\n\s*name:\s*).+$/m, `$1${siteName}`)
+
+  yamlFiles['system.yaml'] = next
+}
+
 // 每个文件独立的 mock diff
 export const yamlDiffs: Record<string, string> = {
   'system.yaml': ` runtime:\n-  read_timeout: 3.0\n+  read_timeout: 5.0\n sinks:\n+  - name: file_archive\n+    type: file`,

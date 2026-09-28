@@ -12,33 +12,51 @@ import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
 
 const menu = ref('Devices')
+
+const runMenu = [
+  { key: 'Overview', label: 'Overview' },
+  { key: 'Devices', label: 'Devices' },
+  { key: 'Definitions', label: 'Device Metadata' },
+  { key: 'Points', label: 'Points' },
+  { key: 'Tasks', label: 'Tasks' },
+  { key: 'Quality', label: 'Quality' },
+]
 </script>
 
 <template>
   <div class="shell">
     <aside>
       <div class="brand"><b>WH</b> Wind Hub</div>
+
       <div class="section">运行</div>
       <button
-        v-for="m in ['Overview','Devices','Definitions','Points','Tasks','Quality']"
-        :class="{active:menu===m}"
-        @click="menu=m"
-      >{{m}}</button>
+        v-for="m in runMenu"
+        :key="m.key"
+        :class="{ active: menu === m.key }"
+        @click="menu = m.key"
+      >
+        {{ m.label }}
+      </button>
+
       <div class="section">工程</div>
-      <button :class="{active:menu==='Debug'}" @click="menu='Debug'">Debug</button>
+      <button :class="{ active: menu === 'Debug' }" @click="menu = 'Debug'">Debug</button>
+
       <div class="section">系统</div>
       <button
-        v-for="m in ['Config','Logs']"
-        :class="{active:menu===m}"
-        @click="menu=m"
-      >{{m}}</button>
+        v-for="m in ['Config', 'Logs']"
+        :key="m"
+        :class="{ active: menu === m }"
+        @click="menu = m"
+      >
+        {{ m }}
+      </button>
     </aside>
 
     <main>
       <header>
         <div class="header-title">
           <b>Wind Hub Admin</b>
-          <span>采集系统管理控制台</span>
+          <span>{{ store.systemInfo.siteName }} · 采集系统管理控制台</span>
         </div>
 
         <div class="header-spacer"></div>
@@ -60,15 +78,15 @@ const menu = ref('Devices')
       </header>
 
       <section class="content">
-        <OverviewPage v-if="menu==='Overview'"/>
-        <DevicesPage v-if="menu==='Devices'"/>
-        <DefinitionsPage v-if="menu==='Definitions'"/>
-        <PointsPage v-if="menu==='Points'"/>
-        <TasksPage v-if="menu==='Tasks'"/>
-        <QualityPage v-if="menu==='Quality'"/>
-        <DebugPage v-if="menu==='Debug'"/>
-        <ConfigPage v-if="menu==='Config'"/>
-        <LogsPage v-if="menu==='Logs'"/>
+        <OverviewPage v-if="menu === 'Overview'" />
+        <DevicesPage v-if="menu === 'Devices'" />
+        <DefinitionsPage v-if="menu === 'Definitions'" />
+        <PointsPage v-if="menu === 'Points'" />
+        <TasksPage v-if="menu === 'Tasks'" />
+        <QualityPage v-if="menu === 'Quality'" />
+        <DebugPage v-if="menu === 'Debug'" />
+        <ConfigPage v-if="menu === 'Config'" />
+        <LogsPage v-if="menu === 'Logs'" />
       </section>
     </main>
   </div>

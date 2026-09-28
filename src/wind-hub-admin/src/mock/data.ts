@@ -7,6 +7,8 @@ import type {
 } from './types'
 
 const systemInfo = {
+  siteId: 'wind_farm_a',
+  siteName: '示例风场',
   collectorVersion: 'v0.3.0',
   adminVersion: 'v0.3.0',
   runtimeStatus: 'RUNNING',
