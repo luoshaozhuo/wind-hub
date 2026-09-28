@@ -352,7 +352,6 @@ async function deleteGroup(row: { id: string }) {
               <h3>{{ section === 'model' ? 'Device Models' : section === 'type' ? 'Device Types' : 'Device Groups' }}</h3>
               <p>{{ section === 'model' ? '选择条目后在右侧编辑' : section === 'type' ? '业务分类定义与引用关系' : '实例分组与引用关系' }}</p>
             </div>
-            <el-button @click="newItem">+ New</el-button>
           </div>
 
           <template v-if="section === 'model'">
@@ -460,16 +459,16 @@ async function deleteGroup(row: { id: string }) {
 </template>
 
 <style scoped>
-.metadata-manager{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:560px}
+.metadata-manager{display:grid;grid-template-columns:176px minmax(0,1fr);min-height:560px}
 .metadata-nav{padding:4px 14px 4px 0;border-right:1px solid #edf0f4}
 .metadata-nav button{width:100%;display:flex;justify-content:space-between;gap:12px;border:0;background:transparent;padding:11px;border-radius:8px;text-align:left;cursor:pointer}
 .metadata-nav button:hover,.metadata-nav button.active{background:#f5f7fa}
 .metadata-nav span b,.metadata-nav span small{display:block}
 .metadata-nav span b{font-size:12px;color:#344054}.metadata-nav span small{margin-top:3px;color:#98a2b3;font-size:10px}.metadata-nav em{font-style:normal;color:#98a2b3;font-size:11px}
-.metadata-content{display:grid;grid-template-columns:minmax(270px,.8fr) minmax(360px,1.2fr);min-width:0}
-.metadata-list-panel,.metadata-editor-panel{padding:4px 18px;min-width:0}.metadata-list-panel{border-right:1px solid #edf0f4}
-.metadata-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.metadata-panel-head h3{margin:0;color:#344054;font-size:14px}.metadata-panel-head p{margin:4px 0 0;color:#98a2b3;font-size:10px}
-.metadata-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;border:0;border-bottom:1px solid #f0f2f5;background:transparent;padding:10px 4px;text-align:left;cursor:pointer}.metadata-row:hover,.metadata-row.selected{background:#f7f9fb}.metadata-row>span{min-width:0}.metadata-row b,.metadata-row small{display:block}.metadata-row b{color:#344054;font-size:12px}.metadata-row small{margin-top:3px;color:#98a2b3;font-size:10px}
+.metadata-content{display:grid;grid-template-columns:340px minmax(0,1fr);min-width:0}
+.metadata-list-panel{padding:4px 20px 4px 18px;min-width:0}.metadata-editor-panel{padding:4px 10px 4px 24px;min-width:0}.metadata-list-panel{border-right:1px solid #edf0f4}
+.metadata-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;min-height:34px}.metadata-panel-head h3{margin:0;color:#344054;font-size:14px}.metadata-panel-head p{margin:4px 0 0;color:#98a2b3;font-size:10px}
+.metadata-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;border-bottom:1px solid #f0f2f5;background:transparent;padding:12px 6px;text-align:left;cursor:pointer}.metadata-row:hover,.metadata-row.selected{background:#f7f9fb}.metadata-row>span{min-width:0}.metadata-row b,.metadata-row small{display:block}.metadata-row b{color:#344054;font-size:12px;font-weight:600}.metadata-row small{margin-top:4px;color:#98a2b3;font-size:10px;line-height:1.35}
 .metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
 .model-subhead{margin:6px 0 12px;padding-top:14px;border-top:1px solid #eef0f3;color:#667085;font-size:11px;font-weight:600}.metadata-editor-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 @media(max-width:900px){.metadata-manager{grid-template-columns:1fr}.metadata-nav{display:flex;gap:6px;overflow:auto;border-right:0;border-bottom:1px solid #edf0f4;padding:0 0 12px}.metadata-nav button{min-width:180px}.metadata-content{grid-template-columns:1fr}.metadata-list-panel{border-right:0;border-bottom:1px solid #edf0f4;padding:14px 0}.metadata-editor-panel{padding:16px 0}.metadata-form-grid{grid-template-columns:1fr}}

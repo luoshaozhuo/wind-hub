@@ -1160,41 +1160,115 @@
 }
 
 
-/* Shared typography for compact management pages */
+/* Shared typography aligned with Config / Devices */
 .standard-page{
   font-family:inherit;
   color:#344054;
 }
 .standard-page .head h1{
+  margin:0;
   font-size:26px;
+  line-height:1.2;
   font-weight:650;
   letter-spacing:-.02em;
 }
 .standard-page .head p{
+  margin:7px 0 0;
   color:#77808f;
   font-size:13px;
+  line-height:1.5;
+  font-weight:400;
 }
 .standard-page h3{
+  margin:0 0 14px;
   color:#344054;
   font-size:14px;
-  font-weight:650;
+  line-height:1.4;
+  font-weight:600;
+}
+.standard-page .el-card__body{
+  font-size:12px;
 }
 .standard-page .el-table{
-  font-family:inherit;
-  font-size:12px;
-  color:#475467;
+  font-family:inherit!important;
+  font-size:12px!important;
+  color:#475467!important;
+}
+.standard-page .el-table .cell{
+  font-family:inherit!important;
+  font-size:12px!important;
+  line-height:1.35!important;
+  font-weight:400!important;
+}
+.standard-page .el-table th.el-table__cell .cell{
+  color:#667085!important;
+  font-size:11px!important;
+  font-weight:600!important;
+}
+.standard-page .el-table td.el-table__cell{
+  padding:8px 0!important;
 }
 .standard-page .el-table th.el-table__cell{
-  color:#667085;
-  font-size:11px;
+  padding:8px 0!important;
+}
+.standard-page .el-tag{
+  font-size:10px!important;
+  font-weight:500!important;
+}
+.standard-page .toolbar b,
+.standard-page .row b{
+  font-size:12px;
   font-weight:600;
 }
 .standard-page .el-button,
 .standard-page .el-input,
 .standard-page .el-select{
   font-family:inherit;
+  font-size:12px;
+}
+.standard-page .metrics{
+  gap:14px;
+}
+.standard-page .metrics .el-card__body{
+  padding:16px 18px!important;
+}
+.standard-page .metrics small{
+  color:#667085;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:400;
+}
+.standard-page .metrics strong{
+  margin-top:8px;
+  color:#344054;
+  font-size:22px;
+  line-height:1.15;
+  font-weight:650;
 }
 @media(max-width:767px){
   .standard-page .head h1{font-size:22px}
   .standard-page .head p{font-size:12px}
+  .standard-page .metrics strong{font-size:20px}
+}
+
+/* Metadata management dialogs */
+.metadata-manager-dialog .el-dialog__header,
+.points-page .el-dialog__header{
+  padding-bottom:14px;
+  border-bottom:1px solid #eef0f3;
+}
+.metadata-manager-dialog .el-dialog__title,
+.points-page .el-dialog__title{
+  font-size:18px;
+  font-weight:600;
+  color:#344054;
+}
+.metadata-manager-dialog .el-dialog__body,
+.points-page .el-dialog__body{
+  padding-top:16px;
+}
+.metadata-manager-dialog .el-button.is-link,
+.points-page .el-button.is-link{
+  font-size:11px;
+  font-weight:400;
 }
