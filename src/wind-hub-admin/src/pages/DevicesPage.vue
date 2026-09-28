@@ -2,6 +2,7 @@
 import * as echarts from 'echarts'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
 import {
   modelOf,
   pointsOfTable,
@@ -41,6 +42,8 @@ const tab = ref('Config')
 const selected = ref<DeviceInst | null>(null)
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
+const viewportWidth = ref(window.innerWidth)
+const detailDrawerSize = computed(() => viewportWidth.value < 768 ? '100%' : viewportWidth.value < 1200 ? '72%' : '72%')
 
 function emptyVerify(): DeviceVerification {
   return {
@@ -721,6 +724,7 @@ const visibleData = computed(() => dataRows.value.filter(r => {
 // ---- Trend ----
 const trendChartEl = ref<HTMLElement | null>(null)
 let trendChart: echarts.ECharts | null = null
+let trendResizeObserver: ResizeObserver | null = null
 const trendLegendSelected = ref<Record<string, boolean>>({})
 const trendPickerOpen = ref(false)
 const trendSearch = ref('')
@@ -773,6 +777,8 @@ function renderTrend() {
     if (!trendChartEl.value) return
     if (!trendChart) {
       trendChart = echarts.init(trendChartEl.value)
+      trendResizeObserver = new ResizeObserver(() => trendChart?.resize())
+      trendResizeObserver.observe(trendChartEl.value)
       trendChart.on('legendselectchanged', (params: any) => {
         trendLegendSelected.value = { ...(params.selected || {}) }
       })
@@ -806,6 +812,7 @@ function renderTrend() {
 }
 
 function onResize() {
+  viewportWidth.value = window.innerWidth
   trendChart?.resize()
 }
 
@@ -826,6 +833,8 @@ watch(() => selected.value?.device_id, () => {
 window.addEventListener('resize', onResize)
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  trendResizeObserver?.disconnect()
+  trendResizeObserver = null
   trendChart?.dispose()
   trendChart = null
 })
@@ -897,6 +906,7 @@ async function sendCommand() {
         >
           Verify All
         </el-button>
+        <DeviceMetadataManager />
         <el-button type="primary" @click="openAdd">+ Add Device</el-button>
       </div>
     </div>
@@ -1231,7 +1241,7 @@ async function sendCommand() {
     <!-- Device Drawer -->
     <el-drawer
       v-model="drawer"
-      size="72%"
+      :size="detailDrawerSize"
       :with-header="false"
       class="device-drawer"
     >
