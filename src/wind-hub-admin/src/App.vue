@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
-import DefinitionsPage from './pages/DefinitionsPage.vue'
 import PointsPage from './pages/PointsPage.vue'
 import TasksPage from './pages/TasksPage.vue'
 import QualityPage from './pages/QualityPage.vue'
@@ -16,7 +15,6 @@ const menu = ref('Devices')
 const runMenu = [
   { key: 'Overview', label: 'Overview' },
   { key: 'Devices', label: 'Devices' },
-  { key: 'Definitions', label: 'Device Metadata' },
   { key: 'Points', label: 'Points' },
   { key: 'Tasks', label: 'Tasks' },
   { key: 'Quality', label: 'Quality' },
@@ -80,7 +78,6 @@ const runMenu = [
       <section class="content">
         <OverviewPage v-if="menu === 'Overview'" />
         <DevicesPage v-if="menu === 'Devices'" />
-        <DefinitionsPage v-if="menu === 'Definitions'" />
         <PointsPage v-if="menu === 'Points'" />
         <TasksPage v-if="menu === 'Tasks'" />
         <QualityPage v-if="menu === 'Quality'" />
