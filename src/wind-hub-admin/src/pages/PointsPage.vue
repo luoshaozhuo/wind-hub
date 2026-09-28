@@ -503,12 +503,12 @@ async function delPoint(p: PointDef) {
       </el-table>
     </el-card>
 
-    <el-dialog
+    <el-drawer
       v-model="manageOpen"
       title="Manage Point Metadata"
-      :width="isMobile ? '100%' : 'min(900px, 94vw)'"
-      :fullscreen="isMobile"
-      class="point-metadata-dialog"
+      direction="rtl"
+      :size="isMobile ? '100%' : 'min(900px, 94vw)'"
+      class="point-metadata-drawer"
       append-to-body
       destroy-on-close
     >
@@ -587,7 +587,7 @@ async function delPoint(p: PointDef) {
           </el-form>
         </div>
       </div>
-    </el-dialog>
+    </el-drawer>
 
     <el-dialog v-model="pointEdit" :title="editing ? 'Edit Point' : 'Add Point'" width="760">
       <el-form label-position="top">
