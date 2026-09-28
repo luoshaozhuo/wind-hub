@@ -1,10 +1,9 @@
-// 全站统一 mock store —— 各页面共享同一份数据，保证
-// Device Instance → Device Model → Device Type → Protocol → Point Table
-// 与 Task → Device / Device Group 的引用关系一致。
+// 全站统一 mock store —— 各页面共享同一份数据。
 import { reactive } from 'vue'
 import type {
   DeviceGroupDef, DeviceInst, DeviceModelDef, DeviceTypeDef,
-  PointAddress, PointDef, PointGroupDef, PointTableDef, SinkDef, TaskDef, UnitDef,
+  DeviceVerification, PointAddress, PointDef, PointGroupDef,
+  PointTableDef, SinkDef, TaskDef, UnitDef,
 } from './types'
 
 const systemInfo = {
@@ -49,9 +48,62 @@ const deviceGroups: DeviceGroupDef[] = [
 ]
 
 const deviceModels: DeviceModelDef[] = [
-  { id: 'beckhoff_wtg', device_type: 'turbine', manufacturer: 'Beckhoff', protocol: 'ads', point_table: 'beckhoff_wtg_v1', read_mode: 'sum' },
-  { id: 'modbus_wtg', device_type: 'turbine', manufacturer: '', protocol: 'modbus', point_table: 'modbus_wtg_v1', read_mode: '' },
-  { id: 'pcs_modbus_a', device_type: 'pcs', manufacturer: '', protocol: 'modbus', point_table: 'pcs_modbus_v1', read_mode: '' },
+  {
+    id: 'beckhoff_wtg',
+    device_type: 'turbine',
+    manufacturer: 'Beckhoff',
+    model: 'TwinCAT 2 WTG',
+    protocol: 'ads',
+    point_table: 'beckhoff_wtg_v1',
+    read_mode: 'sum',
+    properties: {},
+    connection_defaults: {
+      port: 48898,
+      twincat_version: '2',
+      timeout: 3.0,
+      target_port: 801,
+      reconnect_max_retries: 5,
+      reconnect_backoff_max: 30.0,
+    },
+  },
+  {
+    id: 'modbus_wtg',
+    device_type: 'turbine',
+    manufacturer: '',
+    model: 'Modbus WTG',
+    protocol: 'modbus',
+    point_table: 'modbus_wtg_v1',
+    read_mode: '',
+    properties: {},
+    connection_defaults: {
+      port: 502,
+      unit_id: 1,
+      mode: 'tcp',
+      timeout: 3.0,
+      word_order: 'little_endian',
+      reconnect_max_retries: 5,
+      reconnect_backoff_max: 30.0,
+    },
+  },
+  {
+    id: 'pcs_modbus_a',
+    device_type: 'pcs',
+    manufacturer: '',
+    model: 'PCS Modbus A',
+    protocol: 'modbus',
+    point_table: 'pcs_modbus_v1',
+    read_mode: '',
+    properties: {},
+    connection_defaults: {
+      port: 502,
+      unit_id: 1,
+      mode: 'tcp',
+      timeout: 3.0,
+      word_order: 'little_endian',
+      reconnect_max_retries: 5,
+      reconnect_backoff_max: 30.0,
+    },
+  },
 ]
 
 const pointTables: PointTableDef[] = [
@@ -138,6 +190,7 @@ for (let i = 1; i <= 48; i++) {
     device_group: modbus ? 'turbine_modbus' : 'turbine_ads',
     host: modbus ? `192.168.100.${100 + i}` : `192.168.151.${i}`,
     port: modbus ? 502 : 48898,
+    extensions: modbus ? {} : { target_net_id: `192.168.151.${i}.1.1` },
     enabled: true,
     online: i !== 41,
   })
@@ -149,10 +202,29 @@ for (let i = 1; i <= 8; i++) {
     device_group: 'storage_pcs',
     host: `192.168.60.${10 + i}`,
     port: 502,
+    extensions: {},
     enabled: true,
     online: true,
   })
 }
+
+function emptyVerification(): DeviceVerification {
+  return {
+    state: 'idle',
+    network: 'unknown',
+    protocol: 'unknown',
+    points: 'unknown',
+    point_total: 0,
+    point_success: 0,
+    point_failed: 0,
+    verified_at: '',
+    latency_ms: 0,
+    errors: [],
+  }
+}
+
+const deviceVerification: Record<string, DeviceVerification> = {}
+for (const d of devices) deviceVerification[d.device_id] = emptyVerification()
 
 const sinks: SinkDef[] = [
   { name: 'kafka_main', type: 'kafka', enabled: false },
@@ -177,6 +249,7 @@ export const store = reactive({
   pointGroups,
   points,
   devices,
+  deviceVerification,
   sinks,
   tasks,
 })
