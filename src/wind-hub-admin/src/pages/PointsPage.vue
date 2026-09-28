@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { addressText, pointsOfTable, store, tableProtocol, unitSymbol, validateAddress } from '../mock/data'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
@@ -10,6 +10,12 @@ const protocol = computed(() => tableProtocol(pointTable.value) || 'ads')
 const tableDef = computed(() => store.pointTables.find(t => t.id === pointTable.value))
 const rows = computed<PointDef[]>(() => pointsOfTable(pointTable.value))
 const dirty = ref(false)
+const viewportWidth = ref(window.innerWidth)
+const isMobile = computed(() => viewportWidth.value < 768)
+const isTablet = computed(() => viewportWidth.value < 1200)
+function updateViewport() { viewportWidth.value = window.innerWidth }
+window.addEventListener('resize', updateViewport)
+onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
 
 const addrLabel = computed(() =>
   protocol.value === 'ads'
@@ -383,18 +389,18 @@ function saveApply() {
         <el-table-column :label="addrLabel">
           <template #default="s">{{ addressOf(s.row) }}</template>
         </el-table-column>
-        <el-table-column prop="data_type" label="Data Type" />
-        <el-table-column label="Groups">
+        <el-table-column v-if="!isMobile" prop="data_type" label="Data Type" />
+        <el-table-column v-if="!isMobile" label="Groups">
           <template #default="s">
             <el-tag v-for="g in s.row.point_groups" :key="g" class="group-tag">{{ g }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="scale" label="Scale" />
-        <el-table-column prop="offset" label="Offset" />
-        <el-table-column label="Unit">
+        <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
+        <el-table-column v-if="!isTablet" prop="offset" label="Offset" />
+        <el-table-column v-if="!isMobile" label="Unit">
           <template #default="s">{{ unitSymbol(s.row.unit) || s.row.unit }}</template>
         </el-table-column>
-        <el-table-column label="Actions" width="150">
+        <el-table-column label="Actions" :width="isMobile ? 128 : 150">
           <template #default="s">
             <el-button size="small" @click="openEdit(s.row)">Edit</el-button>
             <el-button size="small" type="danger" plain @click="delPoint(s.row)">Delete</el-button>
