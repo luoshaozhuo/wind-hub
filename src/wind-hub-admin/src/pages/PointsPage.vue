@@ -51,6 +51,104 @@ const editingTable = computed(() => store.pointTables.find(t => t.id === tableEd
 const editingGroup = computed(() => store.pointGroups.find(g => g.id === groupEditingId.value))
 const currentTableIsSystem = computed(() => !!tableDef.value?.system)
 
+const testDeviceId = ref('')
+const testLoading = ref(false)
+const testError = ref('')
+const TEST_CANDIDATE_TYPES = ['bool', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'float32', 'float64']
+const testCandidates = ref(TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' })))
+const testLatency = ref(0)
+
+const testDevices = computed(() => store.devices.filter(d => {
+  const model = store.deviceModels.find(m => m.id === d.model)
+  return model?.protocol === protocol.value
+}))
+
+const selectedTestDevice = computed(() => store.devices.find(d => d.device_id === testDeviceId.value))
+
+const testRequest = computed(() => {
+  if (protocol.value === 'ads') {
+    if (draft.symbol.trim()) return `Symbol · ${draft.symbol.trim()}`
+    return `Index · ${draft.index_group || '—'} / ${draft.index_offset || '—'}`
+  }
+  if (protocol.value === 'modbus') return `${draft.register_type} · ${draft.address ?? '—'}`
+  return `IOA · ${draft.ioa ?? '—'}${draft.ioa_type ? ` · ${draft.ioa_type}` : ''}`
+})
+
+function resetPointTest() {
+  testLoading.value = false
+  testError.value = ''
+  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
+  testLatency.value = 0
+  const preferred = testDevices.value.find(d => d.online && d.enabled) || testDevices.value[0]
+  testDeviceId.value = preferred?.device_id || ''
+}
+
+function mockRawBytes(seed: string): Uint8Array {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  const bytes = new Uint8Array(8)
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= hash << 13
+    hash ^= hash >>> 17
+    hash ^= hash << 5
+    bytes[i] = hash & 0xff
+  }
+  return bytes
+}
+
+function decodeCandidates(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer)
+  const format = (v: number) => Number.isFinite(v) ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6))) : String(v)
+  return [
+    { type: 'bool', value: bytes[0] ? 'true' : 'false' },
+    { type: 'int8', value: String(view.getInt8(0)) },
+    { type: 'uint8', value: String(view.getUint8(0)) },
+    { type: 'int16', value: String(view.getInt16(0, true)) },
+    { type: 'uint16', value: String(view.getUint16(0, true)) },
+    { type: 'int32', value: String(view.getInt32(0, true)) },
+    { type: 'uint32', value: String(view.getUint32(0, true)) },
+    { type: 'float32', value: format(view.getFloat32(0, true)) },
+    { type: 'float64', value: format(view.getFloat64(0, true)) },
+  ]
+}
+
+async function runPointTest() {
+  if (testLoading.value) return
+  const device = selectedTestDevice.value
+  if (!device) {
+    testError.value = 'Select a device first'
+    return
+  }
+  const address = draftAddress()
+  const err = validateAddress(protocol.value, address)
+  if (err) {
+    testError.value = err
+    return
+  }
+
+  testLoading.value = true
+  testError.value = ''
+  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
+  const started = performance.now()
+  await new Promise(resolve => setTimeout(resolve, 700))
+
+  if (!device.enabled || !device.online) {
+    testLatency.value = Math.round(performance.now() - started)
+    testError.value = device.enabled ? 'Device is offline' : 'Device is disabled'
+    testLoading.value = false
+    return
+  }
+
+  const seed = [device.device_id, protocol.value, testRequest.value, draft.data_type].join('|')
+  const bytes = mockRawBytes(seed)
+  testCandidates.value = decodeCandidates(bytes)
+  testLatency.value = Math.round(performance.now() - started)
+  testLoading.value = false
+}
+
 const tableRows = computed(() => store.pointTables.map(t => {
   const modelIds = store.deviceModels.filter(m => m.point_table === t.id).map(m => m.id)
   const devices = store.devices.filter(d => modelIds.includes(d.model)).length
@@ -363,6 +461,7 @@ function openAdd() {
   }
   editing.value = ''
   resetDraft()
+  resetPointTest()
   pointEdit.value = true
 }
 
@@ -384,6 +483,7 @@ function openEdit(p: PointDef) {
   draft.offset = p.offset
   draft.unit = p.unit
   draft.description = p.description
+  resetPointTest()
   pointEdit.value = true
 }
 
@@ -589,32 +689,95 @@ async function delPoint(p: PointDef) {
       </div>
     </el-drawer>
 
-    <el-dialog v-model="pointEdit" :title="editing ? 'Edit Point' : 'Add Point'" width="760">
-      <el-form label-position="top">
-        <div class="grid">
-          <el-form-item label="Point ID"><el-input v-model="draft.point_id" /></el-form-item>
-          <el-form-item label="Variable Name"><el-input v-model="draft.variable_name" /></el-form-item>
-          <template v-if="protocol === 'ads'">
-            <el-form-item label="Symbol"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>
-            <el-form-item label="Index Group"><el-input v-model="draft.index_group" placeholder="0x4020" /></el-form-item>
-            <el-form-item label="Index Offset"><el-input v-model="draft.index_offset" placeholder="0x1234" /></el-form-item>
-          </template>
-          <template v-else-if="protocol === 'modbus'">
-            <el-form-item label="Register Type"><el-select v-model="draft.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
-            <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" style="width:100%" /></el-form-item>
-          </template>
-          <template v-else>
-            <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" style="width:100%" /></el-form-item>
-            <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
-          </template>
-          <el-form-item label="Point Groups"><el-select v-model="draft.point_groups" multiple><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
-          <el-form-item label="Data Type"><el-select v-model="draft.data_type"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select></el-form-item>
-          <el-form-item label="Scale"><el-input-number v-model="draft.scale" /></el-form-item>
-          <el-form-item label="Offset"><el-input-number v-model="draft.offset" /></el-form-item>
-          <el-form-item label="Unit"><el-select v-model="draft.unit"><el-option v-for="(u, id) in store.units" :key="id" :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')" :value="id" /></el-select></el-form-item>
-          <el-form-item label="Description"><el-input v-model="draft.description" /></el-form-item>
-        </div>
-      </el-form>
+    <el-dialog
+      v-model="pointEdit"
+      :title="editing ? 'Edit Point' : 'Add Point'"
+      :width="isMobile ? '96vw' : isTablet ? '92vw' : '1120px'"
+      class="point-editor-dialog"
+    >
+      <el-row :gutter="24">
+        <el-col :xs="24" :sm="24" :md="24" :lg="14">
+          <section class="point-editor-section">
+            <div class="point-editor-heading">
+              <h3>Point Definition</h3>
+              <p>Edit the point definition. Unsaved address changes are used by the test.</p>
+            </div>
+            <el-form label-position="top">
+              <div class="grid">
+                <el-form-item label="Point ID"><el-input v-model="draft.point_id" /></el-form-item>
+                <el-form-item label="Variable Name"><el-input v-model="draft.variable_name" /></el-form-item>
+                <template v-if="protocol === 'ads'">
+                  <el-form-item label="Symbol"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>
+                  <el-form-item label="Index Group"><el-input v-model="draft.index_group" placeholder="0x4020" /></el-form-item>
+                  <el-form-item label="Index Offset"><el-input v-model="draft.index_offset" placeholder="0x1234" /></el-form-item>
+                </template>
+                <template v-else-if="protocol === 'modbus'">
+                  <el-form-item label="Register Type"><el-select v-model="draft.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
+                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" style="width:100%" /></el-form-item>
+                </template>
+                <template v-else>
+                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" style="width:100%" /></el-form-item>
+                  <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
+                </template>
+                <el-form-item label="Point Groups"><el-select v-model="draft.point_groups" multiple><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
+                <el-form-item label="Data Type"><el-select v-model="draft.data_type"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+                <el-form-item label="Scale"><el-input-number v-model="draft.scale" /></el-form-item>
+                <el-form-item label="Offset"><el-input-number v-model="draft.offset" /></el-form-item>
+                <el-form-item label="Unit"><el-select v-model="draft.unit"><el-option v-for="(u, id) in store.units" :key="id" :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')" :value="id" /></el-select></el-form-item>
+                <el-form-item label="Description"><el-input v-model="draft.description" /></el-form-item>
+              </div>
+            </el-form>
+          </section>
+        </el-col>
+
+        <el-col :xs="24" :sm="24" :md="24" :lg="10">
+          <el-card shadow="never" class="point-test-card">
+            <div class="point-editor-heading">
+              <h3>Connectivity Test</h3>
+              <p>Select a {{ protocol.toUpperCase() }} device and test the current unsaved definition.</p>
+            </div>
+
+            <el-form label-position="top">
+              <el-form-item label="Device">
+                <el-select v-model="testDeviceId" style="width:100%" :disabled="testLoading" placeholder="Select device">
+                  <el-option
+                    v-for="d in testDevices"
+                    :key="d.device_id"
+                    :label="d.device_id + ' · ' + d.host"
+                    :value="d.device_id"
+                  >
+                    <span>{{ d.device_id }} · {{ d.host }}</span>
+                    <span class="device-state">{{ d.online ? 'online' : 'offline' }}</span>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+            </el-form>
+
+            <el-descriptions :column="1" size="small" border class="test-request">
+              <el-descriptions-item label="Protocol">{{ protocol.toUpperCase() }}</el-descriptions-item>
+              <el-descriptions-item label="Request">{{ testRequest }}</el-descriptions-item>
+              <el-descriptions-item v-if="selectedTestDevice" label="Target">
+                {{ selectedTestDevice.host }}:{{ selectedTestDevice.port || '—' }}
+              </el-descriptions-item>
+            </el-descriptions>
+
+            <div class="test-actions">
+              <el-button type="primary" :loading="testLoading" :disabled="!testDeviceId" @click="runPointTest">
+                Test Read
+              </el-button>
+              <span v-if="testLatency && !testLoading" class="muted">{{ testLatency }} ms</span>
+            </div>
+
+            <el-alert v-if="testError" :title="testError" type="error" :closable="false" show-icon />
+
+            <div class="test-results-title">Interpretations</div>
+            <el-table :data="testCandidates" size="small" class="test-results-table">
+              <el-table-column prop="type" label="Type" width="96" />
+              <el-table-column prop="value" label="Value" min-width="120" />
+            </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
       <template #footer><el-button @click="pointEdit = false">Cancel</el-button><el-button type="primary" @click="savePoint">Save</el-button></template>
     </el-dialog>
   </div>
@@ -643,5 +806,16 @@ async function delPoint(p: PointDef) {
 .metadata-editor-title{margin-bottom:16px}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .metadata-editor-actions{justify-content:flex-end;margin-top:8px}
+.point-editor-section,.point-test-card{min-width:0}
+.point-editor-heading{margin-bottom:var(--app-space-4)}
+.point-editor-heading h3{margin:0;color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
+.point-editor-heading p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
+.point-test-card{height:auto}
+.test-request{margin-top:var(--app-space-2)}
+.test-actions{display:flex;align-items:center;gap:var(--app-space-2);margin-top:var(--app-space-3);margin-bottom:var(--app-space-3)}
+.test-results-title{margin:var(--app-space-3) 0 var(--app-space-2);color:var(--app-text-primary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
+.test-results-table{width:100%}
+.device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
+@media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
 @media(max-width:900px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0}}
 </style>
