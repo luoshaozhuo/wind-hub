@@ -87,9 +87,9 @@ function onManageTabChange(name: string | number) {
   selectManage(String(name) as ManageSection)
 }
 
-function onManageSelect(id: string) {
-  if (manageSection.value === 'table') editTable(id)
-  else editGroup(id)
+function onManageRowClick(row: { id: string }) {
+  if (manageSection.value === 'table') editTable(row.id)
+  else editGroup(row.id)
 }
 
 function newTable() {
@@ -516,31 +516,60 @@ async function delPoint(p: PointDef) {
       </el-tabs>
 
       <el-container class="metadata-layout">
-        <el-aside width="300px" class="metadata-list-aside">
-          <el-menu :default-active="manageSection === 'table' ? tableEditingId : groupEditingId" class="metadata-list-menu" @select="onManageSelect">
-            <template v-if="manageSection === 'table'">
-              <el-menu-item v-for="row in tableRows" :key="row.id" :index="row.id">
-                <div class="metadata-menu-row">
-                  <div>
-                    <b>{{ row.id }}</b>
-                    <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
-                    <small>{{ row.points }} points · {{ row.models }} models</small>
-                  </div>
-                  <el-tag v-if="row.system" type="info" size="small">System</el-tag>
-                  <el-button v-else class="metadata-delete" link type="danger" @click.stop="deleteTable(row)">Delete</el-button>
+        <el-aside width="340px" class="metadata-list-aside">
+          <el-table
+            v-if="manageSection === 'table'"
+            :data="tableRows"
+            row-key="id"
+            :show-header="false"
+            highlight-current-row
+            :current-row-key="tableEditingId"
+            class="metadata-object-table"
+            @row-click="onManageRowClick"
+          >
+            <el-table-column min-width="240">
+              <template #default="{ row }">
+                <div class="metadata-object-info">
+                  <b>{{ row.id }}</b>
+                  <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
+                  <small>{{ row.points }} points · {{ row.models }} models</small>
                 </div>
-              </el-menu-item>
-            </template>
-            <template v-else>
-              <el-menu-item v-for="row in groupRows" :key="row.id" :index="row.id">
-                <div class="metadata-menu-row">
-                  <div><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.points }} points · {{ row.tasks }} tasks</small></div>
-                  <el-tag v-if="row.system" type="info" size="small">System</el-tag>
-                  <el-button v-else class="metadata-delete" link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column width="78" align="right">
+              <template #default="{ row }">
+                <el-tag v-if="row.system" type="info" size="small">System</el-tag>
+                <el-button v-else link type="danger" @click.stop="deleteTable(row)">Delete</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-table
+            v-else
+            :data="groupRows"
+            row-key="id"
+            :show-header="false"
+            highlight-current-row
+            :current-row-key="groupEditingId"
+            class="metadata-object-table"
+            @row-click="onManageRowClick"
+          >
+            <el-table-column min-width="240">
+              <template #default="{ row }">
+                <div class="metadata-object-info">
+                  <b>{{ row.name }}</b>
+                  <small>{{ row.id }}</small>
+                  <small>{{ row.points }} points · {{ row.tasks }} tasks</small>
                 </div>
-              </el-menu-item>
-            </template>
-          </el-menu>
+              </template>
+            </el-table-column>
+            <el-table-column width="78" align="right">
+              <template #default="{ row }">
+                <el-tag v-if="row.system" type="info" size="small">System</el-tag>
+                <el-button v-else link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-aside>
 
         <el-main class="metadata-editor-main">
@@ -616,13 +645,14 @@ async function delPoint(p: PointDef) {
 .metadata-tabs{margin-top:-8px}
 .metadata-layout{min-height:440px}
 .metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:12px}
-.metadata-list-menu{border-right:0!important;background:transparent}
-.metadata-list-menu .el-menu-item{height:auto;min-height:66px;line-height:normal;padding:10px 8px!important;border-radius:7px;margin-bottom:2px}
-.metadata-list-menu .el-menu-item.is-active{background:#f4f7fb;color:var(--app-text-primary)}
-.metadata-menu-row{width:100%;display:flex;align-items:center;gap:16px}.metadata-menu-row .metadata-delete,.metadata-menu-row>.el-tag{margin-left:auto;flex:0 0 auto}
-.metadata-menu-row>div{min-width:0}.metadata-menu-row b,.metadata-menu-row small{display:block}
-.metadata-menu-row b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-menu-row small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-object-table{width:100%;cursor:pointer}
+.metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
+.metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
+.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:#f4f7fb}
+.metadata-object-info{min-width:0;padding-left:4px}
+.metadata-object-info b,.metadata-object-info small{display:block}
+.metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
+.metadata-object-info small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
 .metadata-editor-main{padding:4px 8px 4px 24px!important}
 .metadata-editor-title{margin-bottom:16px}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}

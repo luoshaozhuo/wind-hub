@@ -111,16 +111,16 @@ function onSectionChange(name: string | number) {
   selectSection(String(name) as ManageSection)
 }
 
-function onItemSelect(id: string) {
+function onItemRowClick(row: { id: string }) {
   if (section.value === 'model') {
-    const row = store.deviceModels.find(x => x.id === id)
-    if (row) openEditModel(row)
+    const item = store.deviceModels.find(x => x.id === row.id)
+    if (item) openEditModel(item)
   } else if (section.value === 'type') {
-    const row = store.deviceTypes.find(x => x.id === id)
-    if (row) openEditType(row)
+    const item = store.deviceTypes.find(x => x.id === row.id)
+    if (item) openEditType(item)
   } else {
-    const row = store.deviceGroups.find(x => x.id === id)
-    if (row) openEditGroup(row)
+    const item = store.deviceGroups.find(x => x.id === row.id)
+    if (item) openEditGroup(item)
   }
 }
 
@@ -353,33 +353,78 @@ async function deleteGroup(row: { id: string }) {
     </el-tabs>
 
     <el-container class="metadata-layout">
-      <el-aside width="330px" class="metadata-list-aside">
-        <el-menu :default-active="editingId" class="metadata-list-menu" @select="onItemSelect">
-          <template v-if="section === 'model'">
-            <el-menu-item v-for="row in modelRows" :key="row.id" :index="row.id">
-              <div class="metadata-menu-row">
-                <div><b>{{ row.model || row.id }}</b><small>{{ row.id }} · {{ row.type_name }}</small><small>{{ row.protocol.toUpperCase() }} · {{ row.point_table }} · {{ row.devices }} devices</small></div>
-                <el-button link type="danger" @click.stop="deleteModel(row)">Delete</el-button>
+      <el-aside width="360px" class="metadata-list-aside">
+        <el-table
+          v-if="section === 'model'"
+          :data="modelRows"
+          row-key="id"
+          :show-header="false"
+          highlight-current-row
+          :current-row-key="editingId"
+          class="metadata-object-table"
+          @row-click="onItemRowClick"
+        >
+          <el-table-column min-width="260">
+            <template #default="{ row }">
+              <div class="metadata-object-info">
+                <b>{{ row.model || row.id }}</b>
+                <small>{{ row.id }} · {{ row.type_name }}</small>
+                <small>{{ row.protocol.toUpperCase() }} · {{ row.point_table }} · {{ row.devices }} devices</small>
               </div>
-            </el-menu-item>
-          </template>
-          <template v-else-if="section === 'type'">
-            <el-menu-item v-for="row in typeRows" :key="row.id" :index="row.id">
-              <div class="metadata-menu-row">
-                <div><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.models }} models · {{ row.groups }} groups</small></div>
-                <el-button link type="danger" @click.stop="deleteType(row)">Delete</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column width="78" align="right">
+            <template #default="{ row }"><el-button link type="danger" @click.stop="deleteModel(row)">Delete</el-button></template>
+          </el-table-column>
+        </el-table>
+
+        <el-table
+          v-else-if="section === 'type'"
+          :data="typeRows"
+          row-key="id"
+          :show-header="false"
+          highlight-current-row
+          :current-row-key="editingId"
+          class="metadata-object-table"
+          @row-click="onItemRowClick"
+        >
+          <el-table-column min-width="260">
+            <template #default="{ row }">
+              <div class="metadata-object-info">
+                <b>{{ row.name }}</b>
+                <small>{{ row.id }}</small>
+                <small>{{ row.models }} models · {{ row.groups }} groups</small>
               </div>
-            </el-menu-item>
-          </template>
-          <template v-else>
-            <el-menu-item v-for="row in groupRows" :key="row.id" :index="row.id">
-              <div class="metadata-menu-row">
-                <div><b>{{ row.id }}</b><small>{{ row.type_name }}</small><small>{{ row.devices }} devices · {{ row.tasks }} tasks</small></div>
-                <el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column width="78" align="right">
+            <template #default="{ row }"><el-button link type="danger" @click.stop="deleteType(row)">Delete</el-button></template>
+          </el-table-column>
+        </el-table>
+
+        <el-table
+          v-else
+          :data="groupRows"
+          row-key="id"
+          :show-header="false"
+          highlight-current-row
+          :current-row-key="editingId"
+          class="metadata-object-table"
+          @row-click="onItemRowClick"
+        >
+          <el-table-column min-width="260">
+            <template #default="{ row }">
+              <div class="metadata-object-info">
+                <b>{{ row.id }}</b>
+                <small>{{ row.type_name }}</small>
+                <small>{{ row.devices }} devices · {{ row.tasks }} tasks</small>
               </div>
-            </el-menu-item>
-          </template>
-        </el-menu>
+            </template>
+          </el-table-column>
+          <el-table-column width="78" align="right">
+            <template #default="{ row }"><el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button></template>
+          </el-table-column>
+        </el-table>
       </el-aside>
 
       <el-main class="metadata-editor-main">
@@ -447,13 +492,14 @@ async function deleteGroup(row: { id: string }) {
 <style scoped>
 .metadata-tabs{margin-top:-8px}.metadata-layout{min-height:520px}
 .metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:12px}
-.metadata-list-menu{border-right:0!important;background:transparent}
-.metadata-list-menu .el-menu-item{height:auto;min-height:70px;line-height:normal;padding:10px 8px!important;border-radius:7px;margin-bottom:2px}
-.metadata-list-menu .el-menu-item.is-active{background:#f4f7fb;color:var(--app-text-primary)}
-.metadata-menu-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.metadata-menu-row>div{min-width:0}.metadata-menu-row b,.metadata-menu-row small{display:block}
-.metadata-menu-row b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-menu-row small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-object-table{width:100%;cursor:pointer}
+.metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
+.metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
+.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:#f4f7fb}
+.metadata-object-info{min-width:0;padding-left:4px}
+.metadata-object-info b,.metadata-object-info small{display:block}
+.metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
+.metadata-object-info small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
 .metadata-editor-main{padding:4px 8px 4px 24px!important}.metadata-editor-title{margin-bottom:16px}
 .metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
