@@ -242,7 +242,7 @@ function pkgApply() {
                 </div>
               </div>
 
-              <div class="yaml-actions">
+              <div v-if="editorMode === 'edit'" class="yaml-actions">
                 <el-button @click="validate">Validate</el-button>
                 <el-button @click="save">Save</el-button>
                 <el-button type="primary" @click="saveApply">Save & Apply</el-button>
@@ -275,23 +275,7 @@ function pkgApply() {
             </section>
           </div>
         </el-tab-pane>
-
-        <el-tab-pane label="Import Package" name="Import Package">
-          <h3>Import Complete Configuration</h3>
-          <p>上传完整配置包，临时校验、整体 Diff 后再替换当前配置。</p>
-          <el-upload drag action="#" :auto-upload="false" :limit="1" :on-change="onPkgChange" class="package-upload"><div>Drop configuration ZIP here</div></el-upload>
-          <p v-if="pkg.name">已选择：{{ pkg.name }}</p>
-          <el-button type="primary" @click="pkgValidate">Validate Package & Compare</el-button>
-          <template v-if="pkg.state === 'compared'">
-            <h3 class="overall-title">Overall Diff</h3>
-            <el-table :data="pkgDiff" class="package-table">
-              <el-table-column prop="o" label="Object" /><el-table-column prop="a" label="Added" />
-              <el-table-column prop="r" label="Removed" /><el-table-column prop="u" label="Updated" />
-            </el-table>
-            <div class="right package-table"><el-button @click="pkgCancel">Cancel</el-button><el-button type="primary" @click="pkgApply">Apply Package</el-button></div>
-          </template>
-        </el-tab-pane>
-      </el-tabs>
+</el-tabs>
     </el-card>
   </div>
 </template>
