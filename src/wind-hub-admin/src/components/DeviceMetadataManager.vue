@@ -344,6 +344,7 @@ async function deleteGroup(row: { id: string }) {
           <em>{{ store.deviceGroups.length }}</em>
         </button>
       </aside>
+      <el-divider direction="vertical" class="manager-divider" />
 
       <section class="metadata-content">
         <div class="metadata-list-panel">
@@ -375,6 +376,7 @@ async function deleteGroup(row: { id: string }) {
             </button>
           </template>
         </div>
+        <el-divider direction="vertical" class="manager-divider inner-divider" />
 
         <div class="metadata-editor-panel">
           <div class="metadata-panel-head editor-head">
@@ -404,7 +406,7 @@ async function deleteGroup(row: { id: string }) {
                 </el-form-item>
               </div>
 
-              <div class="model-subhead">Connection Defaults</div>
+              <el-divider content-position="left" class="section-divider">Connection Defaults</el-divider>
               <div class="metadata-form-grid">
                 <el-form-item label="Port"><el-input-number v-model="form.port" :min="1" :max="65535" :controls="false" /></el-form-item>
                 <template v-if="form.protocol === 'ads'">
@@ -459,17 +461,18 @@ async function deleteGroup(row: { id: string }) {
 </template>
 
 <style scoped>
-.metadata-manager{display:grid;grid-template-columns:176px minmax(0,1fr);min-height:560px}
-.metadata-nav{padding:4px 14px 4px 0;border-right:1px solid #edf0f4}
+.metadata-manager{display:grid;grid-template-columns:176px auto minmax(0,1fr);min-height:560px}
+.metadata-nav{padding:4px 14px 4px 0}
 .metadata-nav button{width:100%;display:flex;justify-content:space-between;gap:12px;border:0;background:transparent;padding:11px;border-radius:8px;text-align:left;cursor:pointer}
 .metadata-nav button:hover,.metadata-nav button.active{background:#f5f7fa}
 .metadata-nav span b,.metadata-nav span small{display:block}
-.metadata-nav span b{font-size:12px;color:#344054}.metadata-nav span small{margin-top:3px;color:#98a2b3;font-size:10px}.metadata-nav em{font-style:normal;color:#98a2b3;font-size:11px}
-.metadata-content{display:grid;grid-template-columns:340px minmax(0,1fr);min-width:0}
-.metadata-list-panel{padding:4px 20px 4px 18px;min-width:0}.metadata-editor-panel{padding:4px 10px 4px 24px;min-width:0}.metadata-list-panel{border-right:1px solid #edf0f4}
-.metadata-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;min-height:34px}.metadata-panel-head h3{margin:0;color:#344054;font-size:14px}.metadata-panel-head p{margin:4px 0 0;color:#98a2b3;font-size:10px}
-.metadata-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;border-bottom:1px solid #f0f2f5;background:transparent;padding:12px 6px;text-align:left;cursor:pointer}.metadata-row:hover,.metadata-row.selected{background:#f7f9fb}.metadata-row>span{min-width:0}.metadata-row b,.metadata-row small{display:block}.metadata-row b{color:#344054;font-size:12px;font-weight:600}.metadata-row small{margin-top:4px;color:#98a2b3;font-size:10px;line-height:1.35}
+.metadata-nav span b{font-size:var(--font-size-body);color:#344054}.metadata-nav span small{margin-top:3px;color:#98a2b3;font-size:var(--font-size-caption)}.metadata-nav em{font-style:normal;color:#98a2b3;font-size:var(--font-size-label)}
+.metadata-content{display:grid;grid-template-columns:340px auto minmax(0,1fr);min-width:0}
+.metadata-list-panel{padding:4px 20px 4px 18px;min-width:0}.metadata-editor-panel{padding:4px 10px 4px 24px;min-width:0}
+.metadata-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;min-height:34px}.metadata-panel-head h3{margin:0;color:#344054;font-size:var(--font-size-section)}.metadata-panel-head p{margin:4px 0 0;color:#98a2b3;font-size:var(--font-size-caption)}
+.metadata-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;background:transparent;padding:12px 6px;text-align:left;cursor:pointer}.metadata-row:hover,.metadata-row.selected{background:#f7f9fb}.metadata-row>span{min-width:0}.metadata-row b,.metadata-row small{display:block}.metadata-row b{color:#344054;font-size:var(--font-size-body);font-weight:var(--font-weight-semibold)}.metadata-row small{margin-top:4px;color:#98a2b3;font-size:var(--font-size-caption);line-height:1.35}
 .metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
-.model-subhead{margin:6px 0 12px;padding-top:14px;border-top:1px solid #eef0f3;color:#667085;font-size:11px;font-weight:600}.metadata-editor-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
-@media(max-width:900px){.metadata-manager{grid-template-columns:1fr}.metadata-nav{display:flex;gap:6px;overflow:auto;border-right:0;border-bottom:1px solid #edf0f4;padding:0 0 12px}.metadata-nav button{min-width:180px}.metadata-content{grid-template-columns:1fr}.metadata-list-panel{border-right:0;border-bottom:1px solid #edf0f4;padding:14px 0}.metadata-editor-panel{padding:16px 0}.metadata-form-grid{grid-template-columns:1fr}}
+.section-divider{margin:14px 0 16px!important}.metadata-editor-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+@media(max-width:900px){.metadata-manager{grid-template-columns:1fr}.metadata-nav{display:flex;gap:6px;overflow:auto;padding:0 0 12px}.metadata-nav button{min-width:180px}.metadata-content{grid-template-columns:1fr}.metadata-list-panel{padding:14px 0}.metadata-editor-panel{padding:16px 0}.metadata-form-grid{grid-template-columns:1fr}.manager-divider{display:none!important}}
+.manager-divider.el-divider--vertical{height:auto;min-height:100%;align-self:stretch;margin:0!important}.section-divider :deep(.el-divider__text){font-size:var(--font-size-label);font-weight:var(--font-weight-semibold);color:#667085}
 </style>
