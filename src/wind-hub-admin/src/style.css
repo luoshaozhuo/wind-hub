@@ -1149,3 +1149,12 @@
   .filter-grid .device-filter{display:none!important}
   .filter-grid .device-filter.mobile-filter-visible{display:flex!important}
 }
+
+@media(max-width:767px){
+  .table-line{flex-wrap:wrap;width:100%}
+  .table-line>.el-select{width:100%!important}
+  .table-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr}
+  .table-actions>.el-button{width:100%;margin-left:0!important}
+  .toolbar .row{width:100%;flex-wrap:wrap}
+  .toolbar .row>.el-input,.toolbar .row>.el-select{width:100%!important;max-width:100%!important}
+}
