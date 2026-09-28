@@ -16,7 +16,7 @@ const savedSnapshot = reactive<Record<string, string>>(
   Object.fromEntries(CONFIG_FILES.map(name => [name, yamlFiles[name]])),
 )
 
-const dirtyMap = reactive<Record<string, boolean>>({ 'devices.yaml': true })
+const dirtyMap = reactive<Record<string, boolean>>({})
 
 const siteEditing = ref(false)
 const siteDraft = reactive({
