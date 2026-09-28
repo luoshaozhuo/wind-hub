@@ -1061,3 +1061,84 @@
 @media(max-width:560px){
   .add-device-grid{grid-template-columns:1fr}
 }
+
+
+/* Global responsive shell: desktop / tablet / mobile */
+@media (max-width:1199px){
+  .content{padding:18px}
+  .head{align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .head>div:last-child{max-width:100%}
+  .metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .grid,.detail{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .el-dialog{max-width:92vw!important}
+}
+
+@media (max-width:1100px){
+  .shell{padding-bottom:58px}
+  aside{
+    display:flex!important;
+    position:fixed;
+    left:0;right:0;bottom:0;
+    z-index:1000;
+    width:auto;
+    height:58px;
+    padding:6px 8px;
+    gap:4px;
+    overflow-x:auto;
+    overflow-y:hidden;
+    border-right:0;
+    border-top:1px solid #e7eaf0;
+    background:rgba(255,255,255,.98);
+  }
+  aside .brand,aside .section{display:none}
+  aside button{
+    flex:0 0 auto;
+    width:auto;
+    min-width:76px;
+    height:46px;
+    padding:8px 11px;
+    text-align:center;
+    white-space:nowrap;
+    font-size:12px;
+  }
+  main{width:100%}
+  header{padding:0 18px}
+}
+
+@media (max-width:767px){
+  .content{padding:14px 12px 20px}
+  header{height:auto;min-height:58px;padding:8px 12px;gap:8px;flex-wrap:wrap}
+  .header-title{align-items:flex-start;flex-direction:column;gap:2px;max-width:calc(100% - 90px)}
+  .header-title>b{font-size:14px}
+  .header-title>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;font-size:10px}
+  .header-spacer{display:none}
+  header>.el-tag{margin-left:auto}
+  header>.el-tag+ .el-tag{margin-left:0}
+  .version-summary{display:none}
+  .head{margin-bottom:14px}
+  .head h1{font-size:22px}
+  .head p{margin:5px 0 0;font-size:12px}
+  .metrics,.grid,.detail{grid-template-columns:1fr}
+  .toolbar{align-items:stretch;flex-direction:column}
+  .right{flex-wrap:wrap}
+  .right .el-button{margin-left:0!important}
+  .el-dialog{width:96vw!important;max-width:96vw!important;margin:2vh auto!important}
+  .el-dialog.is-fullscreen{width:100%!important;max-width:100%!important;margin:0!important}
+  .el-drawer{max-width:100vw}
+  .el-table{font-size:11px}
+  .model-group{padding:13px}
+  .filter-card .el-card__body{padding:12px}
+  .filter-grid{grid-template-columns:1fr}
+  .head-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr}
+  .head-actions>.el-button,.head-actions>* .el-button{width:100%;margin-left:0!important}
+  .head-actions>.el-button:first-child{grid-column:1/-1}
+  .trend-chart{height:360px!important;width:100%}
+}
+
+@media (max-width:479px){
+  aside button{min-width:68px;font-size:11px;padding:7px 9px}
+  .content{padding-left:10px;padding-right:10px}
+  .el-card__body{padding:14px}
+  .device-fields{grid-template-columns:1fr 1fr}
+  .status-pills{gap:4px}
+}
