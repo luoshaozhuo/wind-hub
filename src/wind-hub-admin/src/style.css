@@ -1142,3 +1142,10 @@
   .device-fields{grid-template-columns:1fr 1fr}
   .status-pills{gap:4px}
 }
+
+.mobile-filter-toggle{display:none!important}
+@media(max-width:767px){
+  .mobile-filter-toggle{display:inline-flex!important;justify-content:center}
+  .filter-grid .device-filter{display:none!important}
+  .filter-grid .device-filter.mobile-filter-visible{display:flex!important}
+}
