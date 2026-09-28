@@ -37,6 +37,7 @@ const search = ref('')
 const typeFilter = ref('All')
 const modelFilter = ref('All')
 const statusFilter = ref('All')
+const mobileFiltersOpen = ref(false)
 const drawer = ref(false)
 const tab = ref('Config')
 const selected = ref<DeviceInst | null>(null)
@@ -918,7 +919,7 @@ async function sendCommand() {
           clearable
           placeholder="Search device ID / IP / model / protocol..."
         />
-        <el-select v-model="typeFilter">
+        <el-select v-model="typeFilter" class="device-filter" :class="{ 'mobile-filter-visible': mobileFiltersOpen }">
           <el-option label="All Types" value="All" />
           <el-option
             v-for="t in store.deviceTypes"
@@ -927,7 +928,7 @@ async function sendCommand() {
             :value="t.id"
           />
         </el-select>
-        <el-select v-model="modelFilter">
+        <el-select v-model="modelFilter" class="device-filter" :class="{ 'mobile-filter-visible': mobileFiltersOpen }">
           <el-option label="All Models" value="All" />
           <el-option
             v-for="m in store.deviceModels"
@@ -936,13 +937,16 @@ async function sendCommand() {
             :value="m.id"
           />
         </el-select>
-        <el-select v-model="statusFilter">
+        <el-select v-model="statusFilter" class="device-filter" :class="{ 'mobile-filter-visible': mobileFiltersOpen }">
           <el-option label="All Status" value="All" />
           <el-option label="Healthy" value="Healthy" />
           <el-option label="Warning" value="Warning" />
           <el-option label="Fault" value="Fault" />
           <el-option label="Unverified" value="Unverified" />
         </el-select>
+        <el-button class="mobile-filter-toggle" @click="mobileFiltersOpen = !mobileFiltersOpen">
+          {{ mobileFiltersOpen ? 'Hide Filters' : 'Filters' }}
+        </el-button>
       </div>
     </el-card>
 
