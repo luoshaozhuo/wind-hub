@@ -9,6 +9,10 @@ type ReviewLine = { type: 'same' | 'add' | 'remove'; text: string }
 const configTab = ref('YAML Editor')
 const file = ref('devices.yaml')
 const editorMode = ref<'edit' | 'review'>('edit')
+const editorModeOptions = [
+  { label: 'Edit', value: 'edit' },
+  { label: 'Review', value: 'review' },
+]
 const appliedSnapshot = reactive<Record<string, string>>(
   Object.fromEntries(CONFIG_FILES.map(name => [name, yamlFiles[name]])),
 )
@@ -49,6 +53,10 @@ function updateSite() {
   dirtyMap['system.yaml'] = true
   siteEditing.value = false
   ElMessage.success('Site information updated — system.yaml pending apply (mock)')
+}
+
+function selectFile(name: string) {
+  file.value = name
 }
 
 function markDirty() {
@@ -137,30 +145,6 @@ function upApply() {
   ElMessage.success(`${up.file} saved & reload applied (mock)`)
 }
 
-const pkg = reactive({ name: '', state: 'idle' as 'idle' | 'compared' })
-const pkgDiff = [
-  { o: 'Devices', a: '+6', r: '-2', u: '~11' },
-  { o: 'Device Models', a: '+1', r: '', u: '~2' },
-  { o: 'Tasks', a: '+2', r: '-1', u: '~3' },
-  { o: 'Point Tables', a: '+1', r: '', u: '~4' },
-  { o: 'Units', a: '', r: '', u: '~1' },
-]
-function onPkgChange(f: { name?: string }) { pkg.name = f?.name || ''; pkg.state = 'idle' }
-function pkgValidate() {
-  if (!pkg.name) { ElMessage.warning('Select a configuration ZIP first'); return }
-  pkg.state = 'compared'
-  ElMessage.success(`${pkg.name} validation passed — overall diff ready (mock)`)
-}
-function pkgCancel() { pkg.state = 'idle'; pkg.name = '' }
-function pkgApply() {
-  for (const name of CONFIG_FILES) {
-    appliedSnapshot[name] = yamlFiles[name]
-    savedSnapshot[name] = yamlFiles[name]
-    dirtyMap[name] = false
-  }
-  pkg.state = 'idle'; pkg.name = ''
-  ElMessage.success('Configuration package applied & reloaded (mock)')
-}
 </script>
 
 <template>
@@ -205,12 +189,12 @@ function pkgApply() {
       <el-tabs v-model="configTab">
         <el-tab-pane label="YAML Editor" name="YAML Editor">
           <div class="config-editor-layout">
-            <div class="files">
-              <button v-for="name in CONFIG_FILES" :key="name" :class="{ on: file === name }" @click="file = name">
-                {{ name }}
-                <i v-if="dirtyMap[name]"></i>
-              </button>
-            </div>
+            <el-menu :default-active="file" class="config-file-menu" @select="selectFile">
+              <el-menu-item v-for="name in CONFIG_FILES" :key="name" :index="name">
+                <span>{{ name }}</span>
+                <el-badge v-if="dirtyMap[name]" is-dot type="warning" />
+              </el-menu-item>
+            </el-menu>
 
             <div class="yaml-workspace">
               <div class="yaml-toolbar">
@@ -220,10 +204,7 @@ function pkgApply() {
                     {{ dirtyMap[file] ? 'Pending Apply' : 'Applied' }}
                   </span>
                 </div>
-                <div class="mode-switch">
-                  <button :class="{ on: editorMode === 'edit' }" @click="editorMode = 'edit'">Edit</button>
-                  <button :class="{ on: editorMode === 'review' }" @click="editorMode = 'review'">Review</button>
-                </div>
+                <el-segmented v-model="editorMode" :options="editorModeOptions" />
               </div>
 
               <el-input
@@ -282,7 +263,7 @@ function pkgApply() {
 
 <style scoped>
 .site-card{margin-bottom:16px}.site-row{min-height:72px;display:flex;align-items:center;gap:24px}.site-heading{width:210px;flex:0 0 auto}.site-heading h3{margin:0;font-size:var(--font-size-section-lg)}.site-heading p{margin:4px 0 0;color:#8a94a3;font-size:var(--font-size-body)}.site-info{flex:1;display:flex;gap:48px}.site-info>div{min-width:180px}.site-info span{display:block;margin-bottom:5px;color:#8a94a3;font-size:var(--font-size-label)}.site-info b{color:#2b3646;font-size:var(--font-size-subsection)}.site-edit{flex:1}.site-edit-grid{display:grid;grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr);gap:14px}.site-edit :deep(.el-form-item){margin-bottom:0}.site-actions{display:flex;gap:8px}
-.config-editor-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px}.files button{position:relative}.files button i{position:absolute;right:9px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#b7791f}.yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title,.mode-switch{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:16px;margin-bottom:10px}.yaml-title{gap:9px}.apply-state{color:#667085;font-size:var(--font-size-label)}.apply-state.pending{color:#b7791f}.mode-switch{gap:2px;padding:3px;background:#f1f3f6;border-radius:7px}.mode-switch button{border:0;background:transparent;padding:6px 11px;border-radius:5px;color:#667085;cursor:pointer}.mode-switch button.on{background:#fff;color:#344054;box-shadow:0 1px 3px rgba(16,24,40,.08)}.yaml-input :deep(textarea){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.yaml-actions{justify-content:flex-end;gap:8px;margin-top:12px}.review-editor{min-height:558px;max-height:65vh;overflow:auto;border:1px solid #dfe4ea;border-radius:6px;background:#fff;padding:8px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.review-line{display:grid;grid-template-columns:26px minmax(0,1fr);min-height:20px;border-left:3px solid transparent}.review-line code{padding:1px 10px;white-space:pre-wrap;overflow-wrap:anywhere;color:#344054}.review-gutter{text-align:center;color:#a8b0bc;user-select:none}.review-line.add{background:#f1f9f4;border-left-color:#2f8f52}.review-line.add code{color:#25683c}.review-line.remove{background:#fff4f2;border-left-color:#d94d45}.review-line.remove code{color:#a43d38;text-decoration:line-through}.package-upload{max-width:520px}.package-table{max-width:720px}.overall-title{margin-top:18px}
-@media(max-width:900px){.site-row{align-items:stretch;flex-direction:column}.site-heading{width:auto}.site-info{gap:24px;flex-wrap:wrap}.site-edit-grid{grid-template-columns:1fr}.site-actions{justify-content:flex-end}.config-editor-layout{grid-template-columns:1fr}.files{flex-direction:row;overflow:auto;padding-bottom:4px}.files button{white-space:nowrap;flex:0 0 auto}.upload{grid-template-columns:1fr}}
-@media(max-width:767px){.site-info{display:grid;grid-template-columns:1fr}.site-info>div{min-width:0}.site-actions{width:100%}.site-actions .el-button{flex:1}.yaml-toolbar{align-items:flex-start;flex-direction:column}.mode-switch{width:100%}.mode-switch button{flex:1}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.review-editor{min-height:420px}.package-upload,.package-table{max-width:100%}}
+.config-editor-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px}.config-file-menu{border-right:0!important;background:transparent}.config-file-menu .el-menu-item{height:38px;line-height:38px;margin-bottom:4px;border:1px solid var(--app-border);border-radius:7px;padding:0 10px!important;display:flex;justify-content:space-between}.config-file-menu .el-menu-item.is-active{background:#eef4ff;border-color:#b8cdf5;color:#244a86}.yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:16px;margin-bottom:10px}.yaml-title{gap:9px}.apply-state{color:#667085;font-size:var(--font-size-label)}.apply-state.pending{color:#b7791f}.yaml-input :deep(textarea){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.yaml-actions{justify-content:flex-end;gap:8px;margin-top:12px}.review-editor{min-height:558px;max-height:65vh;overflow:auto;border:1px solid #dfe4ea;border-radius:6px;background:#fff;padding:8px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.review-line{display:grid;grid-template-columns:26px minmax(0,1fr);min-height:20px;border-left:3px solid transparent}.review-line code{padding:1px 10px;white-space:pre-wrap;overflow-wrap:anywhere;color:#344054}.review-gutter{text-align:center;color:#a8b0bc;user-select:none}.review-line.add{background:#f1f9f4;border-left-color:#2f8f52}.review-line.add code{color:#25683c}.review-line.remove{background:#fff4f2;border-left-color:#d94d45}.review-line.remove code{color:#a43d38;text-decoration:line-through}.package-upload{max-width:520px}.package-table{max-width:720px}.overall-title{margin-top:18px}
+@media(max-width:900px){.site-row{align-items:stretch;flex-direction:column}.site-heading{width:auto}.site-info{gap:24px;flex-wrap:wrap}.site-edit-grid{grid-template-columns:1fr}.site-actions{justify-content:flex-end}.config-editor-layout{grid-template-columns:1fr}.config-file-menu{display:flex;overflow:auto;border-bottom:0}.config-file-menu .el-menu-item{flex:0 0 auto;white-space:nowrap;margin-right:4px}.upload{grid-template-columns:1fr}}
+@media(max-width:767px){.site-info{display:grid;grid-template-columns:1fr}.site-info>div{min-width:0}.site-actions{width:100%}.site-actions .el-button{flex:1}.yaml-toolbar{align-items:flex-start;flex-direction:column}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.review-editor{min-height:420px}.package-upload,.package-table{max-width:100%}}
 </style>

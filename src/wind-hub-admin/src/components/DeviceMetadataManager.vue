@@ -107,6 +107,23 @@ function selectSection(next: ManageSection) {
   resetForm()
 }
 
+function onSectionChange(name: string | number) {
+  selectSection(String(name) as ManageSection)
+}
+
+function onItemSelect(id: string) {
+  if (section.value === 'model') {
+    const row = store.deviceModels.find(x => x.id === id)
+    if (row) openEditModel(row)
+  } else if (section.value === 'type') {
+    const row = store.deviceTypes.find(x => x.id === id)
+    if (row) openEditType(row)
+  } else {
+    const row = store.deviceGroups.find(x => x.id === id)
+    if (row) openEditGroup(row)
+  }
+}
+
 function newItem() {
   resetForm()
 }
@@ -325,154 +342,123 @@ async function deleteGroup(row: { id: string }) {
   <el-dialog
     v-model="manageOpen"
     title="Manage Device Metadata"
-    :width="isMobile ? '100%' : 'min(1120px, 94vw)'"
+    :width="isMobile ? '100%' : 'min(1040px, 94vw)'"
     :fullscreen="isMobile"
     class="metadata-manager-dialog"
   >
-    <div class="metadata-manager">
-      <aside class="metadata-nav">
-        <button :class="{ active: section === 'model' }" @click="selectSection('model')">
-          <span><b>Device Models</b><small>型号、协议、点表与默认参数</small></span>
-          <em>{{ store.deviceModels.length }}</em>
-        </button>
-        <button :class="{ active: section === 'type' }" @click="selectSection('type')">
-          <span><b>Device Types</b><small>设备业务分类</small></span>
-          <em>{{ store.deviceTypes.length }}</em>
-        </button>
-        <button :class="{ active: section === 'group' }" @click="selectSection('group')">
-          <span><b>Device Groups</b><small>设备实例分组</small></span>
-          <em>{{ store.deviceGroups.length }}</em>
-        </button>
-      </aside>
-      <el-divider direction="vertical" class="manager-divider" />
+    <el-tabs v-model="section" class="metadata-tabs" @tab-change="onSectionChange">
+      <el-tab-pane label="Device Models" name="model" />
+      <el-tab-pane label="Device Types" name="type" />
+      <el-tab-pane label="Device Groups" name="group" />
+    </el-tabs>
 
-      <section class="metadata-content">
-        <div class="metadata-list-panel">
-          <div class="metadata-panel-head">
-            <div>
-              <h3>{{ section === 'model' ? 'Device Models' : section === 'type' ? 'Device Types' : 'Device Groups' }}</h3>
-              <p>{{ section === 'model' ? '选择条目后在右侧编辑' : section === 'type' ? '业务分类定义与引用关系' : '实例分组与引用关系' }}</p>
-            </div>
-          </div>
-
+    <el-container class="metadata-layout">
+      <el-aside width="330px" class="metadata-list-aside">
+        <el-menu :default-active="editingId" class="metadata-list-menu" @select="onItemSelect">
           <template v-if="section === 'model'">
-            <button v-for="row in modelRows" :key="row.id" :class="['metadata-row', { selected: editingId === row.id }]" @click="openEditModel(row)">
-              <span><b>{{ row.model || row.id }}</b><small>{{ row.id }} · {{ row.type_name }}</small><small>{{ row.protocol.toUpperCase() }} · {{ row.point_table }} · {{ row.devices }} devices</small></span>
-              <el-button link type="danger" @click.stop="deleteModel(row)">Delete</el-button>
-            </button>
+            <el-menu-item v-for="row in modelRows" :key="row.id" :index="row.id">
+              <div class="metadata-menu-row">
+                <div><b>{{ row.model || row.id }}</b><small>{{ row.id }} · {{ row.type_name }}</small><small>{{ row.protocol.toUpperCase() }} · {{ row.point_table }} · {{ row.devices }} devices</small></div>
+                <el-button link type="danger" @click.stop="deleteModel(row)">Delete</el-button>
+              </div>
+            </el-menu-item>
           </template>
-
           <template v-else-if="section === 'type'">
-            <button v-for="row in typeRows" :key="row.id" :class="['metadata-row', { selected: editingId === row.id }]" @click="openEditType(row)">
-              <span><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.models }} models · {{ row.groups }} groups</small></span>
-              <el-button link type="danger" @click.stop="deleteType(row)">Delete</el-button>
-            </button>
+            <el-menu-item v-for="row in typeRows" :key="row.id" :index="row.id">
+              <div class="metadata-menu-row">
+                <div><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.models }} models · {{ row.groups }} groups</small></div>
+                <el-button link type="danger" @click.stop="deleteType(row)">Delete</el-button>
+              </div>
+            </el-menu-item>
           </template>
-
           <template v-else>
-            <button v-for="row in groupRows" :key="row.id" :class="['metadata-row', { selected: editingId === row.id }]" @click="openEditGroup(row)">
-              <span><b>{{ row.id }}</b><small>{{ row.type_name }}</small><small>{{ row.devices }} devices · {{ row.tasks }} tasks</small></span>
-              <el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
-            </button>
+            <el-menu-item v-for="row in groupRows" :key="row.id" :index="row.id">
+              <div class="metadata-menu-row">
+                <div><b>{{ row.id }}</b><small>{{ row.type_name }}</small><small>{{ row.devices }} devices · {{ row.tasks }} tasks</small></div>
+                <el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
+              </div>
+            </el-menu-item>
           </template>
-        </div>
-        <el-divider direction="vertical" class="manager-divider inner-divider" />
+        </el-menu>
+      </el-aside>
 
-        <div class="metadata-editor-panel">
-          <div class="metadata-panel-head editor-head">
-            <div>
-              <h3>{{ editingId ? 'Edit' : 'New' }} {{ section === 'model' ? 'Model' : section === 'type' ? 'Type' : 'Group' }}</h3>
-              <p>{{ editingId ? editingId : '创建后 ID 不再修改' }}</p>
+      <el-main class="metadata-editor-main">
+        <div class="metadata-editor-title">
+          <h3>{{ editingId ? 'Edit' : 'New' }} {{ section === 'model' ? 'Model' : section === 'type' ? 'Type' : 'Group' }}</h3>
+          <p>{{ editingId ? editingId : '创建后 ID 不再修改' }}</p>
+        </div>
+
+        <el-form label-position="top">
+          <template v-if="section === 'model'">
+            <div class="metadata-form-grid">
+              <el-form-item label="Model ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
+              <el-form-item label="Hardware Model"><el-input v-model="form.model" /></el-form-item>
+              <el-form-item label="Manufacturer"><el-input v-model="form.manufacturer" /></el-form-item>
+              <el-form-item label="Device Type"><el-select v-model="form.device_type"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select></el-form-item>
+              <el-form-item label="Protocol"><el-select v-model="form.protocol" @change="onProtocolChange"><el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" /></el-select></el-form-item>
+              <el-form-item label="Point Table"><el-select v-model="form.point_table"><el-option v-for="t in tablesOfProtocol" :key="t.id" :label="t.id" :value="t.id" /></el-select></el-form-item>
+              <el-form-item v-if="form.protocol === 'ads'" label="Read Mode"><el-select v-model="form.read_mode"><el-option v-for="r in ADS_READ_MODES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
             </div>
-          </div>
-
-          <el-form label-position="top">
-            <template v-if="section === 'model'">
-              <div class="metadata-form-grid">
-                <el-form-item label="Model ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
-                <el-form-item label="Hardware Model"><el-input v-model="form.model" /></el-form-item>
-                <el-form-item label="Manufacturer"><el-input v-model="form.manufacturer" /></el-form-item>
-                <el-form-item label="Device Type">
-                  <el-select v-model="form.device_type"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select>
-                </el-form-item>
-                <el-form-item label="Protocol">
-                  <el-select v-model="form.protocol" @change="onProtocolChange"><el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" /></el-select>
-                </el-form-item>
-                <el-form-item label="Point Table">
-                  <el-select v-model="form.point_table"><el-option v-for="t in tablesOfProtocol" :key="t.id" :label="t.id" :value="t.id" /></el-select>
-                </el-form-item>
-                <el-form-item v-if="form.protocol === 'ads'" label="Read Mode">
-                  <el-select v-model="form.read_mode"><el-option v-for="r in ADS_READ_MODES" :key="r" :label="r" :value="r" /></el-select>
-                </el-form-item>
-              </div>
-
-              <el-divider content-position="left" class="section-divider">Connection Defaults</el-divider>
-              <div class="metadata-form-grid">
-                <el-form-item label="Port"><el-input-number v-model="form.port" :min="1" :max="65535" :controls="false" /></el-form-item>
-                <template v-if="form.protocol === 'ads'">
-                  <el-form-item label="Target Port"><el-input-number v-model="form.target_port" :min="1" :max="65535" :controls="false" /></el-form-item>
-                  <el-form-item label="TwinCAT Version"><el-select v-model="form.twincat_version"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
-                  <el-form-item label="Timeout (s)"><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false" /></el-form-item>
-                  <el-form-item label="Reconnect Max Retries"><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false" /></el-form-item>
-                  <el-form-item label="Reconnect Backoff Max (s)"><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false" /></el-form-item>
-                </template>
-                <template v-else-if="form.protocol === 'modbus'">
-                  <el-form-item label="Unit ID"><el-input-number v-model="form.unit_id" :min="0" :max="255" :controls="false" /></el-form-item>
-                  <el-form-item label="Mode"><el-select v-model="form.mode"><el-option label="TCP" value="tcp" /></el-select></el-form-item>
-                  <el-form-item label="Timeout (s)"><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false" /></el-form-item>
-                  <el-form-item label="Word Order"><el-select v-model="form.word_order"><el-option label="little_endian" value="little_endian" /><el-option label="big_endian" value="big_endian" /></el-select></el-form-item>
-                  <el-form-item label="Reconnect Max Retries"><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false" /></el-form-item>
-                  <el-form-item label="Reconnect Backoff Max (s)"><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false" /></el-form-item>
-                </template>
-                <template v-else>
-                  <el-form-item label="Common Address"><el-input-number v-model="form.common_addr" :min="1" :max="65535" :controls="false" /></el-form-item>
-                  <el-form-item label="K Window"><el-input-number v-model="form.k" :min="1" :controls="false" /></el-form-item>
-                  <el-form-item label="W Window"><el-input-number v-model="form.w" :min="1" :controls="false" /></el-form-item>
-                  <el-form-item label="T0 (s)"><el-input-number v-model="form.t0" :min="0.1" :controls="false" /></el-form-item>
-                  <el-form-item label="T1 (s)"><el-input-number v-model="form.t1" :min="0.1" :controls="false" /></el-form-item>
-                  <el-form-item label="T2 (s)"><el-input-number v-model="form.t2" :min="0.1" :controls="false" /></el-form-item>
-                  <el-form-item label="T3 (s)"><el-input-number v-model="form.t3" :min="0.1" :controls="false" /></el-form-item>
-                  <el-form-item label="Max Reconnect Retries"><el-input-number v-model="form.max_reconnect_retries" :min="0" :controls="false" /></el-form-item>
-                </template>
-              </div>
-            </template>
-
-            <template v-else-if="section === 'type'">
-              <el-form-item label="Type ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
-              <el-form-item label="Name"><el-input v-model="form.name" /></el-form-item>
-            </template>
-
-            <template v-else>
-              <el-form-item label="Group ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
-              <el-form-item label="Device Type">
-                <el-select v-model="form.device_type" style="width:100%"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select>
-              </el-form-item>
-            </template>
-          </el-form>
-
-          <div class="metadata-editor-actions">
-            <el-button @click="resetForm">Clear</el-button>
-            <el-button type="primary" @click="saveCurrent">{{ editingId ? 'Update' : 'Create' }}</el-button>
-          </div>
-        </div>
-      </section>
-    </div>
+            <el-divider content-position="left">Connection Defaults</el-divider>
+            <div class="metadata-form-grid">
+              <el-form-item label="Port"><el-input-number v-model="form.port" :min="1" :max="65535" :controls="false" /></el-form-item>
+              <template v-if="form.protocol === 'ads'">
+                <el-form-item label="Target Port"><el-input-number v-model="form.target_port" :min="1" :max="65535" :controls="false" /></el-form-item>
+                <el-form-item label="TwinCAT Version"><el-select v-model="form.twincat_version"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+                <el-form-item label="Timeout (s)"><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false" /></el-form-item>
+                <el-form-item label="Reconnect Max Retries"><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false" /></el-form-item>
+                <el-form-item label="Reconnect Backoff Max (s)"><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false" /></el-form-item>
+              </template>
+              <template v-else-if="form.protocol === 'modbus'">
+                <el-form-item label="Unit ID"><el-input-number v-model="form.unit_id" :min="0" :max="255" :controls="false" /></el-form-item>
+                <el-form-item label="Mode"><el-select v-model="form.mode"><el-option label="TCP" value="tcp" /></el-select></el-form-item>
+                <el-form-item label="Timeout (s)"><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false" /></el-form-item>
+                <el-form-item label="Word Order"><el-select v-model="form.word_order"><el-option label="little_endian" value="little_endian" /><el-option label="big_endian" value="big_endian" /></el-select></el-form-item>
+                <el-form-item label="Reconnect Max Retries"><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false" /></el-form-item>
+                <el-form-item label="Reconnect Backoff Max (s)"><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false" /></el-form-item>
+              </template>
+              <template v-else>
+                <el-form-item label="Common Address"><el-input-number v-model="form.common_addr" :min="1" :max="65535" :controls="false" /></el-form-item>
+                <el-form-item label="K Window"><el-input-number v-model="form.k" :min="1" :controls="false" /></el-form-item>
+                <el-form-item label="W Window"><el-input-number v-model="form.w" :min="1" :controls="false" /></el-form-item>
+                <el-form-item label="T0 (s)"><el-input-number v-model="form.t0" :min="0.1" :controls="false" /></el-form-item>
+                <el-form-item label="T1 (s)"><el-input-number v-model="form.t1" :min="0.1" :controls="false" /></el-form-item>
+                <el-form-item label="T2 (s)"><el-input-number v-model="form.t2" :min="0.1" :controls="false" /></el-form-item>
+                <el-form-item label="T3 (s)"><el-input-number v-model="form.t3" :min="0.1" :controls="false" /></el-form-item>
+                <el-form-item label="Max Reconnect Retries"><el-input-number v-model="form.max_reconnect_retries" :min="0" :controls="false" /></el-form-item>
+              </template>
+            </div>
+          </template>
+          <template v-else-if="section === 'type'">
+            <el-form-item label="Type ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
+            <el-form-item label="Name"><el-input v-model="form.name" /></el-form-item>
+          </template>
+          <template v-else>
+            <el-form-item label="Group ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
+            <el-form-item label="Device Type"><el-select v-model="form.device_type" style="width:100%"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select></el-form-item>
+          </template>
+        </el-form>
+        <div class="metadata-editor-actions"><el-button @click="resetForm">Clear</el-button><el-button type="primary" @click="saveCurrent">{{ editingId ? 'Update' : 'Create' }}</el-button></div>
+      </el-main>
+    </el-container>
   </el-dialog>
 </template>
 
 <style scoped>
-.metadata-manager{display:grid;grid-template-columns:176px auto minmax(0,1fr);min-height:560px}
-.metadata-nav{padding:4px 14px 4px 0}
-.metadata-nav button{width:100%;display:flex;justify-content:space-between;gap:12px;border:0;background:transparent;padding:11px;border-radius:8px;text-align:left;cursor:pointer}
-.metadata-nav button:hover,.metadata-nav button.active{background:#f5f7fa}
-.metadata-nav span b,.metadata-nav span small{display:block}
-.metadata-nav span b{font-size:var(--font-size-body);color:#344054}.metadata-nav span small{margin-top:3px;color:#98a2b3;font-size:var(--font-size-caption)}.metadata-nav em{font-style:normal;color:#98a2b3;font-size:var(--font-size-label)}
-.metadata-content{display:grid;grid-template-columns:340px auto minmax(0,1fr);min-width:0}
-.metadata-list-panel{padding:4px 20px 4px 18px;min-width:0}.metadata-editor-panel{padding:4px 10px 4px 24px;min-width:0}
-.metadata-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;min-height:34px}.metadata-panel-head h3{margin:0;color:#344054;font-size:var(--font-size-section)}.metadata-panel-head p{margin:4px 0 0;color:#98a2b3;font-size:var(--font-size-caption)}
-.metadata-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;background:transparent;padding:12px 6px;text-align:left;cursor:pointer}.metadata-row:hover,.metadata-row.selected{background:#f7f9fb}.metadata-row>span{min-width:0}.metadata-row b,.metadata-row small{display:block}.metadata-row b{color:#344054;font-size:var(--font-size-body);font-weight:var(--font-weight-semibold)}.metadata-row small{margin-top:4px;color:#98a2b3;font-size:var(--font-size-caption);line-height:1.35}
-.metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
-.section-divider{margin:14px 0 16px!important}.metadata-editor-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
-@media(max-width:900px){.metadata-manager{grid-template-columns:1fr}.metadata-nav{display:flex;gap:6px;overflow:auto;padding:0 0 12px}.metadata-nav button{min-width:180px}.metadata-content{grid-template-columns:1fr}.metadata-list-panel{padding:14px 0}.metadata-editor-panel{padding:16px 0}.metadata-form-grid{grid-template-columns:1fr}.manager-divider{display:none!important}}
-.manager-divider.el-divider--vertical{height:auto;min-height:100%;align-self:stretch;margin:0!important}.section-divider :deep(.el-divider__text){font-size:var(--font-size-label);font-weight:var(--font-weight-semibold);color:#667085}
+.metadata-tabs{margin-top:-8px}.metadata-layout{min-height:520px}
+.metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:12px}
+.metadata-list-menu{border-right:0!important;background:transparent}
+.metadata-list-menu .el-menu-item{height:auto;min-height:70px;line-height:normal;padding:10px 8px!important;border-radius:7px;margin-bottom:2px}
+.metadata-list-menu .el-menu-item.is-active{background:#f4f7fb;color:var(--app-text-primary)}
+.metadata-menu-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.metadata-menu-row>div{min-width:0}.metadata-menu-row b,.metadata-menu-row small{display:block}
+.metadata-menu-row b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
+.metadata-menu-row small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-editor-main{padding:4px 8px 4px 24px!important}.metadata-editor-title{margin-bottom:16px}
+.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
+.metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
+.metadata-editor-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:8px}
+@media(max-width:900px){.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0!important}.metadata-form-grid{grid-template-columns:1fr}}
 </style>

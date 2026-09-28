@@ -174,10 +174,12 @@ function extraConnectionInfo(d: DeviceInst) {
   return ''
 }
 
-function cardStepClass(step: VerifyStepState) {
-  if (step === 'success') return 'state-pill state-ok'
-  if (step === 'failed' || step === 'partial') return 'state-pill state-bad'
-  return 'state-pill state-idle'
+function stepTagType(step: VerifyStepState): '' | 'success' | 'warning' | 'danger' | 'info' {
+  if (step === 'success') return 'success'
+  if (step === 'partial') return 'warning'
+  if (step === 'failed') return 'danger'
+  if (step === 'checking') return ''
+  return 'info'
 }
 
 function protocolDescription(d: DeviceInst) {
@@ -285,14 +287,86 @@ async function verifyDevice(d: DeviceInst, quiet = false) {
   }
 }
 
+function buildBulkVerification(d: DeviceInst): DeviceVerification {
+  const result = emptyVerify()
+  result.verified_at = timestampAt()
+
+  if (!d.enabled || d.device_id === 'wtg-041') {
+    result.state = 'failed'
+    result.network = 'failed'
+    result.errors.push({ stage: 'network', target: d.host, message: d.enabled ? 'Host unreachable' : 'Device is disabled' })
+    return result
+  }
+
+  result.network = 'success'
+  result.latency_ms = 2 + (d.device_id.length % 7)
+
+  if (d.device_id === 'wtg-043') {
+    result.state = 'failed'
+    result.protocol = 'failed'
+    result.errors.push({ stage: 'protocol', target: protocolDescription(d), message: 'Protocol connection failed' })
+    return result
+  }
+
+  result.protocol = 'success'
+  const points = pointsOfTable(tableOfDevice(d))
+  result.point_total = points.length
+  const failedPoints = d.device_id === 'wtg-026'
+    ? points.slice(0, 1)
+    : d.device_id === 'wtg-044'
+      ? points.slice(0, Math.min(3, points.length))
+      : []
+
+  result.point_failed = failedPoints.length
+  result.point_success = Math.max(0, result.point_total - result.point_failed)
+  for (const p of failedPoints) {
+    result.errors.push({
+      stage: 'points',
+      target: p.variable_name || p.point_id,
+      message: modelOf(d)?.protocol === 'ads' ? 'ADS symbol not found / read failed' : 'Read request returned invalid response',
+    })
+  }
+
+  if (result.point_failed === 0) {
+    result.points = 'success'
+    result.state = 'success'
+  } else if (result.point_success > 0) {
+    result.points = 'partial'
+    result.state = 'warning'
+  } else {
+    result.points = 'failed'
+    result.state = 'failed'
+  }
+  return result
+}
+
 async function verifyAll() {
+  if (verifyAllRunning.value) return
+
+  const targets = [...filteredDevices.value]
+  if (!targets.length) {
+    ElMessage.warning('No devices match current filters')
+    return
+  }
+
   verifyAllRunning.value = true
   try {
-    for (const d of filteredDevices.value) {
-      await verifyDevice(d, true)
+    for (const d of targets) {
+      Object.assign(verifyOf(d), emptyVerify(), {
+        state: 'running',
+        network: 'checking',
+        protocol: 'checking',
+        points: 'checking',
+      })
     }
-    const failed = filteredDevices.value.filter(d => verifyOf(d).state === 'failed').length
-    const warning = filteredDevices.value.filter(d => verifyOf(d).state === 'warning').length
+
+    await sleep(1100)
+
+    const results = targets.map(d => [d, buildBulkVerification(d)] as const)
+    for (const [d, result] of results) Object.assign(verifyOf(d), result)
+
+    const failed = results.filter(([, v]) => v.state === 'failed').length
+    const warning = results.filter(([, v]) => v.state === 'warning').length
     if (failed) ElMessage.error(`Verification complete: ${failed} failed, ${warning} warning`)
     else if (warning) ElMessage.warning(`Verification complete: ${warning} warning`)
     else ElMessage.success('Verification complete')
@@ -1011,9 +1085,7 @@ async function sendCommand() {
       </div>
     </el-card>
 
-    <div v-if="!groupedDevices.length" class="empty-state">
-      No devices match current filters.
-    </div>
+    <el-empty v-if="!groupedDevices.length" description="No devices match current filters." :image-size="72" />
 
     <section
       v-for="group in groupedDevices"
@@ -1041,16 +1113,15 @@ async function sendCommand() {
       </div>
 
       <div class="device-grid">
-        <article
+        <el-card
           v-for="d in group.devices"
           :key="d.device_id"
+          shadow="never"
           class="device-card device-card-compact"
           :class="{ 'device-disabled': !d.enabled }"
         >
           <div class="device-card-top">
-            <button class="device-id-link" @click="openDev(d)">
-              {{ d.device_id }}
-            </button>
+            <el-link class="device-id-link" :underline="false" @click="openDev(d)">{{ d.device_id }}</el-link>
             <div class="device-enabled">
               <span>Enabled</span>
               <el-switch v-model="d.enabled" size="small" />
@@ -1073,17 +1144,11 @@ async function sendCommand() {
           </div>
 
           <div class="status-pills">
-            <span :class="['status-pill', stepClass(verifyOf(d).network)]">
-              <i></i>Network
-            </span>
-            <span :class="['status-pill', stepClass(verifyOf(d).protocol)]">
-              <i></i>Protocol
-            </span>
-            <span :class="['status-pill', stepClass(verifyOf(d).points)]">
-              <i></i>Points
-            </span>
+            <el-tag size="small" :type="stepTagType(verifyOf(d).network)" :effect="verifyOf(d).network === 'checking' ? 'dark' : 'light'">Network</el-tag>
+            <el-tag size="small" :type="stepTagType(verifyOf(d).protocol)" :effect="verifyOf(d).protocol === 'checking' ? 'dark' : 'light'">Protocol</el-tag>
+            <el-tag size="small" :type="stepTagType(verifyOf(d).points)" :effect="verifyOf(d).points === 'checking' ? 'dark' : 'light'">Points</el-tag>
           </div>
-        </article>
+        </el-card>
       </div>
     </section>
 
@@ -1492,6 +1557,7 @@ async function sendCommand() {
                   <el-button
                     type="primary"
                     :loading="verifyingDeviceId === selected.device_id"
+                    :disabled="verifyAllRunning"
                     @click="verifyDevice(selected)"
                   >
                     Verify Device

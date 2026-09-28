@@ -1,0 +1,14 @@
+:root{
+  --el-font-family:var(--app-font-family);--el-font-size-base:var(--app-font-body);--el-font-size-small:var(--app-font-label);
+  --el-font-size-extra-small:var(--app-font-caption);--el-font-size-medium:var(--app-font-panel-title);--el-font-size-large:var(--app-font-section-title);
+  --el-text-color-primary:var(--app-text-primary);--el-text-color-regular:var(--app-text-regular);
+  --el-text-color-secondary:var(--app-text-secondary);--el-text-color-placeholder:var(--app-text-muted);
+  --el-border-color:var(--app-border);--el-border-color-light:var(--app-border-soft);--el-border-radius-base:var(--app-control-radius);--el-component-size:var(--app-control-height);
+}
+.el-card{border-radius:var(--app-card-radius)}
+.el-dialog{border-radius:var(--app-dialog-radius)}
+.el-dialog__title{font-size:18px;font-weight:var(--app-font-weight-semibold)}
+.el-form-item__label{color:var(--app-text-secondary);font-size:var(--app-font-label);font-weight:var(--app-font-weight-regular)}
+.el-table,.el-table .cell{font-family:var(--app-font-family);font-size:var(--app-font-body);line-height:var(--app-line-height-compact)}
+.el-table th.el-table__cell .cell{color:var(--app-text-secondary);font-size:var(--app-font-label);font-weight:var(--app-font-weight-semibold)}
+.el-tag{font-size:var(--app-font-caption);font-weight:var(--app-font-weight-medium)}

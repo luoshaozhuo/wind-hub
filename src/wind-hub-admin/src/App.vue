@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
@@ -11,6 +11,9 @@ import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
 
 const menu = ref('Devices')
+const mobileNavOpen = ref(false)
+const viewportWidth = ref(window.innerWidth)
+const isMobile = computed(() => viewportWidth.value < 768)
 
 const runMenu = [
   { key: 'Overview', label: 'Overview' },
@@ -19,72 +22,78 @@ const runMenu = [
   { key: 'Tasks', label: 'Tasks' },
   { key: 'Quality', label: 'Quality' },
 ]
+
+function updateViewport() {
+  viewportWidth.value = window.innerWidth
+  if (!isMobile.value) mobileNavOpen.value = false
+}
+window.addEventListener('resize', updateViewport)
+onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
+
+function selectMenu(key: string) {
+  menu.value = key
+  mobileNavOpen.value = false
+}
 </script>
 
 <template>
-  <div class="shell">
-    <aside>
-      <div class="brand"><b>WH</b> Wind Hub</div>
+  <el-container class="app-shell">
+    <el-aside v-if="!isMobile" width="var(--app-sidebar-width)" class="app-sidebar">
+      <div class="brand"><b>WH</b><span>Wind Hub</span></div>
+      <el-menu :default-active="menu" class="app-menu" @select="selectMenu">
+        <el-menu-item-group title="运行">
+          <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="工程"><el-menu-item index="Debug">Debug</el-menu-item></el-menu-item-group>
+        <el-menu-item-group title="系统">
+          <el-menu-item index="Config">Config</el-menu-item>
+          <el-menu-item index="Logs">Logs</el-menu-item>
+        </el-menu-item-group>
+      </el-menu>
+    </el-aside>
 
-      <div class="section">运行</div>
-      <button
-        v-for="m in runMenu"
-        :key="m.key"
-        :class="{ active: menu === m.key }"
-        @click="menu = m.key"
-      >
-        {{ m.label }}
-      </button>
-
-      <div class="section">工程</div>
-      <button :class="{ active: menu === 'Debug' }" @click="menu = 'Debug'">Debug</button>
-
-      <div class="section">系统</div>
-      <button
-        v-for="m in ['Config', 'Logs']"
-        :key="m"
-        :class="{ active: menu === m }"
-        @click="menu = m"
-      >
-        {{ m }}
-      </button>
-    </aside>
-
-    <main>
-      <header>
+    <el-container class="app-main-shell">
+      <el-header class="app-header">
+        <el-button v-if="isMobile" text class="mobile-menu-button" aria-label="Open navigation" @click="mobileNavOpen = true">☰</el-button>
         <div class="header-title">
           <b>Wind Hub Admin</b>
           <span>{{ store.systemInfo.siteName }} · 采集系统管理控制台</span>
         </div>
-
-        <div class="header-spacer"></div>
-
+        <div class="header-spacer" />
         <div class="version-summary">
-          <span class="version-item">
-            <span class="version-label">Collector</span>
-            <b>{{ store.systemInfo.collectorVersion }}</b>
-          </span>
+          <span class="version-item"><span class="version-label">Collector</span><b>{{ store.systemInfo.collectorVersion }}</b></span>
           <span class="version-separator">·</span>
-          <span class="version-item">
-            <span class="version-label">Admin</span>
-            <b>{{ store.systemInfo.adminVersion }}</b>
-          </span>
+          <span class="version-item"><span class="version-label">Admin</span><b>{{ store.systemInfo.adminVersion }}</b></span>
         </div>
-
         <el-tag type="success">{{ store.systemInfo.runtimeStatus }}</el-tag>
         <el-tag type="warning">mock</el-tag>
-      </header>
+      </el-header>
 
-      <section class="content">
-        <OverviewPage v-if="menu === 'Overview'" />
-        <DevicesPage v-if="menu === 'Devices'" />
-        <PointsPage v-if="menu === 'Points'" />
-        <TasksPage v-if="menu === 'Tasks'" />
-        <QualityPage v-if="menu === 'Quality'" />
-        <DebugPage v-if="menu === 'Debug'" />
-        <ConfigPage v-if="menu === 'Config'" />
-        <LogsPage v-if="menu === 'Logs'" />
-      </section>
-    </main>
-  </div>
+      <el-main class="app-main">
+        <section class="content">
+          <OverviewPage v-if="menu === 'Overview'" />
+          <DevicesPage v-if="menu === 'Devices'" />
+          <PointsPage v-if="menu === 'Points'" />
+          <TasksPage v-if="menu === 'Tasks'" />
+          <QualityPage v-if="menu === 'Quality'" />
+          <DebugPage v-if="menu === 'Debug'" />
+          <ConfigPage v-if="menu === 'Config'" />
+          <LogsPage v-if="menu === 'Logs'" />
+        </section>
+      </el-main>
+    </el-container>
+  </el-container>
+
+  <el-drawer v-model="mobileNavOpen" direction="ltr" size="260px" title="Wind Hub" class="mobile-nav-drawer">
+    <el-menu :default-active="menu" @select="selectMenu">
+      <el-menu-item-group title="运行">
+        <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
+      </el-menu-item-group>
+      <el-menu-item-group title="工程"><el-menu-item index="Debug">Debug</el-menu-item></el-menu-item-group>
+      <el-menu-item-group title="系统">
+        <el-menu-item index="Config">Config</el-menu-item>
+        <el-menu-item index="Logs">Logs</el-menu-item>
+      </el-menu-item-group>
+    </el-menu>
+  </el-drawer>
 </template>

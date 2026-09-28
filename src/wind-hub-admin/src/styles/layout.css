@@ -1,0 +1,5 @@
+html,body,#app{min-height:100%}body{margin:0;color:var(--app-text-primary);background:var(--app-bg-page)}*{box-sizing:border-box}
+.content{width:100%;max-width:var(--app-content-max-width);margin:0 auto;padding:var(--app-page-padding)}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:var(--app-toolbar-gap);margin-bottom:20px}
+@media(max-width:1199px){.content{padding:var(--app-page-padding-tablet)}}
+@media(max-width:767px){.content{padding:var(--app-page-padding-mobile)}.head{align-items:flex-start;flex-direction:column}}

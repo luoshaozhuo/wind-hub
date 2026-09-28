@@ -1,0 +1,5 @@
+:root{
+  --app-card-radius:12px;--app-card-padding:16px;--app-dialog-radius:8px;--app-panel-radius:10px;
+  --app-control-radius:6px;--app-control-height:32px;--app-table-row-padding:8px;
+  --app-elevation-soft:0 1px 2px rgba(16,24,40,.03);
+}

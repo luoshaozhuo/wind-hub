@@ -61,6 +61,15 @@ function selectManage(next: ManageSection) {
   else newGroup()
 }
 
+function onManageTabChange(name: string | number) {
+  selectManage(String(name) as ManageSection)
+}
+
+function onManageSelect(id: string) {
+  if (manageSection.value === 'table') editTable(id)
+  else editGroup(id)
+}
+
 function newTable() {
   tableEditingId.value = ''
   tableDraft.id = ''
@@ -357,67 +366,73 @@ async function delPoint(p: PointDef) {
       </el-table>
     </el-card>
 
-    <el-dialog v-model="manageOpen" title="Manage Point Metadata" :width="isMobile ? '100%' : 'min(1000px, 94vw)'" :fullscreen="isMobile">
-      <div class="point-manager">
-        <aside class="point-manager-nav">
-          <button :class="{ active: manageSection === 'table' }" @click="selectManage('table')">
-            <span><b>Point Tables</b><small>协议与继承关系</small></span><em>{{ store.pointTables.length }}</em>
-          </button>
-          <button :class="{ active: manageSection === 'group' }" @click="selectManage('group')">
-            <span><b>Point Groups</b><small>点与任务分组</small></span><em>{{ store.pointGroups.length }}</em>
-          </button>
-        </aside>
-        <el-divider direction="vertical" class="manager-divider" />
+    <el-dialog
+      v-model="manageOpen"
+      title="Manage Point Metadata"
+      :width="isMobile ? '100%' : 'min(900px, 94vw)'"
+      :fullscreen="isMobile"
+      class="point-metadata-dialog"
+    >
+      <el-tabs v-model="manageSection" class="metadata-tabs" @tab-change="onManageTabChange">
+        <el-tab-pane label="Point Tables" name="table" />
+        <el-tab-pane label="Point Groups" name="group" />
+      </el-tabs>
 
-        <section class="point-manager-content">
-          <div class="point-manager-list">
-            <div class="manager-head">
-              <div><h3>{{ manageSection === 'table' ? 'Point Tables' : 'Point Groups' }}</h3><p>选择条目后在右侧编辑</p></div>
-            </div>
-
+      <el-container class="metadata-layout">
+        <el-aside width="300px" class="metadata-list-aside">
+          <el-menu :default-active="manageSection === 'table' ? tableEditingId : groupEditingId" class="metadata-list-menu" @select="onManageSelect">
             <template v-if="manageSection === 'table'">
-              <button v-for="row in tableRows" :key="row.id" :class="['manager-row', { selected: tableEditingId === row.id }]" @click="editTable(row.id)">
-                <span><b>{{ row.id }}</b><small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small><small>{{ row.points }} points · {{ row.models }} models</small></span>
-                <el-button link type="danger" @click.stop="deleteTable(row)">Delete</el-button>
-              </button>
+              <el-menu-item v-for="row in tableRows" :key="row.id" :index="row.id">
+                <div class="metadata-menu-row">
+                  <div>
+                    <b>{{ row.id }}</b>
+                    <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
+                    <small>{{ row.points }} points · {{ row.models }} models</small>
+                  </div>
+                  <el-button link type="danger" @click.stop="deleteTable(row)">Delete</el-button>
+                </div>
+              </el-menu-item>
             </template>
-
             <template v-else>
-              <button v-for="row in groupRows" :key="row.id" :class="['manager-row', { selected: groupEditingId === row.id }]" @click="editGroup(row.id)">
-                <span><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.points }} points · {{ row.tasks }} tasks</small></span>
-                <el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
-              </button>
+              <el-menu-item v-for="row in groupRows" :key="row.id" :index="row.id">
+                <div class="metadata-menu-row">
+                  <div><b>{{ row.name }}</b><small>{{ row.id }}</small><small>{{ row.points }} points · {{ row.tasks }} tasks</small></div>
+                  <el-button link type="danger" @click.stop="deleteGroup(row)">Delete</el-button>
+                </div>
+              </el-menu-item>
             </template>
+          </el-menu>
+        </el-aside>
+
+        <el-main class="metadata-editor-main">
+          <div class="metadata-editor-title">
+            <h3>{{ manageSection === 'table' ? (tableEditingId ? 'Edit Table' : 'New Table') : (groupEditingId ? 'Edit Group' : 'New Group') }}</h3>
+            <p>{{ manageSection === 'table' ? tableEditingId : groupEditingId }}</p>
           </div>
-          <el-divider direction="vertical" class="manager-divider inner-divider" />
 
-          <div class="point-manager-editor">
-            <div class="manager-head">
-              <div><h3>{{ manageSection === 'table' ? (tableEditingId ? 'Edit Table' : 'New Table') : (groupEditingId ? 'Edit Group' : 'New Group') }}</h3><p>{{ manageSection === 'table' ? tableEditingId : groupEditingId }}</p></div>
-            </div>
+          <el-form v-if="manageSection === 'table'" label-position="top">
+            <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!tableEditingId" /></el-form-item>
+            <el-form-item label="Protocol">
+              <el-select v-model="tableDraft.protocol" style="width:100%" :disabled="!!tableEditingId && pointsOfTable(tableEditingId).length > 0" @change="tableDraft.extends = ''">
+                <el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" />
+              </el-select>
+              <div v-if="tableEditingId && pointsOfTable(tableEditingId).length > 0" class="field-note">Protocol cannot change while the table contains points.</div>
+            </el-form-item>
+            <el-form-item label="Extends">
+              <el-select v-model="tableDraft.extends" clearable style="width:100%">
+                <el-option v-for="t in parentTables" :key="t.id" :label="t.id" :value="t.id" />
+              </el-select>
+            </el-form-item>
+            <div class="metadata-editor-actions"><el-button @click="newTable">Clear</el-button><el-button type="primary" @click="saveTable">{{ tableEditingId ? 'Update' : 'Create' }}</el-button></div>
+          </el-form>
 
-            <el-form label-position="top" v-if="manageSection === 'table'">
-              <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!tableEditingId" /></el-form-item>
-              <el-form-item label="Protocol">
-                <el-select v-model="tableDraft.protocol" style="width:100%" :disabled="!!tableEditingId && pointsOfTable(tableEditingId).length > 0" @change="tableDraft.extends = ''">
-                  <el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" />
-                </el-select>
-                <div v-if="tableEditingId && pointsOfTable(tableEditingId).length > 0" class="field-note">Protocol cannot change while the table contains points.</div>
-              </el-form-item>
-              <el-form-item label="Extends">
-                <el-select v-model="tableDraft.extends" clearable style="width:100%"><el-option v-for="t in parentTables" :key="t.id" :label="t.id" :value="t.id" /></el-select>
-              </el-form-item>
-              <div class="manager-actions"><el-button @click="newTable">Clear</el-button><el-button type="primary" @click="saveTable">{{ tableEditingId ? 'Update' : 'Create' }}</el-button></div>
-            </el-form>
-
-            <el-form label-position="top" v-else>
-              <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!groupEditingId" /></el-form-item>
-              <el-form-item label="Name"><el-input v-model="groupDraft.name" /></el-form-item>
-              <div class="manager-actions"><el-button @click="newGroup">Clear</el-button><el-button type="primary" @click="saveGroup">{{ groupEditingId ? 'Update' : 'Create' }}</el-button></div>
-            </el-form>
-          </div>
-        </section>
-      </div>
+          <el-form v-else label-position="top">
+            <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!groupEditingId" /></el-form-item>
+            <el-form-item label="Name"><el-input v-model="groupDraft.name" /></el-form-item>
+            <div class="metadata-editor-actions"><el-button @click="newGroup">Clear</el-button><el-button type="primary" @click="saveGroup">{{ groupEditingId ? 'Update' : 'Create' }}</el-button></div>
+          </el-form>
+        </el-main>
+      </el-container>
     </el-dialog>
 
     <el-dialog v-model="pointEdit" :title="editing ? 'Edit Point' : 'Add Point'" width="760">
@@ -452,9 +467,26 @@ async function delPoint(p: PointDef) {
 </template>
 
 <style scoped>
-.point-table-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:14px}.table-label{margin-bottom:7px;color:#6f7a8a;font-size:var(--font-size-body);font-weight:var(--font-weight-semibold)}.table-line,.table-actions,.manager-head,.manager-actions{display:flex;align-items:center;gap:8px}.table-actions{flex-wrap:wrap;justify-content:flex-end}.table-meta{color:#526071;font-size:var(--font-size-label)}.muted{color:#8a94a3;font-size:var(--font-size-body)}.group-tag{margin-right:4px;margin-bottom:2px}.field-note{margin-top:6px;color:#929cab;font-size:var(--font-size-label)}
-.point-manager{display:grid;grid-template-columns:168px auto minmax(0,1fr);min-height:500px}.point-manager-nav{padding-right:14px}.point-manager-nav button{width:100%;display:flex;justify-content:space-between;gap:10px;border:0;background:transparent;padding:11px;border-radius:8px;text-align:left;cursor:pointer}.point-manager-nav button:hover,.point-manager-nav button.active{background:#f5f7fa}.point-manager-nav span b,.point-manager-nav span small{display:block}.point-manager-nav span b{font-size:var(--font-size-body);color:#344054}.point-manager-nav span small{margin-top:3px;color:#98a2b3;font-size:var(--font-size-caption)}.point-manager-nav em{font-style:normal;color:#98a2b3;font-size:var(--font-size-label)}
-.point-manager-content{display:grid;grid-template-columns:360px auto minmax(0,1fr);min-width:0}.point-manager-list{padding:0 20px 0 18px;min-width:0}.point-manager-editor{padding:0 10px 0 24px;min-width:0}.manager-head{justify-content:space-between;align-items:flex-start;margin-bottom:16px;min-height:34px}.manager-head h3{margin:0;font-size:var(--font-size-section);color:#344054}.manager-head p{margin:4px 0 0;color:#98a2b3;font-size:var(--font-size-caption)}.manager-row{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;background:transparent;padding:12px 6px;text-align:left;cursor:pointer}.manager-row:hover,.manager-row.selected{background:#f7f9fb}.manager-row span b,.manager-row span small{display:block}.manager-row span b{font-size:var(--font-size-body);color:#344054;font-weight:var(--font-weight-semibold)}.manager-row span small{margin-top:4px;color:#98a2b3;font-size:var(--font-size-caption);line-height:1.35}.manager-actions{justify-content:flex-end;margin-top:8px}
-@media(max-width:900px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.point-manager{grid-template-columns:1fr}.point-manager-nav{display:flex;gap:6px;overflow:auto;padding:0 0 12px}.point-manager-nav button{min-width:180px}.point-manager-content{grid-template-columns:1fr}.point-manager-list{padding:14px 0}.point-manager-editor{padding:16px 0}.manager-divider{display:none!important}}
-.manager-divider.el-divider--vertical{height:auto;min-height:100%;align-self:stretch;margin:0!important}
+.point-table-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-toolbar-gap);margin-bottom:14px}
+.table-label{margin-bottom:7px;color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
+.table-line,.table-actions,.metadata-editor-actions{display:flex;align-items:center;gap:var(--app-space-2)}
+.table-actions{flex-wrap:wrap;justify-content:flex-end}
+.table-meta{color:var(--app-text-regular);font-size:var(--app-font-label)}
+.muted,.field-note{color:var(--app-text-muted);font-size:var(--app-font-label)}
+.group-tag{margin-right:4px;margin-bottom:2px}
+.metadata-tabs{margin-top:-8px}
+.metadata-layout{min-height:440px}
+.metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:12px}
+.metadata-list-menu{border-right:0!important;background:transparent}
+.metadata-list-menu .el-menu-item{height:auto;min-height:66px;line-height:normal;padding:10px 8px!important;border-radius:7px;margin-bottom:2px}
+.metadata-list-menu .el-menu-item.is-active{background:#f4f7fb;color:var(--app-text-primary)}
+.metadata-menu-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.metadata-menu-row>div{min-width:0}.metadata-menu-row b,.metadata-menu-row small{display:block}
+.metadata-menu-row b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
+.metadata-menu-row small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-editor-main{padding:4px 8px 4px 24px!important}
+.metadata-editor-title{margin-bottom:16px}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
+.metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-editor-actions{justify-content:flex-end;margin-top:8px}
+@media(max-width:900px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0!important}}
 </style>

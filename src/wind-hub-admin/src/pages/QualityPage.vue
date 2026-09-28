@@ -11,12 +11,12 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
 
 // 采集服务质量（节拍、缺失、中断、超时与恢复）—— 非电能质量
 const metrics = [
-  ['平均采样间隔', '1.002 s'],
-  ['Jitter P95', '36 ms'],
-  ['当前中断', '2'],
-  ['Reconnect', '7 · 24 h'],
-  ['Read Timeout', '13 · 24 h'],
-  ['Read Failure', '4 · 24 h'],
+  { title: '平均采样间隔', value: 1.002, precision: 3, suffix: 's' },
+  { title: 'Jitter P95', value: 36, suffix: 'ms' },
+  { title: '当前中断', value: 2, suffix: '' },
+  { title: 'Reconnect', value: 7, suffix: '· 24 h' },
+  { title: 'Read Timeout', value: 13, suffix: '· 24 h' },
+  { title: 'Read Failure', value: 4, suffix: '· 24 h' },
 ]
 
 // 任务级质量：期望节拍 vs 实际节拍 / 抖动 / 缺失 / 中断 / 成功率
@@ -43,6 +43,6 @@ const deviceRows = computed(() => store.devices.filter(d => d.enabled).slice(0, 
 </script>
 
 <template><div class="standard-page"><div class="head"><div><h1>Quality</h1><p>采集意义上的服务质量：节拍、缺失、中断、超时与恢复</p></div></div>
-<div class="metrics"><el-card v-for="x in metrics" shadow="never"><small>{{x[0]}}</small><strong>{{x[1]}}</strong></el-card></div>
+<div class="metrics"><el-card v-for="x in metrics" :key="x.title" shadow="never"><el-statistic :title="x.title" :value="x.value" :precision="x.precision" :suffix="x.suffix" /></el-card></div>
 <el-card shadow="never"><h3>任务采集质量</h3><el-table :data="taskRows"><el-table-column prop="task" label="Task"/><el-table-column prop="interval" label="Expected"/><el-table-column v-if="!isMobile" prop="actual" label="Actual avg"/><el-table-column v-if="!isTablet" prop="jitter" label="Jitter P95"/><el-table-column v-if="!isTablet" prop="missing" label="Missing"/><el-table-column v-if="!isMobile" prop="interruptions" label="Interruptions"/><el-table-column v-if="!isMobile" prop="last" label="Last Success"/><el-table-column prop="rate" label="Success"/></el-table></el-card>
 <el-card shadow="never" style="margin-top:16px"><h3>设备采集健康</h3><el-table :data="deviceRows" height="360"><el-table-column prop="device" label="Device"/><el-table-column v-if="!isMobile" prop="protocol" label="Protocol"/><el-table-column prop="last" label="Last Success"/><el-table-column v-if="!isTablet" prop="timeouts" label="Timeouts"/><el-table-column v-if="!isMobile" prop="failures" label="Read Failures"/><el-table-column label="Status"><template #default="s"><el-tag :type="s.row.status==='healthy'?'success':'danger'">{{s.row.status}}</el-tag></template></el-table-column></el-table></el-card></div></template>
