@@ -8,7 +8,7 @@ type ReviewLine = { type: 'same' | 'add' | 'remove'; text: string }
 
 const configTab = ref('YAML Editor')
 const file = ref('devices.yaml')
-const editorMode = ref<'edit' | 'review'>('edit')
+const editorMode = ref<'edit' | 'review'>('review')
 const editorModeOptions = [
   { label: 'Edit', value: 'edit' },
   { label: 'Review', value: 'review' },

@@ -59,7 +59,7 @@ const tableRows = computed(() => store.pointTables.map(t => {
     points: pointsOfTable(t.id).length,
     models: modelIds.length,
     devices,
-    children: store.pointTables.filter(x => x.extends === t.id).length,
+    childTables: store.pointTables.filter(x => x.extends === t.id).length,
   }
 }))
 
@@ -193,7 +193,7 @@ async function saveTable() {
   }
 }
 
-async function deleteTable(row: { id: string; protocol: Protocol; points: number; models: number; devices: number; children: number; system?: boolean }) {
+async function deleteTable(row: { id: string; protocol: Protocol; points: number; models: number; devices: number; childTables: number; system?: boolean }) {
   if (row.system || isDefaultPointTable(row.id)) {
     ElMessage.warning('System default Point Tables cannot be deleted')
     return
@@ -211,7 +211,7 @@ async function deleteTable(row: { id: string; protocol: Protocol; points: number
     '<b>Delete Point Table "' + row.id + '"?</b><br><br>' +
     row.points + ' point(s) will be removed.<br>' +
     row.models + ' Device Model(s) / ' + row.devices + ' Device(s) will be reassigned to <b>' + defaultPointTableFor(row.protocol) + '</b>.<br>' +
-    row.children + ' child table inheritance link(s) will be cleared.<br>' +
+    row.childTables + ' child table inheritance link(s) will be cleared.<br>' +
     affectedTasks + ' affected Task(s) will become invalid and cannot be started until configuration is repaired.',
     'Delete Point Table — Impact',
     { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },

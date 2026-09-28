@@ -12,20 +12,52 @@ ai_shared/rules/routing.md
 
 ```text
 ai_shared/rules/coding.md
-ai_shared/rules/testing.md
-ai_shared/rules/validation-routing.md
-ai_shared/rules/quality-gate.md
-ai_shared/rules/python-docstring-cn.md
 ```
 
 必要时读取：
 
 ```text
+ai_shared/rules/testing.md
+ai_shared/rules/validation-routing.md
+ai_shared/rules/quality-gate.md
+ai_shared/rules/python-docstring-cn.md
 ai_shared/rules/documentation.md
 ai_shared/rules/reporting.md
 ```
 
+升级为“必要时读取”的典型触发：
+1. 修改 public interface、跨模块契约、schema、配置或环境变量契约。
+2. 涉及权限、审计、事务、并发、重试、租约、回滚等运行时语义。
+3. 用户显式要求执行 `/test`、`/validate`、`/test-all` 或质量检查。
+
 说明：`python-docstring-cn.md` 是历史文件名，当前语义为“通用注释与文档注释规则”，不再是 Python 专用规则。
+
+## 2a. 前端编码任务（涉及 Web UI 或设计系统修改）
+
+当任务涉及以下任一项时，优先适用本规则集：
+- 修改 `src/wind-hub-admin/` 下的代码；
+- 新增或修改 Web UI 页面、组件、样式或设计系统；
+- 修改 `.ts`、`.tsx`、`.vue`、`.css`、`.html` 等前端资源。
+
+必须读取（按此顺序）：
+
+```text
+ai_shared/rules/frontend.md
+ai_shared/rules/coding.md
+```
+
+必要时读取：
+
+```text
+ai_shared/rules/testing.md
+ai_shared/rules/quality-gate.md
+ai_shared/rules/python-docstring-cn.md
+ai_shared/rules/validation-routing.md
+ai_shared/rules/documentation.md
+```
+
+说明：`frontend.md` 置于 `coding.md` 之前，使设计系统和 UI 原则优先于通用编码规则生效。
+前端任务若仅涉及文案、样式微调或局部 UI 排版，默认按轻量路径执行；命中上文“升级触发”再加载额外规则。
 
 ## 3. test-validator
 

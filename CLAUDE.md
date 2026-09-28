@@ -20,6 +20,7 @@ ai_shared/agent_config/hooks/
 `.claude/`、`.codex/`、`.agents/` 仅是工具适配层。默认只读
 `ai_shared/rules/routing.md`、routing 指定规则、用户指定文件，以及当前任务涉及的真实源码、
 测试、配置和 schema。`ai_shared/memory/project_tree.md` 只用于导航。
+前端任务识别：修改范围若包含 `src/wind-hub-admin/` 或 `.ts/.tsx/.vue/.css/.html` 等前端文件，自动参考 routing.md 的“2a. 前端编码任务”分支，并默认优先走轻量路径；仅在命中升级触发条件时加载额外规则。
 
 ## 3. 独立执行阶段
 

@@ -144,7 +144,6 @@ const adDTypes = ['float32', 'float32', 'int16', 'int32', 'bool', 'uint16']
 function adsPoints(prefix: string, count: number): PointDef[] {
   return Array.from({ length: count }, (_, i) => {
     const name = `${prefix}_${String(i + 1).padStart(3, '0')}`
-    const legacy = i % 19 === 18
     const groups = [...new Set([
       pgroupIds[i % pgroupIds.length],
       ...(i % 7 === 0 ? ['all'] : []),
@@ -154,9 +153,13 @@ function adsPoints(prefix: string, count: number): PointDef[] {
       point_id: name,
       variable_name: name,
       point_groups: groups,
-      address: legacy
-        ? { index_group: '0x4020', index_offset: `0x${((i + 1) * 8).toString(16).toUpperCase()}` }
-        : { symbol: `MAIN.${name}` },
+      // 真实 Beckhoff 配置允许 symbol 与 index 寻址共存（读写以 symbol 优先），
+      // mock 让每个点都带全两种地址，编辑时各字段均有原值
+      address: {
+        symbol: `MAIN.${name}`,
+        index_group: '0x4020',
+        index_offset: `0x${((i + 1) * 8).toString(16).toUpperCase()}`,
+      },
       data_type: adDTypes[i % adDTypes.length],
       scale: i % 6 === 0 ? 0.1 : 1,
       offset: 0,
