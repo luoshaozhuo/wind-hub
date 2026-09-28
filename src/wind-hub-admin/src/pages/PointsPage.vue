@@ -54,8 +54,8 @@ const currentTableIsSystem = computed(() => !!tableDef.value?.system)
 const testDeviceId = ref('')
 const testLoading = ref(false)
 const testError = ref('')
-const testRaw = ref('')
-const testCandidates = ref<{ type: string; value: string }[]>([])
+const TEST_CANDIDATE_TYPES = ['bool', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'float32', 'float64']
+const testCandidates = ref(TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' })))
 const testLatency = ref(0)
 
 const testDevices = computed(() => store.devices.filter(d => {
@@ -74,21 +74,10 @@ const testRequest = computed(() => {
   return `IOA · ${draft.ioa ?? '—'}${draft.ioa_type ? ` · ${draft.ioa_type}` : ''}`
 })
 
-const configuredTestValue = computed(() => {
-  const hit = testCandidates.value.find(x => x.type === draft.data_type)
-  if (!hit) return '—'
-  const numeric = Number(hit.value)
-  if (!Number.isFinite(numeric)) return hit.value
-  const value = numeric * draft.scale + draft.offset
-  const symbol = unitSymbol(draft.unit)
-  return `${Number.isInteger(value) ? value : Number(value.toFixed(6))}${symbol ? ` ${symbol}` : ''}`
-})
-
 function resetPointTest() {
   testLoading.value = false
   testError.value = ''
-  testRaw.value = ''
-  testCandidates.value = []
+  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
   testLatency.value = 0
   const preferred = testDevices.value.find(d => d.online && d.enabled) || testDevices.value[0]
   testDeviceId.value = preferred?.device_id || ''
@@ -142,8 +131,7 @@ async function runPointTest() {
 
   testLoading.value = true
   testError.value = ''
-  testRaw.value = ''
-  testCandidates.value = []
+  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
   const started = performance.now()
   await new Promise(resolve => setTimeout(resolve, 700))
 
@@ -156,7 +144,6 @@ async function runPointTest() {
 
   const seed = [device.device_id, protocol.value, testRequest.value, draft.data_type].join('|')
   const bytes = mockRawBytes(seed)
-  testRaw.value = Array.from(bytes).map(v => v.toString(16).padStart(2, '0').toUpperCase()).join(' ')
   testCandidates.value = decodeCandidates(bytes)
   testLatency.value = Math.round(performance.now() - started)
   testLoading.value = false
@@ -783,25 +770,11 @@ async function delPoint(p: PointDef) {
 
             <el-alert v-if="testError" :title="testError" type="error" :closable="false" show-icon />
 
-            <template v-if="testRaw">
-              <el-divider content-position="left">Raw</el-divider>
-              <el-input :model-value="testRaw" readonly class="raw-value" />
-
-              <el-divider content-position="left">Interpretations</el-divider>
-              <el-table :data="testCandidates" size="small" max-height="250">
-                <el-table-column prop="type" label="Type" width="96" />
-                <el-table-column prop="value" label="Value" min-width="120" />
-              </el-table>
-
-              <el-divider content-position="left">Configured</el-divider>
-              <el-descriptions :column="1" size="small" border>
-                <el-descriptions-item label="Data Type">{{ draft.data_type }}</el-descriptions-item>
-                <el-descriptions-item label="Scale / Offset">{{ draft.scale }} / {{ draft.offset }}</el-descriptions-item>
-                <el-descriptions-item label="Value">{{ configuredTestValue }}</el-descriptions-item>
-              </el-descriptions>
-            </template>
-
-            <el-empty v-else-if="!testLoading && !testError" description="Run a test read to inspect raw data" :image-size="64" />
+            <div class="test-results-title">Interpretations</div>
+            <el-table :data="testCandidates" size="small" class="test-results-table">
+              <el-table-column prop="type" label="Type" width="96" />
+              <el-table-column prop="value" label="Value" min-width="120" />
+            </el-table>
           </el-card>
         </el-col>
       </el-row>
@@ -837,11 +810,12 @@ async function delPoint(p: PointDef) {
 .point-editor-heading{margin-bottom:var(--app-space-4)}
 .point-editor-heading h3{margin:0;color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .point-editor-heading p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
-.point-test-card{height:100%}
+.point-test-card{height:auto}
 .test-request{margin-top:var(--app-space-2)}
-.test-actions{display:flex;align-items:center;gap:var(--app-space-2);margin-top:var(--app-space-4);margin-bottom:var(--app-space-3)}
+.test-actions{display:flex;align-items:center;gap:var(--app-space-2);margin-top:var(--app-space-3);margin-bottom:var(--app-space-3)}
+.test-results-title{margin:var(--app-space-3) 0 var(--app-space-2);color:var(--app-text-primary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
+.test-results-table{width:100%}
 .device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.raw-value :deep(.el-input__inner){font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-@media(max-width:1199px){.point-test-card{height:auto;margin-top:var(--app-space-4)}}
+@media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
 @media(max-width:900px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0}}
 </style>
