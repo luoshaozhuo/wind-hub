@@ -318,7 +318,14 @@ const newDev = ref({
   unit_id: 1,
   mode: 'tcp',
   word_order: 'little_endian',
-  iec_common_address: 1,
+  iec_common_addr: 1,
+  iec_k: 12,
+  iec_w: 8,
+  iec_t0: 30,
+  iec_t1: 15,
+  iec_t2: 10,
+  iec_t3: 20,
+  iec_max_reconnect_retries: 5,
 })
 
 const newDevModel = computed(() => store.deviceModels.find(m => m.id === newDev.value.model))
@@ -344,7 +351,14 @@ function applyNewModelDefaults() {
     newDev.value.mode = String(defaults.mode || 'tcp')
     newDev.value.word_order = String(defaults.word_order || 'little_endian')
   } else if (model.protocol === 'iec104') {
-    newDev.value.iec_common_address = Number(defaults.common_address || 1)
+    newDev.value.iec_common_addr = Number(defaults.common_addr ?? 1)
+    newDev.value.iec_k = Number(defaults.k ?? 12)
+    newDev.value.iec_w = Number(defaults.w ?? 8)
+    newDev.value.iec_t0 = Number(defaults.t0 ?? 30)
+    newDev.value.iec_t1 = Number(defaults.t1 ?? 15)
+    newDev.value.iec_t2 = Number(defaults.t2 ?? 10)
+    newDev.value.iec_t3 = Number(defaults.t3 ?? 20)
+    newDev.value.iec_max_reconnect_retries = Number(defaults.max_reconnect_retries ?? 5)
   }
 
   const validGroup = store.deviceGroups.some(
@@ -394,7 +408,14 @@ function openAdd() {
     unit_id: 1,
     mode: 'tcp',
     word_order: 'little_endian',
-    iec_common_address: 1,
+    iec_common_addr: 1,
+  iec_k: 12,
+  iec_w: 8,
+  iec_t0: 30,
+  iec_t1: 15,
+  iec_t2: 10,
+  iec_t3: 20,
+  iec_max_reconnect_retries: 5,
   }
   applyNewModelDefaults()
   addOpen.value = true
@@ -441,8 +462,14 @@ function addDevice() {
     extensions.timeout = newDev.value.timeout
     extensions.word_order = newDev.value.word_order
   } else if (model.protocol === 'iec104') {
-    extensions.common_address = newDev.value.iec_common_address
-    extensions.timeout = newDev.value.timeout
+    extensions.common_addr = newDev.value.iec_common_addr
+    extensions.k = newDev.value.iec_k
+    extensions.w = newDev.value.iec_w
+    extensions.t0 = newDev.value.iec_t0
+    extensions.t1 = newDev.value.iec_t1
+    extensions.t2 = newDev.value.iec_t2
+    extensions.t3 = newDev.value.iec_t3
+    extensions.max_reconnect_retries = newDev.value.iec_max_reconnect_retries
   }
 
   store.devices.push({
@@ -481,6 +508,14 @@ const editForm = ref({
   unit_id: 1,
   mode: 'tcp',
   word_order: 'little_endian',
+  common_addr: 1,
+  k: 12,
+  w: 8,
+  t0: 30,
+  t1: 15,
+  t2: 10,
+  t3: 20,
+  max_reconnect_retries: 5,
 })
 
 function openDev(d: DeviceInst) {
@@ -513,6 +548,14 @@ function loadEditForm() {
     unit_id: Number(conn.unit_id || 1),
     mode: String(conn.mode || 'tcp'),
     word_order: String(conn.word_order || 'little_endian'),
+    common_addr: Number(conn.common_addr ?? 1),
+    k: Number(conn.k ?? 12),
+    w: Number(conn.w ?? 8),
+    t0: Number(conn.t0 ?? 30),
+    t1: Number(conn.t1 ?? 15),
+    t2: Number(conn.t2 ?? 10),
+    t3: Number(conn.t3 ?? 20),
+    max_reconnect_retries: Number(conn.max_reconnect_retries ?? 5),
   }
 }
 
@@ -550,6 +593,15 @@ function onEditModelChange() {
     editForm.value.mode = String(defaults.mode || 'tcp')
     editForm.value.timeout = Number(defaults.timeout || 3)
     editForm.value.word_order = String(defaults.word_order || 'little_endian')
+  } else if (model.protocol === 'iec104') {
+    editForm.value.common_addr = Number(defaults.common_addr ?? 1)
+    editForm.value.k = Number(defaults.k ?? 12)
+    editForm.value.w = Number(defaults.w ?? 8)
+    editForm.value.t0 = Number(defaults.t0 ?? 30)
+    editForm.value.t1 = Number(defaults.t1 ?? 15)
+    editForm.value.t2 = Number(defaults.t2 ?? 10)
+    editForm.value.t3 = Number(defaults.t3 ?? 20)
+    editForm.value.max_reconnect_retries = Number(defaults.max_reconnect_retries ?? 5)
   }
 }
 
@@ -625,6 +677,15 @@ function saveConfig() {
     extensions.mode = editForm.value.mode
     extensions.timeout = editForm.value.timeout
     extensions.word_order = editForm.value.word_order
+  } else if (editForm.value.protocol === 'iec104') {
+    extensions.common_addr = editForm.value.common_addr
+    extensions.k = editForm.value.k
+    extensions.w = editForm.value.w
+    extensions.t0 = editForm.value.t0
+    extensions.t1 = editForm.value.t1
+    extensions.t2 = editForm.value.t2
+    extensions.t3 = editForm.value.t3
+    extensions.max_reconnect_retries = editForm.value.max_reconnect_retries
   }
 
   Object.assign(selected.value, {
@@ -1213,25 +1274,14 @@ async function sendCommand() {
           </div>
 
           <div class="form-grid add-device-grid">
-            <el-form-item label="Common Address">
-              <el-input-number
-                v-model="newDev.iec_common_address"
-                :min="0"
-                :max="65535"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-
-            <el-form-item label="Timeout (s)">
-              <el-input-number
-                v-model="newDev.timeout"
-                :min="0.1"
-                :step="0.5"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
+            <el-form-item label="Common Address"><el-input-number v-model="newDev.iec_common_addr" :min="1" :max="65535" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="K Window"><el-input-number v-model="newDev.iec_k" :min="1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="W Window"><el-input-number v-model="newDev.iec_w" :min="1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="T0 (s)"><el-input-number v-model="newDev.iec_t0" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="T1 (s)"><el-input-number v-model="newDev.iec_t1" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="T2 (s)"><el-input-number v-model="newDev.iec_t2" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="T3 (s)"><el-input-number v-model="newDev.iec_t3" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+            <el-form-item label="Max Reconnect Retries"><el-input-number v-model="newDev.iec_max_reconnect_retries" :min="0" controls-position="right" style="width:100%" /></el-form-item>
           </div>
         </div>
       </el-form>
@@ -1407,6 +1457,23 @@ async function sendCommand() {
                           <el-option label="Big endian" value="big_endian" />
                         </el-select>
                       </el-form-item>
+                    </div>
+                  </div>
+
+                  <div v-else-if="editForm.protocol === 'iec104'" class="config-section">
+                    <div class="config-section-title">
+                      <b>IEC 104</b>
+                      <span>endpoint.extensions</span>
+                    </div>
+                    <div class="form-grid config-edit-grid">
+                      <el-form-item label="Common Address"><el-input-number v-model="editForm.common_addr" :min="1" :max="65535" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="K Window"><el-input-number v-model="editForm.k" :min="1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="W Window"><el-input-number v-model="editForm.w" :min="1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="T0 (s)"><el-input-number v-model="editForm.t0" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="T1 (s)"><el-input-number v-model="editForm.t1" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="T2 (s)"><el-input-number v-model="editForm.t2" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="T3 (s)"><el-input-number v-model="editForm.t3" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
+                      <el-form-item label="Max Reconnect Retries"><el-input-number v-model="editForm.max_reconnect_retries" :min="0" controls-position="right" style="width:100%" /></el-form-item>
                     </div>
                   </div>
                 </el-form>
