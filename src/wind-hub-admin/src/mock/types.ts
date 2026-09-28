@@ -46,11 +46,13 @@ export interface PointTableDef {
   id: string
   protocol: Protocol
   extends: string
+  system?: boolean
 }
 
 export interface PointGroupDef {
   id: string
   name: string
+  system?: boolean
 }
 
 export interface PointAddress {
@@ -94,6 +96,8 @@ export interface TaskDef {
   sinks: string[]
   enabled: boolean
   runtime: string
+  valid?: boolean
+  invalid_reason?: string
 }
 
 export interface SinkDef {

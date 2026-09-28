@@ -108,7 +108,18 @@ const deviceModels: DeviceModelDef[] = [
   },
 ]
 
+export const DEFAULT_POINT_TABLE_BY_PROTOCOL = {
+  ads: 'default_ads',
+  modbus: 'default_modbus',
+  iec104: 'default_iec104',
+} as const
+
+export const DEFAULT_POINT_GROUP_ID = 'default'
+
 const pointTables: PointTableDef[] = [
+  { id: 'default_ads', protocol: 'ads', extends: '', system: true },
+  { id: 'default_modbus', protocol: 'modbus', extends: '', system: true },
+  { id: 'default_iec104', protocol: 'iec104', extends: '', system: true },
   { id: 'beckhoff_base_v1', protocol: 'ads', extends: '' },
   { id: 'beckhoff_wtg_v1', protocol: 'ads', extends: 'beckhoff_base_v1' },
   { id: 'modbus_wtg_v1', protocol: 'modbus', extends: '' },
@@ -116,6 +127,7 @@ const pointTables: PointTableDef[] = [
 ]
 
 const pointGroups: PointGroupDef[] = [
+  { id: DEFAULT_POINT_GROUP_ID, name: 'Default / Unassigned', system: true },
   { id: 'all', name: 'All points' },
   { id: 'fast', name: 'Fast telemetry' },
   { id: 'status', name: 'Status' },
@@ -125,7 +137,7 @@ const pointGroups: PointGroupDef[] = [
   { id: 'monitor', name: 'Monitor' },
 ]
 
-const pgroupIds = pointGroups.map(g => g.id)
+const pgroupIds = pointGroups.filter(g => !g.system).map(g => g.id)
 const unitIds = Object.keys(units).filter(u => u !== 'none')
 const adDTypes = ['float32', 'float32', 'int16', 'int32', 'bool', 'uint16']
 
@@ -177,6 +189,9 @@ function modbusPoints(prefix: string, count: number): PointDef[] {
 }
 
 const points: Record<string, PointDef[]> = {
+  default_ads: [],
+  default_modbus: [],
+  default_iec104: [],
   beckhoff_base_v1: adsPoints('base', 12),
   beckhoff_wtg_v1: adsPoints('wtg_ads', 40),
   modbus_wtg_v1: modbusPoints('wtg_mb', 32),
@@ -235,10 +250,10 @@ const sinks: SinkDef[] = [
 ]
 
 const tasks: TaskDef[] = [
-  { task_id: 'turbine-modbus-all', device: '', device_group: 'turbine_modbus', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING' },
-  { task_id: 'turbine-ads-all', device: '', device_group: 'turbine_ads', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING' },
-  { task_id: 'pcs-fast', device: '', device_group: 'storage_pcs', point_group: 'fast', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'STOPPED' },
-  { task_id: 'wtg-001-diag', device: 'wtg-001', device_group: '', point_group: 'status', interval: 5, sinks: ['file_archive'], enabled: false, runtime: 'STOPPED' },
+  { task_id: 'turbine-modbus-all', device: '', device_group: 'turbine_modbus', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '' },
+  { task_id: 'turbine-ads-all', device: '', device_group: 'turbine_ads', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '' },
+  { task_id: 'pcs-fast', device: '', device_group: 'storage_pcs', point_group: 'fast', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'STOPPED', valid: true, invalid_reason: '' },
+  { task_id: 'wtg-001-diag', device: 'wtg-001', device_group: '', point_group: 'status', interval: 5, sinks: ['file_archive'], enabled: false, runtime: 'STOPPED', valid: true, invalid_reason: '' },
 ]
 
 export const store = reactive({
@@ -309,4 +324,48 @@ export function validateAddress(protocol: string, a: PointAddress): string {
     return 'IEC104 ioa must be an integer in [0, 0xFFFFFF]'
   }
   return ''
+}
+
+
+export function defaultPointTableFor(protocol: string): string {
+  return DEFAULT_POINT_TABLE_BY_PROTOCOL[protocol as keyof typeof DEFAULT_POINT_TABLE_BY_PROTOCOL] || ''
+}
+
+export function isDefaultPointTable(tableId: string): boolean {
+  return Object.values(DEFAULT_POINT_TABLE_BY_PROTOCOL).includes(tableId as typeof DEFAULT_POINT_TABLE_BY_PROTOCOL[keyof typeof DEFAULT_POINT_TABLE_BY_PROTOCOL])
+}
+
+export function isDefaultPointGroup(groupId: string): boolean {
+  return groupId === DEFAULT_POINT_GROUP_ID
+}
+
+export function devicesForTask(t: TaskDef): DeviceInst[] {
+  if (t.device) return store.devices.filter(d => d.device_id === t.device)
+  if (t.device_group) return store.devices.filter(d => d.device_group === t.device_group)
+  return []
+}
+
+export function taskInvalidReason(t: TaskDef): string {
+  if (!store.pointGroups.some(g => g.id === t.point_group)) return 'Point Group does not exist'
+  if (isDefaultPointGroup(t.point_group)) return 'Default Point Group is a placeholder and cannot be collected'
+
+  const targets = devicesForTask(t)
+  if (!targets.length) return 'Task target resolves to no devices'
+
+  for (const d of targets) {
+    const model = modelOf(d)
+    if (!model) return `Device ${d.device_id} has no valid model`
+    if (isDefaultPointTable(model.point_table)) return `Device ${d.device_id} is assigned to a default Point Table`
+    if (!store.pointTables.some(pt => pt.id === model.point_table)) return `Device ${d.device_id} references a missing Point Table`
+  }
+  return ''
+}
+
+export function refreshTaskValidity(): void {
+  for (const t of store.tasks) {
+    const reason = taskInvalidReason(t)
+    t.valid = !reason
+    t.invalid_reason = reason
+    if (reason && t.runtime === 'RUNNING') t.runtime = 'STOPPED'
+  }
 }
