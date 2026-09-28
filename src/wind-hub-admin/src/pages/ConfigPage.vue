@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store } from '../mock/data'
 import { CONFIG_FILES, updateMockSiteYaml, yamlDiffs, yamlFiles } from '../mock/yaml'
 
-const configTab = ref('YAML Editor')
+type ReviewLine = { type: 'same' | 'add' | 'remove'; text: string }
 
-// ---- Site ----
+const configTab = ref('YAML Editor')
+const file = ref('devices.yaml')
+const editorMode = ref<'edit' | 'review'>('edit')
+const appliedSnapshot = reactive<Record<string, string>>(
+  Object.fromEntries(CONFIG_FILES.map(name => [name, yamlFiles[name]])),
+)
+const savedSnapshot = reactive<Record<string, string>>(
+  Object.fromEntries(CONFIG_FILES.map(name => [name, yamlFiles[name]])),
+)
+
+const dirtyMap = reactive<Record<string, boolean>>({ 'devices.yaml': true })
+
 const siteEditing = ref(false)
 const siteDraft = reactive({
   siteId: store.systemInfo.siteId,
@@ -19,33 +30,29 @@ function editSite() {
   siteEditing.value = true
 }
 
+function cancelSite() {
+  siteDraft.siteId = store.systemInfo.siteId
+  siteDraft.siteName = store.systemInfo.siteName
+  siteEditing.value = false
+}
+
 function updateSite() {
   const siteId = siteDraft.siteId.trim()
   const siteName = siteDraft.siteName.trim()
-
-  if (!siteId) {
-    ElMessage.error('Site ID is required')
+  if (!siteId || !siteName) {
+    ElMessage.error('Site ID and Site Name are required')
     return
   }
-  if (!siteName) {
-    ElMessage.error('Site Name is required')
-    return
-  }
-
   store.systemInfo.siteId = siteId
   store.systemInfo.siteName = siteName
   updateMockSiteYaml(siteId, siteName)
   dirtyMap['system.yaml'] = true
   siteEditing.value = false
-  ElMessage.success('Site information updated — pending apply (mock)')
+  ElMessage.success('Site information updated — system.yaml pending apply (mock)')
 }
 
-// ---- A. YAML Editor ----
-const file = ref('devices.yaml')
-const dirtyMap = reactive<Record<string, boolean>>({ 'devices.yaml': true })
-
 function markDirty() {
-  dirtyMap[file.value] = true
+  dirtyMap[file.value] = yamlFiles[file.value] !== appliedSnapshot[file.value]
 }
 
 function validate() {
@@ -57,67 +64,80 @@ function validate() {
 }
 
 function save() {
-  dirtyMap[file.value] = false
-  ElMessage.success(`${file.value} saved (mock)`)
+  savedSnapshot[file.value] = yamlFiles[file.value]
+  dirtyMap[file.value] = yamlFiles[file.value] !== appliedSnapshot[file.value]
+  ElMessage.success(dirtyMap[file.value]
+    ? `${file.value} saved — pending apply (mock)`
+    : `${file.value} saved (mock)`)
 }
 
 function saveApply() {
+  savedSnapshot[file.value] = yamlFiles[file.value]
+  appliedSnapshot[file.value] = yamlFiles[file.value]
   dirtyMap[file.value] = false
   ElMessage.success(`${file.value} saved & reload applied (mock)`)
 }
 
-// ---- B. Upload Single File ----
+function buildReview(before: string, after: string): ReviewLine[] {
+  const a = before.split('\n')
+  const b = after.split('\n')
+  const dp = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+  const lines: ReviewLine[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      lines.push({ type: 'same', text: a[i] })
+      i++; j++
+    } else if (j < b.length && (i === a.length || dp[i][j + 1] >= dp[i + 1][j])) {
+      lines.push({ type: 'add', text: b[j] })
+      j++
+    } else {
+      lines.push({ type: 'remove', text: a[i] })
+      i++
+    }
+  }
+  return lines
+}
+
+const reviewLines = computed(() => buildReview(appliedSnapshot[file.value], yamlFiles[file.value]))
+
 const up = reactive({
   file: 'devices.yaml',
   name: '',
   state: 'idle' as 'idle' | 'compared',
 })
-
 const upDiff = [
   { o: 'Devices', a: '+2', r: '-1', u: '~3' },
   { o: 'Tasks', a: '+1', r: '', u: '~2' },
   { o: 'Point Tables', a: '', r: '', u: '~1' },
 ]
-
-function onUploadChange(f: { name?: string }) {
-  up.name = f?.name || ''
-  up.state = 'idle'
-}
-
+function onUploadChange(f: { name?: string }) { up.name = f?.name || ''; up.state = 'idle' }
 function upValidate() {
-  if (!up.name) {
-    ElMessage.warning('Select a YAML file first')
-    return
-  }
+  if (!up.name) { ElMessage.warning('Select a YAML file first'); return }
   up.state = 'compared'
   ElMessage.success(`${up.name} validation passed — diff ready (mock)`)
 }
-
-function upCancel() {
-  up.state = 'idle'
-  up.name = ''
-}
-
+function upCancel() { up.state = 'idle'; up.name = '' }
 function upSave() {
   dirtyMap[up.file] = true
-  up.state = 'idle'
-  up.name = ''
+  up.state = 'idle'; up.name = ''
   ElMessage.success(`${up.file} updated from upload — pending apply (mock)`)
 }
-
 function upApply() {
+  appliedSnapshot[up.file] = yamlFiles[up.file]
+  savedSnapshot[up.file] = yamlFiles[up.file]
   dirtyMap[up.file] = false
-  up.state = 'idle'
-  up.name = ''
+  up.state = 'idle'; up.name = ''
   ElMessage.success(`${up.file} saved & reload applied (mock)`)
 }
 
-// ---- C. Import Complete Configuration ----
-const pkg = reactive({
-  name: '',
-  state: 'idle' as 'idle' | 'compared',
-})
-
+const pkg = reactive({ name: '', state: 'idle' as 'idle' | 'compared' })
 const pkgDiff = [
   { o: 'Devices', a: '+6', r: '-2', u: '~11' },
   { o: 'Device Models', a: '+1', r: '', u: '~2' },
@@ -125,41 +145,28 @@ const pkgDiff = [
   { o: 'Point Tables', a: '+1', r: '', u: '~4' },
   { o: 'Units', a: '', r: '', u: '~1' },
 ]
-
-function onPkgChange(f: { name?: string }) {
-  pkg.name = f?.name || ''
-  pkg.state = 'idle'
-}
-
+function onPkgChange(f: { name?: string }) { pkg.name = f?.name || ''; pkg.state = 'idle' }
 function pkgValidate() {
-  if (!pkg.name) {
-    ElMessage.warning('Select a configuration ZIP first')
-    return
-  }
+  if (!pkg.name) { ElMessage.warning('Select a configuration ZIP first'); return }
   pkg.state = 'compared'
   ElMessage.success(`${pkg.name} validation passed — overall diff ready (mock)`)
 }
-
-function pkgCancel() {
-  pkg.state = 'idle'
-  pkg.name = ''
-}
-
+function pkgCancel() { pkg.state = 'idle'; pkg.name = '' }
 function pkgApply() {
-  for (const f of CONFIG_FILES) dirtyMap[f] = false
-  pkg.state = 'idle'
-  pkg.name = ''
+  for (const name of CONFIG_FILES) {
+    appliedSnapshot[name] = yamlFiles[name]
+    savedSnapshot[name] = yamlFiles[name]
+    dirtyMap[name] = false
+  }
+  pkg.state = 'idle'; pkg.name = ''
   ElMessage.success('Configuration package applied & reloaded (mock)')
 }
 </script>
 
 <template>
-  <div>
+  <div class="config-page">
     <div class="head">
-      <div>
-        <h1>Config</h1>
-        <p>直接编辑 YAML、上传配置、Diff 与下发生效</p>
-      </div>
+      <div><h1>Config</h1><p>直接编辑 YAML、上传配置、评审修改并下发生效</p></div>
     </div>
 
     <el-card shadow="never" class="site-card">
@@ -171,14 +178,8 @@ function pkgApply() {
 
         <template v-if="!siteEditing">
           <div class="site-info">
-            <div>
-              <span>Site ID</span>
-              <b>{{ store.systemInfo.siteId }}</b>
-            </div>
-            <div>
-              <span>Site Name</span>
-              <b>{{ store.systemInfo.siteName }}</b>
-            </div>
+            <div><span>Site ID</span><b>{{ store.systemInfo.siteId }}</b></div>
+            <div><span>Site Name</span><b>{{ store.systemInfo.siteName }}</b></div>
           </div>
           <el-button @click="editSite">Edit</el-button>
         </template>
@@ -187,16 +188,15 @@ function pkgApply() {
           <div class="site-edit">
             <el-form label-position="top">
               <div class="site-edit-grid">
-                <el-form-item label="Site ID">
-                  <el-input v-model="siteDraft.siteId" />
-                </el-form-item>
-                <el-form-item label="Site Name">
-                  <el-input v-model="siteDraft.siteName" />
-                </el-form-item>
+                <el-form-item label="Site ID"><el-input v-model="siteDraft.siteId" /></el-form-item>
+                <el-form-item label="Site Name"><el-input v-model="siteDraft.siteName" /></el-form-item>
               </div>
             </el-form>
           </div>
-          <el-button type="primary" @click="updateSite">Update</el-button>
+          <div class="site-actions">
+            <el-button @click="cancelSite">Cancel</el-button>
+            <el-button type="primary" @click="updateSite">Update</el-button>
+          </div>
         </template>
       </div>
     </el-card>
@@ -204,43 +204,49 @@ function pkgApply() {
     <el-card shadow="never">
       <el-tabs v-model="configTab">
         <el-tab-pane label="YAML Editor" name="YAML Editor">
-          <div class="config">
+          <div class="config-editor-layout">
             <div class="files">
-              <button
-                v-for="f in CONFIG_FILES"
-                :key="f"
-                :class="{ on: file === f }"
-                @click="file = f"
-              >
-                {{ f }}
+              <button v-for="name in CONFIG_FILES" :key="name" :class="{ on: file === name }" @click="file = name">
+                {{ name }}
+                <i v-if="dirtyMap[name]"></i>
               </button>
             </div>
 
-            <div>
-              <div class="toolbar">
-                <b>{{ file }}</b>
-                <el-tag :type="dirtyMap[file] ? 'warning' : 'success'">
-                  {{ dirtyMap[file] ? 'Pending Apply' : 'Applied' }}
-                </el-tag>
+            <div class="yaml-workspace">
+              <div class="yaml-toolbar">
+                <div class="yaml-title">
+                  <b>{{ file }}</b>
+                  <span :class="['apply-state', { pending: dirtyMap[file] }]">
+                    {{ dirtyMap[file] ? 'Pending Apply' : 'Applied' }}
+                  </span>
+                </div>
+                <div class="mode-switch">
+                  <button :class="{ on: editorMode === 'edit' }" @click="editorMode = 'edit'">Edit</button>
+                  <button :class="{ on: editorMode === 'review' }" @click="editorMode = 'review'">Review</button>
+                </div>
               </div>
 
               <el-input
+                v-if="editorMode === 'edit'"
                 v-model="yamlFiles[file]"
+                class="yaml-input"
                 type="textarea"
-                :rows="21"
+                :rows="24"
                 @input="markDirty"
               />
 
-              <div class="right">
+              <div v-else class="review-editor">
+                <div v-for="(line, index) in reviewLines" :key="index" :class="['review-line', line.type]">
+                  <span class="review-gutter">{{ line.type === 'add' ? '+' : line.type === 'remove' ? '−' : '' }}</span>
+                  <code>{{ line.text || ' ' }}</code>
+                </div>
+              </div>
+
+              <div class="yaml-actions">
                 <el-button @click="validate">Validate</el-button>
                 <el-button @click="save">Save</el-button>
                 <el-button type="primary" @click="saveApply">Save & Apply</el-button>
               </div>
-            </div>
-
-            <div>
-              <h3>Diff</h3>
-              <pre>{{ yamlDiffs[file] }}</pre>
             </div>
           </div>
         </el-tab-pane>
@@ -249,42 +255,23 @@ function pkgApply() {
           <div class="upload">
             <section>
               <h3>Upload Configuration File</h3>
-
-              <el-select v-model="up.file" style="width: 100%">
-                <el-option v-for="f in CONFIG_FILES" :key="f" :label="f" :value="f" />
+              <el-select v-model="up.file" style="width:100%">
+                <el-option v-for="name in CONFIG_FILES" :key="name" :label="name" :value="name" />
               </el-select>
-
-              <el-upload
-                drag
-                action="#"
-                :auto-upload="false"
-                :limit="1"
-                :on-change="onUploadChange"
-              >
-                <div>Drop YAML here or click to select</div>
-                <small>上传不会立即覆盖正式配置</small>
+              <el-upload drag action="#" :auto-upload="false" :limit="1" :on-change="onUploadChange">
+                <div>Drop YAML here or click to select</div><small>上传不会立即覆盖正式配置</small>
               </el-upload>
-
               <p v-if="up.name">已选择：{{ up.name }}</p>
               <el-button type="primary" @click="upValidate">Validate & Compare</el-button>
             </section>
-
             <section v-if="up.state === 'compared'">
               <h3>Structured Diff</h3>
               <el-table :data="upDiff">
-                <el-table-column prop="o" label="Object" />
-                <el-table-column prop="a" label="Added" />
-                <el-table-column prop="r" label="Removed" />
-                <el-table-column prop="u" label="Updated" />
+                <el-table-column prop="o" label="Object" /><el-table-column prop="a" label="Added" />
+                <el-table-column prop="r" label="Removed" /><el-table-column prop="u" label="Updated" />
               </el-table>
-
               <pre>{{ yamlDiffs[up.file] }}</pre>
-
-              <div class="right">
-                <el-button @click="upCancel">Cancel</el-button>
-                <el-button @click="upSave">Save</el-button>
-                <el-button type="primary" @click="upApply">Save & Apply</el-button>
-              </div>
+              <div class="right"><el-button @click="upCancel">Cancel</el-button><el-button @click="upSave">Save</el-button><el-button type="primary" @click="upApply">Save & Apply</el-button></div>
             </section>
           </div>
         </el-tab-pane>
@@ -292,34 +279,16 @@ function pkgApply() {
         <el-tab-pane label="Import Package" name="Import Package">
           <h3>Import Complete Configuration</h3>
           <p>上传完整配置包，临时校验、整体 Diff 后再替换当前配置。</p>
-
-          <el-upload
-            drag
-            action="#"
-            :auto-upload="false"
-            :limit="1"
-            :on-change="onPkgChange"
-            style="max-width: 520px"
-          >
-            <div>Drop configuration ZIP here</div>
-          </el-upload>
-
+          <el-upload drag action="#" :auto-upload="false" :limit="1" :on-change="onPkgChange" class="package-upload"><div>Drop configuration ZIP here</div></el-upload>
           <p v-if="pkg.name">已选择：{{ pkg.name }}</p>
           <el-button type="primary" @click="pkgValidate">Validate Package & Compare</el-button>
-
           <template v-if="pkg.state === 'compared'">
-            <h3 style="margin-top: 18px">Overall Diff</h3>
-            <el-table :data="pkgDiff" style="max-width: 720px">
-              <el-table-column prop="o" label="Object" />
-              <el-table-column prop="a" label="Added" />
-              <el-table-column prop="r" label="Removed" />
-              <el-table-column prop="u" label="Updated" />
+            <h3 class="overall-title">Overall Diff</h3>
+            <el-table :data="pkgDiff" class="package-table">
+              <el-table-column prop="o" label="Object" /><el-table-column prop="a" label="Added" />
+              <el-table-column prop="r" label="Removed" /><el-table-column prop="u" label="Updated" />
             </el-table>
-
-            <div class="right" style="max-width: 720px">
-              <el-button @click="pkgCancel">Cancel</el-button>
-              <el-button type="primary" @click="pkgApply">Apply Package</el-button>
-            </div>
+            <div class="right package-table"><el-button @click="pkgCancel">Cancel</el-button><el-button type="primary" @click="pkgApply">Apply Package</el-button></div>
           </template>
         </el-tab-pane>
       </el-tabs>
@@ -328,67 +297,8 @@ function pkgApply() {
 </template>
 
 <style scoped>
-.site-card {
-  margin-bottom: 16px;
-}
-.site-row {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-.site-heading {
-  width: 210px;
-  flex: 0 0 auto;
-}
-.site-heading h3 {
-  margin: 0;
-  font-size: 15px;
-}
-.site-heading p {
-  margin: 4px 0 0;
-  color: #8a94a3;
-  font-size: 12px;
-}
-.site-info {
-  flex: 1;
-  display: flex;
-  gap: 48px;
-}
-.site-info > div {
-  min-width: 180px;
-}
-.site-info span {
-  display: block;
-  margin-bottom: 5px;
-  color: #8a94a3;
-  font-size: 11px;
-}
-.site-info b {
-  color: #2b3646;
-  font-size: 13px;
-}
-.site-edit {
-  flex: 1;
-}
-.site-edit-grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.4fr);
-  gap: 14px;
-}
-.site-edit :deep(.el-form-item) {
-  margin-bottom: 0;
-}
-@media (max-width: 900px) {
-  .site-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .site-heading {
-    width: auto;
-  }
-  .site-edit-grid {
-    grid-template-columns: 1fr;
-  }
-}
+.site-card{margin-bottom:16px}.site-row{min-height:72px;display:flex;align-items:center;gap:24px}.site-heading{width:210px;flex:0 0 auto}.site-heading h3{margin:0;font-size:15px}.site-heading p{margin:4px 0 0;color:#8a94a3;font-size:12px}.site-info{flex:1;display:flex;gap:48px}.site-info>div{min-width:180px}.site-info span{display:block;margin-bottom:5px;color:#8a94a3;font-size:11px}.site-info b{color:#2b3646;font-size:13px}.site-edit{flex:1}.site-edit-grid{display:grid;grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr);gap:14px}.site-edit :deep(.el-form-item){margin-bottom:0}.site-actions{display:flex;gap:8px}
+.config-editor-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px}.files button{position:relative}.files button i{position:absolute;right:9px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#b7791f}.yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title,.mode-switch{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:16px;margin-bottom:10px}.yaml-title{gap:9px}.apply-state{color:#667085;font-size:11px}.apply-state.pending{color:#b7791f}.mode-switch{gap:2px;padding:3px;background:#f1f3f6;border-radius:7px}.mode-switch button{border:0;background:transparent;padding:6px 11px;border-radius:5px;color:#667085;cursor:pointer}.mode-switch button.on{background:#fff;color:#344054;box-shadow:0 1px 3px rgba(16,24,40,.08)}.yaml-input :deep(textarea){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}.yaml-actions{justify-content:flex-end;gap:8px;margin-top:12px}.review-editor{min-height:558px;max-height:65vh;overflow:auto;border:1px solid #dfe4ea;border-radius:6px;background:#fff;padding:8px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}.review-line{display:grid;grid-template-columns:26px minmax(0,1fr);min-height:20px;border-left:3px solid transparent}.review-line code{padding:1px 10px;white-space:pre-wrap;overflow-wrap:anywhere;color:#344054}.review-gutter{text-align:center;color:#a8b0bc;user-select:none}.review-line.add{background:#f1f9f4;border-left-color:#2f8f52}.review-line.add code{color:#25683c}.review-line.remove{background:#fff4f2;border-left-color:#d94d45}.review-line.remove code{color:#a43d38;text-decoration:line-through}.package-upload{max-width:520px}.package-table{max-width:720px}.overall-title{margin-top:18px}
+@media(max-width:900px){.site-row{align-items:stretch;flex-direction:column}.site-heading{width:auto}.site-info{gap:24px;flex-wrap:wrap}.site-edit-grid{grid-template-columns:1fr}.site-actions{justify-content:flex-end}.config-editor-layout{grid-template-columns:1fr}.files{flex-direction:row;overflow:auto;padding-bottom:4px}.files button{white-space:nowrap;flex:0 0 auto}.upload{grid-template-columns:1fr}}
+@media(max-width:767px){.site-info{display:grid;grid-template-columns:1fr}.site-info>div{min-width:0}.site-actions{width:100%}.site-actions .el-button{flex:1}.yaml-toolbar{align-items:flex-start;flex-direction:column}.mode-switch{width:100%}.mode-switch button{flex:1}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.review-editor{min-height:420px}.package-upload,.package-table{max-width:100%}}
 </style>
