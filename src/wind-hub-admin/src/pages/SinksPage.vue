@@ -300,14 +300,28 @@ async function deleteSink(s:SinkDef){
 
         <el-tab-pane label="Test" name="Test" v-if="selected">
           <div class="section-head"><div><h3>Connection Verification</h3><p>No business data is written. The same staged checks are used by Verify All Sinks.</p></div><el-button type="primary" :loading="testLoading" @click="verifySink(selected)">Verify</el-button></div>
-          <el-table :data="selected.verification.checks" size="small" empty-text="Not verified yet">
-            <el-table-column prop="layer" label="Layer" width="95"/>
-            <el-table-column prop="name" label="Check" min-width="135"/>
-            <el-table-column label="State" width="100"><template #default="{row}"><el-tag :type="row.state==='passed'?'success':row.state==='warning'?'warning':row.state==='failed'?'danger':'info'" size="small">{{row.state}}</el-tag></template></el-table-column>
-            <el-table-column prop="target" label="Target" min-width="150" show-overflow-tooltip/>
-            <el-table-column prop="detail" label="Info" min-width="280"/>
-            <el-table-column prop="latency_ms" label="Latency" width="90"><template #default="{row}">{{row.latency_ms?row.latency_ms+' ms':'—'}}</template></el-table-column>
-            <el-table-column prop="error_code" label="Error" min-width="150"/>
+          <el-table :data="selected.verification.checks" size="small" empty-text="Not verified yet" table-layout="fixed">
+            <el-table-column label="Check" width="190">
+              <template #default="{row}">
+                <div class="verify-check"><span>{{row.layer}}</span><b>{{row.name}}</b></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Result" width="100">
+              <template #default="{row}">
+                <el-tag :type="row.state==='passed'?'success':row.state==='warning'?'warning':row.state==='failed'?'danger':'info'" size="small">{{row.state}}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="Evidence" min-width="260">
+              <template #default="{row}">
+                <div class="verify-evidence">
+                  <b>{{row.target || '—'}}</b>
+                  <span>{{row.error_code ? row.error_code + ' · ' + row.detail : row.detail}}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Time" width="90" align="right">
+              <template #default="{row}">{{row.latency_ms ? row.latency_ms + ' ms' : '—'}}</template>
+            </el-table-column>
           </el-table>
           <div class="test-meta">Last verified: {{selected.verification.checked_at||'Never'}} · {{verifyLabel(selected)}}</div>
           <el-divider content-position="left">Write Test</el-divider>
@@ -321,7 +335,8 @@ async function deleteSink(s:SinkDef){
 </template>
 
 <style scoped>
-.sink-filter-row{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4)}.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3);flex:1}.batch-verify-summary{display:grid;gap:2px;min-width:260px;text-align:right}.batch-verify-summary span,.batch-verify-summary time{color:var(--app-text-muted);font-size:var(--app-font-caption)}.batch-verify-summary b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.sink-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.55fr);gap:var(--app-space-4)}.sink-editor-card,.sink-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.sink-runtime-card h3{margin:0}.section-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.runtime-list{display:grid;gap:var(--app-space-2)}.runtime-list>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding:7px 0;border-bottom:1px solid var(--app-border-soft)}.runtime-list span{color:var(--app-text-muted)}.runtime-list b{text-align:right}.danger-row{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}.test-meta{margin-top:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}.editor-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}
+.sink-filter-row{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4)}.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3);flex:1}.batch-verify-summary{display:grid;gap:2px;min-width:260px;text-align:right}.batch-verify-summary span,.batch-verify-summary time{color:var(--app-text-muted);font-size:var(--app-font-caption)}.batch-verify-summary b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.sink-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.55fr);gap:var(--app-space-4)}.sink-editor-card,.sink-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.sink-runtime-card h3{margin:0}.section-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.runtime-list{display:grid;gap:var(--app-space-2)}.runtime-list>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding:7px 0;border-bottom:1px solid var(--app-border-soft)}.runtime-list span{color:var(--app-text-muted)}.runtime-list b{text-align:right}.danger-row{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}.verify-check,.verify-evidence{display:grid;gap:2px;min-width:0}.verify-check span{color:var(--app-text-muted);font-size:var(--app-font-caption);text-transform:capitalize}.verify-check b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.verify-evidence b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--app-font-label);font-weight:var(--app-font-weight-medium)}.verify-evidence span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.test-meta{margin-top:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}.editor-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}
 @media(max-width:900px){.sink-summary-grid{grid-template-columns:1fr}}
 @media(max-width:1000px){.sink-filter-row{align-items:stretch;flex-direction:column}.batch-verify-summary{text-align:left}}
 @media(max-width:767px){.sink-filters,.sink-form-grid{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}}

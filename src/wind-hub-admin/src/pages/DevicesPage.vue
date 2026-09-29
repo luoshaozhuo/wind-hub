@@ -1924,21 +1924,30 @@ async function sendCommand() {
 
           <!-- TREND -->
           <el-tab-pane label="Trend" name="Trend">
-            <div class="trend-toolbar">
-              <div>
-                <h3>Trend</h3>
-                <p>
-                  {{ trendSignals.length }} selected · Latest {{ trendRange }}
-                  <template v-if="trendLastRefreshAt"> · Updated {{ trendLastRefreshAt }}</template>
-                  · chart may be downsampled; recording exports raw samples
-                </p>
+            <div class="trend-header">
+              <div class="trend-summary">
+                <b>{{ trendSignals.length }} signals</b>
+                <span>Window {{ trendRange }}</span>
+                <span v-if="trendLastRefreshAt">Updated {{ trendLastRefreshAt }}</span>
               </div>
-              <div class="trend-actions trend-actions-wrap">
+              <div class="trend-primary-actions">
                 <el-button @click="trendPickerOpen = true">Select Signals</el-button>
-                <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
-                <span class="trend-toolbar-label">Time Window</span>
+                <div class="record-action">
+                  <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
+                  <el-tooltip content="Chart may be downsampled; recording exports all raw samples in the selected time window." placement="bottom">
+                    <span class="help-dot" aria-label="Raw recording help">?</span>
+                  </el-tooltip>
+                </div>
+              </div>
+            </div>
+
+            <div class="trend-view-bar">
+              <div class="trend-window-control">
+                <span>Time Window</span>
                 <el-segmented v-model="trendRange" :options="['1 min', '5 min', '15 min', '1 h']" />
-                <div class="auto-refresh-toggle"><span>Auto Update</span><el-switch v-model="trendAutoRefresh" /></div>
+              </div>
+              <div class="trend-update-control">
+                <div class="auto-refresh-toggle"><span>Auto Update · 1 s</span><el-switch v-model="trendAutoRefresh" /></div>
                 <el-button @click="renderTrend">Refresh</el-button>
               </div>
             </div>
@@ -2050,13 +2059,19 @@ async function sendCommand() {
 .read-test-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-3)}
 .read-result-details{margin-top:var(--app-space-3)}
 .read-result-details code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--app-font-label)}
-.data-refresh-tools,.trend-actions-wrap{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}
+.data-refresh-tools{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}
 .auto-refresh-toggle{display:flex;align-items:center;gap:var(--app-space-2);white-space:nowrap;color:var(--app-text-secondary);font-size:var(--app-font-label)}
-.trend-toolbar-label{color:var(--app-text-secondary);font-size:var(--app-font-label);white-space:nowrap}
+.trend-header{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);padding:var(--app-space-2) 0 var(--app-space-3)}
+.trend-summary{display:flex;align-items:baseline;gap:var(--app-space-3);min-width:0}.trend-summary b{font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.trend-summary span{color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:nowrap}
+.trend-primary-actions,.trend-view-bar,.trend-window-control,.trend-update-control,.record-action{display:flex;align-items:center;gap:var(--app-space-2)}
+.trend-view-bar{justify-content:space-between;padding:var(--app-space-2) 0 var(--app-space-3);border-top:1px solid var(--app-border-soft)}
+.trend-window-control>span{color:var(--app-text-secondary);font-size:var(--app-font-label);white-space:nowrap}
+.help-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--app-border-soft);border-radius:50%;color:var(--app-text-muted);font-size:var(--app-font-caption);cursor:help}
 .data-read-failed{border-color:var(--app-status-fault)}
 .data-error{color:var(--app-status-fault);font-size:var(--app-font-caption)}
 .control-definition{margin-bottom:var(--app-space-4)}
 .control-target-field{margin-top:var(--app-space-4)}
 @media(max-width:900px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
-@media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools,.trend-actions-wrap{align-items:stretch}.data-refresh-tools>*{max-width:100%}}
+@media(max-width:900px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
+@media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
 </style>

@@ -80,7 +80,7 @@ function selectMenu(key: string) {
           <PointsPage v-if="menu === 'Points'" />
           <TasksPage v-if="menu === 'Tasks'" />
           <SinksPage v-if="menu === 'Sinks'" />
-          <QualityPage v-if="menu === 'Quality'" />
+          <QualityPage v-if="menu === 'Quality'" @navigate="selectMenu" />
           <DebugPage v-if="menu === 'Debug'" />
           <ConfigPage v-if="menu === 'Config'" />
           <LogsPage v-if="menu === 'Logs'" />

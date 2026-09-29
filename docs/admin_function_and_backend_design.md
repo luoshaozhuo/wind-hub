@@ -609,7 +609,7 @@ Device Drawer 在 Config 与 Data 之间提供 Read Test。它用于快速验证
 
 ## 3.9 Trend
 
-Trend 的范围选择表示“最近多长时间”，不使用含义模糊的 Real-time。统一为 1 min / 5 min / 15 min / 1 h；Auto Update 固定每 1 s 刷新一次滑动窗口，Time Window 只控制窗口长度。Refresh 执行一次历史窗口刷新。Mock/真实数据都必须让窗口随时间向前移动，而不是重复绘制同一条曲线。
+Trend 的范围选择表示“最近多长时间”，不使用含义模糊的 Real-time。统一为 1 min / 5 min / 15 min / 1 h；Auto Update 固定每 1 s 刷新一次滑动窗口，Time Window 只控制窗口长度。Refresh 执行一次历史窗口刷新。顶部布局采用“摘要 + 主操作 / 视图控制 / 图表 Legend”分层，避免把所有控件挤在一行；Raw Recording 的说明放 Tooltip，不长期占据主区域。
 
 后端提供时序数据查询。
 
@@ -1225,58 +1225,81 @@ source    = admin_sink_test
 
 ICMP 仅作为 Network Reachability 的辅助信息，失败显示 Warning，但不得阻断 TCP Port 检查；远端端口可达性必须通过真实 TCP connect 判断，不能用本机 `ss` 代替。网络类 Sink 的结果需显示解析后的 host/IP/port target。
 
-列表必须展示 Verification 与 Last Verified；点击 Sink 后 Test 页展示完整 stages。页面不保留长期占位的大型“Verify All”说明 Card；批量执行后只显示紧凑 Last Verification Summary（checked/passed/failed/warning/time）。Verify All 的说明放入 Actions 语义，不与 Write Test 混淆。
+列表必须展示 Verification 与 Last Verified；点击 Sink 后 Test 页展示完整 stages。Test 表格保持紧凑，只保留 Check、Result、Evidence、Time 四列：Check 合并 layer/name，Evidence 合并 target/detail/error，避免横向滚动。页面不保留长期占位的大型“Verify All”说明 Card；批量执行后只显示紧凑 Last Verification Summary（checked/passed/failed/warning/time）。Verify All 的说明放入 Actions 语义，不与 Write Test 混淆。
 
 ---
 
 # 8. Quality 页面
 
-Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnostics 同属“工程”大类：Quality 用于持续发现异常，Diagnostics 用于针对具体 Device/Task 定位原因。
+Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnostics 同属“工程”大类：
 
-## 8.1 Global Metrics
+- Quality：告诉运维人员“现在有什么问题、影响多大、是否在恶化”；
+- Diagnostics：针对具体 Device / Task 继续定位根因。
 
-后端应从运行指标聚合：
+Quality 不再展示大量 healthy Device，也不以平均指标报表为核心。
 
-- average interval；
+## 8.1 Current Situation
+
+顶部只展示有行动价值的当前态势，例如：
+
+- active interruptions；
+- degraded tasks；
+- affected devices；
+- timeout/reconnect 等窗口统计。
+
+普通标题和数值使用中性色；只有 Fault / Warning 等真实状态使用状态色。禁止用 Success/Warning/Danger 作为装饰色。
+
+## 8.2 Active Issues
+
+这是 Quality 的核心区域，只列出当前异常对象。至少提供：
+
+- object / kind / scope；
+- severity；
+- symptom；
+- since / duration；
+- last success；
+- impact；
+- probable cause；
+- Diagnose 入口。
+
+Quality 不宣称 probable cause 是最终根因，只作为基于症状的排障提示；真正结论由 Diagnostics 得出。
+
+## 8.3 Task Exceptions
+
+只展示异常运行任务，不展示所有正常任务。关注：
+
+- expected / actual interval；
 - jitter P95；
-- active interruption；
-- reconnect count；
+- missing ticks；
+- interruptions；
+- last success；
+- current state。
+
+Subscription task 不伪造 Expected interval。
+
+## 8.4 Problem Clusters
+
+将 Device/Task 异常按症状聚类，例如：
+
 - read timeout；
-- read failure。
+- protocol reconnect；
+- decode failure；
+- timing / jitter；
+- communication interruption。
 
-必须带统计窗口，例如 5 min / 24 h。
+目标是帮助运维判断“单设备故障”还是“同协议/同任务的一组问题”。不再保留全量 healthy Device 表。
 
-## 8.2 Task Quality
+## 8.5 Recent Change
 
-每 Task/Instance 至少提供：
+提供简洁的窗口对比，例如当前 24 h 与上一 24 h：
 
-- expected interval；
-- actual average；
-- jitter；
-- missed ticks；
 - interruption count；
-- last success；
-- success rate；
--统计窗口。
-
-订阅任务不伪造 Expected interval，应显示 subscription 语义。
-
-## 8.3 Device Health
-
-至少提供：
-
-- device；
-- protocol；
-- last success；
 - timeout count；
-- failure count；
-- communication state；
-- current interruption start time（若中断）。
+- reconnect count。
 
-页面只读，不通过 Quality 页面直接修改配置。
+重点是提示是否恶化，不需要复杂业务图表。
 
 ---
-
 # 9. Diagnostics 页面
 
 Diagnostics 是针对“某台设备或采集任务为什么失败”的现场诊断工作台。入口必须先选择 Device，并可关联选择该 Device 对应 Task。诊断应按依赖链分层执行，而不是提供若干孤立按钮：
