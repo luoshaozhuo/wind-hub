@@ -1231,73 +1231,88 @@ ICMP 仅作为 Network Reachability 的辅助信息，失败显示 Warning，但
 
 # 8. Quality 页面
 
-Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnostics 同属“工程”大类：
+Quality 表示**采集服务质量**，不是电能质量。边界固定为：
 
-- Quality：告诉运维人员“现在有什么问题、影响多大、是否在恶化”；
-- Diagnostics：针对具体 Device / Task 继续定位根因。
+- Quality：回答“发生了什么质量问题、影响多大”；
+- Diagnostics：回答“为什么发生”。
 
-Quality 不再展示大量 healthy Device，也不以平均指标报表为核心。
+Quality 页面不提供 Diagnose / Open Diagnostics 跳转按钮，避免把质量观察与根因诊断混成一个工作流。
 
-## 8.1 Current Situation
+## 8.1 Check
 
-顶部只展示有行动价值的当前态势，例如：
+页面统一提供：
 
-- active interruptions；
-- degraded tasks；
-- affected devices；
-- timeout/reconnect 等窗口统计。
+- `Check`：立即执行一次质量检查；
+- `Auto Check`：周期执行；
+- `Check Interval`：5 s / 10 s / 30 s / 1 min / 5 min；
+- `Last checked`：展示最近一次完成时间。
 
-普通标题和数值使用中性色；只有 Fault / Warning 等真实状态使用状态色。禁止用 Success/Warning/Danger 作为装饰色。
+重复 Check 必须被阻止。一次 Check 完成后统一更新 Summary、Channel、Dimension 与 Active Issues，不允许局部区域处于不同检查版本。
 
-## 8.2 Active Issues
+## 8.2 Channel Quality
 
-这是 Quality 的核心区域，只列出当前异常对象。至少提供：
+Channel Quality 分为：
 
-- object / kind / scope；
-- severity；
+1. **Delivery Channels**：wind-hub → Kafka / PostgreSQL / Redis 等网络 Sink。File Sink 不属于网络信道。该区域通常数量较少，先展示。
+2. **Acquisition Channels**：Device / PLC / EMS → wind-hub。设备数量可能较大，必须分页。
+
+Acquisition Channels 默认支持 All / Abnormal 过滤，分页默认 20 条，可选 20 / 50 / 100。
+
+### Latency Distribution
+
+Acquisition Channels 上方提供 ECharts latency histogram。统计范围为当前全部有效采集信道，**不受表格分页影响**。
+
+至少展示：
+
+- P50；
+- P95；
+- P99；
+- latency bucket device count。
+
+鼠标悬停柱子时 Tooltip 展示该 bucket 内的 Device 与 latency，按 latency 从高到低排列。设备较多时最多直接展示 10 台，并显示剩余数量。
+
+Latency 的统计口径由后端统一定义。请求/响应协议可使用一次采集交互耗时；订阅协议不得直接套用相同定义。
+
+## 8.3 Data Quality
+
+Data Quality 当前固定五个维度：
+
+- Continuity；
+- Timeliness；
+- Completeness；
+- Validity；
+- Delivery Integrity。
+
+五个维度使用紧凑 Card 展示，不使用大面积留白的纵向列表。每张 Card 展示：
+
+- Dimension；
+- Status；
+- Primary Metric；
+- Secondary Detail；
+- 信息说明图标。
+
+信息说明使用 Element Plus Tooltip，解释该维度的定义，不重复当前状态。
+
+### 维度定义
+
+- **Continuity**：期望采集周期是否出现连续中断、长时间无新数据或采集任务停滞；
+- **Timeliness**：数据是否在期望时间内到达，包括 freshness、采集延迟和 jitter；
+- **Completeness**：期望采集的数据是否完整，包括 missing cycles、point read failures；
+- **Validity**：数据能否被正确解析和使用，包括 decode、timestamp、ordering 等技术有效性；
+- **Delivery Integrity**：wind-hub 已采集的数据是否完整交付到目标 Sink，包括 drop、queue backlog、write failure。
+
+## 8.4 Active Data Issues
+
+只展示会影响最终可用数据的当前异常，至少包括：
+
+- object；
+- level；
+- dimension；
 - symptom；
-- since / duration；
-- last success；
 - impact；
-- probable cause；
-- Diagnose 入口。
+- last good。
 
-Quality 不宣称 probable cause 是最终根因，只作为基于症状的排障提示；真正结论由 Diagnostics 得出。
-
-## 8.3 Task Exceptions
-
-只展示异常运行任务，不展示所有正常任务。关注：
-
-- expected / actual interval；
-- jitter P95；
-- missing ticks；
-- interruptions；
-- last success；
-- current state。
-
-Subscription task 不伪造 Expected interval。
-
-## 8.4 Problem Clusters
-
-将 Device/Task 异常按症状聚类，例如：
-
-- read timeout；
-- protocol reconnect；
-- decode failure；
-- timing / jitter；
-- communication interruption。
-
-目标是帮助运维判断“单设备故障”还是“同协议/同任务的一组问题”。不再保留全量 healthy Device 表。
-
-## 8.5 Recent Change
-
-提供简洁的窗口对比，例如当前 24 h 与上一 24 h：
-
-- interruption count；
-- timeout count；
-- reconnect count。
-
-重点是提示是否恶化，不需要复杂业务图表。
+恢复后的问题从 Active Data Issues 移除，历史保留在 Event / Log 中。
 
 ---
 # 9. Diagnostics 页面
