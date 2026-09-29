@@ -1051,6 +1051,71 @@ const trendSearch = ref('')
 const trendRange = ref('Real-time')
 const trendSignals = ref<TrendSignal[]>([])
 
+const trendRecording = ref(false)
+
+function trendRangeMs() {
+  if (trendRange.value === '5 min') return 5 * 60_000
+  if (trendRange.value === '15 min') return 15 * 60_000
+  if (trendRange.value === '1 h') return 60 * 60_000
+  return 60_000
+}
+
+function makeTrendRawData(index: number, endTime = Date.now()) {
+  const duration = trendRangeMs()
+  const rawStepMs = 1000
+  const count = Math.floor(duration / rawStepMs) + 1
+  return Array.from({ length: count }, (_, i) => {
+    const x = new Date(endTime - duration + i * rawStepMs)
+    const y = 30 + index * 25 + Math.sin(i / 7 + index) * (5 + index * 2) + (i % 9) * 0.2
+    return [x, Number(y.toFixed(4))] as [Date, number]
+  })
+}
+
+function downsampleForChart(raw: [Date, number][], maxPoints = 240) {
+  if (raw.length <= maxPoints) return raw
+  const step = Math.ceil(raw.length / maxPoints)
+  return raw.filter((_, i) => i % step === 0 || i === raw.length - 1)
+}
+
+function csvCell(value: string | number) {
+  const text = String(value)
+  return /[",\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text
+}
+
+async function recordTrendRawData() {
+  if (!selected.value || !trendSignals.value.length) {
+    ElMessage.warning('Select at least one trend signal first')
+    return
+  }
+  trendRecording.value = true
+  try {
+    const endTime = Date.now()
+    const rows: string[] = ['timestamp,device_id,point_id,variable_name,value,unit']
+    trendSignals.value.forEach((signal, index) => {
+      for (const [ts, value] of makeTrendRawData(index, endTime)) {
+        rows.push([
+          ts.toISOString(),
+          selected.value!.device_id,
+          signal.id,
+          signal.label,
+          value,
+          signal.unit,
+        ].map(csvCell).join(','))
+      }
+    })
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selected.value.device_id}_waveform_${trendRange.value.replace(/\s+/g, '_')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('Raw waveform data exported (mock)')
+  } finally {
+    trendRecording.value = false
+  }
+}
+
 const trendCandidates = computed(() => dataRows.value.filter(r => {
   const q = trendSearch.value.trim().toLowerCase()
   return !q || [r.point_id, r.variable_name, r.description].some(x => x.toLowerCase().includes(q))
@@ -1084,12 +1149,7 @@ function seedTrendSignals() {
 }
 
 function makeTrendData(index: number) {
-  const now = Date.now()
-  return Array.from({ length: 80 }, (_, i) => {
-    const x = new Date(now - (79 - i) * 1000)
-    const y = 30 + index * 25 + Math.sin(i / 7 + index) * (5 + index * 2) + (i % 9) * 0.2
-    return [x, Number(y.toFixed(2))]
-  })
+  return downsampleForChart(makeTrendRawData(index))
 }
 
 function renderTrend() {
@@ -1628,10 +1688,11 @@ async function sendCommand() {
             <div class="trend-toolbar">
               <div>
                 <h3>Trend</h3>
-                <p>{{ trendSignals.length }} selected · 点击图例显示/隐藏曲线</p>
+                <p>{{ trendSignals.length }} selected · 图表可抽样显示；录波导出当前时间窗的全量原始样本</p>
               </div>
               <div class="trend-actions">
                 <el-button @click="trendPickerOpen = true">Select Signals</el-button>
+                <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
                 <el-segmented
                   v-model="trendRange"
                   :options="['Real-time', '5 min', '15 min', '1 h']"

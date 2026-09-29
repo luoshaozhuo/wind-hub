@@ -22,7 +22,6 @@ const runMenu = [
   { key: 'Points', label: 'Points' },
   { key: 'Tasks', label: 'Tasks' },
   { key: 'Sinks', label: 'Sinks' },
-  { key: 'Quality', label: 'Quality' },
 ]
 
 function updateViewport() {
@@ -46,7 +45,10 @@ function selectMenu(key: string) {
         <el-menu-item-group title="运行">
           <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
         </el-menu-item-group>
-        <el-menu-item-group title="工程"><el-menu-item index="Debug">Debug</el-menu-item></el-menu-item-group>
+        <el-menu-item-group title="工程">
+          <el-menu-item index="Quality">Quality</el-menu-item>
+          <el-menu-item index="Debug">Diagnostics</el-menu-item>
+        </el-menu-item-group>
         <el-menu-item-group title="系统">
           <el-menu-item index="Config">Config</el-menu-item>
           <el-menu-item index="Logs">Logs</el-menu-item>
@@ -92,7 +94,10 @@ function selectMenu(key: string) {
       <el-menu-item-group title="运行">
         <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
       </el-menu-item-group>
-      <el-menu-item-group title="工程"><el-menu-item index="Debug">Debug</el-menu-item></el-menu-item-group>
+      <el-menu-item-group title="工程">
+        <el-menu-item index="Quality">Quality</el-menu-item>
+        <el-menu-item index="Debug">Diagnostics</el-menu-item>
+      </el-menu-item-group>
       <el-menu-item-group title="系统">
         <el-menu-item index="Config">Config</el-menu-item>
         <el-menu-item index="Logs">Logs</el-menu-item>

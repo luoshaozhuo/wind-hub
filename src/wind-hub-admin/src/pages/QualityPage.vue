@@ -42,7 +42,7 @@ const deviceRows = computed(() => store.devices.filter(d => d.enabled).slice(0, 
 })))
 </script>
 
-<template><div class="standard-page"><div class="head"><div><h1>Quality</h1><p>采集意义上的服务质量：节拍、缺失、中断、超时与恢复</p></div></div>
+<template><div class="standard-page"><div class="head"><div><h1>Quality</h1><p>工程诊断入口：持续发现节拍、缺失、中断、超时与恢复异常</p></div></div>
 <div class="metrics"><el-card v-for="x in metrics" :key="x.title" shadow="never"><el-statistic :title="x.title" :value="x.value" :precision="x.precision" :suffix="x.suffix" /></el-card></div>
 <el-card shadow="never"><h3>任务采集质量</h3><el-table :data="taskRows"><el-table-column prop="task" label="Task"/><el-table-column prop="interval" label="Expected"/><el-table-column v-if="!isMobile" prop="actual" label="Actual avg"/><el-table-column v-if="!isTablet" prop="jitter" label="Jitter P95"/><el-table-column v-if="!isTablet" prop="missing" label="Missing"/><el-table-column v-if="!isMobile" prop="interruptions" label="Interruptions"/><el-table-column v-if="!isMobile" prop="last" label="Last Success"/><el-table-column prop="rate" label="Success"/></el-table></el-card>
 <el-card shadow="never" style="margin-top:16px"><h3>设备采集健康</h3><el-table :data="deviceRows" height="360"><el-table-column prop="device" label="Device"/><el-table-column v-if="!isMobile" prop="protocol" label="Protocol"/><el-table-column prop="last" label="Last Success"/><el-table-column v-if="!isTablet" prop="timeouts" label="Timeouts"/><el-table-column v-if="!isMobile" prop="failures" label="Read Failures"/><el-table-column label="Status"><template #default="s"><el-tag :type="s.row.status==='healthy'?'success':'danger'">{{s.row.status}}</el-tag></template></el-table-column></el-table></el-card></div></template>

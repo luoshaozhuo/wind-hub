@@ -135,7 +135,8 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - Sink Detail / Add / Edit / Test：Drawer；
 - Task Add：短表单，保留 Dialog；Task Detail / Edit / Devices & Points / Logs：Drawer；
 - Change Impact / Delete / Delete All：Dialog；
-- Config YAML、Global ADS、Debug、Quality：Page/Inline。
+- Config YAML、Global ADS：Page/Inline；
+- Quality、Diagnostics：统一归入侧栏“工程”，分别负责问题发现与原因定位。
 
 ## 0.7 任务恢复原则
 
@@ -630,6 +631,14 @@ Network
 
 ---
 
+## 3.11 Trend Recording
+
+Device Trend 提供录波导出功能。导出范围必须与当前 Trend 时间窗一致，信号范围为当前选中的 Trend Signals。
+
+关键约束：**导出必须读取并保存该时间段的全量原始采样记录，不得使用 ECharts 当前渲染数据、抽样数据或像素反推数据。** 图表为性能允许抽样/降采样，但录波查询与导出必须独立请求 raw samples，并保留 timestamp、device_id、point_id、value、unit 等字段。
+
+---
+
 # 4. Device Metadata Manager
 
 包括 Device Model、Device Type、Device Group。
@@ -1035,7 +1044,7 @@ Task Detail 至少包含：
 - Overview：Definition、Runtime、Instance 数、Point Binding 数；
 - Devices & Points：目标 Device 列表，以及选择单台 Device 后该 Task 实际采集的 resolved Point 列表；
 - Logs：该 Task/Instance 的运行日志与事件；
-- Config：View / Edit 模式。
+- Config：直接编辑模式，使用 Save / Reset，不增加二次 Edit 开关。
 
 Device Group Task 不应一次展开所有点造成长页面。桌面端采用“左侧 Device 列表 + 右侧所选 Device Points”主从布局；移动端改为纵向布局。
 
@@ -1188,7 +1197,7 @@ source    = admin_sink_test
 
 # 8. Quality 页面
 
-Quality 表示**采集服务质量**，不是电能质量。
+Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnostics 同属“工程”大类：Quality 用于持续发现异常，Diagnostics 用于针对具体 Device/Task 定位原因。
 
 ## 7.1 Global Metrics
 
@@ -1234,9 +1243,23 @@ Quality 表示**采集服务质量**，不是电能质量。
 
 ---
 
-# 9. Debug 页面
+# 9. Diagnostics 页面
 
-Debug 是现场诊断工具，操作不改变正式配置，除非明确属于 Write Test。
+Diagnostics 是针对“某台设备或采集任务为什么失败”的现场诊断工作台。入口必须先选择 Device，并可关联选择该 Device 对应 Task。诊断应按依赖链分层执行，而不是提供若干孤立按钮：
+
+```text
+Task/Config Preconditions
+→ Network Reachability
+→ TCP/Transport
+→ Protocol Session
+→ Point Mapping
+→ Selected Point Read
+→ Root Cause Summary
+```
+
+失败需要明确区分 timeout、host unreachable、connection refused、protocol/session error、symbol/address not found、decode/type error、point group/table mapping error、sink/config invalid 等类别。
+
+Advanced Tools（Manual Read、Raw Decoder、Write Test）属于进一步排查手段，不作为主诊断流程。
 
 ## 8.1 Ping
 
@@ -1263,14 +1286,19 @@ Debug 是现场诊断工具，操作不改变正式配置，除非明确属于 W
 
 返回协议特有错误码和可读解释。
 
-## 8.4 Read Test
+## 9.4 Selected Point Read
 
-对设备执行少量已知点读取，返回：
+Read Test 不允许隐式读取“若干点”。用户必须明确选择一个或多个 Point，界面显示 point_id、variable/address/type。
 
-- requested points；
-- per-point result；
+后端逐点返回：
+
+- requested point；
+- resolved address / symbol；
+- result state；
 - latency；
-- protocol error。
+- raw/decoded value（成功时）；
+- error category（timeout / not found / protocol / decode 等）；
+- protocol raw error。
 
 ## 8.5 Manual Read
 
@@ -1323,7 +1351,7 @@ Stop：
 
 # 10. Config 页面
 
-Config 是直接操作配置文件的高级入口，与 Devices/Points/Tasks 的结构化编辑互补。
+Config 是直接操作配置文件的高级入口，与 Devices/Points/Tasks 的结构化编辑互补。页面不使用“YAML Editor / Upload”顶层 Tabs 生硬并列功能，而按任务流组织为：Instance Settings、Configuration Workspace、Import Configuration。Edit / Review 只作为 YAML 工作区的视图模式。
 
 ## 9.1 Site Edit
 

@@ -6,7 +6,6 @@ import { CONFIG_FILES, updateMockAdsYaml, updateMockSiteYaml, yamlDiffs, yamlFil
 
 type ReviewLine = { type: 'same' | 'add' | 'remove'; text: string }
 
-const configTab = ref('YAML Editor')
 const file = ref('devices.yaml')
 const editorMode = ref<'edit' | 'review'>('review')
 const editorModeOptions = [
@@ -234,157 +233,130 @@ async function upApply() {
 <template>
   <div class="config-page">
     <div class="head">
-      <div><h1>Config</h1><p>直接编辑 YAML、上传配置、评审修改并下发生效</p></div>
+      <div>
+        <h1>Config</h1>
+        <p>现场身份、全局通信参数与 YAML 配置生命周期</p>
+      </div>
     </div>
 
-    <el-card shadow="never" class="site-card">
-      <div class="site-row">
-        <div class="site-heading">
-          <h3>Site</h3>
-          <p>当前 Wind Hub 实例对应的现场身份</p>
-        </div>
-
-        <template v-if="!siteEditing">
-          <div class="site-info">
-            <div><span>Site ID</span><b>{{ store.systemInfo.siteId }}</b></div>
-            <div><span>Site Name</span><b>{{ store.systemInfo.siteName }}</b></div>
-          </div>
-          <el-button @click="editSite">Edit</el-button>
-        </template>
-
-        <template v-else>
-          <div class="site-edit">
-            <el-form label-position="top">
-              <div class="site-edit-grid">
-                <el-form-item label="Site ID"><el-input v-model="siteDraft.siteId" /></el-form-item>
-                <el-form-item label="Site Name"><el-input v-model="siteDraft.siteName" /></el-form-item>
-              </div>
-            </el-form>
-          </div>
-          <div class="site-actions">
-            <el-button @click="cancelSite">Cancel</el-button>
-            <el-button type="primary" @click="updateSite">Update</el-button>
-          </div>
-        </template>
+    <section class="config-section-block">
+      <div class="section-heading">
+        <div><h2>Instance Settings</h2><p>少量全局参数直接管理；修改后进入 Pending Apply。</p></div>
       </div>
-    </el-card>
+      <div class="settings-grid">
+        <el-card shadow="never" class="setting-card">
+          <div class="setting-head"><div><h3>Site</h3><p>Wind Hub 实例对应的现场身份</p></div><el-button v-if="!siteEditing" @click="editSite">Edit</el-button></div>
+          <template v-if="!siteEditing">
+            <el-descriptions :column="1">
+              <el-descriptions-item label="Site ID">{{ store.systemInfo.siteId }}</el-descriptions-item>
+              <el-descriptions-item label="Site Name">{{ store.systemInfo.siteName }}</el-descriptions-item>
+            </el-descriptions>
+          </template>
+          <el-form v-else label-position="top">
+            <el-form-item label="Site ID"><el-input v-model="siteDraft.siteId" /></el-form-item>
+            <el-form-item label="Site Name"><el-input v-model="siteDraft.siteName" /></el-form-item>
+            <div class="inline-actions"><el-button @click="cancelSite">Cancel</el-button><el-button type="primary" @click="updateSite">Update</el-button></div>
+          </el-form>
+        </el-card>
 
-    <el-card shadow="never" class="site-card">
-      <div class="site-row">
-        <div class="site-heading">
-          <h3>Global ADS Settings</h3>
-          <p>Wind Hub 进程唯一的本机 ADS 身份</p>
-        </div>
-
-        <template v-if="!adsEditing">
-          <div class="site-info">
-            <div><span>Local IP</span><b>{{ store.systemInfo.ads.local_ip }}</b></div>
-            <div><span>Local AMS Net ID</span><b>{{ store.systemInfo.ads.local_ams_net_id }}</b></div>
-            <div><span>Route Repair</span><b>{{ store.systemInfo.ads.route_repair.enabled ? 'Enabled' : 'Disabled' }}</b></div>
-          </div>
-          <el-button @click="editAds">Edit</el-button>
-        </template>
-
-        <template v-else>
-          <div class="site-edit">
-            <el-form label-position="top">
-              <div class="site-edit-grid">
-                <el-form-item label="Local IP"><el-input v-model="adsDraft.local_ip" /></el-form-item>
-                <el-form-item label="Local AMS Net ID"><el-input v-model="adsDraft.local_ams_net_id" /></el-form-item>
-                <el-form-item label="Route Repair"><el-switch v-model="adsDraft.route_repair_enabled" /></el-form-item>
-                <el-form-item label="Route Name"><el-input v-model="adsDraft.route_name" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
-                <el-form-item label="Username"><el-input v-model="adsDraft.username" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
-                <el-form-item label="Password"><el-input v-model="adsDraft.password" type="password" show-password :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
-              </div>
-            </el-form>
-          </div>
-          <div class="site-actions">
-            <el-button @click="cancelAds">Cancel</el-button>
-            <el-button type="primary" @click="updateAds">Update</el-button>
-          </div>
-        </template>
+        <el-card shadow="never" class="setting-card">
+          <div class="setting-head"><div><h3>Global ADS Settings</h3><p>进程唯一的本机 ADS 身份</p></div><el-button v-if="!adsEditing" @click="editAds">Edit</el-button></div>
+          <template v-if="!adsEditing">
+            <el-descriptions :column="1">
+              <el-descriptions-item label="Local IP">{{ store.systemInfo.ads.local_ip }}</el-descriptions-item>
+              <el-descriptions-item label="Local AMS Net ID">{{ store.systemInfo.ads.local_ams_net_id }}</el-descriptions-item>
+              <el-descriptions-item label="Route Repair">{{ store.systemInfo.ads.route_repair.enabled ? 'Enabled' : 'Disabled' }}</el-descriptions-item>
+            </el-descriptions>
+          </template>
+          <el-form v-else label-position="top">
+            <div class="two-col">
+              <el-form-item label="Local IP"><el-input v-model="adsDraft.local_ip" /></el-form-item>
+              <el-form-item label="Local AMS Net ID"><el-input v-model="adsDraft.local_ams_net_id" /></el-form-item>
+              <el-form-item label="Route Repair"><el-switch v-model="adsDraft.route_repair_enabled" /></el-form-item>
+              <el-form-item label="Route Name"><el-input v-model="adsDraft.route_name" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+              <el-form-item label="Username"><el-input v-model="adsDraft.username" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+              <el-form-item label="Password"><el-input v-model="adsDraft.password" type="password" show-password :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+            </div>
+            <div class="inline-actions"><el-button @click="cancelAds">Cancel</el-button><el-button type="primary" @click="updateAds">Update</el-button></div>
+          </el-form>
+        </el-card>
       </div>
-    </el-card>
+    </section>
 
-    <el-card shadow="never">
-      <el-tabs v-model="configTab">
-        <el-tab-pane label="YAML Editor" name="YAML Editor">
-          <div class="config-editor-layout">
-            <el-menu :default-active="file" class="config-file-menu" @select="selectFile">
-              <el-menu-item v-for="name in CONFIG_FILES" :key="name" :index="name">
-                <span>{{ name }}</span>
-                <el-badge v-if="dirtyMap[name]" is-dot type="warning" />
-              </el-menu-item>
-            </el-menu>
+    <section class="config-section-block">
+      <div class="section-heading">
+        <div><h2>Configuration Workspace</h2><p>选择配置文件，编辑或评审 Applied → Working Copy 的差异。</p></div>
+        <div class="workspace-status"><el-tag :type="dirtyMap[file] ? 'warning' : 'success'">{{ dirtyMap[file] ? 'Pending Apply' : 'Applied' }}</el-tag></div>
+      </div>
 
-            <div class="yaml-workspace">
-              <div class="yaml-toolbar">
-                <div class="yaml-title">
-                  <b>{{ file }}</b>
-                  <span :class="['apply-state', { pending: dirtyMap[file] }]">
-                    {{ dirtyMap[file] ? 'Pending Apply' : 'Applied' }}
-                  </span>
-                </div>
-                <el-segmented v-model="editorMode" :options="editorModeOptions" />
-              </div>
+      <el-card shadow="never">
+        <div class="config-editor-layout">
+          <aside class="config-nav">
+            <div class="config-nav-group"><span>Runtime</span>
+              <button type="button" :class="{active:file==='system.yaml'}" @click="selectFile('system.yaml')">system.yaml<el-badge v-if="dirtyMap['system.yaml']" is-dot type="warning"/></button>
+            </div>
+            <div class="config-nav-group"><span>Definitions</span>
+              <button v-for="name in ['units.yaml','device_models.yaml','points.yaml']" :key="name" type="button" :class="{active:file===name}" @click="selectFile(name)">{{name}}<el-badge v-if="dirtyMap[name]" is-dot type="warning"/></button>
+            </div>
+            <div class="config-nav-group"><span>Acquisition</span>
+              <button v-for="name in ['devices.yaml','tasks.yaml']" :key="name" type="button" :class="{active:file===name}" @click="selectFile(name)">{{name}}<el-badge v-if="dirtyMap[name]" is-dot type="warning"/></button>
+            </div>
+            <div class="config-nav-group"><span>Reporting</span>
+              <button type="button" :class="{active:file==='reporting.yaml'}" @click="selectFile('reporting.yaml')">reporting.yaml<el-badge v-if="dirtyMap['reporting.yaml']" is-dot type="warning"/></button>
+            </div>
+          </aside>
 
-              <el-input
-                v-if="editorMode === 'edit'"
-                v-model="yamlFiles[file]"
-                class="yaml-input"
-                type="textarea"
-                :rows="24"
-                @input="markDirty"
-              />
-
-              <div v-else class="review-editor">
-                <div v-for="(line, index) in reviewLines" :key="index" :class="['review-line', line.type]">
-                  <span class="review-gutter">{{ line.type === 'add' ? '+' : line.type === 'remove' ? '−' : '' }}</span>
-                  <code>{{ line.text || ' ' }}</code>
-                </div>
-              </div>
-
-              <div v-if="editorMode === 'edit'" class="yaml-actions">
-                <el-button @click="validate">Validate</el-button>
-                <el-button @click="save">Save</el-button>
-                <el-button type="primary" @click="saveApply">Save & Apply</el-button>
+          <div class="yaml-workspace">
+            <div class="yaml-toolbar">
+              <div class="yaml-title"><b>{{ file }}</b><span>{{ dirtyMap[file] ? 'Working copy differs from applied revision' : 'Matches applied revision' }}</span></div>
+              <el-segmented v-model="editorMode" :options="editorModeOptions" />
+            </div>
+            <el-input v-if="editorMode==='edit'" v-model="yamlFiles[file]" class="yaml-input" type="textarea" :rows="25" @input="markDirty" />
+            <div v-else class="review-editor">
+              <div v-for="(line,index) in reviewLines" :key="index" :class="['review-line',line.type]">
+                <span class="review-gutter">{{ line.type==='add' ? '+' : line.type==='remove' ? '−' : '' }}</span><code>{{ line.text || ' ' }}</code>
               </div>
             </div>
+            <div class="yaml-actions">
+              <el-button @click="validate">Validate</el-button>
+              <el-button @click="save">Save Draft</el-button>
+              <el-button type="primary" @click="saveApply">Save & Apply</el-button>
+            </div>
           </div>
-        </el-tab-pane>
+        </div>
+      </el-card>
+    </section>
 
-        <el-tab-pane label="Upload" name="Upload">
-          <div class="upload">
-            <section>
-              <h3>Upload Configuration File</h3>
-              <el-select v-model="up.file" style="width:100%">
-                <el-option v-for="name in CONFIG_FILES" :key="name" :label="name" :value="name" />
-              </el-select>
-              <el-upload drag action="#" :auto-upload="false" :limit="1" :on-change="onUploadChange">
-                <div>Drop YAML here or click to select</div><small>上传不会立即覆盖正式配置</small>
-              </el-upload>
-              <p v-if="up.name">已选择：{{ up.name }}</p>
-              <el-button type="primary" @click="upValidate">Validate & Compare</el-button>
-            </section>
-            <section v-if="up.state === 'compared'">
-              <h3>Structured Diff</h3>
-              <el-table :data="upDiff">
-                <el-table-column prop="o" label="Object" /><el-table-column prop="a" label="Added" />
-                <el-table-column prop="r" label="Removed" /><el-table-column prop="u" label="Updated" />
-              </el-table>
-              <pre>{{ yamlDiffs[up.file] }}</pre>
-              <div class="right"><el-button @click="upCancel">Cancel</el-button><el-button @click="upSave">Save</el-button><el-button type="primary" @click="upApply">Save & Apply</el-button></div>
-            </section>
+    <section class="config-section-block">
+      <div class="section-heading">
+        <div><h2>Import Configuration</h2><p>上传只进入临时比较流程，不会直接覆盖当前 Applied 配置。</p></div>
+      </div>
+      <el-card shadow="never">
+        <div class="import-layout">
+          <div class="import-input">
+            <el-form label-position="top">
+              <el-form-item label="Target File"><el-select v-model="up.file" style="width:100%"><el-option v-for="name in CONFIG_FILES" :key="name" :label="name" :value="name"/></el-select></el-form-item>
+              <el-upload drag action="#" :auto-upload="false" :limit="1" :on-change="onUploadChange"><div>Drop YAML here or click to select</div><small>Validate & Compare 后才能保存或应用</small></el-upload>
+            </el-form>
+            <div class="inline-actions"><el-button type="primary" @click="upValidate">Validate & Compare</el-button></div>
           </div>
-        </el-tab-pane>
-</el-tabs>
-    </el-card>
+          <div class="import-review">
+            <el-empty v-if="up.state!=='compared'" description="Upload and validate a YAML file to preview changes"/>
+            <template v-else>
+              <h3>Structured Diff</h3>
+              <el-table :data="upDiff" size="small"><el-table-column prop="o" label="Object"/><el-table-column prop="a" label="Added"/><el-table-column prop="r" label="Removed"/><el-table-column prop="u" label="Updated"/></el-table>
+              <pre>{{ yamlDiffs[up.file] }}</pre>
+              <div class="inline-actions"><el-button @click="upCancel">Cancel</el-button><el-button @click="upSave">Save Draft</el-button><el-button type="primary" @click="upApply">Save & Apply</el-button></div>
+            </template>
+          </div>
+        </div>
+      </el-card>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.site-card{margin-bottom:16px}.site-row{min-height:72px;display:flex;align-items:center;gap:24px}.site-heading{width:210px;flex:0 0 auto}.site-heading h3{margin:0;font-size:var(--font-size-section-lg)}.site-heading p{margin:4px 0 0;color:#8a94a3;font-size:var(--font-size-body)}.site-info{flex:1;display:flex;gap:48px}.site-info>div{min-width:180px}.site-info span{display:block;margin-bottom:5px;color:#8a94a3;font-size:var(--font-size-label)}.site-info b{color:#2b3646;font-size:var(--font-size-subsection)}.site-edit{flex:1}.site-edit-grid{display:grid;grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr);gap:14px}.site-edit :deep(.el-form-item){margin-bottom:0}.site-actions{display:flex;gap:8px}
-.config-editor-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px}.config-file-menu{border-right:0!important;background:transparent}.config-file-menu .el-menu-item{height:38px;line-height:38px;margin-bottom:4px;border:1px solid var(--app-border);border-radius:7px;padding:0 10px!important;display:flex;justify-content:space-between}.config-file-menu .el-menu-item.is-active{background:#eef4ff;border-color:#b8cdf5;color:#244a86}.yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:16px;margin-bottom:10px}.yaml-title{gap:9px}.apply-state{color:#667085;font-size:var(--font-size-label)}.apply-state.pending{color:#b7791f}.yaml-input :deep(textarea){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.yaml-actions{justify-content:flex-end;gap:8px;margin-top:12px}.review-editor{min-height:558px;max-height:65vh;overflow:auto;border:1px solid #dfe4ea;border-radius:6px;background:#fff;padding:8px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--font-size-body);line-height:1.55}.review-line{display:grid;grid-template-columns:26px minmax(0,1fr);min-height:20px;border-left:3px solid transparent}.review-line code{padding:1px 10px;white-space:pre-wrap;overflow-wrap:anywhere;color:#344054}.review-gutter{text-align:center;color:#a8b0bc;user-select:none}.review-line.add{background:#f1f9f4;border-left-color:#2f8f52}.review-line.add code{color:#25683c}.review-line.remove{background:#fff4f2;border-left-color:#d94d45}.review-line.remove code{color:#a43d38;text-decoration:line-through}.package-upload{max-width:520px}.package-table{max-width:720px}.overall-title{margin-top:18px}
-@media(max-width:900px){.site-row{align-items:stretch;flex-direction:column}.site-heading{width:auto}.site-info{gap:24px;flex-wrap:wrap}.site-edit-grid{grid-template-columns:1fr}.site-actions{justify-content:flex-end}.config-editor-layout{grid-template-columns:1fr}.config-file-menu{display:flex;overflow:auto;border-bottom:0}.config-file-menu .el-menu-item{flex:0 0 auto;white-space:nowrap;margin-right:4px}.upload{grid-template-columns:1fr}}
-@media(max-width:767px){.site-info{display:grid;grid-template-columns:1fr}.site-info>div{min-width:0}.site-actions{width:100%}.site-actions .el-button{flex:1}.yaml-toolbar{align-items:flex-start;flex-direction:column}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.review-editor{min-height:420px}.package-upload,.package-table{max-width:100%}}
+.config-section-block{margin-bottom:var(--app-space-5)}.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}.section-heading h2,.setting-head h3{margin:0}.section-heading p,.setting-head p,.yaml-title span{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.settings-grid{display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:var(--app-space-4)}.setting-head{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--app-space-3);margin-bottom:var(--app-space-3)}.two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3)}.inline-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-3)}.config-editor-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:var(--app-space-4)}.config-nav{padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}.config-nav-group{display:flex;flex-direction:column;gap:4px;margin-bottom:var(--app-space-3)}.config-nav-group>span{padding:0 8px;color:var(--app-text-muted);font-size:var(--app-font-caption);font-weight:600;text-transform:uppercase}.config-nav button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:8px 10px;border:1px solid transparent;border-radius:var(--app-radius-control);background:transparent;color:var(--app-text-primary);text-align:left;cursor:pointer}.config-nav button:hover{background:var(--el-fill-color-light)}.config-nav button.active{background:var(--el-color-primary-light-9);border-color:var(--el-color-primary-light-7);color:var(--el-color-primary)}.yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-3)}.yaml-title{align-items:flex-start;flex-direction:column;gap:2px}.yaml-input :deep(textarea){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.55}.yaml-actions{justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-3)}.review-editor{min-height:565px;max-height:66vh;overflow:auto;border:1px solid var(--app-border-soft);border-radius:var(--app-radius-control);background:var(--el-bg-color);padding:8px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.55}.review-line{display:grid;grid-template-columns:26px minmax(0,1fr);border-left:3px solid transparent}.review-line code{padding:1px 10px;white-space:pre-wrap;overflow-wrap:anywhere}.review-gutter{text-align:center;color:var(--app-text-muted)}.review-line.add{background:var(--el-color-success-light-9);border-left-color:var(--el-color-success)}.review-line.remove{background:var(--el-color-danger-light-9);border-left-color:var(--el-color-danger)}.import-layout{display:grid;grid-template-columns:minmax(320px,.7fr) minmax(0,1.3fr);gap:var(--app-space-5)}.import-review pre{max-height:260px;overflow:auto}.workspace-status{flex:0 0 auto}
+@media(max-width:1000px){.settings-grid,.import-layout{grid-template-columns:1fr}.config-editor-layout{grid-template-columns:1fr}.config-nav{display:flex;overflow:auto;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.config-nav-group{min-width:180px;margin:0 var(--app-space-3) 0 0}}
+@media(max-width:767px){.two-col{grid-template-columns:1fr}.section-heading,.yaml-toolbar{align-items:flex-start;flex-direction:column}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.review-editor{min-height:420px}}
 </style>
