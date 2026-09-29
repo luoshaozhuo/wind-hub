@@ -2,7 +2,7 @@
 import * as echarts from 'echarts'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
-const range=ref<'1 h'|'24 h'|'7 d'>('24 h')
+const range=ref<'1 h'|'24 h'|'7 d'|'30 d'>('24 h')
 const memoryEl=ref<HTMLElement|null>(null)
 const diskEl=ref<HTMLElement|null>(null)
 const cpuEl=ref<HTMLElement|null>(null)
@@ -37,11 +37,15 @@ function timeAxis(){
   if(range.value==='7 d'){
     return Array.from({length:14},(_,i)=>'D-'+String(13-i))
   }
+  if(range.value==='30 d'){
+    return Array.from({length:15},(_,i)=>'D-'+String((14-i)*2))
+  }
   return Array.from({length:24},(_,i)=>String((i+1)%24).padStart(2,'0')+':00')
 }
 function rangeScale(){
   if(range.value==='1 h')return 0.12
   if(range.value==='7 d')return 4.2
+  if(range.value==='30 d')return 5
   return 1
 }
 function css(name:string,fallback:string){
@@ -107,7 +111,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
         <el-card v-for="r in risks" :key="r.name" shadow="never">
           <div class="risk-head"><b>{{r.name}}</b><el-tag :type="r.type" size="small">{{r.state}}</el-tag></div>
           <strong>{{r.summary}}</strong>
-          <span>{{r.detail}}</span>
+          <span class="risk-detail">{{r.detail}}</span>
         </el-card>
       </div>
     </section>
@@ -115,7 +119,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
     <section class="health-section">
       <div class="section-title trends-title">
         <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表为当前前端 mock。</p></div>
-        <el-segmented v-model="range" :options="['1 h','24 h','7 d']" @change="renderCharts"/>
+        <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="renderCharts"/>
       </div>
       <div class="chart-grid">
         <el-card shadow="never"><div class="chart-head"><b>Memory</b><span>Host used / wind-hub RSS</span></div><div ref="memoryEl" class="health-chart"/></el-card>
@@ -149,7 +153,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
 
 <style scoped>
 .health-section{margin-top:var(--app-space-6)}.section-title{margin-bottom:var(--app-space-3)}.trends-title{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4)}.section-title h2{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.section-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.risk-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3)}.risk-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.risk-head b{font-size:var(--app-font-panel-title)}.risk-grid strong{display:block;margin-top:var(--app-space-3);font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.risk-grid span{display:block;margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.risk-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3)}.risk-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.risk-head b{font-size:var(--app-font-panel-title)}.risk-grid strong{display:block;margin-top:var(--app-space-3);font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.risk-detail{display:block;margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .chart-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-4)}.chart-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--app-space-3)}.chart-head b{font-size:var(--app-font-panel-title)}.chart-head span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.health-chart{height:250px}
 .detail-grid{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(220px,.8fr) minmax(0,1.8fr);gap:var(--app-space-3)}.detail-grid h3{margin:0 0 var(--app-space-2);font-size:var(--app-font-panel-title)}.detail-list{display:grid}.detail-list>div{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);padding:var(--app-space-2) 0;border-bottom:1px solid var(--app-border-soft)}.detail-list>div:last-child{border-bottom:0}.detail-list span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.detail-list b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.storage-detail-card{min-width:0}
 @media(max-width:1199px){.risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-grid{grid-template-columns:1fr}.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.storage-detail-card{grid-column:1/-1}}
