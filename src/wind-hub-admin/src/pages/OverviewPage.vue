@@ -164,6 +164,9 @@ const activeAlerts: ActiveAlert[] = [
   { level: 'ERROR', object: 'wtg-041', event: 'ADS disconnected', since: '2026-09-27 18:46:12', duration: '13m 48s' },
   { level: 'WARN', object: 'turbine-ads-all', event: 'Repeated interval overrun', since: '2026-09-27 18:53:41', duration: '6m 19s' },
 ]
+const ACTIVE_ALERT_DISPLAY_LIMIT = 5
+const visibleActiveAlerts = computed(() => activeAlerts.slice(0, ACTIVE_ALERT_DISPLAY_LIMIT))
+const hiddenActiveAlertCount = computed(() => Math.max(0, activeAlerts.length - ACTIVE_ALERT_DISPLAY_LIMIT))
 
 const acquisitionTone = computed<Tone>(() => acquisition.success1m >= 99.9 ? 'normal' : acquisition.success1m >= 99 ? 'warning' : 'danger')
 const deviceTone = computed<Tone>(() => offline.value === 0 ? 'normal' : offline.value <= 2 ? 'warning' : 'danger')
@@ -481,10 +484,13 @@ const statTone = (onlineCount: number, total: number): Tone => {
               <h3>活动告警</h3>
               <p>Unresolved / active</p>
             </div>
-            <span class="count-badge danger">{{ activeAlerts.length }}</span>
+            <div class="alert-count-wrap">
+              <span v-if="hiddenActiveAlertCount" class="muted">showing {{ visibleActiveAlerts.length }}</span>
+              <span class="count-badge danger">{{ activeAlerts.length }}</span>
+            </div>
           </div>
 
-          <el-table :data="activeAlerts" size="small">
+          <el-table :data="visibleActiveAlerts" size="small">
             <el-table-column label="Level" width="82">
               <template #default="s">
                 <span class="level-chip" :class="s.row.level === 'ERROR' ? 'danger' : 'warning'">{{ s.row.level }}</span>
@@ -522,7 +528,8 @@ const statTone = (onlineCount: number, total: number): Tone => {
 .four-metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:0;margin-top:13px;border-top:1px solid var(--c-line-soft);border-left:1px solid var(--c-line-soft)}.four-metrics>div{min-width:0;padding:8px 9px;border-right:1px solid var(--c-line-soft);border-bottom:1px solid var(--c-line-soft)}.four-metrics span,.resource-grid span{display:block;color:var(--c-label);font-size:var(--font-size-caption)}.four-metrics b{display:block;margin-top:3px;font-size:var(--font-size-subsection)}
 .sink-list{margin-top:10px;border-top:1px solid var(--c-line-soft)}.sink-name{min-width:0;overflow:hidden;color:var(--c-text);text-overflow:ellipsis;white-space:nowrap}.sink-type{margin-left:auto;color:var(--c-faint);font-size:var(--font-size-caption)}.sink-list b{min-width:64px;text-align:right;font-size:var(--font-size-caption)}
 .resource-grid{display:grid;gap:11px;margin-top:13px}.resource-grid>div{display:grid;grid-template-columns:72px 70px 1fr;align-items:center;gap:8px}.resource-grid b{text-align:right;font-size:var(--font-size-body)}.meter{height:5px;overflow:hidden;background:#edf1f5;border-radius:2px}.meter i{display:block;height:100%;background:var(--c-info)}.meter.normal i{background:var(--c-normal)}.health-check{margin-top:13px;padding-top:4px;border-top:1px solid var(--c-line-soft);border-bottom:0}.compact-card{min-height:158px}.distribution-list{margin-top:9px;border-top:1px solid var(--c-line-soft)}
-.alarm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.table-card{padding:0 14px 12px}.table-card::before{left:14px;background:var(--c-warning)}.active-alert-card::before{background:var(--c-danger)}.table-head{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px}.table-head h3{margin:0;font-size:var(--font-size-section)}.table-head p{margin:3px 0 0;color:var(--c-faint);font-size:var(--font-size-caption)}.count-badge{min-width:28px;padding:3px 7px;border:1px solid currentColor;border-radius:4px;text-align:center;font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-label);font-weight:var(--font-weight-bold)}.level-chip{display:inline-block;min-width:50px;padding:2px 5px;border:1px solid currentColor;border-radius:3px;text-align:center;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);line-height:1.35}.state-text{font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);letter-spacing:.03em}.mono-cell{font-size:var(--font-size-label);font-weight:var(--font-weight-semibold)}.object-cell{color:#344054}.event-cell{color:#344054;font-family:Inter,ui-sans-serif,system-ui;font-size:var(--font-size-body);font-weight:var(--font-weight-regular)}
+.alarm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.table-card{padding:0 14px 12px}.table-card::before{left:14px;background:var(--c-warning)}.active-alert-card::before{background:var(--c-danger)}.alert-count-wrap{display:flex;align-items:center;gap:8px}.alert-count-wrap .muted{font-size:var(--font-size-caption)}
+.table-head{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px}.table-head h3{margin:0;font-size:var(--font-size-section)}.table-head p{margin:3px 0 0;color:var(--c-faint);font-size:var(--font-size-caption)}.count-badge{min-width:28px;padding:3px 7px;border:1px solid currentColor;border-radius:4px;text-align:center;font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-label);font-weight:var(--font-weight-bold)}.level-chip{display:inline-block;min-width:50px;padding:2px 5px;border:1px solid currentColor;border-radius:3px;text-align:center;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);line-height:1.35}.state-text{font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);letter-spacing:.03em}.mono-cell{font-size:var(--font-size-label);font-weight:var(--font-weight-semibold)}.object-cell{color:#344054}.event-cell{color:#344054;font-family:Inter,ui-sans-serif,system-ui;font-size:var(--font-size-body);font-weight:var(--font-weight-regular)}
 :deep(.el-table){--el-table-border-color:var(--c-line-soft);--el-table-header-bg-color:#f7f9fb;--el-table-row-hover-bg-color:#f8fafc;color:var(--c-text);font-size:var(--font-size-body)}:deep(.el-table th.el-table__cell){height:34px;color:var(--c-label);font-size:var(--font-size-caption);font-weight:var(--font-weight-bold);letter-spacing:.02em}:deep(.el-table td.el-table__cell){padding:7px 0}:deep(.el-table .cell){line-height:1.3}
 @media(max-width:1450px){.primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.coverage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.alarm-grid{grid-template-columns:1fr}}@media(max-width:900px){.overview-head,.section-title{align-items:flex-start}.color-legend{display:none}.primary-grid,.coverage-grid{grid-template-columns:1fr}}
 </style>

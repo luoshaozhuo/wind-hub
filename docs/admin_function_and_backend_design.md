@@ -132,7 +132,7 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - Point Table/Group Manage：Drawer；
 - Point Add/Edit + Connectivity Test：Drawer；
 - Sink Detail / Add / Edit / Test：Drawer；
-- Task Add/Edit：短表单，保留 Dialog；
+- Task Add：短表单，保留 Dialog；Task Detail / Edit / Devices & Points / Logs：Drawer；
 - Change Impact / Delete / Delete All：Dialog；
 - Config YAML、Global ADS、Debug、Quality：Page/Inline。
 
@@ -198,7 +198,7 @@ errors
 
 # 2. Overview 页面
 
-Overview 是**采集系统运维总览**，不是业务功率看板。页面默认只读，不允许通过卡片点击暗中修改配置。
+Overview 是**采集系统运维总览**，不是业务功率看板。页面默认只读，不允许通过卡片点击暗中修改配置。活动告警区域必须限制直接展示条数，默认最多 5 条；总数继续显示，完整告警由后续告警/日志能力查询，避免 Overview 随告警数量无限增高。
 
 ## 2.1 Runtime
 
@@ -999,6 +999,8 @@ Default Group 仅是占位，不是正常自动迁移目的地。
 
 ## 6.1 Query Tasks
 
+Task 列表不提供独立 Edit 按钮。点击 Task ID 打开 Task Detail Drawer，在同一上下文内查看 Overview、Devices & Points、Logs 和 Config/Edit。RUNNING Task 的编辑入口也只存在于 Detail Drawer。
+
 后端返回：
 
 - definition；
@@ -1022,6 +1024,17 @@ Default Group 仅是占位，不是正常自动迁移目的地。
 - point_group 在目标 resolved points 中至少存在可采点。
 
 创建后 Task Instance 默认 STOPPED。
+
+## 6.2.1 Task Detail
+
+Task Detail 至少包含：
+
+- Overview：Definition、Runtime、Instance 数、Point Binding 数；
+- Devices & Points：目标 Device 列表，以及选择单台 Device 后该 Task 实际采集的 resolved Point 列表；
+- Logs：该 Task/Instance 的运行日志与事件；
+- Config：View / Edit 模式。
+
+Device Group Task 不应一次展开所有点造成长页面。桌面端采用“左侧 Device 列表 + 右侧所选 Device Points”主从布局；移动端改为纵向布局。
 
 ## 6.3 Edit Task
 

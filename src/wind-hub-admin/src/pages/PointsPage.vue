@@ -639,8 +639,15 @@ async function resetOverride(p: PointDef) {
         </div>
 
         <div class="table-actions">
-          <el-button @click="openManage">Manage</el-button>
           <el-button type="primary" :disabled="currentTableIsSystem" @click="openAdd">+ Add Point</el-button>
+          <el-dropdown trigger="click">
+            <el-button>Actions</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="openManage">Manage Metadata</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
 
