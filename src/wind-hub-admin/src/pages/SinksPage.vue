@@ -17,6 +17,7 @@ const selectedName=ref('')
 const sinkSnapshot=ref('')
 const testLoading=ref(false)
 const verifyAllRunning=ref(false)
+const batchVerification=ref<{checked_at:string;checked:number;passed:number;failed:number;warning:number}|null>(null)
 const testResult=ref<{ok:boolean;title:string;detail:string;latency:number}|null>(null)
 
 function updateViewport(){viewportWidth.value=window.innerWidth}
@@ -106,31 +107,93 @@ async function saveSink(){
   }
   refreshTaskValidity();ElMessage.success(wasCreating?'Sink created (mock)':'Sink configuration saved (mock)')
 }
-function checkPlan(s:SinkDef):{name:string;detail:string}[]{
-  if(s.type==='kafka')return[{name:'Transport',detail:'Resolve host and open broker TCP endpoint'},{name:'Broker',detail:'Open producer / broker session'},{name:'Metadata',detail:'Request broker metadata'},{name:'Topic',detail:'Verify configured topic is addressable'}]
-  if(s.type==='db')return[{name:'Transport',detail:'Open PostgreSQL TCP endpoint'},{name:'Authentication',detail:'Authenticate DSN credentials'},{name:'Session',detail:'Create database session'},{name:'SELECT 1',detail:'Execute lightweight read-only query'}]
-  return[{name:'Parent Path',detail:'Resolve parent directory'},{name:'Permission',detail:'Check create/append permission'},{name:'Open / Append',detail:'Open target for append without business payload'}]
+function networkEndpoint(s:SinkDef){
+  if(s.type==='kafka'){
+    const first=String(s.params.bootstrap_servers||'localhost:9092').split(',')[0].trim()
+    const [host,portText]=first.split(':')
+    return {host:host||'localhost',port:Number(portText||9092)}
+  }
+  if(s.type==='db'){
+    const dsn=String(s.params.dsn||'')
+    const match=dsn.match(/^[a-zA-Z0-9+.-]+:\/\/(?:[^@/]+@)?([^:/]+)(?::(\d+))?/)
+    return {host:match?.[1]||'localhost',port:Number(match?.[2]||5432)}
+  }
+  return {host:'',port:0}
 }
-function shouldFail(s:SinkDef,index:number){
-  if(s.name==='kafka_main')return index===1
-  if(s.name==='db_main')return index===0
-  return false
+function resolvedHost(host:string){
+  if(host==='localhost') return '127.0.0.1'
+  if(/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host
+  return '192.168.10.25'
+}
+function checkPlan(s:SinkDef):Array<{layer:'network'|'protocol'|'target'|'filesystem';name:string;target:string;detail:string;blocks:boolean}>{
+  if(s.type==='file'){
+    const path=String(s.params.path||'')
+    const parent=path.includes('/')?path.slice(0,path.lastIndexOf('/'))||'/':'.'
+    return[
+      {layer:'filesystem',name:'Parent Path',target:parent,detail:'Resolve parent directory',blocks:true},
+      {layer:'filesystem',name:'Permission',target:parent,detail:'Check create/append permission',blocks:true},
+      {layer:'filesystem',name:'Open / Append',target:path,detail:'Open target for append without business payload',blocks:true},
+    ]
+  }
+  const ep=networkEndpoint(s)
+  const ip=resolvedHost(ep.host)
+  const common=[
+    {layer:'network' as const,name:'DNS',target:ep.host,detail:`Resolve ${ep.host} → ${ip}`,blocks:true},
+    {layer:'network' as const,name:'ICMP',target:ip,detail:'ICMP reachability check (advisory only)',blocks:false},
+    {layer:'network' as const,name:'TCP Port',target:`${ip}:${ep.port}`,detail:'Open TCP connection to remote endpoint',blocks:true},
+  ]
+  if(s.type==='kafka') return[
+    ...common,
+    {layer:'protocol',name:'Broker Session',target:`${ep.host}:${ep.port}`,detail:'Establish Kafka producer / broker session',blocks:true},
+    {layer:'target',name:'Metadata',target:String(s.params.topic||''),detail:'Request broker metadata',blocks:true},
+    {layer:'target',name:'Topic',target:String(s.params.topic||''),detail:'Verify configured topic is addressable',blocks:true},
+  ]
+  return[
+    ...common,
+    {layer:'protocol',name:'PostgreSQL Session',target:`${ep.host}:${ep.port}`,detail:'Establish PostgreSQL protocol session',blocks:true},
+    {layer:'protocol',name:'Authentication',target:ep.host,detail:'Authenticate configured DSN credentials',blocks:true},
+    {layer:'target',name:'SELECT 1',target:String(s.params.table||'points'),detail:'Execute lightweight read-only query',blocks:true},
+  ]
+}
+function simulatedCheckFailure(s:SinkDef,name:string){
+  if(s.name==='kafka_main'&&name==='Broker Session') return {code:'BROKER_TIMEOUT',latency:3000}
+  if(s.name==='db_main'&&name==='TCP Port') return {code:'TCP_CONNECTION_REFUSED',latency:32}
+  return null
+}
+function simulatedIcmpWarning(s:SinkDef,name:string){
+  return name==='ICMP' && s.type==='kafka'
 }
 async function verifySink(s:SinkDef,quiet=false){
   if(!quiet)testLoading.value=true
-  const plan=checkPlan(s);const checks:SinkVerificationCheck[]=[];s.runtime_state='testing'
+  const plan=checkPlan(s)
+  const checks:SinkVerificationCheck[]=[]
+  s.runtime_state='testing'
   let blocked=false
-  for(let i=0;i<plan.length;i++){
+  for(const step of plan){
     await sleep(90)
-    if(blocked){checks.push({name:plan[i].name,state:'skipped',latency_ms:0,detail:'Skipped after upstream failure',error_code:''});continue}
-    const failed=shouldFail(s,i)
-    if(failed){const code=s.type==='kafka'?'BROKER_TIMEOUT':s.type==='db'?'TCP_CONNECTION_REFUSED':'OPEN_FAILED';checks.push({name:plan[i].name,state:'failed',latency_ms:s.type==='db'?32:3000,detail:plan[i].detail+' failed',error_code:code});blocked=true}
-    else checks.push({name:plan[i].name,state:'passed',latency_ms:2+i*5,detail:plan[i].detail+' passed',error_code:''})
+    if(blocked){
+      checks.push({layer:step.layer,name:step.name,state:'skipped',target:step.target,latency_ms:0,detail:'Skipped after upstream failure',error_code:''})
+      continue
+    }
+    if(simulatedIcmpWarning(s,step.name)){
+      checks.push({layer:step.layer,name:step.name,state:'warning',target:step.target,latency_ms:1000,detail:'No ICMP reply; continue because TCP is authoritative',error_code:'ICMP_NO_REPLY'})
+      continue
+    }
+    const failure=simulatedCheckFailure(s,step.name)
+    if(failure){
+      checks.push({layer:step.layer,name:step.name,state:'failed',target:step.target,latency_ms:failure.latency,detail:step.detail+' failed',error_code:failure.code})
+      if(step.blocks) blocked=true
+    }else{
+      checks.push({layer:step.layer,name:step.name,state:'passed',target:step.target,latency_ms:2+checks.length*4,detail:step.detail+' passed',error_code:''})
+    }
   }
   const passed=checks.filter(c=>c.state==='passed').length
   const failed=checks.some(c=>c.state==='failed')
   s.verification={state:failed?'failed':'passed',checked_at:nowText(),passed,total:checks.length,checks}
-  s.last_test_at=s.verification.checked_at;s.latency_ms=Math.max(...checks.map(c=>c.latency_ms));s.runtime_state=s.enabled?(failed?'failed':'healthy'):'disabled';s.error=failed?(checks.find(c=>c.state==='failed')?.error_code||'Verification failed'):''
+  s.last_test_at=s.verification.checked_at
+  s.latency_ms=Math.max(0,...checks.map(c=>c.latency_ms))
+  s.runtime_state=s.enabled?(failed?'failed':'healthy'):'disabled'
+  s.error=failed?(checks.find(c=>c.state==='failed')?.error_code||'Verification failed'):''
   if(!quiet){
     if(failed)ElMessage.error(`${s.name}: ${verifyLabel(s)}`)
     else ElMessage.success(`${s.name}: ${verifyLabel(s)}`)
@@ -139,11 +202,22 @@ async function verifySink(s:SinkDef,quiet=false){
 }
 async function verifyAll(){
   if(verifyAllRunning.value)return
+  const targets=[...store.sinks]
+  if(!targets.length){ElMessage.warning('No Sinks configured');return}
   verifyAllRunning.value=true
   try{
-    for(const s of store.sinks)await verifySink(s,true)
-    const failed=store.sinks.filter(s=>s.verification.state==='failed').length
+    for(const s of targets)await verifySink(s,true)
+    const failed=targets.filter(s=>s.verification.state==='failed').length
+    const warning=targets.filter(s=>s.verification.checks.some(c=>c.state==='warning')).length
+    batchVerification.value={
+      checked_at:nowText(),
+      checked:targets.length,
+      passed:targets.length-failed,
+      failed,
+      warning,
+    }
     if(failed)ElMessage.error(`Sink verification complete: ${failed} failed`)
+    else if(warning)ElMessage.warning(`Sink verification complete: ${warning} warning`)
     else ElMessage.success('All Sink verifications passed')
   }finally{verifyAllRunning.value=false}
 }
@@ -165,14 +239,18 @@ async function deleteSink(s:SinkDef){
 
 <template>
   <div class="sinks-page">
-    <div class="head page-head"><div><h1>Sinks</h1><p>输出端配置、运行状态、连通性与写入测试</p></div><div class="head-actions"><el-button type="primary" @click="openAdd">+ Add Sink</el-button><el-dropdown trigger="click"><el-button :loading="verifyAllRunning">Actions</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="verifyAllRunning||!store.sinks.length" @click="verifyAll">Verify All Sinks</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+    <div class="head page-head"><div><h1>Sinks</h1><p>输出端配置、运行状态、连通性与写入测试</p></div><div class="head-actions"><el-button type="primary" @click="openAdd">+ Add Sink</el-button><el-dropdown trigger="click"><el-button :loading="verifyAllRunning">Actions</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="verifyAllRunning||!store.sinks.length" title="Non-writing staged verification; Write Test is never included" @click="verifyAll">Verify All Sinks</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
 
-    <el-card shadow="never" class="verify-info">
-      <div><b>Verify All Sinks</b><span>Runs non-writing checks only: transport/session/metadata for remote sinks, path/permission/open for File. Results are retained per Sink.</span></div>
-      <el-tag type="info">No Write Test</el-tag>
+    <el-card shadow="never">
+      <div class="sink-filter-row">
+        <div class="sink-filters"><el-input v-model="search" clearable placeholder="Search name / endpoint..."/><el-select v-model="typeFilter"><el-option label="All Types" value="All"/><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select><el-select v-model="stateFilter"><el-option label="All States" value="All"/><el-option label="Healthy" value="healthy"/><el-option label="Failed" value="failed"/><el-option label="Disabled" value="disabled"/><el-option label="Unknown" value="unknown"/></el-select></div>
+        <div v-if="batchVerification" class="batch-verify-summary">
+          <span>Last Verification</span>
+          <b>{{batchVerification.checked}} checked · {{batchVerification.passed}} passed · {{batchVerification.failed}} failed<template v-if="batchVerification.warning"> · {{batchVerification.warning}} warning</template></b>
+          <time>{{batchVerification.checked_at}}</time>
+        </div>
+      </div>
     </el-card>
-
-    <el-card shadow="never"><div class="sink-filters"><el-input v-model="search" clearable placeholder="Search name / endpoint..."/><el-select v-model="typeFilter"><el-option label="All Types" value="All"/><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select><el-select v-model="stateFilter"><el-option label="All States" value="All"/><el-option label="Healthy" value="healthy"/><el-option label="Failed" value="failed"/><el-option label="Disabled" value="disabled"/><el-option label="Unknown" value="unknown"/></el-select></div></el-card>
 
     <el-card shadow="never">
       <el-table :data="rows" row-key="name">
@@ -223,7 +301,13 @@ async function deleteSink(s:SinkDef){
         <el-tab-pane label="Test" name="Test" v-if="selected">
           <div class="section-head"><div><h3>Connection Verification</h3><p>No business data is written. The same staged checks are used by Verify All Sinks.</p></div><el-button type="primary" :loading="testLoading" @click="verifySink(selected)">Verify</el-button></div>
           <el-table :data="selected.verification.checks" size="small" empty-text="Not verified yet">
-            <el-table-column prop="name" label="Check" min-width="135"/><el-table-column label="State" width="100"><template #default="{row}"><el-tag :type="row.state==='passed'?'success':row.state==='failed'?'danger':'info'" size="small">{{row.state}}</el-tag></template></el-table-column><el-table-column prop="detail" label="Info" min-width="260"/><el-table-column prop="latency_ms" label="Latency" width="90"><template #default="{row}">{{row.latency_ms?row.latency_ms+' ms':'—'}}</template></el-table-column><el-table-column prop="error_code" label="Error" min-width="150"/>
+            <el-table-column prop="layer" label="Layer" width="95"/>
+            <el-table-column prop="name" label="Check" min-width="135"/>
+            <el-table-column label="State" width="100"><template #default="{row}"><el-tag :type="row.state==='passed'?'success':row.state==='warning'?'warning':row.state==='failed'?'danger':'info'" size="small">{{row.state}}</el-tag></template></el-table-column>
+            <el-table-column prop="target" label="Target" min-width="150" show-overflow-tooltip/>
+            <el-table-column prop="detail" label="Info" min-width="280"/>
+            <el-table-column prop="latency_ms" label="Latency" width="90"><template #default="{row}">{{row.latency_ms?row.latency_ms+' ms':'—'}}</template></el-table-column>
+            <el-table-column prop="error_code" label="Error" min-width="150"/>
           </el-table>
           <div class="test-meta">Last verified: {{selected.verification.checked_at||'Never'}} · {{verifyLabel(selected)}}</div>
           <el-divider content-position="left">Write Test</el-divider>
@@ -237,8 +321,8 @@ async function deleteSink(s:SinkDef){
 </template>
 
 <style scoped>
-.verify-info{margin-bottom:var(--app-space-3)}.verify-info>div{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.verify-info span{display:block;margin-top:3px;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3)}.sink-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.55fr);gap:var(--app-space-4)}.sink-editor-card,.sink-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.sink-runtime-card h3{margin:0}.section-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.runtime-list{display:grid;gap:var(--app-space-2)}.runtime-list>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding:7px 0;border-bottom:1px solid var(--app-border-soft)}.runtime-list span{color:var(--app-text-muted)}.runtime-list b{text-align:right}.danger-row{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}.test-meta{margin-top:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}.editor-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}
+.sink-filter-row{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4)}.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3);flex:1}.batch-verify-summary{display:grid;gap:2px;min-width:260px;text-align:right}.batch-verify-summary span,.batch-verify-summary time{color:var(--app-text-muted);font-size:var(--app-font-caption)}.batch-verify-summary b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.sink-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.55fr);gap:var(--app-space-4)}.sink-editor-card,.sink-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.sink-runtime-card h3{margin:0}.section-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.runtime-list{display:grid;gap:var(--app-space-2)}.runtime-list>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding:7px 0;border-bottom:1px solid var(--app-border-soft)}.runtime-list span{color:var(--app-text-muted)}.runtime-list b{text-align:right}.danger-row{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}.test-meta{margin-top:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}.editor-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}
 @media(max-width:900px){.sink-summary-grid{grid-template-columns:1fr}}
-@media(max-width:767px){.sink-filters,.sink-form-grid{grid-template-columns:1fr}.verify-info>div,.section-head{align-items:flex-start;flex-direction:column}}
+@media(max-width:1000px){.sink-filter-row{align-items:stretch;flex-direction:column}.batch-verify-summary{text-align:left}}
+@media(max-width:767px){.sink-filters,.sink-form-grid{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}}
 </style>

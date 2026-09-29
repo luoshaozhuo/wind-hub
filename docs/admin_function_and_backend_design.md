@@ -609,7 +609,7 @@ Device Drawer 在 Config 与 Data 之间提供 Read Test。它用于快速验证
 
 ## 3.9 Trend
 
-Trend 的范围选择表示“最近多长时间”，不使用含义模糊的 Real-time。统一为 1 min / 5 min / 15 min / 1 h；实时滚动由独立 Auto Update 开关控制，Refresh 执行一次历史窗口刷新。
+Trend 的范围选择表示“最近多长时间”，不使用含义模糊的 Real-time。统一为 1 min / 5 min / 15 min / 1 h；Auto Update 固定每 1 s 刷新一次滑动窗口，Time Window 只控制窗口长度。Refresh 执行一次历史窗口刷新。Mock/真实数据都必须让窗口随时间向前移动，而不是重复绘制同一条曲线。
 
 后端提供时序数据查询。
 
@@ -1217,13 +1217,15 @@ source    = admin_sink_test
 
 统一结果包含：check name、state（passed/failed/skipped）、latency_ms、detail、error_code、checked_at。
 
-检查链：
+检查链按层次展开：
 
-- Kafka：Transport → Broker → Metadata → Topic；
-- PostgreSQL：Transport → Authentication → Session → SELECT 1；
+- Kafka：DNS → ICMP（辅助）→ TCP Port → Broker Session → Metadata → Topic；
+- PostgreSQL：DNS → ICMP（辅助）→ TCP Port → PostgreSQL Session → Authentication → SELECT 1；
 - File：Parent Path → Permission → Open / Append capability。
 
-列表必须展示 Verification 与 Last Verified；点击 Sink 后 Test 页展示完整 stages。
+ICMP 仅作为 Network Reachability 的辅助信息，失败显示 Warning，但不得阻断 TCP Port 检查；远端端口可达性必须通过真实 TCP connect 判断，不能用本机 `ss` 代替。网络类 Sink 的结果需显示解析后的 host/IP/port target。
+
+列表必须展示 Verification 与 Last Verified；点击 Sink 后 Test 页展示完整 stages。页面不保留长期占位的大型“Verify All”说明 Card；批量执行后只显示紧凑 Last Verification Summary（checked/passed/failed/warning/time）。Verify All 的说明放入 Actions 语义，不与 Write Test 混淆。
 
 ---
 

@@ -335,9 +335,9 @@ const sinks: SinkDef[] = [
       passed: 3,
       total: 3,
       checks: [
-        { name: 'Parent Path', state: 'passed', latency_ms: 1, detail: 'Parent directory exists', error_code: '' },
-        { name: 'Permission', state: 'passed', latency_ms: 1, detail: 'Write permission available', error_code: '' },
-        { name: 'Open / Append', state: 'passed', latency_ms: 2, detail: 'File can be opened for append', error_code: '' },
+        { layer: 'filesystem', name: 'Parent Path', state: 'passed', target: '/var/tmp/wind-hub', latency_ms: 1, detail: 'Parent directory exists', error_code: '' },
+        { layer: 'filesystem', name: 'Permission', state: 'passed', target: '/var/tmp/wind-hub', latency_ms: 1, detail: 'Write permission available', error_code: '' },
+        { layer: 'filesystem', name: 'Open / Append', state: 'passed', target: '/var/tmp/wind-hub/archive.jsonl', latency_ms: 2, detail: 'File can be opened for append', error_code: '' },
       ],
     },
   },

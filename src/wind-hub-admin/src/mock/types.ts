@@ -107,11 +107,14 @@ export interface TaskDef {
 
 export type SinkType = 'kafka' | 'db' | 'file'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
-export type SinkCheckState = 'passed' | 'failed' | 'skipped'
+export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
+export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
 
 export interface SinkVerificationCheck {
+  layer: SinkCheckLayer
   name: string
   state: SinkCheckState
+  target: string
   latency_ms: number
   detail: string
   error_code: string

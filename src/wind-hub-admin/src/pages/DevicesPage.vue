@@ -1207,7 +1207,11 @@ function makeTrendRawData(index: number, endTime = Date.now()) {
   const count = Math.floor(duration / rawStepMs) + 1
   return Array.from({ length: count }, (_, i) => {
     const x = new Date(endTime - duration + i * rawStepMs)
-    const y = 30 + index * 25 + Math.sin(i / 7 + index) * (5 + index * 2) + (i % 9) * 0.2
+    const second = Math.floor(x.getTime() / 1000)
+    const y = 30
+      + index * 25
+      + Math.sin(second / 7 + index * 1.3) * (5 + index * 2)
+      + Math.sin(second / 19 + index) * 1.6
     return [x, Number(y.toFixed(4))] as [Date, number]
   })
 }
@@ -1332,7 +1336,7 @@ function stopTrendRefreshTimer() {
 function syncTrendRefreshTimer() {
   stopTrendRefreshTimer()
   if (drawer.value && tab.value === 'Trend' && trendAutoRefresh.value) {
-    trendRefreshTimer = window.setInterval(renderTrend, 5000)
+    trendRefreshTimer = window.setInterval(renderTrend, 1000)
   }
 }
 function onResize() {
