@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
-import { CONFIG_FILES, updateMockSiteYaml, yamlDiffs, yamlFiles } from '../mock/yaml'
+import { CONFIG_FILES, updateMockAdsYaml, updateMockSiteYaml, yamlDiffs, yamlFiles } from '../mock/yaml'
 
 type ReviewLine = { type: 'same' | 'add' | 'remove'; text: string }
 
@@ -27,6 +27,74 @@ const siteDraft = reactive({
   siteId: store.systemInfo.siteId,
   siteName: store.systemInfo.siteName,
 })
+
+const adsEditing = ref(false)
+const adsDraft = reactive({
+  local_ip: store.systemInfo.ads.local_ip,
+  local_ams_net_id: store.systemInfo.ads.local_ams_net_id,
+  route_repair_enabled: store.systemInfo.ads.route_repair.enabled,
+  route_name: store.systemInfo.ads.route_repair.route_name,
+  username: store.systemInfo.ads.route_repair.username,
+  password: store.systemInfo.ads.route_repair.password,
+})
+
+function editAds() {
+  adsDraft.local_ip = store.systemInfo.ads.local_ip
+  adsDraft.local_ams_net_id = store.systemInfo.ads.local_ams_net_id
+  adsDraft.route_repair_enabled = store.systemInfo.ads.route_repair.enabled
+  adsDraft.route_name = store.systemInfo.ads.route_repair.route_name
+  adsDraft.username = store.systemInfo.ads.route_repair.username
+  adsDraft.password = store.systemInfo.ads.route_repair.password
+  adsEditing.value = true
+}
+
+function cancelAds() {
+  adsEditing.value = false
+}
+
+async function updateAds() {
+  if (!adsDraft.local_ip.trim() || !adsDraft.local_ams_net_id.trim()) {
+    ElMessage.error('Local IP and Local AMS Net ID are required')
+    return
+  }
+  const parts = adsDraft.local_ams_net_id.split('.')
+  if (parts.length !== 6 || parts.some(p => !/^\d+$/.test(p) || Number(p) > 255)) {
+    ElMessage.error('Local AMS Net ID must contain 6 numeric octets')
+    return
+  }
+
+  const adsDevices = store.devices.filter(d =>
+    store.deviceModels.find(m => m.id === d.model)?.protocol === 'ads',
+  )
+  const runningTasks = store.tasks.filter(t => t.runtime === 'RUNNING' && (
+    (t.device && adsDevices.some(d => d.device_id === t.device)) ||
+    (t.device_group && adsDevices.some(d => d.device_group === t.device_group))
+  ))
+
+  if (adsDevices.length) {
+    await ElMessageBox.confirm(
+      '<b>Global ADS Settings Change Impact</b><br><br>' +
+      adsDevices.length + ' ADS Device(s) affected.<br>' +
+      runningTasks.length + ' running Task(s) affected.<br><br>' +
+      'ADS local identity is process-global. Applying this change requires ADS router and connection reinitialization.',
+      'Update Global ADS Settings',
+      { type: 'warning', confirmButtonText: 'Update', dangerouslyUseHTMLString: true },
+    )
+  }
+
+  store.systemInfo.ads.local_ip = adsDraft.local_ip.trim()
+  store.systemInfo.ads.local_ams_net_id = adsDraft.local_ams_net_id.trim()
+  Object.assign(store.systemInfo.ads.route_repair, {
+    enabled: adsDraft.route_repair_enabled,
+    route_name: adsDraft.route_name.trim(),
+    username: adsDraft.username.trim(),
+    password: adsDraft.password,
+  })
+  updateMockAdsYaml(store.systemInfo.ads)
+  dirtyMap['system.yaml'] = true
+  adsEditing.value = false
+  ElMessage.success('Global ADS settings updated — system.yaml pending apply (mock)')
+}
 
 function editSite() {
   siteDraft.siteId = store.systemInfo.siteId
@@ -196,6 +264,43 @@ async function upApply() {
           <div class="site-actions">
             <el-button @click="cancelSite">Cancel</el-button>
             <el-button type="primary" @click="updateSite">Update</el-button>
+          </div>
+        </template>
+      </div>
+    </el-card>
+
+    <el-card shadow="never" class="site-card">
+      <div class="site-row">
+        <div class="site-heading">
+          <h3>Global ADS Settings</h3>
+          <p>Wind Hub 进程唯一的本机 ADS 身份</p>
+        </div>
+
+        <template v-if="!adsEditing">
+          <div class="site-info">
+            <div><span>Local IP</span><b>{{ store.systemInfo.ads.local_ip }}</b></div>
+            <div><span>Local AMS Net ID</span><b>{{ store.systemInfo.ads.local_ams_net_id }}</b></div>
+            <div><span>Route Repair</span><b>{{ store.systemInfo.ads.route_repair.enabled ? 'Enabled' : 'Disabled' }}</b></div>
+          </div>
+          <el-button @click="editAds">Edit</el-button>
+        </template>
+
+        <template v-else>
+          <div class="site-edit">
+            <el-form label-position="top">
+              <div class="site-edit-grid">
+                <el-form-item label="Local IP"><el-input v-model="adsDraft.local_ip" /></el-form-item>
+                <el-form-item label="Local AMS Net ID"><el-input v-model="adsDraft.local_ams_net_id" /></el-form-item>
+                <el-form-item label="Route Repair"><el-switch v-model="adsDraft.route_repair_enabled" /></el-form-item>
+                <el-form-item label="Route Name"><el-input v-model="adsDraft.route_name" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+                <el-form-item label="Username"><el-input v-model="adsDraft.username" :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+                <el-form-item label="Password"><el-input v-model="adsDraft.password" type="password" show-password :disabled="!adsDraft.route_repair_enabled" /></el-form-item>
+              </div>
+            </el-form>
+          </div>
+          <div class="site-actions">
+            <el-button @click="cancelAds">Cancel</el-button>
+            <el-button type="primary" @click="updateAds">Update</el-button>
           </div>
         </template>
       </div>

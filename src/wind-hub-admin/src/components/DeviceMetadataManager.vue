@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { devicesForTask, refreshTaskValidity, store } from '../mock/data'
+import { devicesForTask, refreshTaskValidity, resetDeviceConnectionOverrides, store } from '../mock/data'
 import { ADS_READ_MODES, PROTOCOLS } from '../mock/types'
 import type { DeviceModelDef, Protocol } from '../mock/types'
 
@@ -349,6 +349,48 @@ function saveCurrent() {
   else saveGroup()
 }
 
+async function resetModelDeviceOverrides() {
+  if (!editingId.value || section.value !== 'model') return
+  const model = store.deviceModels.find(m => m.id === editingId.value)
+  if (!model) return
+
+  const devices = store.devices.filter(d => d.model === model.id)
+  const affected = devices.map(device => ({
+    device,
+    count: Object.keys(device.extensions || {}).filter(key => key !== 'target_net_id').length +
+      (device.port !== undefined ? 1 : 0),
+  })).filter(x => x.count > 0)
+
+  if (!affected.length) {
+    ElMessage.info('No Device connection overrides to reset')
+    return
+  }
+
+  const ids = new Set(affected.map(x => x.device.device_id))
+  const tasks = store.tasks.filter(t => devicesForTask(t).some(d => ids.has(d.device_id)))
+  const running = tasks.filter(t => t.runtime === 'RUNNING')
+  const overrideCount = affected.reduce((sum, x) => sum + x.count, 0)
+
+  await ElMessageBox.confirm(
+    '<b>Reset Device Overrides?</b><br><br>' +
+    affected.length + ' Device(s) affected.<br>' +
+    overrideCount + ' override(s) will be removed.<br>' +
+    running.length + ' running Task(s) affected.<br><br>' +
+    '<b>Preserved:</b> Device ID, Host / Remote IP, Target AMS Net ID and Device Group.',
+    'Reset Device Overrides',
+    { type: 'warning', confirmButtonText: 'Reset Overrides', dangerouslyUseHTMLString: true },
+  )
+
+  const runningIds = new Set(running.map(t => t.task_id))
+  for (const t of running) t.runtime = 'STOPPED'
+  for (const x of affected) resetDeviceConnectionOverrides(x.device)
+  refreshTaskValidity()
+  for (const t of tasks) {
+    if (runningIds.has(t.task_id) && t.enabled && t.valid !== false) t.runtime = 'RUNNING'
+  }
+  ElMessage.success('Device connection overrides reset to Model defaults (mock)')
+}
+
 async function deleteModel(row: { id: string }) {
   const devices = store.devices.filter(d => d.model === row.id).length
   if (devices) {
@@ -532,7 +574,11 @@ async function deleteGroup(row: { id: string }) {
             <el-form-item label="Device Type"><el-select v-model="form.device_type" style="width:100%"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select></el-form-item>
           </template>
         </el-form>
-        <div class="metadata-editor-actions"><el-button @click="resetForm">Clear</el-button><el-button type="primary" @click="saveCurrent">{{ editingId ? 'Update' : 'Create' }}</el-button></div>
+        <div class="metadata-editor-actions">
+          <el-button v-if="section === 'model' && editingId" @click="resetModelDeviceOverrides">Reset Device Overrides</el-button>
+          <el-button @click="resetForm">Clear</el-button>
+          <el-button type="primary" @click="saveCurrent">{{ editingId ? 'Update' : 'Create' }}</el-button>
+        </div>
       </el-main>
     </el-container>
   </el-dialog>

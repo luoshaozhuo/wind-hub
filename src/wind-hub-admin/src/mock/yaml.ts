@@ -204,6 +204,23 @@ export function updateMockSiteYaml(siteId: string, siteName: string) {
   yamlFiles['system.yaml'] = next
 }
 
+export function updateMockAdsYaml(settings: {
+  local_ip: string
+  local_ams_net_id: string
+  route_repair: { enabled: boolean; route_name: string; username: string; password: string }
+}) {
+  const source = yamlFiles['system.yaml']
+  const block = `ads:
+  local_ams_net_id: "${settings.local_ams_net_id}"
+  local_ip: "${settings.local_ip}"
+  route_repair:
+    enabled: ${settings.route_repair.enabled}
+    route_name: "${settings.route_repair.route_name}"
+    username: "${settings.route_repair.username}"
+    password: "${settings.route_repair.password}"`
+  yamlFiles['system.yaml'] = source.replace(/ads:\n[\s\S]*?(?=\n\nsinks:)/m, block)
+}
+
 // 每个文件独立的 mock diff
 export const yamlDiffs: Record<string, string> = {
   'system.yaml': ` runtime:\n-  read_timeout: 3.0\n+  read_timeout: 5.0\n sinks:\n+  - name: file_archive\n+    type: file`,

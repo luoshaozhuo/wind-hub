@@ -4,7 +4,9 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
 import {
+  deviceConnectionOverrides,
   devicesForTask,
+  effectiveConnection,
   modelOf,
   pointsOfTable,
   refreshTaskValidity,
@@ -379,6 +381,111 @@ async function verifyAll() {
 
 // ---- Add Device ----
 const addOpen = ref(false)
+const addMode = ref<'single' | 'batch'>('single')
+const batch = ref({
+  model: 'beckhoff_wtg',
+  group: 'turbine_ads',
+  from: 1,
+  to: 48,
+  exclude: '',
+  id_pattern: 'wtg-{num:03}',
+  host_pattern: '192.168.151.{num}',
+  netid_pattern: '192.168.151.{num}.1.1',
+})
+const batchModel = computed(() => store.deviceModels.find(m => m.id === batch.value.model))
+
+function renderBatchPattern(pattern: string, num: number): string {
+  return pattern.replace(/\{num(?:\+(-?\d+))?(?::(\d+))?\}/g, (_all, delta, width) => {
+    const value = num + Number(delta || 0)
+    return width ? String(value).padStart(Number(width), '0') : String(value)
+  })
+}
+
+function excludedBatchNumbers(): Set<number> {
+  const result = new Set<number>()
+  for (const token of batch.value.exclude.split(',').map(x => x.trim()).filter(Boolean)) {
+    const range = token.match(/^(\d+)\s*-\s*(\d+)$/)
+    if (range) {
+      const a = Number(range[1]); const b = Number(range[2])
+      for (let n = Math.min(a, b); n <= Math.max(a, b); n++) result.add(n)
+    } else if (/^\d+$/.test(token)) result.add(Number(token))
+  }
+  return result
+}
+
+const batchPreview = computed(() => {
+  const model = batchModel.value
+  if (!model || batch.value.from > batch.value.to || batch.value.to - batch.value.from > 999) return []
+  const excluded = excludedBatchNumbers()
+  const generated: { num: number; id: string; host: string; netid: string; error: string }[] = []
+  const seenIds = new Set<string>()
+  const seenHosts = new Set<string>()
+  const seenNetIds = new Set<string>()
+
+  for (let num = batch.value.from; num <= batch.value.to; num++) {
+    if (excluded.has(num)) continue
+    const id = renderBatchPattern(batch.value.id_pattern, num)
+    const host = renderBatchPattern(batch.value.host_pattern, num)
+    const netid = model.protocol === 'ads' ? renderBatchPattern(batch.value.netid_pattern, num) : ''
+    const errors: string[] = []
+    if (!id || !host) errors.push('empty ID/host')
+    if (store.devices.some(d => d.device_id === id) || seenIds.has(id)) errors.push('duplicate device ID')
+    if (store.devices.some(d => d.host === host) || seenHosts.has(host)) errors.push('duplicate host')
+    if (model.protocol === 'ads') {
+      if (netid.split('.').length !== 6) errors.push('invalid AMS Net ID')
+      if (store.devices.some(d => d.extensions?.target_net_id === netid) || seenNetIds.has(netid)) errors.push('duplicate AMS Net ID')
+    }
+    seenIds.add(id); seenHosts.add(host); if (netid) seenNetIds.add(netid)
+    generated.push({ num, id, host, netid, error: errors.join('; ') })
+  }
+  return generated
+})
+
+function onBatchModelChange() {
+  const model = batchModel.value
+  if (!model) return
+  if (!store.deviceGroups.some(g => g.id === batch.value.group && g.device_type === model.device_type)) {
+    batch.value.group = store.deviceGroups.find(g => g.device_type === model.device_type)?.id || ''
+  }
+}
+
+function createBatchDevices() {
+  const model = batchModel.value
+  const rows = batchPreview.value
+  if (!model || !rows.length) {
+    ElMessage.error('No devices to create')
+    return
+  }
+  if (rows.some(r => r.error)) {
+    ElMessage.error('Resolve all Batch Preview errors before creating devices')
+    return
+  }
+  const group = store.deviceGroups.find(g => g.id === batch.value.group)
+  if (!group || group.device_type !== model.device_type) {
+    ElMessage.error('Device Group must match the selected Model')
+    return
+  }
+
+  for (const row of rows) {
+    const extensions: Record<string, unknown> = {}
+    if (model.protocol === 'ads') extensions.target_net_id = row.netid
+    store.devices.push({
+      device_id: row.id,
+      model: model.id,
+      device_group: batch.value.group,
+      host: row.host,
+      port: undefined,
+      extensions,
+      enabled: true,
+      online: false,
+    })
+    store.deviceVerification[row.id] = emptyVerify()
+  }
+  refreshTaskValidity()
+  addOpen.value = false
+  ElMessage.success(rows.length + ' devices created from templates (mock)')
+}
+
 const newDev = ref({
   id: '',
   type: 'turbine',
@@ -469,6 +576,7 @@ function onNewHostChange() {
 }
 
 function openAdd() {
+  addMode.value = 'single'
   newDev.value = {
     id: '',
     type: 'turbine',
@@ -502,50 +610,38 @@ function addDevice() {
   const host = newDev.value.host.trim()
   const model = newDevModel.value
 
-  if (!id || !host) {
-    ElMessage.error('Device ID and Host are required')
-    return
-  }
-  if (store.devices.some(d => d.device_id === id)) {
-    ElMessage.error(`Device ${id} already exists`)
-    return
-  }
-  if (!model) {
-    ElMessage.error('Select a valid model')
-    return
-  }
-  if (!store.deviceGroups.some(
-    g => g.id === newDev.value.group && g.device_type === model.device_type,
-  )) {
-    ElMessage.error('Select a valid device group')
-    return
+  if (!id || !host) { ElMessage.error('Device ID and Host are required'); return }
+  if (store.devices.some(d => d.device_id === id)) { ElMessage.error(`Device ${id} already exists`); return }
+  if (!model) { ElMessage.error('Select a valid model'); return }
+  if (!store.deviceGroups.some(g => g.id === newDev.value.group && g.device_type === model.device_type)) {
+    ElMessage.error('Select a valid device group'); return
   }
 
+  const defaults = model.connection_defaults || {}
   const extensions: Record<string, unknown> = {}
+  let port: number | undefined
+  const setOverride = (key: string, value: unknown) => {
+    if (defaults[key] !== value) extensions[key] = value
+  }
+  if (Number(defaults.port || 0) !== Number(newDev.value.port || 0)) port = newDev.value.port || undefined
 
   if (model.protocol === 'ads') {
-    if (!newDev.value.target_net_id.trim()) {
-      ElMessage.error('Target AMS Net ID is required for ADS')
-      return
-    }
+    if (!newDev.value.target_net_id.trim()) { ElMessage.error('Target AMS Net ID is required for ADS'); return }
     extensions.target_net_id = newDev.value.target_net_id.trim()
-    extensions.target_port = newDev.value.target_port
-    extensions.twincat_version = newDev.value.twincat_version
-    extensions.timeout = newDev.value.timeout
+    setOverride('target_port', newDev.value.target_port)
+    setOverride('twincat_version', newDev.value.twincat_version)
+    setOverride('timeout', newDev.value.timeout)
   } else if (model.protocol === 'modbus') {
-    extensions.unit_id = newDev.value.unit_id
-    extensions.mode = newDev.value.mode
-    extensions.timeout = newDev.value.timeout
-    extensions.word_order = newDev.value.word_order
-  } else if (model.protocol === 'iec104') {
-    extensions.common_addr = newDev.value.iec_common_addr
-    extensions.k = newDev.value.iec_k
-    extensions.w = newDev.value.iec_w
-    extensions.t0 = newDev.value.iec_t0
-    extensions.t1 = newDev.value.iec_t1
-    extensions.t2 = newDev.value.iec_t2
-    extensions.t3 = newDev.value.iec_t3
-    extensions.max_reconnect_retries = newDev.value.iec_max_reconnect_retries
+    setOverride('unit_id', newDev.value.unit_id)
+    setOverride('mode', newDev.value.mode)
+    setOverride('timeout', newDev.value.timeout)
+    setOverride('word_order', newDev.value.word_order)
+  } else {
+    setOverride('common_addr', newDev.value.iec_common_addr)
+    setOverride('k', newDev.value.iec_k); setOverride('w', newDev.value.iec_w)
+    setOverride('t0', newDev.value.iec_t0); setOverride('t1', newDev.value.iec_t1)
+    setOverride('t2', newDev.value.iec_t2); setOverride('t3', newDev.value.iec_t3)
+    setOverride('max_reconnect_retries', newDev.value.iec_max_reconnect_retries)
   }
 
   store.devices.push({
@@ -553,13 +649,13 @@ function addDevice() {
     model: model.id,
     device_group: newDev.value.group,
     host,
-    port: newDev.value.port || undefined,
+    port,
     extensions,
     enabled: newDev.value.enabled,
     online: false,
   })
   store.deviceVerification[id] = emptyVerify()
-
+  refreshTaskValidity()
   addOpen.value = false
   ElMessage.success('Device created (mock)')
 }
@@ -772,37 +868,34 @@ async function saveConfig() {
     return
   }
 
+  const defaults = model.connection_defaults || {}
   const extensions: Record<string, unknown> = {}
+  let port: number | undefined
+  const setOverride = (key: string, value: unknown) => {
+    if (defaults[key] !== value) extensions[key] = value
+  }
+  if (Number(defaults.port || 0) !== Number(editForm.value.port || 0)) port = editForm.value.port || undefined
+
   if (model.protocol === 'ads') {
-    if (!editForm.value.target_net_id.trim()) {
-      ElMessage.error('Target AMS Net ID is required for ADS')
-      return
-    }
     extensions.target_net_id = editForm.value.target_net_id.trim()
-    extensions.target_port = editForm.value.target_port
-    extensions.twincat_version = editForm.value.twincat_version
-    extensions.timeout = editForm.value.timeout
+    setOverride('target_port', editForm.value.target_port)
+    setOverride('twincat_version', editForm.value.twincat_version)
+    setOverride('timeout', editForm.value.timeout)
   } else if (model.protocol === 'modbus') {
-    extensions.unit_id = editForm.value.unit_id
-    extensions.mode = editForm.value.mode
-    extensions.timeout = editForm.value.timeout
-    extensions.word_order = editForm.value.word_order
-  } else if (model.protocol === 'iec104') {
-    extensions.common_addr = editForm.value.common_addr
-    extensions.k = editForm.value.k
-    extensions.w = editForm.value.w
-    extensions.t0 = editForm.value.t0
-    extensions.t1 = editForm.value.t1
-    extensions.t2 = editForm.value.t2
-    extensions.t3 = editForm.value.t3
-    extensions.max_reconnect_retries = editForm.value.max_reconnect_retries
+    setOverride('unit_id', editForm.value.unit_id); setOverride('mode', editForm.value.mode)
+    setOverride('timeout', editForm.value.timeout); setOverride('word_order', editForm.value.word_order)
+  } else {
+    setOverride('common_addr', editForm.value.common_addr); setOverride('k', editForm.value.k)
+    setOverride('w', editForm.value.w); setOverride('t0', editForm.value.t0)
+    setOverride('t1', editForm.value.t1); setOverride('t2', editForm.value.t2)
+    setOverride('t3', editForm.value.t3); setOverride('max_reconnect_retries', editForm.value.max_reconnect_retries)
   }
 
   const modelChanged = device.model !== model.id
   const groupChanged = device.device_group !== editForm.value.device_group
   const endpointChanged =
     device.host !== editForm.value.host.trim() ||
-    (device.port || 0) !== (editForm.value.port || 0) ||
+    (device.port || undefined) !== port ||
     JSON.stringify(device.extensions || {}) !== JSON.stringify(extensions)
 
   const affectedTasks = affectedTasksForDevice(device, editForm.value.device_group)
@@ -827,7 +920,7 @@ async function saveConfig() {
     device_group: editForm.value.device_group,
     model: model.id,
     host: editForm.value.host.trim(),
-    port: editForm.value.port || undefined,
+    port,
     extensions,
   })
 
@@ -866,16 +959,40 @@ async function del() {
   ElMessage.success('Device deleted; referenced task definitions were preserved (mock)')
 }
 
+const deleteAllOpen = ref(false)
+const deleteAllConfirm = ref('')
+
+function openDeleteAll() {
+  if (!store.devices.length) { ElMessage.info('No devices to delete'); return }
+  deleteAllConfirm.value = ''
+  deleteAllOpen.value = true
+}
+
+function deleteAllDevices() {
+  if (deleteAllConfirm.value !== 'DELETE ALL') return
+  const count = store.devices.length
+  for (const t of store.tasks) t.runtime = 'STOPPED'
+  store.devices = []
+  for (const key of Object.keys(store.deviceVerification)) delete store.deviceVerification[key]
+  selected.value = null
+  drawer.value = false
+  refreshTaskValidity()
+  deleteAllOpen.value = false
+  ElMessage.success(count + ' devices deleted; Task Definitions preserved and revalidated (mock)')
+}
+
 const selectedModel = computed(() => selected.value ? modelOf(selected.value) : undefined)
 const editSelectedModel = computed(() => store.deviceModels.find(m => m.id === editForm.value.model))
 
 function mergedConnection(d: DeviceInst) {
-  const model = modelOf(d)
-  return {
-    ...(model?.connection_defaults || {}),
-    ...(d.extensions || {}),
-    port: d.port ?? model?.connection_defaults?.port,
-  } as Record<string, unknown>
+  return effectiveConnection(d)
+}
+
+function overrideKeys(d: DeviceInst): string[] {
+  return [
+    ...(d.port !== undefined ? ['port'] : []),
+    ...Object.keys(deviceConnectionOverrides(d)).filter(key => key !== 'target_net_id'),
+  ]
 }
 
 function connValue(d: DeviceInst, key: string, fallback: unknown = '') {
@@ -1106,6 +1223,16 @@ async function sendCommand() {
           Verify All
         </el-button>
         <DeviceMetadataManager />
+        <el-dropdown trigger="click">
+          <el-button>More</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item :disabled="!store.devices.length" @click="openDeleteAll">
+                Delete All Devices
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button type="primary" @click="openAdd">+ Add Device</el-button>
       </div>
     </div>
@@ -1216,207 +1343,93 @@ async function sendCommand() {
     </section>
 
     <!-- Add Device -->
-    <el-dialog
-      v-model="addOpen"
-      title="Add Device"
-      width="780px"
-      class="add-device-dialog"
-    >
-      <el-form label-position="top" class="add-device-form">
-        <div class="config-section">
-          <div class="config-section-title">
-            <b>Device</b>
-            <span>devices.yaml</span>
-          </div>
+    <el-dialog v-model="addOpen" title="Add Device" :width="isMobile ? '96vw' : addMode === 'batch' ? '980px' : '780px'">
+      <el-tabs v-model="addMode">
+        <el-tab-pane label="Single" name="single">
+          <el-alert type="info" :closable="false" title="Model connection defaults are inherited. Only values that differ from the Model are stored as Device overrides." />
+          <el-form label-position="top" class="add-device-form">
+            <div class="form-grid add-device-grid">
+              <el-form-item label="Device ID"><el-input v-model="newDev.id" placeholder="wtg-001" /></el-form-item>
+              <el-form-item label="Type"><el-select v-model="newDev.type" style="width:100%" @change="onNewType"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
+              <el-form-item label="Model"><el-select v-model="newDev.model" style="width:100%" @change="onNewModel"><el-option v-for="m in store.deviceModels.filter(m => m.device_type === newDev.type)" :key="m.id" :label="m.id" :value="m.id" /></el-select></el-form-item>
+              <el-form-item label="Group"><el-select v-model="newDev.group" style="width:100%"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === newDev.type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
+              <el-form-item label="Protocol"><el-input :model-value="newDevModel?.protocol?.toUpperCase() || ''" disabled /></el-form-item>
+              <el-form-item label="Host / Remote IP"><el-input v-model="newDev.host" placeholder="192.168.151.1" @change="onNewHostChange" /></el-form-item>
+              <el-form-item label="Port"><el-input-number v-model="newDev.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+              <el-form-item label="Enabled"><el-switch v-model="newDev.enabled" /></el-form-item>
+            </div>
 
-          <div class="form-grid add-device-grid">
-            <el-form-item label="Device ID">
-              <el-input v-model="newDev.id" placeholder="wtg-001" />
-            </el-form-item>
+            <div v-if="newDevModel?.protocol === 'ads'" class="form-grid add-device-grid">
+              <el-form-item label="Target AMS Net ID"><el-input v-model="newDev.target_net_id" /></el-form-item>
+              <el-form-item label="Target Port"><el-input-number v-model="newDev.target_port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+              <el-form-item label="TwinCAT Version"><el-select v-model="newDev.twincat_version" style="width:100%"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+            </div>
+            <div v-else-if="newDevModel?.protocol === 'modbus'" class="form-grid add-device-grid">
+              <el-form-item label="Unit ID"><el-input-number v-model="newDev.unit_id" :min="0" :max="255" style="width:100%" /></el-form-item>
+              <el-form-item label="Mode"><el-select v-model="newDev.mode" style="width:100%"><el-option label="TCP" value="tcp" /></el-select></el-form-item>
+              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+              <el-form-item label="Word Order"><el-select v-model="newDev.word_order" style="width:100%"><el-option label="little_endian" value="little_endian" /><el-option label="big_endian" value="big_endian" /></el-select></el-form-item>
+            </div>
+            <div v-else class="form-grid add-device-grid">
+              <el-form-item label="Common Address"><el-input-number v-model="newDev.iec_common_addr" :min="1" :max="65535" style="width:100%" /></el-form-item>
+              <el-form-item label="K Window"><el-input-number v-model="newDev.iec_k" :min="1" style="width:100%" /></el-form-item>
+              <el-form-item label="W Window"><el-input-number v-model="newDev.iec_w" :min="1" style="width:100%" /></el-form-item>
+              <el-form-item label="T0 (s)"><el-input-number v-model="newDev.iec_t0" :min="0.1" style="width:100%" /></el-form-item>
+              <el-form-item label="T1 (s)"><el-input-number v-model="newDev.iec_t1" :min="0.1" style="width:100%" /></el-form-item>
+              <el-form-item label="T2 (s)"><el-input-number v-model="newDev.iec_t2" :min="0.1" style="width:100%" /></el-form-item>
+              <el-form-item label="T3 (s)"><el-input-number v-model="newDev.iec_t3" :min="0.1" style="width:100%" /></el-form-item>
+              <el-form-item label="Max Reconnect Retries"><el-input-number v-model="newDev.iec_max_reconnect_retries" :min="0" style="width:100%" /></el-form-item>
+            </div>
+          </el-form>
+        </el-tab-pane>
 
-            <el-form-item label="Type">
-              <el-select v-model="newDev.type" style="width:100%" @change="onNewType">
-                <el-option
-                  v-for="t in store.deviceTypes"
-                  :key="t.id"
-                  :label="t.name"
-                  :value="t.id"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="Model">
-              <el-select v-model="newDev.model" style="width:100%" @change="onNewModel">
-                <el-option
-                  v-for="m in store.deviceModels.filter(m => m.device_type === newDev.type)"
-                  :key="m.id"
-                  :label="m.id"
-                  :value="m.id"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="Group">
-              <el-select v-model="newDev.group" style="width:100%">
-                <el-option
-                  v-for="g in store.deviceGroups.filter(g => g.device_type === newDev.type)"
-                  :key="g.id"
-                  :label="g.id"
-                  :value="g.id"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="Protocol">
-              <el-input :model-value="newDevModel?.protocol?.toUpperCase() || '-'" disabled />
-            </el-form-item>
-
-            <el-form-item label="Point Table">
-              <el-input :model-value="newDevModel?.point_table || '-'" disabled />
-            </el-form-item>
-
-            <el-form-item
-              v-if="newDevModel?.protocol === 'ads'"
-              label="Read Mode"
-            >
-              <el-input :model-value="newDevModel?.read_mode || 'sum'" disabled />
-            </el-form-item>
-
-            <el-form-item label="Host">
-              <el-input
-                v-model="newDev.host"
-                placeholder="192.168.1.100"
-                @change="onNewHostChange"
-              />
-            </el-form-item>
-
-            <el-form-item label="Port">
-              <el-input-number
-                v-model="newDev.port"
-                :min="1"
-                :max="65535"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-
-            <el-form-item label="Enabled">
-              <div class="add-device-enabled">
-                <el-switch v-model="newDev.enabled" />
-                <span>{{ newDev.enabled ? 'Enabled' : 'Disabled' }}</span>
-              </div>
-            </el-form-item>
-          </div>
-        </div>
-
-        <div v-if="newDevModel?.protocol === 'ads'" class="config-section">
-          <div class="config-section-title">
-            <b>ADS</b>
-            <span>endpoint.extensions</span>
-          </div>
-
-          <div class="form-grid add-device-grid">
-            <el-form-item label="Target AMS Net ID">
-              <el-input
-                v-model="newDev.target_net_id"
-                placeholder="192.168.151.25.1.1"
-              />
-            </el-form-item>
-
-            <el-form-item label="ADS Port">
-              <el-input-number
-                v-model="newDev.target_port"
-                :min="1"
-                :max="65535"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-
-            <el-form-item label="TwinCAT Version">
-              <el-select v-model="newDev.twincat_version" style="width:100%">
-                <el-option label="TwinCAT 2" value="2" />
-                <el-option label="TwinCAT 3" value="3" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="Timeout (s)">
-              <el-input-number
-                v-model="newDev.timeout"
-                :min="0.1"
-                :step="0.5"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-          </div>
-        </div>
-
-        <div v-else-if="newDevModel?.protocol === 'modbus'" class="config-section">
-          <div class="config-section-title">
-            <b>Modbus</b>
-            <span>endpoint.extensions</span>
-          </div>
-
-          <div class="form-grid add-device-grid">
-            <el-form-item label="Unit ID">
-              <el-input-number
-                v-model="newDev.unit_id"
-                :min="0"
-                :max="255"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-
-            <el-form-item label="Mode">
-              <el-select v-model="newDev.mode" style="width:100%">
-                <el-option label="TCP" value="tcp" />
-                <el-option label="RTU" value="rtu" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="Timeout (s)">
-              <el-input-number
-                v-model="newDev.timeout"
-                :min="0.1"
-                :step="0.5"
-                controls-position="right"
-                style="width:100%"
-              />
-            </el-form-item>
-
-            <el-form-item label="Word Order">
-              <el-select v-model="newDev.word_order" style="width:100%">
-                <el-option label="Little endian" value="little_endian" />
-                <el-option label="Big endian" value="big_endian" />
-              </el-select>
-            </el-form-item>
-          </div>
-        </div>
-
-        <div v-else-if="newDevModel?.protocol === 'iec104'" class="config-section">
-          <div class="config-section-title">
-            <b>IEC 104</b>
-            <span>endpoint.extensions</span>
-          </div>
-
-          <div class="form-grid add-device-grid">
-            <el-form-item label="Common Address"><el-input-number v-model="newDev.iec_common_addr" :min="1" :max="65535" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="K Window"><el-input-number v-model="newDev.iec_k" :min="1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="W Window"><el-input-number v-model="newDev.iec_w" :min="1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="T0 (s)"><el-input-number v-model="newDev.iec_t0" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="T1 (s)"><el-input-number v-model="newDev.iec_t1" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="T2 (s)"><el-input-number v-model="newDev.iec_t2" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="T3 (s)"><el-input-number v-model="newDev.iec_t3" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-            <el-form-item label="Max Reconnect Retries"><el-input-number v-model="newDev.iec_max_reconnect_retries" :min="0" controls-position="right" style="width:100%" /></el-form-item>
-          </div>
-        </div>
-      </el-form>
+        <el-tab-pane label="Batch" name="batch">
+          <el-alert type="info" :closable="false" show-icon title="Templates: {num}, {num:03}, {num+100}, {num+100:03}. Exclude examples: 5,17,30-32." />
+          <el-form label-position="top">
+            <div class="form-grid add-device-grid">
+              <el-form-item label="Model"><el-select v-model="batch.model" style="width:100%" @change="onBatchModelChange"><el-option v-for="m in store.deviceModels" :key="m.id" :label="m.id + ' · ' + m.protocol.toUpperCase()" :value="m.id" /></el-select></el-form-item>
+              <el-form-item label="Group"><el-select v-model="batch.group" style="width:100%"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === batchModel?.device_type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
+              <el-form-item label="From"><el-input-number v-model="batch.from" :min="0" :max="9999" style="width:100%" /></el-form-item>
+              <el-form-item label="To"><el-input-number v-model="batch.to" :min="0" :max="9999" style="width:100%" /></el-form-item>
+              <el-form-item label="Exclude"><el-input v-model="batch.exclude" placeholder="5,17,30-32" /></el-form-item>
+              <el-form-item label="Device ID Pattern"><el-input v-model="batch.id_pattern" placeholder="wtg-{num:03}" /></el-form-item>
+              <el-form-item label="Host Pattern"><el-input v-model="batch.host_pattern" placeholder="192.168.151.{num}" /></el-form-item>
+              <el-form-item v-if="batchModel?.protocol === 'ads'" label="Target AMS Net ID Pattern"><el-input v-model="batch.netid_pattern" placeholder="192.168.151.{num}.1.1" /></el-form-item>
+            </div>
+          </el-form>
+          <el-divider content-position="left">Preview · {{ batchPreview.length }} Devices</el-divider>
+          <el-table :data="batchPreview" max-height="340" size="small">
+            <el-table-column prop="num" label="#" width="64" />
+            <el-table-column prop="id" label="Device ID" min-width="140" />
+            <el-table-column prop="host" label="Host" min-width="150" />
+            <el-table-column v-if="batchModel?.protocol === 'ads'" prop="netid" label="Target AMS Net ID" min-width="180" />
+            <el-table-column label="Validation" min-width="170"><template #default="s"><el-tag :type="s.row.error ? 'danger' : 'success'" size="small">{{ s.row.error || 'OK' }}</el-tag></template></el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
 
       <template #footer>
         <el-button @click="addOpen = false">Cancel</el-button>
-        <el-button type="primary" @click="addDevice">Add Device</el-button>
+        <el-button v-if="addMode === 'single'" type="primary" @click="addDevice">Add Device</el-button>
+        <el-button v-else type="primary" :disabled="!batchPreview.length || batchPreview.some(r => !!r.error)" @click="createBatchDevices">Create {{ batchPreview.length }} Devices</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="deleteAllOpen" title="Delete All Devices" width="560px">
+      <el-alert type="error" :closable="false" show-icon title="All Devices will be removed. Metadata and Task Definitions are preserved." />
+      <el-descriptions :column="1" border size="small" style="margin:16px 0">
+        <el-descriptions-item label="Devices">{{ store.devices.length }}</el-descriptions-item>
+        <el-descriptions-item label="Task Definitions">{{ store.tasks.length }} preserved</el-descriptions-item>
+        <el-descriptions-item label="Running Tasks">{{ store.tasks.filter(t => t.runtime === 'RUNNING').length }} will stop</el-descriptions-item>
+        <el-descriptions-item label="After Delete">Tasks without target devices become INVALID</el-descriptions-item>
+      </el-descriptions>
+      <el-form label-position="top">
+        <el-form-item label='Type "DELETE ALL" to confirm'><el-input v-model="deleteAllConfirm" autocomplete="off" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="deleteAllOpen = false">Cancel</el-button>
+        <el-button type="danger" :disabled="deleteAllConfirm !== 'DELETE ALL'" @click="deleteAllDevices">Delete All Devices</el-button>
       </template>
     </el-dialog>
 
@@ -1439,7 +1452,7 @@ async function sendCommand() {
             <p>
               {{ selected.model }} ·
               {{ selectedModel?.protocol?.toUpperCase() }} ·
-              {{ selected.host }}<template v-if="selected.port">:{{ selected.port }}</template>
+              {{ selected.host }}<template v-if="connValue(selected, 'port')">:{{ connValue(selected, 'port') }}</template>
             </p>
           </div>
           <el-button text @click="drawer = false">Close</el-button>
@@ -1453,7 +1466,7 @@ async function sendCommand() {
                 <div class="panel-head">
                   <div>
                     <h3>Basic Information</h3>
-                    <p>设备实例、型号绑定与协议配置</p>
+                    <p>设备实例、型号绑定与协议配置 · {{ overrideKeys(selected).length }} connection override(s)</p>
                   </div>
                   <el-button type="primary" @click="saveConfig">Update Config</el-button>
                 </div>

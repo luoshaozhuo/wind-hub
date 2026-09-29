@@ -345,6 +345,36 @@ age_ratio = time_since_last_success / expected_interval
 
 ## 3.2 Add Device
 
+Device Connection 采用：
+
+```text
+Device Model.connection_defaults
++ Device connection overrides
+= Effective Device Connection
+```
+
+Device 只保存与 Model 默认值不同的连接参数。以下属于设备身份，不参与 Reset：
+
+- `device_id`；
+- `host` / Remote IP；
+- ADS `target_net_id`；
+- `device_group`。
+
+ADS `local_ip`、`local_ams_net_id` 和 route repair 是 Global ADS Settings，全局唯一，不属于 Model 或 Device。
+
+### Batch Add
+
+Add Device 同时支持 Single / Batch。Batch 使用受限模板：
+
+- `{num}`；
+- `{num:03}`；
+- `{num+100}`；
+- `{num+100:03}`。
+
+例如 `wtg-{num:03}`、`192.168.151.{num}`、`192.168.151.{num}.1.1`。Exclude 支持 `5,17,30-32`。
+
+必须先 Preview 并检查 Device ID、Host、AMS Net ID 重复或格式错误；任一生成行失败时整批禁止 Create。正式后端应以事务方式创建整批 Device。
+
 ### 校验
 
 必须检查：
@@ -447,6 +477,21 @@ Enable：
 - 关闭连接；
 - reload；
 - 返回受影响 Task/Instance。
+
+### Delete All Devices
+
+Devices 页面提供 `Delete All Devices`：
+
+- 展示 Devices、Task Definitions、RUNNING Tasks 等影响数量；
+- 要求输入 `DELETE ALL` 二次确认；
+- 停止全部 Device 相关 Task Instance；
+- 删除全部 Device 和 Device Verification；
+- 保留全部 Task Definition，并重新校验；
+- 单设备 Task / 无目标 Group Task 变为 INVALID；
+- 保留 Device Model、Type、Group、Point Table、Point Group、Global ADS Settings；
+- 不自动删除或迁移 Meta。
+
+正式后端必须按事务性批量变更处理。
 
 ## 3.6 Verify Device
 
@@ -614,7 +659,13 @@ Preview 必须计算**实际受影响设备**，不能简单认为全部 Model �
 
 纯展示属性变化无需触碰运行时。
 
-## 4.5 Device Model — Delete
+## 4.5 Reset Device Overrides
+
+Device Model 编辑页提供 `Reset Device Overrides`。其语义是删除关联 Device 对 `connection_defaults` 的 override，使 Effective Connection 回落到当前 Model 默认值。
+
+必须保留 Device ID、Host / Remote IP、ADS Target AMS Net ID、Device Group。操作前 Preview 受影响设备、override 数和 RUNNING Task；Apply 时只停止必要实例，清除 override 后恢复原 RUNNING 且仍有效的实例。
+
+## 4.6 Device Model — Delete
 
 若仍有 Device 引用：**禁止删除**。
 
@@ -625,7 +676,7 @@ Preview 必须计算**实际受影响设备**，不能简单认为全部 Model �
 
 后续如增加迁移功能，应采用显式 `Reassign and Delete`，用户指定目标 Model。
 
-## 4.6 Device Type — Update
+## 4.7 Device Type — Update
 
 当前 Type 主要是分类元数据。
 
@@ -639,11 +690,11 @@ Preview 必须计算**实际受影响设备**，不能简单认为全部 Model �
 - 必须原子迁移所有 Model/Group 引用；
 - 不允许只改 key 留下悬挂引用。
 
-## 4.7 Device Type — Delete
+## 4.8 Device Type — Delete
 
 存在 Model 或 Device Group 引用时禁止删除。
 
-## 4.8 Device Group — Update Device Type
+## 4.9 Device Group — Update Device Type
 
 若 Group 中已有 Device：
 
@@ -656,7 +707,7 @@ Preview 必须计算**实际受影响设备**，不能简单认为全部 Model �
 - 必要时停止受影响实例；
 - 修改后重新展开。
 
-## 4.9 Device Group — Delete
+## 4.10 Device Group — Delete
 
 存在 Device 或 Task Definition 引用时禁止直接删除。
 
@@ -1142,7 +1193,20 @@ Update 只修改待保存配置，不应直接假装 Runtime 已生效。
 
 若仅改显示名且系统允许无 reload 生效，也必须有明确统一规则。
 
-## 9.2 YAML Query
+## 9.2 Global ADS Settings
+
+Config 页面维护全局唯一的 ADS 本机身份：
+
+- `local_ip`；
+- `local_ams_net_id`；
+- `route_repair.enabled`；
+- `route_repair.route_name`；
+- `route_repair.username`；
+- `route_repair.password`。
+
+这些参数不得进入 Device Model 或 Device override。修改时 Preview 所有 ADS Device 和相关 RUNNING Task；Apply 需要重建 ADS Router/连接。
+
+## 9.3 YAML Query
 
 后端返回：
 
@@ -1153,7 +1217,7 @@ Update 只修改待保存配置，不应直接假装 Runtime 已生效。
 
 前端 Review 应比较 **applied vs 当前编辑内容**。
 
-## 9.3 Validate
+## 9.4 Validate
 
 必须使用与生产配置加载相同的 schema/resolver/交叉引用规则。
 
@@ -1168,7 +1232,7 @@ Validate 不保存、不 reload。
 - protocol config errors；
 - warnings。
 
-## 9.4 Save
+## 9.5 Save
 
 Save：
 
@@ -1179,7 +1243,7 @@ Save：
 
 必须防止覆盖其他用户的新修改。
 
-## 9.5 Save & Apply
+## 9.6 Save & Apply
 
 流程：
 
@@ -1195,7 +1259,7 @@ Validate
 
 不能只是“写文件 + 返回成功”。
 
-## 9.6 Review
+## 9.7 Review
 
 Review 本身由前端可视化，但 diff 基线由后端 revision 提供。
 
@@ -1206,7 +1270,7 @@ Review 本身由前端可视化，但 diff 基线由后端 revision 提供。
 - tables changed；
 - models changed。
 
-## 9.7 Upload
+## 9.8 Upload
 
 Upload 不得立即覆盖正式配置。
 
@@ -1226,7 +1290,7 @@ Upload 不得立即覆盖正式配置。
 
 按统一 Apply 事务执行。
 
-## 9.8 Apply Failure
+## 9.9 Apply Failure
 
 Apply 失败时必须明确：
 
@@ -1443,18 +1507,17 @@ applied_at
 
 ---
 
-# 15. 当前前端原型与本规范的已知差异
+# 15. 当前前端原型与本设计的已知差异
 
-当前 `wind-hub-admin` 为 mock 原型，以下行为后续需要逐步调整：
+当前 `wind-hub-admin` 仍为 mock 原型，但关键配置语义已按本文对齐：
 
-1. Point Table 的 `extends` 当前前端仍偏向复制式数据模型，应改为与真实配置一致的 `extends + remove_points + patch` 语义。
-2. Point Table 删除当前存在迁移到 default table 的 mock 行为，正式逻辑应采用引用保护或显式迁移。
-3. Point Group 删除当前存在迁移到 default group 的 mock 行为，正式逻辑不应静默迁移。
-4. Device Model Update 当前直接修改 mock store，尚未做 Change Impact。
-5. Task 编辑当前直接更新 mock 状态，未完整模拟运行实例停止/恢复。
-6. Config 的 Validate/Save/Apply 当前均为 mock，后续必须进入统一配置事务。
-7. Debug、Verification、Quality、Logs 当前数据主要为 mock，后端必须返回真实运行数据。
-8. Overview 当前为本地聚合 mock；后续应由后端提供一致时间点的快照或可组合查询。
-9. Point Connectivity Test 当前为 mock，多类型候选 UI 可以保留，但数据必须来自真实单点读取。
+1. Point Table 使用真实继承语义并采用引用保护。
+2. Device Connection 使用 Model Defaults + Device Overrides。
+3. Global ADS Settings 独立于 Model/Device，符合当前进程级 ADS Router 语义。
+4. Device Model 支持 Reset Device Overrides，并保留设备身份字段。
+5. Devices 支持 Single / Batch Add，Batch 有模板与 Preview 校验。
+6. Delete All Devices 保留 Task Definition 并重新标记有效性。
+7. 高影响 Meta、Point、Device、Task 修改已表达 Change Impact。
+8. Config、Debug、Verification、Quality、Logs 的真实后端行为仍待 Admin Backend 实现。
 
-本文优先级高于上述 mock 行为；开发后端时不得为了迁就 mock 而固化错误语义。
+本文优先级高于 mock 数据细节。

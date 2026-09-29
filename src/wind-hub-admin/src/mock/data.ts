@@ -13,6 +13,16 @@ const systemInfo = {
   adminVersion: 'v0.3.0',
   runtimeStatus: 'RUNNING',
   configSet: 'template',
+  ads: {
+    local_ip: '192.168.151.244',
+    local_ams_net_id: '192.168.151.244.1.2',
+    route_repair: {
+      enabled: false,
+      route_name: 'PFR',
+      username: 'Administrator',
+      password: '',
+    },
+  },
 }
 
 const units: Record<string, UnitDef> = {
@@ -209,7 +219,7 @@ for (let i = 1; i <= 48; i++) {
     model: modbus ? 'modbus_wtg' : 'beckhoff_wtg',
     device_group: modbus ? 'turbine_modbus' : 'turbine_ads',
     host: modbus ? `192.168.100.${100 + i}` : `192.168.151.${i}`,
-    port: modbus ? 502 : 48898,
+    port: undefined,
     extensions: modbus ? {} : { target_net_id: `192.168.151.${i}.1.1` },
     enabled: true,
     online: i !== 41,
@@ -221,7 +231,7 @@ for (let i = 1; i <= 8; i++) {
     model: 'pcs_modbus_a',
     device_group: 'storage_pcs',
     host: `192.168.60.${10 + i}`,
-    port: 502,
+    port: undefined,
     extensions: {},
     enabled: true,
     online: true,
@@ -381,6 +391,37 @@ export function validateAddress(protocol: string, a: PointAddress): string {
   return ''
 }
 
+
+export const DEVICE_IDENTITY_EXTENSION_KEYS = new Set(['target_net_id'])
+
+export function effectiveConnection(d: DeviceInst): Record<string, unknown> {
+  const model = modelOf(d)
+  return {
+    ...(model?.connection_defaults || {}),
+    ...(d.extensions || {}),
+    port: d.port ?? model?.connection_defaults?.port,
+  }
+}
+
+export function deviceConnectionOverrides(d: DeviceInst): Record<string, unknown> {
+  const model = modelOf(d)
+  const defaults = model?.connection_defaults || {}
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(d.extensions || {})) {
+    if (DEVICE_IDENTITY_EXTENSION_KEYS.has(key) || defaults[key] !== value) result[key] = value
+  }
+  return result
+}
+
+export function resetDeviceConnectionOverrides(d: DeviceInst): number {
+  const removable = Object.keys(d.extensions || {}).filter(key => !DEVICE_IDENTITY_EXTENSION_KEYS.has(key))
+  d.extensions = Object.fromEntries(
+    Object.entries(d.extensions || {}).filter(([key]) => DEVICE_IDENTITY_EXTENSION_KEYS.has(key)),
+  )
+  const hadPortOverride = d.port !== undefined
+  d.port = undefined
+  return removable.length + (hadPortOverride ? 1 : 0)
+}
 
 export function defaultPointTableFor(protocol: string): string {
   return DEFAULT_POINT_TABLE_BY_PROTOCOL[protocol as keyof typeof DEFAULT_POINT_TABLE_BY_PROTOCOL] || ''
