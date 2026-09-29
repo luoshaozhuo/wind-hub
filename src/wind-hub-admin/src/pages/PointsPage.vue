@@ -4,9 +4,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DEFAULT_POINT_GROUP_ID,
   addressText,
-  defaultPointTableFor,
+  affectedByPointTables,
+  descendantTableIds,
   isDefaultPointGroup,
   isDefaultPointTable,
+  pointOrigin,
   pointsOfTable,
   refreshTaskValidity,
   store,
@@ -32,6 +34,39 @@ const addrLabel = computed(() =>
   protocol.value === 'ads' ? 'Symbol / Index' : protocol.value === 'modbus' ? 'Type / Address' : 'IOA',
 )
 const addressOf = (p: PointDef) => addressText(protocol.value, p)
+const originOf = (p: PointDef) => pointOrigin(pointTable.value, p.point_id)
+
+function tableImpact(tableId: string) {
+  const tables = [tableId, ...descendantTableIds(tableId)]
+  return affectedByPointTables(tables)
+}
+
+async function confirmTableImpact(tableId: string, title: string, action: string) {
+  const impact = tableImpact(tableId)
+  const running = impact.tasks.filter(t => t.runtime === 'RUNNING')
+  if (!impact.devices.length && !impact.tasks.length && impact.tables.length === 1) return true
+  await ElMessageBox.confirm(
+    '<b>' + action + '</b><br><br>' +
+    impact.tables.length + ' Point Table(s) affected.<br>' +
+    impact.devices.length + ' Device(s) affected.<br>' +
+    impact.tasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br><br>' +
+    'Affected running tasks will be stopped while the change is applied and restored if they remain valid.',
+    title,
+    { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+  )
+  return true
+}
+
+function withAffectedTasksStopped(tableId: string, apply: () => void) {
+  const impact = tableImpact(tableId)
+  const runningIds = new Set(impact.tasks.filter(t => t.runtime === 'RUNNING').map(t => t.task_id))
+  for (const t of impact.tasks) if (runningIds.has(t.task_id)) t.runtime = 'STOPPED'
+  apply()
+  refreshTaskValidity()
+  for (const t of impact.tasks) {
+    if (runningIds.has(t.task_id) && t.valid !== false && t.enabled) t.runtime = 'RUNNING'
+  }
+}
 
 // ---- Point metadata management ----
 type ManageSection = 'table' | 'group'
@@ -155,6 +190,8 @@ const tableRows = computed(() => store.pointTables.map(t => {
   return {
     ...t,
     points: pointsOfTable(t.id).length,
+    localPoints: (store.points[t.id] || []).length,
+    inheritedPoints: t.extends ? pointsOfTable(t.extends).filter(p => !(store.points[t.id] || []).some(x => x.point_id === p.point_id) && !(t.remove_points || []).includes(p.point_id)).length : 0,
     models: modelIds.length,
     devices,
     childTables: store.pointTables.filter(x => x.extends === t.id).length,
@@ -225,6 +262,10 @@ async function saveTable() {
       ElMessage.error('Parent table must use the same protocol')
       return
     }
+    if (descendantTableIds(id).includes(tableDraft.extends)) {
+      ElMessage.error('Point table inheritance cycle is not allowed')
+      return
+    }
   }
 
   if (tableEditingId.value) {
@@ -234,57 +275,50 @@ async function saveTable() {
       ElMessage.warning('System default Point Tables cannot be modified')
       return
     }
-
-    const oldId = target.id
-    const oldProtocol = target.protocol
-    const protocolChanged = oldProtocol !== tableDraft.protocol
-    const idChanged = oldId !== id
-
-    if (protocolChanged) {
-      const pointCount = pointsOfTable(oldId).length
-      const modelCount = store.deviceModels.filter(m => m.point_table === oldId).length
-      const childCount = store.pointTables.filter(t => t.extends === oldId).length
-      await ElMessageBox.confirm(
-        '<b>Change protocol ' + oldProtocol.toUpperCase() + ' → ' + tableDraft.protocol.toUpperCase() + '?</b><br><br>' +
-        pointCount + ' point address definition(s) will be cleared.<br>' +
-        modelCount + ' Device Model binding(s) may be moved to their protocol default table.<br>' +
-        childCount + ' child table inheritance link(s) may be cleared if incompatible.',
-        'Protocol Change Impact',
-        { type: 'warning', confirmButtonText: 'Change Protocol', dangerouslyUseHTMLString: true },
-      )
+    if (id !== target.id) {
+      ElMessage.warning('Point Table ID is stable after creation')
+      return
     }
 
-    if (idChanged) {
-      store.points[id] = store.points[oldId] || []
-      delete store.points[oldId]
-      for (const m of store.deviceModels) if (m.point_table === oldId) m.point_table = id
-      for (const t of store.pointTables) if (t.extends === oldId) t.extends = id
-      if (pointTable.value === oldId) pointTable.value = id
-      target.id = id
-    }
+    const protocolChanged = target.protocol !== tableDraft.protocol
+    const parentChanged = target.extends !== tableDraft.extends
 
     if (protocolChanged) {
-      for (const p of store.points[id]) p.address = {}
-      for (const m of store.deviceModels) {
-        if (m.point_table === id && m.protocol !== tableDraft.protocol) {
-          m.point_table = defaultPointTableFor(m.protocol)
-        }
-      }
-      for (const child of store.pointTables) {
-        if (child.extends === id && child.protocol !== tableDraft.protocol) child.extends = ''
+      const childCount = store.pointTables.filter(t => t.extends === target.id).length
+      const modelCount = store.deviceModels.filter(m => m.point_table === target.id).length
+      if (childCount || modelCount || pointsOfTable(target.id).length) {
+        ElMessage.warning('Protocol cannot be changed while the table has points, child tables, or Device Model references')
+        return
       }
     }
 
-    target.protocol = tableDraft.protocol
-    target.extends = tableDraft.extends
-    tableEditingId.value = id
-    refreshTaskValidity()
-    ElMessage.success('Point table updated and references migrated (mock)')
+    if (parentChanged && tableDraft.extends) {
+      const parentIds = new Set(pointsOfTable(tableDraft.extends).map(p => p.point_id))
+      const invalidRemoved = (target.remove_points || []).filter(pid => !parentIds.has(pid))
+      if (invalidRemoved.length) {
+        ElMessage.error('New parent does not contain removed point(s): ' + invalidRemoved.join(', '))
+        return
+      }
+    }
+
+    if (protocolChanged || parentChanged) {
+      await confirmTableImpact(target.id, 'Point Table Change Impact',
+        protocolChanged ? 'Change Point Table protocol?' : 'Change parent Point Table?')
+    }
+
+    withAffectedTasksStopped(target.id, () => {
+      target.protocol = tableDraft.protocol
+      target.extends = tableDraft.extends
+    })
+    ElMessage.success('Point table updated (mock)')
   } else {
-    store.pointTables.push({ id, protocol: tableDraft.protocol, extends: tableDraft.extends })
-    store.points[id] = tableDraft.extends
-      ? pointsOfTable(tableDraft.extends).map(p => ({ ...p, address: { ...p.address }, point_groups: [...p.point_groups] }))
-      : []
+    store.pointTables.push({
+      id,
+      protocol: tableDraft.protocol,
+      extends: tableDraft.extends,
+      remove_points: [],
+    })
+    store.points[id] = []
     pointTable.value = id
     ElMessage.success('Point table created (mock)')
     newTable()
@@ -297,37 +331,32 @@ async function deleteTable(row: { id: string; protocol: Protocol; points: number
     return
   }
 
-  const affectedModelIds = store.deviceModels.filter(m => m.point_table === row.id).map(m => m.id)
-  const affectedDeviceIds = new Set(store.devices.filter(d => affectedModelIds.includes(d.model)).map(d => d.device_id))
-  const affectedTasks = store.tasks.filter(t => {
-    if (t.device) return affectedDeviceIds.has(t.device)
-    if (t.device_group) return store.devices.some(d => d.device_group === t.device_group && affectedDeviceIds.has(d.device_id))
-    return false
-  }).length
+  const children = store.pointTables.filter(t => t.extends === row.id)
+  const models = store.deviceModels.filter(m => m.point_table === row.id)
+  if (children.length || models.length) {
+    ElMessage.warning(
+      'Cannot delete: referenced by ' + children.length + ' child table(s) and ' +
+      models.length + ' Device Model(s)',
+    )
+    return
+  }
 
   await ElMessageBox.confirm(
     '<b>Delete Point Table "' + row.id + '"?</b><br><br>' +
-    row.points + ' point(s) will be removed.<br>' +
-    row.models + ' Device Model(s) / ' + row.devices + ' Device(s) will be reassigned to <b>' + defaultPointTableFor(row.protocol) + '</b>.<br>' +
-    row.childTables + ' child table inheritance link(s) will be cleared.<br>' +
-    affectedTasks + ' affected Task(s) will become invalid and cannot be started until configuration is repaired.',
-    'Delete Point Table — Impact',
+    row.points + ' effective point(s) will no longer be available.<br>' +
+    'No references will be migrated automatically.',
+    'Delete Point Table',
     { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
   )
 
-  for (const m of store.deviceModels) {
-    if (m.point_table === row.id) m.point_table = defaultPointTableFor(m.protocol)
-  }
-  for (const t of store.pointTables) {
-    if (t.extends === row.id) t.extends = ''
-  }
-
   store.pointTables.splice(store.pointTables.findIndex(t => t.id === row.id), 1)
   delete store.points[row.id]
-  if (pointTable.value === row.id) pointTable.value = defaultPointTableFor(row.protocol)
+  if (pointTable.value === row.id) {
+    pointTable.value = store.pointTables.find(t => !t.system)?.id || store.pointTables[0]?.id || ''
+  }
   if (tableEditingId.value === row.id) newTable()
   refreshTaskValidity()
-  ElMessage.success('Point table deleted; affected references moved to default placeholders (mock)')
+  ElMessage.success('Point table deleted (mock)')
 }
 
 function newGroup() {
@@ -364,24 +393,17 @@ function saveGroup() {
       ElMessage.warning('System default Point Group cannot be modified')
       return
     }
-
-    const oldId = target.id
-    if (oldId !== id) {
-      for (const list of Object.values(store.points)) {
-        for (const p of list) p.point_groups = p.point_groups.map(g => g === oldId ? id : g)
-      }
-      for (const t of store.tasks) if (t.point_group === oldId) t.point_group = id
-      target.id = id
-      groupEditingId.value = id
+    if (id !== target.id) {
+      ElMessage.warning('Point Group ID is stable after creation')
+      return
     }
     target.name = groupDraft.name.trim() || target.id
-    refreshTaskValidity()
   } else {
     store.pointGroups.push({ id, name: groupDraft.name.trim() || id })
     newGroup()
   }
 
-  ElMessage.success(groupEditingId.value ? 'Point group updated and references migrated (mock)' : 'Point group created (mock)')
+  ElMessage.success(groupEditingId.value ? 'Point group updated (mock)' : 'Point group created (mock)')
 }
 
 async function deleteGroup(row: { id: string; points: number; tasks: number; system?: boolean }) {
@@ -390,29 +412,26 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
     return
   }
 
-  await ElMessageBox.confirm(
-    '<b>Delete Point Group "' + row.id + '"?</b><br><br>' +
-    row.points + ' point reference(s) will be updated.<br>' +
-    row.tasks + ' Task(s) using this group will be moved to <b>' + DEFAULT_POINT_GROUP_ID + '</b> and become invalid.<br><br>' +
-    'Points that would otherwise have no group will be assigned to the default placeholder group.',
-    'Delete Point Group — Impact',
-    { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
+  const referencedPoints = Object.values(store.points).reduce(
+    (sum, list) => sum + list.filter(p => p.point_groups.includes(row.id)).length, 0,
   )
-
-  for (const list of Object.values(store.points)) {
-    for (const p of list) {
-      p.point_groups = p.point_groups.filter(g => g !== row.id)
-      if (!p.point_groups.length) p.point_groups = [DEFAULT_POINT_GROUP_ID]
-    }
-  }
-  for (const t of store.tasks) {
-    if (t.point_group === row.id) t.point_group = DEFAULT_POINT_GROUP_ID
+  const tasks = store.tasks.filter(t => t.point_group === row.id)
+  if (referencedPoints || tasks.length) {
+    ElMessage.warning(
+      'Cannot delete: referenced by ' + referencedPoints + ' local point definition(s) and ' +
+      tasks.length + ' Task(s)',
+    )
+    return
   }
 
+  await ElMessageBox.confirm(
+    'Delete Point Group "' + row.id + '"? References will not be migrated automatically.',
+    'Delete Point Group',
+    { type: 'warning', confirmButtonText: 'Delete' },
+  )
   store.pointGroups.splice(store.pointGroups.findIndex(g => g.id === row.id), 1)
   if (groupEditingId.value === row.id) newGroup()
-  refreshTaskValidity()
-  ElMessage.success('Point group deleted; affected references migrated (mock)')
+  ElMessage.success('Point group deleted (mock)')
 }
 
 // ---- Add / Edit Point ----
@@ -499,7 +518,7 @@ function draftAddress(): PointAddress {
   return { ioa: draft.ioa, ...(draft.ioa_type.trim() ? { type: draft.ioa_type.trim() } : {}) }
 }
 
-function savePoint() {
+async function savePoint() {
   const id = draft.point_id.trim()
   const list = store.points[pointTable.value]
   if (!list) return
@@ -507,7 +526,11 @@ function savePoint() {
     ElMessage.error('Point ID is required')
     return
   }
-  if (list.some(p => p.point_id === id && p.point_id !== editing.value)) {
+  if (editing.value && id !== editing.value) {
+    ElMessage.warning('Point ID is stable after creation')
+    return
+  }
+  if (!editing.value && pointsOfTable(pointTable.value).some(p => p.point_id === id)) {
     ElMessage.error('Point ID "' + id + '" already exists in this Point Table')
     return
   }
@@ -541,22 +564,58 @@ function savePoint() {
     unit: draft.unit,
     description: draft.description.trim(),
   }
+
   if (editing.value) {
+    await confirmTableImpact(pointTable.value, 'Point Change Impact',
+      originOf({ ...row, point_id: editing.value }) === 'inherited'
+        ? 'Create an override for this inherited point?'
+        : 'Update this point definition?')
+  }
+
+  withAffectedTasksStopped(pointTable.value, () => {
     const i = list.findIndex(p => p.point_id === editing.value)
     if (i >= 0) list.splice(i, 1, row)
-  } else {
-    list.push(row)
-  }
+    else list.push(row)
+    const table = store.pointTables.find(t => t.id === pointTable.value)
+    if (table) table.remove_points = (table.remove_points || []).filter(pid => pid !== id)
+  })
+
   pointEdit.value = false
   ElMessage.success(editing.value ? 'Point updated and applied (mock)' : 'Point added and applied (mock)')
 }
 
 async function delPoint(p: PointDef) {
-  await ElMessageBox.confirm('删除点 ' + p.point_id + '？', 'Delete Point', { type: 'warning' })
-  const list = store.points[pointTable.value]
-  list.splice(list.indexOf(p), 1)
-  ElMessage.success('Point deleted and applied (mock)')
+  const origin = originOf(p)
+  await confirmTableImpact(pointTable.value, 'Point Delete Impact',
+    origin === 'inherited' ? 'Exclude this inherited point from the child table?' : 'Delete this point from the effective table?')
+
+  withAffectedTasksStopped(pointTable.value, () => {
+    const list = store.points[pointTable.value]
+    const localIndex = list.findIndex(x => x.point_id === p.point_id)
+    if (localIndex >= 0) list.splice(localIndex, 1)
+
+    const table = store.pointTables.find(t => t.id === pointTable.value)
+    if (table?.extends) {
+      const parentHasPoint = pointsOfTable(table.extends).some(x => x.point_id === p.point_id)
+      if (parentHasPoint && !table.remove_points.includes(p.point_id)) table.remove_points.push(p.point_id)
+    }
+  })
+  ElMessage.success(origin === 'inherited' ? 'Inherited point excluded (mock)' : 'Point deleted (mock)')
 }
+
+async function resetOverride(p: PointDef) {
+  if (originOf(p) !== 'override') return
+  await confirmTableImpact(pointTable.value, 'Reset Override Impact', 'Restore the parent definition for this point?')
+  withAffectedTasksStopped(pointTable.value, () => {
+    const list = store.points[pointTable.value]
+    const i = list.findIndex(x => x.point_id === p.point_id)
+    if (i >= 0) list.splice(i, 1)
+    const table = store.pointTables.find(t => t.id === pointTable.value)
+    if (table) table.remove_points = table.remove_points.filter(id => id !== p.point_id)
+  })
+  ElMessage.success('Override reset to parent definition (mock)')
+}
+
 </script>
 
 <template>
@@ -589,14 +648,16 @@ async function delPoint(p: PointDef) {
         <el-table-column prop="point_id" label="Point" />
         <el-table-column prop="variable_name" label="Variable" />
         <el-table-column :label="addrLabel"><template #default="s">{{ addressOf(s.row) }}</template></el-table-column>
+        <el-table-column v-if="!isMobile" label="Source" width="105"><template #default="s"><el-tag size="small" :type="originOf(s.row)==='inherited'?'info':originOf(s.row)==='override'?'warning':''">{{ originOf(s.row) }}</el-tag></template></el-table-column>
         <el-table-column v-if="!isMobile" prop="data_type" label="Data Type" />
         <el-table-column v-if="!isMobile" label="Groups"><template #default="s"><el-tag v-for="g in s.row.point_groups" :key="g" class="group-tag">{{ g }}</el-tag></template></el-table-column>
         <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
         <el-table-column v-if="!isTablet" prop="offset" label="Offset" />
         <el-table-column v-if="!isMobile" label="Unit"><template #default="s">{{ unitSymbol(s.row.unit) || s.row.unit }}</template></el-table-column>
-        <el-table-column label="Actions" :width="isMobile ? 128 : 150">
+        <el-table-column label="Actions" :width="isMobile ? 128 : 225">
           <template #default="s">
             <el-button size="small" @click="openEdit(s.row)">Edit</el-button>
+            <el-button v-if="originOf(s.row)==='override'" size="small" @click="resetOverride(s.row)">Reset</el-button>
             <el-button size="small" type="danger" plain @click="delPoint(s.row)">Delete</el-button>
           </template>
         </el-table-column>
@@ -634,7 +695,8 @@ async function delPoint(p: PointDef) {
                   <template v-if="manageSection === 'table'">
                     <b>{{ row.id }}</b>
                     <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
-                    <small>{{ row.points }} points · {{ row.models }} models</small>
+                    <small>{{ row.points }} effective · {{ row.localPoints }} local · {{ row.inheritedPoints }} inherited</small>
+                    <small>{{ row.models }} models · {{ row.devices }} devices</small>
                   </template>
                   <template v-else>
                     <b>{{ row.name }}</b>
@@ -665,7 +727,7 @@ async function delPoint(p: PointDef) {
           </div>
 
           <el-form v-if="manageSection === 'table'" label-position="top">
-            <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!editingTable?.system" /></el-form-item>
+            <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!tableEditingId" /></el-form-item>
             <el-form-item label="Protocol">
               <el-select v-model="tableDraft.protocol" style="width:100%" :disabled="!!editingTable?.system" @change="tableDraft.extends = ''">
                 <el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" />
@@ -681,7 +743,7 @@ async function delPoint(p: PointDef) {
           </el-form>
 
           <el-form v-else label-position="top">
-            <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!editingGroup?.system" /></el-form-item>
+            <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!groupEditingId" /></el-form-item>
             <el-form-item label="Name"><el-input v-model="groupDraft.name" /></el-form-item>
             <div class="metadata-editor-actions"><el-button @click="newGroup">Clear</el-button><el-button type="primary" @click="saveGroup">{{ groupEditingId ? 'Update' : 'Create' }}</el-button></div>
           </el-form>
@@ -704,7 +766,7 @@ async function delPoint(p: PointDef) {
             </div>
             <el-form label-position="top">
               <div class="grid">
-                <el-form-item label="Point ID"><el-input v-model="draft.point_id" /></el-form-item>
+                <el-form-item label="Point ID"><el-input v-model="draft.point_id" :disabled="!!editing" /></el-form-item>
                 <el-form-item label="Variable Name"><el-input v-model="draft.variable_name" /></el-form-item>
                 <template v-if="protocol === 'ads'">
                   <el-form-item label="Symbol"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>

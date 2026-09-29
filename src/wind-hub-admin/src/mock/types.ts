@@ -46,8 +46,11 @@ export interface PointTableDef {
   id: string
   protocol: Protocol
   extends: string
+  remove_points: string[]
   system?: boolean
 }
+
+export type PointOrigin = 'inherited' | 'override' | 'local'
 
 export interface PointGroupDef {
   id: string

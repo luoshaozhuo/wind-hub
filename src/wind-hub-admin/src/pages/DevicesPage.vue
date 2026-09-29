@@ -4,8 +4,10 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
 import {
+  devicesForTask,
   modelOf,
   pointsOfTable,
+  refreshTaskValidity,
   store,
   tableOfDevice,
   unitSymbol,
@@ -710,20 +712,48 @@ function onEditProtocolChange() {
   }
 }
 
-function saveConfig() {
+function affectedTasksForDevice(d: DeviceInst, nextGroup = d.device_group) {
+  const groups = new Set([d.device_group, nextGroup].filter(Boolean))
+  return store.tasks.filter(t =>
+    (t.device && t.device === d.device_id) ||
+    (t.device_group && groups.has(t.device_group)),
+  )
+}
+
+async function changeDeviceEnabled(d: DeviceInst, enabled: boolean) {
+  const affected = affectedTasksForDevice(d)
+  const running = affected.filter(t => t.runtime === 'RUNNING')
+  if (!enabled && running.length) {
+    try {
+      await ElMessageBox.confirm(
+        'Disabling "' + d.device_id + '" affects ' + running.length +
+        ' running Task definition(s). The device instances will be stopped; other group members remain unaffected.',
+        'Disable Device',
+        { type: 'warning', confirmButtonText: 'Disable' },
+      )
+    } catch {
+      d.enabled = true
+      return
+    }
+    for (const t of running) {
+      if (t.device === d.device_id) t.runtime = 'STOPPED'
+    }
+  }
+  refreshTaskValidity()
+}
+
+async function saveConfig() {
   if (!selected.value) return
 
-  const oldDeviceId = selected.value.device_id
+  const device = selected.value
+  const oldDeviceId = device.device_id
   const newDeviceId = editForm.value.device_id.trim()
   if (!newDeviceId) {
     ElMessage.error('Device ID is required')
     return
   }
-  if (
-    newDeviceId !== oldDeviceId &&
-    store.devices.some(d => d !== selected.value && d.device_id === newDeviceId)
-  ) {
-    ElMessage.error(`Device ID ${newDeviceId} already exists`)
+  if (newDeviceId !== oldDeviceId) {
+    ElMessage.warning('Device ID is stable after creation')
     return
   }
 
@@ -732,26 +762,32 @@ function saveConfig() {
     ElMessage.error('Select a valid model')
     return
   }
-
-  model.device_type = editForm.value.device_type
-  model.manufacturer = editForm.value.manufacturer.trim()
-  model.model = editForm.value.hardware_model.trim()
-  model.protocol = editForm.value.protocol as typeof model.protocol
-  model.point_table = editForm.value.point_table
-  model.read_mode = editForm.value.protocol === 'ads' ? editForm.value.read_mode : ''
+  const group = store.deviceGroups.find(g => g.id === editForm.value.device_group)
+  if (!group || group.device_type !== model.device_type) {
+    ElMessage.error('Device Group must match the selected Model device type')
+    return
+  }
+  if (!editForm.value.host.trim()) {
+    ElMessage.error('Host is required')
+    return
+  }
 
   const extensions: Record<string, unknown> = {}
-  if (editForm.value.protocol === 'ads') {
+  if (model.protocol === 'ads') {
+    if (!editForm.value.target_net_id.trim()) {
+      ElMessage.error('Target AMS Net ID is required for ADS')
+      return
+    }
     extensions.target_net_id = editForm.value.target_net_id.trim()
     extensions.target_port = editForm.value.target_port
     extensions.twincat_version = editForm.value.twincat_version
     extensions.timeout = editForm.value.timeout
-  } else if (editForm.value.protocol === 'modbus') {
+  } else if (model.protocol === 'modbus') {
     extensions.unit_id = editForm.value.unit_id
     extensions.mode = editForm.value.mode
     extensions.timeout = editForm.value.timeout
     extensions.word_order = editForm.value.word_order
-  } else if (editForm.value.protocol === 'iec104') {
+  } else if (model.protocol === 'iec104') {
     extensions.common_addr = editForm.value.common_addr
     extensions.k = editForm.value.k
     extensions.w = editForm.value.w
@@ -762,22 +798,42 @@ function saveConfig() {
     extensions.max_reconnect_retries = editForm.value.max_reconnect_retries
   }
 
-  Object.assign(selected.value, {
-    device_id: newDeviceId,
+  const modelChanged = device.model !== model.id
+  const groupChanged = device.device_group !== editForm.value.device_group
+  const endpointChanged =
+    device.host !== editForm.value.host.trim() ||
+    (device.port || 0) !== (editForm.value.port || 0) ||
+    JSON.stringify(device.extensions || {}) !== JSON.stringify(extensions)
+
+  const affectedTasks = affectedTasksForDevice(device, editForm.value.device_group)
+  const running = affectedTasks.filter(t => t.runtime === 'RUNNING')
+  if ((modelChanged || groupChanged || endpointChanged) && affectedTasks.length) {
+    await ElMessageBox.confirm(
+      '<b>Device Configuration Change Impact</b><br><br>' +
+      affectedTasks.length + ' Task definition(s) affected; ' + running.length + ' currently running.<br>' +
+      (modelChanged ? 'Device Model / Point Table binding will change.<br>' : '') +
+      (groupChanged ? 'Device Group task membership will be recalculated.<br>' : '') +
+      (endpointChanged ? 'The device connection will be rebuilt.<br>' : '') +
+      '<br>Only affected acquisition instances will be stopped and restored if still valid.',
+      'Apply Device Changes',
+      { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+    )
+  }
+
+  const runningIds = new Set(running.map(t => t.task_id))
+  for (const t of running) t.runtime = 'STOPPED'
+
+  Object.assign(device, {
     device_group: editForm.value.device_group,
-    model: editForm.value.model,
+    model: model.id,
     host: editForm.value.host.trim(),
     port: editForm.value.port || undefined,
     extensions,
   })
 
-  if (newDeviceId !== oldDeviceId) {
-    const verification = store.deviceVerification[oldDeviceId]
-    delete store.deviceVerification[oldDeviceId]
-    if (verification) store.deviceVerification[newDeviceId] = verification
-    for (const task of store.tasks) {
-      if (task.device === oldDeviceId) task.device = newDeviceId
-    }
+  refreshTaskValidity()
+  for (const t of affectedTasks) {
+    if (runningIds.has(t.task_id) && t.valid !== false && t.enabled) t.runtime = 'RUNNING'
   }
 
   loadEditForm()
@@ -786,21 +842,28 @@ function saveConfig() {
 
 async function del() {
   if (!selected.value) return
-  const id = selected.value.device_id
-  const direct = store.tasks.filter(t => t.device === id).length
+  const target = selected.value
+  const id = target.device_id
+  const directTasks = store.tasks.filter(t => t.device === id)
+  const groupTasks = store.tasks.filter(t => t.device_group === target.device_group)
+  const running = affectedTasksForDevice(target).filter(t => t.runtime === 'RUNNING')
+
   await ElMessageBox.confirm(
-    `删除 ${id}？将删除直接引用该设备的 ${direct} 个任务定义；Group 任务保留。`,
+    '<b>Delete Device "' + id + '"?</b><br><br>' +
+    running.length + ' running Task definition(s) have instances affected.<br>' +
+    directTasks.length + ' direct Task definition(s) will be kept and become INVALID.<br>' +
+    groupTasks.length + ' group Task definition(s) will remain and continue with their other devices.<br><br>' +
+    'No Task definition will be deleted automatically.',
     'Delete Device',
-    {
-      type: 'warning',
-      confirmButtonText: 'Delete',
-    },
+    { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
   )
-  store.tasks = store.tasks.filter(t => t.device !== id)
-  store.devices = store.devices.filter(x => x !== selected.value)
+
+  for (const t of directTasks) t.runtime = 'STOPPED'
+  store.devices = store.devices.filter(x => x !== target)
   delete store.deviceVerification[id]
+  refreshTaskValidity()
   drawer.value = false
-  ElMessage.success('Device deleted (mock)')
+  ElMessage.success('Device deleted; referenced task definitions were preserved (mock)')
 }
 
 const selectedModel = computed(() => selected.value ? modelOf(selected.value) : undefined)
@@ -1124,7 +1187,7 @@ async function sendCommand() {
             <el-link class="device-id-link" :underline="false" @click="openDev(d)">{{ d.device_id }}</el-link>
             <div class="device-enabled">
               <span>Enabled</span>
-              <el-switch v-model="d.enabled" size="small" />
+              <el-switch v-model="d.enabled" size="small" @change="changeDeviceEnabled(d, !!$event)" />
             </div>
           </div>
 
@@ -1399,11 +1462,11 @@ async function sendCommand() {
                   <div class="config-section">
                     <div class="form-grid config-edit-grid">
                       <el-form-item label="Device ID">
-                        <el-input v-model="editForm.device_id" />
+                        <el-input v-model="editForm.device_id" disabled />
                       </el-form-item>
 
                       <el-form-item label="Type">
-                        <el-select v-model="editForm.device_type" style="width:100%" @change="onEditTypeChange">
+                        <el-select v-model="editForm.device_type" style="width:100%" disabled>
                           <el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name" :value="t.id" />
                         </el-select>
                       </el-form-item>
@@ -1420,11 +1483,11 @@ async function sendCommand() {
                       </el-form-item>
 
                       <el-form-item label="Manufacturer">
-                        <el-input v-model="editForm.manufacturer" />
+                        <el-input v-model="editForm.manufacturer" disabled />
                       </el-form-item>
 
                       <el-form-item label="Hardware Model">
-                        <el-input v-model="editForm.hardware_model" />
+                        <el-input v-model="editForm.hardware_model" disabled />
                       </el-form-item>
 
                       <el-form-item label="Group">
@@ -1439,7 +1502,7 @@ async function sendCommand() {
                       </el-form-item>
 
                       <el-form-item label="Protocol">
-                        <el-select v-model="editForm.protocol" style="width:100%" @change="onEditProtocolChange">
+                        <el-select v-model="editForm.protocol" style="width:100%" disabled>
                           <el-option label="ADS" value="ads" />
                           <el-option label="Modbus" value="modbus" />
                           <el-option label="IEC 104" value="iec104" />
@@ -1447,7 +1510,7 @@ async function sendCommand() {
                       </el-form-item>
 
                       <el-form-item label="Point Table">
-                        <el-select v-model="editForm.point_table" style="width:100%">
+                        <el-select v-model="editForm.point_table" style="width:100%" disabled>
                           <el-option
                             v-for="t in store.pointTables.filter(t => t.protocol === editForm.protocol)"
                             :key="t.id"
@@ -1466,7 +1529,7 @@ async function sendCommand() {
                       </el-form-item>
 
                       <el-form-item v-if="editForm.protocol === 'ads'" label="Read Mode">
-                        <el-select v-model="editForm.read_mode" style="width:100%">
+                        <el-select v-model="editForm.read_mode" style="width:100%" disabled>
                           <el-option label="sum" value="sum" />
                           <el-option label="sequential" value="sequential" />
                         </el-select>

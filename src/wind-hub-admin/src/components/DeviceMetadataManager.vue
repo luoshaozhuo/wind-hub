@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { store } from '../mock/data'
+import { devicesForTask, refreshTaskValidity, store } from '../mock/data'
 import { ADS_READ_MODES, PROTOCOLS } from '../mock/types'
 import type { DeviceModelDef, Protocol } from '../mock/types'
 
@@ -231,7 +231,7 @@ function connectionDefaults(): Record<string, unknown> {
   }
 }
 
-function saveModel() {
+async function saveModel() {
   const id = form.id.trim()
   if (!ensureId(id, store.deviceModels.some(x => x.id === id), 'Model')) return
   if (!form.device_type) {
@@ -256,7 +256,37 @@ function saveModel() {
   }
   if (editingId.value) {
     const target = store.deviceModels.find(x => x.id === editingId.value)
-    if (target) Object.assign(target, payload, { id: target.id })
+    if (!target) return
+
+    const devices = store.devices.filter(d => d.model === target.id)
+    const deviceIds = new Set(devices.map(d => d.device_id))
+    const affectedTasks = store.tasks.filter(t => devicesForTask(t).some(d => deviceIds.has(d.device_id)))
+    const running = affectedTasks.filter(t => t.runtime === 'RUNNING')
+    const protocolChanged = target.protocol !== payload.protocol
+    const tableChanged = target.point_table !== payload.point_table
+    const connectionChanged = JSON.stringify(target.connection_defaults) !== JSON.stringify(payload.connection_defaults)
+    const runtimeImpact = protocolChanged || tableChanged || connectionChanged || target.read_mode !== payload.read_mode
+
+    if (runtimeImpact && devices.length) {
+      await ElMessageBox.confirm(
+        '<b>Device Model Change Impact</b><br><br>' +
+        devices.length + ' Device(s) affected.<br>' +
+        affectedTasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br>' +
+        (protocolChanged || connectionChanged ? 'Affected protocol connections will be rebuilt.<br>' : '') +
+        (tableChanged ? 'Point mappings will be replaced.<br>' : '') +
+        '<br>Running tasks will be stopped while applying and restored if still valid.',
+        'Apply Device Model Changes',
+        { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+      )
+    }
+
+    const runningIds = new Set(running.map(t => t.task_id))
+    for (const t of affectedTasks) if (runningIds.has(t.task_id)) t.runtime = 'STOPPED'
+    Object.assign(target, payload, { id: target.id })
+    refreshTaskValidity()
+    for (const t of affectedTasks) {
+      if (runningIds.has(t.task_id) && t.valid !== false && t.enabled) t.runtime = 'RUNNING'
+    }
   } else {
     store.deviceModels.push(payload)
   }
@@ -277,7 +307,7 @@ function saveType() {
   resetForm()
 }
 
-function saveGroup() {
+async function saveGroup() {
   const id = form.id.trim()
   if (!ensureId(id, store.deviceGroups.some(x => x.id === id), 'Group')) return
   if (!form.device_type) {
@@ -286,7 +316,26 @@ function saveGroup() {
   }
   if (editingId.value) {
     const target = store.deviceGroups.find(x => x.id === editingId.value)
-    if (target) target.device_type = form.device_type
+    if (!target) return
+    if (target.device_type !== form.device_type) {
+      const devices = store.devices.filter(d => d.device_group === target.id)
+      const incompatible = devices.filter(d =>
+        store.deviceModels.find(m => m.id === d.model)?.device_type !== form.device_type,
+      )
+      if (incompatible.length) {
+        ElMessage.error('Cannot change Device Type: ' + incompatible.length + ' existing device(s) use incompatible models')
+        return
+      }
+      const tasks = store.tasks.filter(t => t.device_group === target.id)
+      if (devices.length || tasks.length) {
+        await ElMessageBox.confirm(
+          devices.length + ' Device(s) and ' + tasks.length + ' group Task(s) reference this group. Apply the classification change?',
+          'Device Group Change Impact',
+          { type: 'warning', confirmButtonText: 'Apply Changes' },
+        )
+      }
+      target.device_type = form.device_type
+    }
   } else {
     store.deviceGroups.push({ id, device_type: form.device_type })
   }

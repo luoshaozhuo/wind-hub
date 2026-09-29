@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
 import { CONFIG_FILES, updateMockSiteYaml, yamlDiffs, yamlFiles } from '../mock/yaml'
 
@@ -79,7 +79,18 @@ function save() {
     : `${file.value} saved (mock)`)
 }
 
-function saveApply() {
+async function saveApply() {
+  if (!yamlFiles[file.value].trim()) {
+    ElMessage.error(`${file.value} is empty`)
+    return
+  }
+  if (yamlFiles[file.value] !== appliedSnapshot[file.value]) {
+    await ElMessageBox.confirm(
+      'The configuration will be validated, saved and applied. Affected running tasks may be stopped and restored according to the change impact.',
+      'Save & Apply',
+      { type: 'warning', confirmButtonText: 'Apply Changes' },
+    )
+  }
   savedSnapshot[file.value] = yamlFiles[file.value]
   appliedSnapshot[file.value] = yamlFiles[file.value]
   dirtyMap[file.value] = false
@@ -137,7 +148,12 @@ function upSave() {
   up.state = 'idle'; up.name = ''
   ElMessage.success(`${up.file} updated from upload — pending apply (mock)`)
 }
-function upApply() {
+async function upApply() {
+  await ElMessageBox.confirm(
+    'Apply the uploaded configuration? The backend must recalculate change impact before applying and reject stale previews.',
+    'Apply Uploaded Configuration',
+    { type: 'warning', confirmButtonText: 'Apply Changes' },
+  )
   appliedSnapshot[up.file] = yamlFiles[up.file]
   savedSnapshot[up.file] = yamlFiles[up.file]
   dirtyMap[up.file] = false

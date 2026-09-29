@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import type {
   DeviceGroupDef, DeviceInst, DeviceModelDef, DeviceTypeDef,
   DeviceVerification, PointAddress, PointDef, PointGroupDef,
-  PointTableDef, SinkDef, TaskDef, UnitDef,
+  PointTableDef, PointOrigin, SinkDef, TaskDef, UnitDef,
 } from './types'
 
 const systemInfo = {
@@ -117,13 +117,13 @@ export const DEFAULT_POINT_TABLE_BY_PROTOCOL = {
 export const DEFAULT_POINT_GROUP_ID = 'default'
 
 const pointTables: PointTableDef[] = [
-  { id: 'default_ads', protocol: 'ads', extends: '', system: true },
-  { id: 'default_modbus', protocol: 'modbus', extends: '', system: true },
-  { id: 'default_iec104', protocol: 'iec104', extends: '', system: true },
-  { id: 'beckhoff_base_v1', protocol: 'ads', extends: '' },
-  { id: 'beckhoff_wtg_v1', protocol: 'ads', extends: 'beckhoff_base_v1' },
-  { id: 'modbus_wtg_v1', protocol: 'modbus', extends: '' },
-  { id: 'pcs_modbus_v1', protocol: 'modbus', extends: '' },
+  { id: 'default_ads', protocol: 'ads', extends: '', remove_points: [], system: true },
+  { id: 'default_modbus', protocol: 'modbus', extends: '', remove_points: [], system: true },
+  { id: 'default_iec104', protocol: 'iec104', extends: '', remove_points: [], system: true },
+  { id: 'beckhoff_base_v1', protocol: 'ads', extends: '', remove_points: [] },
+  { id: 'beckhoff_wtg_v1', protocol: 'ads', extends: 'beckhoff_base_v1', remove_points: [] },
+  { id: 'modbus_wtg_v1', protocol: 'modbus', extends: '', remove_points: [] },
+  { id: 'pcs_modbus_v1', protocol: 'modbus', extends: '', remove_points: [] },
 ]
 
 const pointGroups: PointGroupDef[] = [
@@ -286,8 +286,60 @@ export function tableOfDevice(d: DeviceInst): string {
   return modelOf(d)?.point_table || ''
 }
 
-export function pointsOfTable(tableId: string): PointDef[] {
-  return store.points[tableId] || []
+function clonePoint(p: PointDef): PointDef {
+  return { ...p, address: { ...p.address }, point_groups: [...p.point_groups] }
+}
+
+export function pointsOfTable(tableId: string, stack: string[] = []): PointDef[] {
+  if (stack.includes(tableId)) return []
+  const table = store.pointTables.find(t => t.id === tableId)
+  if (!table) return []
+
+  const resolved = new Map<string, PointDef>()
+  if (table.extends) {
+    for (const p of pointsOfTable(table.extends, [...stack, tableId])) {
+      resolved.set(p.point_id, clonePoint(p))
+    }
+  }
+  for (const id of table.remove_points || []) resolved.delete(id)
+  for (const p of store.points[tableId] || []) resolved.set(p.point_id, clonePoint(p))
+  return [...resolved.values()]
+}
+
+export function pointOrigin(tableId: string, pointId: string): PointOrigin {
+  const table = store.pointTables.find(t => t.id === tableId)
+  const local = (store.points[tableId] || []).some(p => p.point_id === pointId)
+  const inherited = !!table?.extends && pointsOfTable(table.extends).some(p => p.point_id === pointId)
+  if (local && inherited) return 'override'
+  if (local) return 'local'
+  return 'inherited'
+}
+
+export function descendantTableIds(tableId: string): string[] {
+  const result: string[] = []
+  const visit = (id: string) => {
+    for (const child of store.pointTables.filter(t => t.extends === id)) {
+      if (!result.includes(child.id)) {
+        result.push(child.id)
+        visit(child.id)
+      }
+    }
+  }
+  visit(tableId)
+  return result
+}
+
+export function affectedByPointTables(tableIds: string[]) {
+  const tables = [...new Set(tableIds)]
+  const modelIds = store.deviceModels.filter(m => tables.includes(m.point_table)).map(m => m.id)
+  const devices = store.devices.filter(d => modelIds.includes(d.model))
+  const deviceIds = new Set(devices.map(d => d.device_id))
+  const groups = new Set(devices.map(d => d.device_group))
+  const tasks = store.tasks.filter(t =>
+    (t.device && deviceIds.has(t.device)) ||
+    (t.device_group && groups.has(t.device_group))
+  )
+  return { tables, modelIds, devices, tasks }
 }
 
 export function tableProtocol(tableId: string): string {
@@ -343,8 +395,8 @@ export function isDefaultPointGroup(groupId: string): boolean {
 }
 
 export function devicesForTask(t: TaskDef): DeviceInst[] {
-  if (t.device) return store.devices.filter(d => d.device_id === t.device)
-  if (t.device_group) return store.devices.filter(d => d.device_group === t.device_group)
+  if (t.device) return store.devices.filter(d => d.device_id === t.device && d.enabled)
+  if (t.device_group) return store.devices.filter(d => d.device_group === t.device_group && d.enabled)
   return []
 }
 
@@ -360,6 +412,9 @@ export function taskInvalidReason(t: TaskDef): string {
     if (!model) return `Device ${d.device_id} has no valid model`
     if (isDefaultPointTable(model.point_table)) return `Device ${d.device_id} is assigned to a default Point Table`
     if (!store.pointTables.some(pt => pt.id === model.point_table)) return `Device ${d.device_id} references a missing Point Table`
+    if (!pointsOfTable(model.point_table).some(p => p.point_groups.includes(t.point_group))) {
+      return `Device ${d.device_id} Point Table has no points in group '${t.point_group}'`
+    }
   }
   return ''
 }
