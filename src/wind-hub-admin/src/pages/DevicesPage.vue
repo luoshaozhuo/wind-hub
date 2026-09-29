@@ -45,7 +45,6 @@ const mobileFiltersOpen = ref(false)
 const drawer = ref(false)
 const tab = ref('Config')
 const selected = ref<DeviceInst | null>(null)
-const configEditing = ref(false)
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
@@ -695,18 +694,11 @@ function openDev(d: DeviceInst) {
   selected.value = d
   drawer.value = true
   tab.value = 'Config'
-  configEditing.value = false
   loadEditForm()
-}
-
-function beginConfigEdit() {
-  loadEditForm()
-  configEditing.value = true
 }
 
 function cancelConfigEdit() {
   loadEditForm()
-  configEditing.value = false
 }
 
 function loadEditForm() {
@@ -942,7 +934,6 @@ async function saveConfig() {
   }
 
   loadEditForm()
-  configEditing.value = false
   ElMessage.success('Device config updated (mock)')
 }
 
@@ -1485,79 +1476,12 @@ async function sendCommand() {
                     <p>{{ overrideKeys(selected).length }} connection override(s) · Model defaults are inherited</p>
                   </div>
                   <div>
-                    <template v-if="configEditing">
-                      <el-button @click="cancelConfigEdit">Cancel</el-button>
-                      <el-button type="primary" @click="saveConfig">Save</el-button>
-                    </template>
-                    <el-button v-else type="primary" @click="beginConfigEdit">Edit</el-button>
+                    <el-button @click="cancelConfigEdit">Reset</el-button>
+                    <el-button type="primary" @click="saveConfig">Save</el-button>
                   </div>
                 </div>
 
-                <template v-if="!configEditing">
-                  <el-divider content-position="left">Device Identity</el-divider>
-                  <el-descriptions :column="isMobile ? 1 : 2" border>
-                    <el-descriptions-item label="Device ID">{{ selected.device_id }}</el-descriptions-item>
-                    <el-descriptions-item label="Group">{{ selected.device_group }}</el-descriptions-item>
-                    <el-descriptions-item label="Host / Remote IP">{{ selected.host }}</el-descriptions-item>
-                    <el-descriptions-item v-if="selectedModel?.protocol === 'ads'" label="Target AMS Net ID">
-                      {{ connValue(selected, 'target_net_id', '—') }}
-                    </el-descriptions-item>
-                  </el-descriptions>
-
-                  <el-divider content-position="left">Model Binding</el-divider>
-                  <el-descriptions :column="isMobile ? 1 : 2" border>
-                    <el-descriptions-item label="Model">{{ selected.model }}</el-descriptions-item>
-                    <el-descriptions-item label="Type">{{ typeName(selectedModel?.device_type || '') }}</el-descriptions-item>
-                    <el-descriptions-item label="Manufacturer">{{ selectedModel?.manufacturer || '—' }}</el-descriptions-item>
-                    <el-descriptions-item label="Hardware Model">{{ selectedModel?.model || '—' }}</el-descriptions-item>
-                    <el-descriptions-item label="Protocol">{{ selectedModel?.protocol?.toUpperCase() || '—' }}</el-descriptions-item>
-                    <el-descriptions-item label="Point Table">{{ selectedModel?.point_table || '—' }}</el-descriptions-item>
-                    <el-descriptions-item v-if="selectedModel?.protocol === 'ads'" label="Read Mode">{{ selectedModel?.read_mode || '—' }}</el-descriptions-item>
-                  </el-descriptions>
-
-                  <el-divider content-position="left">Effective Connection</el-divider>
-                  <el-descriptions :column="isMobile ? 1 : 2" border>
-                    <el-descriptions-item label="Port">
-                      {{ connValue(selected, 'port', '—') }}
-                      <el-tag v-if="selected.port !== undefined" size="small" type="warning">Override</el-tag>
-                      <el-tag v-else size="small" type="info">Inherited</el-tag>
-                    </el-descriptions-item>
-
-                    <template v-if="selectedModel?.protocol === 'ads'">
-                      <el-descriptions-item label="Target Port">
-                        {{ connValue(selected, 'target_port', 801) }}
-                        <el-tag v-if="selected.extensions?.target_port !== undefined" size="small" type="warning">Override</el-tag>
-                        <el-tag v-else size="small" type="info">Inherited</el-tag>
-                      </el-descriptions-item>
-                      <el-descriptions-item label="TwinCAT Version">
-                        {{ connValue(selected, 'twincat_version', '—') }}
-                        <el-tag v-if="selected.extensions?.twincat_version !== undefined" size="small" type="warning">Override</el-tag>
-                        <el-tag v-else size="small" type="info">Inherited</el-tag>
-                      </el-descriptions-item>
-                      <el-descriptions-item label="Timeout">
-                        {{ connValue(selected, 'timeout', '—') }} s
-                        <el-tag v-if="selected.extensions?.timeout !== undefined" size="small" type="warning">Override</el-tag>
-                        <el-tag v-else size="small" type="info">Inherited</el-tag>
-                      </el-descriptions-item>
-                    </template>
-
-                    <template v-else-if="selectedModel?.protocol === 'modbus'">
-                      <el-descriptions-item label="Unit ID">{{ connValue(selected, 'unit_id', '—') }}</el-descriptions-item>
-                      <el-descriptions-item label="Mode">{{ connValue(selected, 'mode', '—') }}</el-descriptions-item>
-                      <el-descriptions-item label="Timeout">{{ connValue(selected, 'timeout', '—') }} s</el-descriptions-item>
-                      <el-descriptions-item label="Word Order">{{ connValue(selected, 'word_order', '—') }}</el-descriptions-item>
-                    </template>
-
-                    <template v-else-if="selectedModel?.protocol === 'iec104'">
-                      <el-descriptions-item label="Common Address">{{ connValue(selected, 'common_addr', '—') }}</el-descriptions-item>
-                      <el-descriptions-item label="K / W">{{ connValue(selected, 'k', '—') }} / {{ connValue(selected, 'w', '—') }}</el-descriptions-item>
-                      <el-descriptions-item label="T0 / T1">{{ connValue(selected, 't0', '—') }} / {{ connValue(selected, 't1', '—') }}</el-descriptions-item>
-                      <el-descriptions-item label="T2 / T3">{{ connValue(selected, 't2', '—') }} / {{ connValue(selected, 't3', '—') }}</el-descriptions-item>
-                    </template>
-                  </el-descriptions>
-                </template>
-
-                <el-form v-else label-position="top" class="device-config-form">
+                <el-form label-position="top" class="device-config-form">
                   <el-divider content-position="left">Device Identity</el-divider>
                   <div class="form-grid config-edit-grid">
                     <el-form-item label="Device ID"><el-input v-model="editForm.device_id" disabled /></el-form-item>

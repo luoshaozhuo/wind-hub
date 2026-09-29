@@ -12,7 +12,6 @@ const typeFilter = ref<'All' | SinkType>('All')
 const stateFilter = ref<'All' | SinkRuntimeState>('All')
 const drawerOpen = ref(false)
 const drawerTab = ref('Overview')
-const editing = ref(false)
 const creating = ref(false)
 const selectedName = ref('')
 const testLoading = ref(false)
@@ -121,8 +120,7 @@ function loadDraft(s: SinkDef) {
 }
 function openSink(s: SinkDef) {
   selectedName.value=s.name
-  drawerTab.value='Overview'
-  editing.value=false
+  drawerTab.value='Config'
   creating.value=false
   testResult.value=null
   loadDraft(s)
@@ -131,17 +129,15 @@ function openSink(s: SinkDef) {
 function openAdd() {
   selectedName.value=''
   creating.value=true
-  editing.value=true
   drawerTab.value='Config'
   testResult.value=null
   resetDraft('file')
   drawerOpen.value=true
 }
-function beginEdit(){ if(selected.value){ loadDraft(selected.value); editing.value=true; drawerTab.value='Config' } }
 function cancelEdit(){
   if(creating.value){ drawerOpen.value=false; return }
   if(selected.value) loadDraft(selected.value)
-  editing.value=false
+  drawerTab.value='Overview'
 }
 function onTypeChange(){ const name=draft.name; const enabled=draft.enabled; resetDraft(draft.type); draft.name=name; draft.enabled=enabled }
 
@@ -202,7 +198,6 @@ async function saveSink(){
     selected.value.error=''
   }
   refreshTaskValidity()
-  editing.value=false
   ElMessage.success('Sink configuration saved (mock)')
 }
 async function toggleEnabled(s:SinkDef, enabled:boolean){
@@ -318,8 +313,7 @@ async function testAll(){
       <el-tabs v-model="drawerTab">
         <el-tab-pane v-if="!creating" label="Overview" name="Overview">
           <template v-if="selected">
-            <div class="drawer-actions"><el-button type="primary" @click="beginEdit">Edit</el-button></div>
-            <el-descriptions :column="isMobile?1:2" border>
+                        <el-descriptions :column="isMobile?1:2" border>
               <el-descriptions-item label="Name">{{ selected.name }}</el-descriptions-item>
               <el-descriptions-item label="Type">{{ selected.type==='db'?'PostgreSQL':selected.type.toUpperCase() }}</el-descriptions-item>
               <el-descriptions-item label="Enabled">{{ selected.enabled?'Yes':'No' }}</el-descriptions-item>
@@ -338,8 +332,7 @@ async function testAll(){
         </el-tab-pane>
 
         <el-tab-pane :label="creating?'Config':'Config'" name="Config">
-          <div class="drawer-actions" v-if="!creating && !editing"><el-button type="primary" @click="beginEdit">Edit</el-button></div>
-          <template v-if="editing">
+                    <template>
             <el-form label-position="top">
               <div class="sink-form-grid">
                 <el-form-item label="Name"><el-input v-model="draft.name" :disabled="!creating"/></el-form-item>
@@ -377,13 +370,9 @@ async function testAll(){
                 <el-form-item v-if="draft.format==='csv'" label="Write Header"><el-switch v-model="draft.write_header"/></el-form-item>
               </div>
             </el-form>
-            <div class="editor-actions"><el-button @click="cancelEdit">Cancel</el-button><el-button type="primary" @click="saveSink">{{ creating?'Create':'Save' }}</el-button></div>
+            <div class="editor-actions"><el-button @click="cancelEdit">{{ creating?'Cancel':'Reset' }}</el-button><el-button type="primary" @click="saveSink">{{ creating?'Create':'Save' }}</el-button></div>
           </template>
-          <el-descriptions v-else-if="selected" :column="1" border>
-            <el-descriptions-item v-for="(value,key) in selected.params" :key="key" :label="String(key)">
-              {{ key==='dsn' ? String(value).replace(/:\/\/([^:]+):[^@]+@/, '://$1:***@') : value }}
-            </el-descriptions-item>
-          </el-descriptions>
+
         </el-tab-pane>
 
         <el-tab-pane v-if="!creating" label="Test" name="Test">

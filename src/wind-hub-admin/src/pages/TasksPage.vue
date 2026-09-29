@@ -16,7 +16,6 @@ import type { DeviceInst, TaskDef } from '../mock/types'
 const createDialog = ref(false)
 const detailOpen = ref(false)
 const detailTab = ref('Overview')
-const taskEditing = ref(false)
 const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
@@ -75,10 +74,9 @@ function loadForm(t?:TaskDef){
 function openNew(){ loadForm(); createDialog.value=true }
 function openDetail(t:TaskDef){
   selectedTaskId.value=t.task_id; selectedDeviceId.value=devicesForTask(t)[0]?.device_id||''
-  detailTab.value='Overview'; taskEditing.value=false; loadForm(t); detailOpen.value=true
+  detailTab.value='Overview'; loadForm(t); detailOpen.value=true
 }
-function beginTaskEdit(){ if(selectedTask.value){ loadForm(selectedTask.value); taskEditing.value=true; detailTab.value='Config' } }
-function cancelTaskEdit(){ if(selectedTask.value) loadForm(selectedTask.value); taskEditing.value=false }
+function cancelTaskEdit(){ if(selectedTask.value) loadForm(selectedTask.value) }
 
 function validateForm(){
   const id=form.task_id.trim()
@@ -122,7 +120,7 @@ async function persistTask(existing?:TaskDef){
 async function createTask(){ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created (mock)')} }
 async function saveTaskEdit(){
   if(!selectedTask.value) return
-  if(await persistTask(selectedTask.value)){taskEditing.value=false; selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)')}
+  if(await persistTask(selectedTask.value)){selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)')}
 }
 async function changeEnabled(t:TaskDef,enabled:boolean){
   if(!enabled&&t.runtime==='RUNNING'){
@@ -175,7 +173,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
             <el-button size="small" :disabled="row.valid===false" @click="toggle(row)">{{row.runtime==='RUNNING'?'Stop':'Start'}}</el-button>
             <el-dropdown trigger="click">
               <el-button size="small">•••</el-button>
-              <template #dropdown><el-dropdown-menu><el-dropdown-item @click="openDetail(row)">View Details</el-dropdown-item><el-dropdown-item divided @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
+              <template #dropdown><el-dropdown-menu><el-dropdown-item @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
             </el-dropdown>
           </template>
         </el-table-column>
@@ -244,18 +242,10 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 
           <el-tab-pane label="Config" name="Config">
             <div class="task-config-actions">
-              <template v-if="taskEditing"><el-button @click="cancelTaskEdit">Cancel</el-button><el-button type="primary" @click="saveTaskEdit">Save</el-button></template>
-              <el-button v-else type="primary" @click="beginTaskEdit">Edit</el-button>
+              <el-button @click="cancelTaskEdit">Reset</el-button>
+              <el-button type="primary" @click="saveTaskEdit">Save</el-button>
             </div>
-            <el-descriptions v-if="!taskEditing" :column="isMobile?1:2" border>
-              <el-descriptions-item label="Scope">{{selectedTask.device?'Single Device':'Device Group'}}</el-descriptions-item>
-              <el-descriptions-item label="Target">{{targetText(selectedTask)}}</el-descriptions-item>
-              <el-descriptions-item label="Point Group">{{selectedTask.point_group}}</el-descriptions-item>
-              <el-descriptions-item label="Interval">{{selectedTask.interval}} s</el-descriptions-item>
-              <el-descriptions-item label="Sinks">{{selectedTask.sinks.join(', ')}}</el-descriptions-item>
-              <el-descriptions-item label="Enabled">{{selectedTask.enabled?'Yes':'No'}}</el-descriptions-item>
-            </el-descriptions>
-            <el-form v-else label-position="top">
+            <el-form label-position="top">
               <div class="task-form-grid">
                 <el-form-item label="Task ID"><el-input v-model="form.task_id" disabled/></el-form-item>
                 <el-form-item label="Scope"><el-select v-model="form.scope" style="width:100%"><el-option label="Device Group" value="device_group"/><el-option label="Single Device" value="device"/></el-select></el-form-item>

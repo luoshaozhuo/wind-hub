@@ -121,7 +121,8 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - 不允许 Drawer 内再打开复杂 Drawer；需要切换复杂管理器时关闭/切换当前工作区；
 - Change Impact 与危险确认始终使用 Dialog/MessageBox；
 - 页面头部只保留一个主操作，其他页面级动作进入 Actions Dropdown；
-- 已有复杂实体默认先以 View 模式展示，点击 Edit 后才出现输入控件；
+- 实体列表统一以名称/稳定 ID 作为详情与编辑入口，不提供独立 Edit / View Details 按钮；
+- 点击名称进入 Drawer 后，Config 直接可编辑，使用 Save / Reset 完成事务；查看信息放在 Overview/Info 区，不再增加二次 Edit 开关；
 - 继承/只读属性使用 Descriptions/Text 展示，不使用大量 disabled Input 伪装成可编辑字段。
 
 当前映射：
@@ -444,7 +445,7 @@ Add Device 同时支持 Single / Batch。Batch 使用受限模板：
 
 ## 3.3 Edit Device Config
 
-Device Detail 使用 Drawer。Config 默认处于 **View** 模式，避免把继承字段渲染为大量 disabled form control。
+Device Detail 使用 Drawer。点击 Device ID 即进入详情/编辑上下文；Config 直接可编辑，不再提供独立 Edit 按钮。继承字段仍以只读信息展示。
 
 View 明确分为：
 
@@ -776,6 +777,8 @@ Resolved Child
 
 ## 5.1 Point Table 列表
 
+Point 列表以 `point_id` 作为详情与编辑入口；点击 Point ID 打开 Point Drawer。行内不提供 Edit 按钮，仅保留 Reset Override、Delete 等语义不同的动作。
+
 查询应同时返回：
 
 - raw metadata：protocol / extends；
@@ -999,7 +1002,7 @@ Default Group 仅是占位，不是正常自动迁移目的地。
 
 ## 6.1 Query Tasks
 
-Task 列表不提供独立 Edit 按钮。点击 Task ID 打开 Task Detail Drawer，在同一上下文内查看 Overview、Devices & Points、Logs 和 Config/Edit。RUNNING Task 的编辑入口也只存在于 Detail Drawer。
+Task 列表不提供独立 Edit 或 View Details 按钮。点击 Task ID 打开 Task Detail Drawer；Overview、Devices & Points、Logs 用于查询，Config 直接可编辑并使用 Save / Reset。
 
 后端返回：
 
@@ -1121,7 +1124,7 @@ Sinks 页面负责输出端配置、运行状态、健康检查和独立写入�
 
 ## 7.2 Create / Edit
 
-Add Sink 和复杂编辑使用 Drawer。
+Add Sink 和复杂编辑使用 Drawer。Sink 列表点击 Sink name 直接进入 Config，不再提供独立 Edit 按钮。
 
 Sink name 创建后固定。Type 创建后也固定；如需跨类型迁移，应新建 Sink 后迁移 Task 引用。
 

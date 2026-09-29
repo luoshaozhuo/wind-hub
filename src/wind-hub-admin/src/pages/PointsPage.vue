@@ -652,7 +652,7 @@ async function resetOverride(p: PointDef) {
       </div>
 
       <el-table :data="rows" height="590">
-        <el-table-column prop="point_id" label="Point" />
+        <el-table-column label="Point"><template #default="s"><el-link :underline="false" @click="openEdit(s.row)"><b>{{ s.row.point_id }}</b></el-link></template></el-table-column>
         <el-table-column prop="variable_name" label="Variable" />
         <el-table-column :label="addrLabel"><template #default="s">{{ addressOf(s.row) }}</template></el-table-column>
         <el-table-column v-if="!isMobile" label="Source" width="105"><template #default="s"><el-tag size="small" :type="originOf(s.row)==='inherited'?'info':originOf(s.row)==='override'?'warning':''">{{ originOf(s.row) }}</el-tag></template></el-table-column>
@@ -661,9 +661,8 @@ async function resetOverride(p: PointDef) {
         <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
         <el-table-column v-if="!isTablet" prop="offset" label="Offset" />
         <el-table-column v-if="!isMobile" label="Unit"><template #default="s">{{ unitSymbol(s.row.unit) || s.row.unit }}</template></el-table-column>
-        <el-table-column label="Actions" :width="isMobile ? 128 : 225">
+        <el-table-column label="Actions" :width="isMobile ? 108 : 160">
           <template #default="s">
-            <el-button size="small" @click="openEdit(s.row)">Edit</el-button>
             <el-button v-if="originOf(s.row)==='override'" size="small" @click="resetOverride(s.row)">Reset</el-button>
             <el-button size="small" type="danger" plain @click="delPoint(s.row)">Delete</el-button>
           </template>
