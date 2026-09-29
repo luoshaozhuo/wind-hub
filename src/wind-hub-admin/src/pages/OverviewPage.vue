@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { protocolOfDevice, store } from '../mock/data'
 
+const emit = defineEmits<{ (e:'navigate', page:'Quality'|'SystemHealth'): void }>()
+
 type Tone = 'normal' | 'info' | 'warning' | 'danger' | 'muted'
 
 interface RecentEvent {
@@ -361,6 +363,32 @@ const statTone = (onlineCount: number, total: number): Tone => {
     <section class="section-block">
       <div class="section-title">
         <div>
+          <span class="eyebrow">OPERATIONAL RISKS</span>
+          <h2>关键风险</h2>
+        </div>
+      </div>
+      <div class="risk-summary-grid">
+        <article class="industrial-card risk-summary-card">
+          <div class="card-top"><span class="card-label">Channel Quality</span><span class="status-pill danger"><i></i>2 INTERRUPTED</span></div>
+          <div class="risk-summary-main">13 timeouts · 7 reconnects / 24 h</div>
+          <el-button link type="primary" @click="emit('navigate','Quality')">Open Quality</el-button>
+        </article>
+        <article class="industrial-card risk-summary-card">
+          <div class="card-top"><span class="card-label">Data Quality</span><span class="status-pill warning"><i></i>DEGRADED</span></div>
+          <div class="risk-summary-main">1 stale task · 13 missing cycles</div>
+          <el-button link type="primary" @click="emit('navigate','Quality')">Open Quality</el-button>
+        </article>
+        <article class="industrial-card risk-summary-card">
+          <div class="card-top"><span class="card-label">System Health</span><span class="status-pill danger"><i></i>CAPACITY RISK</span></div>
+          <div class="risk-summary-main">Disk ~2.7 days · RSS continuous growth</div>
+          <el-button link type="primary" @click="emit('navigate','SystemHealth')">Open System Health</el-button>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title">
+        <div>
           <span class="eyebrow">SYSTEM COVERAGE</span>
           <h2>接入覆盖与采集链路</h2>
         </div>
@@ -519,7 +547,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
 .overview-page{--c-text:#182230;--c-label:#697586;--c-faint:#98a2b3;--c-line:#dfe4ea;--c-line-soft:#edf0f3;--c-panel:#fff;--c-info:#2563a6;--c-normal:#1f7a4d;--c-warning:#b26a00;--c-danger:#c23a3a;--c-muted:#7b8492;color:var(--c-text)}
 .overview-head{align-items:flex-end}.color-legend{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px;color:var(--c-label);font-size:var(--font-size-body)}.color-legend span{display:inline-flex;align-items:center;gap:5px}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--c-muted)}.dot.info{background:var(--c-info)}.dot.normal{background:var(--c-normal)}.dot.warning{background:var(--c-warning)}.dot.danger{background:var(--c-danger)}.dot.muted{background:var(--c-muted)}
 .section-block{margin-top:22px}.section-title{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px;padding:0 2px}.section-title h2{margin:2px 0 0;font-size:var(--font-size-section-lg);font-weight:var(--font-weight-bold);letter-spacing:.01em}.eyebrow{display:block;color:var(--c-faint);font-size:var(--font-size-caption);font-weight:var(--font-weight-bold);letter-spacing:.14em}
-.primary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.coverage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.industrial-card{position:relative;min-width:0;padding:16px;background:var(--c-panel);border:1px solid var(--c-line);border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,.03);overflow:hidden}.industrial-card::before{content:'';position:absolute;top:-1px;left:16px;width:34px;height:2px;background:#718096}.runtime-card::before,.industrial-card:has(.status-pill.normal)::before{background:var(--c-normal)}.industrial-card:has(.status-pill.warning)::before{background:var(--c-warning)}.industrial-card:has(.status-pill.danger)::before{background:var(--c-danger)}
+.primary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.risk-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.risk-summary-main{margin:var(--app-space-3) 0;color:var(--app-text-regular);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.coverage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.industrial-card{position:relative;min-width:0;padding:16px;background:var(--c-panel);border:1px solid var(--c-line);border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,.03);overflow:hidden}.industrial-card::before{content:'';position:absolute;top:-1px;left:16px;width:34px;height:2px;background:#718096}.runtime-card::before,.industrial-card:has(.status-pill.normal)::before{background:var(--c-normal)}.industrial-card:has(.status-pill.warning)::before{background:var(--c-warning)}.industrial-card:has(.status-pill.danger)::before{background:var(--c-danger)}
 .card-top{min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:12px}.card-label{color:var(--c-label);font-size:var(--font-size-body);font-weight:var(--font-weight-bold);letter-spacing:.04em;text-transform:uppercase}.card-label-with-info{display:inline-flex;align-items:center;gap:5px;min-width:0}.info-icon{flex:0 0 auto;color:var(--c-faint);font-size:var(--font-size-subsection);cursor:help;transition:color .15s ease}.info-icon:hover{color:var(--c-label)}.metric-tooltip{max-width:340px;display:grid;gap:6px;font-size:var(--font-size-label);line-height:1.5}.metric-tooltip b{font-weight:var(--font-weight-bold)}.status-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 7px;border:1px solid currentColor;border-radius:4px;font-size:var(--font-size-caption);font-weight:var(--font-weight-bold);letter-spacing:.05em;background:#fff}.status-pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
 .hero-value{margin-top:12px;font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-overview-metric);line-height:1.15;font-weight:var(--font-weight-bold);letter-spacing:-.02em;font-variant-numeric:tabular-nums}.hero-caption{margin-top:4px;color:var(--c-label);font-size:var(--font-size-body)}.split-main{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}.mini-stack{display:grid;gap:4px;color:var(--c-label);font-size:var(--font-size-label);text-align:right}
 .value,.mono-cell{font-family:"SFMono-Regular",Consolas,monospace;font-variant-numeric:tabular-nums}.info{color:var(--c-info)!important}.normal{color:var(--c-normal)!important}.warning{color:var(--c-warning)!important}.danger{color:var(--c-danger)!important}.muted{color:var(--c-muted)!important}
@@ -531,5 +559,5 @@ const statTone = (onlineCount: number, total: number): Tone => {
 .alarm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.table-card{padding:0 14px 12px}.table-card::before{left:14px;background:var(--c-warning)}.active-alert-card::before{background:var(--c-danger)}.alert-count-wrap{display:flex;align-items:center;gap:8px}.alert-count-wrap .muted{font-size:var(--font-size-caption)}
 .table-head{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px}.table-head h3{margin:0;font-size:var(--font-size-section)}.table-head p{margin:3px 0 0;color:var(--c-faint);font-size:var(--font-size-caption)}.count-badge{min-width:28px;padding:3px 7px;border:1px solid currentColor;border-radius:4px;text-align:center;font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-label);font-weight:var(--font-weight-bold)}.level-chip{display:inline-block;min-width:50px;padding:2px 5px;border:1px solid currentColor;border-radius:3px;text-align:center;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);line-height:1.35}.state-text{font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--font-size-micro);font-weight:var(--font-weight-bold);letter-spacing:.03em}.mono-cell{font-size:var(--font-size-label);font-weight:var(--font-weight-semibold)}.object-cell{color:#344054}.event-cell{color:#344054;font-family:Inter,ui-sans-serif,system-ui;font-size:var(--font-size-body);font-weight:var(--font-weight-regular)}
 :deep(.el-table){--el-table-border-color:var(--c-line-soft);--el-table-header-bg-color:#f7f9fb;--el-table-row-hover-bg-color:#f8fafc;color:var(--c-text);font-size:var(--font-size-body)}:deep(.el-table th.el-table__cell){height:34px;color:var(--c-label);font-size:var(--font-size-caption);font-weight:var(--font-weight-bold);letter-spacing:.02em}:deep(.el-table td.el-table__cell){padding:7px 0}:deep(.el-table .cell){line-height:1.3}
-@media(max-width:1450px){.primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.coverage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.alarm-grid{grid-template-columns:1fr}}@media(max-width:900px){.overview-head,.section-title{align-items:flex-start}.color-legend{display:none}.primary-grid,.coverage-grid{grid-template-columns:1fr}}
+@media(max-width:1450px){.primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.risk-summary-grid{grid-template-columns:1fr}.coverage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.alarm-grid{grid-template-columns:1fr}}@media(max-width:900px){.overview-head,.section-title{align-items:flex-start}.color-legend{display:none}.primary-grid,.coverage-grid{grid-template-columns:1fr}}
 </style>

@@ -7,6 +7,7 @@ import TasksPage from './pages/TasksPage.vue'
 import SinksPage from './pages/SinksPage.vue'
 import QualityPage from './pages/QualityPage.vue'
 import DebugPage from './pages/DebugPage.vue'
+import SystemHealthPage from './pages/SystemHealthPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
@@ -50,6 +51,7 @@ function selectMenu(key: string) {
           <el-menu-item index="Debug">Diagnostics</el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="系统">
+          <el-menu-item index="SystemHealth">System Health</el-menu-item>
           <el-menu-item index="Config">Config</el-menu-item>
           <el-menu-item index="Logs">Logs</el-menu-item>
         </el-menu-item-group>
@@ -75,13 +77,14 @@ function selectMenu(key: string) {
 
       <el-main class="app-main">
         <section class="content">
-          <OverviewPage v-if="menu === 'Overview'" />
+          <OverviewPage v-if="menu === 'Overview'" @navigate="selectMenu" />
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />
           <TasksPage v-if="menu === 'Tasks'" />
           <SinksPage v-if="menu === 'Sinks'" />
           <QualityPage v-if="menu === 'Quality'" @navigate="selectMenu" />
           <DebugPage v-if="menu === 'Debug'" />
+          <SystemHealthPage v-if="menu === 'SystemHealth'" />
           <ConfigPage v-if="menu === 'Config'" />
           <LogsPage v-if="menu === 'Logs'" />
         </section>
@@ -99,6 +102,7 @@ function selectMenu(key: string) {
         <el-menu-item index="Debug">Diagnostics</el-menu-item>
       </el-menu-item-group>
       <el-menu-item-group title="系统">
+        <el-menu-item index="SystemHealth">System Health</el-menu-item>
         <el-menu-item index="Config">Config</el-menu-item>
         <el-menu-item index="Logs">Logs</el-menu-item>
       </el-menu-item-group>
