@@ -257,9 +257,77 @@ const deviceVerification: Record<string, DeviceVerification> = {}
 for (const d of devices) deviceVerification[d.device_id] = emptyVerification()
 
 const sinks: SinkDef[] = [
-  { name: 'kafka_main', type: 'kafka', enabled: false },
-  { name: 'db_main', type: 'db', enabled: false },
-  { name: 'file_archive', type: 'file', enabled: true },
+  {
+    name: 'kafka_main',
+    type: 'kafka',
+    enabled: false,
+    params: {
+      bootstrap_servers: 'localhost:9092',
+      topic: 'wind-hub.raw',
+      key_field: 'device_id',
+      compression_type: '',
+      acks: 'all',
+      retries: 3,
+      batch_size: 16384,
+      linger_ms: 0,
+    },
+    runtime_state: 'disabled',
+    last_test_at: '',
+    last_write_at: '',
+    latency_ms: 0,
+    error: '',
+    queue_depth: 0,
+    writes_total: 0,
+    failures_total: 0,
+    dropped_points: 0,
+  },
+  {
+    name: 'db_main',
+    type: 'db',
+    enabled: false,
+    params: {
+      dsn: 'postgresql://windhub:windhub@localhost:5432/windhub',
+      table: 'points',
+      batch_size: 1000,
+      create_table: false,
+      pool_min_size: 1,
+      pool_max_size: 10,
+    },
+    runtime_state: 'disabled',
+    last_test_at: '',
+    last_write_at: '',
+    latency_ms: 0,
+    error: '',
+    queue_depth: 0,
+    writes_total: 0,
+    failures_total: 0,
+    dropped_points: 0,
+  },
+  {
+    name: 'file_archive',
+    type: 'file',
+    enabled: true,
+    params: {
+      path: '/var/tmp/wind-hub/archive.jsonl',
+      format: 'jsonl',
+      max_size_mb: 100,
+      max_age_hours: 24,
+      compress: false,
+      compress_level: 6,
+      buffer_size: 100,
+      flush_interval: 1,
+      write_header: true,
+    },
+    runtime_state: 'healthy',
+    last_test_at: '2026-09-29 12:30:18',
+    last_write_at: '2026-09-29 12:30:17',
+    latency_ms: 4,
+    error: '',
+    queue_depth: 2,
+    writes_total: 18342,
+    failures_total: 0,
+    dropped_points: 0,
+  },
 ]
 
 const tasks: TaskDef[] = [
@@ -442,6 +510,12 @@ export function devicesForTask(t: TaskDef): DeviceInst[] {
 }
 
 export function taskInvalidReason(t: TaskDef): string {
+  if (!t.sinks.length) return 'Task has no Sink target'
+  for (const sinkName of t.sinks) {
+    const sink = store.sinks.find(s => s.name === sinkName)
+    if (!sink) return `Sink '${sinkName}' does not exist`
+    if (!sink.enabled) return `Sink '${sinkName}' is disabled`
+  }
   if (!store.pointGroups.some(g => g.id === t.point_group)) return 'Point Group does not exist'
   if (isDefaultPointGroup(t.point_group)) return 'Default Point Group is a placeholder and cannot be collected'
 

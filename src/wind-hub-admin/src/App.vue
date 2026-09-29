@@ -4,6 +4,7 @@ import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
 import TasksPage from './pages/TasksPage.vue'
+import SinksPage from './pages/SinksPage.vue'
 import QualityPage from './pages/QualityPage.vue'
 import DebugPage from './pages/DebugPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
@@ -20,6 +21,7 @@ const runMenu = [
   { key: 'Devices', label: 'Devices' },
   { key: 'Points', label: 'Points' },
   { key: 'Tasks', label: 'Tasks' },
+  { key: 'Sinks', label: 'Sinks' },
   { key: 'Quality', label: 'Quality' },
 ]
 
@@ -75,6 +77,7 @@ function selectMenu(key: string) {
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />
           <TasksPage v-if="menu === 'Tasks'" />
+          <SinksPage v-if="menu === 'Sinks'" />
           <QualityPage v-if="menu === 'Quality'" />
           <DebugPage v-if="menu === 'Debug'" />
           <ConfigPage v-if="menu === 'Config'" />

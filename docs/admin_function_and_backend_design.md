@@ -131,6 +131,7 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - Manage Device Metadata：Drawer；
 - Point Table/Group Manage：Drawer；
 - Point Add/Edit + Connectivity Test：Drawer；
+- Sink Detail / Add / Edit / Test：Drawer；
 - Task Add/Edit：短表单，保留 Dialog；
 - Change Impact / Delete / Delete All：Dialog；
 - Config YAML、Global ADS、Debug、Quality：Page/Inline。
@@ -1087,7 +1088,89 @@ Start 是运行控制，不修改 definition。
 
 ---
 
-# 7. Quality 页面
+# 7. Sinks 页面
+
+Sinks 页面负责输出端配置、运行状态、健康检查和独立写入测试。当前正式 Sink 类型与 wind-hub service 保持一致：Kafka、PostgreSQL、File。
+
+## 7.1 列表与状态
+
+页面至少展示：
+
+- name / type / enabled；
+- endpoint 摘要；
+- runtime health；
+- referencing tasks；
+- queue depth；
+- last test / last write；
+- write failures / dropped points。
+
+`enabled=true` 不等于 healthy。健康状态必须来自 Sink runtime 的 `health()`、写入结果及队列指标。
+
+## 7.2 Create / Edit
+
+Add Sink 和复杂编辑使用 Drawer。
+
+Sink name 创建后固定。Type 创建后也固定；如需跨类型迁移，应新建 Sink 后迁移 Task 引用。
+
+参数必须按真实 Sink Driver 区分：
+
+- Kafka：`bootstrap_servers`、`topic`、`key_field`、`compression_type`、`acks`、`retries`、`batch_size`、`linger_ms`；
+- PostgreSQL：`dsn`、`table`、`batch_size`、`create_table`、`pool_min_size`、`pool_max_size`、可选 schema；
+- File：`path`、`format`、rotation、compression、buffer/flush 参数。
+
+密码/DSN 在只读展示时必须脱敏。
+
+修改被 Task 引用的 Sink 前必须 Preview 受影响 Task。Apply 时关闭旧 Sink、构建并 open 新 Sink；失败不得把新配置伪装成 healthy。
+
+## 7.3 Enable / Disable
+
+Disable 被 Task 引用的 Sink 时必须确认。
+
+正式规则：
+
+- Sink 变为 disabled；
+- 引用 disabled Sink 的 Task Definition 保留；
+- Task 变为 INVALID；
+- 已运行的相关 Task Instance 停止；
+- 重新 Enable 后 Task 重新校验，但不得自动启动原本 STOPPED 的实例。
+
+## 7.4 Delete
+
+存在 Task 引用时禁止删除 Sink。不得自动从 Task targets 中移除。
+
+## 7.5 Connection Test
+
+Connection Test 不发送业务数据：
+
+- Kafka：创建 producer / broker connection，验证 bootstrap/topic 相关连接能力后关闭；
+- PostgreSQL：建立连接池/连接并执行轻量连接验证后关闭；
+- File：验证目录创建权限、文件可打开/追加能力，不污染正式业务内容。
+
+返回：state、latency、stage、错误类型、原始错误摘要、tested_at。
+
+## 7.6 Write Test
+
+Write Test 会向**真实目标**发送一条合成 `PointValue`，属于有副作用的测试，必须在执行前确认。
+
+固定测试数据应显式标记为测试来源，例如：
+
+```text
+device_id = sink-test-device
+point_id  = sink_test
+value     = 1.0
+quality   = GOOD
+source    = admin_sink_test
+```
+
+后端应执行完整 `open → write → flush → close` 并返回写入结果。Kafka 需要等待 broker ack；PostgreSQL 会产生实际表记录；File 会产生实际文件内容，因此 UI 必须明确告知副作用。
+
+## 7.7 Verify All Sinks
+
+只执行 Connection Test，不批量执行 Write Test。各 Sink 独立返回结果，单个失败不能中止其他 Sink。
+
+---
+
+# 8. Quality 页面
 
 Quality 表示**采集服务质量**，不是电能质量。
 
@@ -1135,7 +1218,7 @@ Quality 表示**采集服务质量**，不是电能质量。
 
 ---
 
-# 8. Debug 页面
+# 9. Debug 页面
 
 Debug 是现场诊断工具，操作不改变正式配置，除非明确属于 Write Test。
 
@@ -1222,7 +1305,7 @@ Stop：
 
 ---
 
-# 9. Config 页面
+# 10. Config 页面
 
 Config 是直接操作配置文件的高级入口，与 Devices/Points/Tasks 的结构化编辑互补。
 
@@ -1347,7 +1430,7 @@ Apply 失败时必须明确：
 
 ---
 
-# 10. Logs 页面
+# 11. Logs 页面
 
 ## 10.1 Query
 
@@ -1397,7 +1480,7 @@ Apply 失败时必须明确：
 
 ---
 
-# 11. Meta 数据统一响应规则
+# 12. Meta 数据统一响应规则
 
 Meta 包括：
 
@@ -1452,7 +1535,7 @@ Default 仅用于：
 
 ---
 
-# 12. 后端实现建议的 API 分层
+# 13. 后端实现建议的 API 分层
 
 具体 URL 可在实现阶段调整，但职责建议固定。
 
@@ -1463,6 +1546,8 @@ GET /overview
 GET /devices
 GET /devices/{id}
 GET /tasks
+GET /sinks
+GET /sinks/{name}
 GET /points/tables
 GET /metadata/...
 GET /quality/...
@@ -1477,6 +1562,9 @@ POST /tasks/{id}/start
 POST /tasks/{id}/stop
 POST /devices/{id}/verify
 POST /devices/verify
+POST /sinks/{name}/test-connection
+POST /sinks/{name}/test-write
+POST /sinks/verify
 POST /debug/read
 POST /debug/write
 POST /debug/watch
@@ -1504,7 +1592,7 @@ POST /changes/{change_id}/apply
 
 ---
 
-# 13. Apply Result
+# 14. Apply Result
 
 配置应用完成后统一返回：
 
@@ -1528,7 +1616,7 @@ applied_at
 
 ---
 
-# 14. 后端开发验收基线
+# 15. 后端开发验收基线
 
 实现任何 Admin Backend 功能时至少检查：
 
@@ -1551,7 +1639,7 @@ applied_at
 
 ---
 
-# 15. 当前前端原型与本设计的已知差异
+# 16. 当前前端原型与本设计的已知差异
 
 当前 `wind-hub-admin` 仍为 mock 原型，但关键配置语义已按本文对齐：
 
@@ -1562,6 +1650,7 @@ applied_at
 5. Devices 支持 Single / Batch Add，Batch 有模板与 Preview 校验。
 6. Delete All Devices 保留 Task Definition 并重新标记有效性。
 7. 高影响 Meta、Point、Device、Task 修改已表达 Change Impact。
-8. Config、Debug、Verification、Quality、Logs 的真实后端行为仍待 Admin Backend 实现。
+8. Sinks 页面已提供管理、Connection Test、Write Test 的 mock 交互；正式后端必须调用真实 Sink Driver。
+9. Config、Debug、Verification、Quality、Logs 的真实后端行为仍待 Admin Backend 实现。
 
 本文优先级高于 mock 数据细节。

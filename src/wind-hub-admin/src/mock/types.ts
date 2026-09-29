@@ -103,10 +103,23 @@ export interface TaskDef {
   invalid_reason?: string
 }
 
+export type SinkType = 'kafka' | 'db' | 'file'
+export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
+
 export interface SinkDef {
   name: string
-  type: string
+  type: SinkType
   enabled: boolean
+  params: Record<string, unknown>
+  runtime_state: SinkRuntimeState
+  last_test_at: string
+  last_write_at: string
+  latency_ms: number
+  error: string
+  queue_depth: number
+  writes_total: number
+  failures_total: number
+  dropped_points: number
 }
 
 export type VerifyStepState = 'unknown' | 'checking' | 'success' | 'partial' | 'failed'
