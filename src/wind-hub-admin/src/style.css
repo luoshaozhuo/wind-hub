@@ -1287,3 +1287,18 @@ select{
     border-right:1px solid var(--app-border)!important;
   }
 }
+
+
+/* Drawer heading compatibility */
+.device-drawer .drawer-head h2{
+  font-size:var(--app-font-section-title);
+  line-height:var(--app-line-height-tight);
+  font-weight:var(--app-font-weight-semibold);
+}
+.device-drawer .panel-head h3,
+.device-drawer .data-toolbar h3,
+.device-drawer .trend-toolbar h3{
+  font-size:var(--app-font-panel-title);
+  line-height:var(--app-line-height-tight);
+  font-weight:var(--app-font-weight-semibold);
+}
