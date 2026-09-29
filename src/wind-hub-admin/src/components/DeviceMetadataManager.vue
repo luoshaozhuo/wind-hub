@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+
+const props = withDefaults(defineProps<{ dropdownItem?: boolean }>(), {
+  dropdownItem: false,
+})
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesForTask, refreshTaskValidity, resetDeviceConnectionOverrides, store } from '../mock/data'
 import { ADS_READ_MODES, PROTOCOLS } from '../mock/types'
@@ -428,14 +432,17 @@ async function deleteGroup(row: { id: string }) {
 </script>
 
 <template>
-  <el-button @click="openManager">Manage</el-button>
+  <el-dropdown-item v-if="props.dropdownItem" @click="openManager">Manage Metadata</el-dropdown-item>
+  <el-button v-else @click="openManager">Manage</el-button>
 
-  <el-dialog
+  <el-drawer
     v-model="manageOpen"
     title="Manage Device Metadata"
-    :width="isMobile ? '100%' : 'min(1040px, 94vw)'"
-    :fullscreen="isMobile"
-    class="metadata-manager-dialog"
+    direction="rtl"
+    :size="isMobile ? '100%' : 'min(1080px, 86vw)'"
+    append-to-body
+    destroy-on-close
+    class="metadata-manager-drawer"
   >
     <el-tabs v-model="section" class="metadata-tabs" @tab-change="onSectionChange">
       <el-tab-pane label="Device Models" name="model" />
@@ -581,7 +588,7 @@ async function deleteGroup(row: { id: string }) {
         </div>
       </el-main>
     </el-container>
-  </el-dialog>
+  </el-drawer>
 </template>
 
 <style scoped>

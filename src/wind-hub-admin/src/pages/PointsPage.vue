@@ -751,11 +751,14 @@ async function resetOverride(p: PointDef) {
       </div>
     </el-drawer>
 
-    <el-dialog
+    <el-drawer
       v-model="pointEdit"
       :title="editing ? 'Edit Point' : 'Add Point'"
-      :width="isMobile ? '96vw' : isTablet ? '92vw' : '1120px'"
-      class="point-editor-dialog"
+      direction="rtl"
+      :size="isMobile ? '100%' : isTablet ? '92%' : 'min(1120px, 86vw)'"
+      append-to-body
+      destroy-on-close
+      class="point-editor-drawer"
     >
       <el-row :gutter="24">
         <el-col :xs="24" :sm="24" :md="24" :lg="14">
@@ -841,7 +844,7 @@ async function resetOverride(p: PointDef) {
         </el-col>
       </el-row>
       <template #footer><el-button @click="pointEdit = false">Cancel</el-button><el-button type="primary" @click="savePoint">Save</el-button></template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 

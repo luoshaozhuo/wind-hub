@@ -101,7 +101,41 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - 返回 `CONFLICT`；
 - 前端要求重新 Preview。
 
-### 0.6 任务恢复原则
+### 0.6 管理端交互容器设计
+
+全站统一采用以下交互层级：
+
+| 容器 | 用途 |
+|---|---|
+| Page | 核心工作区、持续操作、YAML/Debug/Quality 等完整页面 |
+| Drawer | 已有复杂实体详情、复杂创建/编辑、多 Tab、主从结构、需要较大纵向空间的编辑器 |
+| Dialog | 短事务、Change Impact、Delete/危险确认、少量字段输入 |
+| Dropdown | 页面级次要动作与低频动作 |
+| MessageBox | 内容很少的单步确认 |
+| Inline Edit | 高频、低风险、字段少的局部修改 |
+
+具体规则：
+
+- Dialog 若需要自身长距离纵向滚动，必须改为 Drawer 或 Page；
+- Drawer 在桌面端约 70%–86% 宽，平板约 85%–92%，手机 100%；
+- 不允许 Drawer 内再打开复杂 Drawer；需要切换复杂管理器时关闭/切换当前工作区；
+- Change Impact 与危险确认始终使用 Dialog/MessageBox；
+- 页面头部只保留一个主操作，其他页面级动作进入 Actions Dropdown；
+- 已有复杂实体默认先以 View 模式展示，点击 Edit 后才出现输入控件；
+- 继承/只读属性使用 Descriptions/Text 展示，不使用大量 disabled Input 伪装成可编辑字段。
+
+当前映射：
+
+- Device Detail：Drawer；
+- Add Device Single/Batch：Drawer；
+- Manage Device Metadata：Drawer；
+- Point Table/Group Manage：Drawer；
+- Point Add/Edit + Connectivity Test：Drawer；
+- Task Add/Edit：短表单，保留 Dialog；
+- Change Impact / Delete / Delete All：Dialog；
+- Config YAML、Global ADS、Debug、Quality：Page/Inline。
+
+## 0.7 任务恢复原则
 
 配置变更前记录受影响 Task Instance 的原运行状态：
 
@@ -408,6 +442,16 @@ Add Device 同时支持 Single / Batch。Batch 使用受限模板：
 该策略必须全系统一致，不能一处自动启动、一处不启动。
 
 ## 3.3 Edit Device Config
+
+Device Detail 使用 Drawer。Config 默认处于 **View** 模式，避免把继承字段渲染为大量 disabled form control。
+
+View 明确分为：
+
+- Device Identity：Device ID、Group、Host、Target AMS Net ID；
+- Model Binding：Model、Type、Manufacturer、Hardware Model、Protocol、Point Table、Read Mode；
+- Effective Connection：Model Default 与 Device Override 合并后的最终参数，并标识 Inherited / Override。
+
+点击 Edit 后仅允许编辑 Device 级字段：Model Binding、Group、Host/Remote IP、Target AMS Net ID，以及允许 override 的连接参数。Protocol、Point Table、Read Mode、Manufacturer、Hardware Model 属于 Device Model，应在 Manage Metadata 中修改。
 
 设备字段按影响分级。
 

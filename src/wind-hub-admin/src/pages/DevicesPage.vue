@@ -45,6 +45,7 @@ const mobileFiltersOpen = ref(false)
 const drawer = ref(false)
 const tab = ref('Config')
 const selected = ref<DeviceInst | null>(null)
+const configEditing = ref(false)
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
@@ -694,7 +695,18 @@ function openDev(d: DeviceInst) {
   selected.value = d
   drawer.value = true
   tab.value = 'Config'
+  configEditing.value = false
   loadEditForm()
+}
+
+function beginConfigEdit() {
+  loadEditForm()
+  configEditing.value = true
+}
+
+function cancelConfigEdit() {
+  loadEditForm()
+  configEditing.value = false
 }
 
 function loadEditForm() {
@@ -930,6 +942,7 @@ async function saveConfig() {
   }
 
   loadEditForm()
+  configEditing.value = false
   ElMessage.success('Device config updated (mock)')
 }
 
@@ -1215,25 +1228,21 @@ async function sendCommand() {
         <p>设备资产、通信状态、诊断、实时数据与控制</p>
       </div>
       <div class="head-actions">
-        <el-button
-          :loading="verifyAllRunning"
-          :disabled="verifyAllRunning"
-          @click="verifyAll"
-        >
-          Verify All
-        </el-button>
-        <DeviceMetadataManager />
+        <el-button type="primary" @click="openAdd">+ Add Device</el-button>
         <el-dropdown trigger="click">
-          <el-button>More</el-button>
+          <el-button :loading="verifyAllRunning">Actions</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item :disabled="!store.devices.length" @click="openDeleteAll">
+              <el-dropdown-item :disabled="verifyAllRunning || !filteredDevices.length" @click="verifyAll">
+                Verify All
+              </el-dropdown-item>
+              <DeviceMetadataManager dropdown-item />
+              <el-dropdown-item divided :disabled="!store.devices.length" @click="openDeleteAll">
                 Delete All Devices
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button type="primary" @click="openAdd">+ Add Device</el-button>
       </div>
     </div>
 
@@ -1343,7 +1352,14 @@ async function sendCommand() {
     </section>
 
     <!-- Add Device -->
-    <el-dialog v-model="addOpen" title="Add Device" :width="isMobile ? '96vw' : addMode === 'batch' ? '980px' : '780px'">
+    <el-drawer
+      v-model="addOpen"
+      title="Add Device"
+      direction="rtl"
+      :size="isMobile ? '100%' : addMode === 'batch' ? 'min(980px, 86vw)' : 'min(760px, 78vw)'"
+      append-to-body
+      destroy-on-close
+    >
       <el-tabs v-model="addMode">
         <el-tab-pane label="Single" name="single">
           <el-alert type="info" :closable="false" title="Model connection defaults are inherited. Only values that differ from the Model are stored as Device overrides." />
@@ -1414,7 +1430,7 @@ async function sendCommand() {
         <el-button v-if="addMode === 'single'" type="primary" @click="addDevice">Add Device</el-button>
         <el-button v-else type="primary" :disabled="!batchPreview.length || batchPreview.some(r => !!r.error)" @click="createBatchDevices">Create {{ batchPreview.length }} Devices</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <el-dialog v-model="deleteAllOpen" title="Delete All Devices" width="560px">
       <el-alert type="error" :closable="false" show-icon title="All Devices will be removed. Metadata and Task Definitions are preserved." />
@@ -1465,158 +1481,127 @@ async function sendCommand() {
               <section class="panel-card">
                 <div class="panel-head">
                   <div>
-                    <h3>Basic Information</h3>
-                    <p>设备实例、型号绑定与协议配置 · {{ overrideKeys(selected).length }} connection override(s)</p>
+                    <h3>Device Configuration</h3>
+                    <p>{{ overrideKeys(selected).length }} connection override(s) · Model defaults are inherited</p>
                   </div>
-                  <el-button type="primary" @click="saveConfig">Update Config</el-button>
+                  <div>
+                    <template v-if="configEditing">
+                      <el-button @click="cancelConfigEdit">Cancel</el-button>
+                      <el-button type="primary" @click="saveConfig">Save</el-button>
+                    </template>
+                    <el-button v-else type="primary" @click="beginConfigEdit">Edit</el-button>
+                  </div>
                 </div>
 
-                <el-form label-position="top" class="device-config-form">
-                  <div class="config-section">
-                    <div class="form-grid config-edit-grid">
-                      <el-form-item label="Device ID">
-                        <el-input v-model="editForm.device_id" disabled />
-                      </el-form-item>
+                <template v-if="!configEditing">
+                  <el-divider content-position="left">Device Identity</el-divider>
+                  <el-descriptions :column="isMobile ? 1 : 2" border>
+                    <el-descriptions-item label="Device ID">{{ selected.device_id }}</el-descriptions-item>
+                    <el-descriptions-item label="Group">{{ selected.device_group }}</el-descriptions-item>
+                    <el-descriptions-item label="Host / Remote IP">{{ selected.host }}</el-descriptions-item>
+                    <el-descriptions-item v-if="selectedModel?.protocol === 'ads'" label="Target AMS Net ID">
+                      {{ connValue(selected, 'target_net_id', '—') }}
+                    </el-descriptions-item>
+                  </el-descriptions>
 
-                      <el-form-item label="Type">
-                        <el-select v-model="editForm.device_type" style="width:100%" disabled>
-                          <el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name" :value="t.id" />
-                        </el-select>
-                      </el-form-item>
+                  <el-divider content-position="left">Model Binding</el-divider>
+                  <el-descriptions :column="isMobile ? 1 : 2" border>
+                    <el-descriptions-item label="Model">{{ selected.model }}</el-descriptions-item>
+                    <el-descriptions-item label="Type">{{ typeName(selectedModel?.device_type || '') }}</el-descriptions-item>
+                    <el-descriptions-item label="Manufacturer">{{ selectedModel?.manufacturer || '—' }}</el-descriptions-item>
+                    <el-descriptions-item label="Hardware Model">{{ selectedModel?.model || '—' }}</el-descriptions-item>
+                    <el-descriptions-item label="Protocol">{{ selectedModel?.protocol?.toUpperCase() || '—' }}</el-descriptions-item>
+                    <el-descriptions-item label="Point Table">{{ selectedModel?.point_table || '—' }}</el-descriptions-item>
+                    <el-descriptions-item v-if="selectedModel?.protocol === 'ads'" label="Read Mode">{{ selectedModel?.read_mode || '—' }}</el-descriptions-item>
+                  </el-descriptions>
 
-                      <el-form-item label="Model ID">
-                        <el-select v-model="editForm.model" style="width:100%" @change="onEditModelChange">
-                          <el-option
-                            v-for="m in store.deviceModels.filter(m => m.device_type === editForm.device_type)"
-                            :key="m.id"
-                            :label="m.id"
-                            :value="m.id"
-                          />
-                        </el-select>
-                      </el-form-item>
+                  <el-divider content-position="left">Effective Connection</el-divider>
+                  <el-descriptions :column="isMobile ? 1 : 2" border>
+                    <el-descriptions-item label="Port">
+                      {{ connValue(selected, 'port', '—') }}
+                      <el-tag v-if="selected.port !== undefined" size="small" type="warning">Override</el-tag>
+                      <el-tag v-else size="small" type="info">Inherited</el-tag>
+                    </el-descriptions-item>
 
-                      <el-form-item label="Manufacturer">
-                        <el-input v-model="editForm.manufacturer" disabled />
-                      </el-form-item>
+                    <template v-if="selectedModel?.protocol === 'ads'">
+                      <el-descriptions-item label="Target Port">
+                        {{ connValue(selected, 'target_port', 801) }}
+                        <el-tag v-if="selected.extensions?.target_port !== undefined" size="small" type="warning">Override</el-tag>
+                        <el-tag v-else size="small" type="info">Inherited</el-tag>
+                      </el-descriptions-item>
+                      <el-descriptions-item label="TwinCAT Version">
+                        {{ connValue(selected, 'twincat_version', '—') }}
+                        <el-tag v-if="selected.extensions?.twincat_version !== undefined" size="small" type="warning">Override</el-tag>
+                        <el-tag v-else size="small" type="info">Inherited</el-tag>
+                      </el-descriptions-item>
+                      <el-descriptions-item label="Timeout">
+                        {{ connValue(selected, 'timeout', '—') }} s
+                        <el-tag v-if="selected.extensions?.timeout !== undefined" size="small" type="warning">Override</el-tag>
+                        <el-tag v-else size="small" type="info">Inherited</el-tag>
+                      </el-descriptions-item>
+                    </template>
 
-                      <el-form-item label="Hardware Model">
-                        <el-input v-model="editForm.hardware_model" disabled />
-                      </el-form-item>
+                    <template v-else-if="selectedModel?.protocol === 'modbus'">
+                      <el-descriptions-item label="Unit ID">{{ connValue(selected, 'unit_id', '—') }}</el-descriptions-item>
+                      <el-descriptions-item label="Mode">{{ connValue(selected, 'mode', '—') }}</el-descriptions-item>
+                      <el-descriptions-item label="Timeout">{{ connValue(selected, 'timeout', '—') }} s</el-descriptions-item>
+                      <el-descriptions-item label="Word Order">{{ connValue(selected, 'word_order', '—') }}</el-descriptions-item>
+                    </template>
 
-                      <el-form-item label="Group">
-                        <el-select v-model="editForm.device_group" style="width:100%">
-                          <el-option
-                            v-for="g in store.deviceGroups.filter(g => g.device_type === editForm.device_type)"
-                            :key="g.id"
-                            :label="g.id"
-                            :value="g.id"
-                          />
-                        </el-select>
-                      </el-form-item>
+                    <template v-else-if="selectedModel?.protocol === 'iec104'">
+                      <el-descriptions-item label="Common Address">{{ connValue(selected, 'common_addr', '—') }}</el-descriptions-item>
+                      <el-descriptions-item label="K / W">{{ connValue(selected, 'k', '—') }} / {{ connValue(selected, 'w', '—') }}</el-descriptions-item>
+                      <el-descriptions-item label="T0 / T1">{{ connValue(selected, 't0', '—') }} / {{ connValue(selected, 't1', '—') }}</el-descriptions-item>
+                      <el-descriptions-item label="T2 / T3">{{ connValue(selected, 't2', '—') }} / {{ connValue(selected, 't3', '—') }}</el-descriptions-item>
+                    </template>
+                  </el-descriptions>
+                </template>
 
-                      <el-form-item label="Protocol">
-                        <el-select v-model="editForm.protocol" style="width:100%" disabled>
-                          <el-option label="ADS" value="ads" />
-                          <el-option label="Modbus" value="modbus" />
-                          <el-option label="IEC 104" value="iec104" />
-                        </el-select>
-                      </el-form-item>
-
-                      <el-form-item label="Point Table">
-                        <el-select v-model="editForm.point_table" style="width:100%" disabled>
-                          <el-option
-                            v-for="t in store.pointTables.filter(t => t.protocol === editForm.protocol)"
-                            :key="t.id"
-                            :label="t.id"
-                            :value="t.id"
-                          />
-                        </el-select>
-                      </el-form-item>
-
-                      <el-form-item label="Host">
-                        <el-input v-model="editForm.host" />
-                      </el-form-item>
-
-                      <el-form-item label="Port">
-                        <el-input-number v-model="editForm.port" :min="1" :max="65535" controls-position="right" style="width:100%" />
-                      </el-form-item>
-
-                      <el-form-item v-if="editForm.protocol === 'ads'" label="Read Mode">
-                        <el-select v-model="editForm.read_mode" style="width:100%" disabled>
-                          <el-option label="sum" value="sum" />
-                          <el-option label="sequential" value="sequential" />
-                        </el-select>
-                      </el-form-item>
-                    </div>
+                <el-form v-else label-position="top" class="device-config-form">
+                  <el-divider content-position="left">Device Identity</el-divider>
+                  <div class="form-grid config-edit-grid">
+                    <el-form-item label="Device ID"><el-input v-model="editForm.device_id" disabled /></el-form-item>
+                    <el-form-item label="Model">
+                      <el-select v-model="editForm.model" style="width:100%" @change="onEditModelChange">
+                        <el-option v-for="m in store.deviceModels" :key="m.id" :label="m.id" :value="m.id" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Group">
+                      <el-select v-model="editForm.device_group" style="width:100%">
+                        <el-option v-for="g in store.deviceGroups.filter(g => g.device_type === editForm.device_type)" :key="g.id" :label="g.id" :value="g.id" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Host / Remote IP"><el-input v-model="editForm.host" /></el-form-item>
+                    <el-form-item v-if="editForm.protocol === 'ads'" label="Target AMS Net ID"><el-input v-model="editForm.target_net_id" /></el-form-item>
                   </div>
 
-                  <div v-if="editForm.protocol === 'ads'" class="config-section">
-                    <div class="config-section-title">
-                      <b>ADS</b>
-                      <span>endpoint.extensions</span>
-                    </div>
-                    <div class="form-grid config-edit-grid">
-                      <el-form-item label="Target AMS Net ID">
-                        <el-input v-model="editForm.target_net_id" />
-                      </el-form-item>
-                      <el-form-item label="ADS Port">
-                        <el-input-number v-model="editForm.target_port" :min="1" :max="65535" controls-position="right" style="width:100%" />
-                      </el-form-item>
-                      <el-form-item label="TwinCAT Version">
-                        <el-select v-model="editForm.twincat_version" style="width:100%">
-                          <el-option label="TwinCAT 2" value="2" />
-                          <el-option label="TwinCAT 3" value="3" />
-                        </el-select>
-                      </el-form-item>
-                      <el-form-item label="Timeout (s)">
-                        <el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" controls-position="right" style="width:100%" />
-                      </el-form-item>
-                    </div>
+                  <el-divider content-position="left">Connection Overrides</el-divider>
+                  <div class="form-grid config-edit-grid">
+                    <el-form-item label="Port"><el-input-number v-model="editForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+                    <template v-if="editForm.protocol === 'ads'">
+                      <el-form-item label="Target Port"><el-input-number v-model="editForm.target_port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+                      <el-form-item label="TwinCAT Version"><el-select v-model="editForm.twincat_version" style="width:100%"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+                    </template>
+                    <template v-else-if="editForm.protocol === 'modbus'">
+                      <el-form-item label="Unit ID"><el-input-number v-model="editForm.unit_id" :min="0" :max="255" style="width:100%" /></el-form-item>
+                      <el-form-item label="Mode"><el-select v-model="editForm.mode" style="width:100%"><el-option label="TCP" value="tcp" /><el-option label="RTU" value="rtu" /></el-select></el-form-item>
+                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+                      <el-form-item label="Word Order"><el-select v-model="editForm.word_order" style="width:100%"><el-option label="Little endian" value="little_endian" /><el-option label="Big endian" value="big_endian" /></el-select></el-form-item>
+                    </template>
+                    <template v-else-if="editForm.protocol === 'iec104'">
+                      <el-form-item label="Common Address"><el-input-number v-model="editForm.common_addr" :min="1" :max="65535" style="width:100%" /></el-form-item>
+                      <el-form-item label="K Window"><el-input-number v-model="editForm.k" :min="1" style="width:100%" /></el-form-item>
+                      <el-form-item label="W Window"><el-input-number v-model="editForm.w" :min="1" style="width:100%" /></el-form-item>
+                      <el-form-item label="T0 (s)"><el-input-number v-model="editForm.t0" :min="0.1" style="width:100%" /></el-form-item>
+                      <el-form-item label="T1 (s)"><el-input-number v-model="editForm.t1" :min="0.1" style="width:100%" /></el-form-item>
+                      <el-form-item label="T2 (s)"><el-input-number v-model="editForm.t2" :min="0.1" style="width:100%" /></el-form-item>
+                      <el-form-item label="T3 (s)"><el-input-number v-model="editForm.t3" :min="0.1" style="width:100%" /></el-form-item>
+                      <el-form-item label="Max Reconnect Retries"><el-input-number v-model="editForm.max_reconnect_retries" :min="0" style="width:100%" /></el-form-item>
+                    </template>
                   </div>
 
-                  <div v-else-if="editForm.protocol === 'modbus'" class="config-section">
-                    <div class="config-section-title">
-                      <b>Modbus</b>
-                      <span>endpoint.extensions</span>
-                    </div>
-                    <div class="form-grid config-edit-grid">
-                      <el-form-item label="Unit ID">
-                        <el-input-number v-model="editForm.unit_id" :min="0" :max="255" controls-position="right" style="width:100%" />
-                      </el-form-item>
-                      <el-form-item label="Mode">
-                        <el-select v-model="editForm.mode" style="width:100%">
-                          <el-option label="TCP" value="tcp" />
-                          <el-option label="RTU" value="rtu" />
-                        </el-select>
-                      </el-form-item>
-                      <el-form-item label="Timeout (s)">
-                        <el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" controls-position="right" style="width:100%" />
-                      </el-form-item>
-                      <el-form-item label="Word Order">
-                        <el-select v-model="editForm.word_order" style="width:100%">
-                          <el-option label="Little endian" value="little_endian" />
-                          <el-option label="Big endian" value="big_endian" />
-                        </el-select>
-                      </el-form-item>
-                    </div>
-                  </div>
-
-                  <div v-else-if="editForm.protocol === 'iec104'" class="config-section">
-                    <div class="config-section-title">
-                      <b>IEC 104</b>
-                      <span>endpoint.extensions</span>
-                    </div>
-                    <div class="form-grid config-edit-grid">
-                      <el-form-item label="Common Address"><el-input-number v-model="editForm.common_addr" :min="1" :max="65535" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="K Window"><el-input-number v-model="editForm.k" :min="1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="W Window"><el-input-number v-model="editForm.w" :min="1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="T0 (s)"><el-input-number v-model="editForm.t0" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="T1 (s)"><el-input-number v-model="editForm.t1" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="T2 (s)"><el-input-number v-model="editForm.t2" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="T3 (s)"><el-input-number v-model="editForm.t3" :min="0.1" controls-position="right" style="width:100%" /></el-form-item>
-                      <el-form-item label="Max Reconnect Retries"><el-input-number v-model="editForm.max_reconnect_retries" :min="0" controls-position="right" style="width:100%" /></el-form-item>
-                    </div>
-                  </div>
+                  <el-alert type="info" :closable="false" title="Protocol, Point Table, Read Mode, manufacturer and hardware model are Model properties. Change them in Manage Metadata." />
                 </el-form>
 
                 <div class="danger-row">
@@ -1641,60 +1626,28 @@ async function sendCommand() {
                 </div>
 
                 <div class="connectivity-list">
-                  <div>
-                    <span>Network</span>
-                    <b :class="stepClass(selectedVerify.network)">
-                      {{ stepIcon(selectedVerify.network) }}
-                      {{ selected.host }} · {{ stepText(selectedVerify.network) }}
-                    </b>
-                  </div>
-                  <div>
-                    <span>Protocol</span>
-                    <b :class="stepClass(selectedVerify.protocol)">
-                      {{ stepIcon(selectedVerify.protocol) }}
-                      {{ protocolDescription(selected) }}
-                    </b>
-                  </div>
+                  <div><span>Network</span><b :class="stepClass(selectedVerify.network)">{{ stepIcon(selectedVerify.network) }} {{ selected.host }} · {{ stepText(selectedVerify.network) }}</b></div>
+                  <div><span>Protocol</span><b :class="stepClass(selectedVerify.protocol)">{{ stepIcon(selectedVerify.protocol) }} {{ protocolDescription(selected) }}</b></div>
                   <div>
                     <span>Point Table</span>
                     <b :class="stepClass(selectedVerify.points)">
                       {{ stepIcon(selectedVerify.points) }}
-                      <template v-if="selectedVerify.point_total">
-                        {{ selectedVerify.point_success }} / {{ selectedVerify.point_total }} passed
-                      </template>
-                      <template v-else>
-                        {{ stepText(selectedVerify.points) }}
-                      </template>
+                      <template v-if="selectedVerify.point_total">{{ selectedVerify.point_success }} / {{ selectedVerify.point_total }} passed</template>
+                      <template v-else>{{ stepText(selectedVerify.points) }}</template>
                     </b>
                   </div>
                 </div>
               </section>
             </div>
 
-            <section
-              v-if="selectedVerify.errors.length"
-              class="panel-card verification-panel error-information"
-            >
+            <section v-if="selectedVerify.errors.length" class="panel-card verification-panel error-information">
               <div class="panel-head">
-                <div>
-                  <h3>Error Information</h3>
-                  <p>最近一次验证发现的错误</p>
-                </div>
-                <span v-if="selectedVerify.verified_at" class="subtle">
-                  {{ selectedVerify.verified_at }}
-                </span>
+                <div><h3>Error Information</h3><p>最近一次验证发现的错误</p></div>
+                <span v-if="selectedVerify.verified_at" class="subtle">{{ selectedVerify.verified_at }}</span>
               </div>
-
               <div class="error-list">
-                <div
-                  v-for="(e, i) in selectedVerify.errors"
-                  :key="`${e.stage}-${e.target}-${i}`"
-                  class="error-item"
-                >
-                  <div class="error-item-head">
-                    <b>{{ e.target }}</b>
-                    <span>{{ e.stage }}</span>
-                  </div>
+                <div v-for="(e, i) in selectedVerify.errors" :key="`${e.stage}-${e.target}-${i}`" class="error-item">
+                  <div class="error-item-head"><b>{{ e.target }}</b><span>{{ e.stage }}</span></div>
                   <p>{{ e.message }}</p>
                 </div>
               </div>
