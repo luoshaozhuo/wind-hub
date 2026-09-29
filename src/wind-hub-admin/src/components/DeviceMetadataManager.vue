@@ -14,6 +14,7 @@ type ManageSection = 'model' | 'type' | 'group'
 const manageOpen = ref(false)
 const section = ref<ManageSection>('model')
 const editingId = ref('')
+const metadataSnapshot = ref('')
 const isMobile = ref(window.innerWidth < 768)
 
 function onResize() {
@@ -50,6 +51,14 @@ const form = reactive({
   max_reconnect_retries: 5,
 })
 
+const metadataDirty = computed(() => !!editingId.value && JSON.stringify(form) !== metadataSnapshot.value)
+async function beforeMetadataClose(done:()=>void){
+  if(!metadataDirty.value){done();return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved metadata changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    done()
+  }catch{}
+}
 const tablesOfProtocol = computed(() => store.pointTables.filter(t => t.protocol === form.protocol))
 
 const modelRows = computed(() => store.deviceModels.map(m => ({
@@ -160,6 +169,7 @@ function openEditModel(row: DeviceModelDef) {
   form.t2 = Number(c.t2 ?? 10)
   form.t3 = Number(c.t3 ?? 20)
   form.max_reconnect_retries = Number(c.max_reconnect_retries ?? 5)
+  metadataSnapshot.value = JSON.stringify(form)
 }
 
 function openEditType(row: { id: string; name: string }) {
@@ -167,6 +177,7 @@ function openEditType(row: { id: string; name: string }) {
   editingId.value = row.id
   form.id = row.id
   form.name = row.name
+  metadataSnapshot.value = JSON.stringify(form)
 }
 
 function openEditGroup(row: { id: string; device_type: string }) {
@@ -174,6 +185,7 @@ function openEditGroup(row: { id: string; device_type: string }) {
   editingId.value = row.id
   form.id = row.id
   form.device_type = row.device_type
+  metadataSnapshot.value = JSON.stringify(form)
 }
 
 function onProtocolChange() {
@@ -294,8 +306,13 @@ async function saveModel() {
   } else {
     store.deviceModels.push(payload)
   }
-  ElMessage.success(editingId.value ? 'Device model updated (mock)' : 'Device model created (mock)')
-  resetForm()
+  const savedId = id
+  const wasEditing = !!editingId.value
+  ElMessage.success(wasEditing ? 'Device model updated (mock)' : 'Device model created (mock)')
+  if (wasEditing) {
+    const saved = store.deviceModels.find(x => x.id === savedId)
+    if (saved) openEditModel(saved)
+  } else resetForm()
 }
 
 function saveType() {
@@ -307,8 +324,13 @@ function saveType() {
   } else {
     store.deviceTypes.push({ id, name: form.name.trim() || id })
   }
-  ElMessage.success(editingId.value ? 'Device type updated (mock)' : 'Device type created (mock)')
-  resetForm()
+  const savedId = id
+  const wasEditing = !!editingId.value
+  ElMessage.success(wasEditing ? 'Device type updated (mock)' : 'Device type created (mock)')
+  if (wasEditing) {
+    const saved = store.deviceTypes.find(x => x.id === savedId)
+    if (saved) openEditType(saved)
+  } else resetForm()
 }
 
 async function saveGroup() {
@@ -343,8 +365,13 @@ async function saveGroup() {
   } else {
     store.deviceGroups.push({ id, device_type: form.device_type })
   }
-  ElMessage.success(editingId.value ? 'Device group updated (mock)' : 'Device group created (mock)')
-  resetForm()
+  const savedId = id
+  const wasEditing = !!editingId.value
+  ElMessage.success(wasEditing ? 'Device group updated (mock)' : 'Device group created (mock)')
+  if (wasEditing) {
+    const saved = store.deviceGroups.find(x => x.id === savedId)
+    if (saved) openEditGroup(saved)
+  } else resetForm()
 }
 
 function saveCurrent() {
@@ -443,6 +470,7 @@ async function deleteGroup(row: { id: string }) {
     append-to-body
     destroy-on-close
     class="metadata-manager-drawer"
+    :before-close="beforeMetadataClose"
   >
     <el-tabs v-model="section" class="metadata-tabs" @tab-change="onSectionChange">
       <el-tab-pane label="Device Models" name="model" />
@@ -583,8 +611,8 @@ async function deleteGroup(row: { id: string }) {
         </el-form>
         <div class="metadata-editor-actions">
           <el-button v-if="section === 'model' && editingId" @click="resetModelDeviceOverrides">Reset Device Overrides</el-button>
-          <el-button @click="resetForm">Clear</el-button>
-          <el-button type="primary" @click="saveCurrent">{{ editingId ? 'Update' : 'Create' }}</el-button>
+          <el-button v-if="!editingId" @click="resetForm">Clear</el-button>
+          <el-button type="primary" :disabled="!!editingId && !metadataDirty" @click="saveCurrent">{{ editingId ? 'Save' : 'Create' }}</el-button>
         </div>
       </el-main>
     </el-container>

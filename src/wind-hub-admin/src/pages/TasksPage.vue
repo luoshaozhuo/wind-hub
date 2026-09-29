@@ -18,6 +18,7 @@ const detailOpen = ref(false)
 const detailTab = ref('Summary')
 const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
+const taskSnapshot = ref('')
 const viewportWidth = ref(window.innerWidth)
 const isMobile = computed(() => viewportWidth.value < 768)
 const drawerSize = computed(() => isMobile.value ? '100%' : 'min(1080px, 86vw)')
@@ -41,6 +42,11 @@ const selectedDevicePoints=computed(()=>{
 })
 const totalPointBindings=computed(()=>taskDevices.value.reduce((sum,d)=>
   sum+pointsOfTable(tableOfDevice(d)).filter(p=>selectedTask.value && p.point_groups.includes(selectedTask.value.point_group)).length,0))
+const taskFormState=computed(()=>JSON.stringify({
+  scope:form.scope,device:form.device,device_group:form.device_group,point_group:form.point_group,
+  interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,
+}))
+const taskDirty=computed(()=>!!selectedTask.value && taskFormState.value!==taskSnapshot.value)
 
 const taskLogs=computed(()=>{
   const id=selectedTask.value?.task_id || 'task'
@@ -65,6 +71,10 @@ function loadForm(t?:TaskDef){
     form.task_id=t.task_id; form.scope=t.device?'device':'device_group'; form.device=t.device
     form.device_group=t.device_group; form.point_group=t.point_group; form.interval=t.interval
     form.sinks=[...t.sinks]; form.enabled=t.enabled
+    taskSnapshot.value=JSON.stringify({
+      scope:form.scope,device:form.device,device_group:form.device_group,point_group:form.point_group,
+      interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,
+    })
   }else{
     form.task_id=''; form.scope='device_group'; form.device=''; form.device_group=''
     form.point_group=validPointGroups.value[0]?.id||''; form.interval=1
@@ -76,7 +86,13 @@ function openDetail(t:TaskDef){
   selectedTaskId.value=t.task_id; selectedDeviceId.value=devicesForTask(t)[0]?.device_id||''
   detailTab.value='Summary'; loadForm(t); detailOpen.value=true
 }
-function cancelTaskEdit(){ if(selectedTask.value) loadForm(selectedTask.value) }
+async function beforeTaskClose(done:()=>void){
+  if(!taskDirty.value){done();return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved Task changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    done()
+  }catch{ /* keep drawer open */ }
+}
 
 function validateForm(){
   const id=form.task_id.trim()
@@ -99,7 +115,8 @@ async function persistTask(existing?:TaskDef){
   if(!existing){
     const id=form.task_id.trim()
     if(store.tasks.some(t=>t.task_id===id)){ElMessage.error('Task ID already exists');return false}
-    store.tasks.push({task_id:id,device,device_group,point_group:form.point_group,interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,runtime:'STOPPED'})
+    const now=nowText()
+    store.tasks.push({task_id:id,device,device_group,point_group:form.point_group,interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,runtime:'STOPPED',created_at:now,updated_at:now})
   }else{
     const wasRunning=existing.runtime==='RUNNING'
     const changed=existing.device!==device||existing.device_group!==device_group||existing.point_group!==form.point_group||
@@ -110,7 +127,7 @@ async function persistTask(existing?:TaskDef){
         'Task Change Impact',{type:'warning',confirmButtonText:'Apply Changes'})
       existing.runtime='STOPPED'
     }
-    Object.assign(existing,{device,device_group,point_group:form.point_group,interval:form.interval,sinks:[...form.sinks],enabled:form.enabled})
+    Object.assign(existing,{device,device_group,point_group:form.point_group,interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,updated_at:nowText()})
     refreshTaskValidity()
     if(wasRunning&&existing.enabled&&existing.valid!==false) existing.runtime='RUNNING'
   }
@@ -120,7 +137,7 @@ async function persistTask(existing?:TaskDef){
 async function createTask(){ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created (mock)')} }
 async function saveTaskEdit(){
   if(!selectedTask.value) return
-  if(await persistTask(selectedTask.value)){selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)')}
+  if(await persistTask(selectedTask.value)){loadForm(selectedTask.value); selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)')}
 }
 async function changeEnabled(t:TaskDef,enabled:boolean){
   if(!enabled&&t.runtime==='RUNNING'){
@@ -144,6 +161,10 @@ async function del(t:TaskDef){
   if(selectedTaskId.value===t.task_id) detailOpen.value=false
   ElMessage.success('Task deleted (mock)')
 }
+function nowText(){
+  const d=new Date(); const p=(n:number)=>String(n).padStart(2,'0')
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
 function targetText(t:TaskDef){return t.device?`device: ${t.device}`:`group: ${t.device_group}`}
 function devicePointCount(d:DeviceInst){return selectedTask.value?pointsOfTable(tableOfDevice(d)).filter(p=>p.point_groups.includes(selectedTask.value!.point_group)).length:0}
 function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
@@ -161,6 +182,8 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
         <el-table-column label="Target" min-width="180"><template #default="{row}">{{targetText(row)}}</template></el-table-column>
         <el-table-column v-if="!isMobile" prop="point_group" label="Point Group" min-width="130"/>
         <el-table-column v-if="!isMobile" label="Instances" width="100" align="right"><template #default="{row}">{{devicesForTask(row).length}}</template></el-table-column>
+        <el-table-column v-if="!isMobile" prop="created_at" label="Created" min-width="150"/>
+        <el-table-column prop="updated_at" label="Updated" min-width="150"/>
         <el-table-column label="Runtime" width="110">
           <template #default="{row}">
             <el-tooltip v-if="row.valid===false" :content="row.invalid_reason" placement="top"><el-tag type="danger">INVALID</el-tag></el-tooltip>
@@ -180,7 +203,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
       </el-table>
     </el-card>
 
-    <el-drawer v-model="detailOpen" :title="selectedTask?.task_id || 'Task'" direction="rtl" :size="drawerSize" append-to-body destroy-on-close>
+    <el-drawer v-model="detailOpen" :title="selectedTask?.task_id || 'Task'" direction="rtl" :size="drawerSize" append-to-body destroy-on-close :before-close="beforeTaskClose">
       <template v-if="selectedTask">
         <div class="task-drawer-head">
           <div>
@@ -201,8 +224,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
                     <p>任务定义与运行参数放在同一工作区，修改后直接 Save。</p>
                   </div>
                   <div class="task-config-actions">
-                    <el-button @click="cancelTaskEdit">Reset</el-button>
-                    <el-button type="primary" @click="saveTaskEdit">Save</el-button>
+                    <el-button type="primary" :disabled="!taskDirty" @click="saveTaskEdit">Save</el-button>
                   </div>
                 </div>
 
@@ -258,6 +280,8 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
                   <div><span>Target</span><b>{{targetText(selectedTask)}}</b></div>
                   <div><span>Point Group</span><b>{{selectedTask.point_group}}</b></div>
                   <div><span>Sinks</span><b>{{selectedTask.sinks.join(', ')}}</b></div>
+                  <div><span>Created</span><b>{{selectedTask.created_at}}</b></div>
+                  <div><span>Last Modified</span><b>{{selectedTask.updated_at}}</b></div>
                 </div>
                 <el-alert v-if="selectedTask.valid===false" type="error" :closable="false" :title="selectedTask.invalid_reason" />
               </aside>

@@ -101,10 +101,29 @@ export interface TaskDef {
   runtime: string
   valid?: boolean
   invalid_reason?: string
+  created_at: string
+  updated_at: string
 }
 
 export type SinkType = 'kafka' | 'db' | 'file'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
+export type SinkCheckState = 'passed' | 'failed' | 'skipped'
+
+export interface SinkVerificationCheck {
+  name: string
+  state: SinkCheckState
+  latency_ms: number
+  detail: string
+  error_code: string
+}
+
+export interface SinkVerification {
+  state: 'never' | 'passed' | 'failed'
+  checked_at: string
+  passed: number
+  total: number
+  checks: SinkVerificationCheck[]
+}
 
 export interface SinkDef {
   name: string
@@ -120,6 +139,7 @@ export interface SinkDef {
   writes_total: number
   failures_total: number
   dropped_points: number
+  verification: SinkVerification
 }
 
 export type VerifyStepState = 'unknown' | 'checking' | 'success' | 'partial' | 'failed'

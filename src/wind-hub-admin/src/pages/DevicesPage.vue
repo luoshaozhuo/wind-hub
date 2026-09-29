@@ -45,6 +45,7 @@ const mobileFiltersOpen = ref(false)
 const drawer = ref(false)
 const tab = ref('Config')
 const selected = ref<DeviceInst | null>(null)
+const deviceSnapshot = ref('')
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
@@ -689,6 +690,8 @@ const editForm = ref({
   t3: 20,
   max_reconnect_retries: 5,
 })
+const deviceFormState=computed(()=>JSON.stringify(editForm.value))
+const deviceDirty=computed(()=>!!selected.value && deviceFormState.value!==deviceSnapshot.value)
 
 function openDev(d: DeviceInst) {
   selected.value = d
@@ -697,8 +700,20 @@ function openDev(d: DeviceInst) {
   loadEditForm()
 }
 
-function cancelConfigEdit() {
-  loadEditForm()
+async function beforeDeviceClose(done:()=>void){
+  if(!deviceDirty.value){done();return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved Device changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    done()
+  }catch{ /* keep drawer open */ }
+}
+
+async function closeDeviceDrawer(){
+  if(!deviceDirty.value){drawer.value=false;return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved Device changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    drawer.value=false
+  }catch{ /* keep drawer open */ }
 }
 
 function loadEditForm() {
@@ -733,6 +748,7 @@ function loadEditForm() {
     t3: Number(conn.t3 ?? 20),
     max_reconnect_retries: Number(conn.max_reconnect_retries ?? 5),
   }
+  deviceSnapshot.value=JSON.stringify(editForm.value)
 }
 
 function onEditModelChange() {
@@ -1506,6 +1522,7 @@ async function sendCommand() {
       :size="detailDrawerSize"
       :with-header="false"
       class="device-drawer"
+      :before-close="beforeDeviceClose"
     >
       <template v-if="selected">
         <div class="drawer-head">
@@ -1522,7 +1539,7 @@ async function sendCommand() {
               {{ selected.host }}<template v-if="connValue(selected, 'port')">:{{ connValue(selected, 'port') }}</template>
             </p>
           </div>
-          <el-button text @click="drawer = false">Close</el-button>
+          <el-button text @click="closeDeviceDrawer">Close</el-button>
         </div>
 
         <el-tabs v-model="tab" class="drawer-tabs">
@@ -1536,8 +1553,7 @@ async function sendCommand() {
                     <p>{{ overrideKeys(selected).length }} connection override(s) · Model defaults are inherited</p>
                   </div>
                   <div>
-                    <el-button @click="cancelConfigEdit">Reset</el-button>
-                    <el-button type="primary" @click="saveConfig">Save</el-button>
+                    <el-button type="primary" :disabled="!deviceDirty" @click="saveConfig">Save</el-button>
                   </div>
                 </div>
 

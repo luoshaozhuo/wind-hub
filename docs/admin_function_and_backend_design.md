@@ -122,7 +122,12 @@ Apply 必须携带 Preview 时的 `base_revision` 或等价版本号。
 - Change Impact 与危险确认始终使用 Dialog/MessageBox；
 - 页面头部只保留一个主操作，其他页面级动作进入 Actions Dropdown；
 - 实体列表统一以名称/稳定 ID 作为详情与编辑入口，不提供独立 Edit / View Details 按钮；
-- 点击名称进入 Drawer 后，Config 直接可编辑，使用 Save / Reset 完成事务；查看信息放在 Overview/Info 区，不再增加二次 Edit 开关；
+- 点击名称进入 Drawer 后，参数直接可编辑；Overview 与 Modify 不重复维护两套字段；
+- 打开 Drawer 时记录 original snapshot；仅当当前值与 snapshot 不同时 Save 才启用；
+- 用户将字段改回原值后 Save 自动恢复 disabled；
+- 保存成功后刷新 snapshot，Save 再次 disabled；
+- 不提供普通表单 Reset；dirty Drawer 关闭时提示是否丢弃未保存修改；
+- “Reset to Parent / Reset Device Overrides”属于真实配置语义，不属于表单 Reset，继续保留；
 - 继承/只读属性使用 Descriptions/Text 展示，不使用大量 disabled Input 伪装成可编辑字段。
 
 当前映射：
@@ -1011,7 +1016,7 @@ Default Group 仅是占位，不是正常自动迁移目的地。
 
 ## 6.1 Query Tasks
 
-Task 列表不提供独立 Edit 或 View Details 按钮。点击 Task ID 打开 Task Detail Drawer；Overview、Devices & Points、Logs 用于查询，Config 直接可编辑并使用 Save / Reset。
+Task 列表不提供独立 Edit 或 View Details 按钮。点击 Task ID 打开 Task Detail Drawer；Summary 同时承载可编辑 Definition 与只读 Runtime，另外保留 Devices & Points、Logs。普通编辑不提供 Reset。
 
 后端返回：
 
@@ -1035,13 +1040,13 @@ Task 列表不提供独立 Edit 或 View Details 按钮。点击 Task ID 打开 
 - 目标设备使用有效 Point Table；
 - point_group 在目标 resolved points 中至少存在可采点。
 
-创建后 Task Instance 默认 STOPPED。
+创建后 Task Instance 默认 STOPPED，并由后端写入 `created_at` 与 `updated_at`。修改 Task Definition 只更新 `updated_at`；Start/Stop、运行错误等 Runtime 变化不得修改这两个 Definition 时间字段。
 
 ## 6.2.1 Task Detail
 
 Task Detail 不再拆分 Overview 与 Config。二者合并为 **Summary** 工作区：
 
-- 左侧 Definition：Task 配置直接可编辑，使用 Save / Reset；
+- 左侧 Definition：Task 配置直接可编辑；只有 Definition 发生变化时 Save 才启用；不提供普通 Reset。
 - 右侧 Runtime：当前状态、Instance 数、Point Binding 数、Target、Point Group、Sinks；
 - Devices & Points：目标 Device 列表，以及选择单台 Device 后该 Task 实际采集的 resolved Point 列表；
 - Logs：该 Task/Instance 的运行日志与事件。
@@ -1126,6 +1131,7 @@ Sinks 页面负责输出端配置、运行状态、健康检查和独立写入�
 - name / type / enabled；
 - endpoint 摘要；
 - runtime health；
+- verification summary（Never / PASS x/y / FAIL x/y）与 last verified；
 - referencing tasks；
 - queue depth；
 - last test / last write；
@@ -1135,7 +1141,7 @@ Sinks 页面负责输出端配置、运行状态、健康检查和独立写入�
 
 ## 7.2 Create / Edit
 
-Add Sink 和复杂编辑使用 Drawer。**Create 模式不使用 Tabs**，Drawer 打开后直接显示 Name、Type 和对应参数表单；已有 Sink 点击 name 后再使用 Overview / Config / Test Tabs。这样避免创建时因无 Overview/Test 内容导致空白或无意义导航。
+Add Sink 和复杂编辑使用 Drawer。已有 Sink 的 Summary 将参数编辑与 Runtime 合并在一个工作区，参数修改后才启用 Save；不再拆分 Overview / Config，也不提供普通 Reset。**Create 模式不使用 Tabs**，Drawer 打开后直接显示 Name、Type 和对应参数表单；已有 Sink 点击 name 后仅使用 Summary / Test：Summary 合并参数编辑与 Runtime，Test 展示 Verification stages 与 Write Test。
 
 Sink name 创建后固定。Type 创建后也固定；如需跨类型迁移，应新建 Sink 后迁移 Task 引用。
 
@@ -1193,7 +1199,17 @@ source    = admin_sink_test
 
 ## 7.7 Verify All Sinks
 
-只执行 Connection Test，不批量执行 Write Test。各 Sink 独立返回结果，单个失败不能中止其他 Sink。
+只执行无业务副作用的 Connection Verification，不批量执行 Write Test。各 Sink 独立返回 stage 结果，单个失败不能中止其他 Sink。
+
+统一结果包含：check name、state（passed/failed/skipped）、latency_ms、detail、error_code、checked_at。
+
+检查链：
+
+- Kafka：Transport → Broker → Metadata → Topic；
+- PostgreSQL：Transport → Authentication → Session → SELECT 1；
+- File：Parent Path → Permission → Open / Append capability。
+
+列表必须展示 Verification 与 Last Verified；点击 Sink 后 Test 页展示完整 stages。
 
 ---
 
@@ -1201,7 +1217,7 @@ source    = admin_sink_test
 
 Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnostics 同属“工程”大类：Quality 用于持续发现异常，Diagnostics 用于针对具体 Device/Task 定位原因。
 
-## 7.1 Global Metrics
+## 8.1 Global Metrics
 
 后端应从运行指标聚合：
 
@@ -1214,7 +1230,7 @@ Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnost
 
 必须带统计窗口，例如 5 min / 24 h。
 
-## 7.2 Task Quality
+## 8.2 Task Quality
 
 每 Task/Instance 至少提供：
 
@@ -1229,7 +1245,7 @@ Quality 表示**采集服务质量**，不是电能质量。Quality 与 Diagnost
 
 订阅任务不伪造 Expected interval，应显示 subscription 语义。
 
-## 7.3 Device Health
+## 8.3 Device Health
 
 至少提供：
 
@@ -1263,7 +1279,7 @@ Task/Config Preconditions
 
 Advanced Tools（Manual Read、Raw Decoder、Write Test）属于进一步排查手段，不作为主诊断流程。
 
-## 8.1 Ping
+## 9.1 Ping
 
 后端从 Wind Hub 所在运行环境执行。
 
@@ -1276,13 +1292,13 @@ Advanced Tools（Manual Read、Raw Decoder、Write Test）属于进一步排查�
 
 不得由 Admin Backend 所在的另一台机器代替执行，除非部署架构明确两者网络环境完全相同。
 
-## 8.2 TCP Connect
+## 9.2 TCP Connect
 
 使用设备最终解析后的 host/port。
 
 仅验证 TCP 建连，不等价于 protocol success。
 
-## 8.3 Protocol Connect
+## 9.3 Protocol Connect
 
 按设备协议执行最小握手/会话验证。
 
@@ -1302,7 +1318,7 @@ Read Test 不允许隐式读取“若干点”。用户必须明确选择一个�
 - error category（timeout / not found / protocol / decode 等）；
 - protocol raw error。
 
-## 8.5 Manual Read
+## 9.5 Manual Read
 
 允许手工输入协议地址：
 
@@ -1316,7 +1332,7 @@ Read Test 不允许隐式读取“若干点”。用户必须明确选择一个�
 
 Manual Read 不写入 Point Table。
 
-## 8.6 Raw Data / Watch
+## 9.6 Raw Data / Watch
 
 Start Watch：
 
@@ -1333,7 +1349,7 @@ Stop：
 
 多类型 interpretation 必须基于同一份原始数据。
 
-## 8.7 Write Test
+## 9.7 Write Test
 
 高风险操作，后端必须：
 
@@ -1355,7 +1371,7 @@ Stop：
 
 Config 是直接操作配置文件的高级入口，与 Devices/Points/Tasks 的结构化编辑互补。页面不使用“YAML Editor / Upload”顶层 Tabs 生硬并列功能，而按任务流组织为：Instance Settings、Configuration Workspace、Import Configuration。Edit / Review 只作为 YAML 工作区的视图模式。
 
-## 9.1 Site Edit
+## 10.1 Site Edit
 
 Update 只修改待保存配置，不应直接假装 Runtime 已生效。
 
@@ -1366,7 +1382,7 @@ Update 只修改待保存配置，不应直接假装 Runtime 已生效。
 
 若仅改显示名且系统允许无 reload 生效，也必须有明确统一规则。
 
-## 9.2 Global ADS Settings
+## 10.2 Global ADS Settings
 
 Config 页面维护全局唯一的 ADS 本机身份：
 
@@ -1379,7 +1395,7 @@ Config 页面维护全局唯一的 ADS 本机身份：
 
 这些参数不得进入 Device Model 或 Device override。修改时 Preview 所有 ADS Device 和相关 RUNNING Task；Apply 需要重建 ADS Router/连接。
 
-## 9.3 YAML Query
+## 10.3 YAML Query
 
 后端返回：
 
@@ -1390,7 +1406,7 @@ Config 页面维护全局唯一的 ADS 本机身份：
 
 前端 Review 应比较 **applied vs 当前编辑内容**。
 
-## 9.4 Validate
+## 10.4 Validate
 
 必须使用与生产配置加载相同的 schema/resolver/交叉引用规则。
 
@@ -1405,7 +1421,7 @@ Validate 不保存、不 reload。
 - protocol config errors；
 - warnings。
 
-## 9.5 Save
+## 10.5 Save
 
 Save：
 
@@ -1416,7 +1432,7 @@ Save：
 
 必须防止覆盖其他用户的新修改。
 
-## 9.6 Save & Apply
+## 10.6 Save & Apply
 
 流程：
 
@@ -1432,7 +1448,7 @@ Validate
 
 不能只是“写文件 + 返回成功”。
 
-## 9.7 Review
+## 10.7 Review
 
 Review 本身由前端可视化，但 diff 基线由后端 revision 提供。
 
@@ -1443,7 +1459,7 @@ Review 本身由前端可视化，但 diff 基线由后端 revision 提供。
 - tables changed；
 - models changed。
 
-## 9.8 Upload
+## 10.8 Upload
 
 Upload 不得立即覆盖正式配置。
 
@@ -1463,7 +1479,7 @@ Upload 不得立即覆盖正式配置。
 
 按统一 Apply 事务执行。
 
-## 9.9 Apply Failure
+## 10.9 Apply Failure
 
 Apply 失败时必须明确：
 
@@ -1478,7 +1494,7 @@ Apply 失败时必须明确：
 
 # 11. Logs 页面
 
-## 10.1 Query
+## 11.1 Query
 
 后端支持：
 
@@ -1491,7 +1507,7 @@ Apply 失败时必须明确：
 
 日志默认按时间倒序。
 
-## 10.2 Log Sources
+## 11.2 Log Sources
 
 至少统一：
 
@@ -1504,7 +1520,7 @@ Apply 失败时必须明确：
 - config；
 - admin/audit。
 
-## 10.3 Streaming
+## 11.3 Streaming
 
 若后续支持实时日志：
 
@@ -1513,7 +1529,7 @@ Apply 失败时必须明确：
 - 前端重连后不得重复无限追加旧数据；
 - 必须有最大缓存条数。
 
-## 10.4 Audit
+## 11.4 Audit
 
 以下操作必须进入审计日志：
 
@@ -1537,7 +1553,7 @@ Meta 包括：
 - Device Group；
 - Unit。
 
-## 11.1 Rename
+## 12.1 Rename
 
 稳定 ID 原则优先。
 
@@ -1547,7 +1563,7 @@ Meta 包括：
 - Point Table / Point Group 若允许 rename，必须通过专门 Rename API 原子迁移引用；
 - 不允许普通 Update 暗中完成 key rename。
 
-## 11.2 Delete
+## 12.2 Delete
 
 默认采用**引用保护**：
 
@@ -1567,7 +1583,7 @@ Default 仅用于：
 
 它不是删除对象时的“垃圾桶”。
 
-## 11.3 Update
+## 12.3 Update
 
 后端必须先判断字段属于：
 
@@ -1585,7 +1601,7 @@ Default 仅用于：
 
 具体 URL 可在实现阶段调整，但职责建议固定。
 
-## 12.1 Query API
+## 13.1 Query API
 
 ```text
 GET /overview
@@ -1601,7 +1617,7 @@ GET /logs
 GET /config/files/{name}
 ```
 
-## 12.2 Command API
+## 13.2 Command API
 
 ```text
 POST /tasks/{id}/start
@@ -1617,7 +1633,7 @@ POST /debug/watch
 DELETE /debug/watch/{session_id}
 ```
 
-## 12.3 Configuration Change API
+## 13.3 Configuration Change API
 
 推荐统一：
 

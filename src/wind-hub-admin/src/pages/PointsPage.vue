@@ -74,15 +74,33 @@ const manageOpen = ref(false)
 const manageSection = ref<ManageSection>('table')
 const tableEditingId = ref('')
 const groupEditingId = ref('')
+const tableSnapshot = ref('')
+const groupSnapshot = ref('')
 
 const tableDraft = reactive({ id: '', protocol: 'modbus' as Protocol, extends: '' })
 const groupDraft = reactive({ id: '', name: '' })
 
-const parentTables = computed(() =>
-  store.pointTables.filter(t => !t.system && t.protocol === tableDraft.protocol && t.id !== tableDraft.id),
-)
+const parentTables = computed(() => {
+  const blocked = new Set(tableEditingId.value ? [tableEditingId.value, ...descendantTableIds(tableEditingId.value)] : [])
+  return store.pointTables.filter(t =>
+    !t.system &&
+    t.protocol === tableDraft.protocol &&
+    !blocked.has(t.id),
+  )
+})
 
 const editingTable = computed(() => store.pointTables.find(t => t.id === tableEditingId.value))
+const tableDirty = computed(() => !!tableEditingId.value && JSON.stringify(tableDraft) !== tableSnapshot.value)
+const groupDirty = computed(() => !!groupEditingId.value && JSON.stringify(groupDraft) !== groupSnapshot.value)
+const manageDirty = computed(() => manageSection.value === 'table' ? tableDirty.value : groupDirty.value)
+
+async function beforeManageClose(done:()=>void){
+  if(!manageDirty.value){done();return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved metadata changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    done()
+  }catch{}
+}
 const editingGroup = computed(() => store.pointGroups.find(g => g.id === groupEditingId.value))
 const currentTableIsSystem = computed(() => !!tableDef.value?.system)
 
@@ -241,6 +259,7 @@ function editTable(id: string) {
   tableDraft.id = t.id
   tableDraft.protocol = t.protocol
   tableDraft.extends = t.extends || ''
+  tableSnapshot.value = JSON.stringify(tableDraft)
 }
 
 async function saveTable() {
@@ -310,6 +329,7 @@ async function saveTable() {
       target.protocol = tableDraft.protocol
       target.extends = tableDraft.extends
     })
+    tableSnapshot.value = JSON.stringify(tableDraft)
     ElMessage.success('Point table updated (mock)')
   } else {
     store.pointTables.push({
@@ -371,6 +391,7 @@ function editGroup(id: string) {
   groupEditingId.value = g.id
   groupDraft.id = g.id
   groupDraft.name = g.name
+  groupSnapshot.value = JSON.stringify(groupDraft)
 }
 
 function saveGroup() {
@@ -398,6 +419,7 @@ function saveGroup() {
       return
     }
     target.name = groupDraft.name.trim() || target.id
+    groupSnapshot.value = JSON.stringify(groupDraft)
   } else {
     store.pointGroups.push({ id, name: groupDraft.name.trim() || id })
     newGroup()
@@ -437,6 +459,7 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
 // ---- Add / Edit Point ----
 const pointEdit = ref(false)
 const editing = ref('')
+const pointSnapshot = ref('')
 const draft = reactive({
   point_id: '',
   variable_name: '',
@@ -484,6 +507,24 @@ function openAdd() {
   pointEdit.value = true
 }
 
+const pointDraftState = computed(() => JSON.stringify(draft))
+const pointDirty = computed(() => !!editing.value && pointDraftState.value !== pointSnapshot.value)
+
+async function beforePointClose(done:()=>void){
+  if(!pointDirty.value){done();return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved Point changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    done()
+  }catch{}
+}
+async function closePointEditor(){
+  if(!pointDirty.value){pointEdit.value=false;return}
+  try{
+    await ElMessageBox.confirm('Discard unsaved Point changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+    pointEdit.value=false
+  }catch{}
+}
+
 function openEdit(p: PointDef) {
   editing.value = p.point_id
   resetDraft()
@@ -503,6 +544,7 @@ function openEdit(p: PointDef) {
   draft.unit = p.unit
   draft.description = p.description
   resetPointTest()
+  pointSnapshot.value = JSON.stringify(draft)
   pointEdit.value = true
 }
 
@@ -661,9 +703,9 @@ async function resetOverride(p: PointDef) {
         <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
         <el-table-column v-if="!isTablet" prop="offset" label="Offset" />
         <el-table-column v-if="!isMobile" label="Unit"><template #default="s">{{ unitSymbol(s.row.unit) || s.row.unit }}</template></el-table-column>
-        <el-table-column label="Actions" :width="isMobile ? 108 : 160">
+        <el-table-column label="Operation" :width="isMobile ? 108 : 170">
           <template #default="s">
-            <el-button v-if="originOf(s.row)==='override'" size="small" @click="resetOverride(s.row)">Reset</el-button>
+            <el-button v-if="originOf(s.row)==='override'" size="small" @click="resetOverride(s.row)">Reset to Parent</el-button>
             <el-button size="small" type="danger" plain @click="delPoint(s.row)">Delete</el-button>
           </template>
         </el-table-column>
@@ -676,6 +718,7 @@ async function resetOverride(p: PointDef) {
       direction="rtl"
       :size="isMobile ? '100%' : 'min(900px, 94vw)'"
       class="point-metadata-drawer"
+      :before-close="beforeManageClose"
       append-to-body
       destroy-on-close
     >
@@ -741,17 +784,25 @@ async function resetOverride(p: PointDef) {
               <div v-if="editingTable?.system" class="field-note">System default Point Tables are fixed placeholders.</div>
             </el-form-item>
             <el-form-item label="Extends">
-              <el-select v-model="tableDraft.extends" clearable style="width:100%">
+              <el-select v-model="tableDraft.extends" style="width:100%">
+                <el-option label="No Base Table" value="" />
                 <el-option v-for="t in parentTables" :key="t.id" :label="t.id" :value="t.id" />
               </el-select>
+              <div class="field-note">Only protocol-compatible parents that cannot create an inheritance cycle are shown.</div>
             </el-form-item>
-            <div class="metadata-editor-actions"><el-button @click="newTable">Clear</el-button><el-button type="primary" @click="saveTable">{{ tableEditingId ? 'Update' : 'Create' }}</el-button></div>
+            <div class="metadata-editor-actions">
+              <el-button v-if="!tableEditingId" @click="newTable">Clear</el-button>
+              <el-button type="primary" :disabled="!!tableEditingId && !tableDirty" @click="saveTable">{{ tableEditingId ? 'Save' : 'Create' }}</el-button>
+            </div>
           </el-form>
 
           <el-form v-else label-position="top">
             <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!groupEditingId" /></el-form-item>
             <el-form-item label="Name"><el-input v-model="groupDraft.name" /></el-form-item>
-            <div class="metadata-editor-actions"><el-button @click="newGroup">Clear</el-button><el-button type="primary" @click="saveGroup">{{ groupEditingId ? 'Update' : 'Create' }}</el-button></div>
+            <div class="metadata-editor-actions">
+              <el-button v-if="!groupEditingId" @click="newGroup">Clear</el-button>
+              <el-button type="primary" :disabled="!!groupEditingId && !groupDirty" @click="saveGroup">{{ groupEditingId ? 'Save' : 'Create' }}</el-button>
+            </div>
           </el-form>
         </div>
       </div>
@@ -765,6 +816,7 @@ async function resetOverride(p: PointDef) {
       append-to-body
       destroy-on-close
       class="point-editor-drawer"
+      :before-close="beforePointClose"
     >
       <el-row :gutter="24">
         <el-col :xs="24" :sm="24" :md="24" :lg="14">
@@ -849,7 +901,7 @@ async function resetOverride(p: PointDef) {
           </el-card>
         </el-col>
       </el-row>
-      <template #footer><el-button @click="pointEdit = false">Cancel</el-button><el-button type="primary" @click="savePoint">Save</el-button></template>
+      <template #footer><el-button @click="closePointEditor">Cancel</el-button><el-button type="primary" :disabled="!!editing && !pointDirty" @click="savePoint">Save</el-button></template>
     </el-drawer>
   </div>
 </template>

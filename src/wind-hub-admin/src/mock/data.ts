@@ -280,6 +280,7 @@ const sinks: SinkDef[] = [
     writes_total: 0,
     failures_total: 0,
     dropped_points: 0,
+    verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
   },
   {
     name: 'db_main',
@@ -302,6 +303,7 @@ const sinks: SinkDef[] = [
     writes_total: 0,
     failures_total: 0,
     dropped_points: 0,
+    verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
   },
   {
     name: 'file_archive',
@@ -327,14 +329,25 @@ const sinks: SinkDef[] = [
     writes_total: 18342,
     failures_total: 0,
     dropped_points: 0,
+    verification: {
+      state: 'passed',
+      checked_at: '2026-09-29 12:30:18',
+      passed: 3,
+      total: 3,
+      checks: [
+        { name: 'Parent Path', state: 'passed', latency_ms: 1, detail: 'Parent directory exists', error_code: '' },
+        { name: 'Permission', state: 'passed', latency_ms: 1, detail: 'Write permission available', error_code: '' },
+        { name: 'Open / Append', state: 'passed', latency_ms: 2, detail: 'File can be opened for append', error_code: '' },
+      ],
+    },
   },
 ]
 
 const tasks: TaskDef[] = [
-  { task_id: 'turbine-modbus-all', device: '', device_group: 'turbine_modbus', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '' },
-  { task_id: 'turbine-ads-all', device: '', device_group: 'turbine_ads', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '' },
-  { task_id: 'pcs-fast', device: '', device_group: 'storage_pcs', point_group: 'fast', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'STOPPED', valid: true, invalid_reason: '' },
-  { task_id: 'wtg-001-diag', device: 'wtg-001', device_group: '', point_group: 'status', interval: 5, sinks: ['file_archive'], enabled: false, runtime: 'STOPPED', valid: true, invalid_reason: '' },
+  { task_id: 'turbine-modbus-all', device: '', device_group: 'turbine_modbus', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '', created_at: '2026-09-20 09:12:18', updated_at: '2026-09-28 16:34:02' },
+  { task_id: 'turbine-ads-all', device: '', device_group: 'turbine_ads', point_group: 'all', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'RUNNING', valid: true, invalid_reason: '', created_at: '2026-09-20 09:18:41', updated_at: '2026-09-29 08:22:17' },
+  { task_id: 'pcs-fast', device: '', device_group: 'storage_pcs', point_group: 'fast', interval: 1, sinks: ['file_archive'], enabled: true, runtime: 'STOPPED', valid: true, invalid_reason: '', created_at: '2026-09-22 14:06:33', updated_at: '2026-09-27 11:45:09' },
+  { task_id: 'wtg-001-diag', device: 'wtg-001', device_group: '', point_group: 'status', interval: 5, sinks: ['file_archive'], enabled: false, runtime: 'STOPPED', valid: true, invalid_reason: '', created_at: '2026-09-24 10:25:00', updated_at: '2026-09-24 10:25:00' },
 ]
 
 export const store = reactive({
