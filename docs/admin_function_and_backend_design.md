@@ -1039,12 +1039,14 @@ Task 列表不提供独立 Edit 或 View Details 按钮。点击 Task ID 打开 
 
 ## 6.2.1 Task Detail
 
-Task Detail 至少包含：
+Task Detail 不再拆分 Overview 与 Config。二者合并为 **Summary** 工作区：
 
-- Overview：Definition、Runtime、Instance 数、Point Binding 数；
+- 左侧 Definition：Task 配置直接可编辑，使用 Save / Reset；
+- 右侧 Runtime：当前状态、Instance 数、Point Binding 数、Target、Point Group、Sinks；
 - Devices & Points：目标 Device 列表，以及选择单台 Device 后该 Task 实际采集的 resolved Point 列表；
-- Logs：该 Task/Instance 的运行日志与事件；
-- Config：直接编辑模式，使用 Save / Reset，不增加二次 Edit 开关。
+- Logs：该 Task/Instance 的运行日志与事件。
+
+这样避免“Overview 展示一遍、Config 再展示一遍”的重复。
 
 Device Group Task 不应一次展开所有点造成长页面。桌面端采用“左侧 Device 列表 + 右侧所选 Device Points”主从布局；移动端改为纵向布局。
 
@@ -1133,7 +1135,7 @@ Sinks 页面负责输出端配置、运行状态、健康检查和独立写入�
 
 ## 7.2 Create / Edit
 
-Add Sink 和复杂编辑使用 Drawer。Sink 列表点击 Sink name 直接进入 Config，不再提供独立 Edit 按钮。
+Add Sink 和复杂编辑使用 Drawer。**Create 模式不使用 Tabs**，Drawer 打开后直接显示 Name、Type 和对应参数表单；已有 Sink 点击 name 后再使用 Overview / Config / Test Tabs。这样避免创建时因无 Overview/Test 内容导致空白或无意义导航。
 
 Sink name 创建后固定。Type 创建后也固定；如需跨类型迁移，应新建 Sink 后迁移 Task 引用。
 

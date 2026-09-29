@@ -15,7 +15,7 @@ import type { DeviceInst, TaskDef } from '../mock/types'
 
 const createDialog = ref(false)
 const detailOpen = ref(false)
-const detailTab = ref('Overview')
+const detailTab = ref('Summary')
 const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
@@ -74,7 +74,7 @@ function loadForm(t?:TaskDef){
 function openNew(){ loadForm(); createDialog.value=true }
 function openDetail(t:TaskDef){
   selectedTaskId.value=t.task_id; selectedDeviceId.value=devicesForTask(t)[0]?.device_id||''
-  detailTab.value='Overview'; loadForm(t); detailOpen.value=true
+  detailTab.value='Summary'; loadForm(t); detailOpen.value=true
 }
 function cancelTaskEdit(){ if(selectedTask.value) loadForm(selectedTask.value) }
 
@@ -192,18 +192,76 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
         </div>
 
         <el-tabs v-model="detailTab">
-          <el-tab-pane label="Overview" name="Overview">
-            <el-descriptions :column="isMobile?1:2" border>
-              <el-descriptions-item label="Task ID">{{selectedTask.task_id}}</el-descriptions-item>
-              <el-descriptions-item label="Target">{{targetText(selectedTask)}}</el-descriptions-item>
-              <el-descriptions-item label="Point Group">{{selectedTask.point_group}}</el-descriptions-item>
-              <el-descriptions-item label="Interval">{{selectedTask.interval}} s</el-descriptions-item>
-              <el-descriptions-item label="Sinks">{{selectedTask.sinks.join(', ')}}</el-descriptions-item>
-              <el-descriptions-item label="Enabled">{{selectedTask.enabled?'Yes':'No'}}</el-descriptions-item>
-              <el-descriptions-item label="Devices">{{taskDevices.length}}</el-descriptions-item>
-              <el-descriptions-item label="Point Bindings">{{totalPointBindings}}</el-descriptions-item>
-            </el-descriptions>
-            <el-alert v-if="selectedTask.valid===false" type="error" :closable="false" :title="selectedTask.invalid_reason" style="margin-top:16px"/>
+          <el-tab-pane label="Summary" name="Summary">
+            <div class="task-summary-grid">
+              <section class="task-summary-card">
+                <div class="summary-card-head">
+                  <div>
+                    <h3>Definition</h3>
+                    <p>任务定义与运行参数放在同一工作区，修改后直接 Save。</p>
+                  </div>
+                  <div class="task-config-actions">
+                    <el-button @click="cancelTaskEdit">Reset</el-button>
+                    <el-button type="primary" @click="saveTaskEdit">Save</el-button>
+                  </div>
+                </div>
+
+                <el-form label-position="top">
+                  <div class="task-form-grid">
+                    <el-form-item label="Task ID"><el-input v-model="form.task_id" disabled/></el-form-item>
+                    <el-form-item label="Scope">
+                      <el-select v-model="form.scope" style="width:100%">
+                        <el-option label="Device Group" value="device_group"/>
+                        <el-option label="Single Device" value="device"/>
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item v-if="form.scope==='device_group'" label="Device Group">
+                      <el-select v-model="form.device_group" style="width:100%">
+                        <el-option v-for="g in store.deviceGroups" :key="g.id" :label="g.id" :value="g.id" :disabled="groupUsesDefaultTable(g.id)"/>
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item v-else label="Device">
+                      <el-select v-model="form.device" filterable style="width:100%">
+                        <el-option v-for="d in store.devices" :key="d.device_id" :label="d.device_id" :value="d.device_id" :disabled="deviceUsesDefaultTable(d.device_id)"/>
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Point Group">
+                      <el-select v-model="form.point_group" style="width:100%">
+                        <el-option v-for="g in validPointGroups" :key="g.id" :label="g.id" :value="g.id"/>
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Interval (s)">
+                      <el-input-number v-model="form.interval" :min="0.1" :step="0.5" style="width:100%"/>
+                    </el-form-item>
+                    <el-form-item label="Target Sinks">
+                      <el-select v-model="form.sinks" multiple style="width:100%">
+                        <el-option v-for="s in store.sinks" :key="s.name" :label="s.name" :value="s.name" :disabled="!s.enabled"/>
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="Enabled"><el-switch v-model="form.enabled"/></el-form-item>
+                  </div>
+                </el-form>
+              </section>
+
+              <aside class="task-runtime-card">
+                <div class="summary-card-head">
+                  <div><h3>Runtime</h3><p>当前运行事实，不与 Definition 重复。</p></div>
+                </div>
+                <div class="runtime-status-line">
+                  <el-tag v-if="selectedTask.valid===false" type="danger">INVALID</el-tag>
+                  <el-tag v-else :type="selectedTask.runtime==='RUNNING'?'success':'info'">{{selectedTask.runtime}}</el-tag>
+                  <span>{{ selectedTask.enabled ? 'Enabled' : 'Disabled' }}</span>
+                </div>
+                <div class="runtime-metrics">
+                  <div><span>Instances</span><b>{{taskDevices.length}}</b></div>
+                  <div><span>Point Bindings</span><b>{{totalPointBindings}}</b></div>
+                  <div><span>Target</span><b>{{targetText(selectedTask)}}</b></div>
+                  <div><span>Point Group</span><b>{{selectedTask.point_group}}</b></div>
+                  <div><span>Sinks</span><b>{{selectedTask.sinks.join(', ')}}</b></div>
+                </div>
+                <el-alert v-if="selectedTask.valid===false" type="error" :closable="false" :title="selectedTask.invalid_reason" />
+              </aside>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane label="Devices & Points" name="Coverage">
@@ -240,24 +298,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
             </el-timeline>
           </el-tab-pane>
 
-          <el-tab-pane label="Config" name="Config">
-            <div class="task-config-actions">
-              <el-button @click="cancelTaskEdit">Reset</el-button>
-              <el-button type="primary" @click="saveTaskEdit">Save</el-button>
-            </div>
-            <el-form label-position="top">
-              <div class="task-form-grid">
-                <el-form-item label="Task ID"><el-input v-model="form.task_id" disabled/></el-form-item>
-                <el-form-item label="Scope"><el-select v-model="form.scope" style="width:100%"><el-option label="Device Group" value="device_group"/><el-option label="Single Device" value="device"/></el-select></el-form-item>
-                <el-form-item v-if="form.scope==='device_group'" label="Device Group"><el-select v-model="form.device_group" style="width:100%"><el-option v-for="g in store.deviceGroups" :key="g.id" :label="g.id" :value="g.id" :disabled="groupUsesDefaultTable(g.id)"/></el-select></el-form-item>
-                <el-form-item v-else label="Device"><el-select v-model="form.device" filterable style="width:100%"><el-option v-for="d in store.devices" :key="d.device_id" :label="d.device_id" :value="d.device_id" :disabled="deviceUsesDefaultTable(d.device_id)"/></el-select></el-form-item>
-                <el-form-item label="Point Group"><el-select v-model="form.point_group" style="width:100%"><el-option v-for="g in validPointGroups" :key="g.id" :label="g.id" :value="g.id"/></el-select></el-form-item>
-                <el-form-item label="Interval (s)"><el-input-number v-model="form.interval" :min="0.1" :step="0.5" style="width:100%"/></el-form-item>
-                <el-form-item label="Target Sinks"><el-select v-model="form.sinks" multiple style="width:100%"><el-option v-for="s in store.sinks" :key="s.name" :label="s.name" :value="s.name" :disabled="!s.enabled"/></el-select></el-form-item>
-                <el-form-item label="Enabled"><el-switch v-model="form.enabled"/></el-form-item>
-              </div>
-            </el-form>
-          </el-tab-pane>
+
         </el-tabs>
       </template>
     </el-drawer>
@@ -287,7 +328,15 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 .coverage-devices,.coverage-points{min-width:0;border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-3)}
 .pane-title{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2);margin-bottom:var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .pane-title b{color:var(--app-text-primary);font-size:var(--app-font-body)}
-.task-config-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-bottom:var(--app-space-3)}
+.task-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:var(--app-space-4)}
+.task-summary-card,.task-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}
+.summary-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}
+.summary-card-head h3{margin:0}.summary-card-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.task-config-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2)}
+.runtime-status-line{display:flex;align-items:center;gap:var(--app-space-2);margin-bottom:var(--app-space-4);color:var(--app-text-muted)}
+.runtime-metrics{display:grid;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}
+.runtime-metrics>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding-bottom:var(--app-space-2);border-bottom:1px solid var(--app-border-soft)}
+.runtime-metrics span{color:var(--app-text-muted)}.runtime-metrics b{text-align:right;overflow-wrap:anywhere}
 .task-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
-@media(max-width:900px){.coverage-layout,.task-form-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
+@media(max-width:900px){.coverage-layout,.task-form-grid,.task-summary-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
 </style>

@@ -310,10 +310,68 @@ async function testAll(){
     </el-card>
 
     <el-drawer v-model="drawerOpen" :title="creating ? 'Add Sink' : selected?.name || 'Sink'" direction="rtl" :size="drawerSize" append-to-body destroy-on-close>
-      <el-tabs v-model="drawerTab">
-        <el-tab-pane v-if="!creating" label="Overview" name="Overview">
+      <template v-if="creating">
+        <div class="sink-create-intro">
+          <h3>Create Sink</h3>
+          <p>先选择输出类型，再填写对应参数。创建后名称与类型固定。</p>
+        </div>
+        <el-form label-position="top">
+          <div class="sink-form-grid">
+            <el-form-item label="Name"><el-input v-model="draft.name" placeholder="kafka_main"/></el-form-item>
+            <el-form-item label="Type">
+              <el-select v-model="draft.type" style="width:100%" @change="onTypeChange">
+                <el-option label="Kafka" value="kafka"/>
+                <el-option label="PostgreSQL" value="db"/>
+                <el-option label="File" value="file"/>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item>
+          </div>
+
+          <el-divider content-position="left">{{ draft.type==='db'?'PostgreSQL':draft.type.toUpperCase() }} Parameters</el-divider>
+
+          <div v-if="draft.type==='kafka'" class="sink-form-grid">
+            <el-form-item label="Bootstrap Servers"><el-input v-model="draft.bootstrap_servers" placeholder="localhost:9092"/></el-form-item>
+            <el-form-item label="Topic"><el-input v-model="draft.topic"/></el-form-item>
+            <el-form-item label="Key Field"><el-select v-model="draft.key_field" clearable style="width:100%"><el-option label="device_id" value="device_id"/><el-option label="point_id" value="point_id"/><el-option label="source" value="source"/></el-select></el-form-item>
+            <el-form-item label="Compression"><el-select v-model="draft.compression_type" clearable style="width:100%"><el-option label="gzip" value="gzip"/><el-option label="snappy" value="snappy"/><el-option label="lz4" value="lz4"/><el-option label="zstd" value="zstd"/></el-select></el-form-item>
+            <el-form-item label="Acks"><el-select v-model="draft.acks" style="width:100%"><el-option label="all" value="all"/><el-option label="1" value="1"/><el-option label="0" value="0"/></el-select></el-form-item>
+            <el-form-item label="Retries"><el-input-number v-model="draft.retries" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="Batch Size (bytes)"><el-input-number v-model="draft.kafka_batch_size" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="Linger (ms)"><el-input-number v-model="draft.linger_ms" :min="0" style="width:100%"/></el-form-item>
+          </div>
+
+          <div v-else-if="draft.type==='db'" class="sink-form-grid">
+            <el-form-item label="DSN"><el-input v-model="draft.dsn" type="password" show-password placeholder="postgresql://user:pass@host/db"/></el-form-item>
+            <el-form-item label="Table"><el-input v-model="draft.table"/></el-form-item>
+            <el-form-item label="Batch Size"><el-input-number v-model="draft.db_batch_size" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="Create Table"><el-switch v-model="draft.create_table"/></el-form-item>
+            <el-form-item label="Pool Min Size"><el-input-number v-model="draft.pool_min_size" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="Pool Max Size"><el-input-number v-model="draft.pool_max_size" :min="1" style="width:100%"/></el-form-item>
+          </div>
+
+          <div v-else class="sink-form-grid">
+            <el-form-item label="Path"><el-input v-model="draft.path" placeholder="/var/tmp/wind-hub/archive.jsonl"/></el-form-item>
+            <el-form-item label="Format"><el-select v-model="draft.format" style="width:100%"><el-option label="JSONL" value="jsonl"/><el-option label="CSV" value="csv"/></el-select></el-form-item>
+            <el-form-item label="Max Size (MB)"><el-input-number v-model="draft.max_size_mb" :min="0" style="width:100%"/></el-form-item>
+            <el-form-item label="Max Age (h)"><el-input-number v-model="draft.max_age_hours" :min="0" style="width:100%"/></el-form-item>
+            <el-form-item label="Compress"><el-switch v-model="draft.compress"/></el-form-item>
+            <el-form-item label="Compression Level"><el-input-number v-model="draft.compress_level" :min="1" :max="9" :disabled="!draft.compress" style="width:100%"/></el-form-item>
+            <el-form-item label="Buffer Size"><el-input-number v-model="draft.buffer_size" :min="1" style="width:100%"/></el-form-item>
+            <el-form-item label="Flush Interval (s)"><el-input-number v-model="draft.flush_interval" :min="0" :step="0.1" style="width:100%"/></el-form-item>
+            <el-form-item v-if="draft.format==='csv'" label="Write Header"><el-switch v-model="draft.write_header"/></el-form-item>
+          </div>
+        </el-form>
+        <div class="editor-actions">
+          <el-button @click="cancelEdit">Cancel</el-button>
+          <el-button type="primary" @click="saveSink">Create Sink</el-button>
+        </div>
+      </template>
+
+      <el-tabs v-else v-model="drawerTab">
+        <el-tab-pane label="Overview" name="Overview">
           <template v-if="selected">
-                        <el-descriptions :column="isMobile?1:2" border>
+            <el-descriptions :column="isMobile?1:2" border>
               <el-descriptions-item label="Name">{{ selected.name }}</el-descriptions-item>
               <el-descriptions-item label="Type">{{ selected.type==='db'?'PostgreSQL':selected.type.toUpperCase() }}</el-descriptions-item>
               <el-descriptions-item label="Enabled">{{ selected.enabled?'Yes':'No' }}</el-descriptions-item>
@@ -331,51 +389,48 @@ async function testAll(){
           </template>
         </el-tab-pane>
 
-        <el-tab-pane :label="creating?'Config':'Config'" name="Config">
-                    <template>
-            <el-form label-position="top">
-              <div class="sink-form-grid">
-                <el-form-item label="Name"><el-input v-model="draft.name" :disabled="!creating"/></el-form-item>
-                <el-form-item label="Type"><el-select v-model="draft.type" style="width:100%" :disabled="!creating" @change="onTypeChange"><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select></el-form-item>
-                <el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item>
-              </div>
-              <el-divider content-position="left">{{ draft.type==='db'?'PostgreSQL':draft.type.toUpperCase() }} Parameters</el-divider>
-              <div v-if="draft.type==='kafka'" class="sink-form-grid">
-                <el-form-item label="Bootstrap Servers"><el-input v-model="draft.bootstrap_servers" placeholder="localhost:9092"/></el-form-item>
-                <el-form-item label="Topic"><el-input v-model="draft.topic"/></el-form-item>
-                <el-form-item label="Key Field"><el-select v-model="draft.key_field" clearable style="width:100%"><el-option label="device_id" value="device_id"/><el-option label="point_id" value="point_id"/><el-option label="source" value="source"/></el-select></el-form-item>
-                <el-form-item label="Compression"><el-select v-model="draft.compression_type" clearable style="width:100%"><el-option label="gzip" value="gzip"/><el-option label="snappy" value="snappy"/><el-option label="lz4" value="lz4"/><el-option label="zstd" value="zstd"/></el-select></el-form-item>
-                <el-form-item label="Acks"><el-select v-model="draft.acks" style="width:100%"><el-option label="all" value="all"/><el-option label="1" value="1"/><el-option label="0" value="0"/></el-select></el-form-item>
-                <el-form-item label="Retries"><el-input-number v-model="draft.retries" :min="1" style="width:100%"/></el-form-item>
-                <el-form-item label="Batch Size (bytes)"><el-input-number v-model="draft.kafka_batch_size" :min="1" style="width:100%"/></el-form-item>
-                <el-form-item label="Linger (ms)"><el-input-number v-model="draft.linger_ms" :min="0" style="width:100%"/></el-form-item>
-              </div>
-              <div v-else-if="draft.type==='db'" class="sink-form-grid">
-                <el-form-item label="DSN"><el-input v-model="draft.dsn" type="password" show-password placeholder="postgresql://user:pass@host/db"/></el-form-item>
-                <el-form-item label="Table"><el-input v-model="draft.table"/></el-form-item>
-                <el-form-item label="Batch Size"><el-input-number v-model="draft.db_batch_size" :min="1" style="width:100%"/></el-form-item>
-                <el-form-item label="Create Table"><el-switch v-model="draft.create_table"/></el-form-item>
-                <el-form-item label="Pool Min Size"><el-input-number v-model="draft.pool_min_size" :min="1" style="width:100%"/></el-form-item>
-                <el-form-item label="Pool Max Size"><el-input-number v-model="draft.pool_max_size" :min="1" style="width:100%"/></el-form-item>
-              </div>
-              <div v-else class="sink-form-grid">
-                <el-form-item label="Path"><el-input v-model="draft.path" placeholder="/var/tmp/wind-hub/archive.jsonl"/></el-form-item>
-                <el-form-item label="Format"><el-select v-model="draft.format" style="width:100%"><el-option label="JSONL" value="jsonl"/><el-option label="CSV" value="csv"/></el-select></el-form-item>
-                <el-form-item label="Max Size (MB)"><el-input-number v-model="draft.max_size_mb" :min="0" style="width:100%"/></el-form-item>
-                <el-form-item label="Max Age (h)"><el-input-number v-model="draft.max_age_hours" :min="0" style="width:100%"/></el-form-item>
-                <el-form-item label="Compress"><el-switch v-model="draft.compress"/></el-form-item>
-                <el-form-item label="Compression Level"><el-input-number v-model="draft.compress_level" :min="1" :max="9" :disabled="!draft.compress" style="width:100%"/></el-form-item>
-                <el-form-item label="Buffer Size"><el-input-number v-model="draft.buffer_size" :min="1" style="width:100%"/></el-form-item>
-                <el-form-item label="Flush Interval (s)"><el-input-number v-model="draft.flush_interval" :min="0" :step="0.1" style="width:100%"/></el-form-item>
-                <el-form-item v-if="draft.format==='csv'" label="Write Header"><el-switch v-model="draft.write_header"/></el-form-item>
-              </div>
-            </el-form>
-            <div class="editor-actions"><el-button @click="cancelEdit">{{ creating?'Cancel':'Reset' }}</el-button><el-button type="primary" @click="saveSink">{{ creating?'Create':'Save' }}</el-button></div>
-          </template>
-
+        <el-tab-pane label="Config" name="Config">
+          <el-form label-position="top">
+            <div class="sink-form-grid">
+              <el-form-item label="Name"><el-input v-model="draft.name" disabled/></el-form-item>
+              <el-form-item label="Type"><el-select v-model="draft.type" style="width:100%" disabled><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select></el-form-item>
+              <el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item>
+            </div>
+            <el-divider content-position="left">{{ draft.type==='db'?'PostgreSQL':draft.type.toUpperCase() }} Parameters</el-divider>
+            <div v-if="draft.type==='kafka'" class="sink-form-grid">
+              <el-form-item label="Bootstrap Servers"><el-input v-model="draft.bootstrap_servers"/></el-form-item>
+              <el-form-item label="Topic"><el-input v-model="draft.topic"/></el-form-item>
+              <el-form-item label="Key Field"><el-select v-model="draft.key_field" clearable style="width:100%"><el-option label="device_id" value="device_id"/><el-option label="point_id" value="point_id"/><el-option label="source" value="source"/></el-select></el-form-item>
+              <el-form-item label="Compression"><el-select v-model="draft.compression_type" clearable style="width:100%"><el-option label="gzip" value="gzip"/><el-option label="snappy" value="snappy"/><el-option label="lz4" value="lz4"/><el-option label="zstd" value="zstd"/></el-select></el-form-item>
+              <el-form-item label="Acks"><el-select v-model="draft.acks" style="width:100%"><el-option label="all" value="all"/><el-option label="1" value="1"/><el-option label="0" value="0"/></el-select></el-form-item>
+              <el-form-item label="Retries"><el-input-number v-model="draft.retries" :min="1" style="width:100%"/></el-form-item>
+              <el-form-item label="Batch Size (bytes)"><el-input-number v-model="draft.kafka_batch_size" :min="1" style="width:100%"/></el-form-item>
+              <el-form-item label="Linger (ms)"><el-input-number v-model="draft.linger_ms" :min="0" style="width:100%"/></el-form-item>
+            </div>
+            <div v-else-if="draft.type==='db'" class="sink-form-grid">
+              <el-form-item label="DSN"><el-input v-model="draft.dsn" type="password" show-password/></el-form-item>
+              <el-form-item label="Table"><el-input v-model="draft.table"/></el-form-item>
+              <el-form-item label="Batch Size"><el-input-number v-model="draft.db_batch_size" :min="1" style="width:100%"/></el-form-item>
+              <el-form-item label="Create Table"><el-switch v-model="draft.create_table"/></el-form-item>
+              <el-form-item label="Pool Min Size"><el-input-number v-model="draft.pool_min_size" :min="1" style="width:100%"/></el-form-item>
+              <el-form-item label="Pool Max Size"><el-input-number v-model="draft.pool_max_size" :min="1" style="width:100%"/></el-form-item>
+            </div>
+            <div v-else class="sink-form-grid">
+              <el-form-item label="Path"><el-input v-model="draft.path"/></el-form-item>
+              <el-form-item label="Format"><el-select v-model="draft.format" style="width:100%"><el-option label="JSONL" value="jsonl"/><el-option label="CSV" value="csv"/></el-select></el-form-item>
+              <el-form-item label="Max Size (MB)"><el-input-number v-model="draft.max_size_mb" :min="0" style="width:100%"/></el-form-item>
+              <el-form-item label="Max Age (h)"><el-input-number v-model="draft.max_age_hours" :min="0" style="width:100%"/></el-form-item>
+              <el-form-item label="Compress"><el-switch v-model="draft.compress"/></el-form-item>
+              <el-form-item label="Compression Level"><el-input-number v-model="draft.compress_level" :min="1" :max="9" :disabled="!draft.compress" style="width:100%"/></el-form-item>
+              <el-form-item label="Buffer Size"><el-input-number v-model="draft.buffer_size" :min="1" style="width:100%"/></el-form-item>
+              <el-form-item label="Flush Interval (s)"><el-input-number v-model="draft.flush_interval" :min="0" :step="0.1" style="width:100%"/></el-form-item>
+              <el-form-item v-if="draft.format==='csv'" label="Write Header"><el-switch v-model="draft.write_header"/></el-form-item>
+            </div>
+          </el-form>
+          <div class="editor-actions"><el-button @click="cancelEdit">Reset</el-button><el-button type="primary" @click="saveSink">Save</el-button></div>
         </el-tab-pane>
 
-        <el-tab-pane v-if="!creating" label="Test" name="Test">
+        <el-tab-pane label="Test" name="Test">
           <template v-if="selected">
             <el-alert type="info" :closable="false" title="Connection Test only opens/checks the destination. Write Test sends one synthetic PointValue to the configured destination."/>
             <el-card shadow="never" class="test-card">
@@ -401,7 +456,7 @@ async function testAll(){
 </template>
 
 <style scoped>
-.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3)}
+.sink-filters{display:grid;grid-template-columns:minmax(260px,1fr) 180px 180px;gap:var(--app-space-3)}.sink-create-intro{margin-bottom:var(--app-space-4)}.sink-create-intro h3{margin:0}.sink-create-intro p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .drawer-actions{display:flex;justify-content:flex-end;margin-bottom:var(--app-space-3)}
 .sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
 .editor-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-4)}
