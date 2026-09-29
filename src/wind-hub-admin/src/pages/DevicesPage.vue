@@ -29,6 +29,8 @@ interface DataRow {
   offset: number
   address: string
   updated: boolean
+  read_state: 'success' | 'failed'
+  error: string
 }
 
 interface TrendSignal {
@@ -49,6 +51,7 @@ const deviceSnapshot = ref('')
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
 const viewportWidth = ref(window.innerWidth)
+const isMobile = computed(() => viewportWidth.value < 768)
 const detailDrawerSize = computed(() => viewportWidth.value < 768 ? '100%' : viewportWidth.value < 1200 ? '72%' : '72%')
 
 function emptyVerify(): DeviceVerification {
@@ -1026,27 +1029,39 @@ function boolValue(value: unknown, fallback = false) {
 
 const selectedVerify = computed(() => selected.value ? verifyOf(selected.value) : emptyVerify())
 
-// ---- Data ----
+// ---- Read Test / Data ----
 const dataSearch = ref('')
 const dataGroup = ref('All')
+const dataRevision = ref(0)
+const dataRefreshInterval = ref(1000)
+const dataAutoRefresh = ref(false)
+const dataRefreshing = ref(false)
+const dataLastRefreshAt = ref('')
+let dataRefreshTimer: number | null = null
+
+const resolvedPoints = computed(() => selected.value ? pointsOfTable(tableOfDevice(selected.value)) : [])
 
 const dataRows = computed<DataRow[]>(() => {
   if (!selected.value) return []
-  return pointsOfTable(tableOfDevice(selected.value)).map((p, i) => {
-    const raw = ((i * 31 + 17) % 1300) / 10
+  const revision = dataRevision.value
+  return resolvedPoints.value.map((p, i) => {
+    const failed = selected.value?.device_id === 'wtg-044' && i % 11 === 0
+    const raw = ((i * 31 + 17 + revision * 7) % 1300) / 10
     return {
       point_id: p.point_id,
       variable_name: p.variable_name,
       description: p.description,
-      value: p.data_type === 'bool' ? i % 2 === 0 : raw,
+      value: failed ? '-' : p.data_type === 'bool' ? (i + revision) % 2 === 0 : Number(raw.toFixed(3)),
       unit: unitSymbol(p.unit),
       groups: p.point_groups,
-      updated_at: timestampAt(80 + (i % 17) * 1100),
+      updated_at: failed ? '-' : timestampAt((i % 7) * 120),
       data_type: p.data_type,
       scale: p.scale,
       offset: p.offset,
       address: pointAddressText(p),
-      updated: i % 3 === 0,
+      updated: !failed,
+      read_state: failed ? 'failed' : 'success',
+      error: failed ? 'Read timeout (mock)' : '',
     }
   })
 })
@@ -1056,17 +1071,127 @@ const visibleData = computed(() => dataRows.value.filter(r => {
   return (dataGroup.value === 'All' || r.groups.includes(dataGroup.value)) &&
     (!q || [r.point_id, r.variable_name, r.description].some(x => x.toLowerCase().includes(q)))
 }))
+const dataSuccessCount = computed(() => dataRows.value.filter(r => r.read_state === 'success').length)
+const dataFailureCount = computed(() => dataRows.value.length - dataSuccessCount.value)
+
+function stopDataRefreshTimer() {
+  if (dataRefreshTimer !== null) {
+    window.clearInterval(dataRefreshTimer)
+    dataRefreshTimer = null
+  }
+}
+async function refreshData() {
+  if (!selected.value || dataRefreshing.value) return
+  dataRefreshing.value = true
+  try {
+    await sleep(260)
+    dataRevision.value += 1
+    dataLastRefreshAt.value = timestampAt()
+  } finally {
+    dataRefreshing.value = false
+  }
+}
+function syncDataRefreshTimer() {
+  stopDataRefreshTimer()
+  if (drawer.value && tab.value === 'Data' && dataAutoRefresh.value) {
+    dataRefreshTimer = window.setInterval(() => { void refreshData() }, dataRefreshInterval.value)
+  }
+}
+watch([dataAutoRefresh, dataRefreshInterval], syncDataRefreshTimer)
+
+// ---- Read Test ----
+interface PointReadResult {
+  state: 'success' | 'failed'
+  timestamp: string
+  latency_ms: number
+  raw_data: string
+  decoded_value: string
+  engineering_value: string
+  error_category: string
+  error_code: string
+  error_message: string
+}
+
+const readPointId = ref('')
+const readLoading = ref(false)
+const readResult = ref<PointReadResult | null>(null)
+const readPoint = computed(() => resolvedPoints.value.find(p => p.point_id === readPointId.value))
+
+function readPointRawData(point: PointDef, index: number) {
+  const protocol = selectedModel.value?.protocol
+  if (protocol === 'modbus') return `registers: [0x${(0x4200 + index).toString(16).toUpperCase()}, 0x0000]`
+  if (protocol === 'ads') return `bytes: ${[0x42, 0xc8, index & 0xff, 0x00].map(x => x.toString(16).padStart(2, '0').toUpperCase()).join(' ')}`
+  return `ASDU: IOA=${point.address.ioa ?? '-'} value-bytes=42 C8 00 00`
+}
+function resetReadTest() {
+  readResult.value = null
+}
+watch(resolvedPoints, rows => {
+  if (!rows.some(p => p.point_id === readPointId.value)) readPointId.value = rows[0]?.point_id || ''
+}, { immediate: true })
+watch(readPointId, resetReadTest)
+
+async function readSelectedPoint() {
+  if (!selected.value || !readPoint.value || readLoading.value) return
+  readLoading.value = true
+  readResult.value = null
+  try {
+    await sleep(320)
+    const point = readPoint.value
+    const index = resolvedPoints.value.findIndex(p => p.point_id === point.point_id)
+    const timeout = selected.value.device_id === 'wtg-044'
+    const notFound = selectedModel.value?.protocol === 'ads' && point.variable_name.toLowerCase().includes('missing')
+    const decodeError = selected.value.device_id === 'wtg-045' && index % 3 === 0
+
+    if (timeout || notFound || decodeError) {
+      readResult.value = {
+        state: 'failed',
+        timestamp: timestampAt(),
+        latency_ms: timeout ? 3000 : 28,
+        raw_data: decodeError ? readPointRawData(point, index) : '-',
+        decoded_value: '-',
+        engineering_value: '-',
+        error_category: timeout ? 'timeout' : notFound ? 'not_found' : 'decode',
+        error_code: timeout ? 'READ_TIMEOUT' : notFound ? 'ADS_SYMBOL_NOT_FOUND' : 'DECODE_ERROR',
+        error_message: timeout
+          ? 'Read request timed out after 3000 ms'
+          : notFound
+            ? 'Configured ADS symbol was not found on the remote PLC'
+            : 'Raw payload does not match the configured data type',
+      }
+      return
+    }
+
+    const rawValue = Number((35.2 + index * 2.75).toFixed(4))
+    const engineering = Number((rawValue * point.scale + point.offset).toFixed(4))
+    readResult.value = {
+      state: 'success',
+      timestamp: timestampAt(),
+      latency_ms: 12 + (index % 8) * 3,
+      raw_data: readPointRawData(point, index),
+      decoded_value: String(rawValue),
+      engineering_value: `${engineering} ${unitSymbol(point.unit)}`.trim(),
+      error_category: '',
+      error_code: '',
+      error_message: '',
+    }
+  } finally {
+    readLoading.value = false
+  }
+}
 
 // ---- Trend ----
 const trendChartEl = ref<HTMLElement | null>(null)
 let trendChart: echarts.ECharts | null = null
 let trendResizeObserver: ResizeObserver | null = null
+let trendRefreshTimer: number | null = null
 const trendLegendSelected = ref<Record<string, boolean>>({})
 const trendPickerOpen = ref(false)
 const trendSearch = ref('')
-const trendRange = ref('Real-time')
+const trendRange = ref('1 min')
+const trendAutoRefresh = ref(false)
+const trendLastRefreshAt = ref('')
 const trendSignals = ref<TrendSignal[]>([])
-
 const trendRecording = ref(false)
 
 function trendRangeMs() {
@@ -1143,11 +1268,7 @@ function toggleTrendSelection(r: DataRow) {
     trendSignals.value = trendSignals.value.filter(x => x.id !== r.point_id)
     delete trendLegendSelected.value[existing.label]
   } else {
-    const signal = {
-      id: r.point_id,
-      label: r.variable_name || r.point_id,
-      unit: r.unit,
-    }
+    const signal = { id: r.point_id, label: r.variable_name || r.point_id, unit: r.unit }
     trendSignals.value.push(signal)
     trendLegendSelected.value[signal.label] = true
   }
@@ -1169,6 +1290,7 @@ function makeTrendData(index: number) {
 }
 
 function renderTrend() {
+  trendLastRefreshAt.value = timestampAt()
   nextTick(() => {
     if (!trendChartEl.value) return
     if (!trendChart) {
@@ -1191,13 +1313,7 @@ function renderTrend() {
     trendChart.setOption({
       animation: false,
       tooltip: { trigger: 'axis' },
-      legend: {
-        type: 'scroll',
-        top: 10,
-        left: 18,
-        right: 18,
-        selected: trendLegendSelected.value,
-      },
+      legend: { type: 'scroll', top: 10, left: 18, right: 18, selected: trendLegendSelected.value },
       grid: { top: 58, left: 56, right: 24, bottom: 42 },
       xAxis: { type: 'time', boundaryGap: false },
       yAxis: { type: 'value', scale: true },
@@ -1207,28 +1323,62 @@ function renderTrend() {
   })
 }
 
+function stopTrendRefreshTimer() {
+  if (trendRefreshTimer !== null) {
+    window.clearInterval(trendRefreshTimer)
+    trendRefreshTimer = null
+  }
+}
+function syncTrendRefreshTimer() {
+  stopTrendRefreshTimer()
+  if (drawer.value && tab.value === 'Trend' && trendAutoRefresh.value) {
+    trendRefreshTimer = window.setInterval(renderTrend, 5000)
+  }
+}
 function onResize() {
   viewportWidth.value = window.innerWidth
   trendChart?.resize()
 }
 
 watch(tab, value => {
+  if (value === 'Data') {
+    void refreshData()
+    syncDataRefreshTimer()
+  } else {
+    stopDataRefreshTimer()
+  }
   if (value === 'Trend') {
     seedTrendSignals()
     renderTrend()
+    syncTrendRefreshTimer()
+  } else {
+    stopTrendRefreshTimer()
   }
 })
-
+watch([trendRange, trendAutoRefresh], () => {
+  if (tab.value === 'Trend') renderTrend()
+  syncTrendRefreshTimer()
+})
 watch(() => selected.value?.device_id, () => {
   trendSignals.value = []
   trendLegendSelected.value = {}
+  readResult.value = null
+  dataRevision.value = 0
+  dataLastRefreshAt.value = ''
   seedTrendSignals()
-  renderTrend()
+  if (tab.value === 'Trend') renderTrend()
 })
+
+function onDeviceDrawerClosed() {
+  stopDataRefreshTimer()
+  stopTrendRefreshTimer()
+}
 
 window.addEventListener('resize', onResize)
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  stopDataRefreshTimer()
+  stopTrendRefreshTimer()
   trendResizeObserver?.disconnect()
   trendResizeObserver = null
   trendChart?.dispose()
@@ -1251,9 +1401,9 @@ const controlCandidates = computed(() => dataRows.value.filter(r => r.groups.inc
 const currentControlRow = computed(() => controlCandidates.value.find(r => r.point_id === cmdPoint.value))
 
 watch(controlCandidates, rows => {
-  if (!cmdPoint.value && rows.length) {
-    cmdPoint.value = rows[0].point_id
-    cmdValue.value = Number(rows[0].value) || 0
+  if (!cmdPoint.value || !rows.some(r => r.point_id === cmdPoint.value)) {
+    cmdPoint.value = rows[0]?.point_id || ''
+    cmdValue.value = Number(rows[0]?.value) || 0
   }
 }, { immediate: true })
 
@@ -1523,6 +1673,7 @@ async function sendCommand() {
       :with-header="false"
       class="device-drawer"
       :before-close="beforeDeviceClose"
+      @closed="onDeviceDrawerClosed"
     >
       <template v-if="selected">
         <div class="drawer-head">
@@ -1625,16 +1776,24 @@ async function sendCommand() {
                   </el-button>
                 </div>
 
-                <div class="connectivity-list">
-                  <div><span>Network</span><b :class="stepClass(selectedVerify.network)">{{ stepIcon(selectedVerify.network) }} {{ selected.host }} · {{ stepText(selectedVerify.network) }}</b></div>
-                  <div><span>Protocol</span><b :class="stepClass(selectedVerify.protocol)">{{ stepIcon(selectedVerify.protocol) }} {{ protocolDescription(selected) }}</b></div>
+                <div class="connectivity-list connectivity-result-list">
                   <div>
-                    <span>Point Table</span>
-                    <b :class="stepClass(selectedVerify.points)">
-                      {{ stepIcon(selectedVerify.points) }}
+                    <span>Network</span>
+                    <b :class="stepClass(selectedVerify.network)">{{ stepText(selectedVerify.network) }}</b>
+                    <small>{{ selected.host }}<template v-if="selectedVerify.latency_ms"> · {{ selectedVerify.latency_ms }} ms</template></small>
+                  </div>
+                  <div>
+                    <span>Protocol</span>
+                    <b :class="stepClass(selectedVerify.protocol)">{{ stepText(selectedVerify.protocol) }}</b>
+                    <small>{{ protocolDescription(selected) }}</small>
+                  </div>
+                  <div>
+                    <span>Point Read</span>
+                    <b :class="stepClass(selectedVerify.points)">{{ stepText(selectedVerify.points) }}</b>
+                    <small>
                       <template v-if="selectedVerify.point_total">{{ selectedVerify.point_success }} / {{ selectedVerify.point_total }} passed</template>
-                      <template v-else>{{ stepText(selectedVerify.points) }}</template>
-                    </b>
+                      <template v-else>Point Table: {{ tableOfDevice(selected) }}</template>
+                    </small>
                   </div>
                 </div>
               </section>
@@ -1654,47 +1813,107 @@ async function sendCommand() {
             </section>
           </el-tab-pane>
 
+          <!-- READ TEST -->
+          <el-tab-pane label="Read Test" name="ReadTest">
+            <div class="read-test-layout">
+              <section class="panel-card">
+                <div class="panel-head">
+                  <div><h3>Point Read Test</h3><p>只测试当前设备 Point Table 中已经配置的 Point。</p></div>
+                </div>
+                <el-form label-position="top">
+                  <el-form-item label="Point">
+                    <el-select v-model="readPointId" filterable style="width:100%">
+                      <el-option
+                        v-for="p in resolvedPoints"
+                        :key="p.point_id"
+                        :label="`${p.point_id} · ${p.variable_name || pointAddressText(p)}`"
+                        :value="p.point_id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-form>
+
+                <el-descriptions v-if="readPoint" :column="isMobile ? 1 : 2" border>
+                  <el-descriptions-item label="Point ID">{{ readPoint.point_id }}</el-descriptions-item>
+                  <el-descriptions-item label="Variable">{{ readPoint.variable_name || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="Address">{{ pointAddressText(readPoint) }}</el-descriptions-item>
+                  <el-descriptions-item label="Data Type">{{ readPoint.data_type }}</el-descriptions-item>
+                  <el-descriptions-item label="Scale / Offset">{{ readPoint.scale }} / {{ readPoint.offset }}</el-descriptions-item>
+                  <el-descriptions-item label="Unit">{{ unitSymbol(readPoint.unit) || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="Groups" :span="2">{{ readPoint.point_groups.join(', ') || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="Description" :span="2">{{ readPoint.description || '—' }}</el-descriptions-item>
+                </el-descriptions>
+
+                <div class="read-test-actions">
+                  <el-button type="primary" :loading="readLoading" :disabled="!readPoint" @click="readSelectedPoint">Read Once</el-button>
+                </div>
+              </section>
+
+              <section class="panel-card">
+                <div class="panel-head"><div><h3>Read Result</h3><p>保留 Raw Data、解码结果和协议错误。</p></div></div>
+                <el-empty v-if="!readResult" description="No read executed in this session" :image-size="64" />
+                <template v-else>
+                  <el-alert
+                    :type="readResult.state === 'success' ? 'success' : 'error'"
+                    :closable="false"
+                    :title="readResult.state === 'success' ? 'Read succeeded' : 'Read failed'"
+                  />
+                  <el-descriptions :column="1" border class="read-result-details">
+                    <el-descriptions-item label="Timestamp">{{ readResult.timestamp }}</el-descriptions-item>
+                    <el-descriptions-item label="Latency">{{ readResult.latency_ms }} ms</el-descriptions-item>
+                    <el-descriptions-item label="Raw Data"><code>{{ readResult.raw_data }}</code></el-descriptions-item>
+                    <el-descriptions-item label="Decoded">{{ readResult.decoded_value }}</el-descriptions-item>
+                    <el-descriptions-item label="Engineering">{{ readResult.engineering_value }}</el-descriptions-item>
+                    <template v-if="readResult.state === 'failed'">
+                      <el-descriptions-item label="Category">{{ readResult.error_category }}</el-descriptions-item>
+                      <el-descriptions-item label="Error Code">{{ readResult.error_code }}</el-descriptions-item>
+                      <el-descriptions-item label="Message">{{ readResult.error_message }}</el-descriptions-item>
+                    </template>
+                  </el-descriptions>
+                </template>
+              </section>
+            </div>
+          </el-tab-pane>
+
           <!-- DATA -->
           <el-tab-pane label="Data" name="Data">
             <div class="data-toolbar">
               <div>
                 <h3>{{ dataRows.length }} points</h3>
-                <p>变量实时值与最后更新时间</p>
+                <p>
+                  {{ dataSuccessCount }} / {{ dataRows.length }} read
+                  <template v-if="dataFailureCount"> · {{ dataFailureCount }} failed</template>
+                  <template v-if="dataLastRefreshAt"> · Last refreshed {{ dataLastRefreshAt }}</template>
+                </p>
               </div>
-              <div class="data-tools">
-                <el-input
-                  v-model="dataSearch"
-                  clearable
-                  placeholder="Search variable..."
-                />
+              <div class="data-tools data-refresh-tools">
+                <el-input v-model="dataSearch" clearable placeholder="Search variable..." />
                 <el-select v-model="dataGroup">
                   <el-option label="All Groups" value="All" />
-                  <el-option
-                    v-for="g in store.pointGroups"
-                    :key="g.id"
-                    :label="g.name"
-                    :value="g.id"
-                  />
+                  <el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name" :value="g.id" />
                 </el-select>
+                <el-select v-model="dataRefreshInterval" style="width:110px">
+                  <el-option :value="500" label="500 ms" />
+                  <el-option :value="1000" label="1 s" />
+                  <el-option :value="2000" label="2 s" />
+                  <el-option :value="5000" label="5 s" />
+                  <el-option :value="10000" label="10 s" />
+                </el-select>
+                <div class="auto-refresh-toggle"><span>Auto Refresh</span><el-switch v-model="dataAutoRefresh" /></div>
+                <el-button :loading="dataRefreshing" :disabled="dataRefreshing" @click="refreshData">Refresh</el-button>
               </div>
             </div>
 
             <div class="compact-data-grid">
-              <article
-                v-for="r in visibleData"
-                :key="r.point_id"
-                class="compact-data-item"
-              >
+              <article v-for="r in visibleData" :key="r.point_id" class="compact-data-item" :class="{ 'data-read-failed': r.read_state === 'failed' }">
                 <div class="compact-data-top">
-                  <b :title="r.variable_name || r.point_id">
-                    {{ r.variable_name || r.point_id }}
-                  </b>
+                  <b :title="r.variable_name || r.point_id">{{ r.variable_name || r.point_id }}</b>
                   <div class="compact-data-value">
-                    <strong>{{ r.value }}</strong>
-                    <span>{{ r.unit }}</span>
+                    <strong>{{ r.value }}</strong><span>{{ r.unit }}</span>
                   </div>
                 </div>
-                <time>{{ r.updated_at }}</time>
+                <time v-if="r.read_state === 'success'">{{ r.updated_at }}</time>
+                <small v-else class="data-error">{{ r.error }}</small>
               </article>
             </div>
           </el-tab-pane>
@@ -1704,25 +1923,25 @@ async function sendCommand() {
             <div class="trend-toolbar">
               <div>
                 <h3>Trend</h3>
-                <p>{{ trendSignals.length }} selected · 图表可抽样显示；录波导出当前时间窗的全量原始样本</p>
+                <p>
+                  {{ trendSignals.length }} selected · Latest {{ trendRange }}
+                  <template v-if="trendLastRefreshAt"> · Updated {{ trendLastRefreshAt }}</template>
+                  · chart may be downsampled; recording exports raw samples
+                </p>
               </div>
-              <div class="trend-actions">
+              <div class="trend-actions trend-actions-wrap">
                 <el-button @click="trendPickerOpen = true">Select Signals</el-button>
                 <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
-                <el-segmented
-                  v-model="trendRange"
-                  :options="['Real-time', '5 min', '15 min', '1 h']"
-                />
+                <span class="trend-toolbar-label">Time Window</span>
+                <el-segmented v-model="trendRange" :options="['1 min', '5 min', '15 min', '1 h']" />
+                <div class="auto-refresh-toggle"><span>Auto Update</span><el-switch v-model="trendAutoRefresh" /></div>
+                <el-button @click="renderTrend">Refresh</el-button>
               </div>
             </div>
 
-            <div
-              v-if="!trendSignals.length"
-              class="trend-empty"
-            >
+            <div v-if="!trendSignals.length" class="trend-empty">
               No trend signals selected. Use “Select Signals” to add variables.
             </div>
-
             <div ref="trendChartEl" class="trend-chart"></div>
           </el-tab-pane>
 
@@ -1731,74 +1950,44 @@ async function sendCommand() {
             <div class="control-layout">
               <section class="panel-card">
                 <div class="panel-head">
-                  <div>
-                    <h3>Command</h3>
-                    <p>选择命令点，写入目标值并执行回读</p>
-                  </div>
+                  <div><h3>Command</h3><p>选择控制 Point，确认定义后写入目标值并执行回读。</p></div>
                 </div>
 
                 <el-form label-position="top">
                   <el-form-item label="Command Point">
-                    <el-select v-model="cmdPoint" filterable>
-                      <el-option
-                        v-for="r in controlCandidates"
-                        :key="r.point_id"
-                        :label="`${r.point_id} · ${r.variable_name}`"
-                        :value="r.point_id"
-                      />
+                    <el-select v-model="cmdPoint" filterable style="width:100%">
+                      <el-option v-for="r in controlCandidates" :key="r.point_id" :label="`${r.point_id} · ${r.variable_name}`" :value="r.point_id" />
                     </el-select>
                   </el-form-item>
 
-                  <div class="control-current">
-                    <span>Current</span>
-                    <strong>
-                      {{ currentControlRow?.value ?? '-' }}
-                      {{ currentControlRow?.unit }}
-                    </strong>
-                    <small>{{ currentControlRow?.updated_at || '' }}</small>
-                  </div>
+                  <el-descriptions v-if="currentControlRow" :column="isMobile ? 1 : 2" border class="control-definition">
+                    <el-descriptions-item label="Point ID">{{ currentControlRow.point_id }}</el-descriptions-item>
+                    <el-descriptions-item label="Description">{{ currentControlRow.description || '—' }}</el-descriptions-item>
+                    <el-descriptions-item label="Variable / Address">{{ currentControlRow.variable_name || '—' }} · {{ currentControlRow.address }}</el-descriptions-item>
+                    <el-descriptions-item label="Data Type">{{ currentControlRow.data_type }}</el-descriptions-item>
+                    <el-descriptions-item label="Scale / Offset">{{ currentControlRow.scale }} / {{ currentControlRow.offset }}</el-descriptions-item>
+                    <el-descriptions-item label="Unit">{{ currentControlRow.unit || '—' }}</el-descriptions-item>
+                    <el-descriptions-item label="Groups">{{ currentControlRow.groups.join(', ') }}</el-descriptions-item>
+                    <el-descriptions-item label="Current">{{ currentControlRow.value }} {{ currentControlRow.unit }}</el-descriptions-item>
+                    <el-descriptions-item label="Updated">{{ currentControlRow.updated_at }}</el-descriptions-item>
+                  </el-descriptions>
 
-                  <el-form-item label="Target Value">
-                    <el-input-number
-                      v-model="cmdValue"
-                      :step="1"
-                      controls-position="right"
-                      style="width: 100%"
-                    />
+                  <el-form-item label="Target Value" class="control-target-field">
+                    <el-input-number v-model="cmdValue" :step="1" controls-position="right" style="width:100%" />
                   </el-form-item>
-
-                  <el-button
-                    type="primary"
-                    :loading="sending"
-                    style="width: 100%"
-                    @click="sendCommand"
-                  >
-                    Send Command
-                  </el-button>
+                  <el-button type="primary" :loading="sending" :disabled="!currentControlRow" style="width:100%" @click="sendCommand">Send Command</el-button>
                 </el-form>
               </section>
 
               <section class="panel-card">
-                <div class="panel-head">
-                  <div>
-                    <h3>Command Result</h3>
-                    <p>写入结果与回读值</p>
-                  </div>
-                </div>
-
-                <div v-if="!commandResult" class="empty-state compact">
-                  No command executed in this session.
-                </div>
-
+                <div class="panel-head"><div><h3>Command Result</h3><p>写入结果与回读值</p></div></div>
+                <div v-if="!commandResult" class="empty-state compact">No command executed in this session.</div>
                 <div v-else class="command-result">
                   <div><span>Requested</span><b>{{ commandResult.requested }}</b></div>
                   <div><span>Sent</span><b>{{ commandResult.sentAt }}</b></div>
                   <div><span>Write</span><b class="step-success">✓ Success</b></div>
                   <div><span>Read back</span><b>{{ commandResult.readback }}</b></div>
-                  <div>
-                    <span>Difference</span>
-                    <b>{{ (commandResult.readback - commandResult.requested).toFixed(2) }}</b>
-                  </div>
+                  <div><span>Difference</span><b>{{ (commandResult.readback - commandResult.requested).toFixed(2) }}</b></div>
                   <div><span>Latency</span><b>{{ commandResult.latency }} ms</b></div>
                 </div>
               </section>
@@ -1848,3 +2037,22 @@ async function sendCommand() {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.connectivity-result-list>div{display:grid;grid-template-columns:88px 90px minmax(0,1fr);align-items:center;gap:var(--app-space-2)}
+.connectivity-result-list b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
+.connectivity-result-list small{min-width:0;color:var(--app-text-muted);font-size:var(--app-font-label);font-weight:var(--app-font-weight-regular);overflow-wrap:anywhere}
+.read-test-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--app-space-4)}
+.read-test-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-3)}
+.read-result-details{margin-top:var(--app-space-3)}
+.read-result-details code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--app-font-label)}
+.data-refresh-tools,.trend-actions-wrap{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}
+.auto-refresh-toggle{display:flex;align-items:center;gap:var(--app-space-2);white-space:nowrap;color:var(--app-text-secondary);font-size:var(--app-font-label)}
+.trend-toolbar-label{color:var(--app-text-secondary);font-size:var(--app-font-label);white-space:nowrap}
+.data-read-failed{border-color:var(--app-status-fault)}
+.data-error{color:var(--app-status-fault);font-size:var(--app-font-caption)}
+.control-definition{margin-bottom:var(--app-space-4)}
+.control-target-field{margin-top:var(--app-space-4)}
+@media(max-width:900px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
+@media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools,.trend-actions-wrap{align-items:stretch}.data-refresh-tools>*{max-width:100%}}
+</style>

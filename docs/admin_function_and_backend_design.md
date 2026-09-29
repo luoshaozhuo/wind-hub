@@ -547,6 +547,8 @@ Devices 页面提供 `Delete All Devices`：
 
 ## 3.6 Verify Device
 
+Device Config 中 Connectivity 的状态与事实信息分离：状态列仅显示 Passed / Failed / Warning 并使用状态色；IP、协议端点、点数、latency 等 detail 使用普通正文色，禁止整行绿色粗体。
+
 验证顺序：
 
 ```text
@@ -583,23 +585,31 @@ Network
 
 ## 3.8 Data
 
-展示设备点的当前/最近值。
+Data 是当前设备 resolved points 的当前值观察页。必须提供手动 Refresh、固定刷新频率和 Auto Refresh 开关。
 
-后端需支持：
+- Refresh 执行一次设备当前点读取，loading 时禁止重复触发；
+- Auto Refresh 仅在 Device Drawer 的 Data Tab 激活时运行；
+- 切离 Data、关闭 Drawer、组件卸载时必须停止 timer；
+- 建议频率：500 ms / 1 s / 2 s / 5 s / 10 s；
+- 页面显示 Last Refreshed、成功点数和失败点数；
+- 单点失败必须显示错误，不得继续把旧值伪装为最新成功值。
 
-- point_id；
-- variable_name；
-- value；
-- engineering unit；
-- timestamp；
-- quality/read status；
-- data_type；
-- address；
-- scale/offset。
+## 3.8.1 Read Test
 
-大量点位应支持过滤和分页/虚拟化。
+Device Drawer 在 Config 与 Data 之间提供 Read Test。它用于快速验证**已经配置好的单个 Point**，不是 Manual Read：
+
+- Point 只能从当前设备 resolved Point Table 中选择；
+- 前端不得允许修改 symbol/address/data_type；
+- 展示 Point ID、variable/address、data_type、scale/offset、unit、groups、description；
+- 返回 timestamp、latency、raw data、decoded value、engineering value；
+- 失败时保留 error category、protocol/error code、message；
+- 切换 Point 清空上一次结果。
+
+正式 API 建议只接收 `point_id`，由后端根据 Device → Model → Point Table 解析真实协议地址，防止绕过配置。
 
 ## 3.9 Trend
+
+Trend 的范围选择表示“最近多长时间”，不使用含义模糊的 Real-time。统一为 1 min / 5 min / 15 min / 1 h；实时滚动由独立 Auto Update 开关控制，Refresh 执行一次历史窗口刷新。
 
 后端提供时序数据查询。
 
@@ -613,6 +623,8 @@ Network
 - 采集缺失应呈现为缺口。
 
 ## 3.10 Control / Send Command
+
+选择 Command Point 后，必须先展示该 Point 的定义信息：point_id、description、variable/address、data_type、scale/offset、unit、groups、current value、last updated。控制候选仅来自明确的 control Point Group。
 
 写命令是高风险操作。
 
@@ -1049,7 +1061,7 @@ Task Detail 不再拆分 Overview 与 Config。二者合并为 **Summary** 工�
 - 左侧 Definition：Task 配置直接可编辑；只有 Definition 发生变化时 Save 才启用；不提供普通 Reset。
 - 右侧 Runtime：当前状态、Instance 数、Point Binding 数、Target、Point Group、Sinks；
 - Devices & Points：目标 Device 列表，以及选择单台 Device 后该 Task 实际采集的 resolved Point 列表；
-- Logs：该 Task/Instance 的运行日志与事件。
+- Logs：该 Task/Instance 的最近运行日志；默认 Latest 20，可切换 Latest 50 / 100，完整检索仍由 Logs 页面负责。
 
 这样避免“Overview 展示一遍、Config 再展示一遍”的重复。
 

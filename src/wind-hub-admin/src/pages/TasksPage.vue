@@ -19,6 +19,7 @@ const detailTab = ref('Summary')
 const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
 const taskSnapshot = ref('')
+const taskLogLimit = ref(20)
 const viewportWidth = ref(window.innerWidth)
 const isMobile = computed(() => viewportWidth.value < 768)
 const drawerSize = computed(() => isMobile.value ? '100%' : 'min(1080px, 86vw)')
@@ -50,13 +51,25 @@ const taskDirty=computed(()=>!!selectedTask.value && taskFormState.value!==taskS
 
 const taskLogs=computed(()=>{
   const id=selectedTask.value?.task_id || 'task'
-  return [
-    {time:'12:42:31',level:'INFO',message:`${id} cycle completed · 0 errors`},
-    {time:'12:42:30',level:'INFO',message:`${taskDevices.value.length} device instance(s) scheduled`},
-    {time:'12:41:58',level:'WARN',message:'One collection cycle exceeded expected interval by 42 ms'},
-    {time:'12:40:12',level:'INFO',message:'Sink delivery completed'},
+  const templates=[
+    {level:'INFO',message:`${id} cycle completed · 0 errors`},
+    {level:'INFO',message:`${taskDevices.value.length} device instance(s) scheduled`},
+    {level:'WARN',message:'One collection cycle exceeded expected interval by 42 ms'},
+    {level:'INFO',message:'Sink delivery completed'},
+    {level:'INFO',message:'Point batch read completed'},
+    {level:'INFO',message:'Runtime heartbeat OK'},
   ]
+  return Array.from({length:120},(_,i)=>{
+    const totalSeconds=12*3600+42*60+31-i*7
+    const normalized=((totalSeconds%86400)+86400)%86400
+    const h=String(Math.floor(normalized/3600)).padStart(2,'0')
+    const m=String(Math.floor((normalized%3600)/60)).padStart(2,'0')
+    const s=String(normalized%60).padStart(2,'0')
+    const base=templates[i%templates.length]
+    return {time:`${h}:${m}:${s}`,level:base.level,message:base.message}
+  })
 })
+const visibleTaskLogs=computed(()=>taskLogs.value.slice(0,taskLogLimit.value))
 
 const deviceUsesDefaultTable=(deviceId:string)=>{
   const d=store.devices.find(x=>x.device_id===deviceId)
@@ -315,8 +328,16 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
           </el-tab-pane>
 
           <el-tab-pane label="Logs" name="Logs">
+            <div class="task-log-toolbar">
+              <div><b>Recent Task Logs</b><span>Latest {{ taskLogLimit }} records</span></div>
+              <el-select v-model="taskLogLimit" style="width:120px">
+                <el-option :value="20" label="Latest 20"/>
+                <el-option :value="50" label="Latest 50"/>
+                <el-option :value="100" label="Latest 100"/>
+              </el-select>
+            </div>
             <el-timeline>
-              <el-timeline-item v-for="log in taskLogs" :key="log.time+log.message" :timestamp="log.time" placement="top" :type="log.level==='WARN'?'warning':'primary'">
+              <el-timeline-item v-for="log in visibleTaskLogs" :key="log.time+log.message" :timestamp="log.time" placement="top" :type="log.level==='WARN'?'warning':'primary'">
                 <b>{{log.level}}</b> · {{log.message}}
               </el-timeline-item>
             </el-timeline>
@@ -362,5 +383,8 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 .runtime-metrics>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding-bottom:var(--app-space-2);border-bottom:1px solid var(--app-border-soft)}
 .runtime-metrics span{color:var(--app-text-muted)}.runtime-metrics b{text-align:right;overflow-wrap:anywhere}
 .task-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
+.task-log-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}
+.task-log-toolbar>div{display:flex;align-items:baseline;gap:var(--app-space-2)}
+.task-log-toolbar span{color:var(--app-text-muted);font-size:var(--app-font-caption)}
 @media(max-width:900px){.coverage-layout,.task-form-grid,.task-summary-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
 </style>
