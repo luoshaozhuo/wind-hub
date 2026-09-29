@@ -204,12 +204,12 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
           </template>
         </el-table-column>
         <el-table-column label="Enabled" width="100"><template #default="{row}"><el-switch v-model="row.enabled" @change="changeEnabled(row,!!$event)"/></template></el-table-column>
-        <el-table-column label="Actions" width="150">
+        <el-table-column label="Operation" width="150">
           <template #default="{row}">
             <el-button size="small" :disabled="row.valid===false" @click="toggle(row)">{{row.runtime==='RUNNING'?'Stop':'Start'}}</el-button>
             <el-dropdown trigger="click">
               <el-button size="small">•••</el-button>
-              <template #dropdown><el-dropdown-menu><el-dropdown-item @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
+              <template #dropdown><el-dropdown-menu><el-dropdown-item style="color:var(--app-status-fault)" @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
             </el-dropdown>
           </template>
         </el-table-column>

@@ -587,7 +587,7 @@ Network
 
 Data 是当前设备 resolved points 的当前值观察页。必须提供手动 Refresh、固定刷新频率和 Auto Refresh 开关。
 
-- Refresh 执行一次设备当前点读取，loading 时禁止重复触发；
+- Refresh 执行一次设备当前点读取，刷新过程中按钮只 disabled，不插入 loading icon、不修改按钮文本，避免 Auto Refresh 周期触发布局抖动；
 - Auto Refresh 仅在 Device Drawer 的 Data Tab 激活时运行；
 - 切离 Data、关闭 Drawer、组件卸载时必须停止 timer；
 - 建议频率：500 ms / 1 s / 2 s / 5 s / 10 s；
@@ -988,7 +988,9 @@ UI 应显示为 Override。
 推荐强引用策略：
 
 - 有 Child Table 引用：禁止；
-- 有 Device Model 引用：禁止。
+- 有 Device Model 引用：禁止；
+- Device 实例数量为 0 不代表 Point Table 可删除，因为 Device Model 和 Table inheritance 仍是独立强引用；
+- UI 在删除前即展示 blocker：Delete disabled，并列出具体 Child Table / Device Model 名称。
 
 返回完整 blocking references。
 

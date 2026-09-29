@@ -1900,7 +1900,7 @@ async function sendCommand() {
                   <el-option :value="10000" label="10 s" />
                 </el-select>
                 <div class="auto-refresh-toggle"><span>Auto Refresh</span><el-switch v-model="dataAutoRefresh" /></div>
-                <el-button :loading="dataRefreshing" :disabled="dataRefreshing" @click="refreshData">Refresh</el-button>
+                <el-button :disabled="dataRefreshing" @click="refreshData">Refresh</el-button>
               </div>
             </div>
 

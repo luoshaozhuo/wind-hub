@@ -204,6 +204,7 @@ async function runPointTest() {
 
 const tableRows = computed(() => store.pointTables.map(t => {
   const modelIds = store.deviceModels.filter(m => m.point_table === t.id).map(m => m.id)
+  const childTableIds = store.pointTables.filter(x => x.extends === t.id).map(x => x.id)
   const devices = store.devices.filter(d => modelIds.includes(d.model)).length
   return {
     ...t,
@@ -211,10 +212,34 @@ const tableRows = computed(() => store.pointTables.map(t => {
     localPoints: (store.points[t.id] || []).length,
     inheritedPoints: t.extends ? pointsOfTable(t.extends).filter(p => !(store.points[t.id] || []).some(x => x.point_id === p.point_id) && !(t.remove_points || []).includes(p.point_id)).length : 0,
     models: modelIds.length,
+    modelIds,
     devices,
-    childTables: store.pointTables.filter(x => x.extends === t.id).length,
+    childTables: childTableIds.length,
+    childTableIds,
   }
 }))
+
+type TableRow = (typeof tableRows.value)[number]
+
+function tableDeleteBlocked(row: TableRow) {
+  return !!row.system || isDefaultPointTable(row.id) || row.childTables > 0 || row.models > 0
+}
+
+function tableDeleteBlockerText(row: TableRow) {
+  if (row.system || isDefaultPointTable(row.id)) return 'System default Point Tables cannot be deleted'
+  const reasons: string[] = []
+  if (row.childTableIds.length) reasons.push('Child Table: ' + row.childTableIds.join(', '))
+  if (row.modelIds.length) reasons.push('Device Model: ' + row.modelIds.join(', '))
+  return reasons.length ? 'Referenced by ' + reasons.join(' · ') : ''
+}
+
+const editingTableReferences = computed(() => {
+  if (!tableEditingId.value) return { childTables: [] as string[], models: [] as string[] }
+  return {
+    childTables: store.pointTables.filter(t => t.extends === tableEditingId.value).map(t => t.id),
+    models: store.deviceModels.filter(m => m.point_table === tableEditingId.value).map(m => m.id),
+  }
+})
 
 const groupRows = computed(() =>
   store.pointGroups.map(g => ({
@@ -745,7 +770,7 @@ async function resetOverride(p: PointDef) {
                     <b>{{ row.id }}</b>
                     <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
                     <small>{{ row.points }} effective · {{ row.localPoints }} local · {{ row.inheritedPoints }} inherited</small>
-                    <small>{{ row.models }} models · {{ row.devices }} devices</small>
+                    <small>{{ row.models }} models · {{ row.devices }} devices · {{ row.childTables }} child tables</small>
                   </template>
                   <template v-else>
                     <b>{{ row.name }}</b>
@@ -758,11 +783,27 @@ async function resetOverride(p: PointDef) {
             <el-table-column width="82" align="right">
               <template #default="{ row }">
                 <el-tag v-if="row.system" type="info" size="small">System</el-tag>
+                <template v-else-if="manageSection === 'table'">
+                  <el-tooltip
+                    :disabled="!tableDeleteBlocked(row)"
+                    :content="tableDeleteBlockerText(row)"
+                    placement="left"
+                  >
+                    <span>
+                      <el-button
+                        link
+                        type="danger"
+                        :disabled="tableDeleteBlocked(row)"
+                        @click.stop="deleteTable(row)"
+                      >Delete</el-button>
+                    </span>
+                  </el-tooltip>
+                </template>
                 <el-button
                   v-else
                   link
                   type="danger"
-                  @click.stop="manageSection === 'table' ? deleteTable(row) : deleteGroup(row)"
+                  @click.stop="deleteGroup(row)"
                 >Delete</el-button>
               </template>
             </el-table-column>
@@ -790,6 +831,20 @@ async function resetOverride(p: PointDef) {
               </el-select>
               <div class="field-note">Only protocol-compatible parents that cannot create an inheritance cycle are shown.</div>
             </el-form-item>
+            <el-alert
+              v-if="tableEditingId && (editingTableReferences.childTables.length || editingTableReferences.models.length)"
+              type="warning"
+              :closable="false"
+              class="table-reference-alert"
+            >
+              <template #title>Deletion blocked by references</template>
+              <div v-if="editingTableReferences.childTables.length">
+                Child Tables: {{ editingTableReferences.childTables.join(', ') }}
+              </div>
+              <div v-if="editingTableReferences.models.length">
+                Device Models: {{ editingTableReferences.models.join(', ') }}
+              </div>
+            </el-alert>
             <div class="metadata-editor-actions">
               <el-button v-if="!tableEditingId" @click="newTable">Clear</el-button>
               <el-button type="primary" :disabled="!!tableEditingId && !tableDirty" @click="saveTable">{{ tableEditingId ? 'Save' : 'Create' }}</el-button>
