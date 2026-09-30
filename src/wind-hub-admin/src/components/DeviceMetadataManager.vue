@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 
 const props = withDefaults(defineProps<{ dropdownItem?: boolean }>(), {
   dropdownItem: false,
