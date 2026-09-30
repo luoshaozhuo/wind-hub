@@ -832,13 +832,13 @@ async function resetOverride(p: PointDef) {
           <el-form v-if="manageSection === 'table'" label-position="top">
             <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!tableEditingId" /></el-form-item>
             <el-form-item label="Protocol">
-              <el-select v-model="tableDraft.protocol" style="width:100%" :disabled="!!editingTable?.system" @change="tableDraft.extends = ''">
+              <el-select v-model="tableDraft.protocol" :disabled="!!editingTable?.system" @change="tableDraft.extends = ''" class="app-full-width">
                 <el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" />
               </el-select>
               <div v-if="editingTable?.system" class="field-note">System default Point Tables are fixed placeholders.</div>
             </el-form-item>
             <el-form-item label="Extends">
-              <el-select v-model="tableDraft.extends" style="width:100%">
+              <el-select v-model="tableDraft.extends" class="app-full-width">
                 <el-option label="No Base Table" value="" />
                 <el-option v-for="t in parentTables" :key="t.id" :label="t.id" :value="t.id" />
               </el-select>
@@ -904,10 +904,10 @@ async function resetOverride(p: PointDef) {
                 </template>
                 <template v-else-if="protocol === 'modbus'">
                   <el-form-item label="Register Type"><el-select v-model="draft.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
-                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" style="width:100%" /></el-form-item>
+                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" / class="app-full-width"></el-form-item>
                 </template>
                 <template v-else>
-                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" style="width:100%" /></el-form-item>
+                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" / class="app-full-width"></el-form-item>
                   <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
                 </template>
                 <el-form-item label="Point Groups"><el-select v-model="draft.point_groups" multiple><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
@@ -930,7 +930,7 @@ async function resetOverride(p: PointDef) {
 
             <el-form label-position="top">
               <el-form-item label="Device">
-                <el-select v-model="testDeviceId" style="width:100%" :disabled="testLoading" placeholder="Select device">
+                <el-select v-model="testDeviceId" :disabled="testLoading" placeholder="Select device" class="app-full-width">
                   <el-option
                     v-for="d in testDevices"
                     :key="d.device_id"
