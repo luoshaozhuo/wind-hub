@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useViewport } from '../composables/useViewport'
 import { refreshTaskValidity, store } from '../mock/data'
 import type { SinkDef, SinkRuntimeState, SinkType, SinkVerificationCheck } from '../mock/types'
 
