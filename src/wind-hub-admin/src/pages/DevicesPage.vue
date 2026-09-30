@@ -2090,7 +2090,7 @@ async function sendCommand() {
 .data-error{color:var(--app-status-fault);font-size:var(--app-font-caption)}
 .control-definition{margin-bottom:var(--app-space-4)}
 .control-target-field{margin-top:var(--app-space-4)}
-@media(max-width:900px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
-@media(max-width:900px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
+@media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
+@media(max-width:1199px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
 @media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
 </style>
