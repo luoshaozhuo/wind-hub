@@ -1344,7 +1344,7 @@ function stopTrendRefreshTimer() {
 }
 function syncTrendRefreshTimer() {
   stopTrendRefreshTimer()
-  if (drawer.value && tab.value === 'Trend' && trendAutoRefresh.value) {
+  if (drawer.value && tab.value === 'ControlTrend' && trendAutoRefresh.value) {
     trendRefreshTimer = window.setInterval(renderTrend, 1000)
   }
 }
@@ -1359,7 +1359,7 @@ watch(tab, value => {
   } else {
     stopDataRefreshTimer()
   }
-  if (value === 'Trend') {
+  if (value === 'ControlTrend') {
     seedTrendSignals()
     renderTrend()
     syncTrendRefreshTimer()
@@ -1368,7 +1368,7 @@ watch(tab, value => {
   }
 })
 watch([trendRange, trendAutoRefresh], () => {
-  if (tab.value === 'Trend') renderTrend()
+  if (tab.value === 'ControlTrend') renderTrend()
   syncTrendRefreshTimer()
 })
 watch(() => selected.value?.device_id, () => {
@@ -1378,7 +1378,7 @@ watch(() => selected.value?.device_id, () => {
   dataRevision.value = 0
   dataLastRefreshAt.value = ''
   seedTrendSignals()
-  if (tab.value === 'Trend') renderTrend()
+  if (tab.value === 'ControlTrend') renderTrend()
 })
 
 function onDeviceDrawerClosed() {
@@ -1937,87 +1937,86 @@ async function sendCommand() {
             </div>
           </el-tab-pane>
 
-          <!-- TREND -->
-          <el-tab-pane label="Trend" name="Trend">
-            <div class="trend-header">
-              <div class="trend-summary">
-                <b>{{ trendSignals.length }} signals</b>
-                <span>Window {{ trendRange }}</span>
-                <span v-if="trendLastRefreshAt">Updated {{ trendLastRefreshAt }}</span>
+          <!-- CONTROL & TREND -->
+          <el-tab-pane label="Control & Trend" name="ControlTrend">
+            <div class="control-trend-layout">
+              <div class="control-column">
+                <section class="panel-card">
+                  <div class="panel-head">
+                    <div><h3>Command</h3><p>选择控制 Point，确认定义后写入目标值并执行回读。</p></div>
+                  </div>
+
+                  <el-form label-position="top">
+                    <el-form-item label="Command Point">
+                      <el-select v-model="cmdPoint" filterable class="app-full-width">
+                        <el-option v-for="r in controlCandidates" :key="r.point_id" :label="`${r.point_id} · ${r.variable_name}`" :value="r.point_id" />
+                      </el-select>
+                    </el-form-item>
+
+                    <el-descriptions v-if="currentControlRow" :column="1" border class="control-definition">
+                      <el-descriptions-item label="Point ID">{{ currentControlRow.point_id }}</el-descriptions-item>
+                      <el-descriptions-item label="Variable / Address">{{ currentControlRow.variable_name || '—' }} · {{ currentControlRow.address }}</el-descriptions-item>
+                      <el-descriptions-item label="Data Type">{{ currentControlRow.data_type }}</el-descriptions-item>
+                      <el-descriptions-item label="Scale / Offset">{{ currentControlRow.scale }} / {{ currentControlRow.offset }}</el-descriptions-item>
+                      <el-descriptions-item label="Unit">{{ currentControlRow.unit || '—' }}</el-descriptions-item>
+                      <el-descriptions-item label="Current">{{ currentControlRow.value }} {{ currentControlRow.unit }}</el-descriptions-item>
+                      <el-descriptions-item label="Updated">{{ currentControlRow.updated_at }}</el-descriptions-item>
+                    </el-descriptions>
+
+                    <el-form-item label="Target Value" class="control-target-field">
+                      <el-input-number v-model="cmdValue" :step="1" controls-position="right" class="app-full-width" />
+                    </el-form-item>
+                    <el-button type="primary" :loading="sending" :disabled="!currentControlRow" @click="sendCommand" class="app-full-width">Send Command</el-button>
+                  </el-form>
+                </section>
+
+                <section class="panel-card command-result-panel">
+                  <div class="panel-head"><div><h3>Command Result</h3><p>写入结果与回读值</p></div></div>
+                  <div v-if="!commandResult" class="empty-state compact">No command executed in this session.</div>
+                  <div v-else class="command-result">
+                    <div><span>Requested</span><b>{{ commandResult.requested }}</b></div>
+                    <div><span>Sent</span><b>{{ commandResult.sentAt }}</b></div>
+                    <div><span>Write</span><b class="step-success">✓ Success</b></div>
+                    <div><span>Read back</span><b>{{ commandResult.readback }}</b></div>
+                    <div><span>Difference</span><b>{{ (commandResult.readback - commandResult.requested).toFixed(2) }}</b></div>
+                    <div><span>Latency</span><b>{{ commandResult.latency }} ms</b></div>
+                  </div>
+                </section>
               </div>
-              <div class="trend-primary-actions">
-                <el-button @click="trendPickerOpen = true">Select Signals</el-button>
-                <div class="record-action">
-                  <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
-                  <el-tooltip content="Chart may be downsampled; recording exports all raw samples in the selected time window." placement="bottom">
-                    <span class="help-dot" aria-label="Raw recording help">?</span>
-                  </el-tooltip>
+
+              <section class="panel-card trend-column">
+                <div class="trend-header">
+                  <div class="trend-summary">
+                    <b>{{ trendSignals.length }} signals</b>
+                    <span>Window {{ trendRange }}</span>
+                    <span v-if="trendLastRefreshAt">Updated {{ trendLastRefreshAt }}</span>
+                  </div>
+                  <div class="trend-primary-actions">
+                    <el-button @click="trendPickerOpen = true">Select Signals</el-button>
+                    <div class="record-action">
+                      <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
+                      <el-tooltip content="Chart may be downsampled; recording exports all raw samples in the selected time window." placement="bottom">
+                        <span class="help-dot" aria-label="Raw recording help">?</span>
+                      </el-tooltip>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <div class="trend-view-bar">
-              <div class="trend-window-control">
-                <span>Time Window</span>
-                <el-segmented v-model="trendRange" :options="['1 min', '5 min', '15 min', '1 h']" />
-              </div>
-              <div class="trend-update-control">
-                <div class="auto-refresh-toggle"><span>Auto Update · 1 s</span><el-switch v-model="trendAutoRefresh" /></div>
-                <el-button @click="renderTrend">Refresh</el-button>
-              </div>
-            </div>
-
-            <div v-if="!trendSignals.length" class="trend-empty">
-              No trend signals selected. Use “Select Signals” to add variables.
-            </div>
-            <div ref="trendChartEl" class="trend-chart"></div>
-          </el-tab-pane>
-
-          <!-- CONTROL -->
-          <el-tab-pane label="Control" name="Control">
-            <div class="control-layout">
-              <section class="panel-card">
-                <div class="panel-head">
-                  <div><h3>Command</h3><p>选择控制 Point，确认定义后写入目标值并执行回读。</p></div>
+                <div class="trend-view-bar">
+                  <div class="trend-window-control">
+                    <span>Time Window</span>
+                    <el-segmented v-model="trendRange" :options="['1 min', '5 min', '15 min', '1 h']" />
+                  </div>
+                  <div class="trend-update-control">
+                    <div class="auto-refresh-toggle"><span>Auto Update · 1 s</span><el-switch v-model="trendAutoRefresh" /></div>
+                    <el-button @click="renderTrend">Refresh</el-button>
+                  </div>
                 </div>
 
-                <el-form label-position="top">
-                  <el-form-item label="Command Point">
-                    <el-select v-model="cmdPoint" filterable class="app-full-width">
-                      <el-option v-for="r in controlCandidates" :key="r.point_id" :label="`${r.point_id} · ${r.variable_name}`" :value="r.point_id" />
-                    </el-select>
-                  </el-form-item>
-
-                  <el-descriptions v-if="currentControlRow" :column="isMobile ? 1 : 2" border class="control-definition">
-                    <el-descriptions-item label="Point ID">{{ currentControlRow.point_id }}</el-descriptions-item>
-                    <el-descriptions-item label="Description">{{ currentControlRow.description || '—' }}</el-descriptions-item>
-                    <el-descriptions-item label="Variable / Address">{{ currentControlRow.variable_name || '—' }} · {{ currentControlRow.address }}</el-descriptions-item>
-                    <el-descriptions-item label="Data Type">{{ currentControlRow.data_type }}</el-descriptions-item>
-                    <el-descriptions-item label="Scale / Offset">{{ currentControlRow.scale }} / {{ currentControlRow.offset }}</el-descriptions-item>
-                    <el-descriptions-item label="Unit">{{ currentControlRow.unit || '—' }}</el-descriptions-item>
-                    <el-descriptions-item label="Groups">{{ currentControlRow.groups.join(', ') }}</el-descriptions-item>
-                    <el-descriptions-item label="Current">{{ currentControlRow.value }} {{ currentControlRow.unit }}</el-descriptions-item>
-                    <el-descriptions-item label="Updated">{{ currentControlRow.updated_at }}</el-descriptions-item>
-                  </el-descriptions>
-
-                  <el-form-item label="Target Value" class="control-target-field">
-                    <el-input-number v-model="cmdValue" :step="1" controls-position="right" class="app-full-width" />
-                  </el-form-item>
-                  <el-button type="primary" :loading="sending" :disabled="!currentControlRow" @click="sendCommand" class="app-full-width">Send Command</el-button>
-                </el-form>
-              </section>
-
-              <section class="panel-card">
-                <div class="panel-head"><div><h3>Command Result</h3><p>写入结果与回读值</p></div></div>
-                <div v-if="!commandResult" class="empty-state compact">No command executed in this session.</div>
-                <div v-else class="command-result">
-                  <div><span>Requested</span><b>{{ commandResult.requested }}</b></div>
-                  <div><span>Sent</span><b>{{ commandResult.sentAt }}</b></div>
-                  <div><span>Write</span><b class="step-success">✓ Success</b></div>
-                  <div><span>Read back</span><b>{{ commandResult.readback }}</b></div>
-                  <div><span>Difference</span><b>{{ (commandResult.readback - commandResult.requested).toFixed(2) }}</b></div>
-                  <div><span>Latency</span><b>{{ commandResult.latency }} ms</b></div>
+                <div v-if="!trendSignals.length" class="trend-empty">
+                  No trend signals selected. Use “Select Signals” to add variables.
                 </div>
+                <div ref="trendChartEl" class="trend-chart control-trend-chart"></div>
               </section>
             </div>
           </el-tab-pane>
@@ -2091,4 +2090,10 @@ async function sendCommand() {
 @media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
 
 .delete-summary{margin:var(--app-space-4) 0}.data-refresh-interval{width:110px}
+
+.control-trend-layout{display:grid;grid-template-columns:minmax(300px,.72fr) minmax(0,1.28fr);gap:var(--app-space-4);align-items:start}
+.control-column{display:grid;gap:var(--app-space-4);min-width:0}.trend-column{min-width:0}.command-result-panel{min-height:0}
+.control-trend-chart{height:500px}
+@media(max-width:1199px){.control-trend-layout{grid-template-columns:minmax(280px,.8fr) minmax(0,1.2fr)}}
+@media(max-width:767px){.control-trend-layout{grid-template-columns:1fr}.control-trend-chart{height:360px}}
 </style>
