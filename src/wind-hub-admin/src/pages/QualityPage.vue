@@ -184,7 +184,7 @@ const stateChartEl=ref<HTMLElement|null>(null)
 let latencyChart:echarts.ECharts|null=null
 let stateChart:echarts.ECharts|null=null
 let resizeObserver:ResizeObserver|null=null
-function css(name:string,fallback:string){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback}
+function css(name:string){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()}
 
 function renderCharts(){
   if(activeTab.value!=='channel')return
@@ -199,8 +199,8 @@ function renderCharts(){
       animation:false,
       grid:{left:42,right:16,top:18,bottom:42},
       tooltip:{trigger:'item',formatter:(p:any)=>{const b=latencyBuckets.value[p.dataIndex];return b?b.label+' ms<br/><b>'+b.rows.length+' channels</b>':''}},
-      xAxis:{type:'category',data:latencyBuckets.value.map(x=>x.label),name:'Latency (ms)',nameLocation:'middle',nameGap:28,axisLabel:{fontSize:10,color:css('--app-text-muted','#98a2b3'),interval:0}},
-      yAxis:{type:'value',minInterval:1,name:'Channels',axisLabel:{fontSize:10,color:css('--app-text-muted','#98a2b3')},splitLine:{lineStyle:{color:css('--app-border-soft','#eef0f3')}}},
+      xAxis:{type:'category',data:latencyBuckets.value.map(x=>x.label),name:'Latency (ms)',nameLocation:'middle',nameGap:28,axisLabel:{fontSize:10,color:css('--app-text-muted'),interval:0}},
+      yAxis:{type:'value',minInterval:1,name:'Channels',axisLabel:{fontSize:10,color:css('--app-text-muted')},splitLine:{lineStyle:{color:css('--app-border-soft')}}},
       series:[{type:'bar',barMaxWidth:46,data:latencyBuckets.value.map(x=>x.rows.length)}],
     })
     latencyChart.on('click',(p:any)=>openLatencyBucket(p.dataIndex))
@@ -212,7 +212,7 @@ function renderCharts(){
     stateChart.setOption({
       animation:false,
       tooltip:{trigger:'item',formatter:'{b}: {c} ({d}%)'},
-      legend:{bottom:0,left:'center',textStyle:{fontSize:10,color:css('--app-text-secondary','#77808f')}},
+      legend:{bottom:0,left:'center',textStyle:{fontSize:10,color:css('--app-text-secondary')}},
       series:[{type:'pie',radius:['42%','68%'],center:['50%','43%'],label:{show:true,formatter:'{c}',fontSize:11},data:channelStateStats.value}],
     })
     stateChart.on('click',(p:any)=>openChannelState(String(p.name)))
