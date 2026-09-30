@@ -181,6 +181,6 @@ async function save() {
 .settings-section{display:grid;grid-template-columns:minmax(180px,.32fr) minmax(0,1fr);gap:var(--app-space-6);padding:var(--app-space-5) 0;border-top:1px solid var(--app-border-soft)}
 .settings-section:first-of-type{border-top:0}.settings-heading h2{margin:0;font-size:var(--app-font-section-title)}.settings-heading p{margin:5px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:1.5}
 .settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.settings-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:var(--app-space-2);padding:var(--app-space-3) 0;background:linear-gradient(180deg,transparent,var(--app-bg-page) 24%)}
-@media(max-width:900px){.settings-section{grid-template-columns:1fr;gap:var(--app-space-3)}}
+@media(max-width:1199px){.settings-section{grid-template-columns:1fr;gap:var(--app-space-3)}}
 @media(max-width:767px){.settings-fields{grid-template-columns:1fr}.settings-actions{position:static}}
 </style>
