@@ -263,7 +263,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
                       </el-select>
                     </el-form-item>
                     <el-form-item label="Interval (s)">
-                      <el-input-number v-model="form.interval" :min="0.1" :step="0.5"/ class="app-full-width">
+                      <el-input-number v-model="form.interval" :min="0.1" :step="0.5" class="app-full-width" />
                     </el-form-item>
                     <el-form-item label="Target Sinks">
                       <el-select v-model="form.sinks" multiple class="app-full-width">
@@ -353,7 +353,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
           <el-form-item v-if="form.scope==='device_group'" label="Device Group"><el-select v-model="form.device_group" class="app-full-width"><el-option v-for="g in store.deviceGroups" :key="g.id" :label="g.id" :value="g.id" :disabled="groupUsesDefaultTable(g.id)"/></el-select></el-form-item>
           <el-form-item v-else label="Device"><el-select v-model="form.device" filterable class="app-full-width"><el-option v-for="d in store.devices" :key="d.device_id" :label="d.device_id" :value="d.device_id" :disabled="deviceUsesDefaultTable(d.device_id)"/></el-select></el-form-item>
           <el-form-item label="Point Group"><el-select v-model="form.point_group" class="app-full-width"><el-option v-for="g in validPointGroups" :key="g.id" :label="g.id" :value="g.id"/></el-select></el-form-item>
-          <el-form-item label="Interval (s)"><el-input-number v-model="form.interval" :min="0.1" :step="0.5"/ class="app-full-width"></el-form-item>
+          <el-form-item label="Interval (s)"><el-input-number v-model="form.interval" :min="0.1" :step="0.5" class="app-full-width" /></el-form-item>
           <el-form-item label="Target Sinks"><el-select v-model="form.sinks" multiple class="app-full-width"><el-option v-for="s in store.sinks" :key="s.name" :label="s.name" :value="s.name" :disabled="!s.enabled"/></el-select></el-form-item>
           <el-form-item label="Enabled"><el-switch v-model="form.enabled"/></el-form-item>
         </div>
