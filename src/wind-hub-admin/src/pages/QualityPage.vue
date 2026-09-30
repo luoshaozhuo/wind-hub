@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
 import { protocolOfDevice, store } from '../mock/data'
 
 type ChannelState='Healthy'|'Degraded'|'Interrupted'|'Disabled'
 type WindowRange='1 h'|'24 h'|'7 d'
 type DrawerKind='channel-metric'|'event'|'data-metric'|'dimension'
+type DrawerTable='tasks'|'devices'|'errors'|'problems'
 
 interface ChannelRow {
   object:string
@@ -62,8 +63,15 @@ const checkInterval=ref(30)
 const lastChecked=ref('Never')
 let autoTimer:number|undefined
 
+const acquisitionPage=ref(1)
+const acquisitionPageSize=ref(20)
+const eventPage=ref(1)
+const eventPageSize=ref(50)
+
 const drawerOpen=ref(false)
 const drawer=ref<QualityDrawer|null>(null)
+const drawerPages=reactive<Record<DrawerTable,number>>({tasks:1,devices:1,errors:1,problems:1})
+const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,errors:10,problems:10})
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
 
@@ -107,6 +115,10 @@ const acquisitionChannels=computed<ChannelRow[]>(()=>store.devices.filter(d=>d.e
     issue:interrupted?'Protocol session unavailable':degraded?'Latency / reconnect degradation':'—',
   }
 }))
+const pagedAcquisitionChannels=computed(()=>{
+  const start=(acquisitionPage.value-1)*acquisitionPageSize.value
+  return acquisitionChannels.value.slice(start,start+acquisitionPageSize.value)
+})
 
 const deliveryChannels=computed<ChannelRow[]>(()=>store.sinks.map(s=>{
   const state:ChannelState=!s.enabled?'Disabled':s.runtime_state==='failed'?'Interrupted':s.runtime_state==='healthy'?'Healthy':'Degraded'
@@ -142,17 +154,20 @@ const communicationEvents=computed<CommunicationEvent[]>(()=>{
   const rows:CommunicationEvent[]=[]
   acquisitionChannels.value.forEach((row,index)=>{
     if(row.state==='Healthy')return
-    rows.push({
-      id:index+1,
-      time:`2026-09-30 18:${String(42-index%30).padStart(2,'0')}:${String((index*7)%60).padStart(2,'0')}`,
-      object:row.object,
-      protocol:row.protocol,
-      event:row.state==='Interrupted'?'Connection lost':'Channel degraded',
-      state:row.state==='Interrupted'?'Active':'Recovered',
-      error:row.state==='Interrupted'?'Session timeout / no response':row.issue,
-      duration:row.state==='Interrupted'?'12m 18s':'43s',
-      target:row.target,
-    })
+    const repeats=channelWindow.value==='1 h'?1:channelWindow.value==='7 d'?8:3
+    for(let n=0;n<repeats;n++){
+      rows.push({
+        id:(index+1)*100+n,
+        time:`2026-09-${String(30-Math.min(n,6)).padStart(2,'0')} 18:${String(42-index%30).padStart(2,'0')}:${String((index*7+n*3)%60).padStart(2,'0')}`,
+        object:row.object,
+        protocol:row.protocol,
+        event:row.state==='Interrupted'?'Connection lost':'Channel degraded',
+        state:n===0&&row.state==='Interrupted'?'Active':'Recovered',
+        error:row.state==='Interrupted'?'Session timeout / no response':row.issue,
+        duration:row.state==='Interrupted'?'12m 18s':'43s',
+        target:row.target,
+      })
+    }
   })
   rows.push({
     id:1001,time:'2026-09-30 18:31:22',object:'file_archive',protocol:'FILE',
@@ -160,6 +175,17 @@ const communicationEvents=computed<CommunicationEvent[]>(()=>{
   })
   return rows
 })
+const pagedCommunicationEvents=computed(()=>{
+  const start=(eventPage.value-1)*eventPageSize.value
+  return communicationEvents.value.slice(start,start+eventPageSize.value)
+})
+
+watch(channelWindow,()=>{
+  acquisitionPage.value=1
+  eventPage.value=1
+})
+watch(acquisitionPageSize,()=>{acquisitionPage.value=1})
+watch(eventPageSize,()=>{eventPage.value=1})
 
 function channelMetricDetail(key:string){
   const base=[
@@ -180,8 +206,12 @@ function channelMetricDetail(key:string){
   ]
   return {distribution:base,devices,errors}
 }
+function resetDrawerPages(){
+  for(const key of Object.keys(drawerPages) as DrawerTable[])drawerPages[key]=1
+}
 function openChannelMetric(metric:(typeof channelSummary.value)[number]){
   const detail=channelMetricDetail(metric.key)
+  resetDrawerPages()
   drawer.value={
     kind:'channel-metric',
     title:metric.label,
@@ -196,6 +226,7 @@ function openChannelMetric(metric:(typeof channelSummary.value)[number]){
   nextTick(renderChart)
 }
 function openEvent(row:CommunicationEvent){
+  resetDrawerPages()
   drawer.value={
     kind:'event',
     title:row.event,
@@ -278,6 +309,7 @@ function metricDetail(key:string){
 }
 function openMetric(metric:(typeof dataMetrics.value)[number]){
   const detail=metricDetail(metric.key)
+  resetDrawerPages()
   drawer.value={
     kind:'data-metric',
     title:metric.label,
@@ -322,6 +354,7 @@ function dimensionDetail(key:string){
 }
 function openDimension(row:(typeof dimensionRows.value)[number]){
   const detail=dimensionDetail(row.key)
+  resetDrawerPages()
   drawer.value={
     kind:'dimension',
     title:row.dimension,
@@ -335,6 +368,15 @@ function openDimension(row:(typeof dimensionRows.value)[number]){
   drawerOpen.value=true
   nextTick(renderChart)
 }
+
+function pageRows<T>(rows:T[],table:DrawerTable){
+  const start=(drawerPages[table]-1)*drawerPageSizes[table]
+  return rows.slice(start,start+drawerPageSizes[table])
+}
+const pagedDrawerTasks=computed(()=>pageRows(drawer.value?.tasks||[],'tasks'))
+const pagedDrawerDevices=computed(()=>pageRows(drawer.value?.devices||[],'devices'))
+const pagedDrawerErrors=computed(()=>pageRows(drawer.value?.errors||[],'errors'))
+const pagedDrawerProblems=computed(()=>pageRows(drawer.value?.problems||[],'problems'))
 
 function renderChart(){
   chart?.dispose()
@@ -370,19 +412,8 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Channel Quality" name="channel">
-        <div class="quality-toolbar">
-          <div class="toolbar-left">
-            <el-segmented v-model="channelWindow" :options="['1 h','24 h','7 d']"/>
-            <span class="last-check">Last check: {{lastChecked}}</span>
-          </div>
-          <div class="toolbar-actions">
-            <span>Auto Check</span>
-            <el-switch v-model="autoCheck"/>
-            <el-select v-model="checkInterval" :disabled="!autoCheck" class="check-interval">
-              <el-option :value="10" label="10 s"/><el-option :value="30" label="30 s"/><el-option :value="60" label="1 min"/>
-            </el-select>
-            <el-button type="primary" :loading="checking" @click="runCheck">Check</el-button>
-          </div>
+        <div class="channel-window-bar">
+          <el-segmented v-model="channelWindow" :options="['1 h','24 h','7 d']"/>
         </div>
 
         <div class="metric-grid clickable-metrics">
@@ -392,9 +423,28 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
         </div>
 
         <section class="quality-section">
-          <div class="section-head"><div><h2>Acquisition Channels</h2><p>设备采集通道当前状态；详情通过 Communication Events 查看。</p></div></div>
+          <div class="section-head acquisition-head">
+            <div>
+              <h2>Acquisition Channels</h2>
+              <p>设备采集通道当前状态；详情通过 Communication Events 查看。</p>
+            </div>
+            <div class="channel-check-controls">
+              <div class="auto-check-group">
+                <span>Auto Check</span>
+                <el-switch v-model="autoCheck"/>
+                <el-select v-model="checkInterval" :disabled="!autoCheck" aria-label="Auto check interval">
+                  <el-option :value="10" label="10 s"/>
+                  <el-option :value="30" label="30 s"/>
+                  <el-option :value="60" label="1 min"/>
+                </el-select>
+              </div>
+              <span class="last-check">Last check: {{lastChecked}}</span>
+              <el-button type="primary" :loading="checking" @click="runCheck">Check</el-button>
+            </div>
+          </div>
+
           <el-card shadow="never">
-            <el-table :data="acquisitionChannels" height="360">
+            <el-table :data="pagedAcquisitionChannels">
               <el-table-column prop="object" label="Device" min-width="130"/>
               <el-table-column v-if="!isMobile" prop="protocol" label="Protocol" width="100"/>
               <el-table-column label="State" width="110"><template #default="{row}"><el-tag :type="stateType(row.state)">{{row.state}}</el-tag></template></el-table-column>
@@ -405,11 +455,22 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
               <el-table-column v-if="!isTablet" prop="reconnects" label="Reconnects" width="100"/>
               <el-table-column prop="issue" label="Current Issue" min-width="180" show-overflow-tooltip/>
             </el-table>
+            <div v-if="acquisitionChannels.length>acquisitionPageSize" class="pagination">
+              <el-pagination
+                v-model:current-page="acquisitionPage"
+                v-model:page-size="acquisitionPageSize"
+                :page-sizes="[20,50,100]"
+                :total="acquisitionChannels.length"
+                :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+              />
+            </div>
           </el-card>
         </section>
 
         <section class="quality-section">
-          <div class="section-head"><div><h2>Delivery Channels</h2><p>Sink 交付通道当前状态。</p></div></div>
+          <div class="section-head">
+            <div><h2>Delivery Channels</h2><p>Sink 交付通道当前状态。</p></div>
+          </div>
           <el-card shadow="never">
             <el-table :data="deliveryChannels">
               <el-table-column prop="object" label="Sink" min-width="130"/>
@@ -424,9 +485,11 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
         </section>
 
         <section class="quality-section">
-          <div class="section-head"><div><h2>Communication Events</h2><p>连接中断、恢复、超时和退化事件。点击事件查看时间与错误信息。</p></div></div>
+          <div class="section-head">
+            <div><h2>Communication Events</h2><p>连接中断、恢复、超时和退化事件。点击事件查看时间与错误信息。</p></div>
+          </div>
           <el-card shadow="never">
-            <el-table :data="communicationEvents" @row-click="openEvent" class="clickable-table">
+            <el-table :data="pagedCommunicationEvents" @row-click="openEvent" class="clickable-table">
               <el-table-column prop="time" label="Time" min-width="165"/>
               <el-table-column prop="object" label="Object" min-width="130"/>
               <el-table-column v-if="!isMobile" prop="protocol" label="Protocol" width="100"/>
@@ -435,6 +498,15 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
               <el-table-column prop="error" label="Error / Evidence" min-width="240" show-overflow-tooltip/>
               <el-table-column v-if="!isTablet" prop="duration" label="Duration" width="100"/>
             </el-table>
+            <div v-if="communicationEvents.length>eventPageSize" class="pagination">
+              <el-pagination
+                v-model:current-page="eventPage"
+                v-model:page-size="eventPageSize"
+                :page-sizes="[50,100,200]"
+                :total="communicationEvents.length"
+                :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+              />
+            </div>
           </el-card>
         </section>
       </el-tab-pane>
@@ -505,7 +577,7 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 
         <section v-if="drawer.kind==='dimension'" class="drawer-section">
           <h3>Problem Objects</h3>
-          <el-table :data="drawer.problems" empty-text="No degraded objects">
+          <el-table :data="pagedDrawerProblems" empty-text="No degraded objects">
             <el-table-column prop="object" label="Object" min-width="160"/>
             <el-table-column prop="kind" label="Type" width="90"/>
             <el-table-column prop="metric" label="Metric" min-width="130"/>
@@ -513,19 +585,33 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
             <el-table-column label="State" width="100"><template #default="{row}"><el-tag :type="stateType(row.state)">{{row.state}}</el-tag></template></el-table-column>
             <el-table-column prop="error" label="Error" min-width="180" show-overflow-tooltip/>
           </el-table>
+          <div v-if="drawer.problems.length>drawerPageSizes.problems" class="pagination">
+            <el-pagination v-model:current-page="drawerPages.problems" v-model:page-size="drawerPageSizes.problems" :page-sizes="[10,20,50]" :total="drawer.problems.length" :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"/>
+          </div>
         </section>
 
         <section v-if="drawer.tasks.length" class="drawer-section">
           <h3>Affected Tasks</h3>
-          <el-table :data="drawer.tasks"><el-table-column v-for="key in Object.keys(drawer.tasks[0]||{})" :key="key" :prop="key" :label="key" min-width="130"/></el-table>
+          <el-table :data="pagedDrawerTasks"><el-table-column v-for="key in Object.keys(drawer.tasks[0]||{})" :key="key" :prop="key" :label="key" min-width="130"/></el-table>
+          <div v-if="drawer.tasks.length>drawerPageSizes.tasks" class="pagination">
+            <el-pagination v-model:current-page="drawerPages.tasks" v-model:page-size="drawerPageSizes.tasks" :page-sizes="[10,20,50]" :total="drawer.tasks.length" :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"/>
+          </div>
         </section>
+
         <section v-if="drawer.devices.length" class="drawer-section">
           <h3>Affected Devices / Objects</h3>
-          <el-table :data="drawer.devices"><el-table-column v-for="key in Object.keys(drawer.devices[0]||{})" :key="key" :prop="key" :label="key" min-width="130"/></el-table>
+          <el-table :data="pagedDrawerDevices"><el-table-column v-for="key in Object.keys(drawer.devices[0]||{})" :key="key" :prop="key" :label="key" min-width="130"/></el-table>
+          <div v-if="drawer.devices.length>drawerPageSizes.devices" class="pagination">
+            <el-pagination v-model:current-page="drawerPages.devices" v-model:page-size="drawerPageSizes.devices" :page-sizes="[10,20,50]" :total="drawer.devices.length" :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"/>
+          </div>
         </section>
+
         <section v-if="drawer.errors.length" class="drawer-section">
           <h3>Errors / Evidence</h3>
-          <el-table :data="drawer.errors"><el-table-column v-for="key in Object.keys(drawer.errors[0]||{})" :key="key" :prop="key" :label="key" min-width="150"/></el-table>
+          <el-table :data="pagedDrawerErrors"><el-table-column v-for="key in Object.keys(drawer.errors[0]||{})" :key="key" :prop="key" :label="key" min-width="150"/></el-table>
+          <div v-if="drawer.errors.length>drawerPageSizes.errors" class="pagination">
+            <el-pagination v-model:current-page="drawerPages.errors" v-model:page-size="drawerPageSizes.errors" :page-sizes="[10,20,50]" :total="drawer.errors.length" :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"/>
+          </div>
         </section>
       </template>
     </el-drawer>
@@ -533,9 +619,12 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 </template>
 
 <style scoped>
+.channel-window-bar{display:flex;align-items:center;margin-bottom:var(--app-space-4)}
 .quality-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-4)}
 .quality-toolbar h2{margin:0;font-size:var(--app-font-section-title)}.quality-toolbar p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
-.toolbar-left,.toolbar-actions{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}.last-check{color:var(--app-text-muted);font-size:var(--app-font-label)}.check-interval{width:var(--app-control-width-compact)}
+.channel-check-controls{display:flex;align-items:center;justify-content:flex-end;gap:var(--app-space-3);flex-wrap:wrap}
+.auto-check-group{display:flex;align-items:center;gap:var(--app-space-2)}
+.last-check{color:var(--app-text-muted);font-size:var(--app-font-label)}
 .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3);margin-bottom:var(--app-space-6)}
 .metric-grid :deep(.el-card__body){display:grid;gap:var(--app-space-1)}
 .metric-grid span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.metric-grid b{font-size:var(--app-font-metric);font-weight:var(--app-font-weight-semibold)}.metric-grid small{color:var(--app-text-muted)}
@@ -546,6 +635,6 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 .dimension-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.dimension-title{display:flex;align-items:center;gap:var(--app-space-1)}.info-icon{color:var(--app-text-muted);cursor:help}
 .dimension-card strong{font-size:var(--app-font-panel-title)}.dimension-card>span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.dimension-help{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);line-height:1.5}
 .drawer-section{margin-top:var(--app-space-6)}.distribution-chart{height:var(--app-chart-height-md)}
-@media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.toolbar-actions{width:100%}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
+@media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-head{align-items:stretch;flex-direction:column}.channel-check-controls{justify-content:flex-start}}
+@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.channel-check-controls{align-items:flex-start;flex-direction:column}.auto-check-group{width:100%;flex-wrap:wrap}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
 </style>
