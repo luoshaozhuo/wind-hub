@@ -303,7 +303,7 @@ function handleAction(command:string){
     <el-drawer v-model="importOpen" title="Import Configuration" size="560px" @closed="closeImport">
       <el-form label-position="top">
         <el-form-item label="Target File">
-          <el-select v-model="importState.target" style="width:100%">
+          <el-select v-model="importState.target" class="app-full-width">
             <el-option v-for="name in CONFIG_FILES" :key="name" :label="name" :value="name"/>
           </el-select>
         </el-form-item>
