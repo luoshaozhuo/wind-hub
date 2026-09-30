@@ -3,3 +3,5 @@
 .app-actions{display:flex;align-items:center;gap:var(--app-space-2)}
 .app-full-width{width:100%}
 .app-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.app-text-fault{color:var(--app-status-fault)}
+.app-mt-3{margin-top:var(--app-space-3)}
