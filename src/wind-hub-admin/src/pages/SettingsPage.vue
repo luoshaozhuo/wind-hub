@@ -19,9 +19,8 @@ const form = reactive({
   timeSync: 'systemd-timesyncd',
   adsLocalIp: store.systemInfo.ads.local_ip,
   adsLocalAms: store.systemInfo.ads.local_ams_net_id,
-  routeRepair: store.systemInfo.ads.route_repair.enabled,
-  routeName: store.systemInfo.ads.route_repair.route_name,
-  routeUser: store.systemInfo.ads.route_repair.username,
+  adsUsername: store.systemInfo.ads.route_repair.username,
+  adsPassword: '',
 })
 const settingsSnapshot = ref(JSON.stringify(form))
 const dirty = computed(() => JSON.stringify(form) !== settingsSnapshot.value)
@@ -59,9 +58,8 @@ async function save() {
     store.systemInfo.siteName = form.siteName.trim()
     store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
     store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
-    store.systemInfo.ads.route_repair.enabled = form.routeRepair
-    store.systemInfo.ads.route_repair.route_name = form.routeName.trim()
-    store.systemInfo.ads.route_repair.username = form.routeUser.trim()
+    store.systemInfo.ads.route_repair.username = form.adsUsername.trim()
+    store.systemInfo.ads.route_repair.password = form.adsPassword
     updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
     updateMockAdsYaml(store.systemInfo.ads)
     await new Promise(resolve => setTimeout(resolve, 300))
@@ -122,9 +120,16 @@ async function save() {
         <div class="settings-fields">
           <el-form-item label="Local IP"><el-input v-model="form.adsLocalIp" /></el-form-item>
           <el-form-item label="Local AMS Net ID"><el-input v-model="form.adsLocalAms" /></el-form-item>
-          <el-form-item label="Route Repair"><el-switch v-model="form.routeRepair" /></el-form-item>
-          <el-form-item label="Route Name"><el-input v-model="form.routeName" :disabled="!form.routeRepair" /></el-form-item>
-          <el-form-item label="Username"><el-input v-model="form.routeUser" :disabled="!form.routeRepair" /></el-form-item>
+          <el-form-item label="Username"><el-input v-model="form.adsUsername" autocomplete="username" /></el-form-item>
+          <el-form-item label="Password">
+            <el-input
+              v-model="form.adsPassword"
+              type="password"
+              show-password
+              autocomplete="new-password"
+              placeholder="Leave empty if no password is required"
+            />
+          </el-form-item>
         </div>
       </section>
 

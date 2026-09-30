@@ -529,7 +529,7 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
             <el-card v-for="row in dimensionRows" :key="row.key" shadow="never" class="dimension-card" @click="openDimension(row)">
               <div class="dimension-head">
                 <span class="dimension-title">
-                  <b>{{row.dimension}}</b>
+                  <span class="dimension-name app-panel-title">{{row.dimension}}</span>
                   <el-tooltip placement="top" :show-after="150">
                     <template #content>
                       <div class="dimension-help">
@@ -543,8 +543,8 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
                 </span>
                 <el-tag :type="stateType(row.status)" size="small">{{row.status}}</el-tag>
               </div>
-              <strong>{{row.metric}}</strong>
-              <span>{{row.detail}}</span>
+              <span class="dimension-metric">{{row.metric}}</span>
+              <span class="dimension-detail">{{row.detail}}</span>
             </el-card>
           </div>
         </section>
@@ -633,7 +633,10 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 .section-head h2,.drawer-section h3{margin:0;font-size:var(--app-font-section-title)}.section-head p,.drawer-subtitle{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
 .dimension-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.dimension-card :deep(.el-card__body){display:grid;gap:var(--app-space-2)}
 .dimension-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.dimension-title{display:flex;align-items:center;gap:var(--app-space-1)}.info-icon{color:var(--app-text-muted);cursor:help}
-.dimension-card strong{font-size:var(--app-font-panel-title)}.dimension-card>span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.dimension-help{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);line-height:1.5}
+.dimension-name{display:inline-flex;align-items:center}
+.dimension-metric{color:var(--app-text-primary);font-size:var(--app-font-body);line-height:var(--app-line-height-compact);font-weight:var(--app-font-weight-semibold)}
+.dimension-detail{color:var(--app-text-secondary);font-size:var(--app-font-body);line-height:var(--app-line-height-body);font-weight:var(--app-font-weight-regular)}
+.dimension-help{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);line-height:var(--app-line-height-body)}
 .drawer-section{margin-top:var(--app-space-6)}.distribution-chart{height:var(--app-chart-height-md)}
 @media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-head{align-items:stretch;flex-direction:column}.channel-check-controls{justify-content:flex-start}}
 @media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.channel-check-controls{align-items:flex-start;flex-direction:column}.auto-check-group{width:100%;flex-wrap:wrap}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
