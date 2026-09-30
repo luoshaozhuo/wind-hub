@@ -27,24 +27,7 @@ const settingsSnapshot = ref(JSON.stringify(form))
 const dirty = computed(() => JSON.stringify(form) !== settingsSnapshot.value)
 
 function reset() {
-  Object.assign(form, {
-    siteId: store.systemInfo.siteId,
-    siteName: store.systemInfo.siteName,
-    timezone: 'Asia/Shanghai',
-    logLevel: 'INFO',
-    tempDirectory: '/var/tmp/wind-hub',
-    dataDirectory: '/var/lib/wind-hub',
-    reloadPolicy: 'incremental',
-    apiHost: '0.0.0.0',
-    apiPort: 8080,
-    timeSync: 'systemd-timesyncd',
-    adsLocalIp: store.systemInfo.ads.local_ip,
-    adsLocalAms: store.systemInfo.ads.local_ams_net_id,
-    routeRepair: store.systemInfo.ads.route_repair.enabled,
-    routeName: store.systemInfo.ads.route_repair.route_name,
-    routeUser: store.systemInfo.ads.route_repair.username,
-  })
-
+  Object.assign(form, JSON.parse(settingsSnapshot.value))
 }
 
 async function save() {
@@ -72,18 +55,18 @@ async function save() {
   if (saving.value) return
   saving.value = true
   try {
-  store.systemInfo.siteId = form.siteId.trim()
-  store.systemInfo.siteName = form.siteName.trim()
-  store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
-  store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
-  store.systemInfo.ads.route_repair.enabled = form.routeRepair
-  store.systemInfo.ads.route_repair.route_name = form.routeName.trim()
-  store.systemInfo.ads.route_repair.username = form.routeUser.trim()
-  updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
-  updateMockAdsYaml(store.systemInfo.ads)
-  await new Promise(resolve => setTimeout(resolve, 300))
-  settingsSnapshot.value = JSON.stringify(form)
-  ElMessage.success('System settings saved — pending apply (mock)')
+    store.systemInfo.siteId = form.siteId.trim()
+    store.systemInfo.siteName = form.siteName.trim()
+    store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
+    store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
+    store.systemInfo.ads.route_repair.enabled = form.routeRepair
+    store.systemInfo.ads.route_repair.route_name = form.routeName.trim()
+    store.systemInfo.ads.route_repair.username = form.routeUser.trim()
+    updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
+    updateMockAdsYaml(store.systemInfo.ads)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    settingsSnapshot.value = JSON.stringify(form)
+    ElMessage.success('System settings saved — pending apply (mock)')
   } finally {
     saving.value = false
   }
