@@ -700,7 +700,7 @@ async function resetOverride(p: PointDef) {
         <div class="table-select-block">
           <div class="table-label">Point Table</div>
           <div class="table-line">
-            <el-select v-model="pointTable" style="width:260px">
+            <el-select v-model="pointTable" class="point-table-select">
               <el-option v-for="t in store.pointTables" :key="t.id" :label="t.id" :value="t.id" />
             </el-select>
             <span class="table-meta">{{ protocol.toUpperCase() }}</span>
@@ -988,7 +988,7 @@ async function resetOverride(p: PointDef) {
 .metadata-object-table{width:100%;cursor:pointer}
 .metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
 .metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
-.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:#f4f7fb}
+.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
 .metadata-object-info{min-width:0;padding-left:4px}
 .metadata-object-info b,.metadata-object-info small{display:block}
 .metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
@@ -1009,4 +1009,6 @@ async function resetOverride(p: PointDef) {
 .device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 @media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
 @media(max-width:1199px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0}}
+
+.point-table-select{width:260px}
 </style>
