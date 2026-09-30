@@ -132,7 +132,7 @@ async function save() {
         <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。</p></div>
         <div class="settings-fields">
           <el-form-item label="API Host"><el-input v-model="form.apiHost" /></el-form-item>
-          <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" style="width:100%" /></el-form-item>
+          <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" / class="app-full-width"></el-form-item>
           <el-form-item label="Time Synchronization">
             <el-select v-model="form.timeSync">
               <el-option label="systemd-timesyncd" value="systemd-timesyncd" />
