@@ -48,8 +48,8 @@ function rangeScale(){
   if(range.value==='30 d')return 5
   return 1
 }
-function css(name:string,fallback:string){
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback
+function css(name:string){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 function baseOption(){
   return {
