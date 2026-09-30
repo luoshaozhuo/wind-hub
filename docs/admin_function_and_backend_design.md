@@ -1254,6 +1254,14 @@ Channel Quality 提供：
 
 ## 8.2 Channel Quality
 
+Channel Quality 状态统一采用：
+
+- **Healthy**：通信正常，延迟、超时、重连等指标在允许范围内；
+- **Degraded**：信道仍可用，但已出现高延迟、偶发超时、频繁重连或部分请求失败；
+- **Interrupted**：信道不可用或持续无法完成有效通信。
+
+页面应通过信息图标 Tooltip 解释上述状态，最终阈值由后端按协议与配置判定。
+
 Channel Quality 分为：
 
 1. **Delivery Channels**：wind-hub → Kafka / PostgreSQL / Redis 等网络 Sink。File Sink 不属于网络信道。该区域通常数量较少，先展示。
@@ -1317,6 +1325,15 @@ Data Quality 提供统一统计窗口 `1 h / 24 h / 7 d`。Summary、Quality Dim
 - duration。
 
 不展示 `Last Good`，因为页面长期打开时相对时间容易失真。后端保存 `started_at`，前端根据当前时间动态计算 Duration。
+
+Active Data Issues 的 Object 可点击打开 Issue Detail Drawer。Drawer 只提供问题上下文，不直接执行诊断，至少包含：
+
+- Summary：Object Type / Dimension / Impact / Duration；
+- Evidence：触发该 Issue 的可观测事实；
+- Related Objects：Task / Device / Sink / Protocol / Point Group 等关联对象；
+- Suggested Checks：按优先级给出下一步排查方向。
+
+Suggested Checks 用于帮助用户缩小问题范围，不在 Quality 页面执行协议连通、Point Read、Raw Decode 等诊断动作；具体执行仍由 Diagnostics 页面负责。
 
 恢复后的问题从 Active Data Issues 移除，历史保留在 Event / Log 中。
 
