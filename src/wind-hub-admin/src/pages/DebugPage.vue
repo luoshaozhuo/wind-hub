@@ -406,8 +406,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
                           <el-option v-for="item in MODBUS_REGISTER_TYPES" :key="item" :label="item" :value="item"/>
                         </el-select>
                       </el-form-item>
-                      <el-form-item v-if="resolvedTarget.protocol==='modbus'" label="0-based Address"><el-input-number v-model="manualRead.address" :min="0"/ class="app-full-width"></el-form-item>
-                      <el-form-item v-if="resolvedTarget.protocol==='iec104'" label="IOA"><el-input-number v-model="manualRead.ioa" :min="0"/ class="app-full-width"></el-form-item>
+                      <el-form-item v-if="resolvedTarget.protocol==='modbus'" label="0-based Address"><el-input-number v-model="manualRead.address" :min="0" class="app-full-width" /></el-form-item>
+                      <el-form-item v-if="resolvedTarget.protocol==='iec104'" label="IOA"><el-input-number v-model="manualRead.ioa" :min="0" class="app-full-width" /></el-form-item>
                       <el-form-item label="Data Type">
                         <el-select v-model="manualRead.dataType" class="app-full-width">
                           <el-option v-for="item in DATA_TYPES" :key="item" :label="item" :value="item"/>
