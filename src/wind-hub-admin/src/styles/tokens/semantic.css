@@ -1,10 +1,37 @@
 :root{
-  --app-bg-page:#f4f6f8;--app-bg-surface:#fff;--app-bg-subtle:#f7f9fb;
-  --app-text-primary:#182230;--app-text-regular:#475467;--app-text-secondary:#77808f;--app-text-muted:#98a2b3;
-  --app-border:#e5e9ef;--app-border-soft:#eef0f3;
-  --app-action-primary:#409eff;--app-status-running:#67c23a;--app-status-warning:#e6a23c;--app-status-fault:#f56c6c;--app-status-disabled:#909399;
-  --app-content-max-width:1800px;--app-header-height:64px;--app-sidebar-width:216px;
-  --app-page-padding:24px;--app-page-padding-tablet:18px;--app-page-padding-mobile:12px;
-  --app-section-gap:24px;--app-card-gap:16px;--app-toolbar-gap:12px;
-  --app-space-1:4px;--app-space-2:8px;--app-space-3:12px;--app-space-4:16px;--app-space-6:24px;--app-space-8:32px;
+  --app-bg-page:#f4f6f8;
+  --app-bg-surface:#ffffff;
+  --app-bg-subtle:#f7f9fb;
+  --app-text-primary:#182230;
+  --app-text-regular:#475467;
+  --app-text-secondary:#77808f;
+  --app-text-muted:#98a2b3;
+  --app-text-inverse:#ffffff;
+  --app-border:#e5e9ef;
+  --app-border-soft:#eef0f3;
+
+  --app-action-primary:#409eff;
+  --app-status-info:#2563a6;
+  --app-status-healthy:#1f7a4d;
+  --app-status-running:#67c23a;
+  --app-status-warning:#b26a00;
+  --app-status-fault:#c23a3a;
+  --app-status-disabled:#7b8492;
+
+  --app-content-max-width:1800px;
+  --app-header-height:64px;
+  --app-sidebar-width:216px;
+  --app-page-padding:24px;
+  --app-page-padding-tablet:18px;
+  --app-page-padding-mobile:12px;
+  --app-section-gap:24px;
+  --app-card-gap:16px;
+  --app-toolbar-gap:12px;
+
+  --app-space-1:4px;
+  --app-space-2:8px;
+  --app-space-3:12px;
+  --app-space-4:16px;
+  --app-space-6:24px;
+  --app-space-8:32px;
 }
