@@ -2,6 +2,6 @@
 @import './tokens/component.css';
 @import './typography.css';
 @import './element/index.css';
-@import '../style.css';
 @import './layout.css';
 @import './utilities.css';
+@import './pages/devices.css';
