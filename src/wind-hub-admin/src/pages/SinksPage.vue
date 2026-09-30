@@ -323,7 +323,7 @@ async function deleteSink(s:SinkDef){
           <div class="test-meta">Last verified: {{selected.verification.checked_at||'Never'}} · {{verifyLabel(selected)}}</div>
           <el-divider content-position="left">Write Test</el-divider>
           <el-alert type="warning" :closable="false" title="Write Test sends one synthetic PointValue and therefore has a real side effect."/>
-          <el-button style="margin-top:12px" :loading="testLoading" @click="writeTest(selected)">Write Test</el-button>
+          <el-button class="app-mt-3" :loading="testLoading" @click="writeTest(selected)">Write Test</el-button>
           <el-result v-if="testResult" :icon="testResult.ok?'success':'error'" :title="testResult.title" :sub-title="testResult.detail"/>
         </el-tab-pane>
       </el-tabs>
