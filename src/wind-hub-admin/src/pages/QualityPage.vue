@@ -112,7 +112,7 @@ const deliveryChannels=computed<ChannelRow[]>(()=>store.sinks.filter(s=>s.type!=
   return {
     object:s.name,
     source:'Delivery',
-    protocol:s.type==='db'?'PostgreSQL':s.type==='redis'?'Redis':'Kafka',
+    protocol:s.type==='db'?'PostgreSQL':'Kafka',
     state,
     target:String(s.params.bootstrap_servers||s.params.dsn||'configured target'),
     last:lastChecked.value==='Never'?(s.verification.checked_at||'Never'):lastChecked.value,
@@ -277,6 +277,7 @@ function showDetail(model:DetailModel){
 function closeDetail(){
   detail.value=null
 }
+function onDetailVisibilityChange(open:boolean){if(!open)closeDetail()}
 
 function openChannelRow(row:ChannelRow){
   const device=store.devices.find(d=>d.device_id===row.object)
@@ -596,7 +597,7 @@ onBeforeUnmount(()=>{
       :size="isMobile?'100%':isTablet?'92%':'min(920px, 82vw)'"
       append-to-body
       destroy-on-close
-      @update:model-value="open=>{if(!open)closeDetail()}"
+      @update:model-value="onDetailVisibilityChange"
     >
       <template #header>
         <div v-if="detail" class="quality-drawer-header">
