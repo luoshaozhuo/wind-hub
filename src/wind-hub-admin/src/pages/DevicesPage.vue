@@ -1606,36 +1606,36 @@ async function sendCommand() {
           <el-form label-position="top" class="add-device-form">
             <div class="form-grid add-device-grid">
               <el-form-item label="Device ID"><el-input v-model="newDev.id" placeholder="wtg-001" /></el-form-item>
-              <el-form-item label="Type"><el-select v-model="newDev.type" style="width:100%" @change="onNewType"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
-              <el-form-item label="Model"><el-select v-model="newDev.model" style="width:100%" @change="onNewModel"><el-option v-for="m in store.deviceModels.filter(m => m.device_type === newDev.type)" :key="m.id" :label="m.id" :value="m.id" /></el-select></el-form-item>
-              <el-form-item label="Group"><el-select v-model="newDev.group" style="width:100%"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === newDev.type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
+              <el-form-item label="Type"><el-select v-model="newDev.type" @change="onNewType" class="app-full-width"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name" :value="t.id" /></el-select></el-form-item>
+              <el-form-item label="Model"><el-select v-model="newDev.model" @change="onNewModel" class="app-full-width"><el-option v-for="m in store.deviceModels.filter(m => m.device_type === newDev.type)" :key="m.id" :label="m.id" :value="m.id" /></el-select></el-form-item>
+              <el-form-item label="Group"><el-select v-model="newDev.group" class="app-full-width"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === newDev.type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
               <el-form-item label="Protocol"><el-input :model-value="newDevModel?.protocol?.toUpperCase() || ''" disabled /></el-form-item>
               <el-form-item label="Host / Remote IP"><el-input v-model="newDev.host" placeholder="192.168.151.1" @change="onNewHostChange" /></el-form-item>
-              <el-form-item label="Port"><el-input-number v-model="newDev.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+              <el-form-item label="Port"><el-input-number v-model="newDev.port" :min="1" :max="65535" / class="app-full-width"></el-form-item>
               <el-form-item label="Enabled"><el-switch v-model="newDev.enabled" /></el-form-item>
             </div>
 
             <div v-if="newDevModel?.protocol === 'ads'" class="form-grid add-device-grid">
               <el-form-item label="Target AMS Net ID"><el-input v-model="newDev.target_net_id" /></el-form-item>
-              <el-form-item label="Target Port"><el-input-number v-model="newDev.target_port" :min="1" :max="65535" style="width:100%" /></el-form-item>
-              <el-form-item label="TwinCAT Version"><el-select v-model="newDev.twincat_version" style="width:100%"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
-              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+              <el-form-item label="Target Port"><el-input-number v-model="newDev.target_port" :min="1" :max="65535" / class="app-full-width"></el-form-item>
+              <el-form-item label="TwinCAT Version"><el-select v-model="newDev.twincat_version" class="app-full-width"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" / class="app-full-width"></el-form-item>
             </div>
             <div v-else-if="newDevModel?.protocol === 'modbus'" class="form-grid add-device-grid">
-              <el-form-item label="Unit ID"><el-input-number v-model="newDev.unit_id" :min="0" :max="255" style="width:100%" /></el-form-item>
-              <el-form-item label="Mode"><el-select v-model="newDev.mode" style="width:100%"><el-option label="TCP" value="tcp" /></el-select></el-form-item>
-              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
-              <el-form-item label="Word Order"><el-select v-model="newDev.word_order" style="width:100%"><el-option label="little_endian" value="little_endian" /><el-option label="big_endian" value="big_endian" /></el-select></el-form-item>
+              <el-form-item label="Unit ID"><el-input-number v-model="newDev.unit_id" :min="0" :max="255" / class="app-full-width"></el-form-item>
+              <el-form-item label="Mode"><el-select v-model="newDev.mode" class="app-full-width"><el-option label="TCP" value="tcp" /></el-select></el-form-item>
+              <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" / class="app-full-width"></el-form-item>
+              <el-form-item label="Word Order"><el-select v-model="newDev.word_order" class="app-full-width"><el-option label="little_endian" value="little_endian" /><el-option label="big_endian" value="big_endian" /></el-select></el-form-item>
             </div>
             <div v-else class="form-grid add-device-grid">
-              <el-form-item label="Common Address"><el-input-number v-model="newDev.iec_common_addr" :min="1" :max="65535" style="width:100%" /></el-form-item>
-              <el-form-item label="K Window"><el-input-number v-model="newDev.iec_k" :min="1" style="width:100%" /></el-form-item>
-              <el-form-item label="W Window"><el-input-number v-model="newDev.iec_w" :min="1" style="width:100%" /></el-form-item>
-              <el-form-item label="T0 (s)"><el-input-number v-model="newDev.iec_t0" :min="0.1" style="width:100%" /></el-form-item>
-              <el-form-item label="T1 (s)"><el-input-number v-model="newDev.iec_t1" :min="0.1" style="width:100%" /></el-form-item>
-              <el-form-item label="T2 (s)"><el-input-number v-model="newDev.iec_t2" :min="0.1" style="width:100%" /></el-form-item>
-              <el-form-item label="T3 (s)"><el-input-number v-model="newDev.iec_t3" :min="0.1" style="width:100%" /></el-form-item>
-              <el-form-item label="Max Reconnect Retries"><el-input-number v-model="newDev.iec_max_reconnect_retries" :min="0" style="width:100%" /></el-form-item>
+              <el-form-item label="Common Address"><el-input-number v-model="newDev.iec_common_addr" :min="1" :max="65535" / class="app-full-width"></el-form-item>
+              <el-form-item label="K Window"><el-input-number v-model="newDev.iec_k" :min="1" / class="app-full-width"></el-form-item>
+              <el-form-item label="W Window"><el-input-number v-model="newDev.iec_w" :min="1" / class="app-full-width"></el-form-item>
+              <el-form-item label="T0 (s)"><el-input-number v-model="newDev.iec_t0" :min="0.1" / class="app-full-width"></el-form-item>
+              <el-form-item label="T1 (s)"><el-input-number v-model="newDev.iec_t1" :min="0.1" / class="app-full-width"></el-form-item>
+              <el-form-item label="T2 (s)"><el-input-number v-model="newDev.iec_t2" :min="0.1" / class="app-full-width"></el-form-item>
+              <el-form-item label="T3 (s)"><el-input-number v-model="newDev.iec_t3" :min="0.1" / class="app-full-width"></el-form-item>
+              <el-form-item label="Max Reconnect Retries"><el-input-number v-model="newDev.iec_max_reconnect_retries" :min="0" / class="app-full-width"></el-form-item>
             </div>
           </el-form>
         </el-tab-pane>
@@ -1644,10 +1644,10 @@ async function sendCommand() {
           <el-alert type="info" :closable="false" show-icon title="Templates: {num}, {num:03}, {num+100}, {num+100:03}. Exclude examples: 5,17,30-32." />
           <el-form label-position="top">
             <div class="form-grid add-device-grid">
-              <el-form-item label="Model"><el-select v-model="batch.model" style="width:100%" @change="onBatchModelChange"><el-option v-for="m in store.deviceModels" :key="m.id" :label="m.id + ' · ' + m.protocol.toUpperCase()" :value="m.id" /></el-select></el-form-item>
-              <el-form-item label="Group"><el-select v-model="batch.group" style="width:100%"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === batchModel?.device_type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
-              <el-form-item label="From"><el-input-number v-model="batch.from" :min="0" :max="9999" style="width:100%" /></el-form-item>
-              <el-form-item label="To"><el-input-number v-model="batch.to" :min="0" :max="9999" style="width:100%" /></el-form-item>
+              <el-form-item label="Model"><el-select v-model="batch.model" @change="onBatchModelChange" class="app-full-width"><el-option v-for="m in store.deviceModels" :key="m.id" :label="m.id + ' · ' + m.protocol.toUpperCase()" :value="m.id" /></el-select></el-form-item>
+              <el-form-item label="Group"><el-select v-model="batch.group" class="app-full-width"><el-option v-for="g in store.deviceGroups.filter(g => g.device_type === batchModel?.device_type)" :key="g.id" :label="g.id" :value="g.id" /></el-select></el-form-item>
+              <el-form-item label="From"><el-input-number v-model="batch.from" :min="0" :max="9999" / class="app-full-width"></el-form-item>
+              <el-form-item label="To"><el-input-number v-model="batch.to" :min="0" :max="9999" / class="app-full-width"></el-form-item>
               <el-form-item label="Exclude"><el-input v-model="batch.exclude" placeholder="5,17,30-32" /></el-form-item>
               <el-form-item label="Device ID Pattern"><el-input v-model="batch.id_pattern" placeholder="wtg-{num:03}" /></el-form-item>
               <el-form-item label="Host Pattern"><el-input v-model="batch.host_pattern" placeholder="192.168.151.{num}" /></el-form-item>
@@ -1736,12 +1736,12 @@ async function sendCommand() {
                   <div class="form-grid config-edit-grid">
                     <el-form-item label="Device ID"><el-input v-model="editForm.device_id" disabled /></el-form-item>
                     <el-form-item label="Model">
-                      <el-select v-model="editForm.model" style="width:100%" @change="onEditModelChange">
+                      <el-select v-model="editForm.model" @change="onEditModelChange" class="app-full-width">
                         <el-option v-for="m in store.deviceModels" :key="m.id" :label="m.id" :value="m.id" />
                       </el-select>
                     </el-form-item>
                     <el-form-item label="Group">
-                      <el-select v-model="editForm.device_group" style="width:100%">
+                      <el-select v-model="editForm.device_group" class="app-full-width">
                         <el-option v-for="g in store.deviceGroups.filter(g => g.device_type === editForm.device_type)" :key="g.id" :label="g.id" :value="g.id" />
                       </el-select>
                     </el-form-item>
@@ -1751,27 +1751,27 @@ async function sendCommand() {
 
                   <el-divider content-position="left">Connection Overrides</el-divider>
                   <div class="form-grid config-edit-grid">
-                    <el-form-item label="Port"><el-input-number v-model="editForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+                    <el-form-item label="Port"><el-input-number v-model="editForm.port" :min="1" :max="65535" / class="app-full-width"></el-form-item>
                     <template v-if="editForm.protocol === 'ads'">
-                      <el-form-item label="Target Port"><el-input-number v-model="editForm.target_port" :min="1" :max="65535" style="width:100%" /></el-form-item>
-                      <el-form-item label="TwinCAT Version"><el-select v-model="editForm.twincat_version" style="width:100%"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
-                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
+                      <el-form-item label="Target Port"><el-input-number v-model="editForm.target_port" :min="1" :max="65535" / class="app-full-width"></el-form-item>
+                      <el-form-item label="TwinCAT Version"><el-select v-model="editForm.twincat_version" class="app-full-width"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" / class="app-full-width"></el-form-item>
                     </template>
                     <template v-else-if="editForm.protocol === 'modbus'">
-                      <el-form-item label="Unit ID"><el-input-number v-model="editForm.unit_id" :min="0" :max="255" style="width:100%" /></el-form-item>
-                      <el-form-item label="Mode"><el-select v-model="editForm.mode" style="width:100%"><el-option label="TCP" value="tcp" /><el-option label="RTU" value="rtu" /></el-select></el-form-item>
-                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" style="width:100%" /></el-form-item>
-                      <el-form-item label="Word Order"><el-select v-model="editForm.word_order" style="width:100%"><el-option label="Little endian" value="little_endian" /><el-option label="Big endian" value="big_endian" /></el-select></el-form-item>
+                      <el-form-item label="Unit ID"><el-input-number v-model="editForm.unit_id" :min="0" :max="255" / class="app-full-width"></el-form-item>
+                      <el-form-item label="Mode"><el-select v-model="editForm.mode" class="app-full-width"><el-option label="TCP" value="tcp" /><el-option label="RTU" value="rtu" /></el-select></el-form-item>
+                      <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" / class="app-full-width"></el-form-item>
+                      <el-form-item label="Word Order"><el-select v-model="editForm.word_order" class="app-full-width"><el-option label="Little endian" value="little_endian" /><el-option label="Big endian" value="big_endian" /></el-select></el-form-item>
                     </template>
                     <template v-else-if="editForm.protocol === 'iec104'">
-                      <el-form-item label="Common Address"><el-input-number v-model="editForm.common_addr" :min="1" :max="65535" style="width:100%" /></el-form-item>
-                      <el-form-item label="K Window"><el-input-number v-model="editForm.k" :min="1" style="width:100%" /></el-form-item>
-                      <el-form-item label="W Window"><el-input-number v-model="editForm.w" :min="1" style="width:100%" /></el-form-item>
-                      <el-form-item label="T0 (s)"><el-input-number v-model="editForm.t0" :min="0.1" style="width:100%" /></el-form-item>
-                      <el-form-item label="T1 (s)"><el-input-number v-model="editForm.t1" :min="0.1" style="width:100%" /></el-form-item>
-                      <el-form-item label="T2 (s)"><el-input-number v-model="editForm.t2" :min="0.1" style="width:100%" /></el-form-item>
-                      <el-form-item label="T3 (s)"><el-input-number v-model="editForm.t3" :min="0.1" style="width:100%" /></el-form-item>
-                      <el-form-item label="Max Reconnect Retries"><el-input-number v-model="editForm.max_reconnect_retries" :min="0" style="width:100%" /></el-form-item>
+                      <el-form-item label="Common Address"><el-input-number v-model="editForm.common_addr" :min="1" :max="65535" / class="app-full-width"></el-form-item>
+                      <el-form-item label="K Window"><el-input-number v-model="editForm.k" :min="1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="W Window"><el-input-number v-model="editForm.w" :min="1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="T0 (s)"><el-input-number v-model="editForm.t0" :min="0.1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="T1 (s)"><el-input-number v-model="editForm.t1" :min="0.1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="T2 (s)"><el-input-number v-model="editForm.t2" :min="0.1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="T3 (s)"><el-input-number v-model="editForm.t3" :min="0.1" / class="app-full-width"></el-form-item>
+                      <el-form-item label="Max Reconnect Retries"><el-input-number v-model="editForm.max_reconnect_retries" :min="0" / class="app-full-width"></el-form-item>
                     </template>
                   </div>
 
@@ -1845,7 +1845,7 @@ async function sendCommand() {
                 </div>
                 <el-form label-position="top">
                   <el-form-item label="Point">
-                    <el-select v-model="readPointId" filterable style="width:100%">
+                    <el-select v-model="readPointId" filterable class="app-full-width">
                       <el-option
                         v-for="p in resolvedPoints"
                         :key="p.point_id"
@@ -1987,7 +1987,7 @@ async function sendCommand() {
 
                 <el-form label-position="top">
                   <el-form-item label="Command Point">
-                    <el-select v-model="cmdPoint" filterable style="width:100%">
+                    <el-select v-model="cmdPoint" filterable class="app-full-width">
                       <el-option v-for="r in controlCandidates" :key="r.point_id" :label="`${r.point_id} · ${r.variable_name}`" :value="r.point_id" />
                     </el-select>
                   </el-form-item>
@@ -2005,9 +2005,9 @@ async function sendCommand() {
                   </el-descriptions>
 
                   <el-form-item label="Target Value" class="control-target-field">
-                    <el-input-number v-model="cmdValue" :step="1" controls-position="right" style="width:100%" />
+                    <el-input-number v-model="cmdValue" :step="1" controls-position="right" / class="app-full-width">
                   </el-form-item>
-                  <el-button type="primary" :loading="sending" :disabled="!currentControlRow" style="width:100%" @click="sendCommand">Send Command</el-button>
+                  <el-button type="primary" :loading="sending" :disabled="!currentControlRow" @click="sendCommand" class="app-full-width">Send Command</el-button>
                 </el-form>
               </section>
 
