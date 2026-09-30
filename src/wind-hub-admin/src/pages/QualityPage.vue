@@ -191,7 +191,7 @@ let resizeObserver:ResizeObserver|null=null
 function css(name:string,fallback:string){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback}
 
 function renderCharts(){
-  if(activeTab.value!=='channel'||detail.value)return
+  if(activeTab.value!=='channel')return
   latencyChart?.dispose()
   stateChart?.dispose()
   resizeObserver?.disconnect()
@@ -428,7 +428,7 @@ onBeforeUnmount(()=>{
 
 <template>
   <div class="standard-page quality-page">
-    <template>
+    <div class="quality-overview">
       <div class="head">
         <div>
           <h1>Quality</h1>
@@ -594,7 +594,7 @@ onBeforeUnmount(()=>{
           </section>
         </el-tab-pane>
       </el-tabs>
-    </template>
+    </div>
 
     <section v-if="detail" ref="detailEl" class="inline-detail">
       <div class="inline-detail-bar">

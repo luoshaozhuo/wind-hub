@@ -1259,27 +1259,24 @@ Diagnostics 定位为工程探索工作台。
 
 ## 9.1 Target
 
-Target 使用页面顶部横向 Context 区，不使用永久左侧窄栏。支持 Defined Object（Device / Sink / Point）与 Manual Target。
+Desktop 使用左右分栏：左侧 Target，右侧 Explorer；Tablet / Mobile 改为上下布局。Target 支持 Defined Object（Device / Sink / Point）与 Manual Target。
 
-Manual Target 只保存 Host / IP 与 Protocol。CIDR、Port Profile 等参数属于具体 Network Tool，避免要求用户每次同时填写 CIDR、IP、Port 和 Protocol。
+左侧使用标准 Element Plus Form 垂直排列，不自行定义另一套字体、label 或控制器样式。Manual Target 只保存 Host / IP 与 Protocol；CIDR、Port Profile 等属于具体 Network Tool。
 
-## 9.2 Network Explorer
+## 9.2 Explorer
 
-Network 内部使用 Reachability / Port Probe / Host Discovery 三个工具模式，统一采用 Parameters → Run → Results。
+Explorer 只保留 Network / Read / Write 三个一级 Tab，不再保留独立 Protocol Explorer。
 
-- Reachability：Host / timeout；
-- Port Probe：Configured / Wind Hub Common / Custom Port Profile；
-- Host Discovery：Subnet / CIDR，可过滤 Known Objects。
+Network 内部统一采用 Parameters → Run → Results，并提供：
 
-批量结果必须 Table + Pagination。
+- Reachability；
+- Port Probe；
+- Protocol Check：验证协议会话能否建立，不读业务点、不写数据；
+- Host Discovery。
 
-ADS 的 TCP 48898 与 ADS Target Port 801 必须区分，不能把 801 当作 TCP Port Scan 目标。
+批量结果必须 Table + Pagination。ADS 的 TCP 48898 与 ADS Target Port 801 必须区分。
 
-## 9.3 Protocol / Data / Write
-
-Protocol Explorer 根据 Target Protocol 动态展示协议工具，并明确解析出的 Host / TCP Port / AMS Net ID / ADS Target Port / Unit ID 等参数。临时诊断覆盖不得反写配置。
-
-Data Explorer 支持 Defined Point / Manual Address；Write Explorer 独立，执行单次写、二次确认、审计和 readback。
+Read 支持 Defined Point / Manual Address。Write 独立于 Read，执行单次写、二次确认、审计和 readback。
 
 ---
 
@@ -1297,10 +1294,9 @@ Actions 固定为：
 
 - Import；
 - Download Current File；
-- Download Config Set；
-- Create Backup。
+- Create Backup (.zip)。
 
-Download 是下载到用户本地；Backup 是 Wind Hub 内部创建可恢复 Revision，两者语义严格区分，不再使用含糊的 Export。
+Download Current File 只下载当前 YAML。Create Backup 下载包含当前全部 YAML 的 ZIP，不创建 Revision，也不写入 History。History 仅记录 Apply / Import / Restore 等配置 Revision。
 
 Import 使用 Drawer，在一个 Drawer 内完成 Upload → Validate → Diff → Impact → Apply，不切换主页面、不出现 Back to Configuration Files、不再叠加确认 Dialog。
 

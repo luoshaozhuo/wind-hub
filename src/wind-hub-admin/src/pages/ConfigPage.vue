@@ -19,14 +19,9 @@ const savedSnapshot=reactive<Record<string,string>>(
 )
 const dirtyMap=reactive<Record<string,boolean>>({})
 
-function markDirty(){
-  dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]
-}
+function markDirty(){dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]}
 function validate(){
-  if(!yamlFiles[file.value].trim()){
-    ElMessage.error(file.value+' is empty')
-    return false
-  }
+  if(!yamlFiles[file.value].trim()){ElMessage.error(file.value+' is empty');return false}
   ElMessage.success(file.value+' validation passed (mock)')
   return true
 }
@@ -50,49 +45,31 @@ async function apply(){
   revision.value+=1
   ElMessage.success('Revision '+revision.value+' applied (mock)')
 }
+
 function buildReview(before:string,after:string):ReviewLine[]{
-  const a=before.split('\n')
-  const b=after.split('\n')
+  const a=before.split('\n'),b=after.split('\n')
   const dp=Array.from({length:a.length+1},()=>Array<number>(b.length+1).fill(0))
-  for(let i=a.length-1;i>=0;i--){
-    for(let j=b.length-1;j>=0;j--){
-      dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1])
-    }
-  }
+  for(let i=a.length-1;i>=0;i--)for(let j=b.length-1;j>=0;j--)dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1])
   const lines:ReviewLine[]=[]
   let i=0,j=0
   while(i<a.length||j<b.length){
-    if(i<a.length&&j<b.length&&a[i]===b[j]){
-      lines.push({type:'same',text:a[i]});i++;j++
-    }else if(j<b.length&&(i===a.length||dp[i][j+1]>=dp[i+1][j])){
-      lines.push({type:'add',text:b[j]});j++
-    }else{
-      lines.push({type:'remove',text:a[i]});i++
-    }
+    if(i<a.length&&j<b.length&&a[i]===b[j]){lines.push({type:'same',text:a[i]});i++;j++}
+    else if(j<b.length&&(i===a.length||dp[i][j+1]>=dp[i+1][j])){lines.push({type:'add',text:b[j]});j++}
+    else{lines.push({type:'remove',text:a[i]});i++}
   }
   return lines
 }
 const reviewLines=computed(()=>buildReview(appliedSnapshot[file.value],yamlFiles[file.value]))
 
 const importState=reactive({target:'devices.yaml',name:'',validated:false})
-function onImportChange(upload:{name?:string}){
-  importState.name=upload.name||''
-  importState.validated=false
-}
+function onImportChange(upload:{name?:string}){importState.name=upload.name||'';importState.validated=false}
 function validateImport(){
-  if(!importState.name){
-    ElMessage.warning('Select a YAML file first')
-    return
-  }
+  if(!importState.name){ElMessage.warning('Select a YAML file first');return}
   importState.validated=true
   ElMessage.success('Import validated — diff ready (mock)')
 }
-function closeImport(){
-  importOpen.value=false
-  importState.name=''
-  importState.validated=false
-}
-async function applyImport(){
+function closeImport(){importOpen.value=false;importState.name='';importState.validated=false}
+function applyImport(){
   if(!importState.validated)return
   revision.value+=1
   closeImport()
@@ -103,18 +80,8 @@ const history=ref([
   {revision:42,time:'2026-09-30 10:12:04',source:'Apply',comment:'Current applied configuration',status:'Applied'},
   {revision:41,time:'2026-09-29 23:18:51',source:'Edit',comment:'Previous working revision',status:'Archived'},
   {revision:40,time:'2026-09-29 18:06:33',source:'Import',comment:'ADS site configuration',status:'Archived'},
-  {revision:39,time:'2026-09-28 15:42:10',source:'Backup',comment:'Before point table update',status:'Archived'},
+  {revision:39,time:'2026-09-28 15:42:10',source:'Apply',comment:'Before point table update',status:'Archived'},
 ])
-function createBackup(){
-  history.value.unshift({
-    revision:revision.value,
-    time:new Date().toLocaleString(),
-    source:'Backup',
-    comment:'Manual backup of current revision',
-    status:'Archived',
-  })
-  ElMessage.success('Backup created (mock)')
-}
 async function restore(row:{revision:number}){
   await ElMessageBox.confirm(
     'Compare revision '+row.revision+' with current, validate impact and apply it as a new revision?',
@@ -125,8 +92,7 @@ async function restore(row:{revision:number}){
   ElMessage.success('Restored as new revision '+revision.value+' (mock)')
 }
 
-function downloadText(filename:string,content:string,type='text/yaml;charset=utf-8'){
-  const blob=new Blob([content],{type})
+function downloadBlob(filename:string,blob:Blob){
   const url=URL.createObjectURL(blob)
   const anchor=document.createElement('a')
   anchor.href=url
@@ -137,16 +103,89 @@ function downloadText(filename:string,content:string,type='text/yaml;charset=utf
   URL.revokeObjectURL(url)
 }
 function downloadCurrent(){
-  downloadText(file.value,yamlFiles[file.value])
+  downloadBlob(file.value,new Blob([yamlFiles[file.value]],{type:'text/yaml;charset=utf-8'}))
 }
-function downloadConfigSet(){
-  const parts=CONFIG_FILES.map(name=>'# ===== '+name+' =====\n'+yamlFiles[name])
-  downloadText('wind-hub-config-set.yaml',parts.join('\n\n'))
+
+function crc32(bytes:Uint8Array){
+  let crc=0xffffffff
+  for(const byte of bytes){
+    crc^=byte
+    for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0)
+  }
+  return (crc^0xffffffff)>>>0
+}
+function concatBytes(parts:Uint8Array[]){
+  const size=parts.reduce((sum,part)=>sum+part.length,0)
+  const result=new Uint8Array(size)
+  let offset=0
+  for(const part of parts){result.set(part,offset);offset+=part.length}
+  return result
+}
+function zipHeader(size:number){
+  return new Uint8Array(size)
+}
+function createZip(files:Array<{name:string;content:string}>){
+  const encoder=new TextEncoder()
+  const locals:Uint8Array[]=[]
+  const centrals:Uint8Array[]=[]
+  let offset=0
+
+  for(const fileEntry of files){
+    const name=encoder.encode(fileEntry.name)
+    const data=encoder.encode(fileEntry.content)
+    const crc=crc32(data)
+
+    const local=zipHeader(30+name.length)
+    const localView=new DataView(local.buffer)
+    localView.setUint32(0,0x04034b50,true)
+    localView.setUint16(4,20,true)
+    localView.setUint16(6,0x0800,true)
+    localView.setUint16(8,0,true)
+    localView.setUint32(14,crc,true)
+    localView.setUint32(18,data.length,true)
+    localView.setUint32(22,data.length,true)
+    localView.setUint16(26,name.length,true)
+    local.set(name,30)
+    locals.push(local,data)
+
+    const central=zipHeader(46+name.length)
+    const centralView=new DataView(central.buffer)
+    centralView.setUint32(0,0x02014b50,true)
+    centralView.setUint16(4,20,true)
+    centralView.setUint16(6,20,true)
+    centralView.setUint16(8,0x0800,true)
+    centralView.setUint16(10,0,true)
+    centralView.setUint32(16,crc,true)
+    centralView.setUint32(20,data.length,true)
+    centralView.setUint32(24,data.length,true)
+    centralView.setUint16(28,name.length,true)
+    centralView.setUint32(42,offset,true)
+    central.set(name,46)
+    centrals.push(central)
+
+    offset+=local.length+data.length
+  }
+
+  const centralBytes=concatBytes(centrals)
+  const end=zipHeader(22)
+  const endView=new DataView(end.buffer)
+  endView.setUint32(0,0x06054b50,true)
+  endView.setUint16(8,files.length,true)
+  endView.setUint16(10,files.length,true)
+  endView.setUint32(12,centralBytes.length,true)
+  endView.setUint32(16,offset,true)
+
+  return new Blob([...locals,centralBytes,end],{type:'application/zip'})
+}
+function createBackup(){
+  const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
+  const archive=createZip(CONFIG_FILES.map(name=>({name,content:yamlFiles[name]})))
+  downloadBlob('wind-hub-config-backup_'+stamp+'.zip',archive)
+  ElMessage.success('Configuration backup downloaded')
 }
 function handleAction(command:string){
   if(command==='import')importOpen.value=true
   else if(command==='download-current')downloadCurrent()
-  else if(command==='download-set')downloadConfigSet()
   else if(command==='backup')createBackup()
 }
 </script>
@@ -154,10 +193,7 @@ function handleAction(command:string){
 <template>
   <div class="config-page">
     <div class="head">
-      <div>
-        <h1>Configuration Files</h1>
-        <p>YAML 查询、修改、Import + Diff、Download、Backup 与历史版本。</p>
-      </div>
+      <div><h1>Configuration Files</h1><p>YAML 查询、修改、Import + Diff、单文件下载、完整配置备份与历史版本。</p></div>
       <div class="head-actions">
         <el-tag type="info">Revision {{revision}}</el-tag>
         <el-dropdown @command="handleAction">
@@ -166,8 +202,7 @@ function handleAction(command:string){
             <el-dropdown-menu>
               <el-dropdown-item command="import">Import</el-dropdown-item>
               <el-dropdown-item command="download-current">Download Current File</el-dropdown-item>
-              <el-dropdown-item command="download-set">Download Config Set</el-dropdown-item>
-              <el-dropdown-item divided command="backup">Create Backup</el-dropdown-item>
+              <el-dropdown-item divided command="backup">Create Backup (.zip)</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -177,10 +212,7 @@ function handleAction(command:string){
     <el-tabs v-model="section" class="config-tabs">
       <el-tab-pane label="Files" name="files">
         <div class="section-heading">
-          <div>
-            <h2>Configuration Workspace</h2>
-            <p>Applied → Working Copy；编辑、Changes、Validate 与 Apply 使用统一主工作区。</p>
-          </div>
+          <div><h2>Configuration Workspace</h2><p>Applied → Working Copy；编辑、Changes、Validate 与 Apply 使用统一主工作区。</p></div>
           <el-tag :type="dirtyMap[file]?'warning':'success'">{{dirtyMap[file]?'Pending Apply':'Applied'}}</el-tag>
         </div>
 
@@ -195,10 +227,7 @@ function handleAction(command:string){
 
             <main class="yaml-workspace">
               <div class="yaml-toolbar">
-                <div class="yaml-title">
-                  <b>{{file}}</b>
-                  <span>{{dirtyMap[file]?'Working copy differs from applied revision':'Matches applied revision'}}</span>
-                </div>
+                <div class="yaml-title"><b>{{file}}</b><span>{{dirtyMap[file]?'Working copy differs from applied revision':'Matches applied revision'}}</span></div>
                 <el-segmented v-model="editorMode" :options="[{label:'Edit',value:'edit'},{label:'Changes',value:'review'}]"/>
               </div>
 
@@ -222,8 +251,7 @@ function handleAction(command:string){
 
       <el-tab-pane label="History" name="history">
         <div class="section-heading">
-          <div><h2>Configuration History</h2><p>Backup 是内部可恢复 revision；Restore 会作为新 revision 应用。</p></div>
-          <el-button @click="createBackup">Create Backup</el-button>
+          <div><h2>Configuration History</h2><p>History 记录 Apply / Import / Restore 产生的 Revision；Create Backup 不修改 Revision。</p></div>
         </div>
         <el-card shadow="never">
           <el-table :data="history">
@@ -232,15 +260,13 @@ function handleAction(command:string){
             <el-table-column prop="source" label="Source" width="110"/>
             <el-table-column prop="comment" label="Comment" min-width="220"/>
             <el-table-column prop="status" label="Status" width="110"/>
-            <el-table-column label="Operation" width="140">
-              <template #default="{row}"><el-button link type="primary" @click="restore(row)">Compare / Restore</el-button></template>
-            </el-table-column>
+            <el-table-column label="Operation" width="140"><template #default="{row}"><el-button link type="primary" @click="restore(row)">Compare / Restore</el-button></template></el-table-column>
           </el-table>
         </el-card>
       </el-tab-pane>
     </el-tabs>
 
-    <el-drawer v-model="importOpen" title="Import Configuration" size="min(560px, 100%)" @closed="closeImport">
+    <el-drawer v-model="importOpen" title="Import Configuration" size="560px" @closed="closeImport">
       <el-form label-position="top">
         <el-form-item label="Target File">
           <el-select v-model="importState.target" style="width:100%">
@@ -280,11 +306,11 @@ function handleAction(command:string){
 </template>
 
 <style scoped>
-.head-actions{display:flex;align-items:center;gap:var(--app-space-2)}.config-tabs{margin-top:var(--app-space-2)}.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}.section-heading h2{margin:0;font-size:var(--app-font-section-title)}.section-heading p,.yaml-title span{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.head-actions{display:flex;align-items:center;gap:var(--app-space-2)}.config-tabs{margin-top:var(--app-space-2)}.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}.section-heading h2{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.section-heading p,.yaml-title span{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .config-editor-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,5fr);gap:var(--app-space-4)}.config-nav{display:flex;flex-direction:column;gap:var(--app-space-1);padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}.config-nav-title{padding:0 var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-semibold);text-transform:uppercase}.config-nav button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:var(--app-space-2);border:1px solid transparent;border-radius:var(--app-control-radius);background:transparent;color:var(--app-text-primary);text-align:left;cursor:pointer}.config-nav button:hover{background:var(--el-fill-color-light)}.config-nav button.active{background:var(--el-color-primary-light-9);border-color:var(--el-color-primary-light-7);color:var(--el-color-primary)}
 .yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-3)}.yaml-title{align-items:flex-start;flex-direction:column;gap:var(--app-space-1)}.yaml-input :deep(textarea){font-family:monospace;line-height:var(--app-line-height-body)}.yaml-actions{justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-3)}
 .review-editor{border:1px solid var(--app-border-soft);border-radius:var(--app-control-radius);background:var(--el-bg-color);padding:var(--app-space-2) 0;font-family:monospace;line-height:var(--app-line-height-body)}.review-line{display:grid;grid-template-columns:var(--app-space-6) minmax(0,1fr);border-left:3px solid transparent}.review-line code{padding:var(--app-space-1) var(--app-space-2);white-space:pre-wrap;overflow-wrap:anywhere}.review-gutter{text-align:center;color:var(--app-text-muted)}.review-line.add{background:var(--el-color-success-light-9);border-left-color:var(--el-color-success)}.review-line.remove{background:var(--el-color-danger-light-9);border-left-color:var(--el-color-danger)}
-.drawer-section{margin-top:var(--app-space-5)}.drawer-section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.drawer-section h3{margin:var(--app-space-4) 0 var(--app-space-2);font-size:var(--app-font-panel-title)}.diff-preview{white-space:pre-wrap;padding:var(--app-space-3);border:1px solid var(--app-border-soft);border-radius:var(--app-control-radius);background:var(--el-fill-color-extra-light);font-family:monospace}.drawer-footer{display:flex;justify-content:flex-end;gap:var(--app-space-2)}
-@media(max-width:1000px){.config-editor-layout{grid-template-columns:1fr}.config-nav{display:flex;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.config-nav-title{display:none}.config-nav button{min-width:max-content}}
+.drawer-section{margin-top:var(--app-space-6)}.drawer-section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.drawer-section h3{margin:var(--app-space-4) 0 var(--app-space-2);font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.diff-preview{white-space:pre-wrap;padding:var(--app-space-3);border:1px solid var(--app-border-soft);border-radius:var(--app-control-radius);background:var(--el-fill-color-extra-light);font-family:monospace}.drawer-footer{display:flex;justify-content:flex-end;gap:var(--app-space-2)}
+@media(max-width:1000px){.config-editor-layout{grid-template-columns:1fr}.config-nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.config-nav-title{display:none}.config-nav button{min-width:max-content}}
 @media(max-width:767px){.section-heading,.yaml-toolbar{align-items:flex-start;flex-direction:column}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.head-actions{width:100%;justify-content:space-between}}
 </style>
