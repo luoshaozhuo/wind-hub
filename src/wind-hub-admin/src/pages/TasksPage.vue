@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DEFAULT_POINT_GROUP_ID,
@@ -21,12 +21,8 @@ const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
 const taskSnapshot = ref('')
 const taskLogLimit = ref(20)
-const viewportWidth = ref(window.innerWidth)
-const isMobile = computed(() => viewportWidth.value < 768)
+const { isMobile } = useViewport()
 const drawerSize = computed(() => isMobile.value ? '100%' : 'min(1080px, 86vw)')
-function updateViewport(){ viewportWidth.value=window.innerWidth }
-window.addEventListener('resize',updateViewport)
-onBeforeUnmount(()=>window.removeEventListener('resize',updateViewport))
 
 const form=reactive({
   task_id:'', scope:'device_group' as 'device'|'device_group',
