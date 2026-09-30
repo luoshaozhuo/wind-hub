@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesForTask, refreshTaskValidity, resetDeviceConnectionOverrides, store } from '../mock/data'
 import { ADS_READ_MODES, PROTOCOLS } from '../mock/types'
 import type { DeviceModelDef, Protocol } from '../mock/types'
+import { useViewport } from '../composables/useViewport'
 
 type ManageSection = 'model' | 'type' | 'group'
 
@@ -15,13 +16,7 @@ const manageOpen = ref(false)
 const section = ref<ManageSection>('model')
 const editingId = ref('')
 const metadataSnapshot = ref('')
-const isMobile = ref(window.innerWidth < 768)
-
-function onResize() {
-  isMobile.value = window.innerWidth < 768
-}
-window.addEventListener('resize', onResize)
-onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+const { isMobile } = useViewport()
 
 const form = reactive({
   id: '',
