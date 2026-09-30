@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DEFAULT_POINT_GROUP_ID,
@@ -24,7 +24,16 @@ const pointTable = ref('beckhoff_wtg_v1')
 const protocol = computed(() => tableProtocol(pointTable.value) || 'ads')
 const tableDef = computed(() => store.pointTables.find(t => t.id === pointTable.value))
 const rows = computed<PointDef[]>(() => pointsOfTable(pointTable.value))
-const { width: viewportWidth, isMobile, isTablet } = useViewport()
+const pointPage = ref(1)
+const pointPageSize = ref(50)
+const pagedRows = computed(() => {
+  const start = (pointPage.value - 1) * pointPageSize.value
+  return rows.value.slice(start, start + pointPageSize.value)
+})
+watch(pointTable, () => {
+  pointPage.value = 1
+})
+const { isMobile, isTablet } = useViewport()
 const addrLabel = computed(() =>
   protocol.value === 'ads' ? 'Symbol / Index' : protocol.value === 'modbus' ? 'Type / Address' : 'IOA',
 )
@@ -713,7 +722,7 @@ async function resetOverride(p: PointDef) {
         </div>
       </div>
 
-      <el-table :data="rows" height="590">
+      <el-table :data="pagedRows" height="590">
         <el-table-column label="Point"><template #default="s"><el-link :underline="false" @click="openEdit(s.row)"><b>{{ s.row.point_id }}</b></el-link></template></el-table-column>
         <el-table-column prop="variable_name" label="Variable" />
         <el-table-column :label="addrLabel"><template #default="s">{{ addressOf(s.row) }}</template></el-table-column>
@@ -730,6 +739,15 @@ async function resetOverride(p: PointDef) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="pointPage"
+          v-model:page-size="pointPageSize"
+          :page-sizes="[20, 50, 100]"
+          :total="rows.length"
+          :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+        />
+      </div>
     </el-card>
 
     <el-drawer
