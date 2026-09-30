@@ -620,7 +620,7 @@ async function deleteGroup(row: { id: string }) {
 .metadata-object-table{width:100%;cursor:pointer}
 .metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
 .metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
-.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:#f4f7fb}
+.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
 .metadata-object-info{min-width:0;padding-left:4px}
 .metadata-object-info b,.metadata-object-info small{display:block}
 .metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
