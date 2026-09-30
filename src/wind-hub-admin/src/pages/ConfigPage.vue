@@ -209,7 +209,10 @@ function createZip(files:Array<{name:string;content:string}>){
   endView.setUint32(12,centralBytes.length,true)
   endView.setUint32(16,offset,true)
 
-  return new Blob([...locals,centralBytes,end],{type:'application/zip'})
+  const archive=concatBytes([...locals,centralBytes,end])
+  const buffer=new ArrayBuffer(archive.byteLength)
+  new Uint8Array(buffer).set(archive)
+  return new Blob([buffer],{type:'application/zip'})
 }
 function createBackup(){
   const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
