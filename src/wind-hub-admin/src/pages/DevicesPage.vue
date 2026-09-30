@@ -51,7 +51,7 @@ const selected = ref<DeviceInst | null>(null)
 const deviceSnapshot = ref('')
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
-const { width: viewportWidth, isMobile } = useViewport()
+const { isMobile } = useViewport()
 const detailDrawerSize = computed(() => isMobile.value ? '100%' : '72%')
 
 function emptyVerify(): DeviceVerification {
