@@ -16,6 +16,7 @@ import {
   unitSymbol,
   validateAddress,
 } from '../mock/data'
+import { useViewport } from '../composables/useViewport'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { PointAddress, PointDef, Protocol } from '../mock/types'
 
@@ -23,13 +24,7 @@ const pointTable = ref('beckhoff_wtg_v1')
 const protocol = computed(() => tableProtocol(pointTable.value) || 'ads')
 const tableDef = computed(() => store.pointTables.find(t => t.id === pointTable.value))
 const rows = computed<PointDef[]>(() => pointsOfTable(pointTable.value))
-const viewportWidth = ref(window.innerWidth)
-const isMobile = computed(() => viewportWidth.value < 768)
-const isTablet = computed(() => viewportWidth.value < 1200)
-function updateViewport() { viewportWidth.value = window.innerWidth }
-window.addEventListener('resize', updateViewport)
-onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
-
+const { width: viewportWidth, isMobile, isTablet } = useViewport()
 const addrLabel = computed(() =>
   protocol.value === 'ads' ? 'Symbol / Index' : protocol.value === 'modbus' ? 'Type / Address' : 'IOA',
 )
