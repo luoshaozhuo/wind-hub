@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
 import { updateMockAdsYaml, updateMockSiteYaml } from '../mock/yaml'
 
-const dirty = ref(false)
 const saving = ref(false)
 
 const form = reactive({
@@ -24,10 +23,8 @@ const form = reactive({
   routeName: store.systemInfo.ads.route_repair.route_name,
   routeUser: store.systemInfo.ads.route_repair.username,
 })
-
-function markDirty() {
-  dirty.value = true
-}
+const settingsSnapshot = ref(JSON.stringify(form))
+const dirty = computed(() => JSON.stringify(form) !== settingsSnapshot.value)
 
 function reset() {
   Object.assign(form, {
@@ -47,7 +44,7 @@ function reset() {
     routeName: store.systemInfo.ads.route_repair.route_name,
     routeUser: store.systemInfo.ads.route_repair.username,
   })
-  dirty.value = false
+
 }
 
 async function save() {
@@ -72,7 +69,9 @@ async function save() {
     )
   }
 
+  if (saving.value) return
   saving.value = true
+  try {
   store.systemInfo.siteId = form.siteId.trim()
   store.systemInfo.siteName = form.siteName.trim()
   store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
@@ -83,9 +82,11 @@ async function save() {
   updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
   updateMockAdsYaml(store.systemInfo.ads)
   await new Promise(resolve => setTimeout(resolve, 300))
-  saving.value = false
-  dirty.value = false
+  settingsSnapshot.value = JSON.stringify(form)
   ElMessage.success('System settings saved — pending apply (mock)')
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -103,10 +104,10 @@ async function save() {
       <section class="settings-section">
         <div class="settings-heading"><h2>Site</h2><p>Wind Hub 实例对应的现场身份。</p></div>
         <div class="settings-fields">
-          <el-form-item label="Site ID"><el-input v-model="form.siteId" @input="markDirty" /></el-form-item>
-          <el-form-item label="Site Name"><el-input v-model="form.siteName" @input="markDirty" /></el-form-item>
+          <el-form-item label="Site ID"><el-input v-model="form.siteId" /></el-form-item>
+          <el-form-item label="Site Name"><el-input v-model="form.siteName" /></el-form-item>
           <el-form-item label="Timezone">
-            <el-select v-model="form.timezone" @change="markDirty">
+            <el-select v-model="form.timezone">
               <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
               <el-option label="UTC" value="UTC" />
             </el-select>
@@ -118,14 +119,14 @@ async function save() {
         <div class="settings-heading"><h2>Runtime</h2><p>日志、工作目录与配置热重载策略。</p></div>
         <div class="settings-fields">
           <el-form-item label="Log Level">
-            <el-select v-model="form.logLevel" @change="markDirty">
+            <el-select v-model="form.logLevel">
               <el-option v-for="level in ['DEBUG','INFO','WARNING','ERROR']" :key="level" :label="level" :value="level" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Temporary Directory"><el-input v-model="form.tempDirectory" @input="markDirty" /></el-form-item>
-          <el-form-item label="Data Directory"><el-input v-model="form.dataDirectory" @input="markDirty" /></el-form-item>
+          <el-form-item label="Temporary Directory"><el-input v-model="form.tempDirectory" /></el-form-item>
+          <el-form-item label="Data Directory"><el-input v-model="form.dataDirectory" /></el-form-item>
           <el-form-item label="Reload Policy">
-            <el-select v-model="form.reloadPolicy" @change="markDirty">
+            <el-select v-model="form.reloadPolicy">
               <el-option label="Incremental" value="incremental" />
               <el-option label="Manual" value="manual" />
             </el-select>
@@ -136,21 +137,21 @@ async function save() {
       <section class="settings-section">
         <div class="settings-heading"><h2>Global ADS</h2><p>进程级 ADS 本机身份，不属于单台 Device override。</p></div>
         <div class="settings-fields">
-          <el-form-item label="Local IP"><el-input v-model="form.adsLocalIp" @input="markDirty" /></el-form-item>
-          <el-form-item label="Local AMS Net ID"><el-input v-model="form.adsLocalAms" @input="markDirty" /></el-form-item>
-          <el-form-item label="Route Repair"><el-switch v-model="form.routeRepair" @change="markDirty" /></el-form-item>
-          <el-form-item label="Route Name"><el-input v-model="form.routeName" :disabled="!form.routeRepair" @input="markDirty" /></el-form-item>
-          <el-form-item label="Username"><el-input v-model="form.routeUser" :disabled="!form.routeRepair" @input="markDirty" /></el-form-item>
+          <el-form-item label="Local IP"><el-input v-model="form.adsLocalIp" /></el-form-item>
+          <el-form-item label="Local AMS Net ID"><el-input v-model="form.adsLocalAms" /></el-form-item>
+          <el-form-item label="Route Repair"><el-switch v-model="form.routeRepair" /></el-form-item>
+          <el-form-item label="Route Name"><el-input v-model="form.routeName" :disabled="!form.routeRepair" /></el-form-item>
+          <el-form-item label="Username"><el-input v-model="form.routeUser" :disabled="!form.routeRepair" /></el-form-item>
         </div>
       </section>
 
       <section class="settings-section">
         <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。</p></div>
         <div class="settings-fields">
-          <el-form-item label="API Host"><el-input v-model="form.apiHost" @input="markDirty" /></el-form-item>
-          <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" style="width:100%" @change="markDirty" /></el-form-item>
+          <el-form-item label="API Host"><el-input v-model="form.apiHost" /></el-form-item>
+          <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" style="width:100%" /></el-form-item>
           <el-form-item label="Time Synchronization">
-            <el-select v-model="form.timeSync" @change="markDirty">
+            <el-select v-model="form.timeSync">
               <el-option label="systemd-timesyncd" value="systemd-timesyncd" />
               <el-option label="chrony" value="chrony" />
               <el-option label="External / Managed" value="external" />
@@ -169,8 +170,8 @@ async function save() {
       </section>
 
       <div class="settings-actions">
-        <el-button :disabled="!dirty" @click="reset">Discard Changes</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">Save</el-button>
+        <el-button :disabled="!dirty || saving" @click="reset">Discard Changes</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!dirty || saving" @click="save">Save</el-button>
       </div>
     </el-form>
   </div>
