@@ -226,16 +226,16 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
   <div class="diagnostics-page">
     <div class="head">
       <div>
-        <h1>Diagnostics</h1>
-        <p>工程探索工作台：左侧确定 Target，右侧执行网络、读取和写入探索。</p>
+        <h1 class="app-page-title">Diagnostics</h1>
+        <p class="app-body">工程探索工作台：左侧确定 Target，右侧执行网络、读取和写入探索。</p>
       </div>
     </div>
 
     <div class="diagnostics-layout">
       <el-card shadow="never" class="target-panel">
         <div class="panel-heading">
-          <h3>Target</h3>
-          <p>Explorer 的所有操作共享当前目标上下文。</p>
+          <h2 class="app-section-title">Target</h2>
+          <p class="app-caption">Explorer 的所有操作共享当前目标上下文。</p>
         </div>
 
         <el-segmented
@@ -292,8 +292,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
         <el-divider/>
 
         <div class="target-summary">
-          <span>Resolved Target</span>
-          <b>{{resolvedTarget.name}}</b>
+          <span class="app-caption">Resolved Target</span>
+          <b class="app-panel-title">{{resolvedTarget.name}}</b>
           <el-descriptions :column="1" size="small">
             <el-descriptions-item label="Protocol">{{resolvedTarget.protocol.toUpperCase()||'UNSPECIFIED'}}</el-descriptions-item>
             <el-descriptions-item label="Host">{{resolvedTarget.host||'—'}}<template v-if="resolvedTarget.port">:{{resolvedTarget.port}}</template></el-descriptions-item>
@@ -308,8 +308,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
         <el-tabs v-model="explorerTab" class="explorer-tabs">
           <el-tab-pane label="Network" name="network">
             <div class="panel-heading">
-              <h3>Network Explorer</h3>
-              <p>按 IP → TCP Port → Protocol Session 的顺序验证通信链路。</p>
+              <h2 class="app-section-title">Network Explorer</h2>
+              <p class="app-caption">按 IP → TCP Port → Protocol Session 的顺序验证通信链路。</p>
             </div>
 
             <el-segmented
@@ -365,8 +365,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
             </el-card>
 
             <div class="result-heading">
-              <h3>Results</h3>
-              <span>{{networkResults.length}} rows</span>
+              <h3 class="app-panel-title">Results</h3>
+              <span class="app-caption">{{networkResults.length}} rows</span>
             </div>
             <el-card shadow="never">
               <el-table :data="pagedResults" empty-text="Run the selected network tool">
@@ -386,8 +386,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 
           <el-tab-pane label="Read" name="read">
             <div class="panel-heading">
-              <h3>Read Explorer</h3>
-              <p>读取已定义 Point，或临时填写协议地址进行现场探索。</p>
+              <h2 class="app-section-title">Read Explorer</h2>
+              <p class="app-caption">读取已定义 Point，或临时填写协议地址进行现场探索。</p>
             </div>
 
             <el-alert v-if="!canReadWrite" type="info" :closable="false" title="Read Explorer requires a Device, Point or Manual Target."/>
@@ -440,8 +440,8 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 
           <el-tab-pane label="Write" name="write">
             <div class="panel-heading">
-              <h3>Write Explorer</h3>
-              <p>写入与读取分离，始终单次执行、二次确认并 readback。</p>
+              <h2 class="app-section-title">Write Explorer</h2>
+              <p class="app-caption">写入与读取分离，始终单次执行、二次确认并 readback。</p>
             </div>
 
             <el-alert type="warning" :closable="false" title="Write tests can change real equipment state."/>
@@ -484,7 +484,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 </template>
 
 <style scoped>
-.diagnostics-layout{display:grid;grid-template-columns:minmax(18rem,20rem) minmax(0,1fr);gap:var(--app-space-4);align-items:start}.target-panel{position:sticky;top:var(--app-space-4)}.panel-heading h3{margin:0}.panel-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-mode,.tool-switch{margin-top:var(--app-space-4)}.target-form{margin-top:var(--app-space-4)}.target-form :deep(.el-form-item){margin-bottom:var(--app-space-3)}.target-summary{display:grid;gap:var(--app-space-2)}.target-summary>span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-summary>b{color:var(--app-text-primary)}.explorer-panel{min-width:0}.explorer-tabs{margin-top:calc(var(--app-space-2) * -1)}.tool-card{margin:var(--app-space-3) 0}.tool-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3);align-items:start}.tool-fields :deep(.el-form-item){margin-bottom:var(--app-space-3)}.tool-actions{display:flex;justify-content:flex-end}.field-note{display:flex;align-items:center;min-height:var(--app-control-height);color:var(--app-text-secondary)}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin:var(--app-space-4) 0 var(--app-space-2)}.result-heading h3{margin:0}.result-heading span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.pagination{display:flex;justify-content:flex-end;padding-top:var(--app-space-3)}
+.diagnostics-layout{display:grid;grid-template-columns:minmax(18rem,20rem) minmax(0,1fr);gap:var(--app-space-4);align-items:start}.target-panel{position:sticky;top:var(--app-space-4)}.panel-heading p{margin:var(--app-space-1) 0 0}.target-mode,.tool-switch{margin-top:var(--app-space-4)}.target-form{margin-top:var(--app-space-4)}.target-form :deep(.el-form-item){margin-bottom:var(--app-space-3)}.target-summary{display:grid;gap:var(--app-space-2)}.target-summary>span{display:block}.target-summary>b{display:block}.explorer-panel{min-width:0}.explorer-tabs{margin-top:calc(var(--app-space-2) * -1)}.tool-card{margin:var(--app-space-3) 0}.tool-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3);align-items:start}.tool-fields :deep(.el-form-item){margin-bottom:var(--app-space-3)}.tool-actions{display:flex;justify-content:flex-end}.field-note{display:flex;align-items:center;min-height:var(--app-control-height);color:var(--app-text-secondary)}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin:var(--app-space-4) 0 var(--app-space-2)}.pagination{display:flex;justify-content:flex-end;padding-top:var(--app-space-3)}
 @media(max-width:1199px){.diagnostics-layout{grid-template-columns:1fr}.target-panel{position:static}.tool-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.tool-fields{grid-template-columns:1fr}.tool-actions{justify-content:flex-start}.pagination{justify-content:center;overflow-x:auto}}
 </style>

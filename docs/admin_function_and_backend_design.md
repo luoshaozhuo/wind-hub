@@ -1304,6 +1304,8 @@ Files / History 使用同一页面 Tab 切换。History 不使用 Back。Restore
 
 样式必须复用现有 Theme Token 与 Element Plus Token，不新增页面级颜色、字体、圆角体系。
 
+Admin 页面 Typography 必须使用 `typography.css` 中统一的应用级语义：`app-page-title`、`app-section-title`、`app-panel-title`、`app-body`、`app-caption`、`app-metric`。禁止依赖浏览器默认 `h1/h2/h3` 视觉样式；业务页面不得局部建立字号、字重、行高体系。Element Plus 的 Form Label、Tabs、Segmented、Table 等组件文字由全局 Theme 控制。
+
 ---
 
 # 11. Logs 页面

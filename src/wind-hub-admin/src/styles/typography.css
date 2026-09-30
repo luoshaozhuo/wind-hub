@@ -13,6 +13,62 @@
   --font-weight-emphasis:550;--font-weight-semibold:var(--app-font-weight-semibold);--font-weight-strong:var(--app-font-weight-strong);
   --font-weight-bold:700;--line-height-tight:var(--app-line-height-tight);--line-height-compact:var(--app-line-height-compact);--line-height-body:var(--app-line-height-body);
 }
+
 body,button,input,textarea,select{font-family:var(--app-font-family)}
-.head h1{margin:0;color:var(--app-text-primary);font-size:var(--app-font-page-title);line-height:var(--app-line-height-tight);font-weight:var(--app-font-weight-strong);letter-spacing:-.02em}
-.head p{margin:7px 0 0;color:var(--app-text-secondary);font-size:var(--app-font-body);line-height:var(--app-line-height-body);font-weight:var(--app-font-weight-regular)}
+
+.app-page-title{
+  margin:0;
+  color:var(--app-text-primary);
+  font-size:var(--app-font-page-title);
+  line-height:var(--app-line-height-tight);
+  font-weight:var(--app-font-weight-strong);
+  letter-spacing:-.02em;
+}
+.app-section-title{
+  margin:0;
+  color:var(--app-text-primary);
+  font-size:var(--app-font-section-title);
+  line-height:var(--app-line-height-compact);
+  font-weight:var(--app-font-weight-semibold);
+}
+.app-panel-title{
+  margin:0;
+  color:var(--app-text-primary);
+  font-size:var(--app-font-panel-title);
+  line-height:var(--app-line-height-compact);
+  font-weight:var(--app-font-weight-semibold);
+}
+.app-body{
+  color:var(--app-text-regular);
+  font-size:var(--app-font-body);
+  line-height:var(--app-line-height-body);
+  font-weight:var(--app-font-weight-regular);
+}
+.app-caption{
+  color:var(--app-text-secondary);
+  font-size:var(--app-font-caption);
+  line-height:var(--app-line-height-body);
+  font-weight:var(--app-font-weight-regular);
+}
+.app-metric{
+  color:var(--app-text-primary);
+  font-size:var(--app-font-metric);
+  line-height:var(--app-line-height-tight);
+  font-weight:var(--app-font-weight-semibold);
+}
+
+.head h1{
+  margin:0;
+  color:var(--app-text-primary);
+  font-size:var(--app-font-page-title);
+  line-height:var(--app-line-height-tight);
+  font-weight:var(--app-font-weight-strong);
+  letter-spacing:-.02em;
+}
+.head p{
+  margin:7px 0 0;
+  color:var(--app-text-secondary);
+  font-size:var(--app-font-body);
+  line-height:var(--app-line-height-body);
+  font-weight:var(--app-font-weight-regular);
+}
