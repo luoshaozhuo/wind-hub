@@ -10,6 +10,11 @@ const file=ref('devices.yaml')
 const editorMode=ref<'edit'|'review'>('review')
 const revision=ref(42)
 const importOpen=ref(false)
+const validating=ref(false)
+const applying=ref(false)
+const importValidating=ref(false)
+const importApplying=ref(false)
+const restoring=ref(false)
 
 const appliedSnapshot=reactive<Record<string,string>>(
   Object.fromEntries(CONFIG_FILES.map(name=>[name,yamlFiles[name]])),
@@ -20,10 +25,15 @@ const savedSnapshot=reactive<Record<string,string>>(
 const dirtyMap=reactive<Record<string,boolean>>({})
 
 function markDirty(){dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]}
-function validate(){
-  if(!yamlFiles[file.value].trim()){ElMessage.error(file.value+' is empty');return false}
-  ElMessage.success(file.value+' validation passed (mock)')
-  return true
+async function validate(){
+  if(validating.value||applying.value)return false
+  validating.value=true
+  try{
+    await new Promise(resolve=>setTimeout(resolve,200))
+    if(!yamlFiles[file.value].trim()){ElMessage.error(file.value+' is empty');return false}
+    ElMessage.success(file.value+' validation passed (mock)')
+    return true
+  }finally{validating.value=false}
 }
 function saveDraft(){
   savedSnapshot[file.value]=yamlFiles[file.value]
@@ -31,7 +41,8 @@ function saveDraft(){
   ElMessage.success(dirtyMap[file.value]?file.value+' saved — pending apply (mock)':file.value+' saved (mock)')
 }
 async function apply(){
-  if(!validate())return
+  if(applying.value||validating.value||!dirtyMap[file.value])return
+  if(!await validate())return
   if(yamlFiles[file.value]!==appliedSnapshot[file.value]){
     await ElMessageBox.confirm(
       'The backend will validate, build diff and impact, then apply only affected runtime objects.',
@@ -39,11 +50,15 @@ async function apply(){
       {type:'warning',confirmButtonText:'Apply'},
     )
   }
-  savedSnapshot[file.value]=yamlFiles[file.value]
-  appliedSnapshot[file.value]=yamlFiles[file.value]
-  dirtyMap[file.value]=false
-  revision.value+=1
-  ElMessage.success('Revision '+revision.value+' applied (mock)')
+  applying.value=true
+  try{
+    await new Promise(resolve=>setTimeout(resolve,350))
+    savedSnapshot[file.value]=yamlFiles[file.value]
+    appliedSnapshot[file.value]=yamlFiles[file.value]
+    dirtyMap[file.value]=false
+    revision.value+=1
+    ElMessage.success('Revision '+revision.value+' applied (mock)')
+  }finally{applying.value=false}
 }
 
 function buildReview(before:string,after:string):ReviewLine[]{
@@ -63,17 +78,31 @@ const reviewLines=computed(()=>buildReview(appliedSnapshot[file.value],yamlFiles
 
 const importState=reactive({target:'devices.yaml',name:'',validated:false})
 function onImportChange(upload:{name?:string}){importState.name=upload.name||'';importState.validated=false}
-function validateImport(){
+async function validateImport(){
+  if(importValidating.value||importApplying.value)return
   if(!importState.name){ElMessage.warning('Select a YAML file first');return}
-  importState.validated=true
-  ElMessage.success('Import validated — diff ready (mock)')
+  importValidating.value=true
+  try{
+    await new Promise(resolve=>setTimeout(resolve,200))
+    importState.validated=true
+    ElMessage.success('Import validated — diff ready (mock)')
+  }finally{importValidating.value=false}
 }
 function closeImport(){importOpen.value=false;importState.name='';importState.validated=false}
-function applyImport(){
-  if(!importState.validated)return
-  revision.value+=1
-  closeImport()
-  ElMessage.success('Imported as revision '+revision.value+' (mock)')
+async function applyImport(){
+  if(!importState.validated||importApplying.value||importValidating.value)return
+  await ElMessageBox.confirm(
+    'Apply the validated import as a new configuration revision?',
+    'Apply Import',
+    {type:'warning',confirmButtonText:'Apply Import'},
+  )
+  importApplying.value=true
+  try{
+    await new Promise(resolve=>setTimeout(resolve,350))
+    revision.value+=1
+    closeImport()
+    ElMessage.success('Imported as revision '+revision.value+' (mock)')
+  }finally{importApplying.value=false}
 }
 
 const history=ref([
@@ -83,13 +112,18 @@ const history=ref([
   {revision:39,time:'2026-09-28 15:42:10',source:'Apply',comment:'Before point table update',status:'Archived'},
 ])
 async function restore(row:{revision:number}){
+  if(restoring.value||applying.value||importApplying.value)return
   await ElMessageBox.confirm(
     'Compare revision '+row.revision+' with current, validate impact and apply it as a new revision?',
     'Restore Revision',
     {type:'warning',confirmButtonText:'Review & Restore'},
   )
-  revision.value+=1
-  ElMessage.success('Restored as new revision '+revision.value+' (mock)')
+  restoring.value=true
+  try{
+    await new Promise(resolve=>setTimeout(resolve,350))
+    revision.value+=1
+    ElMessage.success('Restored as new revision '+revision.value+' (mock)')
+  }finally{restoring.value=false}
 }
 
 function downloadBlob(filename:string,blob:Blob){
@@ -220,9 +254,9 @@ function handleAction(command:string){
           <div class="config-editor-layout">
             <aside class="config-nav">
               <span class="config-nav-title">Files</span>
-              <button v-for="name in CONFIG_FILES" :key="name" type="button" :class="{active:file===name}" @click="file=name">
+              <el-button v-for="name in CONFIG_FILES" :key="name" text class="config-nav-button" :class="{active:file===name}" :disabled="applying" @click="file=name">
                 {{name}}<el-badge v-if="dirtyMap[name]" is-dot type="warning"/>
-              </button>
+              </el-button>
             </aside>
 
             <main class="yaml-workspace">
@@ -240,9 +274,9 @@ function handleAction(command:string){
               </div>
 
               <div class="yaml-actions">
-                <el-button @click="validate">Validate</el-button>
-                <el-button @click="saveDraft">Save Draft</el-button>
-                <el-button type="primary" @click="apply">Apply</el-button>
+                <el-button :loading="validating" :disabled="applying" @click="validate">Validate</el-button>
+                <el-button :disabled="applying" @click="saveDraft">Save Draft</el-button>
+                <el-button type="primary" :loading="applying" :disabled="!dirtyMap[file] || validating || applying" @click="apply">Apply</el-button>
               </div>
             </main>
           </div>
@@ -260,7 +294,7 @@ function handleAction(command:string){
             <el-table-column prop="source" label="Source" width="110"/>
             <el-table-column prop="comment" label="Comment" min-width="220"/>
             <el-table-column prop="status" label="Status" width="110"/>
-            <el-table-column label="Operation" width="140"><template #default="{row}"><el-button link type="primary" @click="restore(row)">Compare / Restore</el-button></template></el-table-column>
+            <el-table-column label="Operation" width="140"><template #default="{row}"><el-button link type="primary" :loading="restoring" :disabled="restoring || applying || importApplying" @click="restore(row)">Compare / Restore</el-button></template></el-table-column>
           </el-table>
         </el-card>
       </el-tab-pane>
@@ -280,7 +314,7 @@ function handleAction(command:string){
       </el-form>
 
       <div class="drawer-section">
-        <div class="drawer-section-head"><h3>Validation</h3><el-button type="primary" :disabled="!importState.name" @click="validateImport">Validate & Compare</el-button></div>
+        <div class="drawer-section-head"><h3>Validation</h3><el-button type="primary" :loading="importValidating" :disabled="!importState.name || importApplying" @click="validateImport">Validate & Compare</el-button></div>
         <el-empty v-if="!importState.validated" description="Validate the uploaded YAML to continue"/>
         <template v-else>
           <el-alert type="success" :closable="false" title="Syntax, schema and reference validation passed (mock)"/>
@@ -297,8 +331,8 @@ function handleAction(command:string){
 
       <template #footer>
         <div class="drawer-footer">
-          <el-button @click="importOpen=false">Cancel</el-button>
-          <el-button type="primary" :disabled="!importState.validated" @click="applyImport">Apply Import</el-button>
+          <el-button :disabled="importApplying" @click="importOpen=false">Cancel</el-button>
+          <el-button type="primary" :loading="importApplying" :disabled="!importState.validated || importValidating || importApplying" @click="applyImport">Apply Import</el-button>
         </div>
       </template>
     </el-drawer>
@@ -307,10 +341,10 @@ function handleAction(command:string){
 
 <style scoped>
 .head-actions{display:flex;align-items:center;gap:var(--app-space-2)}.config-tabs{margin-top:var(--app-space-2)}.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}.section-heading h2{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.section-heading p,.yaml-title span{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.config-editor-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,5fr);gap:var(--app-space-4)}.config-nav{display:flex;flex-direction:column;gap:var(--app-space-1);padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}.config-nav-title{padding:0 var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-semibold);text-transform:uppercase}.config-nav button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:var(--app-space-2);border:1px solid transparent;border-radius:var(--app-control-radius);background:transparent;color:var(--app-text-primary);text-align:left;cursor:pointer}.config-nav button:hover{background:var(--el-fill-color-light)}.config-nav button.active{background:var(--el-color-primary-light-9);border-color:var(--el-color-primary-light-7);color:var(--el-color-primary)}
+.config-editor-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,5fr);gap:var(--app-space-4)}.config-nav{display:flex;flex-direction:column;gap:var(--app-space-1);padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}.config-nav-title{padding:0 var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-semibold);text-transform:uppercase}.config-nav-button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:var(--app-space-2);border:1px solid transparent;border-radius:var(--app-control-radius);background:transparent;color:var(--app-text-primary);text-align:left;cursor:pointer}.config-nav-button:hover{background:var(--el-fill-color-light)}.config-nav-button.active{background:var(--el-color-primary-light-9);border-color:var(--el-color-primary-light-7);color:var(--el-color-primary)}
 .yaml-workspace{min-width:0}.yaml-toolbar,.yaml-actions,.yaml-title{display:flex;align-items:center}.yaml-toolbar{justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-3)}.yaml-title{align-items:flex-start;flex-direction:column;gap:var(--app-space-1)}.yaml-input :deep(textarea){font-family:monospace;line-height:var(--app-line-height-body)}.yaml-actions{justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-3)}
 .review-editor{border:1px solid var(--app-border-soft);border-radius:var(--app-control-radius);background:var(--el-bg-color);padding:var(--app-space-2) 0;font-family:monospace;line-height:var(--app-line-height-body)}.review-line{display:grid;grid-template-columns:var(--app-space-6) minmax(0,1fr);border-left:3px solid transparent}.review-line code{padding:var(--app-space-1) var(--app-space-2);white-space:pre-wrap;overflow-wrap:anywhere}.review-gutter{text-align:center;color:var(--app-text-muted)}.review-line.add{background:var(--el-color-success-light-9);border-left-color:var(--el-color-success)}.review-line.remove{background:var(--el-color-danger-light-9);border-left-color:var(--el-color-danger)}
 .drawer-section{margin-top:var(--app-space-6)}.drawer-section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.drawer-section h3{margin:var(--app-space-4) 0 var(--app-space-2);font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.diff-preview{white-space:pre-wrap;padding:var(--app-space-3);border:1px solid var(--app-border-soft);border-radius:var(--app-control-radius);background:var(--el-fill-color-extra-light);font-family:monospace}.drawer-footer{display:flex;justify-content:flex-end;gap:var(--app-space-2)}
-@media(max-width:1000px){.config-editor-layout{grid-template-columns:1fr}.config-nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.config-nav-title{display:none}.config-nav button{min-width:max-content}}
+@media(max-width:1000px){.config-editor-layout{grid-template-columns:1fr}.config-nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.config-nav-title{display:none}.config-nav-button{min-width:max-content}}
 @media(max-width:767px){.section-heading,.yaml-toolbar{align-items:flex-start;flex-direction:column}.yaml-actions{flex-wrap:wrap}.yaml-actions .el-button{flex:1;margin-left:0!important}.head-actions{width:100%;justify-content:space-between}}
 </style>
