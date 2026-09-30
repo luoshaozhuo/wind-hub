@@ -1674,7 +1674,7 @@ async function sendCommand() {
 
     <el-dialog v-model="deleteAllOpen" title="Delete All Devices" width="560px">
       <el-alert type="error" :closable="false" show-icon title="All Devices will be removed. Metadata and Task Definitions are preserved." />
-      <el-descriptions :column="1" border size="small" style="margin:16px 0">
+      <el-descriptions :column="1" border size="small" class="delete-summary">
         <el-descriptions-item label="Devices">{{ store.devices.length }}</el-descriptions-item>
         <el-descriptions-item label="Task Definitions">{{ store.tasks.length }} preserved</el-descriptions-item>
         <el-descriptions-item label="Running Tasks">{{ store.tasks.filter(t => t.runtime === 'RUNNING').length }} will stop</el-descriptions-item>
@@ -1915,7 +1915,7 @@ async function sendCommand() {
                   <el-option label="All Groups" value="All" />
                   <el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name" :value="g.id" />
                 </el-select>
-                <el-select v-model="dataRefreshInterval" style="width:110px">
+                <el-select v-model="dataRefreshInterval" class="data-refresh-interval">
                   <el-option :value="500" label="500 ms" />
                   <el-option :value="1000" label="1 s" />
                   <el-option :value="2000" label="2 s" />
@@ -2093,4 +2093,6 @@ async function sendCommand() {
 @media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
 @media(max-width:1199px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
 @media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
+
+.delete-summary{margin:var(--app-space-4) 0}.data-refresh-interval{width:110px}
 </style>
