@@ -143,15 +143,6 @@ async function save() {
         </div>
       </section>
 
-      <section class="settings-section">
-        <div class="settings-heading"><h2>About</h2><p>当前运行组件版本。</p></div>
-        <el-descriptions :column="3">
-          <el-descriptions-item label="Collector">{{ store.systemInfo.collectorVersion }}</el-descriptions-item>
-          <el-descriptions-item label="Admin">{{ store.systemInfo.adminVersion }}</el-descriptions-item>
-          <el-descriptions-item label="Environment">prototype / mock</el-descriptions-item>
-        </el-descriptions>
-      </section>
-
       <div class="settings-actions">
         <el-button :disabled="!dirty || saving" @click="reset">Discard Changes</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty || saving" @click="save">Save</el-button>

@@ -44,7 +44,7 @@ export interface DeviceModelDef {
 
 export interface PointTableDef {
   id: string
-  protocol: Protocol
+  protocol: Protocol | 'generic'
   extends: string
   remove_points: string[]
   system?: boolean

@@ -3,8 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { protocolOfDevice, store } from '../mock/data'
 
-const emit = defineEmits<{ (e:'navigate', page:'Quality'|'SystemHealth'): void }>()
-
 type Tone = 'normal' | 'info' | 'warning' | 'danger' | 'muted'
 
 interface RecentEvent {
@@ -371,17 +369,14 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card risk-summary-card">
           <div class="card-top"><span class="card-label">Channel Quality</span><span class="status-pill danger"><i></i>2 INTERRUPTED</span></div>
           <div class="risk-summary-main">13 timeouts · 7 reconnects / 24 h</div>
-          <el-button link type="primary" @click="emit('navigate','Quality')">Open Quality</el-button>
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top"><span class="card-label">Data Quality</span><span class="status-pill warning"><i></i>DEGRADED</span></div>
           <div class="risk-summary-main">1 stale task · 13 missing cycles</div>
-          <el-button link type="primary" @click="emit('navigate','Quality')">Open Quality</el-button>
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top"><span class="card-label">System Health</span><span class="status-pill danger"><i></i>CAPACITY RISK</span></div>
           <div class="risk-summary-main">Disk ~2.7 days · RSS continuous growth</div>
-          <el-button link type="primary" @click="emit('navigate','SystemHealth')">Open System Health</el-button>
         </article>
       </div>
     </section>

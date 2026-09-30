@@ -118,18 +118,12 @@ const deviceModels: DeviceModelDef[] = [
   },
 ]
 
-export const DEFAULT_POINT_TABLE_BY_PROTOCOL = {
-  ads: 'default_ads',
-  modbus: 'default_modbus',
-  iec104: 'default_iec104',
-} as const
+export const DEFAULT_POINT_TABLE_ID = 'default'
 
 export const DEFAULT_POINT_GROUP_ID = 'default'
 
 const pointTables: PointTableDef[] = [
-  { id: 'default_ads', protocol: 'ads', extends: '', remove_points: [], system: true },
-  { id: 'default_modbus', protocol: 'modbus', extends: '', remove_points: [], system: true },
-  { id: 'default_iec104', protocol: 'iec104', extends: '', remove_points: [], system: true },
+  { id: DEFAULT_POINT_TABLE_ID, protocol: 'generic', extends: '', remove_points: [], system: true },
   { id: 'beckhoff_base_v1', protocol: 'ads', extends: '', remove_points: [] },
   { id: 'beckhoff_wtg_v1', protocol: 'ads', extends: 'beckhoff_base_v1', remove_points: [] },
   { id: 'modbus_wtg_v1', protocol: 'modbus', extends: '', remove_points: [] },
@@ -202,9 +196,7 @@ function modbusPoints(prefix: string, count: number): PointDef[] {
 }
 
 const points: Record<string, PointDef[]> = {
-  default_ads: [],
-  default_modbus: [],
-  default_iec104: [],
+  [DEFAULT_POINT_TABLE_ID]: [],
   beckhoff_base_v1: adsPoints('base', 12),
   beckhoff_wtg_v1: adsPoints('wtg_ads', 40),
   modbus_wtg_v1: modbusPoints('wtg_mb', 32),
@@ -504,12 +496,12 @@ export function resetDeviceConnectionOverrides(d: DeviceInst): number {
   return removable.length + (hadPortOverride ? 1 : 0)
 }
 
-export function defaultPointTableFor(protocol: string): string {
-  return DEFAULT_POINT_TABLE_BY_PROTOCOL[protocol as keyof typeof DEFAULT_POINT_TABLE_BY_PROTOCOL] || ''
+export function defaultPointTableFor(_protocol: string): string {
+  return DEFAULT_POINT_TABLE_ID
 }
 
 export function isDefaultPointTable(tableId: string): boolean {
-  return Object.values(DEFAULT_POINT_TABLE_BY_PROTOCOL).includes(tableId as typeof DEFAULT_POINT_TABLE_BY_PROTOCOL[keyof typeof DEFAULT_POINT_TABLE_BY_PROTOCOL])
+  return tableId === DEFAULT_POINT_TABLE_ID
 }
 
 export function isDefaultPointGroup(groupId: string): boolean {

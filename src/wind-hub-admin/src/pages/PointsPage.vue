@@ -286,7 +286,7 @@ function editTable(id: string) {
   if (!t) return
   tableEditingId.value = t.id
   tableDraft.id = t.id
-  tableDraft.protocol = t.protocol
+  tableDraft.protocol = t.protocol === 'generic' ? 'modbus' : t.protocol
   tableDraft.extends = t.extends || ''
   tableSnapshot.value = JSON.stringify(tableDraft)
 }
@@ -894,28 +894,30 @@ async function resetOverride(p: PointDef) {
               <p>Edit the point definition. Unsaved address changes are used by the test.</p>
             </div>
             <el-form label-position="top">
-              <div class="grid">
+              <div class="point-definition-grid">
                 <el-form-item label="Point ID"><el-input v-model="draft.point_id" :disabled="!!editing" /></el-form-item>
                 <el-form-item label="Variable Name"><el-input v-model="draft.variable_name" /></el-form-item>
+
                 <template v-if="protocol === 'ads'">
-                  <el-form-item label="Symbol"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>
+                  <el-form-item label="Symbol" class="span-2"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>
                   <el-form-item label="Index Group"><el-input v-model="draft.index_group" placeholder="0x4020" /></el-form-item>
                   <el-form-item label="Index Offset"><el-input v-model="draft.index_offset" placeholder="0x1234" /></el-form-item>
                 </template>
                 <template v-else-if="protocol === 'modbus'">
-                  <el-form-item label="Register Type"><el-select v-model="draft.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
+                  <el-form-item label="Register Type"><el-select v-model="draft.register_type" class="app-full-width"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
                   <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" class="app-full-width" /></el-form-item>
                 </template>
                 <template v-else>
                   <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" class="app-full-width" /></el-form-item>
                   <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
                 </template>
-                <el-form-item label="Point Groups"><el-select v-model="draft.point_groups" multiple><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
-                <el-form-item label="Data Type"><el-select v-model="draft.data_type"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select></el-form-item>
-                <el-form-item label="Scale"><el-input-number v-model="draft.scale" /></el-form-item>
-                <el-form-item label="Offset"><el-input-number v-model="draft.offset" /></el-form-item>
-                <el-form-item label="Unit"><el-select v-model="draft.unit"><el-option v-for="(u, id) in store.units" :key="id" :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')" :value="id" /></el-select></el-form-item>
-                <el-form-item label="Description"><el-input v-model="draft.description" /></el-form-item>
+
+                <el-form-item label="Data Type"><el-select v-model="draft.data_type" class="app-full-width"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select></el-form-item>
+                <el-form-item label="Unit"><el-select v-model="draft.unit" class="app-full-width"><el-option v-for="(u, id) in store.units" :key="id" :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')" :value="id" /></el-select></el-form-item>
+                <el-form-item label="Scale"><el-input-number v-model="draft.scale" class="app-full-width" /></el-form-item>
+                <el-form-item label="Offset"><el-input-number v-model="draft.offset" class="app-full-width" /></el-form-item>
+                <el-form-item label="Point Groups" class="span-2"><el-select v-model="draft.point_groups" multiple class="app-full-width"><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
+                <el-form-item label="Description" class="span-2"><el-input v-model="draft.description" /></el-form-item>
               </div>
             </el-form>
           </section>
@@ -998,6 +1000,9 @@ async function resetOverride(p: PointDef) {
 .metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .metadata-editor-actions{justify-content:flex-end;margin-top:8px}
 .point-editor-section,.point-test-card{min-width:0}
+.point-definition-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
+.point-definition-grid .span-2{grid-column:1/-1}
+.point-definition-grid :deep(.el-form-item){margin-bottom:var(--app-space-3)}
 .point-editor-heading{margin-bottom:var(--app-space-4)}
 .point-editor-heading h3{margin:0;color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .point-editor-heading p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
@@ -1008,6 +1013,7 @@ async function resetOverride(p: PointDef) {
 .test-results-table{width:100%}
 .device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 @media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
+@media(max-width:767px){.point-definition-grid{grid-template-columns:1fr}.point-definition-grid .span-2{grid-column:auto}}
 @media(max-width:1199px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0}}
 
 .point-table-select{width:260px}

@@ -74,7 +74,7 @@ function selectMenu(key: string) {
 
       <el-main class="app-main">
         <section class="content">
-          <OverviewPage v-if="menu === 'Overview'" @navigate="selectMenu" />
+          <OverviewPage v-if="menu === 'Overview'" />
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />
           <TasksPage v-if="menu === 'Tasks'" />
