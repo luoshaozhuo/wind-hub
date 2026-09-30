@@ -57,8 +57,8 @@ function baseOption(){
     textStyle:{fontFamily:'Inter,system-ui,sans-serif'},
     grid:{left:46,right:18,top:38,bottom:34},
     tooltip:{trigger:'axis'},
-    xAxis:{type:'category',boundaryGap:false,axisLine:{lineStyle:{color:css('--app-border','#e5e9ef')}},axisLabel:{color:css('--app-text-muted','#98a2b3'),fontSize:10}},
-    yAxis:{type:'value',axisLabel:{color:css('--app-text-muted','#98a2b3'),fontSize:10},splitLine:{lineStyle:{color:css('--app-border-soft','#eef0f3')}}},
+    xAxis:{type:'category',boundaryGap:false,axisLine:{lineStyle:{color:css('--app-border')}},axisLabel:{color:css('--app-text-muted'),fontSize:10}},
+    yAxis:{type:'value',axisLabel:{color:css('--app-text-muted'),fontSize:10},splitLine:{lineStyle:{color:css('--app-border-soft')}}},
   }
 }
 function initChart(el:HTMLElement|null,option:any){
@@ -88,7 +88,7 @@ function renderCharts(){
   ]})
   initChart(cpuEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:axis},yAxis:[
     {...base.yAxis,min:0,max:100,name:'CPU %',nameTextStyle:{fontSize:10}},
-    {type:'value',min:40,max:100,name:'°C',position:'right',axisLabel:{color:css('--app-text-muted','#98a2b3'),fontSize:10},splitLine:{show:false},nameTextStyle:{fontSize:10}},
+    {type:'value',min:40,max:100,name:'°C',position:'right',axisLabel:{color:css('--app-text-muted'),fontSize:10},splitLine:{show:false},nameTextStyle:{fontSize:10}},
   ],series:[
     {name:'Host CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((42+Math.sin(i/2)*12+(i>stressStart?27:0)).toFixed(1)))},
     {name:'wind-hub CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((28+Math.sin(i/2.3)*8+(i>stressStart?35:0)).toFixed(1)))},
