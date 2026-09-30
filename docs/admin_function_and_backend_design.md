@@ -1231,164 +1231,82 @@ ICMP 仅作为 Network Reachability 的辅助信息，失败显示 Warning，但
 
 # 8. Quality 页面
 
-Quality 负责**发现问题、确定影响范围、展示证据**，不负责执行主动网络或协议诊断。
+Quality 负责发现问题、确定影响范围、展示证据，不执行主动网络或协议诊断。
 
-## 8.1 统一交互层级
+## 8.1 统一交互
 
-Quality 的 Summary、Channel、Quality Dimension、Active Issue 都可以进入详情。复杂详情必须使用**页面级 Detail View**，不使用 Drawer。
+Quality 的 Summary、Channel、Quality Dimension、Active Issue 都可展开 **Inline Issue Detail**。Detail 作为当前 Quality 页面中的一个 Section 插入，不使用 Drawer，也不模拟独立页面，因此不出现 Back to Quality。
 
-统一规则：
-
-- 大量 Device / Point / Task / Sink 使用 Table + Pagination；
-- 不允许 Drawer → Drawer、Drawer → Dialog 的复杂嵌套；
-- 返回 Quality 时应保留原 Tab、筛选、分页和统计窗口；
-- Info Tooltip 只解释定义和统计口径，不承载操作。
+Detail 统一包含 Problem Location、Evidence、Affected Objects、Recent Logs（最近 20 条）、Suggested Investigation。大量对象统一 Table + Pagination。
 
 ## 8.2 Channel Quality
 
-Check / Auto Check / Check Interval 只作用于 Channel Quality。
+Check / Auto Check / Check Interval 只作用于 Channel Quality。Healthy / Degraded / Interrupted 的定义通过 Info Tooltip 解释。
 
-一次 Check 完成后统一刷新：
-
-- Current Situation；
-- Delivery Channels；
-- Acquisition Channels；
-- Latency Distribution；
-- Channel State；
-- Last checked / Next check。
-
-状态统一为：
-
-- Healthy：通信正常；
-- Degraded：信道仍可用，但 latency、timeout、reconnect 或 partial failure 已超过质量阈值；
-- Interrupted：通信链路当前不可用。
-
-Degraded Channels 必须通过 Info Tooltip 说明上述状态语义。
-
-Channel Summary、Delivery/Acquisition Object、Latency bucket、Channel State slice 均可进入 Channel Issue Detail。Detail 至少包含：
-
-- Problem Location；
-- Evidence；
-- Affected Objects；
-- Recent Logs（最近 20 条相关日志）；
-- Suggested Investigation。
+Channel Summary、Delivery / Acquisition Object、Latency bucket、Channel State slice 均可展开同一套 Inline Detail。
 
 ## 8.3 Data Quality
 
-Data Quality 使用统一统计窗口 1 h / 24 h / 7 d。
+Data Quality 使用统一统计窗口 1 h / 24 h / 7 d。Summary、五个 Quality Dimension、Active Data Issues 均可展开 Inline Detail。
 
-Summary、五个 Quality Dimension、Active Data Issues 均可进入页面级 Issue Detail。五个 Dimension 固定为：
-
-- Continuity；
-- Timeliness；
-- Completeness；
-- Validity；
-- Delivery Integrity。
-
-Issue Detail 必须回答“哪里出问题”，至少可定位：
-
-- Task；
-- Device / Device Group；
-- Point / Point Group；
-- Sink；
-- Protocol；
-- Stage。
-
-Recent Logs 只展示与当前 Issue 上下文相关的最近 20 条。正式后端应通过 task_id / device_id / sink_id / point_id / request_id / error_code / time range 建立关联，前端不得从全局日志猜测。
+Recent Logs 必须由后端按 issue context 关联；正式实现中前端不得从全局日志自行推断。
 
 ---
 
 # 9. Diagnostics 页面
 
-Diagnostics 定位为**工程探索工作台**，不是固定的单条诊断向导。
+Diagnostics 定位为工程探索工作台。
 
 ## 9.1 Target
 
-Target 是整个页面共享上下文，支持：
+Target 使用页面顶部横向 Context 区，不使用永久左侧窄栏。支持 Defined Object（Device / Sink / Point）与 Manual Target。
 
-- Defined Object：Device / Sink / Point；
-- Manual Target：Subnet / CIDR、Host / IP、Port、Protocol。
-
-选择已定义对象后自动解析已有配置；Manual Target 不写入正式配置。
+Manual Target 只保存 Host / IP 与 Protocol。CIDR、Port Profile 等参数属于具体 Network Tool，避免要求用户每次同时填写 CIDR、IP、Port 和 Protocol。
 
 ## 9.2 Network Explorer
 
-提供：
+Network 内部使用 Reachability / Port Probe / Host Discovery 三个工具模式，统一采用 Parameters → Run → Results。
 
-- Host Discovery；
-- Reachability；
-- Port Probe。
+- Reachability：Host / timeout；
+- Port Probe：Configured / Wind Hub Common / Custom Port Profile；
+- Host Discovery：Subnet / CIDR，可过滤 Known Objects。
 
-Host Discovery 支持 CIDR，结果必须分页。Port Probe 默认使用配置及常用协议端口组合，例如 ADS 48898、Modbus 502、IEC104 2404、PostgreSQL 5432、Redis 6379、Kafka 配置端口。
+批量结果必须 Table + Pagination。
 
-## 9.3 Protocol Explorer
+ADS 的 TCP 48898 与 ADS Target Port 801 必须区分，不能把 801 当作 TCP Port Scan 目标。
 
-根据当前 Target protocol 动态展示工具：
+## 9.3 Protocol / Data / Write
 
-- ADS：Connect / Read State / Read Symbol / Read IG/IO；
-- Modbus：Connect / Read Holding / Read Input / Read Coil / Read Discrete；
-- IEC104：Connect / General Interrogation；
-- Sink / Other：TCP / Session / Authentication / Target Check。
+Protocol Explorer 根据 Target Protocol 动态展示协议工具，并明确解析出的 Host / TCP Port / AMS Net ID / ADS Target Port / Unit ID 等参数。临时诊断覆盖不得反写配置。
 
-## 9.4 Data Explorer
-
-支持 Defined Point 与 Manual Address。结果统一展示 Raw、Decoded、Engineering Value、Timestamp、Latency。
-
-## 9.5 Write Explorer
-
-Write 与 Read 独立：
-
-- 单次执行；
-- 明确 Target / Point / Value；
-- 二次确认；
-- 后端审计；
-- readback；
-- 禁止持续写默认行为。
-
-Diagnostics 的结果始终显示在主 Workspace，不使用 Drawer。批量结果统一 Table + Pagination。
+Data Explorer 支持 Defined Point / Manual Address；Write Explorer 独立，执行单次写、二次确认、审计和 readback。
 
 ---
 
 # 10. Configuration
 
-配置拆成两个一级页面：**System Settings** 与 **Configuration Files**。
+配置拆为 System Settings 与 Configuration Files。
 
 ## 10.1 System Settings
 
-System Settings 是结构化系统配置入口，不直接暴露 YAML。至少包括：
-
-- Site；
-- Runtime；
-- Global ADS；
-- Service；
-- About。
-
-页面统一使用 section + field 布局，不用大量 Card 切碎界面。修改必须有 dirty state、Cancel、Save。高影响参数保存前展示影响。
+未保存变更操作统一命名为 **Discard Changes**，行为是恢复最近 Saved / Applied snapshot，不使用语义含糊的 Cancel。
 
 ## 10.2 Configuration Files
 
-Configuration Files 是高级 YAML 生命周期工作区，负责：
+Actions 固定为：
 
-- Query；
-- Edit；
-- Changes / Diff；
-- Validate；
-- Save Draft；
-- Apply；
 - Import；
-- Export；
-- Backup；
-- History / Restore。
+- Download Current File；
+- Download Config Set；
+- Create Backup。
 
-Import 不再作为独立页面或固定页面区块，而从 Actions 进入主工作区：
+Download 是下载到用户本地；Backup 是 Wind Hub 内部创建可恢复 Revision，两者语义严格区分，不再使用含糊的 Export。
 
-Upload → Validate → Diff → Impact → Apply。
+Import 使用 Drawer，在一个 Drawer 内完成 Upload → Validate → Diff → Impact → Apply，不切换主页面、不出现 Back to Configuration Files、不再叠加确认 Dialog。
 
-History 同样在主工作区切换。Restore 必须：
+Files / History 使用同一页面 Tab 切换。History 不使用 Back。Restore 仍需以新 Revision 应用，不能直接覆盖当前 Revision。
 
-Historical Revision → Diff against Current → Validate → Impact → Apply as New Revision。
-
-不得直接覆盖当前 revision。
+样式必须复用现有 Theme Token 与 Element Plus Token，不新增页面级颜色、字体、圆角体系。
 
 ---
 

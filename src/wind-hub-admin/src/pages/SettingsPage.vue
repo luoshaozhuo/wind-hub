@@ -169,7 +169,7 @@ async function save() {
       </section>
 
       <div class="settings-actions">
-        <el-button :disabled="!dirty" @click="reset">Cancel</el-button>
+        <el-button :disabled="!dirty" @click="reset">Discard Changes</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">Save</el-button>
       </div>
     </el-form>
