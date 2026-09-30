@@ -3,6 +3,7 @@ import * as echarts from 'echarts'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
+import { useViewport } from '../composables/useViewport'
 import {
   deviceConnectionOverrides,
   devicesForTask,
@@ -50,9 +51,8 @@ const selected = ref<DeviceInst | null>(null)
 const deviceSnapshot = ref('')
 const verifyAllRunning = ref(false)
 const verifyingDeviceId = ref('')
-const viewportWidth = ref(window.innerWidth)
-const isMobile = computed(() => viewportWidth.value < 768)
-const detailDrawerSize = computed(() => viewportWidth.value < 768 ? '100%' : viewportWidth.value < 1200 ? '72%' : '72%')
+const { width: viewportWidth, isMobile } = useViewport()
+const detailDrawerSize = computed(() => isMobile.value ? '100%' : '72%')
 
 function emptyVerify(): DeviceVerification {
   return {
@@ -1340,7 +1340,6 @@ function syncTrendRefreshTimer() {
   }
 }
 function onResize() {
-  viewportWidth.value = window.innerWidth
   trendChart?.resize()
 }
 
