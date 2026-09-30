@@ -40,11 +40,7 @@ interface DetailModel {
 
 const activeTab=ref<'channel'|'data'>('channel')
 const detail=ref<DetailModel|null>(null)
-const viewportWidth=ref(window.innerWidth)
-const isMobile=computed(()=>viewportWidth.value<768)
-const isTablet=computed(()=>viewportWidth.value<1200)
-function updateViewport(){viewportWidth.value=window.innerWidth}
-window.addEventListener('resize',updateViewport)
+const { isMobile, isTablet }=useViewport()
 
 const checking=ref(false)
 const autoCheck=ref(false)
