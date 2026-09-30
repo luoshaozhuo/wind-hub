@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useViewport } from '../composables/useViewport'
 import { effectiveConnection, pointsOfTable, protocolOfDevice, store, tableOfDevice, unitSymbol } from '../mock/data'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES } from '../mock/types'
 
@@ -18,12 +19,7 @@ const explorerTab=ref<ExplorerTab>('network')
 const networkTool=ref<NetworkTool>('reachability')
 const running=ref(false)
 
-const viewportWidth=ref(window.innerWidth)
-const isMobile=computed(()=>viewportWidth.value<768)
-function updateViewport(){viewportWidth.value=window.innerWidth}
-window.addEventListener('resize',updateViewport)
-onBeforeUnmount(()=>window.removeEventListener('resize',updateViewport))
-
+const { width: viewportWidth, isMobile } = useViewport()
 const manualTarget=reactive({host:'192.168.151.25',protocol:'ads'})
 const discovery=reactive({cidr:'192.168.151.0/24',knownOnly:false})
 const portProbe=reactive({profile:'configured',customPorts:'48898, 502, 2404'})
