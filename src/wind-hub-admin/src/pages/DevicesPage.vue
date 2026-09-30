@@ -111,9 +111,19 @@ const filteredDevices = computed(() => store.devices.filter(d => {
   return matchesSearch && matchesType && matchesModel && matchesStatus
 }))
 
+const devicePage = ref(1)
+const devicePageSize = ref(24)
+const pagedDevices = computed(() => {
+  const start = (devicePage.value - 1) * devicePageSize.value
+  return filteredDevices.value.slice(start, start + devicePageSize.value)
+})
+watch([search, typeFilter, modelFilter, statusFilter], () => {
+  devicePage.value = 1
+})
+
 const groupedDevices = computed(() => {
   const groups = new Map<string, DeviceInst[]>()
-  for (const d of filteredDevices.value) {
+  for (const d of pagedDevices.value) {
     const model = modelOf(d)
     const key = `${model?.device_type || 'unknown'}::${d.model}`
     if (!groups.has(key)) groups.set(key, [])
@@ -1570,6 +1580,16 @@ async function sendCommand() {
         </el-card>
       </div>
     </section>
+
+    <div v-if="filteredDevices.length > devicePageSize" class="pagination">
+      <el-pagination
+        v-model:current-page="devicePage"
+        v-model:page-size="devicePageSize"
+        :page-sizes="[12, 24, 48]"
+        :total="filteredDevices.length"
+        :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+      />
+    </div>
 
     <!-- Add Device -->
     <el-drawer
