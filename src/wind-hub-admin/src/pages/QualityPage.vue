@@ -428,18 +428,20 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
               <h2>Acquisition Channels</h2>
               <p>设备采集通道当前状态；详情通过 Communication Events 查看。</p>
             </div>
-            <div class="channel-check-controls">
-              <div class="auto-check-group">
-                <span>Auto Check</span>
-                <el-switch v-model="autoCheck"/>
-                <el-select v-model="checkInterval" :disabled="!autoCheck" aria-label="Auto check interval">
-                  <el-option :value="10" label="10 s"/>
-                  <el-option :value="30" label="30 s"/>
-                  <el-option :value="60" label="1 min"/>
-                </el-select>
+            <div class="channel-check-panel">
+              <div class="channel-check-actions">
+                <div class="auto-check-group">
+                  <span class="auto-check-label">Auto Check</span>
+                  <el-switch v-model="autoCheck"/>
+                  <el-select v-model="checkInterval" :disabled="!autoCheck" aria-label="Auto check interval">
+                    <el-option :value="10" label="10 s"/>
+                    <el-option :value="30" label="30 s"/>
+                    <el-option :value="60" label="1 min"/>
+                  </el-select>
+                </div>
+                <el-button type="primary" :loading="checking" @click="runCheck">Check</el-button>
               </div>
               <span class="last-check">Last check: {{lastChecked}}</span>
-              <el-button type="primary" :loading="checking" @click="runCheck">Check</el-button>
             </div>
           </div>
 
@@ -622,9 +624,11 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 .channel-window-bar{display:flex;align-items:center;margin-bottom:var(--app-space-4)}
 .quality-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-4)}
 .quality-toolbar h2{margin:0;font-size:var(--app-font-section-title)}.quality-toolbar p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
-.channel-check-controls{display:flex;align-items:center;justify-content:flex-end;gap:var(--app-space-3);flex-wrap:wrap}
-.auto-check-group{display:flex;align-items:center;gap:var(--app-space-2)}
-.last-check{color:var(--app-text-muted);font-size:var(--app-font-label)}
+.channel-check-panel{display:grid;justify-items:end;gap:var(--app-space-1);flex-shrink:0}
+.channel-check-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--app-space-3);white-space:nowrap}
+.auto-check-group{display:flex;align-items:center;gap:var(--app-space-2);white-space:nowrap;flex-shrink:0}
+.auto-check-label{font-size:var(--app-font-body);line-height:var(--app-line-height-body);font-weight:var(--app-font-weight-regular);color:var(--app-text-primary);white-space:nowrap}
+.last-check{color:var(--app-text-muted);font-size:var(--app-font-label);line-height:var(--app-line-height-body);white-space:nowrap}
 .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3);margin-bottom:var(--app-space-6)}
 .metric-grid :deep(.el-card__body){display:grid;gap:var(--app-space-1)}
 .metric-grid span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.metric-grid b{font-size:var(--app-font-metric);font-weight:var(--app-font-weight-semibold)}.metric-grid small{color:var(--app-text-muted)}
@@ -638,6 +642,6 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 .dimension-detail{color:var(--app-text-secondary);font-size:var(--app-font-body);line-height:var(--app-line-height-body);font-weight:var(--app-font-weight-regular)}
 .dimension-help{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);line-height:var(--app-line-height-body)}
 .drawer-section{margin-top:var(--app-space-6)}.distribution-chart{height:var(--app-chart-height-md)}
-@media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-head{align-items:stretch;flex-direction:column}.channel-check-controls{justify-content:flex-start}}
-@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.channel-check-controls{align-items:flex-start;flex-direction:column}.auto-check-group{width:100%;flex-wrap:wrap}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
+@media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-head{align-items:stretch;flex-direction:column}.channel-check-panel{justify-items:start}.channel-check-actions{justify-content:flex-start}}
+@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.channel-check-panel{width:100%}.channel-check-actions{width:100%;align-items:flex-start;flex-wrap:wrap}.auto-check-group{flex-wrap:nowrap}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
 </style>
