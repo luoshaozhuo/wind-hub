@@ -601,7 +601,7 @@ async function deleteGroup(row: { id: string }) {
           </template>
           <template v-else>
             <el-form-item label="Group ID"><el-input v-model="form.id" :disabled="!!editingId" /></el-form-item>
-            <el-form-item label="Device Type"><el-select v-model="form.device_type" style="width:100%"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select></el-form-item>
+            <el-form-item label="Device Type"><el-select v-model="form.device_type" class="app-full-width"><el-option v-for="t in store.deviceTypes" :key="t.id" :label="t.name + ' · ' + t.id" :value="t.id" /></el-select></el-form-item>
           </template>
         </el-form>
         <div class="metadata-editor-actions">
