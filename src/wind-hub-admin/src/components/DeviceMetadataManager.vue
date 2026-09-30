@@ -631,5 +631,5 @@ async function deleteGroup(row: { id: string }) {
 .metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
 .metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
 .metadata-editor-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:8px}
-@media(max-width:900px){.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0!important}.metadata-form-grid{grid-template-columns:1fr}}
+@media(max-width:1199px){.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0!important}.metadata-form-grid{grid-template-columns:1fr}}
 </style>
