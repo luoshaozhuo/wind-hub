@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import { refreshTaskValidity, store } from '../mock/data'
 import type { SinkDef, SinkRuntimeState, SinkType, SinkVerificationCheck } from '../mock/types'
 
-const viewportWidth=ref(window.innerWidth)
-const isMobile=computed(()=>viewportWidth.value<768)
+const { isMobile }=useViewport()
 const drawerSize=computed(()=>isMobile.value?'100%':'min(920px, 84vw)')
 const search=ref('')
 const typeFilter=ref<'All'|SinkType>('All')
@@ -21,9 +20,6 @@ const verifyAllRunning=ref(false)
 const batchVerification=ref<{checked_at:string;checked:number;passed:number;failed:number;warning:number}|null>(null)
 const testResult=ref<{ok:boolean;title:string;detail:string;latency:number}|null>(null)
 
-function updateViewport(){viewportWidth.value=window.innerWidth}
-window.addEventListener('resize',updateViewport)
-onBeforeUnmount(()=>window.removeEventListener('resize',updateViewport))
 
 const selected=computed(()=>store.sinks.find(s=>s.name===selectedName.value))
 const rows=computed(()=>store.sinks.filter(s=>{
