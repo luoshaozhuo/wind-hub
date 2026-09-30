@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useViewport } from '../composables/useViewport'
 import { computed, onBeforeUnmount, ref } from 'vue'
 
 // 运行日志查询：level 过滤 + 关键字搜索（mock 数据，不接日志后端）
@@ -25,12 +26,7 @@ const logs: Entry[] = Array.from({ length: 140 }, (_, i) => {
 const level = ref('ERROR')
 const limit = ref(20)
 const keyword = ref('')
-const viewportWidth = ref(window.innerWidth)
-const isMobile = computed(() => viewportWidth.value < 768)
-const isTablet = computed(() => viewportWidth.value < 1200)
-function updateViewport() { viewportWidth.value = window.innerWidth }
-window.addEventListener('resize', updateViewport)
-onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
+const { width: viewportWidth, isMobile, isTablet } = useViewport()
 const visible = computed(() => logs
   .filter(l =>
     (level.value === 'All' || l.level === level.value) &&
