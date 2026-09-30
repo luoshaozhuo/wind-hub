@@ -383,5 +383,5 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 .task-log-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}
 .task-log-toolbar>div{display:flex;align-items:baseline;gap:var(--app-space-2)}
 .task-log-toolbar span{color:var(--app-text-muted);font-size:var(--app-font-caption)}
-@media(max-width:900px){.coverage-layout,.task-form-grid,.task-summary-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
+@media(max-width:1199px){.coverage-layout,.task-form-grid,.task-summary-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
 </style>
