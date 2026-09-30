@@ -371,11 +371,11 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 .task-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-3)}
 .task-drawer-head>div{display:flex;align-items:center;gap:var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .coverage-layout{display:grid;grid-template-columns:minmax(300px,.8fr) minmax(420px,1.2fr);gap:var(--app-space-4)}
-.coverage-devices,.coverage-points{min-width:0;border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-3)}
+.coverage-devices,.coverage-points{min-width:0;border:1px solid var(--app-border-soft);border-radius:var(--app-card-radius);padding:var(--app-space-3)}
 .pane-title{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2);margin-bottom:var(--app-space-2);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .pane-title b{color:var(--app-text-primary);font-size:var(--app-font-body)}
 .task-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:var(--app-space-4)}
-.task-summary-card,.task-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-radius-card);padding:var(--app-space-4);min-width:0}
+.task-summary-card,.task-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-card-radius);padding:var(--app-space-4);min-width:0}
 .summary-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}
 .summary-card-head h3{margin:0}.summary-card-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .task-config-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2)}
