@@ -410,7 +410,6 @@ onMounted(()=>{
   issueClock=window.setInterval(()=>{nowTick.value=Date.now()},1000)
 })
 onBeforeUnmount(()=>{
-  window.removeEventListener('resize',updateViewport)
   if(autoTimer)window.clearInterval(autoTimer)
   if(countdownTimer)window.clearInterval(countdownTimer)
   if(checkTimer)window.clearTimeout(checkTimer)
