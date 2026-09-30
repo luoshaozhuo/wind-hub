@@ -250,7 +250,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
           </el-form-item>
 
           <el-form-item v-if="definedKind!=='sink'" label="Device">
-            <el-select v-model="selectedDeviceId" filterable style="width:100%">
+            <el-select v-model="selectedDeviceId" filterable class="app-full-width">
               <el-option
                 v-for="device in store.devices"
                 :key="device.device_id"
@@ -261,13 +261,13 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
           </el-form-item>
 
           <el-form-item v-if="definedKind==='sink'" label="Sink">
-            <el-select v-model="selectedSinkName" filterable style="width:100%">
+            <el-select v-model="selectedSinkName" filterable class="app-full-width">
               <el-option v-for="sink in store.sinks" :key="sink.name" :label="sink.name+' · '+sink.type" :value="sink.name"/>
             </el-select>
           </el-form-item>
 
           <el-form-item v-if="definedKind==='point'" label="Point">
-            <el-select v-model="selectedPointId" filterable style="width:100%">
+            <el-select v-model="selectedPointId" filterable class="app-full-width">
               <el-option v-for="point in devicePoints" :key="point.point_id" :label="point.point_id+' · '+pointAddress(point)" :value="point.point_id"/>
             </el-select>
           </el-form-item>
@@ -276,7 +276,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
         <el-form v-else label-position="top" class="target-form">
           <el-form-item label="Host / IP"><el-input v-model="manualTarget.host"/></el-form-item>
           <el-form-item label="Protocol">
-            <el-select v-model="manualTarget.protocol" style="width:100%">
+            <el-select v-model="manualTarget.protocol" class="app-full-width">
               <el-option label="ADS" value="ads"/>
               <el-option label="Modbus TCP" value="modbus"/>
               <el-option label="IEC 104" value="iec104"/>
@@ -330,7 +330,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
                   <template v-else-if="networkTool==='ports'">
                     <el-form-item label="Host"><el-input :model-value="resolvedTarget.host" readonly/></el-form-item>
                     <el-form-item label="Port Profile">
-                      <el-select v-model="portProbe.profile" style="width:100%">
+                      <el-select v-model="portProbe.profile" class="app-full-width">
                         <el-option label="Configured" value="configured"/>
                         <el-option label="Wind Hub Common" value="common"/>
                         <el-option label="Custom" value="custom"/>
@@ -394,7 +394,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
                 <el-form label-position="top">
                   <div class="tool-fields">
                     <el-form-item v-if="readMode==='defined'" label="Point">
-                      <el-select v-model="selectedPointId" filterable style="width:100%">
+                      <el-select v-model="selectedPointId" filterable class="app-full-width">
                         <el-option v-for="point in devicePoints" :key="point.point_id" :label="point.point_id+' · '+pointAddress(point)" :value="point.point_id"/>
                       </el-select>
                     </el-form-item>
@@ -402,14 +402,14 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
                     <template v-else>
                       <el-form-item v-if="resolvedTarget.protocol==='ads'" label="Symbol"><el-input v-model="manualRead.symbol"/></el-form-item>
                       <el-form-item v-else-if="resolvedTarget.protocol==='modbus'" label="Register Type">
-                        <el-select v-model="manualRead.registerType" style="width:100%">
+                        <el-select v-model="manualRead.registerType" class="app-full-width">
                           <el-option v-for="item in MODBUS_REGISTER_TYPES" :key="item" :label="item" :value="item"/>
                         </el-select>
                       </el-form-item>
-                      <el-form-item v-if="resolvedTarget.protocol==='modbus'" label="0-based Address"><el-input-number v-model="manualRead.address" :min="0" style="width:100%"/></el-form-item>
-                      <el-form-item v-if="resolvedTarget.protocol==='iec104'" label="IOA"><el-input-number v-model="manualRead.ioa" :min="0" style="width:100%"/></el-form-item>
+                      <el-form-item v-if="resolvedTarget.protocol==='modbus'" label="0-based Address"><el-input-number v-model="manualRead.address" :min="0"/ class="app-full-width"></el-form-item>
+                      <el-form-item v-if="resolvedTarget.protocol==='iec104'" label="IOA"><el-input-number v-model="manualRead.ioa" :min="0"/ class="app-full-width"></el-form-item>
                       <el-form-item label="Data Type">
-                        <el-select v-model="manualRead.dataType" style="width:100%">
+                        <el-select v-model="manualRead.dataType" class="app-full-width">
                           <el-option v-for="item in DATA_TYPES" :key="item" :label="item" :value="item"/>
                         </el-select>
                       </el-form-item>
@@ -450,7 +450,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
                 <el-form label-position="top">
                   <div class="tool-fields">
                     <el-form-item v-if="writeMode==='defined'" label="Writable Point">
-                      <el-select v-model="writePointId" filterable style="width:100%">
+                      <el-select v-model="writePointId" filterable class="app-full-width">
                         <el-option v-for="point in writablePoints" :key="point.point_id" :label="point.point_id+' · '+pointAddress(point)" :value="point.point_id"/>
                       </el-select>
                     </el-form-item>
