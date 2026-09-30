@@ -1231,60 +1231,53 @@ ICMP 仅作为 Network Reachability 的辅助信息，失败显示 Warning，但
 
 # 8. Quality 页面
 
-Quality 表示**采集服务质量**，不是电能质量。边界固定为：
+Quality 负责**发现问题、确定影响范围、展示证据**，不负责执行主动网络或协议诊断。
 
-- Quality：回答“发生了什么质量问题、影响多大”；
-- Diagnostics：回答“为什么发生”。
+## 8.1 统一交互层级
 
-Quality 页面不提供 Diagnose / Open Diagnostics 跳转按钮，避免把质量观察与根因诊断混成一个工作流。
+Quality 的 Summary、Channel、Quality Dimension、Active Issue 都可以进入详情。复杂详情必须使用**页面级 Detail View**，不使用 Drawer。
 
-## 8.1 Channel Check
+统一规则：
 
-`Check / Auto Check / Check Interval` **只属于 Channel Quality**，Data Quality 不显示这些控件。
-
-Channel Quality 提供：
-
-- `Check`：立即执行一次信道质量检查；
-- `Auto Check`：周期执行；
-- `Check Interval`：5 s / 10 s / 30 s / 1 min / 5 min；
-- `Last checked`：最近一次完成时间；
-- `Next check`：Auto Check 开启时显示倒计时。
-
-重复 Check 必须被阻止。一次 Check 完成后统一更新 Channel Summary、Delivery Channels、Acquisition Channels、latency 统计和图表。前端 mock 也必须产生可观察的数据变化，不能只改变按钮状态。
+- 大量 Device / Point / Task / Sink 使用 Table + Pagination；
+- 不允许 Drawer → Drawer、Drawer → Dialog 的复杂嵌套；
+- 返回 Quality 时应保留原 Tab、筛选、分页和统计窗口；
+- Info Tooltip 只解释定义和统计口径，不承载操作。
 
 ## 8.2 Channel Quality
 
-Channel Quality 状态统一采用：
+Check / Auto Check / Check Interval 只作用于 Channel Quality。
 
-- **Healthy**：通信正常，延迟、超时、重连等指标在允许范围内；
-- **Degraded**：信道仍可用，但已出现高延迟、偶发超时、频繁重连或部分请求失败；
-- **Interrupted**：信道不可用或持续无法完成有效通信。
+一次 Check 完成后统一刷新：
 
-页面应通过信息图标 Tooltip 解释上述状态，最终阈值由后端按协议与配置判定。
+- Current Situation；
+- Delivery Channels；
+- Acquisition Channels；
+- Latency Distribution；
+- Channel State；
+- Last checked / Next check。
 
-Channel Quality 分为：
+状态统一为：
 
-1. **Delivery Channels**：wind-hub → Kafka / PostgreSQL / Redis 等网络 Sink。File Sink 不属于网络信道。该区域通常数量较少，先展示。
-2. **Acquisition Channels**：Device / PLC / EMS → wind-hub。设备数量可能较大，必须分页。
+- Healthy：通信正常；
+- Degraded：信道仍可用，但 latency、timeout、reconnect 或 partial failure 已超过质量阈值；
+- Interrupted：通信链路当前不可用。
 
-Acquisition Channels 默认支持 All / Abnormal 过滤，分页默认 20 条，可选 20 / 50 / 100。
+Degraded Channels 必须通过 Info Tooltip 说明上述状态语义。
 
-### Acquisition 图表
+Channel Summary、Delivery/Acquisition Object、Latency bucket、Channel State slice 均可进入 Channel Issue Detail。Detail 至少包含：
 
-Acquisition Channels 使用两种互补图形，同一行展示：
-
-1. **Latency Distribution**：宽图，使用 ECharts 柱状直方图；
-2. **Channel State**：窄图，使用 ECharts 饼图展示 Healthy / Degraded / Interrupted 构成。
-
-Latency histogram 统计范围为当前全部有效采集信道，**不受表格分页影响**。bucket 应细分为 0–10 / 10–20 / 20–30 / 30–50 / 50–75 / 75–100 / 100–150 / 150–200 / 200–300 / 300–500 / 500+ ms，并展示 P50 / P95 / P99。
-
-Histogram Tooltip 只展示 bucket 范围和 channel 数量，不再展开具体机组清单。
-
-Latency 的统计口径由后端统一定义。请求/响应协议可使用一次采集交互耗时；订阅协议不得直接套用相同定义。
+- Problem Location；
+- Evidence；
+- Affected Objects；
+- Recent Logs（最近 20 条相关日志）；
+- Suggested Investigation。
 
 ## 8.3 Data Quality
 
-Data Quality 当前固定五个维度：
+Data Quality 使用统一统计窗口 1 h / 24 h / 7 d。
+
+Summary、五个 Quality Dimension、Active Data Issues 均可进入页面级 Issue Detail。五个 Dimension 固定为：
 
 - Continuity；
 - Timeliness；
@@ -1292,280 +1285,110 @@ Data Quality 当前固定五个维度：
 - Validity；
 - Delivery Integrity。
 
-Data Quality 提供统一统计窗口 `1 h / 24 h / 7 d`。Summary、Quality Dimensions 与相关窗口统计必须使用同一个窗口语义。
+Issue Detail 必须回答“哪里出问题”，至少可定位：
 
-五个维度使用紧凑 Card 展示，不使用大面积留白的纵向列表。每张 Card 展示：
+- Task；
+- Device / Device Group；
+- Point / Point Group；
+- Sink；
+- Protocol；
+- Stage。
 
-- Dimension；
-- Status；
-- Primary Metric；
-- Secondary Detail；
-- Window；
-- 信息说明图标。
-
-信息说明使用 Element Plus Tooltip，解释该维度的定义，不重复当前状态。
-
-### 维度定义
-
-- **Continuity**：期望采集周期是否出现连续中断、长时间无新数据或采集任务停滞；
-- **Timeliness**：数据是否在期望时间内到达，包括 freshness、采集延迟和 jitter；
-- **Completeness**：期望采集的数据是否完整，包括 missing cycles、point read failures；
-- **Validity**：数据能否被正确解析和使用，包括 decode、timestamp、ordering 等技术有效性；
-- **Delivery Integrity**：wind-hub 已采集的数据是否完整交付到目标 Sink，包括 drop、queue backlog、write failure。
-
-## 8.4 Active Data Issues
-
-只展示会影响最终可用数据的当前异常，至少包括：
-
-- object；
-- level；
-- dimension；
-- symptom；
-- impact；
-- duration。
-
-不展示 `Last Good`，因为页面长期打开时相对时间容易失真。后端保存 `started_at`，前端根据当前时间动态计算 Duration。
-
-Active Data Issues 的 Object 可点击打开 Issue Detail Drawer。Drawer 只提供问题上下文，不直接执行诊断，至少包含：
-
-- Summary：Object Type / Dimension / Impact / Duration；
-- Evidence：触发该 Issue 的可观测事实；
-- Related Objects：Task / Device / Sink / Protocol / Point Group 等关联对象；
-- Suggested Checks：按优先级给出下一步排查方向。
-
-Suggested Checks 用于帮助用户缩小问题范围，不在 Quality 页面执行协议连通、Point Read、Raw Decode 等诊断动作；具体执行仍由 Diagnostics 页面负责。
-
-恢复后的问题从 Active Data Issues 移除，历史保留在 Event / Log 中。
+Recent Logs 只展示与当前 Issue 上下文相关的最近 20 条。正式后端应通过 task_id / device_id / sink_id / point_id / request_id / error_code / time range 建立关联，前端不得从全局日志猜测。
 
 ---
+
 # 9. Diagnostics 页面
 
-Diagnostics 是针对“某台设备或采集任务为什么失败”的现场诊断工作台。入口必须先选择 Device，并可关联选择该 Device 对应 Task。诊断应按依赖链分层执行，而不是提供若干孤立按钮：
+Diagnostics 定位为**工程探索工作台**，不是固定的单条诊断向导。
 
-```text
-Task/Config Preconditions
-→ Network Reachability
-→ TCP/Transport
-→ Protocol Session
-→ Point Mapping
-→ Selected Point Read
-→ Root Cause Summary
-```
+## 9.1 Target
 
-失败需要明确区分 timeout、host unreachable、connection refused、protocol/session error、symbol/address not found、decode/type error、point group/table mapping error、sink/config invalid 等类别。
+Target 是整个页面共享上下文，支持：
 
-Advanced Tools（Manual Read、Raw Decoder、Write Test）属于进一步排查手段，不作为主诊断流程。
+- Defined Object：Device / Sink / Point；
+- Manual Target：Subnet / CIDR、Host / IP、Port、Protocol。
 
-## 9.1 Ping
+选择已定义对象后自动解析已有配置；Manual Target 不写入正式配置。
 
-后端从 Wind Hub 所在运行环境执行。
+## 9.2 Network Explorer
 
-返回：
+提供：
 
-- target；
-- success；
-- latency；
-- error。
+- Host Discovery；
+- Reachability；
+- Port Probe。
 
-不得由 Admin Backend 所在的另一台机器代替执行，除非部署架构明确两者网络环境完全相同。
+Host Discovery 支持 CIDR，结果必须分页。Port Probe 默认使用配置及常用协议端口组合，例如 ADS 48898、Modbus 502、IEC104 2404、PostgreSQL 5432、Redis 6379、Kafka 配置端口。
 
-## 9.2 TCP Connect
+## 9.3 Protocol Explorer
 
-使用设备最终解析后的 host/port。
+根据当前 Target protocol 动态展示工具：
 
-仅验证 TCP 建连，不等价于 protocol success。
+- ADS：Connect / Read State / Read Symbol / Read IG/IO；
+- Modbus：Connect / Read Holding / Read Input / Read Coil / Read Discrete；
+- IEC104：Connect / General Interrogation；
+- Sink / Other：TCP / Session / Authentication / Target Check。
 
-## 9.3 Protocol Connect
+## 9.4 Data Explorer
 
-按设备协议执行最小握手/会话验证。
+支持 Defined Point 与 Manual Address。结果统一展示 Raw、Decoded、Engineering Value、Timestamp、Latency。
 
-返回协议特有错误码和可读解释。
+## 9.5 Write Explorer
 
-## 9.4 Selected Point Read
+Write 与 Read 独立：
 
-Read Test 不允许隐式读取“若干点”。用户必须明确选择一个或多个 Point，界面显示 point_id、variable/address/type。
+- 单次执行；
+- 明确 Target / Point / Value；
+- 二次确认；
+- 后端审计；
+- readback；
+- 禁止持续写默认行为。
 
-后端逐点返回：
-
-- requested point；
-- resolved address / symbol；
-- result state；
-- latency；
-- raw/decoded value（成功时）；
-- error category（timeout / not found / protocol / decode 等）；
-- protocol raw error。
-
-## 9.5 Manual Read
-
-允许手工输入协议地址：
-
-- ADS：symbol 优先；或 index_group + index_offset；
-- Modbus：register type + 0-based address；
-- IEC104：IOA / 必要类型信息。
-
-必须要求 data_type。
-
-返回实际 raw/decoded value、时间戳和协议错误。
-
-Manual Read 不写入 Point Table。
-
-## 9.6 Raw Data / Watch
-
-Start Watch：
-
-- 创建有生命周期的 debug session；
-- 返回 session_id；
-- 固定最小采样周期，避免高频压垮设备；
-- 不与正式采集 Task 共用不可重入句柄。
-
-Stop：
-
-- 幂等关闭 session。
-
-连接断开/页面关闭时后端必须有超时回收机制。
-
-多类型 interpretation 必须基于同一份原始数据。
-
-## 9.7 Write Test
-
-高风险操作，后端必须：
-
-- 校验设备；
-- 校验 point 可写；
-- 校验输入值；
-- 转换工程值到协议值；
-- 执行单次写；
-- 返回 protocol response；
-- 推荐 readback。
-
-写入测试必须记录审计日志。
-
-禁止提供“持续写”默认行为。
+Diagnostics 的结果始终显示在主 Workspace，不使用 Drawer。批量结果统一 Table + Pagination。
 
 ---
 
-# 10. Config 页面
+# 10. Configuration
 
-Config 是直接操作配置文件的高级入口，与 Devices/Points/Tasks 的结构化编辑互补。页面不使用“YAML Editor / Upload”顶层 Tabs 生硬并列功能，而按任务流组织为：Instance Settings、Configuration Workspace、Import Configuration。Edit / Review 只作为 YAML 工作区的视图模式。
+配置拆成两个一级页面：**System Settings** 与 **Configuration Files**。
 
-## 10.1 Site Edit
+## 10.1 System Settings
 
-Update 只修改待保存配置，不应直接假装 Runtime 已生效。
+System Settings 是结构化系统配置入口，不直接暴露 YAML。至少包括：
 
-若 `site_id/name` 只用于标识：
+- Site；
+- Runtime；
+- Global ADS；
+- Service；
+- About。
 
-- Save 后 PENDING_APPLY；
-- Apply 后更新 Runtime/Overview。
+页面统一使用 section + field 布局，不用大量 Card 切碎界面。修改必须有 dirty state、Cancel、Save。高影响参数保存前展示影响。
 
-若仅改显示名且系统允许无 reload 生效，也必须有明确统一规则。
+## 10.2 Configuration Files
 
-## 10.2 Global ADS Settings
+Configuration Files 是高级 YAML 生命周期工作区，负责：
 
-Config 页面维护全局唯一的 ADS 本机身份：
+- Query；
+- Edit；
+- Changes / Diff；
+- Validate；
+- Save Draft；
+- Apply；
+- Import；
+- Export；
+- Backup；
+- History / Restore。
 
-- `local_ip`；
-- `local_ams_net_id`；
-- `route_repair.enabled`；
-- `route_repair.route_name`；
-- `route_repair.username`；
-- `route_repair.password`。
+Import 不再作为独立页面或固定页面区块，而从 Actions 进入主工作区：
 
-这些参数不得进入 Device Model 或 Device override。修改时 Preview 所有 ADS Device 和相关 RUNNING Task；Apply 需要重建 ADS Router/连接。
+Upload → Validate → Diff → Impact → Apply。
 
-## 10.3 YAML Query
+History 同样在主工作区切换。Restore 必须：
 
-后端返回：
+Historical Revision → Diff against Current → Validate → Impact → Apply as New Revision。
 
-- 当前 applied 内容；
-- 当前 saved/pending 内容（若存在）；
-- revision；
-- file revision/hash。
-
-前端 Review 应比较 **applied vs 当前编辑内容**。
-
-## 10.4 Validate
-
-必须使用与生产配置加载相同的 schema/resolver/交叉引用规则。
-
-Validate 不保存、不 reload。
-
-返回：
-
-- syntax errors；
-- schema errors；
-- reference errors；
-- inheritance errors；
-- protocol config errors；
-- warnings。
-
-## 10.5 Save
-
-Save：
-
-- 持久化为 pending 配置；
-- 不修改运行时；
-- 状态变为 PENDING_APPLY；
-- 返回新的 saved revision。
-
-必须防止覆盖其他用户的新修改。
-
-## 10.6 Save & Apply
-
-流程：
-
-```text
-Validate
-→ Build Diff
-→ Build Impact
-→ Confirm（若高影响）
-→ Persist
-→ Apply
-→ Result
-```
-
-不能只是“写文件 + 返回成功”。
-
-## 10.7 Review
-
-Review 本身由前端可视化，但 diff 基线由后端 revision 提供。
-
-对于结构化配置，后端还应提供 object-level diff，例如：
-
-- devices added/removed/updated；
-- tasks added/removed/updated；
-- tables changed；
-- models changed。
-
-## 10.8 Upload
-
-Upload 不得立即覆盖正式配置。
-
-流程：
-
-1. upload temporary file；
-2. validate；
-3. compare；
-4. 返回 diff + impact；
-5. 用户 Save 或 Save & Apply。
-
-### Save
-
-覆盖 pending version，不影响运行时。
-
-### Save & Apply
-
-按统一 Apply 事务执行。
-
-## 10.9 Apply Failure
-
-Apply 失败时必须明确：
-
-- 文件是否已经保存；
-- runtime 是否仍使用旧 revision；
-- 哪一步失败；
-- 是否需要人工修复。
-
-不允许只显示 `reload failed` 而缺少当前有效版本。
+不得直接覆盖当前 revision。
 
 ---
 

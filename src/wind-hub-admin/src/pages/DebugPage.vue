@@ -2,333 +2,434 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  devicesForTask,
   effectiveConnection,
-  isDefaultPointTable,
-  modelOf,
   pointsOfTable,
+  protocolOfDevice,
   store,
   tableOfDevice,
   unitSymbol,
 } from '../mock/data'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES } from '../mock/types'
-import type { PointDef } from '../mock/types'
 
-type StageState = 'idle' | 'running' | 'passed' | 'failed' | 'warning'
-type DiagnosisStage = {
-  key: string
-  title: string
-  state: StageState
-  detail: string
-  duration_ms: number
-}
-type PointReadResult = {
-  point_id: string
-  variable_name: string
-  address: string
-  data_type: string
-  state: 'passed' | 'failed'
-  latency_ms: number
-  value: string
-  error_category: string
-  error: string
-}
+type TargetMode = 'defined' | 'manual'
+type DefinedKind = 'device' | 'sink' | 'point'
 
+const targetMode = ref<TargetMode>('defined')
+const definedKind = ref<DefinedKind>('device')
 const selectedDeviceId = ref(store.devices[0]?.device_id || '')
-const selectedTaskId = ref('')
-const selectedPointIds = ref<string[]>([])
-const diagnosisRunning = ref(false)
-const stages = ref<DiagnosisStage[]>([])
-const pointResults = ref<PointReadResult[]>([])
-const advancedOpen = ref<string[]>([])
+const selectedSinkName = ref(store.sinks[0]?.name || '')
+const selectedPointId = ref('')
+const activeTool = ref<'network'|'protocol'|'data'|'write'>('network')
+const running = ref(false)
+
+const manualTarget = reactive({
+  cidr: '192.168.151.0/24',
+  host: '192.168.151.25',
+  port: 48898,
+  protocol: 'ads',
+})
 
 const selectedDevice = computed(() => store.devices.find(d => d.device_id === selectedDeviceId.value))
-const protocol = computed(() => selectedDevice.value ? modelOf(selectedDevice.value)?.protocol || '' : '')
-const relatedTasks = computed(() => store.tasks.filter(t =>
-  selectedDevice.value && devicesForTask(t).some(d => d.device_id === selectedDevice.value!.device_id),
-))
-const selectedTask = computed(() => relatedTasks.value.find(t => t.task_id === selectedTaskId.value))
-const resolvedPoints = computed(() => selectedDevice.value ? pointsOfTable(tableOfDevice(selectedDevice.value)) : [])
-const taskPoints = computed(() => {
-  if (!selectedTask.value) return resolvedPoints.value
-  return resolvedPoints.value.filter(p => p.point_groups.includes(selectedTask.value!.point_group))
-})
-const selectedPoints = computed(() => taskPoints.value.filter(p => selectedPointIds.value.includes(p.point_id)))
+const selectedSink = computed(() => store.sinks.find(s => s.name === selectedSinkName.value))
+const devicePoints = computed(() => selectedDevice.value ? pointsOfTable(tableOfDevice(selectedDevice.value)) : [])
 
-function pointAddress(p: PointDef) {
-  if (p.address.symbol) return p.address.symbol
-  if (p.address.index_group || p.address.index_offset) return `${p.address.index_group || '-'} / ${p.address.index_offset || '-'}`
-  if (p.address.type || p.address.address !== undefined) return `${p.address.type || '-'} ${p.address.address ?? '-'}`
-  if (p.address.ioa !== undefined) return `IOA ${p.address.ioa}`
+watch(selectedDeviceId, () => {
+  selectedPointId.value = devicePoints.value[0]?.point_id || ''
+}, { immediate:true })
+
+function sinkHost() {
+  const s = selectedSink.value
+  if (!s) return ''
+  const raw = String(s.params.bootstrap_servers || s.params.dsn || s.params.path || '')
+  if (raw.includes('://')) return raw.split('://')[1]?.split(/[/:]/)[0] || raw
+  return raw.split(':')[0]
+}
+function sinkPort() {
+  const s = selectedSink.value
+  if (!s) return 0
+  if (s.type === 'kafka') return Number(String(s.params.bootstrap_servers || 'localhost:9092').split(':').pop()) || 9092
+  if (s.type === 'db') return 5432
+  return 0
+}
+
+const resolvedTarget = computed(() => {
+  if (targetMode.value === 'manual') {
+    return { name:'Manual target', host:manualTarget.host, port:manualTarget.port, protocol:manualTarget.protocol }
+  }
+  if (definedKind.value === 'sink') {
+    return { name:selectedSink.value?.name || 'Sink', host:sinkHost(), port:sinkPort(), protocol:selectedSink.value?.type || '' }
+  }
+  const d = selectedDevice.value
+  const conn = d ? effectiveConnection(d) : {}
+  return {
+    name:d?.device_id || 'Device',
+    host:d?.host || '',
+    port:Number(conn.port || 0),
+    protocol:d ? protocolOfDevice(d) : '',
+  }
+})
+
+function sleep(ms:number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+const networkResults = ref<Array<Record<string,string|number>>>([])
+const networkPage = ref(1)
+const networkPageSize = ref(20)
+const pagedNetworkResults = computed(() => {
+  const start = (networkPage.value - 1) * networkPageSize.value
+  return networkResults.value.slice(start, start + networkPageSize.value)
+})
+
+async function runHostDiscovery() {
+  running.value = true
+  await sleep(450)
+  const prefix = manualTarget.cidr.split('/')[0].split('.').slice(0,3).join('.')
+  networkResults.value = store.devices
+    .filter(d => !prefix || d.host.startsWith(prefix + '.'))
+    .map(d => ({
+      IP:d.host,
+      Reachable:d.online ? 'Yes' : 'No',
+      Latency:d.online ? 8 + (Number(d.device_id.replace(/\D/g,'')) % 13) + ' ms' : '—',
+      KnownObject:d.device_id,
+      Protocol:protocolOfDevice(d).toUpperCase(),
+    }))
+  networkPage.value = 1
+  running.value = false
+}
+
+async function runReachability() {
+  running.value = true
+  await sleep(300)
+  networkResults.value = [{
+    IP:resolvedTarget.value.host,
+    Reachable:resolvedTarget.value.host ? 'Yes' : 'No',
+    Latency:'8 ms',
+    KnownObject:resolvedTarget.value.name,
+    Protocol:resolvedTarget.value.protocol.toUpperCase(),
+  }]
+  running.value = false
+}
+
+const portProfiles = [
+  { service:'ADS', port:48898 },
+  { service:'Modbus TCP', port:502 },
+  { service:'IEC 104', port:2404 },
+  { service:'PostgreSQL', port:5432 },
+  { service:'Redis', port:6379 },
+  { service:'Kafka', port:9092 },
+]
+async function runPortProbe() {
+  running.value = true
+  await sleep(380)
+  networkResults.value = portProfiles.map((p,index) => ({
+    IP:resolvedTarget.value.host,
+    Port:p.port,
+    Service:p.service,
+    State:p.port === resolvedTarget.value.port || index % 4 === 0 ? 'Open' : 'Closed',
+    Latency:(6 + index * 3) + ' ms',
+  }))
+  running.value = false
+}
+
+const protocolResult = ref<Array<Record<string,string|number>>>([])
+const protocolActions = computed(() => {
+  const p = resolvedTarget.value.protocol
+  if (p === 'ads') return ['Connect','Read State','Read Symbol','Read IG/IO']
+  if (p === 'modbus') return ['Connect','Read Holding','Read Input','Read Coil','Read Discrete']
+  if (p === 'iec104') return ['Connect','General Interrogation']
+  return ['TCP Connect','Session / Auth','Target Check']
+})
+async function protocolAction(action:string) {
+  running.value = true
+  await sleep(350)
+  protocolResult.value = [{
+    Check:action,
+    Target:resolvedTarget.value.host + ':' + resolvedTarget.value.port,
+    Result:'Passed',
+    Latency:'18 ms',
+    Evidence:resolvedTarget.value.protocol.toUpperCase() + ' response received',
+  }]
+  running.value = false
+}
+
+const readMode = ref<'defined'|'manual'>('defined')
+const manualRead = reactive({
+  symbol:'',
+  register_type:'holding',
+  address:0,
+  ioa:1,
+  data_type:'float32',
+})
+const readResults = ref<Array<Record<string,string|number>>>([])
+
+function pointAddress(p:any) {
+  if (p?.address?.symbol) return p.address.symbol
+  if (p?.address?.address !== undefined) return String(p.address.type || '') + ' ' + p.address.address
+  if (p?.address?.ioa !== undefined) return 'IOA ' + p.address.ioa
   return '—'
 }
+async function readOnce() {
+  running.value = true
+  await sleep(320)
+  const point = devicePoints.value.find(p => p.point_id === selectedPointId.value)
+  const address = readMode.value === 'defined'
+    ? pointAddress(point)
+    : resolvedTarget.value.protocol === 'ads'
+      ? manualRead.symbol
+      : resolvedTarget.value.protocol === 'modbus'
+        ? manualRead.register_type + ' ' + manualRead.address
+        : 'IOA ' + manualRead.ioa
 
-function resetTarget() {
-  selectedTaskId.value = relatedTasks.value[0]?.task_id || ''
-  selectedPointIds.value = taskPoints.value.slice(0, 3).map(p => p.point_id)
-  stages.value = []
-  pointResults.value = []
-}
-watch(selectedDeviceId, resetTarget)
-watch(selectedTaskId, () => {
-  selectedPointIds.value = taskPoints.value.slice(0, 3).map(p => p.point_id)
-  stages.value = []
-  pointResults.value = []
-})
-resetTarget()
-
-function sleep(ms: number) { return new Promise(resolve => setTimeout(resolve, ms)) }
-
-function initialStages(): DiagnosisStage[] {
-  return [
-    { key:'preflight', title:'Task / Config', state:'idle', detail:'Validate task, point table and sink references', duration_ms:0 },
-    { key:'network', title:'Network', state:'idle', detail:'Reachability from Wind Hub runtime host', duration_ms:0 },
-    { key:'transport', title:'TCP / Transport', state:'idle', detail:'Open configured transport endpoint', duration_ms:0 },
-    { key:'protocol', title:'Protocol Session', state:'idle', detail:'Establish protocol-level session', duration_ms:0 },
-    { key:'mapping', title:'Point Mapping', state:'idle', detail:'Resolve selected points to protocol addresses', duration_ms:0 },
-    { key:'read', title:'Selected Point Read', state:'idle', detail:'Read the explicitly selected points', duration_ms:0 },
-  ]
+  readResults.value = [{
+    Target:resolvedTarget.value.name,
+    Address:address || '—',
+    Type:readMode.value === 'defined' ? (point?.data_type || '—') : manualRead.data_type,
+    Raw:'42 C8 00 00',
+    Decoded:'100',
+    Engineering:'100 ' + (point ? unitSymbol(point.unit) : ''),
+    Latency:'14 ms',
+    Timestamp:new Date().toLocaleTimeString(),
+  }]
+  running.value = false
 }
 
-async function runStage(index:number, result:()=>{state:StageState;detail:string;duration:number}) {
-  stages.value[index].state='running'
-  await sleep(260)
-  const r=result()
-  Object.assign(stages.value[index], {state:r.state,detail:r.detail,duration_ms:r.duration})
-  return r.state !== 'failed'
-}
+const writeMode = ref<'defined'|'manual'>('defined')
+const writeValue = ref('')
+const writePointId = ref('')
+const writablePoints = computed(() => devicePoints.value.filter(p => p.point_groups.includes('control')))
+const writeResult = ref<Array<Record<string,string|number>>>([])
 
-function taskPreflight() {
-  const d=selectedDevice.value
-  if(!d) return {state:'failed' as StageState,detail:'Device does not exist',duration:1}
-  const model=modelOf(d)
-  if(!model) return {state:'failed' as StageState,detail:'Device Model reference is missing',duration:1}
-  if(isDefaultPointTable(model.point_table)) return {state:'failed' as StageState,detail:'Device still uses a default placeholder Point Table',duration:2}
-  if(selectedTask.value?.valid===false) return {state:'failed' as StageState,detail:selectedTask.value.invalid_reason || 'Task definition is invalid',duration:2}
-  if(selectedTask.value && !selectedTask.value.enabled) return {state:'warning' as StageState,detail:'Task is disabled; configuration is valid but acquisition will not run',duration:2}
-  return {state:'passed' as StageState,detail:'Task/config references are valid',duration:2}
-}
-
-function networkCheck() {
-  const d=selectedDevice.value!
-  if(!d.enabled) return {state:'failed' as StageState,detail:'Device is disabled',duration:1}
-  if(!d.online || d.device_id.endsWith('041')) return {state:'failed' as StageState,detail:`Timeout: no response from ${d.host}`,duration:1000}
-  return {state:'passed' as StageState,detail:`Reachable: ${d.host} · RTT 8 ms`,duration:8}
-}
-
-function transportCheck() {
-  const d=selectedDevice.value!
-  const conn=effectiveConnection(d)
-  const port=Number(conn.port || (protocol.value==='modbus'?502:protocol.value==='iec104'?2404:48898))
-  if(d.device_id.endsWith('043')) return {state:'failed' as StageState,detail:`Connection refused: ${d.host}:${port}`,duration:34}
-  return {state:'passed' as StageState,detail:`Transport connected: ${d.host}:${port}`,duration:18}
-}
-
-function protocolCheck() {
-  const d=selectedDevice.value!
-  if(d.device_id.endsWith('042')) return {state:'failed' as StageState,detail:`${protocol.value.toUpperCase()} session timeout / handshake not completed`,duration:3000}
-  return {state:'passed' as StageState,detail:`${protocol.value.toUpperCase()} session established`,duration:24}
-}
-
-function mappingCheck() {
-  if(!selectedPointIds.value.length) return {state:'failed' as StageState,detail:'No points selected for read verification',duration:1}
-  const missing=selectedPointIds.value.filter(id=>!taskPoints.value.some(p=>p.point_id===id))
-  if(missing.length) return {state:'failed' as StageState,detail:`Point mapping missing: ${missing.join(', ')}`,duration:2}
-  return {state:'passed' as StageState,detail:`${selectedPointIds.value.length} selected point(s) resolved from ${tableOfDevice(selectedDevice.value!)}`,duration:3}
-}
-
-async function runPointRead() {
-  pointResults.value=[]
-  for(let i=0;i<selectedPoints.value.length;i++){
-    const p=selectedPoints.value[i]
-    await sleep(80)
-    let failed=false
-    let category=''
-    let error=''
-    if(selectedDevice.value?.device_id.endsWith('044') && i===0){
-      failed=true; category='timeout'; error='Read request timed out after 3000 ms'
-    } else if(protocol.value==='ads' && (p.variable_name.includes('missing') || p.point_id.includes('missing'))){
-      failed=true; category='not_found'; error='ADS symbol not found'
-    } else if(i===2 && selectedDevice.value?.device_id.endsWith('045')){
-      failed=true; category='decode'; error='Raw payload length does not match configured data_type'
-    }
-    pointResults.value.push({
-      point_id:p.point_id,
-      variable_name:p.variable_name,
-      address:pointAddress(p),
-      data_type:p.data_type,
-      state:failed?'failed':'passed',
-      latency_ms:failed?3000:12+i*5,
-      value:failed?'—':String(Number((24.5+i*13.27).toFixed(3))),
-      error_category:category,
-      error,
-    })
+async function runWrite() {
+  if (!writeValue.value.trim()) {
+    ElMessage.warning('Enter a write value')
+    return
   }
-  const failed=pointResults.value.filter(r=>r.state==='failed')
-  return failed.length
-    ? {state:'failed' as StageState,detail:`${failed.length}/${pointResults.value.length} selected point(s) failed`,duration:Math.max(...pointResults.value.map(r=>r.latency_ms))}
-    : {state:'passed' as StageState,detail:`${pointResults.value.length} selected point(s) read successfully`,duration:Math.max(0,...pointResults.value.map(r=>r.latency_ms))}
-}
+  const point = writeMode.value === 'defined'
+    ? writablePoints.value.find(p => p.point_id === writePointId.value)
+    : null
 
-async function runDiagnosis(){
-  if(!selectedDevice.value){ElMessage.warning('Select a Device first');return}
-  if(!selectedPointIds.value.length){ElMessage.warning('Select at least one point for Read Test');return}
-  diagnosisRunning.value=true
-  stages.value=initialStages()
-  pointResults.value=[]
-  try{
-    const checks=[taskPreflight,networkCheck,transportCheck,protocolCheck,mappingCheck]
-    for(let i=0;i<checks.length;i++){
-      const ok=await runStage(i,checks[i])
-      if(!ok){
-        for(let j=i+1;j<stages.value.length;j++) stages.value[j].detail='Skipped because an upstream dependency failed'
-        return
-      }
-    }
-    stages.value[5].state='running'
-    const result=await runPointRead()
-    Object.assign(stages.value[5],{state:result.state,detail:result.detail,duration_ms:result.duration})
-  } finally { diagnosisRunning.value=false }
-}
-
-const rootCause = computed<{ type: 'success' | 'error'; title: string; text: string } | null>(() => {
-  const failed=stages.value.find(s=>s.state==='failed')
-  if(!failed){
-    if(stages.value.length && stages.value.every(s=>s.state==='passed'||s.state==='warning'))
-      return {type:'success',title:'No blocking acquisition fault found',text:'Network, transport, protocol, mapping and selected reads all passed. Continue with Quality/Logs if the problem is intermittent.'}
-    return null
-  }
-  const map:Record<string,string>={
-    preflight:'Fix Task/Point Table/Sink references before communication testing.',
-    network:'Check route, interface/source IP, VLAN, device power and network reachability.',
-    transport:'Check remote port, firewall, service state and protocol endpoint configuration.',
-    protocol:'Transport is reachable but the protocol session failed. Check AMS route/Net ID, Modbus unit/mode, IEC104 common address, credentials or runtime state.',
-    mapping:'Communication is available but selected points cannot be resolved. Check Point Table inheritance, group membership and protocol addresses.',
-    read:'Session and mapping are valid, but one or more reads failed. Inspect timeout/not-found/decode errors per point.',
-  }
-  return {type:'error',title:`Likely failure layer: ${failed.title}`,text:map[failed.key]||failed.detail}
-})
-
-const manual = reactive({symbol:'',index_group:'',index_offset:'',register_type:'holding',address:0,ioa:1,data_type:'float32'})
-const manualResult=ref('')
-function manualRead(){
-  if(!selectedDevice.value) return
-  const addr=protocol.value==='ads'?(manual.symbol||`${manual.index_group}/${manual.index_offset}`):protocol.value==='modbus'?`${manual.register_type} ${manual.address}`:`IOA ${manual.ioa}`
-  manualResult.value=`${selectedDevice.value.device_id} · ${addr} · ${manual.data_type} = 42.125 (mock)`
-}
-
-const raw=reactive({bytes:'42 C8 00 00',scale:1,offset:0,unit:'kilowatt'})
-const rawRows=computed(()=>[
-  {type:'int16',value:17096},{type:'uint16',value:17096},{type:'int32',value:1120403456},{type:'uint32',value:1120403456},{type:'float32',value:100},{type:'bool',value:true},
-].map(x=>({...x,engineering:typeof x.value==='number'?x.value*raw.scale+raw.offset:x.value})))
-
-const writePoint=ref('')
-const writeValue=ref('')
-const writablePoints=computed(()=>resolvedPoints.value.filter(p=>p.point_groups.includes('control')))
-async function writeTest(){
-  if(!writePoint.value||!writeValue.value.trim()){ElMessage.warning('Select a point and enter a value');return}
-  await ElMessageBox.confirm('Send one diagnostic write to the selected device? This has a real side effect in the backend implementation.','Diagnostic Write',{type:'warning',confirmButtonText:'Send'})
-  ElMessage.success('Diagnostic write completed (mock)')
+  await ElMessageBox.confirm(
+    'Send one diagnostic write to ' + resolvedTarget.value.name + '? Production backend must audit this operation and perform readback.',
+    'Diagnostic Write',
+    { type:'warning', confirmButtonText:'Write Once' },
+  )
+  running.value = true
+  await sleep(380)
+  writeResult.value = [{
+    Target:resolvedTarget.value.name,
+    Point:point?.point_id || 'Manual address',
+    Value:writeValue.value,
+    Result:'Passed',
+    Readback:writeValue.value,
+    Latency:'21 ms',
+  }]
+  running.value = false
 }
 </script>
 
 <template>
   <div class="diagnostics-page">
-    <div class="head"><div><h1>Diagnostics</h1><p>从采集失败现象出发，逐层定位设备、协议、点表与读数问题</p></div></div>
-
-    <el-card shadow="never" class="target-card">
-      <div class="target-grid">
-        <el-form-item label="Device">
-          <el-select v-model="selectedDeviceId" filterable style="width:100%">
-            <el-option v-for="d in store.devices" :key="d.device_id" :label="`${d.device_id} · ${modelOf(d)?.protocol?.toUpperCase()} · ${d.host}`" :value="d.device_id"/>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Related Task">
-          <el-select v-model="selectedTaskId" clearable style="width:100%">
-            <el-option v-for="t in relatedTasks" :key="t.task_id" :label="`${t.task_id} · ${t.runtime}`" :value="t.task_id"/>
-          </el-select>
-        </el-form-item>
-        <div class="target-summary" v-if="selectedDevice">
-          <span>{{ protocol.toUpperCase() }}</span><b>{{ selectedDevice.host }}</b><span>{{ selectedTask ? selectedTask.point_group : 'All resolved points' }}</span>
-        </div>
+    <div class="head">
+      <div>
+        <h1>Diagnostics</h1>
+        <p>工程探索工作台：自由选择已定义对象或手工目标，执行网络、协议、读写测试。</p>
       </div>
-    </el-card>
-
-    <div class="diagnostic-layout">
-      <el-card shadow="never" class="diagnostic-main">
-        <div class="section-head"><div><h3>Diagnostic Path</h3><p>上游失败时自动停止后续测试，避免把连通问题误判成点表问题。</p></div><el-button type="primary" :loading="diagnosisRunning" @click="runDiagnosis">Run Full Diagnosis</el-button></div>
-
-        <el-steps direction="vertical" :active="stages.filter(s=>s.state==='passed'||s.state==='warning').length" finish-status="success" process-status="process">
-          <el-step v-for="s in (stages.length?stages:initialStages())" :key="s.key">
-            <template #title><div class="stage-title"><b>{{s.title}}</b><el-tag v-if="s.state!=='idle'" size="small" :type="s.state==='passed'?'success':s.state==='warning'?'warning':s.state==='failed'?'danger':'info'">{{s.state}}</el-tag></div></template>
-            <template #description><div class="stage-detail">{{s.detail}}<span v-if="s.duration_ms"> · {{s.duration_ms}} ms</span></div></template>
-          </el-step>
-        </el-steps>
-      </el-card>
-
-      <el-card shadow="never" class="finding-card">
-        <h3>Finding</h3>
-        <el-empty v-if="!rootCause" description="Run diagnostics to identify the first failing layer"/>
-        <el-result v-else :icon="rootCause.type" :title="rootCause.title" :sub-title="rootCause.text"/>
-      </el-card>
     </div>
 
-    <el-card shadow="never" class="point-test-card">
-      <div class="section-head">
-        <div><h3>Selected Point Read</h3><p>Read Test 只读取你明确选择的点，不再隐式测试未知的“3 个点”。</p></div>
-      </div>
-      <el-form label-position="top">
-        <el-form-item label="Points to verify">
-          <el-select v-model="selectedPointIds" multiple filterable collapse-tags collapse-tags-tooltip style="width:100%">
-            <el-option v-for="p in taskPoints" :key="p.point_id" :value="p.point_id" :label="`${p.point_id} · ${p.variable_name || pointAddress(p)}`"/>
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <el-table :data="pointResults.length?pointResults:selectedPoints.map(p=>({point_id:p.point_id,variable_name:p.variable_name,address:pointAddress(p),data_type:p.data_type,state:'',latency_ms:'',value:'',error_category:'',error:''}))" size="small">
-        <el-table-column prop="point_id" label="Point" min-width="150"/>
-        <el-table-column prop="address" label="Resolved Address" min-width="190"/>
-        <el-table-column prop="data_type" label="Type" width="100"/>
-        <el-table-column prop="value" label="Value" width="110"/>
-        <el-table-column prop="latency_ms" label="Latency" width="100"><template #default="{row}">{{row.latency_ms?row.latency_ms+' ms':'—'}}</template></el-table-column>
-        <el-table-column label="Result" min-width="210"><template #default="{row}"><template v-if="row.state"><el-tag :type="row.state==='passed'?'success':'danger'" size="small">{{row.state}}</el-tag><span v-if="row.error" class="read-error">{{row.error_category}} · {{row.error}}</span></template><span v-else>Pending</span></template></el-table-column>
-      </el-table>
-    </el-card>
+    <div class="explorer-layout">
+      <aside class="target-panel">
+        <div class="panel-heading">
+          <h2>Target</h2>
+          <p>Target 是整个 Diagnostics 工作区共享的上下文。</p>
+        </div>
 
-    <el-card shadow="never" class="advanced-card">
-      <el-collapse v-model="advancedOpen">
-        <el-collapse-item title="Advanced Tools · Manual Read / Raw Decoder / Write Test" name="tools">
-          <el-tabs>
-            <el-tab-pane label="Manual Read">
-              <el-form label-position="top">
-                <div class="tool-grid">
-                  <template v-if="protocol==='ads'"><el-form-item label="Symbol"><el-input v-model="manual.symbol"/></el-form-item><el-form-item label="Index Group"><el-input v-model="manual.index_group"/></el-form-item><el-form-item label="Index Offset"><el-input v-model="manual.index_offset"/></el-form-item></template>
-                  <template v-else-if="protocol==='modbus'"><el-form-item label="Register Type"><el-select v-model="manual.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r"/></el-select></el-form-item><el-form-item label="Address"><el-input-number v-model="manual.address" :min="0" style="width:100%"/></el-form-item></template>
-                  <el-form-item v-else label="IOA"><el-input-number v-model="manual.ioa" :min="0" style="width:100%"/></el-form-item>
-                  <el-form-item label="Data Type"><el-select v-model="manual.data_type"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t"/></el-select></el-form-item>
+        <el-segmented
+          v-model="targetMode"
+          :options="[{label:'Defined Object',value:'defined'},{label:'Manual Target',value:'manual'}]"
+          class="full-segment"
+        />
+
+        <el-form v-if="targetMode==='defined'" label-position="top" class="target-form">
+          <el-form-item label="Object Type">
+            <el-radio-group v-model="definedKind">
+              <el-radio-button value="device">Device</el-radio-button>
+              <el-radio-button value="sink">Sink</el-radio-button>
+              <el-radio-button value="point">Point</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="definedKind!=='sink'" label="Device">
+            <el-select v-model="selectedDeviceId" filterable style="width:100%">
+              <el-option
+                v-for="d in store.devices"
+                :key="d.device_id"
+                :label="d.device_id + ' · ' + d.host"
+                :value="d.device_id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="definedKind==='sink'" label="Sink">
+            <el-select v-model="selectedSinkName" style="width:100%">
+              <el-option v-for="s in store.sinks" :key="s.name" :label="s.name + ' · ' + s.type" :value="s.name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="definedKind==='point'" label="Point">
+            <el-select v-model="selectedPointId" filterable style="width:100%">
+              <el-option v-for="p in devicePoints" :key="p.point_id" :label="p.point_id" :value="p.point_id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+
+        <el-form v-else label-position="top" class="target-form">
+          <el-form-item label="Subnet / CIDR"><el-input v-model="manualTarget.cidr" /></el-form-item>
+          <el-form-item label="Host / IP"><el-input v-model="manualTarget.host" /></el-form-item>
+          <div class="two-col">
+            <el-form-item label="Port"><el-input-number v-model="manualTarget.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+            <el-form-item label="Protocol">
+              <el-select v-model="manualTarget.protocol">
+                <el-option label="ADS" value="ads" />
+                <el-option label="Modbus TCP" value="modbus" />
+                <el-option label="IEC 104" value="iec104" />
+                <el-option label="Other" value="other" />
+              </el-select>
+            </el-form-item>
+          </div>
+        </el-form>
+
+        <div class="resolved-target">
+          <span>Resolved Target</span>
+          <b>{{ resolvedTarget.name }}</b>
+          <code>{{ resolvedTarget.host }}<template v-if="resolvedTarget.port">:{{ resolvedTarget.port }}</template></code>
+          <small>{{ resolvedTarget.protocol.toUpperCase() || 'UNSPECIFIED' }}</small>
+        </div>
+      </aside>
+
+      <main class="workspace-panel">
+        <el-tabs v-model="activeTool">
+          <el-tab-pane label="Network" name="network">
+            <div class="tool-heading">
+              <div><h2>Network Explorer</h2><p>Host Discovery 支持 CIDR；Port Probe 使用固定协议端口组合。</p></div>
+              <div class="tool-actions">
+                <el-button :loading="running" @click="runReachability">Reachability</el-button>
+                <el-button :loading="running" @click="runPortProbe">Port Probe</el-button>
+                <el-button type="primary" :loading="running" @click="runHostDiscovery">Host Discovery</el-button>
+              </div>
+            </div>
+
+            <el-table :data="pagedNetworkResults" empty-text="Run an exploration action">
+              <el-table-column
+                v-for="key in Object.keys(networkResults[0] || {})"
+                :key="key"
+                :prop="key"
+                :label="key"
+                min-width="120"
+              />
+            </el-table>
+            <div v-if="networkResults.length>networkPageSize" class="result-pagination">
+              <el-pagination
+                v-model:current-page="networkPage"
+                v-model:page-size="networkPageSize"
+                :page-sizes="[20,50,100]"
+                :total="networkResults.length"
+                layout="total, sizes, prev, pager, next"
+              />
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="Protocol" name="protocol">
+            <div class="tool-heading">
+              <div><h2>Protocol Explorer</h2><p>只显示当前 Target 协议相关工具。</p></div>
+            </div>
+            <div class="tool-actions protocol-actions">
+              <el-button v-for="action in protocolActions" :key="action" :loading="running" @click="protocolAction(action)">{{ action }}</el-button>
+            </div>
+            <el-table :data="protocolResult" empty-text="Choose a protocol action">
+              <el-table-column prop="Check" label="Check" min-width="130" />
+              <el-table-column prop="Target" label="Target" min-width="180" />
+              <el-table-column prop="Result" label="Result" width="100" />
+              <el-table-column prop="Latency" label="Latency" width="100" />
+              <el-table-column prop="Evidence" label="Evidence" min-width="230" />
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="Data" name="data">
+            <div class="tool-heading">
+              <div><h2>Data Explorer</h2><p>Defined Point 使用配置；Manual Address 仅用于探索，不写入 Point Table。</p></div>
+            </div>
+            <el-segmented v-model="readMode" :options="[{label:'Defined Point',value:'defined'},{label:'Manual Address',value:'manual'}]" />
+            <el-form label-position="top" class="tool-form">
+              <el-form-item v-if="readMode==='defined'" label="Point">
+                <el-select v-model="selectedPointId" filterable style="width:100%">
+                  <el-option v-for="p in devicePoints" :key="p.point_id" :label="p.point_id + ' · ' + pointAddress(p)" :value="p.point_id" />
+                </el-select>
+              </el-form-item>
+              <template v-else>
+                <el-form-item v-if="resolvedTarget.protocol==='ads'" label="Symbol"><el-input v-model="manualRead.symbol" /></el-form-item>
+                <div v-else-if="resolvedTarget.protocol==='modbus'" class="two-col">
+                  <el-form-item label="Register Type">
+                    <el-select v-model="manualRead.register_type">
+                      <el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="0-based Address"><el-input-number v-model="manualRead.address" :min="0" style="width:100%" /></el-form-item>
                 </div>
-                <el-button type="primary" @click="manualRead">Read Once</el-button>
-                <pre v-if="manualResult">{{manualResult}}</pre>
-              </el-form>
-            </el-tab-pane>
+                <el-form-item v-else label="IOA"><el-input-number v-model="manualRead.ioa" :min="0" /></el-form-item>
+                <el-form-item label="Data Type">
+                  <el-select v-model="manualRead.data_type">
+                    <el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" />
+                  </el-select>
+                </el-form-item>
+              </template>
+              <el-button type="primary" :loading="running" @click="readOnce">Read Once</el-button>
+            </el-form>
+            <el-table :data="readResults" empty-text="Run a read">
+              <el-table-column prop="Target" label="Target" min-width="120" />
+              <el-table-column prop="Address" label="Address" min-width="180" />
+              <el-table-column prop="Type" label="Type" width="100" />
+              <el-table-column prop="Raw" label="Raw" min-width="110" />
+              <el-table-column prop="Decoded" label="Decoded" width="100" />
+              <el-table-column prop="Engineering" label="Engineering" min-width="130" />
+              <el-table-column prop="Latency" label="Latency" width="90" />
+              <el-table-column prop="Timestamp" label="Timestamp" width="110" />
+            </el-table>
+          </el-tab-pane>
 
-            <el-tab-pane label="Raw Decoder">
-              <div class="tool-grid"><el-form-item label="Raw Bytes"><el-input v-model="raw.bytes"/></el-form-item><el-form-item label="Scale"><el-input-number v-model="raw.scale"/></el-form-item><el-form-item label="Offset"><el-input-number v-model="raw.offset"/></el-form-item><el-form-item label="Unit"><el-select v-model="raw.unit"><el-option v-for="(u,id) in store.units" :key="id" :label="`${id}${u.symbol?' ('+u.symbol+')':''}`" :value="id"/></el-select></el-form-item></div>
-              <el-table :data="rawRows" size="small"><el-table-column prop="type" label="Interpretation"/><el-table-column prop="value" label="Parsed"/><el-table-column label="Engineering"><template #default="{row}">{{row.engineering}} {{unitSymbol(raw.unit)}}</template></el-table-column></el-table>
-            </el-tab-pane>
-
-            <el-tab-pane label="Write Test">
-              <div class="tool-grid"><el-form-item label="Point"><el-select v-model="writePoint" filterable><el-option v-for="p in writablePoints" :key="p.point_id" :label="p.point_id" :value="p.point_id"/></el-select></el-form-item><el-form-item label="Value"><el-input v-model="writeValue"/></el-form-item></div>
-              <el-button type="primary" @click="writeTest">Send Diagnostic Write</el-button>
-            </el-tab-pane>
-          </el-tabs>
-        </el-collapse-item>
-      </el-collapse>
-    </el-card>
+          <el-tab-pane label="Write" name="write">
+            <div class="tool-heading">
+              <div><h2>Write Explorer</h2><p>单次执行、二次确认、生产后端审计并 readback。</p></div>
+            </div>
+            <el-alert type="warning" :closable="false" title="Write tests can change real equipment state." />
+            <el-segmented v-model="writeMode" :options="[{label:'Defined Point',value:'defined'},{label:'Manual Address',value:'manual'}]" class="write-mode" />
+            <el-form label-position="top" class="tool-form">
+              <el-form-item v-if="writeMode==='defined'" label="Writable Point">
+                <el-select v-model="writePointId" filterable style="width:100%">
+                  <el-option v-for="p in writablePoints" :key="p.point_id" :label="p.point_id + ' · ' + pointAddress(p)" :value="p.point_id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-else label="Manual Address / Symbol"><el-input v-model="manualRead.symbol" /></el-form-item>
+              <el-form-item label="Write Value"><el-input v-model="writeValue" /></el-form-item>
+              <el-button type="danger" :loading="running" @click="runWrite">Write Once & Readback</el-button>
+            </el-form>
+            <el-table :data="writeResult" empty-text="No write executed">
+              <el-table-column prop="Target" label="Target" />
+              <el-table-column prop="Point" label="Point" />
+              <el-table-column prop="Value" label="Write" />
+              <el-table-column prop="Result" label="Result" />
+              <el-table-column prop="Readback" label="Readback" />
+              <el-table-column prop="Latency" label="Latency" />
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.target-card,.point-test-card,.advanced-card{margin-bottom:var(--app-space-4)}.target-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) minmax(260px,.9fr);gap:var(--app-space-4);align-items:end}.target-grid :deep(.el-form-item){margin-bottom:0}.target-summary{display:flex;gap:var(--app-space-2);align-items:center;justify-content:flex-end;padding-bottom:9px;color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-summary b{color:var(--app-text-primary)}.diagnostic-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(300px,.6fr);gap:var(--app-space-4);margin-bottom:var(--app-space-4)}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.finding-card h3{margin:0}.section-head p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.stage-title{display:flex;align-items:center;gap:var(--app-space-2)}.stage-detail{color:var(--app-text-muted);font-size:var(--app-font-caption)}.read-error{margin-left:8px;color:var(--el-color-danger);font-size:var(--app-font-caption)}.tool-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}pre{padding:var(--app-space-3);background:var(--el-fill-color-light);border-radius:var(--app-radius-control);overflow:auto}
-@media(max-width:1000px){.target-grid,.diagnostic-layout{grid-template-columns:1fr}.target-summary{justify-content:flex-start;padding-bottom:0}}
-@media(max-width:767px){.tool-grid{grid-template-columns:1fr}.section-head{flex-direction:column}}
+.explorer-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--app-space-4);align-items:start}.target-panel{padding:var(--app-space-4);border:1px solid var(--app-border-soft);border-radius:var(--app-panel-radius);background:var(--el-bg-color)}
+.panel-heading h2,.tool-heading h2{margin:0;font-size:var(--app-font-section-title)}.panel-heading p,.tool-heading p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:1.5}.full-segment{width:100%;margin-top:var(--app-space-4)}.target-form{margin-top:var(--app-space-4)}.target-form :deep(.el-form-item){margin-bottom:var(--app-space-3)}
+.two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--app-space-3)}.resolved-target{display:grid;gap:5px;margin-top:var(--app-space-4);padding-top:var(--app-space-4);border-top:1px solid var(--app-border-soft)}.resolved-target span,.resolved-target small{color:var(--app-text-muted);font-size:var(--app-font-caption)}.resolved-target b{font-size:var(--app-font-panel-title)}.resolved-target code{overflow-wrap:anywhere;color:var(--app-text-secondary)}
+.workspace-panel{min-width:0}.tool-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-4);margin:var(--app-space-3) 0 var(--app-space-4)}.tool-actions{display:flex;gap:var(--app-space-2);flex-wrap:wrap}.protocol-actions{margin-bottom:var(--app-space-4)}.result-pagination{display:flex;justify-content:flex-end;margin-top:var(--app-space-3)}.tool-form{max-width:720px;margin-top:var(--app-space-4)}.write-mode{margin-top:var(--app-space-4)}
+@media(max-width:1199px){.explorer-layout{grid-template-columns:1fr}.target-panel{display:grid;grid-template-columns:minmax(220px,.5fr) minmax(0,1fr);gap:var(--app-space-4)}.panel-heading,.resolved-target{grid-column:1/-1}.full-segment{align-self:start}.target-form{margin-top:0}}
+@media(max-width:767px){.target-panel{display:block}.full-segment,.target-form{margin-top:var(--app-space-3)}.tool-heading{flex-direction:column}.two-col{grid-template-columns:1fr}.result-pagination{justify-content:center;overflow-x:auto}}
 </style>

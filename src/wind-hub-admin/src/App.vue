@@ -8,6 +8,7 @@ import SinksPage from './pages/SinksPage.vue'
 import QualityPage from './pages/QualityPage.vue'
 import DebugPage from './pages/DebugPage.vue'
 import SystemHealthPage from './pages/SystemHealthPage.vue'
+import SettingsPage from './pages/SettingsPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
@@ -49,10 +50,13 @@ function selectMenu(key: string) {
         <el-menu-item-group title="工程">
           <el-menu-item index="Quality">Quality</el-menu-item>
           <el-menu-item index="Debug">Diagnostics</el-menu-item>
+          <el-menu-item index="SystemHealth">System Health</el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group title="配置">
+          <el-menu-item index="Settings">System Settings</el-menu-item>
+          <el-menu-item index="Config">Configuration Files</el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="系统">
-          <el-menu-item index="SystemHealth">System Health</el-menu-item>
-          <el-menu-item index="Config">Config</el-menu-item>
           <el-menu-item index="Logs">Logs</el-menu-item>
         </el-menu-item-group>
       </el-menu>
@@ -82,9 +86,10 @@ function selectMenu(key: string) {
           <PointsPage v-if="menu === 'Points'" />
           <TasksPage v-if="menu === 'Tasks'" />
           <SinksPage v-if="menu === 'Sinks'" />
-          <QualityPage v-if="menu === 'Quality'" @navigate="selectMenu" />
+          <QualityPage v-if="menu === 'Quality'" />
           <DebugPage v-if="menu === 'Debug'" />
           <SystemHealthPage v-if="menu === 'SystemHealth'" />
+          <SettingsPage v-if="menu === 'Settings'" />
           <ConfigPage v-if="menu === 'Config'" />
           <LogsPage v-if="menu === 'Logs'" />
         </section>
@@ -100,10 +105,13 @@ function selectMenu(key: string) {
       <el-menu-item-group title="工程">
         <el-menu-item index="Quality">Quality</el-menu-item>
         <el-menu-item index="Debug">Diagnostics</el-menu-item>
+        <el-menu-item index="SystemHealth">System Health</el-menu-item>
+      </el-menu-item-group>
+      <el-menu-item-group title="配置">
+        <el-menu-item index="Settings">System Settings</el-menu-item>
+        <el-menu-item index="Config">Configuration Files</el-menu-item>
       </el-menu-item-group>
       <el-menu-item-group title="系统">
-        <el-menu-item index="SystemHealth">System Health</el-menu-item>
-        <el-menu-item index="Config">Config</el-menu-item>
         <el-menu-item index="Logs">Logs</el-menu-item>
       </el-menu-item-group>
     </el-menu>
