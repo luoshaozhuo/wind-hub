@@ -11,6 +11,7 @@ import {
   store,
   tableOfDevice,
 } from '../mock/data'
+import { useViewport } from '../composables/useViewport'
 import type { DeviceInst, TaskDef } from '../mock/types'
 
 const createDialog = ref(false)
