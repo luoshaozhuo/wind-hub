@@ -90,7 +90,7 @@ function selectMenu(key: string) {
     </el-container>
   </el-container>
 
-  <el-drawer v-model="mobileNavOpen" direction="ltr" size="260px" title="Wind Hub" class="mobile-nav-drawer">
+  <el-drawer v-model="mobileNavOpen" direction="ltr" size="var(--app-mobile-nav-width)" title="Wind Hub" class="mobile-nav-drawer">
     <el-menu :default-active="menu" @select="selectMenu">
       <el-menu-item-group title="运行">
         <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>

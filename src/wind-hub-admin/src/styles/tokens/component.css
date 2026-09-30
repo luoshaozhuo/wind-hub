@@ -5,6 +5,43 @@
   --app-panel-radius:10px;
   --app-control-radius:6px;
   --app-control-height:32px;
+  --app-control-width-compact:6rem;
+  --app-control-width-short:7rem;
+  --app-field-width-sm:9.375rem;
+  --app-field-width-md:11.25rem;
+  --app-field-width-lg:18.75rem;
   --app-table-row-padding:8px;
   --app-elevation-soft:0 1px 2px rgba(16,24,40,.03);
+
+  --app-menu-item-height:2.375rem;
+  --app-mobile-header-min-height:3.625rem;
+  --app-mobile-nav-width:16.25rem;
+
+  --app-dialog-width-sm:35rem;
+  --app-dialog-width-md:42.5rem;
+  --app-drawer-width-sm:35rem;
+  --app-drawer-width-md:56rem;
+  --app-drawer-width-lg:67.5rem;
+
+  --app-chart-height-sm:14.5rem;
+  --app-chart-height-md:16.25rem;
+  --app-chart-height-lg:22.5rem;
+  --app-chart-height-xl:31.25rem;
+  --app-table-viewport-height:35rem;
+
+  --app-layout-pane-min-width:18rem;
+  --app-master-pane-width:22.5rem;
+  --app-master-detail-min-height:27.5rem;
+  --app-picker-max-height:30rem;
+  --app-tooltip-max-width:22.5rem;
+
+  --app-card-min-width:17rem;
+  --app-row-min-height:1.75rem;
+  --app-meter-height:.3125rem;
+  --app-accent-width:2.125rem;
+  --app-accent-height:.125rem;
+  --app-radius-pill:999px;
+
+  --app-status-dot-size:.375rem;
+  --app-help-icon-size:1.125rem;
 }

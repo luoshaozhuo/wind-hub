@@ -77,7 +77,7 @@ watch([level, source, keyword, pageSize], () => {
         </div>
       </div>
 
-      <el-table :data="pagedLogs" height="560" empty-text="No logs match current filters">
+      <el-table :data="pagedLogs" height="var(--app-table-viewport-height)" empty-text="No logs match current filters">
         <el-table-column v-if="!isMobile" prop="time" label="Time" width="110" />
         <el-table-column label="Level" width="100">
           <template #default="{ row }">
@@ -104,7 +104,7 @@ watch([level, source, keyword, pageSize], () => {
 
 <style scoped>
 .logs-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}
-.logs-filters{display:grid;grid-template-columns:130px 150px minmax(240px,320px);gap:var(--app-space-2)}
-@media(max-width:1199px){.logs-toolbar{align-items:stretch;flex-direction:column}.logs-filters{grid-template-columns:140px 160px minmax(220px,1fr)}}
+.logs-filters{display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,.8fr) minmax(0,1.5fr);gap:var(--app-space-2)}
+@media(max-width:1199px){.logs-toolbar{align-items:stretch;flex-direction:column}.logs-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.logs-filters .el-input{grid-column:1/-1}}
 @media(max-width:767px){.logs-filters{grid-template-columns:1fr}}
 </style>

@@ -303,7 +303,7 @@ function handleAction(command:string){
       </el-tab-pane>
     </el-tabs>
 
-    <el-drawer v-model="importOpen" title="Import Configuration" size="560px" @closed="closeImport">
+    <el-drawer v-model="importOpen" title="Import Configuration" size="var(--app-drawer-width-sm)" @closed="closeImport">
       <el-form label-position="top">
         <el-form-item label="Target File">
           <el-select v-model="importState.target" class="app-full-width">

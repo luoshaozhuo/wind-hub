@@ -1668,7 +1668,7 @@ async function sendCommand() {
       </template>
     </el-drawer>
 
-    <el-dialog v-model="deleteAllOpen" title="Delete All Devices" width="560px">
+    <el-dialog v-model="deleteAllOpen" title="Delete All Devices" width="var(--app-dialog-width-sm)">
       <el-alert type="error" :closable="false" show-icon title="All Devices will be removed. Metadata and Task Definitions are preserved." />
       <el-descriptions :column="1" border size="small" class="delete-summary">
         <el-descriptions-item label="Devices">{{ store.devices.length }}</el-descriptions-item>
@@ -2066,7 +2066,7 @@ async function sendCommand() {
 </template>
 
 <style scoped>
-.connectivity-result-list>div{display:grid;grid-template-columns:88px 90px minmax(0,1fr);align-items:center;gap:var(--app-space-2)}
+.connectivity-result-list>div{display:grid;grid-template-columns:minmax(max-content,.45fr) minmax(max-content,.45fr) minmax(0,1fr);align-items:center;gap:var(--app-space-2)}
 .connectivity-result-list b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
 .connectivity-result-list small{min-width:0;color:var(--app-text-muted);font-size:var(--app-font-label);font-weight:var(--app-font-weight-regular);overflow-wrap:anywhere}
 .read-test-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--app-space-4)}
@@ -2080,20 +2080,20 @@ async function sendCommand() {
 .trend-primary-actions,.trend-view-bar,.trend-window-control,.trend-update-control,.record-action{display:flex;align-items:center;gap:var(--app-space-2)}
 .trend-view-bar{justify-content:space-between;padding:var(--app-space-2) 0 var(--app-space-3);border-top:1px solid var(--app-border-soft)}
 .trend-window-control>span{color:var(--app-text-secondary);font-size:var(--app-font-label);white-space:nowrap}
-.help-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--app-border-soft);border-radius:50%;color:var(--app-text-muted);font-size:var(--app-font-caption);cursor:help}
+.help-dot{display:inline-flex;align-items:center;justify-content:center;width:var(--app-help-icon-size);height:var(--app-help-icon-size);border:1px solid var(--app-border-soft);border-radius:50%;color:var(--app-text-muted);font-size:var(--app-font-caption);cursor:help}
 .data-read-failed{border-color:var(--app-status-fault)}
 .data-error{color:var(--app-status-fault);font-size:var(--app-font-caption)}
 .control-definition{margin-bottom:var(--app-space-4)}
 .control-target-field{margin-top:var(--app-space-4)}
-@media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:78px 82px minmax(0,1fr)}}
+@media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:minmax(max-content,.45fr) minmax(max-content,.45fr) minmax(0,1fr)}}
 @media(max-width:1199px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
-@media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:4px}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
+@media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:var(--app-space-1)}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
 
-.delete-summary{margin:var(--app-space-4) 0}.data-refresh-interval{width:110px}
+.delete-summary{margin:var(--app-space-4) 0}.data-refresh-interval{width:var(--app-control-width-short)}
 
-.control-trend-layout{display:grid;grid-template-columns:minmax(300px,.72fr) minmax(0,1.28fr);gap:var(--app-space-4);align-items:start}
+.control-trend-layout{display:grid;grid-template-columns:minmax(var(--app-layout-pane-min-width),.72fr) minmax(0,1.28fr);gap:var(--app-space-4);align-items:start}
 .control-column{display:grid;gap:var(--app-space-4);min-width:0}.trend-column{min-width:0}.command-result-panel{min-height:0}
-.control-trend-chart{height:500px}
-@media(max-width:1199px){.control-trend-layout{grid-template-columns:minmax(280px,.8fr) minmax(0,1.2fr)}}
-@media(max-width:767px){.control-trend-layout{grid-template-columns:1fr}.control-trend-chart{height:360px}}
+.control-trend-chart{height:var(--app-chart-height-xl)}
+@media(max-width:1199px){.control-trend-layout{grid-template-columns:minmax(var(--app-layout-pane-min-width),.8fr) minmax(0,1.2fr)}}
+@media(max-width:767px){.control-trend-layout{grid-template-columns:1fr}.control-trend-chart{height:var(--app-chart-height-lg)}}
 </style>

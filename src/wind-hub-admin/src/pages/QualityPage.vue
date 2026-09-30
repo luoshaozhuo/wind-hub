@@ -494,7 +494,7 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
       </el-tab-pane>
     </el-tabs>
 
-    <el-drawer v-model="drawerOpen" :title="drawer?.title||'Quality Detail'" :size="isMobile?'100%':'min(860px, 86vw)'" append-to-body>
+    <el-drawer v-model="drawerOpen" :title="drawer?.title||'Quality Detail'" :size="isMobile?'100%':'min(var(--app-drawer-width-md), 86vw)'" append-to-body>
       <template v-if="drawer">
         <p class="drawer-subtitle">{{drawer.subtitle}}</p>
 
@@ -535,7 +535,7 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 <style scoped>
 .quality-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-4)}
 .quality-toolbar h2{margin:0;font-size:var(--app-font-section-title)}.quality-toolbar p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
-.toolbar-left,.toolbar-actions{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}.last-check{color:var(--app-text-muted);font-size:var(--app-font-label)}.check-interval{width:92px}
+.toolbar-left,.toolbar-actions{display:flex;align-items:center;gap:var(--app-space-2);flex-wrap:wrap}.last-check{color:var(--app-text-muted);font-size:var(--app-font-label)}.check-interval{width:var(--app-control-width-compact)}
 .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3);margin-bottom:var(--app-space-6)}
 .metric-grid :deep(.el-card__body){display:grid;gap:var(--app-space-1)}
 .metric-grid span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.metric-grid b{font-size:var(--app-font-metric);font-weight:var(--app-font-weight-semibold)}.metric-grid small{color:var(--app-text-muted)}
@@ -544,8 +544,8 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
 .section-head h2,.drawer-section h3{margin:0;font-size:var(--app-font-section-title)}.section-head p,.drawer-subtitle{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
 .dimension-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.dimension-card :deep(.el-card__body){display:grid;gap:var(--app-space-2)}
 .dimension-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.dimension-title{display:flex;align-items:center;gap:var(--app-space-1)}.info-icon{color:var(--app-text-muted);cursor:help}
-.dimension-card strong{font-size:var(--app-font-panel-title)}.dimension-card>span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.dimension-help{max-width:360px;display:grid;gap:6px;line-height:1.5}
-.drawer-section{margin-top:var(--app-space-6)}.distribution-chart{height:260px}
+.dimension-card strong{font-size:var(--app-font-panel-title)}.dimension-card>span{color:var(--app-text-secondary);font-size:var(--app-font-label)}.dimension-help{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);line-height:1.5}
+.drawer-section{margin-top:var(--app-space-6)}.distribution-chart{height:var(--app-chart-height-md)}
 @media(max-width:1199px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.toolbar-actions{width:100%}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:220px}}
+@media(max-width:767px){.quality-toolbar{align-items:flex-start;flex-direction:column}.toolbar-actions{width:100%}.metric-grid,.dimension-grid{grid-template-columns:1fr}.distribution-chart{height:var(--app-chart-height-sm)}}
 </style>

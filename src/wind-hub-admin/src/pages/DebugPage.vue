@@ -363,7 +363,7 @@ async function runWrite(){
 
           <el-card shadow="never">
             <div class="panel-heading"><h2>Results</h2><p>{{networkResults.length}} result rows</p></div>
-            <el-table :data="networkResults" empty-text="Run a network diagnostic" height="560">
+            <el-table :data="networkResults" empty-text="Run a network diagnostic" height="var(--app-table-viewport-height)">
               <el-table-column v-for="key in Object.keys(networkResults[0]||{})" :key="key" :prop="key" :label="key" min-width="110"/>
             </el-table>
           </el-card>
@@ -469,7 +469,7 @@ async function runWrite(){
 </template>
 
 <style scoped>
-.workspace-grid,.protocol-layout{display:grid;grid-template-columns:minmax(320px,.7fr) minmax(0,1.3fr);gap:var(--app-space-4);align-items:start}
+.workspace-grid,.protocol-layout{display:grid;grid-template-columns:minmax(var(--app-layout-pane-min-width),.7fr) minmax(0,1.3fr);gap:var(--app-space-4);align-items:start}
 .panel-heading{margin-bottom:var(--app-space-4)}.panel-heading h2{margin:0;font-size:var(--app-font-section-title)}.panel-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-body)}
 .two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3)}.ports-row{display:flex;align-items:center;gap:var(--app-space-2)}.field-note{margin-top:var(--app-space-1);color:var(--app-text-muted);font-size:var(--app-font-label)}
 .scan-progress{display:grid;gap:var(--app-space-1);margin-top:var(--app-space-3)}.scan-progress span{color:var(--app-text-muted);font-size:var(--app-font-label);text-align:right}

@@ -977,35 +977,35 @@ async function resetOverride(p: PointDef) {
 </template>
 
 <style scoped>
-.point-table-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-toolbar-gap);margin-bottom:14px}
-.table-label{margin-bottom:7px;color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
+.point-table-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-toolbar-gap);margin-bottom:var(--app-space-3)}
+.table-label{margin-bottom:var(--app-space-2);color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
 .table-line,.table-actions,.metadata-editor-actions{display:flex;align-items:center;gap:var(--app-space-2)}
 .table-actions{flex-wrap:wrap;justify-content:flex-end}
 .table-meta{color:var(--app-text-regular);font-size:var(--app-font-label)}
 .muted,.field-note{color:var(--app-text-muted);font-size:var(--app-font-label)}
-.group-tag{margin-right:4px;margin-bottom:2px}
-.metadata-tabs{margin-top:-8px}
-.metadata-layout{display:grid;grid-template-columns:340px minmax(0,1fr);min-height:440px}
-.metadata-list-pane{min-width:0;padding-right:12px;border-right:1px solid var(--app-border-soft)}
+.group-tag{margin-right:var(--app-space-1);margin-bottom:var(--app-space-1)}
+.metadata-tabs{margin-top:calc(-1 * var(--app-space-2))}
+.metadata-layout{display:grid;grid-template-columns:var(--app-master-pane-width) minmax(0,1fr);min-height:var(--app-master-detail-min-height)}
+.metadata-list-pane{min-width:0;padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}
 .metadata-object-table{width:100%;cursor:pointer}
 .metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
-.metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
+.metadata-object-table :deep(.el-table__cell){padding:var(--app-space-2) 0!important}
 .metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
-.metadata-object-info{min-width:0;padding-left:4px}
+.metadata-object-info{min-width:0;padding-left:var(--app-space-1)}
 .metadata-object-info b,.metadata-object-info small{display:block}
 .metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-object-info small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
-.metadata-editor-main{min-width:0;padding:4px 8px 4px 24px}
-.metadata-editor-title{margin-bottom:16px}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
-.metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.metadata-editor-actions{justify-content:flex-end;margin-top:8px}
+.metadata-object-info small{margin-top:var(--app-space-1);color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
+.metadata-editor-main{min-width:0;padding:var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6)}
+.metadata-editor-title{margin-bottom:var(--app-space-4)}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
+.metadata-editor-title p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-editor-actions{justify-content:flex-end;margin-top:var(--app-space-2)}
 .point-editor-section,.point-test-card{min-width:0}
 .point-definition-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
 .point-definition-grid .span-2{grid-column:1/-1}
 .point-definition-grid :deep(.el-form-item){margin-bottom:var(--app-space-3)}
 .point-editor-heading{margin-bottom:var(--app-space-4)}
 .point-editor-heading h3{margin:0;color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
-.point-editor-heading p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
+.point-editor-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
 .point-test-card{height:auto}
 .test-request{margin-top:var(--app-space-2)}
 .test-actions{display:flex;align-items:center;gap:var(--app-space-2);margin-top:var(--app-space-3);margin-bottom:var(--app-space-3)}
@@ -1014,7 +1014,7 @@ async function resetOverride(p: PointDef) {
 .device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
 @media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
 @media(max-width:767px){.point-definition-grid{grid-template-columns:1fr}.point-definition-grid .span-2{grid-column:auto}}
-@media(max-width:1199px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0}}
+@media(max-width:1199px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.metadata-editor-main{padding:var(--app-space-4) 0 0}}
 
-.point-table-select{width:260px}
+.point-table-select{width:var(--app-field-width-lg)}
 </style>

@@ -461,7 +461,7 @@ async function deleteGroup(row: { id: string }) {
     v-model="manageOpen"
     title="Manage Device Metadata"
     direction="rtl"
-    :size="isMobile ? '100%' : 'min(1080px, 86vw)'"
+    :size="isMobile ? '100%' : 'min(var(--app-drawer-width-lg), 86vw)'"
     append-to-body
     destroy-on-close
     class="metadata-manager-drawer"
@@ -474,7 +474,7 @@ async function deleteGroup(row: { id: string }) {
     </el-tabs>
 
     <el-container class="metadata-layout">
-      <el-aside width="360px" class="metadata-list-aside">
+      <el-aside width="var(--app-master-pane-width)" class="metadata-list-aside">
         <el-table
           v-if="section === 'model'"
           :data="modelRows"
@@ -615,21 +615,21 @@ async function deleteGroup(row: { id: string }) {
 </template>
 
 <style scoped>
-.metadata-tabs{margin-top:-8px}.metadata-layout{min-height:520px}
-.metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:12px}
+.metadata-tabs{margin-top:calc(-1 * var(--app-space-2))}.metadata-layout{min-height:var(--app-master-detail-min-height)}
+.metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:var(--app-space-3)}
 .metadata-object-table{width:100%;cursor:pointer}
 .metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
-.metadata-object-table :deep(.el-table__cell){padding:9px 0!important}
+.metadata-object-table :deep(.el-table__cell){padding:var(--app-space-2) 0!important}
 .metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
-.metadata-object-info{min-width:0;padding-left:4px}
+.metadata-object-info{min-width:0;padding-left:var(--app-space-1)}
 .metadata-object-info b,.metadata-object-info small{display:block}
 .metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-object-info small{margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
-.metadata-editor-main{padding:4px 8px 4px 24px!important}.metadata-editor-title{margin-bottom:16px}
+.metadata-object-info small{margin-top:var(--app-space-1);color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
+.metadata-editor-main{padding:var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6)!important}.metadata-editor-title{margin-bottom:var(--app-space-4)}
 .metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
-.metadata-editor-title p{margin:4px 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.metadata-editor-title p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
+.metadata-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--app-space-3)}
 .metadata-form-grid :deep(.el-select),.metadata-form-grid :deep(.el-input-number){width:100%}
-.metadata-editor-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:8px}
-@media(max-width:1199px){.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 12px}.metadata-editor-main{padding:16px 0 0!important}.metadata-form-grid{grid-template-columns:1fr}}
+.metadata-editor-actions{display:flex;justify-content:flex-end;gap:var(--app-space-2);margin-top:var(--app-space-2)}
+@media(max-width:1199px){.metadata-layout{flex-direction:column}.metadata-list-aside{width:100%!important;border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.metadata-editor-main{padding:var(--app-space-4) 0 0!important}.metadata-form-grid{grid-template-columns:1fr}}
 </style>
