@@ -206,7 +206,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
             <el-button size="small" :disabled="row.valid===false" @click="toggle(row)">{{row.runtime==='RUNNING'?'Stop':'Start'}}</el-button>
             <el-dropdown trigger="click">
               <el-button size="small">•••</el-button>
-              <template #dropdown><el-dropdown-menu><el-dropdown-item style="color:var(--app-status-fault)" @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
+              <template #dropdown><el-dropdown-menu><el-dropdown-item class="app-text-fault" @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
             </el-dropdown>
           </template>
         </el-table-column>
@@ -327,7 +327,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
           <el-tab-pane label="Logs" name="Logs">
             <div class="task-log-toolbar">
               <div><b>Recent Task Logs</b><span>Latest {{ taskLogLimit }} records</span></div>
-              <el-select v-model="taskLogLimit" style="width:120px">
+              <el-select v-model="taskLogLimit" class="task-log-limit">
                 <el-option :value="20" label="Latest 20"/>
                 <el-option :value="50" label="Latest 50"/>
                 <el-option :value="100" label="Latest 100"/>
@@ -384,4 +384,6 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 .task-log-toolbar>div{display:flex;align-items:baseline;gap:var(--app-space-2)}
 .task-log-toolbar span{color:var(--app-text-muted);font-size:var(--app-font-caption)}
 @media(max-width:1199px){.coverage-layout,.task-form-grid,.task-summary-grid{grid-template-columns:1fr}.task-drawer-head{align-items:flex-start;flex-direction:column}}
+
+.task-log-limit{width:120px}
 </style>
