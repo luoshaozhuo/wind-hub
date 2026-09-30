@@ -2,6 +2,7 @@
 import * as echarts from 'echarts'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useViewport } from '../composables/useViewport'
 import { pointsOfTable, protocolOfDevice, store, tableOfDevice } from '../mock/data'
 
 type Tone='normal'|'warning'|'danger'
