@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
@@ -12,11 +12,11 @@ import SettingsPage from './pages/SettingsPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
+import { useViewport } from './composables/useViewport'
 
 const menu = ref('Devices')
 const mobileNavOpen = ref(false)
-const viewportWidth = ref(window.innerWidth)
-const isMobile = computed(() => viewportWidth.value < 768)
+const { isMobile } = useViewport()
 
 const runMenu = [
   { key: 'Overview', label: 'Overview' },
@@ -25,13 +25,6 @@ const runMenu = [
   { key: 'Tasks', label: 'Tasks' },
   { key: 'Sinks', label: 'Sinks' },
 ]
-
-function updateViewport() {
-  viewportWidth.value = window.innerWidth
-  if (!isMobile.value) mobileNavOpen.value = false
-}
-window.addEventListener('resize', updateViewport)
-onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
 
 function selectMenu(key: string) {
   menu.value = key
