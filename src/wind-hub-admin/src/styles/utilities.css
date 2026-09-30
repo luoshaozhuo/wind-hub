@@ -1,1 +1,5 @@
-.app-muted{color:var(--app-text-muted)}.app-secondary{color:var(--app-text-secondary)}.app-actions{display:flex;align-items:center;gap:var(--app-space-2)}
+.app-muted{color:var(--app-text-muted)}
+.app-secondary{color:var(--app-text-secondary)}
+.app-actions{display:flex;align-items:center;gap:var(--app-space-2)}
+.app-full-width{width:100%}
+.app-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
