@@ -1235,19 +1235,19 @@ Quality 负责发现问题、确定影响范围、展示证据，不执行主动
 
 ## 8.1 统一交互
 
-Quality 的 Summary、Channel、Quality Dimension、Active Issue 都可展开 **Inline Issue Detail**。Detail 作为当前 Quality 页面中的一个 Section 插入，不使用 Drawer，也不模拟独立页面，因此不出现 Back to Quality。
+Quality 的 Summary、Channel、Quality Dimension、Active Issue 都打开同一个 **Quality Detail Drawer**。Drawer 不改变当前 Tab、筛选、分页和图表状态；关闭后仍停留在原页面上下文。
 
-Detail 统一包含 Problem Location、Evidence、Affected Objects、Recent Logs（最近 20 条）、Suggested Investigation。大量对象统一 Table + Pagination。
+Drawer 统一包含 Problem Location、Evidence、Affected Objects、Recent Logs（最近 20 条）、Suggested Investigation。大量对象统一 Table + Pagination；Drawer 内禁止继续打开第二层 Drawer / Dialog。
 
 ## 8.2 Channel Quality
 
 Check / Auto Check / Check Interval 只作用于 Channel Quality。Healthy / Degraded / Interrupted 的定义通过 Info Tooltip 解释。
 
-Channel Summary、Delivery / Acquisition Object、Latency bucket、Channel State slice 均可展开同一套 Inline Detail。
+Channel Summary、Delivery / Acquisition Object、Latency bucket、Channel State slice 均打开同一套 Quality Detail Drawer。
 
 ## 8.3 Data Quality
 
-Data Quality 使用统一统计窗口 1 h / 24 h / 7 d。Summary、五个 Quality Dimension、Active Data Issues 均可展开 Inline Detail。
+Data Quality 使用统一统计窗口 1 h / 24 h / 7 d。Summary、五个 Quality Dimension、Active Data Issues 均打开 Quality Detail Drawer。
 
 Recent Logs 必须由后端按 issue context 关联；正式实现中前端不得从全局日志自行推断。
 
@@ -1261,7 +1261,7 @@ Diagnostics 定位为工程探索工作台。
 
 Desktop 使用左右分栏：左侧 Target，右侧 Explorer；Tablet / Mobile 改为上下布局。Target 支持 Defined Object（Device / Sink / Point）与 Manual Target。
 
-左侧使用标准 Element Plus Form 垂直排列，不自行定义另一套字体、label 或控制器样式。Manual Target 只保存 Host / IP 与 Protocol；CIDR、Port Profile 等属于具体 Network Tool。
+左侧使用标准 Element Plus Form 垂直排列，不自行定义另一套字体、label 或控制器样式。Diagnostics 页面 CSS 只负责布局、间距与响应式；表单 Label、Tabs、Segmented、Table 等字体由全局 Typography Token 与 Element Plus 全局主题统一提供。Manual Target 只保存 Host / IP 与 Protocol；CIDR、Port Profile 等属于具体 Network Tool。
 
 ## 9.2 Explorer
 

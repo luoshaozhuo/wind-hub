@@ -39,7 +39,6 @@ interface DetailModel {
 
 const activeTab=ref<'channel'|'data'>('channel')
 const detail=ref<DetailModel|null>(null)
-const detailEl=ref<HTMLElement|null>(null)
 const viewportWidth=ref(window.innerWidth)
 const isMobile=computed(()=>viewportWidth.value<768)
 const isTablet=computed(()=>viewportWidth.value<1200)
@@ -277,11 +276,9 @@ function levelFromTone(tone:Tone):DetailLevel{return tone==='danger'?'Fault':ton
 function showDetail(model:DetailModel){
   detail.value=model
   affectedPage.value=1
-  nextTick(()=>detailEl.value?.scrollIntoView({behavior:'smooth',block:'start'}))
 }
 function closeDetail(){
   detail.value=null
-  nextTick(()=>{if(activeTab.value==='channel')renderCharts()})
 }
 
 function openChannelRow(row:ChannelRow){
@@ -596,73 +593,85 @@ onBeforeUnmount(()=>{
       </el-tabs>
     </div>
 
-    <section v-if="detail" ref="detailEl" class="inline-detail">
-      <div class="inline-detail-bar">
-        <div>
-          <span>Issue Detail</span>
-          <b>{{ detail.title }}</b>
-        </div>
-        <el-button @click="closeDetail">Close Detail</el-button>
-      </div>
-      <div class="head detail-head">
-        <div>
-          <div class="detail-title-line"><h1>{{ detail.title }}</h1><el-tag :type="detailTag(detail.level)">{{ detail.level }}</el-tag></div>
-          <p>{{ detail.subtitle }}</p>
-        </div>
-        <span class="detail-kind">{{ detail.kind==='channel'?'Channel Issue Detail':'Data Issue Detail' }}</span>
-      </div>
-
-      <div class="detail-summary-grid">
-        <div><span>Dimension</span><b>{{ detail.dimension }}</b></div>
-        <div><span>Impact</span><b>{{ detail.impact }}</b></div>
-        <div><span>Duration / Window</span><b>{{ detail.duration }}</b></div>
-        <div><span>Recent Logs</span><b>20 related entries</b></div>
-      </div>
-
-      <section class="detail-section">
-        <div class="section-title"><div><h2>Problem Location</h2><p>把异常定位到 Task / Device / Point / Sink / Protocol / Stage，而不是只显示症状。</p></div></div>
-        <el-descriptions :column="isMobile?1:2" border>
-          <el-descriptions-item v-for="item in detail.location" :key="item[0]" :label="item[0]">{{ item[1] }}</el-descriptions-item>
-        </el-descriptions>
-      </section>
-
-      <section class="detail-section">
-        <div class="section-title"><div><h2>Evidence</h2><p>触发当前质量结论的直接观测数据。</p></div></div>
-        <el-descriptions :column="isMobile?1:2" border>
-          <el-descriptions-item v-for="item in detail.evidence" :key="item[0]" :label="item[0]">{{ item[1] }}</el-descriptions-item>
-        </el-descriptions>
-      </section>
-
-      <section class="detail-section">
-        <div class="section-title"><div><h2>Affected Objects</h2><p>{{ detail.affected.length }} objects；大量对象使用分页表格，不在 Drawer 或弹窗内展开。</p></div></div>
-        <el-card shadow="never">
-          <el-table :data="pagedAffected">
-            <el-table-column v-for="column in affectedColumns" :key="column" :prop="column" :label="column" min-width="130" />
-          </el-table>
-          <div class="pagination">
-            <el-pagination v-model:current-page="affectedPage" v-model:page-size="affectedPageSize" :page-sizes="[10,20,50]" :total="detail.affected.length" :layout="isMobile?'prev, pager, next':'total, sizes, prev, pager, next'" />
+    <el-drawer
+      :model-value="detail!==null"
+      direction="rtl"
+      :size="isMobile?'100%':isTablet?'92%':'min(920px, 82vw)'"
+      append-to-body
+      destroy-on-close
+      @update:model-value="open=>{if(!open)closeDetail()}"
+    >
+      <template #header>
+        <div v-if="detail" class="quality-drawer-header">
+          <div>
+            <span>{{detail.kind==='channel'?'Channel Issue Detail':'Data Issue Detail'}}</span>
+            <b>{{detail.title}}</b>
           </div>
-        </el-card>
-      </section>
+          <el-tag :type="detailTag(detail.level)">{{detail.level}}</el-tag>
+        </div>
+      </template>
 
-      <section class="detail-section">
-        <div class="section-title"><div><h2>Recent Logs</h2><p>仅展示与当前 Issue 上下文相关的最近 20 条日志。</p></div></div>
-        <el-card shadow="never">
-          <el-table :data="logs">
-            <el-table-column prop="time" label="Time" width="100" />
-            <el-table-column label="Level" width="90"><template #default="{row}"><el-tag :type="row.level==='ERROR'?'danger':row.level==='WARN'?'warning':'info'" size="small">{{ row.level }}</el-tag></template></el-table-column>
-            <el-table-column prop="source" label="Source" width="110" />
-            <el-table-column prop="object" label="Object" min-width="150" />
-            <el-table-column prop="message" label="Message" min-width="260" />
-          </el-table>
-        </el-card>
-      </section>
+      <template v-if="detail">
+        <p class="quality-drawer-subtitle">{{detail.subtitle}}</p>
 
-      <section class="detail-section">
-        <div class="section-title"><div><h2>Suggested Investigation</h2><p>这里只给出下一步探索方向；主动网络、协议、读写测试仍在 Diagnostics 中完成。</p></div></div>
-        <el-card shadow="never"><ol class="check-list"><li v-for="check in detail.checks" :key="check">{{ check }}</li></ol></el-card>
-      </section>
-    </section>
+        <div class="detail-summary-grid">
+          <div><span>Dimension</span><b>{{detail.dimension}}</b></div>
+          <div><span>Impact</span><b>{{detail.impact}}</b></div>
+          <div><span>Duration / Window</span><b>{{detail.duration}}</b></div>
+          <div><span>Recent Logs</span><b>20 related entries</b></div>
+        </div>
+
+        <section class="detail-section">
+          <div class="section-title"><div><h2>Problem Location</h2><p>定位 Task / Device / Point / Sink / Protocol / Stage。</p></div></div>
+          <el-descriptions :column="isMobile?1:2" border>
+            <el-descriptions-item v-for="item in detail.location" :key="item[0]" :label="item[0]">{{item[1]}}</el-descriptions-item>
+          </el-descriptions>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-title"><div><h2>Evidence</h2><p>触发当前质量结论的直接观测数据。</p></div></div>
+          <el-descriptions :column="isMobile?1:2" border>
+            <el-descriptions-item v-for="item in detail.evidence" :key="item[0]" :label="item[0]">{{item[1]}}</el-descriptions-item>
+          </el-descriptions>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-title"><div><h2>Affected Objects</h2><p>{{detail.affected.length}} objects；大量对象统一分页。</p></div></div>
+          <el-card shadow="never">
+            <el-table :data="pagedAffected">
+              <el-table-column v-for="column in affectedColumns" :key="column" :prop="column" :label="column" min-width="130"/>
+            </el-table>
+            <div class="pagination">
+              <el-pagination
+                v-model:current-page="affectedPage"
+                v-model:page-size="affectedPageSize"
+                :page-sizes="[10,20,50]"
+                :total="detail.affected.length"
+                :layout="isMobile?'prev, pager, next':'total, sizes, prev, pager, next'"
+              />
+            </div>
+          </el-card>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-title"><div><h2>Recent Logs</h2><p>仅展示与当前 Issue 上下文相关的最近 20 条日志。</p></div></div>
+          <el-card shadow="never">
+            <el-table :data="logs">
+              <el-table-column prop="time" label="Time" width="100"/>
+              <el-table-column label="Level" width="90"><template #default="{row}"><el-tag :type="row.level==='ERROR'?'danger':row.level==='WARN'?'warning':'info'" size="small">{{row.level}}</el-tag></template></el-table-column>
+              <el-table-column prop="source" label="Source" width="110"/>
+              <el-table-column prop="object" label="Object" min-width="150"/>
+              <el-table-column prop="message" label="Message" min-width="260"/>
+            </el-table>
+          </el-card>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-title"><div><h2>Suggested Investigation</h2><p>这里只给出下一步探索方向；主动网络、协议、读写测试仍在 Diagnostics 中完成。</p></div></div>
+          <el-card shadow="never"><ol class="check-list"><li v-for="check in detail.checks" :key="check">{{check}}</li></ol></el-card>
+        </section>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -675,7 +684,7 @@ onBeforeUnmount(()=>{
 .channel-chart-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:var(--app-space-4);margin-bottom:var(--app-space-3)}.chart-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-4)}.chart-card-head>div:first-child{display:grid;gap:4px}.chart-card-head>div:first-child>b{font-size:var(--app-font-panel-title)}.chart-card-head>div:first-child>span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.latency-stats{display:flex;align-items:center;gap:var(--app-space-5)}.latency-stats>div{display:grid;gap:2px;text-align:right}.latency-stats span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.latency-stats b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);font-variant-numeric:tabular-nums}.channel-chart{height:250px;margin-top:var(--app-space-2)}
 .acquisition-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin:var(--app-space-3) 0}.acquisition-toolbar>span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.pagination{display:flex;justify-content:flex-end;padding-top:var(--app-space-3)}
 .dimension-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--app-space-3)}.dimension-card{min-width:0}.dimension-card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-2)}.dimension-name b{font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.dimension-card strong{display:block;margin-top:var(--app-space-4);font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.dimension-detail{display:block;margin-top:4px;color:var(--app-text-muted);font-size:var(--app-font-caption)}.dimension-window{display:block;margin-top:var(--app-space-3);padding-top:var(--app-space-2);border-top:1px solid var(--app-border-soft);color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.inline-detail{margin-top:var(--app-space-6);padding-top:var(--app-space-5);border-top:1px solid var(--app-border-soft);scroll-margin-top:var(--app-space-4)}.inline-detail-bar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-4)}.inline-detail-bar>div{display:grid;gap:var(--app-space-1)}.inline-detail-bar span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.inline-detail-bar b{font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.detail-head{align-items:flex-start}.detail-title-line{display:flex;align-items:center;gap:var(--app-space-3)}.detail-title-line h1{margin:0}.detail-kind{color:var(--app-text-muted);font-size:var(--app-font-caption)}.detail-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3);margin-bottom:var(--app-space-6)}.detail-summary-grid>div{padding:var(--app-space-3);border:1px solid var(--app-border-soft);border-radius:var(--app-panel-radius);background:var(--el-bg-color)}.detail-summary-grid span{display:block;margin-bottom:5px;color:var(--app-text-muted);font-size:var(--app-font-caption)}.detail-summary-grid b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.check-list{margin:0;padding-left:22px;display:grid;gap:var(--app-space-2);line-height:1.55;color:var(--app-text-secondary)}
+.quality-drawer-header{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);width:100%}.quality-drawer-header>div{display:grid;gap:var(--app-space-1)}.quality-drawer-header span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.quality-drawer-header b{color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.quality-drawer-subtitle{margin:0 0 var(--app-space-4);color:var(--app-text-secondary)}.detail-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3);margin-bottom:var(--app-space-6)}.detail-summary-grid>div{padding:var(--app-space-3);border:1px solid var(--app-border-soft);border-radius:var(--app-panel-radius);background:var(--el-bg-color)}.detail-summary-grid span{display:block;margin-bottom:5px;color:var(--app-text-muted);font-size:var(--app-font-caption)}.detail-summary-grid b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.check-list{margin:0;padding-left:22px;display:grid;gap:var(--app-space-2);line-height:1.55;color:var(--app-text-secondary)}
 @media(max-width:1399px){.dimension-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1199px){.quality-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.channel-definition{align-items:flex-start;flex-direction:column}.quality-check-controls{justify-content:flex-start}.channel-chart-grid{grid-template-columns:1fr}.dimension-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.quality-definition{align-items:flex-start;flex-direction:column}.quality-metric-grid,.dimension-grid,.detail-summary-grid{grid-template-columns:1fr}.quality-check-controls{width:100%;justify-content:flex-start}.check-status{width:100%}.chart-card-head{flex-direction:column}.latency-stats{width:100%;justify-content:space-between;gap:var(--app-space-3)}.latency-stats>div{text-align:left}.channel-chart{height:220px}.pagination{justify-content:center;overflow-x:auto}.detail-title-line{align-items:flex-start;flex-direction:column;gap:var(--app-space-2)}}

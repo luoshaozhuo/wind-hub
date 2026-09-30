@@ -234,7 +234,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
     <div class="diagnostics-layout">
       <el-card shadow="never" class="target-panel">
         <div class="panel-heading">
-          <h2>Target</h2>
+          <h3>Target</h3>
           <p>Explorer 的所有操作共享当前目标上下文。</p>
         </div>
 
@@ -308,7 +308,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
         <el-tabs v-model="explorerTab" class="explorer-tabs">
           <el-tab-pane label="Network" name="network">
             <div class="panel-heading">
-              <h2>Network Explorer</h2>
+              <h3>Network Explorer</h3>
               <p>按 IP → TCP Port → Protocol Session 的顺序验证通信链路。</p>
             </div>
 
@@ -386,7 +386,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 
           <el-tab-pane label="Read" name="read">
             <div class="panel-heading">
-              <h2>Read Explorer</h2>
+              <h3>Read Explorer</h3>
               <p>读取已定义 Point，或临时填写协议地址进行现场探索。</p>
             </div>
 
@@ -440,7 +440,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 
           <el-tab-pane label="Write" name="write">
             <div class="panel-heading">
-              <h2>Write Explorer</h2>
+              <h3>Write Explorer</h3>
               <p>写入与读取分离，始终单次执行、二次确认并 readback。</p>
             </div>
 
@@ -484,7 +484,7 @@ const canReadWrite=computed(()=>targetMode.value==='manual'||definedKind.value!=
 </template>
 
 <style scoped>
-.diagnostics-layout{display:grid;grid-template-columns:minmax(18rem,20rem) minmax(0,1fr);gap:var(--app-space-4);align-items:start}.target-panel{position:sticky;top:var(--app-space-4)}.panel-heading h2{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}.panel-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-body)}.target-mode,.tool-switch{margin-top:var(--app-space-4)}.target-form{margin-top:var(--app-space-4)}.target-form :deep(.el-form-item){margin-bottom:var(--app-space-3)}.target-summary{display:grid;gap:var(--app-space-2)}.target-summary>span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-summary>b{font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.explorer-panel{min-width:0}.explorer-tabs{margin-top:calc(var(--app-space-2) * -1)}.tool-card{margin:var(--app-space-3) 0}.tool-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3);align-items:start}.tool-fields :deep(.el-form-item){margin-bottom:var(--app-space-3)}.tool-actions{display:flex;justify-content:flex-end}.field-note{display:flex;align-items:center;min-height:var(--app-control-height);color:var(--app-text-secondary);font-size:var(--app-font-body)}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin:var(--app-space-4) 0 var(--app-space-2)}.result-heading h3{margin:0;font-size:var(--app-font-panel-title);font-weight:var(--app-font-weight-semibold)}.result-heading span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.pagination{display:flex;justify-content:flex-end;padding-top:var(--app-space-3)}
+.diagnostics-layout{display:grid;grid-template-columns:minmax(18rem,20rem) minmax(0,1fr);gap:var(--app-space-4);align-items:start}.target-panel{position:sticky;top:var(--app-space-4)}.panel-heading h3{margin:0}.panel-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-mode,.tool-switch{margin-top:var(--app-space-4)}.target-form{margin-top:var(--app-space-4)}.target-form :deep(.el-form-item){margin-bottom:var(--app-space-3)}.target-summary{display:grid;gap:var(--app-space-2)}.target-summary>span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.target-summary>b{color:var(--app-text-primary)}.explorer-panel{min-width:0}.explorer-tabs{margin-top:calc(var(--app-space-2) * -1)}.tool-card{margin:var(--app-space-3) 0}.tool-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-3);align-items:start}.tool-fields :deep(.el-form-item){margin-bottom:var(--app-space-3)}.tool-actions{display:flex;justify-content:flex-end}.field-note{display:flex;align-items:center;min-height:var(--app-control-height);color:var(--app-text-secondary)}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);margin:var(--app-space-4) 0 var(--app-space-2)}.result-heading h3{margin:0}.result-heading span{color:var(--app-text-muted);font-size:var(--app-font-caption)}.pagination{display:flex;justify-content:flex-end;padding-top:var(--app-space-3)}
 @media(max-width:1199px){.diagnostics-layout{grid-template-columns:1fr}.target-panel{position:static}.tool-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.tool-fields{grid-template-columns:1fr}.tool-actions{justify-content:flex-start}.pagination{justify-content:center;overflow-x:auto}}
 </style>
