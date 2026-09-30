@@ -1238,16 +1238,19 @@ Quality 表示**采集服务质量**，不是电能质量。边界固定为：
 
 Quality 页面不提供 Diagnose / Open Diagnostics 跳转按钮，避免把质量观察与根因诊断混成一个工作流。
 
-## 8.1 Check
+## 8.1 Channel Check
 
-页面统一提供：
+`Check / Auto Check / Check Interval` **只属于 Channel Quality**，Data Quality 不显示这些控件。
 
-- `Check`：立即执行一次质量检查；
+Channel Quality 提供：
+
+- `Check`：立即执行一次信道质量检查；
 - `Auto Check`：周期执行；
 - `Check Interval`：5 s / 10 s / 30 s / 1 min / 5 min；
-- `Last checked`：展示最近一次完成时间。
+- `Last checked`：最近一次完成时间；
+- `Next check`：Auto Check 开启时显示倒计时。
 
-重复 Check 必须被阻止。一次 Check 完成后统一更新 Summary、Channel、Dimension 与 Active Issues，不允许局部区域处于不同检查版本。
+重复 Check 必须被阻止。一次 Check 完成后统一更新 Channel Summary、Delivery Channels、Acquisition Channels、latency 统计和图表。前端 mock 也必须产生可观察的数据变化，不能只改变按钮状态。
 
 ## 8.2 Channel Quality
 
@@ -1258,18 +1261,16 @@ Channel Quality 分为：
 
 Acquisition Channels 默认支持 All / Abnormal 过滤，分页默认 20 条，可选 20 / 50 / 100。
 
-### Latency Distribution
+### Acquisition 图表
 
-Acquisition Channels 上方提供 ECharts latency histogram。统计范围为当前全部有效采集信道，**不受表格分页影响**。
+Acquisition Channels 使用两种互补图形，同一行展示：
 
-至少展示：
+1. **Latency Distribution**：宽图，使用 ECharts 柱状直方图；
+2. **Channel State**：窄图，使用 ECharts 饼图展示 Healthy / Degraded / Interrupted 构成。
 
-- P50；
-- P95；
-- P99；
-- latency bucket device count。
+Latency histogram 统计范围为当前全部有效采集信道，**不受表格分页影响**。bucket 应细分为 0–10 / 10–20 / 20–30 / 30–50 / 50–75 / 75–100 / 100–150 / 150–200 / 200–300 / 300–500 / 500+ ms，并展示 P50 / P95 / P99。
 
-鼠标悬停柱子时 Tooltip 展示该 bucket 内的 Device 与 latency，按 latency 从高到低排列。设备较多时最多直接展示 10 台，并显示剩余数量。
+Histogram Tooltip 只展示 bucket 范围和 channel 数量，不再展开具体机组清单。
 
 Latency 的统计口径由后端统一定义。请求/响应协议可使用一次采集交互耗时；订阅协议不得直接套用相同定义。
 
@@ -1283,12 +1284,15 @@ Data Quality 当前固定五个维度：
 - Validity；
 - Delivery Integrity。
 
+Data Quality 提供统一统计窗口 `1 h / 24 h / 7 d`。Summary、Quality Dimensions 与相关窗口统计必须使用同一个窗口语义。
+
 五个维度使用紧凑 Card 展示，不使用大面积留白的纵向列表。每张 Card 展示：
 
 - Dimension；
 - Status；
 - Primary Metric；
 - Secondary Detail；
+- Window；
 - 信息说明图标。
 
 信息说明使用 Element Plus Tooltip，解释该维度的定义，不重复当前状态。
@@ -1310,7 +1314,9 @@ Data Quality 当前固定五个维度：
 - dimension；
 - symptom；
 - impact；
-- last good。
+- duration。
+
+不展示 `Last Good`，因为页面长期打开时相对时间容易失真。后端保存 `started_at`，前端根据当前时间动态计算 Duration。
 
 恢复后的问题从 Active Data Issues 移除，历史保留在 Event / Log 中。
 
