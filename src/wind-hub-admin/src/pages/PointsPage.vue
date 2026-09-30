@@ -904,10 +904,10 @@ async function resetOverride(p: PointDef) {
                 </template>
                 <template v-else-if="protocol === 'modbus'">
                   <el-form-item label="Register Type"><el-select v-model="draft.register_type"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
-                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" / class="app-full-width"></el-form-item>
+                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" class="app-full-width" /></el-form-item>
                 </template>
                 <template v-else>
-                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" / class="app-full-width"></el-form-item>
+                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" class="app-full-width" /></el-form-item>
                   <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
                 </template>
                 <el-form-item label="Point Groups"><el-select v-model="draft.point_groups" multiple><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
