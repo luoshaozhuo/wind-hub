@@ -288,10 +288,7 @@ class ServerConfigValidator:
 
         target = DeviceProbeTarget(
             device_id=device.device_id,
-            protocol=device.protocol,
             host=device.endpoint.host,
-            port=device.endpoint.port,
-            point_table=device.point_table,
             options=dict(device.endpoint.extensions),
         )
         probe = ADSProbe(target)

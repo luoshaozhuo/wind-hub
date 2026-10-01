@@ -35,14 +35,11 @@ class ValidationCode(StrEnum):
 class DeviceProbeTarget:
     """协议探测所需的设备端点快照。
 
-    options 只承载协议适配层需要的连接参数；共享层不解释其内容。
+    当前用于短生命周期 ADS 主动验证；options 承载 ADS 连接扩展参数。
     """
 
     device_id: str
-    protocol: str
     host: str
-    port: int
-    point_table: str
     options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -59,7 +56,7 @@ class PointProbeSpec:
 class AddressResolution:
     """变量名解析出的协议地址。
 
-    ADS 使用 index_group / index_offset；其他协议可通过 extra 返回自己的地址元数据。
+    ADS 使用 index_group / index_offset，并保留远端 symbol type/size 元数据。
     """
 
     point_id: str
@@ -68,7 +65,6 @@ class AddressResolution:
     index_offset: int | None = None
     size: int | None = None
     protocol_type: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
