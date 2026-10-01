@@ -1186,7 +1186,7 @@ function stopTrendRefreshTimer() {
 function syncTrendRefreshTimer() {
   stopTrendRefreshTimer()
   if (drawer.value && tab.value === 'ControlTrend' && trendAutoRefresh.value) {
-    trendRefreshTimer = window.setInterval(()=>void void renderTrend(), 1000)
+    trendRefreshTimer = window.setInterval(()=>void renderTrend(), 1000)
   }
 }
 function onResize() {

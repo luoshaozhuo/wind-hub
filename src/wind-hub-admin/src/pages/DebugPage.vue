@@ -4,14 +4,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import { effectiveConnection, pointsOfTable, protocolOfDevice, store, tableOfDevice, unitSymbol } from '../api/data'
 import {
-  LATENCY,
   manualProtocolReadRow,
   manualProtocolWriteRow,
   pingHost,
   probePorts,
   runProtocolRead,
   runProtocolWrite,
-  sleep,
   scanSubnet,
 } from '../api/service'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../api/types'
@@ -26,7 +24,7 @@ const activeTab=ref<'network'|'protocol'>('network')
 const { isMobile }=useViewport()
 const running=ref(false)
 
-// Keep the admin mock aligned with wind_hub.config.ports_config default mapping / ports.yaml schema.
+// Keep the admin aligned with wind_hub default diagnostic port mapping.
 const DEFAULT_PORT_MAPPING:Record<number,string>={
   502:'modbus',
   2404:'iec104',

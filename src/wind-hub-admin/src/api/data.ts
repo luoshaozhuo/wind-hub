@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import { api, jsonBody } from './client'
 import type {
   DeviceGroupDef, DeviceInst, DeviceModelDef, DeviceTypeDef,
-  DeviceVerification, PointDef, PointGroupDef, PointTableDef,
+  DeviceVerification, PointAddress, PointDef, PointGroupDef, PointOrigin, PointTableDef,
   SinkDef, TaskDef, UnitDef,
 } from './types'
 
@@ -105,7 +105,7 @@ function normalizePoint(raw:Record<string,unknown>):PointDef {
     point_id:asString(raw.point_id),
     variable_name:asString(raw.variable_name,asString(raw.point_id)),
     point_groups:asArray(raw.point_groups).map(String),
-    address:{...asObject(raw.address)},
+    address:{...asObject(raw.address)} as PointAddress,
     data_type:asString(raw.data_type,'float32'),
     scale:asNumber(raw.scale,1),
     offset:asNumber(raw.offset,0),

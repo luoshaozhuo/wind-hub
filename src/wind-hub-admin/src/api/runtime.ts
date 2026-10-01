@@ -1,3 +1,4 @@
+import { store } from './data'
 import { reactive } from 'vue'
 import { api } from './client'
 
@@ -28,4 +29,22 @@ export async function loadLogs(limit=200){
     object:row.object,
     message:row.message,
   })))
+}
+
+
+export function deviceRuntimeState(deviceId:string, enabled=true){
+  const device=store.devices.find(row=>row.device_id===deviceId)
+  if(!enabled||!device?.enabled){
+    return {network:'disabled' as const,protocolError:null,failingPointIndexes:[],commandRejected:false,degradation:null}
+  }
+  if(!device.online){
+    return {
+      network:'unreachable' as const,
+      protocolError:{code:'CONNECTION_UNAVAILABLE',message:'Device is not connected'},
+      failingPointIndexes:[],
+      commandRejected:false,
+      degradation:null,
+    }
+  }
+  return {network:'ok' as const,protocolError:null,failingPointIndexes:[],commandRejected:false,degradation:null}
 }

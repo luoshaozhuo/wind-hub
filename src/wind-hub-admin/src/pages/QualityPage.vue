@@ -15,7 +15,6 @@ import {
   type QualityProblem,
   type QualityWindow,
 } from '../api/quality'
-import { LATENCY, runQualityCheck, sleep } from '../api/service'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
