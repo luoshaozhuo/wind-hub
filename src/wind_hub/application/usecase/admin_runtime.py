@@ -585,6 +585,62 @@ class QualityUseCase:
             for device_id in offline
         )
 
+        acquisition_channels = []
+        for device_id, device in self._runtime.devices.items():
+            state = self._runtime.device_state(device_id)
+            healthy = device.health().healthy
+            acquisition_channels.append(
+                {
+                    "object": device_id,
+                    "source": "Acquisition",
+                    "protocol": device.config.protocol.upper(),
+                    "state": "Healthy" if healthy else "Interrupted",
+                    "target": device.config.endpoint.host,
+                    "last": "—",
+                    "latency": "—",
+                    "timeouts": (
+                        1
+                        if state is not None
+                        and "timeout" in (state.last_error or "").lower()
+                        else 0
+                    ),
+                    "reconnects": (
+                        state.consecutive_failures
+                        if state is not None
+                        else 0
+                    ),
+                    "issue": (
+                        "—"
+                        if healthy
+                        else (
+                            state.last_error
+                            if state is not None
+                            else "Protocol unhealthy"
+                        )
+                    ),
+                }
+            )
+
+        delivery_channels = []
+        queue_depths = self._runtime.sink_queue_depths()
+        for name, sink in self._runtime.sinks.items():
+            health = sink.health()
+            delivery_channels.append(
+                {
+                    "object": name,
+                    "source": "Delivery",
+                    "protocol": "SINK",
+                    "state": "Healthy" if health.healthy else "Interrupted",
+                    "target": name,
+                    "last": "—",
+                    "latency": "—",
+                    "timeouts": 0,
+                    "reconnects": 0,
+                    "issue": health.message or ("—" if health.healthy else "Sink unhealthy"),
+                    "queue_depth": queue_depths.get(name, 0),
+                }
+            )
+
         communication_events = [
             {
                 "id": index + 1,
@@ -629,6 +685,8 @@ class QualityUseCase:
                 },
             ],
             "communicationEvents": communication_events,
+            "acquisitionChannels": acquisition_channels,
+            "deliveryChannels": delivery_channels,
             "dataMetrics": [
                 {
                     "key": "stale",
