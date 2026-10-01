@@ -33,6 +33,8 @@ async def _run(args: argparse.Namespace) -> int:
             result = await client.status()
         elif args.command == "devices":
             result = await client.devices()
+        elif args.command == "read":
+            result = await client.read(args.device_id, args.point_id)
         elif args.command == "tasks":
             result = await client.tasks()
         elif args.command == "task":
@@ -80,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("info", help="查询 Collector 基本信息")
     sub.add_parser("status", help="查询 Runtime 状态")
     sub.add_parser("devices", help="列出设备运行状态")
+
+    read = sub.add_parser("read", help="即时读取单个设备点位")
+    read.add_argument("device_id")
+    read.add_argument("point_id")
+
     sub.add_parser("tasks", help="列出 Task Instance")
 
     task = sub.add_parser("task", help="查询一个 Task Instance")

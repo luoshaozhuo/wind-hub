@@ -24,6 +24,7 @@ from wind_hub_core.rpc.collector import (
     GET_TASK_INSTANCE,
     LIST_DEVICES,
     LIST_TASK_INSTANCES,
+    READ_POINT,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK_INSTANCE,
@@ -146,6 +147,31 @@ class CollectorRuntimeService:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task instance: {exc.args[0]}")
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _struct(item.model_dump(mode="json"))
+
+    async def read_point(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """即时读取单个设备点位。"""
+        data = _request_dict(request)
+        try:
+            device_id = _required_string(data, "device_id")
+            point_id = _required_string(data, "point_id")
+            value = await self._runtime.query.read_point(device_id, point_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except Exception as exc:
+            from wind_hub.domain.model.errors import CommandError, ProtocolError
+
+            if isinstance(exc, CommandError):
+                await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            if isinstance(exc, ProtocolError):
+                await context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
+            raise
+
+        return _struct(value.model_dump(mode="json"))
 
     async def list_devices(
         self,
@@ -277,6 +303,11 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
+            READ_POINT: grpc.unary_unary_rpc_method_handler(
+                service.read_point,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
             LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
                 service.list_devices,
                 request_deserializer=empty_pb2.Empty.FromString,
@@ -347,8 +378,11 @@ def build_grpc_server(
             _control_handlers(control_service),
         )
     )
-    endpoint = f"{host}:{port}"
-    bound_port = server.add_insecure_port(endpoint)
+    requested_endpoint = f"{host}:{port}"
+    bound_port = server.add_insecure_port(requested_endpoint)
     if bound_port == 0:
-        raise RuntimeError(f"failed to bind Collector gRPC endpoint {endpoint}")
+        raise RuntimeError(
+            f"failed to bind Collector gRPC endpoint {requested_endpoint}"
+        )
+    endpoint = f"{host}:{bound_port}"
     return CollectorGrpcServer(server=server, endpoint=endpoint)

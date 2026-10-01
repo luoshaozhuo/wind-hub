@@ -12,6 +12,7 @@ GET_RUNTIME_STATUS = "GetRuntimeStatus"
 LIST_TASK_INSTANCES = "ListTaskInstances"
 GET_TASK_INSTANCE = "GetTaskInstance"
 LIST_DEVICES = "ListDevices"
+READ_POINT = "ReadPoint"
 
 START_TASK_INSTANCE = "StartTaskInstance"
 STOP_TASK_INSTANCE = "StopTaskInstance"

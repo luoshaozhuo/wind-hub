@@ -14,6 +14,7 @@ service CollectorRuntimeService {
   rpc ListTaskInstances(google.protobuf.Empty) returns (google.protobuf.Struct);
   rpc GetTaskInstance(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc ListDevices(google.protobuf.Empty) returns (google.protobuf.Struct);
+  rpc ReadPoint(google.protobuf.Struct) returns (google.protobuf.Struct);
 }
 
 service CollectorControlService {

@@ -17,6 +17,7 @@ from wind_hub_core.rpc.collector import (
     GET_TASK_INSTANCE,
     LIST_DEVICES,
     LIST_TASK_INSTANCES,
+    READ_POINT,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK_INSTANCE,
@@ -102,6 +103,13 @@ class CollectorClient:
 
     async def devices(self) -> dict[str, Any]:
         return await self._call_empty(RUNTIME_SERVICE, LIST_DEVICES)
+
+    async def read(self, device_id: str, point_id: str) -> dict[str, Any]:
+        return await self._call_struct(
+            RUNTIME_SERVICE,
+            READ_POINT,
+            {"device_id": device_id, "point_id": point_id},
+        )
 
     async def tasks(self) -> dict[str, Any]:
         return await self._call_empty(RUNTIME_SERVICE, LIST_TASK_INSTANCES)
