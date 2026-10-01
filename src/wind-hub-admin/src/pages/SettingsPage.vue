@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
-import { LATENCY, sleep } from '../mock/service'
+import { LATENCY, sleep, saveSettings } from '../services/backend'
 import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../mock/yaml'
 
 const saving = ref(false)
