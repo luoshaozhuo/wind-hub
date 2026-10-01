@@ -254,7 +254,7 @@ def assemble(
     operations = OperationManager()
     logs = EventLogStore()
     admin_config = AdminConfigUseCase(config, logs)
-    sink_ops = SinkUseCase(runtime, logs)
+    sink_ops = SinkUseCase(runtime, lambda: config.current_config, logs)
     diagnostics = DiagnosticUseCase(query, device_control, operations, logs)
     quality = QualityUseCase(
         runtime,
