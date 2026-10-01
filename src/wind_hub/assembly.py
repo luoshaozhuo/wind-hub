@@ -270,7 +270,7 @@ def assemble(
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
-    devices_usecase = DeviceUseCase(runtime)
+    devices_usecase = DeviceUseCase(runtime, config)
     device_data = DeviceDataUseCase(runtime, config, latest_points, trend_store)
     device_control = DeviceControlUseCase(command, query, latest_points, trend_store)
     overview = OverviewUseCase(query=query, tasks=tasks, config=config)

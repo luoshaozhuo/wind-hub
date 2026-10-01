@@ -9,6 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from wind_hub.application.runtime.runtime import Runtime
+from wind_hub.application.usecase.config import ConfigUseCase
 
 
 class DeviceSnapshot(BaseModel):
@@ -23,6 +24,8 @@ class DeviceSnapshot(BaseModel):
     model: str | None = None
     device_group: str | None = None
     extensions: dict[str, object]
+    port_override: int | None = None
+    extension_overrides: dict[str, object]
     enabled: bool
     connected: bool
     consecutive_failures: int = 0
@@ -32,8 +35,13 @@ class DeviceSnapshot(BaseModel):
 class DeviceUseCase:
     """设备管理页的只读查询入口。"""
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(
+        self,
+        runtime: Runtime,
+        config: ConfigUseCase | None = None,
+    ) -> None:
         self._runtime = runtime
+        self._config = config
 
     async def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
         """返回设备快照，可按 ID/地址/型号/分组进行大小写无关过滤。"""
@@ -68,6 +76,7 @@ class DeviceUseCase:
         device = self._runtime.devices[device_id]
         cfg = device.config
         state = self._runtime.device_state(device_id)
+        port_override, extension_overrides = self._connection_overrides(cfg)
         return DeviceSnapshot(
             device_id=device_id,
             protocol=cfg.protocol,
@@ -78,8 +87,36 @@ class DeviceUseCase:
             model=cfg.model,
             device_group=cfg.device_group,
             extensions=dict(cfg.endpoint.extensions),
+            port_override=port_override,
+            extension_overrides=extension_overrides,
             enabled=cfg.enabled,
             connected=device.health().healthy,
             consecutive_failures=state.consecutive_failures if state is not None else 0,
             last_error=state.last_error if state is not None else None,
         )
+
+
+    def _connection_overrides(
+        self,
+        cfg: object,
+    ) -> tuple[int | None, dict[str, object]]:
+        """从 resolved endpoint 反推出实例连接差异，避免把型号默认值固化。"""
+        endpoint = cfg.endpoint
+        if self._config is None or not cfg.model:
+            return endpoint.port, dict(endpoint.extensions)
+        model = self._config.current_config.device_models.get(cfg.model)
+        if model is None:
+            return endpoint.port, dict(endpoint.extensions)
+        defaults = dict(model.connection_defaults)
+        default_port = defaults.pop("port", None)
+        port_override = (
+            endpoint.port
+            if default_port is None or endpoint.port != default_port
+            else None
+        )
+        extensions = {
+            key: value
+            for key, value in endpoint.extensions.items()
+            if key not in defaults or defaults[key] != value
+        }
+        return port_override, extensions

@@ -12,7 +12,7 @@ interface DeviceDto {
   device_id:string; protocol:string; host:string; port:number; point_table:string;
   device_type?:string|null; model?:string|null; device_group?:string|null;
   enabled:boolean; connected:boolean; consecutive_failures:number; last_error?:string|null;
-  extensions?:Record<string,unknown>
+  extensions?:Record<string,unknown>; port_override?:number|null; extension_overrides?:Record<string,unknown>
 }
 interface TaskDto {
   task_id:string; device?:string|null; device_group?:string|null; point_group:string;
@@ -158,8 +158,8 @@ function hydrateDevices(page:Page<DeviceDto>, defs:DefinitionsDto){
     model:row.model||'',
     device_group:row.device_group||'',
     host:row.host,
-    port:row.port,
-    extensions:{...(row.extensions||{})},
+    port:row.port_override??undefined,
+    extensions:{...(row.extension_overrides||{})},
     enabled:row.enabled,
     online:row.connected,
   }))

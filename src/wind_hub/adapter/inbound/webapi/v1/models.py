@@ -31,6 +31,8 @@ class DeviceResponse(BaseModel):
     model: str | None = None
     device_group: str | None = None
     extensions: dict[str, Any] = Field(default_factory=dict)
+    port_override: int | None = None
+    extension_overrides: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
     connected: bool
     consecutive_failures: int
