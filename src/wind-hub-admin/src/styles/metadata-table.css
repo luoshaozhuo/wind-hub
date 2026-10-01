@@ -1,0 +1,42 @@
+/* Master-detail 元数据管理（Points / Devices 的 Manage Metadata Drawer）共享样式。
+ * 两个页面使用同一套对象列表表格与信息排版，避免各自 scoped deep selector 重复定义。 */
+.metadata-object-table {
+  width: 100%;
+  cursor: pointer;
+}
+
+.metadata-object-table .el-table__inner-wrapper::before {
+  display: none;
+}
+
+.metadata-object-table .el-table__cell {
+  padding: var(--app-space-2) 0 !important;
+}
+
+.metadata-object-table .el-table__row.current-row > td.el-table__cell {
+  background: var(--app-bg-subtle);
+}
+
+.metadata-object-info {
+  min-width: 0;
+  padding-left: var(--app-space-1);
+}
+
+.metadata-object-info b,
+.metadata-object-info small {
+  display: block;
+}
+
+.metadata-object-info b {
+  color: var(--app-text-primary);
+  font-size: var(--app-font-body);
+  font-weight: var(--app-font-weight-semibold);
+}
+
+.metadata-object-info small {
+  margin-top: var(--app-space-1);
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+  line-height: var(--app-line-height-compact);
+  white-space: normal;
+}

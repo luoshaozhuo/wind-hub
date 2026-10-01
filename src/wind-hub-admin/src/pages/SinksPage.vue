@@ -4,8 +4,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import { refreshTaskValidity, store } from '../mock/data'
 import type { SinkDef, SinkRuntimeState, SinkType, SinkVerificationCheck } from '../mock/types'
+import { nowText } from '../utils/format'
+import { statusTagType } from '../utils/status'
 
-const { isMobile }=useViewport()
+const { isMobile, isDesktop }=useViewport()
 const drawerSize=computed(()=>isMobile.value?'100%':'min(var(--app-drawer-width-md), 84vw)')
 const search=ref('')
 const typeFilter=ref<'All'|SinkType>('All')
@@ -15,8 +17,12 @@ const drawerTab=ref('Summary')
 const creating=ref(false)
 const selectedName=ref('')
 const sinkSnapshot=ref('')
-const testLoading=ref(false)
+// Verify 与 Write Test 是两套独立操作状态；同一 Sink 上两者互斥，Verify All 与单 Sink 操作互斥，
+// 避免交叉覆盖 runtime_state / verification。
+const verifyingSink=ref('')
+const writeTestingSink=ref('')
 const verifyAllRunning=ref(false)
+const sinkOperationActive=computed(()=>verifyAllRunning.value||!!verifyingSink.value||!!writeTestingSink.value)
 const batchVerification=ref<{checked_at:string;checked:number;passed:number;failed:number;warning:number}|null>(null)
 const testResult=ref<{ok:boolean;title:string;detail:string;latency:number}|null>(null)
 
@@ -38,14 +44,7 @@ const draft=reactive({
 const sinkDraftState=computed(()=>JSON.stringify(draft))
 const sinkDirty=computed(()=>creating.value ? sinkDraftState.value!==sinkSnapshot.value : (!!selected.value && sinkDraftState.value!==sinkSnapshot.value))
 
-function nowText(){
-  const d=new Date(); const p=(n:number)=>String(n).padStart(2,'0')
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
 function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms))}
-function stateType(state:SinkRuntimeState):''|'success'|'warning'|'danger'|'info'{
-  if(state==='healthy')return'success'; if(state==='warning')return'warning'; if(state==='failed')return'danger'; if(state==='testing')return''; return'info'
-}
 function stateLabel(s:SinkDef){return !s.enabled?'Disabled':s.runtime_state.charAt(0).toUpperCase()+s.runtime_state.slice(1)}
 function endpointSummary(s:SinkDef){
   if(s.type==='kafka')return `${s.params.bootstrap_servers||'—'} · ${s.params.topic||'—'}`
@@ -57,7 +56,7 @@ function verifyLabel(s:SinkDef){
   if(s.verification.state==='never')return'Never'
   return `${s.verification.state==='passed'?'PASS':'FAIL'} · ${s.verification.passed}/${s.verification.total}`
 }
-function verifyType(s:SinkDef):''|'success'|'danger'|'info'{return s.verification.state==='passed'?'success':s.verification.state==='failed'?'danger':'info'}
+function verifyType(s:SinkDef){return statusTagType(s.verification.state)}
 
 function resetDraft(type:SinkType='file'){
   Object.assign(draft,{name:'',type,enabled:true,bootstrap_servers:'',topic:'',key_field:'',compression_type:'',acks:'all',retries:3,kafka_batch_size:16384,linger_ms:0,dsn:'',table:'points',db_batch_size:1000,create_table:false,pool_min_size:1,pool_max_size:10,path:'',format:'jsonl',max_size_mb:100,max_age_hours:24,compress:false,compress_level:6,buffer_size:100,flush_interval:1,write_header:true})
@@ -99,7 +98,11 @@ async function saveSink(){
     store.sinks.push(sink);selectedName.value=sink.name;creating.value=false;loadDraft(sink)
   }else if(selected.value){
     const refs=taskRefs(selected.value.name),running=refs.filter(t=>t.runtime==='RUNNING')
-    if(refs.length)await ElMessageBox.confirm('<b>Sink Change Impact</b><br><br>'+refs.length+' Task(s) reference this Sink; '+running.length+' currently running.<br>The Sink instance will be reopened.','Apply Sink Changes',{type:'warning',confirmButtonText:'Apply Changes',dangerouslyUseHTMLString:true})
+    if(refs.length){
+      try{
+        await ElMessageBox.confirm('<b>Sink Change Impact</b><br><br>'+refs.length+' Task(s) reference this Sink; '+running.length+' currently running.<br>The Sink instance will be reopened.','Apply Sink Changes',{type:'warning',confirmButtonText:'Apply Changes',dangerouslyUseHTMLString:true})
+      }catch{return}
+    }
     selected.value.params=params;selected.value.enabled=draft.enabled;selected.value.runtime_state=draft.enabled?'unknown':'disabled';selected.value.error='';loadDraft(selected.value)
   }
   refreshTaskValidity();ElMessage.success(wasCreating?'Sink created (mock)':'Sink configuration saved (mock)')
@@ -161,7 +164,10 @@ function simulatedIcmpWarning(s:SinkDef,name:string){
   return name==='ICMP' && s.type==='kafka'
 }
 async function verifySink(s:SinkDef,quiet=false){
-  if(!quiet)testLoading.value=true
+  if(!quiet){
+    if(sinkOperationActive.value)return
+    verifyingSink.value=s.name
+  }
   const plan=checkPlan(s)
   const checks:SinkVerificationCheck[]=[]
   s.runtime_state='testing'
@@ -194,11 +200,11 @@ async function verifySink(s:SinkDef,quiet=false){
   if(!quiet){
     if(failed)ElMessage.error(`${s.name}: ${verifyLabel(s)}`)
     else ElMessage.success(`${s.name}: ${verifyLabel(s)}`)
-    testLoading.value=false
+    verifyingSink.value=''
   }
 }
 async function verifyAll(){
-  if(verifyAllRunning.value)return
+  if(sinkOperationActive.value)return
   const targets=[...store.sinks]
   if(!targets.length){ElMessage.warning('No Sinks configured');return}
   verifyAllRunning.value=true
@@ -219,8 +225,16 @@ async function verifyAll(){
   }finally{verifyAllRunning.value=false}
 }
 async function writeTest(s:SinkDef){
-  await ElMessageBox.confirm('Write one synthetic PointValue to "'+s.name+'"? This test has a real side effect in the backend implementation.','Write Test',{type:'warning',confirmButtonText:'Write Test'})
-  testLoading.value=true;await sleep(420);s.last_write_at=nowText();s.writes_total+=1;testResult.value={ok:true,title:'Write test passed',detail:'Synthetic PointValue accepted by the Sink (mock).',latency:18};testLoading.value=false
+  if(sinkOperationActive.value)return
+  try{
+    await ElMessageBox.confirm('Write one synthetic PointValue to "'+s.name+'"? This test has a real side effect in the backend implementation.','Write Test',{type:'warning',confirmButtonText:'Write Test'})
+  }catch{return}
+  writeTestingSink.value=s.name
+  try{
+    await sleep(420)
+    s.last_write_at=nowText();s.writes_total+=1
+    testResult.value={ok:true,title:'Write test passed',detail:'Synthetic PointValue accepted by the Sink (mock).',latency:18}
+  }finally{writeTestingSink.value=''}
 }
 async function toggleEnabled(s:SinkDef,enabled:boolean){
   const refs=taskRefs(s.name)
@@ -229,14 +243,16 @@ async function toggleEnabled(s:SinkDef,enabled:boolean){
 }
 async function deleteSink(s:SinkDef){
   const refs=taskRefs(s.name);if(refs.length){ElMessage.warning('Cannot delete: referenced by '+refs.length+' Task(s)');return}
-  await ElMessageBox.confirm('Delete Sink "'+s.name+'"?','Delete Sink',{type:'warning',confirmButtonText:'Delete'})
+  try{
+    await ElMessageBox.confirm('Delete Sink "'+s.name+'"?','Delete Sink',{type:'warning',confirmButtonText:'Delete'})
+  }catch{return}
   store.sinks.splice(store.sinks.indexOf(s),1);drawerOpen.value=false;ElMessage.success('Sink deleted (mock)')
 }
 </script>
 
 <template>
   <div class="sinks-page">
-    <div class="head page-head"><div><h1>Sinks</h1><p>输出端配置、运行状态、连通性与写入测试</p></div><div class="head-actions"><el-button type="primary" @click="openAdd">+ Add Sink</el-button><el-dropdown trigger="click"><el-button :loading="verifyAllRunning">Actions</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="verifyAllRunning||!store.sinks.length" title="Non-writing staged verification; Write Test is never included" @click="verifyAll">Verify All Sinks</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
+    <div class="head page-head"><div><h1>Sinks</h1><p>输出端配置、运行状态、连通性与写入测试</p></div><div class="head-actions"><el-button type="primary" @click="openAdd">+ Add Sink</el-button><el-dropdown trigger="click"><el-button :loading="verifyAllRunning">Actions</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="sinkOperationActive||!store.sinks.length" title="Non-writing staged verification; Write Test is never included" @click="verifyAll">Verify All Sinks</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></div>
 
     <el-card shadow="never">
       <div class="sink-filter-row">
@@ -251,13 +267,13 @@ async function deleteSink(s:SinkDef){
 
     <el-card shadow="never">
       <el-table :data="rows" row-key="name">
-        <el-table-column label="Sink" min-width="150"><template #default="{row}"><el-link :underline="false" @click="openSink(row)"><b>{{row.name}}</b></el-link></template></el-table-column>
+        <el-table-column label="Sink" min-width="150"><template #default="{row}"><el-button link @click="openSink(row)"><b>{{row.name}}</b></el-button></template></el-table-column>
         <el-table-column label="Type" width="110"><template #default="{row}">{{row.type==='db'?'PostgreSQL':row.type.toUpperCase()}}</template></el-table-column>
-        <el-table-column label="Endpoint" min-width="220" show-overflow-tooltip><template #default="{row}">{{endpointSummary(row)}}</template></el-table-column>
+        <el-table-column v-if="isDesktop" label="Endpoint" min-width="220" show-overflow-tooltip><template #default="{row}">{{endpointSummary(row)}}</template></el-table-column>
         <el-table-column label="Verification" width="125"><template #default="{row}"><el-tag :type="verifyType(row)" size="small">{{verifyLabel(row)}}</el-tag></template></el-table-column>
-        <el-table-column label="Last Verified" min-width="145"><template #default="{row}">{{row.verification.checked_at||'Never'}}</template></el-table-column>
-        <el-table-column label="State" width="105"><template #default="{row}"><el-tag :type="stateType(row.enabled?row.runtime_state:'disabled')" size="small">{{stateLabel(row)}}</el-tag></template></el-table-column>
-        <el-table-column label="Tasks" width="75" align="right"><template #default="{row}">{{taskRefs(row.name).length}}</template></el-table-column>
+        <el-table-column v-if="isDesktop" label="Last Verified" min-width="145"><template #default="{row}">{{row.verification.checked_at||'Never'}}</template></el-table-column>
+        <el-table-column label="State" width="105"><template #default="{row}"><el-tag :type="statusTagType(row.enabled?row.runtime_state:'disabled')" size="small">{{stateLabel(row)}}</el-tag></template></el-table-column>
+        <el-table-column v-if="isDesktop" label="Tasks" width="75" align="right"><template #default="{row}">{{taskRefs(row.name).length}}</template></el-table-column>
         <el-table-column label="Enabled" width="95"><template #default="{row}"><el-switch v-model="row.enabled" @change="toggleEnabled(row,!!$event)"/></template></el-table-column>
       </el-table>
     </el-card>
@@ -296,7 +312,7 @@ async function deleteSink(s:SinkDef){
         </el-tab-pane>
 
         <el-tab-pane label="Test" name="Test" v-if="selected">
-          <div class="section-head"><div><h3>Connection Verification</h3><p>No business data is written. The same staged checks are used by Verify All Sinks.</p></div><el-button type="primary" :loading="testLoading" @click="verifySink(selected)">Verify</el-button></div>
+          <div class="section-head"><div><h3>Connection Verification</h3><p>No business data is written. The same staged checks are used by Verify All Sinks.</p></div><el-button type="primary" :loading="verifyingSink===selected.name" :disabled="verifyAllRunning||writeTestingSink===selected.name" @click="verifySink(selected)">Verify</el-button></div>
           <el-table :data="selected.verification.checks" size="small" empty-text="Not verified yet" table-layout="fixed">
             <el-table-column label="Check" width="190">
               <template #default="{row}">
@@ -305,7 +321,7 @@ async function deleteSink(s:SinkDef){
             </el-table-column>
             <el-table-column label="Result" width="100">
               <template #default="{row}">
-                <el-tag :type="row.state==='passed'?'success':row.state==='warning'?'warning':row.state==='failed'?'danger':'info'" size="small">{{row.state}}</el-tag>
+                <el-tag :type="statusTagType(row.state)" size="small">{{row.state}}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="Evidence" min-width="260">
@@ -323,7 +339,7 @@ async function deleteSink(s:SinkDef){
           <div class="test-meta">Last verified: {{selected.verification.checked_at||'Never'}} · {{verifyLabel(selected)}}</div>
           <el-divider content-position="left">Write Test</el-divider>
           <el-alert type="warning" :closable="false" title="Write Test sends one synthetic PointValue and therefore has a real side effect."/>
-          <el-button class="app-mt-3" :loading="testLoading" @click="writeTest(selected)">Write Test</el-button>
+          <el-button class="app-mt-3" :loading="writeTestingSink===selected.name" :disabled="verifyAllRunning||verifyingSink===selected.name" @click="writeTest(selected)">Write Test</el-button>
           <el-result v-if="testResult" :icon="testResult.ok?'success':'error'" :title="testResult.title" :sub-title="testResult.detail"/>
         </el-tab-pane>
       </el-tabs>
@@ -334,7 +350,6 @@ async function deleteSink(s:SinkDef){
 <style scoped>
 .sink-filter-row{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4)}.sink-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.45fr) minmax(0,.45fr);gap:var(--app-space-3);flex:1}.batch-verify-summary{display:grid;gap:var(--app-space-1);text-align:right}.batch-verify-summary span,.batch-verify-summary time{color:var(--app-text-muted);font-size:var(--app-font-caption)}.batch-verify-summary b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.sink-summary-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,.55fr);gap:var(--app-space-4)}.sink-editor-card,.sink-runtime-card{border:1px solid var(--app-border-soft);border-radius:var(--app-card-radius);padding:var(--app-space-4);min-width:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--app-space-3);margin-bottom:var(--app-space-4)}.section-head h3,.sink-runtime-card h3{margin:0}.section-head p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.sink-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}.runtime-list{display:grid;gap:var(--app-space-2)}.runtime-list>div{display:flex;justify-content:space-between;gap:var(--app-space-3);padding:var(--app-space-2) 0;border-bottom:1px solid var(--app-border-soft)}.runtime-list span{color:var(--app-text-muted)}.runtime-list b{text-align:right}.danger-row{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}.verify-check,.verify-evidence{display:grid;gap:var(--app-space-1);min-width:0}.verify-check span{color:var(--app-text-muted);font-size:var(--app-font-caption);text-transform:capitalize}.verify-check b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.verify-evidence b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--app-font-label);font-weight:var(--app-font-weight-medium)}.verify-evidence span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--app-text-muted);font-size:var(--app-font-caption)}
 .test-meta{margin-top:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}.editor-actions{display:flex;justify-content:flex-end;margin-top:var(--app-space-4)}
-@media(max-width:1199px){.sink-summary-grid{grid-template-columns:1fr}}
-@media(max-width:1199px){.sink-filter-row{align-items:stretch;flex-direction:column}.batch-verify-summary{text-align:left}}
+@media(max-width:1199px){.sink-summary-grid{grid-template-columns:1fr}.sink-filter-row{align-items:stretch;flex-direction:column}.batch-verify-summary{text-align:left}}
 @media(max-width:767px){.sink-filters,.sink-form-grid{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}}
 </style>

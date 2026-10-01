@@ -13,15 +13,21 @@ const systemInfo = {
   adminVersion: 'v0.3.0',
   runtimeStatus: 'RUNNING',
   configSet: 'template',
+  // Settings 页可编辑的运行/服务设置，保存时持久化到 mock store。
+  timezone: 'Asia/Shanghai',
+  logLevel: 'INFO',
+  tempDirectory: '/var/tmp/wind-hub',
+  dataDirectory: '/var/lib/wind-hub',
+  reloadPolicy: 'incremental',
+  apiHost: '0.0.0.0',
+  apiPort: 8080,
+  timeSync: 'systemd-timesyncd',
+  // 全局 ADS 本机身份：字段与 system.yaml 的 ads 段一一对应（password 允许为空）。
   ads: {
     local_ip: '192.168.151.244',
     local_ams_net_id: '192.168.151.244.1.2',
-    route_repair: {
-      enabled: false,
-      route_name: 'PFR',
-      username: 'Administrator',
-      password: '',
-    },
+    username: 'Administrator',
+    password: '',
   },
 }
 

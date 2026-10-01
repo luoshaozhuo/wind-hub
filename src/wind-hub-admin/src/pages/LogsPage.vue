@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
+import { formatTimestamp } from '../utils/format'
 
 interface Entry {
   time: string
@@ -27,7 +28,7 @@ const samples: [Entry['level'], string, string, string][] = [
 const logs: Entry[] = Array.from({ length: 140 }, (_, i) => {
   const [level, source, object, message] = samples[i % samples.length]
   const time = new Date(2026, 8, 27, 15, 43 + Math.floor(i / 6), (i * 7) % 60)
-  return { time: time.toLocaleTimeString('en-GB'), level, source, object, message }
+  return { time: formatTimestamp(time), level, source, object, message }
 })
 
 const level = ref<'All' | Entry['level']>('ERROR')
@@ -78,7 +79,7 @@ watch([level, source, keyword, pageSize], () => {
       </div>
 
       <el-table :data="pagedLogs" height="var(--app-table-viewport-height)" empty-text="No logs match current filters">
-        <el-table-column v-if="!isMobile" prop="time" label="Time" width="110" />
+        <el-table-column v-if="!isMobile" prop="time" label="Time" width="180" />
         <el-table-column label="Level" width="100">
           <template #default="{ row }">
             <el-tag :type="row.level === 'ERROR' ? 'danger' : row.level === 'WARN' ? 'warning' : 'info'">{{ row.level }}</el-tag>

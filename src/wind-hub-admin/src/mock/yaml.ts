@@ -28,11 +28,8 @@ runtime:
 ads:
   local_ams_net_id: "192.168.151.244.1.2"
   local_ip: "192.168.151.244"
-  route_repair:
-    enabled: false
-    route_name: "PFR"
-    username: "Administrator"
-    password: ""
+  username: "Administrator"
+  password: ""
 
 sinks:
   - name: kafka_main
@@ -204,20 +201,23 @@ export function updateMockSiteYaml(siteId: string, siteName: string) {
   yamlFiles['system.yaml'] = next
 }
 
+// 双引号 YAML 标量的最小转义，避免用户输入破坏 mock 文档结构。
+function yamlQuote(value: string) {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
 export function updateMockAdsYaml(settings: {
   local_ip: string
   local_ams_net_id: string
-  route_repair: { enabled: boolean; route_name: string; username: string; password: string }
+  username: string
+  password: string
 }) {
   const source = yamlFiles['system.yaml']
   const block = `ads:
-  local_ams_net_id: "${settings.local_ams_net_id}"
-  local_ip: "${settings.local_ip}"
-  route_repair:
-    enabled: ${settings.route_repair.enabled}
-    route_name: "${settings.route_repair.route_name}"
-    username: "${settings.route_repair.username}"
-    password: "${settings.route_repair.password}"`
+  local_ams_net_id: ${yamlQuote(settings.local_ams_net_id)}
+  local_ip: ${yamlQuote(settings.local_ip)}
+  username: ${yamlQuote(settings.username)}
+  password: ${yamlQuote(settings.password)}`
   yamlFiles['system.yaml'] = source.replace(/ads:\n[\s\S]*?(?=\n\nsinks:)/m, block)
 }
 

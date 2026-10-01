@@ -26,12 +26,29 @@ const tableDef = computed(() => store.pointTables.find(t => t.id === pointTable.
 const rows = computed<PointDef[]>(() => pointsOfTable(pointTable.value))
 const pointPage = ref(1)
 const pointPageSize = ref(50)
+const pointSearch = ref('')
+// 搜索在分页之前对全量 rows 过滤：point_id / variable_name / 地址文本 / point_group。
+const filteredRows = computed(() => {
+  const q = pointSearch.value.trim().toLowerCase()
+  if (!q) return rows.value
+  return rows.value.filter(p =>
+    p.point_id.toLowerCase().includes(q) ||
+    p.variable_name.toLowerCase().includes(q) ||
+    addressOf(p).toLowerCase().includes(q) ||
+    p.point_groups.some(g => g.toLowerCase().includes(q)),
+  )
+})
 const pagedRows = computed(() => {
   const start = (pointPage.value - 1) * pointPageSize.value
-  return rows.value.slice(start, start + pointPageSize.value)
+  return filteredRows.value.slice(start, start + pointPageSize.value)
 })
-watch(pointTable, () => {
+watch([pointTable, pointSearch], () => {
   pointPage.value = 1
+})
+// 删除当前页最后一条或缩小过滤结果后，页码回收到合法范围。
+watch([filteredRows, pointPageSize], () => {
+  const maxPage = Math.max(1, Math.ceil(filteredRows.value.length / pointPageSize.value))
+  if (pointPage.value > maxPage) pointPage.value = maxPage
 })
 const { isMobile, isTablet } = useViewport()
 const addrLabel = computed(() =>
@@ -49,15 +66,17 @@ async function confirmTableImpact(tableId: string, title: string, action: string
   const impact = tableImpact(tableId)
   const running = impact.tasks.filter(t => t.runtime === 'RUNNING')
   if (!impact.devices.length && !impact.tasks.length && impact.tables.length === 1) return true
-  await ElMessageBox.confirm(
-    '<b>' + action + '</b><br><br>' +
-    impact.tables.length + ' Point Table(s) affected.<br>' +
-    impact.devices.length + ' Device(s) affected.<br>' +
-    impact.tasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br><br>' +
-    'Affected running tasks will be stopped while the change is applied and restored if they remain valid.',
-    title,
-    { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
-  )
+  try {
+    await ElMessageBox.confirm(
+      '<b>' + action + '</b><br><br>' +
+      impact.tables.length + ' Point Table(s) affected.<br>' +
+      impact.devices.length + ' Device(s) affected.<br>' +
+      impact.tasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br><br>' +
+      'Affected running tasks will be stopped while the change is applied and restored if they remain valid.',
+      title,
+      { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+    )
+  } catch { return false }
   return true
 }
 
@@ -350,8 +369,9 @@ async function saveTable() {
     }
 
     if (protocolChanged || parentChanged) {
-      await confirmTableImpact(target.id, 'Point Table Change Impact',
+      const ok = await confirmTableImpact(target.id, 'Point Table Change Impact',
         protocolChanged ? 'Change Point Table protocol?' : 'Change parent Point Table?')
+      if (!ok) return
     }
 
     withAffectedTasksStopped(target.id, () => {
@@ -390,13 +410,15 @@ async function deleteTable(row: { id: string; protocol: Protocol; points: number
     return
   }
 
-  await ElMessageBox.confirm(
-    '<b>Delete Point Table "' + row.id + '"?</b><br><br>' +
-    row.points + ' effective point(s) will no longer be available.<br>' +
-    'No references will be migrated automatically.',
-    'Delete Point Table',
-    { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
-  )
+  try {
+    await ElMessageBox.confirm(
+      '<b>Delete Point Table "' + row.id + '"?</b><br><br>' +
+      row.points + ' effective point(s) will no longer be available.<br>' +
+      'No references will be migrated automatically.',
+      'Delete Point Table',
+      { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
+    )
+  } catch { return }
 
   store.pointTables.splice(store.pointTables.findIndex(t => t.id === row.id), 1)
   delete store.points[row.id]
@@ -475,11 +497,13 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
     return
   }
 
-  await ElMessageBox.confirm(
-    'Delete Point Group "' + row.id + '"? References will not be migrated automatically.',
-    'Delete Point Group',
-    { type: 'warning', confirmButtonText: 'Delete' },
-  )
+  try {
+    await ElMessageBox.confirm(
+      'Delete Point Group "' + row.id + '"? References will not be migrated automatically.',
+      'Delete Point Group',
+      { type: 'warning', confirmButtonText: 'Delete' },
+    )
+  } catch { return }
   store.pointGroups.splice(store.pointGroups.findIndex(g => g.id === row.id), 1)
   if (groupEditingId.value === row.id) newGroup()
   ElMessage.success('Point group deleted (mock)')
@@ -637,10 +661,11 @@ async function savePoint() {
   }
 
   if (editing.value) {
-    await confirmTableImpact(pointTable.value, 'Point Change Impact',
+    const ok = await confirmTableImpact(pointTable.value, 'Point Change Impact',
       originOf({ ...row, point_id: editing.value }) === 'inherited'
         ? 'Create an override for this inherited point?'
         : 'Update this point definition?')
+    if (!ok) return
   }
 
   withAffectedTasksStopped(pointTable.value, () => {
@@ -657,8 +682,9 @@ async function savePoint() {
 
 async function delPoint(p: PointDef) {
   const origin = originOf(p)
-  await confirmTableImpact(pointTable.value, 'Point Delete Impact',
+  const ok = await confirmTableImpact(pointTable.value, 'Point Delete Impact',
     origin === 'inherited' ? 'Exclude this inherited point from the child table?' : 'Delete this point from the effective table?')
+  if (!ok) return
 
   withAffectedTasksStopped(pointTable.value, () => {
     const list = store.points[pointTable.value]
@@ -676,7 +702,8 @@ async function delPoint(p: PointDef) {
 
 async function resetOverride(p: PointDef) {
   if (originOf(p) !== 'override') return
-  await confirmTableImpact(pointTable.value, 'Reset Override Impact', 'Restore the parent definition for this point?')
+  const ok = await confirmTableImpact(pointTable.value, 'Reset Override Impact', 'Restore the parent definition for this point?')
+  if (!ok) return
   withAffectedTasksStopped(pointTable.value, () => {
     const list = store.points[pointTable.value]
     const i = list.findIndex(x => x.point_id === p.point_id)
@@ -705,11 +732,18 @@ async function resetOverride(p: PointDef) {
             </el-select>
             <span class="table-meta">{{ protocol.toUpperCase() }}</span>
             <span v-if="tableDef?.extends" class="table-meta">extends {{ tableDef.extends }}</span>
-            <span class="muted">{{ rows.length }} points</span>
+            <span class="muted">{{ pointSearch ? filteredRows.length + ' / ' : '' }}{{ rows.length }} points</span>
           </div>
         </div>
 
         <div class="table-actions">
+          <el-input
+            v-model="pointSearch"
+            class="point-search"
+            clearable
+            placeholder="Search point / variable / address / group"
+            aria-label="Search points"
+          />
           <el-button type="primary" :disabled="currentTableIsSystem" @click="openAdd">+ Add Point</el-button>
           <el-dropdown trigger="click">
             <el-button>Actions</el-button>
@@ -723,10 +757,10 @@ async function resetOverride(p: PointDef) {
       </div>
 
       <el-table :data="pagedRows" height="590">
-        <el-table-column label="Point"><template #default="s"><el-link :underline="false" @click="openEdit(s.row)"><b>{{ s.row.point_id }}</b></el-link></template></el-table-column>
+        <el-table-column label="Point" min-width="140"><template #default="s"><el-button link @click="openEdit(s.row)"><b>{{ s.row.point_id }}</b></el-button></template></el-table-column>
         <el-table-column prop="variable_name" label="Variable" />
         <el-table-column :label="addrLabel"><template #default="s">{{ addressOf(s.row) }}</template></el-table-column>
-        <el-table-column v-if="!isMobile" label="Source" width="105"><template #default="s"><el-tag size="small" :type="originOf(s.row)==='inherited'?'info':originOf(s.row)==='override'?'warning':''">{{ originOf(s.row) }}</el-tag></template></el-table-column>
+        <el-table-column v-if="!isMobile" label="Source" width="105"><template #default="s"><el-tag size="small" :type="originOf(s.row)==='inherited'?'info':originOf(s.row)==='override'?'warning':undefined">{{ originOf(s.row) }}</el-tag></template></el-table-column>
         <el-table-column v-if="!isMobile" prop="data_type" label="Data Type" />
         <el-table-column v-if="!isMobile" label="Groups"><template #default="s"><el-tag v-for="g in s.row.point_groups" :key="g" class="group-tag">{{ g }}</el-tag></template></el-table-column>
         <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
@@ -744,7 +778,7 @@ async function resetOverride(p: PointDef) {
           v-model:current-page="pointPage"
           v-model:page-size="pointPageSize"
           :page-sizes="[20, 50, 100]"
-          :total="rows.length"
+          :total="filteredRows.length"
           :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
         />
       </div>
@@ -987,14 +1021,6 @@ async function resetOverride(p: PointDef) {
 .metadata-tabs{margin-top:calc(-1 * var(--app-space-2))}
 .metadata-layout{display:grid;grid-template-columns:var(--app-master-pane-width) minmax(0,1fr);min-height:var(--app-master-detail-min-height)}
 .metadata-list-pane{min-width:0;padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}
-.metadata-object-table{width:100%;cursor:pointer}
-.metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
-.metadata-object-table :deep(.el-table__cell){padding:var(--app-space-2) 0!important}
-.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
-.metadata-object-info{min-width:0;padding-left:var(--app-space-1)}
-.metadata-object-info b,.metadata-object-info small{display:block}
-.metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-object-info small{margin-top:var(--app-space-1);color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
 .metadata-editor-main{min-width:0;padding:var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6)}
 .metadata-editor-title{margin-bottom:var(--app-space-4)}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .metadata-editor-title p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
@@ -1012,9 +1038,9 @@ async function resetOverride(p: PointDef) {
 .test-results-title{margin:var(--app-space-3) 0 var(--app-space-2);color:var(--app-text-primary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
 .test-results-table{width:100%}
 .device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
-@media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}}
-@media(max-width:767px){.point-definition-grid{grid-template-columns:1fr}.point-definition-grid .span-2{grid-column:auto}}
-@media(max-width:1199px){.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.metadata-editor-main{padding:var(--app-space-4) 0 0}}
+@media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.metadata-editor-main{padding:var(--app-space-4) 0 0}}
+@media(max-width:767px){.point-definition-grid{grid-template-columns:1fr}.point-definition-grid .span-2{grid-column:auto}.point-search{width:100%}}
 
 .point-table-select{width:var(--app-field-width-lg)}
+.point-search{width:var(--app-field-width-lg)}
 </style>

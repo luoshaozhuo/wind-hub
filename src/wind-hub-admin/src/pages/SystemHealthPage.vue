@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
 const range=ref<'1 h'|'24 h'|'7 d'|'30 d'>('24 h')
 const memoryEl=ref<HTMLElement|null>(null)
@@ -48,17 +49,12 @@ function rangeScale(){
   if(range.value==='30 d')return 5
   return 1
 }
-function css(name:string){
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-}
 function baseOption(){
   return {
-    animation:false,
-    textStyle:{fontFamily:'Inter,system-ui,sans-serif'},
+    ...baseChartOption(),
     grid:{left:46,right:18,top:38,bottom:34},
-    tooltip:{trigger:'axis'},
-    xAxis:{type:'category',boundaryGap:false,axisLine:{lineStyle:{color:css('--app-border')}},axisLabel:{color:css('--app-text-muted'),fontSize:10}},
-    yAxis:{type:'value',axisLabel:{color:css('--app-text-muted'),fontSize:10},splitLine:{lineStyle:{color:css('--app-border-soft')}}},
+    xAxis:{type:'category',boundaryGap:false,axisLine:baseAxisLine(),axisLabel:baseAxisLabel()},
+    yAxis:{type:'value',axisLabel:baseAxisLabel(),splitLine:baseSplitLine()},
   }
 }
 function initChart(el:HTMLElement|null,option:any){
@@ -88,7 +84,7 @@ function renderCharts(){
   ]})
   initChart(cpuEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:axis},yAxis:[
     {...base.yAxis,min:0,max:100,name:'CPU %',nameTextStyle:{fontSize:10}},
-    {type:'value',min:40,max:100,name:'°C',position:'right',axisLabel:{color:css('--app-text-muted'),fontSize:10},splitLine:{show:false},nameTextStyle:{fontSize:10}},
+    {type:'value',min:40,max:100,name:'°C',position:'right',axisLabel:baseAxisLabel(),splitLine:{show:false},nameTextStyle:{fontSize:10}},
   ],series:[
     {name:'Host CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((42+Math.sin(i/2)*12+(i>stressStart?27:0)).toFixed(1)))},
     {name:'wind-hub CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((28+Math.sin(i/2.3)*8+(i>stressStart?35:0)).toFixed(1)))},

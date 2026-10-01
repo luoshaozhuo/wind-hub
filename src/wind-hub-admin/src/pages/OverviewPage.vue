@@ -2,6 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { protocolOfDevice, store } from '../mock/data'
+import { useViewport } from '../composables/useViewport'
+
+const { isMobile, isTablet } = useViewport()
 
 type Tone = 'normal' | 'info' | 'warning' | 'danger' | 'muted'
 
@@ -208,7 +211,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card runtime-card">
           <div class="card-top">
             <span class="card-label">Runtime</span>
-            <span class="status-pill normal"><i></i>RUNNING</span>
+            <span class="ov-status-pill normal"><i></i>RUNNING</span>
           </div>
           <div class="hero-value normal">{{ serviceUptime }}</div>
           <div class="hero-caption">Service uptime</div>
@@ -222,7 +225,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card devices-card">
           <div class="card-top">
             <span class="card-label">Devices</span>
-            <span class="status-pill" :class="deviceTone"><i></i>{{ offline === 0 ? 'HEALTHY' : 'ATTENTION' }}</span>
+            <span class="ov-status-pill" :class="deviceTone"><i></i>{{ offline === 0 ? 'HEALTHY' : 'ATTENTION' }}</span>
           </div>
 
           <div class="split-main">
@@ -272,7 +275,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
                 <el-icon class="info-icon" aria-label="Acquisition 指标定义"><InfoFilled /></el-icon>
               </el-tooltip>
             </span>
-            <span class="status-pill" :class="acquisitionTone"><i></i>{{ acquisition.success1m >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span>
+            <span class="ov-status-pill" :class="acquisitionTone"><i></i>{{ acquisition.success1m >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span>
           </div>
           <div class="hero-value" :class="acquisitionTone">{{ acquisition.success1m.toFixed(2) }}%</div>
           <div class="hero-caption">Success / 1 min</div>
@@ -300,7 +303,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
                 <el-icon class="info-icon" aria-label="Tasks 指标定义"><InfoFilled /></el-icon>
               </el-tooltip>
             </span>
-            <span class="status-pill" :class="taskTone"><i></i>{{ stoppedTasks === 0 ? 'HEALTHY' : 'PARTIAL' }}</span>
+            <span class="ov-status-pill" :class="taskTone"><i></i>{{ stoppedTasks === 0 ? 'HEALTHY' : 'PARTIAL' }}</span>
           </div>
           <div class="hero-value info">{{ runningTasks }} / {{ store.tasks.length }}</div>
           <div class="hero-caption">Running / Total</div>
@@ -315,7 +318,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card">
           <div class="card-top">
             <span class="card-label">Sinks</span>
-            <span class="status-pill normal"><i></i>AVAILABLE</span>
+            <span class="ov-status-pill normal"><i></i>AVAILABLE</span>
           </div>
           <div class="hero-value info">{{ enabledSinks }} / {{ store.sinks.length }}</div>
           <div class="hero-caption">Enabled / Configured</div>
@@ -331,7 +334,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card">
           <div class="card-top">
             <span class="card-label">Host / Process</span>
-            <span class="status-pill normal"><i></i>HEALTHY</span>
+            <span class="ov-status-pill normal"><i></i>HEALTHY</span>
           </div>
           <div class="resource-grid">
             <div>
@@ -367,15 +370,15 @@ const statTone = (onlineCount: number, total: number): Tone => {
       </div>
       <div class="risk-summary-grid">
         <article class="industrial-card risk-summary-card">
-          <div class="card-top"><span class="card-label">Channel Quality</span><span class="status-pill danger"><i></i>2 INTERRUPTED</span></div>
+          <div class="card-top"><span class="card-label">Channel Quality</span><span class="ov-status-pill danger"><i></i>2 INTERRUPTED</span></div>
           <div class="risk-summary-main">13 timeouts · 7 reconnects / 24 h</div>
         </article>
         <article class="industrial-card risk-summary-card">
-          <div class="card-top"><span class="card-label">Data Quality</span><span class="status-pill warning"><i></i>DEGRADED</span></div>
+          <div class="card-top"><span class="card-label">Data Quality</span><span class="ov-status-pill warning"><i></i>DEGRADED</span></div>
           <div class="risk-summary-main">1 stale task · 13 missing cycles</div>
         </article>
         <article class="industrial-card risk-summary-card">
-          <div class="card-top"><span class="card-label">System Health</span><span class="status-pill danger"><i></i>CAPACITY RISK</span></div>
+          <div class="card-top"><span class="card-label">System Health</span><span class="ov-status-pill danger"><i></i>CAPACITY RISK</span></div>
           <div class="risk-summary-main">Disk ~2.7 days · RSS continuous growth</div>
         </article>
       </div>
@@ -479,7 +482,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
           </div>
 
           <el-table :data="recentEvents" size="small">
-            <el-table-column label="Time" width="92">
+            <el-table-column v-if="!isTablet" label="Time" width="92">
               <template #default="s"><span class="mono-cell info">{{ s.row.time }}</span></template>
             </el-table-column>
             <el-table-column label="Level" width="82">
@@ -525,10 +528,10 @@ const statTone = (onlineCount: number, total: number): Tone => {
             <el-table-column prop="event" label="Issue" min-width="230">
               <template #default="s"><span class="event-cell">{{ s.row.event }}</span></template>
             </el-table-column>
-            <el-table-column prop="since" label="Since" width="164">
+            <el-table-column v-if="!isTablet" prop="since" label="Since" width="164">
               <template #default="s"><span class="mono-cell">{{ s.row.since }}</span></template>
             </el-table-column>
-            <el-table-column label="Duration" width="100">
+            <el-table-column v-if="!isMobile" label="Duration" width="100">
               <template #default="s"><span class="mono-cell" :class="s.row.level === 'ERROR' ? 'danger' : 'warning'">{{ s.row.duration }}</span></template>
             </el-table-column>
           </el-table>
@@ -542,8 +545,8 @@ const statTone = (onlineCount: number, total: number): Tone => {
 .overview-page{color:var(--app-text-primary)}
 .overview-head{align-items:flex-end}.color-legend{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--app-space-3);color:var(--app-text-secondary);font-size:var(--app-font-body)}.color-legend span{display:inline-flex;align-items:center;gap:var(--app-space-1)}.dot{width:var(--app-status-dot-size);height:var(--app-status-dot-size);border-radius:50%;display:inline-block;background:var(--app-status-disabled)}.dot.info{background:var(--app-status-info)}.dot.normal{background:var(--app-status-healthy)}.dot.warning{background:var(--app-status-warning)}.dot.danger{background:var(--app-status-fault)}.dot.muted{background:var(--app-status-disabled)}
 .section-block{margin-top:var(--app-space-6)}.section-title{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:var(--app-space-3);padding:0 var(--app-space-1)}.section-title h2{margin:var(--app-space-1) 0 0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-bold);letter-spacing:.01em}.eyebrow{display:block;color:var(--app-text-muted);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);letter-spacing:.14em}
-.primary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.risk-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.risk-summary-main{margin:var(--app-space-3) 0;color:var(--app-text-regular);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.coverage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3)}.industrial-card{position:relative;min-width:0;padding:var(--app-space-4);background:var(--app-bg-surface);border:1px solid var(--app-border);border-radius:var(--app-dialog-radius);box-shadow:var(--app-elevation-soft);overflow:hidden}.industrial-card::before{content:'';position:absolute;top:-1px;left:var(--app-card-padding);width:var(--app-accent-width);height:var(--app-accent-height);background:var(--app-text-secondary)}.runtime-card::before,.industrial-card:has(.status-pill.normal)::before{background:var(--app-status-healthy)}.industrial-card:has(.status-pill.warning)::before{background:var(--app-status-warning)}.industrial-card:has(.status-pill.danger)::before{background:var(--app-status-fault)}
-.card-top{min-height:var(--app-space-6);display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.card-label{color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-bold);letter-spacing:.04em;text-transform:uppercase}.card-label-with-info{display:inline-flex;align-items:center;gap:var(--app-space-1);min-width:0}.info-icon{flex:0 0 auto;color:var(--app-text-muted);font-size:var(--app-font-panel-title);cursor:help;transition:color .15s ease}.info-icon:hover{color:var(--app-text-secondary)}.metric-tooltip{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);font-size:var(--app-font-label);line-height:1.5}.metric-tooltip b{font-weight:var(--app-font-weight-bold)}.status-pill{display:inline-flex;align-items:center;gap:var(--app-space-2);padding:var(--app-space-1) var(--app-space-2);border:1px solid currentColor;border-radius:var(--app-control-radius);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);letter-spacing:.05em;background:var(--app-bg-surface)}.status-pill i{width:var(--app-status-dot-size);height:var(--app-status-dot-size);border-radius:50%;background:currentColor}
+.primary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.risk-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--app-space-3)}.risk-summary-main{margin:var(--app-space-3) 0;color:var(--app-text-regular);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}.coverage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--app-space-3)}.industrial-card{position:relative;min-width:0;padding:var(--app-space-4);background:var(--app-bg-surface);border:1px solid var(--app-border);border-radius:var(--app-dialog-radius);box-shadow:var(--app-elevation-soft);overflow:hidden}.industrial-card::before{content:'';position:absolute;top:-1px;left:var(--app-card-padding);width:var(--app-accent-width);height:var(--app-accent-height);background:var(--app-text-secondary)}.runtime-card::before,.industrial-card:has(.ov-status-pill.normal)::before{background:var(--app-status-healthy)}.industrial-card:has(.ov-status-pill.warning)::before{background:var(--app-status-warning)}.industrial-card:has(.ov-status-pill.danger)::before{background:var(--app-status-fault)}
+.card-top{min-height:var(--app-space-6);display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.card-label{color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-bold);letter-spacing:.04em;text-transform:uppercase}.card-label-with-info{display:inline-flex;align-items:center;gap:var(--app-space-1);min-width:0}.info-icon{flex:0 0 auto;color:var(--app-text-muted);font-size:var(--app-font-panel-title);cursor:help;transition:color .15s ease}.info-icon:hover{color:var(--app-text-secondary)}.metric-tooltip{max-width:var(--app-tooltip-max-width);display:grid;gap:var(--app-space-2);font-size:var(--app-font-label);line-height:1.5}.metric-tooltip b{font-weight:var(--app-font-weight-bold)}.ov-status-pill{display:inline-flex;align-items:center;gap:var(--app-space-2);padding:var(--app-space-1) var(--app-space-2);border:1px solid currentColor;border-radius:var(--app-control-radius);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);letter-spacing:.05em;background:var(--app-bg-surface)}.ov-status-pill i{width:var(--app-status-dot-size);height:var(--app-status-dot-size);border-radius:50%;background:currentColor}
 .hero-value{margin-top:var(--app-space-3);font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--app-font-metric-lg);line-height:1.15;font-weight:var(--app-font-weight-bold);letter-spacing:-.02em;font-variant-numeric:tabular-nums}.hero-caption{margin-top:var(--app-space-1);color:var(--app-text-secondary);font-size:var(--app-font-body)}.split-main{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-space-4)}.mini-stack{display:grid;gap:var(--app-space-1);color:var(--app-text-secondary);font-size:var(--app-font-label);text-align:right}
 .value,.mono-cell{font-family:"SFMono-Regular",Consolas,monospace;font-variant-numeric:tabular-nums}.info{color:var(--app-status-info)!important}.normal{color:var(--app-status-healthy)!important}.warning{color:var(--app-status-warning)!important}.danger{color:var(--app-status-fault)!important}.muted{color:var(--app-status-disabled)!important}
 .kv-list{margin-top:var(--app-space-3);border-top:1px solid var(--app-border-soft)}.kv-list>div,.compact-bars>div,.distribution-list>div,.sink-list>div,.health-check{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3);min-height:var(--app-row-min-height);color:var(--app-text-secondary);font-size:var(--app-font-label);border-bottom:1px solid var(--app-border-soft)}.kv-list>div:last-child,.compact-bars>div:last-child,.distribution-list>div:last-child,.sink-list>div:last-child{border-bottom:0}.kv-list .value,.compact-bars .value,.distribution-list .value,.health-check .value{color:var(--app-text-primary);font-size:var(--app-font-label);font-weight:var(--app-font-weight-bold)}.kv-list.tight{margin-top:var(--app-space-2)}
@@ -553,6 +556,5 @@ const statTone = (onlineCount: number, total: number): Tone => {
 .resource-grid{display:grid;gap:var(--app-space-3);margin-top:var(--app-space-3)}.resource-grid>div{display:grid;grid-template-columns:max-content max-content minmax(0,1fr);align-items:center;gap:var(--app-space-2)}.resource-grid b{text-align:right;font-size:var(--app-font-body)}.meter{height:var(--app-meter-height);overflow:hidden;background:var(--app-border-soft);border-radius:2px}.meter i{display:block;height:100%;background:var(--app-status-info)}.meter.normal i{background:var(--app-status-healthy)}.health-check{margin-top:var(--app-space-3);padding-top:var(--app-space-1);border-top:1px solid var(--app-border-soft);border-bottom:0}.compact-card{min-height:10rem}.distribution-list{margin-top:var(--app-space-2);border-top:1px solid var(--app-border-soft)}
 .alarm-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--app-space-3)}.table-card{padding:0 var(--app-space-3) var(--app-space-3)}.table-card::before{left:var(--app-space-3);background:var(--app-status-warning)}.active-alert-card::before{background:var(--app-status-fault)}.alert-count-wrap{display:flex;align-items:center;gap:var(--app-space-2)}.alert-count-wrap .muted{font-size:var(--app-font-caption)}
 .table-head{min-height:var(--app-header-height);display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-3)}.table-head h3{margin:0;font-size:var(--app-font-section-title)}.table-head p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}.count-badge{min-width:var(--app-control-height);padding:var(--app-space-1) var(--app-space-2);border:1px solid currentColor;border-radius:var(--app-control-radius);text-align:center;font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--app-font-label);font-weight:var(--app-font-weight-bold)}.level-chip{display:inline-block;min-width:calc(var(--app-control-height) + var(--app-space-4));padding:var(--app-space-1) var(--app-space-1);border:1px solid currentColor;border-radius:var(--app-control-radius);text-align:center;font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);line-height:1.35}.state-text{font-family:"SFMono-Regular",Consolas,monospace;font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);letter-spacing:.03em}.mono-cell{font-size:var(--app-font-label);font-weight:var(--app-font-weight-semibold)}.object-cell{color:var(--app-text-regular)}.event-cell{color:var(--app-text-regular);font-family:var(--app-font-family);font-size:var(--app-font-body);font-weight:var(--app-font-weight-regular)}
-:deep(.el-table){--el-table-border-color:var(--app-border-soft);--el-table-header-bg-color:var(--app-bg-subtle);--el-table-row-hover-bg-color:var(--app-bg-subtle);color:var(--app-text-primary);font-size:var(--app-font-body)}:deep(.el-table th.el-table__cell){height:var(--app-control-height);color:var(--app-text-secondary);font-size:var(--app-font-caption);font-weight:var(--app-font-weight-bold);letter-spacing:.02em}:deep(.el-table td.el-table__cell){padding:var(--app-space-2) 0}:deep(.el-table .cell){line-height:1.3}
-@media(max-width:1199px){.primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.risk-summary-grid{grid-template-columns:1fr}.coverage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.alarm-grid{grid-template-columns:1fr}}@media(max-width:1199px){.overview-head,.section-title{align-items:flex-start}.color-legend{display:none}.primary-grid,.coverage-grid{grid-template-columns:1fr}}
+@media(max-width:1199px){.primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.risk-summary-grid{grid-template-columns:1fr}.coverage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.alarm-grid{grid-template-columns:1fr}.overview-head,.section-title{align-items:flex-start}.color-legend{display:none}.primary-grid,.coverage-grid{grid-template-columns:1fr}}
 </style>

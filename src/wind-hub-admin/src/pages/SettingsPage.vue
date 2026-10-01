@@ -9,18 +9,18 @@ const saving = ref(false)
 const form = reactive({
   siteId: store.systemInfo.siteId,
   siteName: store.systemInfo.siteName,
-  timezone: 'Asia/Shanghai',
-  logLevel: 'INFO',
-  tempDirectory: '/var/tmp/wind-hub',
-  dataDirectory: '/var/lib/wind-hub',
-  reloadPolicy: 'incremental',
-  apiHost: '0.0.0.0',
-  apiPort: 8080,
-  timeSync: 'systemd-timesyncd',
+  timezone: store.systemInfo.timezone,
+  logLevel: store.systemInfo.logLevel,
+  tempDirectory: store.systemInfo.tempDirectory,
+  dataDirectory: store.systemInfo.dataDirectory,
+  reloadPolicy: store.systemInfo.reloadPolicy,
+  apiHost: store.systemInfo.apiHost,
+  apiPort: store.systemInfo.apiPort,
+  timeSync: store.systemInfo.timeSync,
   adsLocalIp: store.systemInfo.ads.local_ip,
   adsLocalAms: store.systemInfo.ads.local_ams_net_id,
-  adsUsername: store.systemInfo.ads.route_repair.username,
-  adsPassword: '',
+  adsUsername: store.systemInfo.ads.username,
+  adsPassword: store.systemInfo.ads.password,
 })
 const settingsSnapshot = ref(JSON.stringify(form))
 const dirty = computed(() => JSON.stringify(form) !== settingsSnapshot.value)
@@ -30,6 +30,8 @@ function reset() {
 }
 
 async function save() {
+  // 防重 guard 必须在确认框之前：提交中再次点击直接返回，不重复弹确认。
+  if (saving.value) return
   if (!form.siteId.trim() || !form.siteName.trim() || !form.adsLocalIp.trim() || !form.adsLocalAms.trim()) {
     ElMessage.error('Required fields cannot be empty')
     return
@@ -44,22 +46,31 @@ async function save() {
     store.deviceModels.find(m => m.id === d.model)?.protocol === 'ads',
   ).length
   if (adsDeviceCount) {
-    await ElMessageBox.confirm(
-      'ADS identity changes can affect ' + adsDeviceCount + ' ADS devices and require connection reinitialization when applied.',
-      'Save System Settings',
-      { type: 'warning', confirmButtonText: 'Save' },
-    )
+    try {
+      await ElMessageBox.confirm(
+        'ADS identity changes can affect ' + adsDeviceCount + ' ADS devices and require connection reinitialization when applied.',
+        'Save System Settings',
+        { type: 'warning', confirmButtonText: 'Save' },
+      )
+    } catch { return }
   }
 
-  if (saving.value) return
   saving.value = true
   try {
     store.systemInfo.siteId = form.siteId.trim()
     store.systemInfo.siteName = form.siteName.trim()
+    store.systemInfo.timezone = form.timezone
+    store.systemInfo.logLevel = form.logLevel
+    store.systemInfo.tempDirectory = form.tempDirectory.trim()
+    store.systemInfo.dataDirectory = form.dataDirectory.trim()
+    store.systemInfo.reloadPolicy = form.reloadPolicy
+    store.systemInfo.apiHost = form.apiHost.trim()
+    store.systemInfo.apiPort = form.apiPort
+    store.systemInfo.timeSync = form.timeSync
     store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
     store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
-    store.systemInfo.ads.route_repair.username = form.adsUsername.trim()
-    store.systemInfo.ads.route_repair.password = form.adsPassword
+    store.systemInfo.ads.username = form.adsUsername.trim()
+    store.systemInfo.ads.password = form.adsPassword
     updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
     updateMockAdsYaml(store.systemInfo.ads)
     await new Promise(resolve => setTimeout(resolve, 300))

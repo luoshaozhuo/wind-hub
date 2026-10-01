@@ -279,16 +279,18 @@ async function saveModel() {
     const runtimeImpact = protocolChanged || tableChanged || connectionChanged || target.read_mode !== payload.read_mode
 
     if (runtimeImpact && devices.length) {
-      await ElMessageBox.confirm(
-        '<b>Device Model Change Impact</b><br><br>' +
-        devices.length + ' Device(s) affected.<br>' +
-        affectedTasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br>' +
-        (protocolChanged || connectionChanged ? 'Affected protocol connections will be rebuilt.<br>' : '') +
-        (tableChanged ? 'Point mappings will be replaced.<br>' : '') +
-        '<br>Running tasks will be stopped while applying and restored if still valid.',
-        'Apply Device Model Changes',
-        { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
-      )
+      try {
+        await ElMessageBox.confirm(
+          '<b>Device Model Change Impact</b><br><br>' +
+          devices.length + ' Device(s) affected.<br>' +
+          affectedTasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br>' +
+          (protocolChanged || connectionChanged ? 'Affected protocol connections will be rebuilt.<br>' : '') +
+          (tableChanged ? 'Point mappings will be replaced.<br>' : '') +
+          '<br>Running tasks will be stopped while applying and restored if still valid.',
+          'Apply Device Model Changes',
+          { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+        )
+      } catch { return }
     }
 
     const runningIds = new Set(running.map(t => t.task_id))
@@ -349,11 +351,13 @@ async function saveGroup() {
       }
       const tasks = store.tasks.filter(t => t.device_group === target.id)
       if (devices.length || tasks.length) {
-        await ElMessageBox.confirm(
-          devices.length + ' Device(s) and ' + tasks.length + ' group Task(s) reference this group. Apply the classification change?',
-          'Device Group Change Impact',
-          { type: 'warning', confirmButtonText: 'Apply Changes' },
-        )
+        try {
+          await ElMessageBox.confirm(
+            devices.length + ' Device(s) and ' + tasks.length + ' group Task(s) reference this group. Apply the classification change?',
+            'Device Group Change Impact',
+            { type: 'warning', confirmButtonText: 'Apply Changes' },
+          )
+        } catch { return }
       }
       target.device_type = form.device_type
     }
@@ -397,15 +401,17 @@ async function resetModelDeviceOverrides() {
   const running = tasks.filter(t => t.runtime === 'RUNNING')
   const overrideCount = affected.reduce((sum, x) => sum + x.count, 0)
 
-  await ElMessageBox.confirm(
-    '<b>Reset Device Overrides?</b><br><br>' +
-    affected.length + ' Device(s) affected.<br>' +
-    overrideCount + ' override(s) will be removed.<br>' +
-    running.length + ' running Task(s) affected.<br><br>' +
-    '<b>Preserved:</b> Device ID, Host / Remote IP, Target AMS Net ID and Device Group.',
-    'Reset Device Overrides',
-    { type: 'warning', confirmButtonText: 'Reset Overrides', dangerouslyUseHTMLString: true },
-  )
+  try {
+    await ElMessageBox.confirm(
+      '<b>Reset Device Overrides?</b><br><br>' +
+      affected.length + ' Device(s) affected.<br>' +
+      overrideCount + ' override(s) will be removed.<br>' +
+      running.length + ' running Task(s) affected.<br><br>' +
+      '<b>Preserved:</b> Device ID, Host / Remote IP, Target AMS Net ID and Device Group.',
+      'Reset Device Overrides',
+      { type: 'warning', confirmButtonText: 'Reset Overrides', dangerouslyUseHTMLString: true },
+    )
+  } catch { return }
 
   const runningIds = new Set(running.map(t => t.task_id))
   for (const t of running) t.runtime = 'STOPPED'
@@ -423,7 +429,9 @@ async function deleteModel(row: { id: string }) {
     ElMessage.warning('Cannot delete: referenced by ' + devices + ' device(s)')
     return
   }
-  await ElMessageBox.confirm('Delete device model "' + row.id + '"?', 'Delete Device Model', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm('Delete device model "' + row.id + '"?', 'Delete Device Model', { type: 'warning' })
+  } catch { return }
   store.deviceModels.splice(store.deviceModels.findIndex(x => x.id === row.id), 1)
   if (editingId.value === row.id) resetForm()
 }
@@ -435,7 +443,9 @@ async function deleteType(row: { id: string }) {
     ElMessage.warning('Cannot delete: referenced by ' + models + ' model(s) and ' + groups + ' group(s)')
     return
   }
-  await ElMessageBox.confirm('Delete device type "' + row.id + '"?', 'Delete Device Type', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm('Delete device type "' + row.id + '"?', 'Delete Device Type', { type: 'warning' })
+  } catch { return }
   store.deviceTypes.splice(store.deviceTypes.findIndex(x => x.id === row.id), 1)
   if (editingId.value === row.id) resetForm()
 }
@@ -447,7 +457,9 @@ async function deleteGroup(row: { id: string }) {
     ElMessage.warning('Cannot delete: referenced by ' + devices + ' device(s) and ' + tasks + ' task(s)')
     return
   }
-  await ElMessageBox.confirm('Delete device group "' + row.id + '"?', 'Delete Device Group', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm('Delete device group "' + row.id + '"?', 'Delete Device Group', { type: 'warning' })
+  } catch { return }
   store.deviceGroups.splice(store.deviceGroups.findIndex(x => x.id === row.id), 1)
   if (editingId.value === row.id) resetForm()
 }
@@ -617,14 +629,6 @@ async function deleteGroup(row: { id: string }) {
 <style scoped>
 .metadata-tabs{margin-top:calc(-1 * var(--app-space-2))}.metadata-layout{min-height:var(--app-master-detail-min-height)}
 .metadata-list-aside{border-right:1px solid var(--app-border-soft);padding-right:var(--app-space-3)}
-.metadata-object-table{width:100%;cursor:pointer}
-.metadata-object-table :deep(.el-table__inner-wrapper::before){display:none}
-.metadata-object-table :deep(.el-table__cell){padding:var(--app-space-2) 0!important}
-.metadata-object-table :deep(.el-table__row.current-row>td.el-table__cell){background:var(--app-bg-subtle)}
-.metadata-object-info{min-width:0;padding-left:var(--app-space-1)}
-.metadata-object-info b,.metadata-object-info small{display:block}
-.metadata-object-info b{font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold);color:var(--app-text-primary)}
-.metadata-object-info small{margin-top:var(--app-space-1);color:var(--app-text-muted);font-size:var(--app-font-caption);white-space:normal;line-height:var(--app-line-height-compact)}
 .metadata-editor-main{padding:var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6)!important}.metadata-editor-title{margin-bottom:var(--app-space-4)}
 .metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
 .metadata-editor-title p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}

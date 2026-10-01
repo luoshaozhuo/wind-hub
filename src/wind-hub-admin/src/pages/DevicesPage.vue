@@ -6,7 +6,6 @@ import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
 import { useViewport } from '../composables/useViewport'
 import {
   deviceConnectionOverrides,
-  devicesForTask,
   effectiveConnection,
   modelOf,
   pointsOfTable,
@@ -16,6 +15,9 @@ import {
   unitSymbol,
 } from '../mock/data'
 import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../mock/types'
+import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
+import { EMPTY, formatTimestamp } from '../utils/format'
+import { statusTagType } from '../utils/status'
 
 interface DataRow {
   point_id: string
@@ -80,10 +82,10 @@ function typeName(typeId: string) {
 function pointAddressText(p: PointDef) {
   const a = p.address
   if (a.symbol) return a.symbol
-  if (a.index_group || a.index_offset) return `${a.index_group || '-'} / ${a.index_offset || '-'}`
-  if (a.type || a.address !== undefined) return `${a.type || '-'} ${a.address ?? '-'}`
+  if (a.index_group || a.index_offset) return `${a.index_group || EMPTY} / ${a.index_offset || EMPTY}`
+  if (a.type || a.address !== undefined) return `${a.type || EMPTY} ${a.address ?? EMPTY}`
   if (a.ioa !== undefined) return `IOA ${a.ioa}`
-  return '-'
+  return EMPTY
 }
 
 const filteredDevices = computed(() => store.devices.filter(d => {
@@ -120,11 +122,29 @@ watch([search, typeFilter, modelFilter, statusFilter], () => {
   devicePage.value = 1
 })
 
+function groupKeyOf(d: DeviceInst) {
+  const model = modelOf(d)
+  return `${model?.device_type || 'unknown'}::${d.model}`
+}
+
 const groupedDevices = computed(() => {
+  // 组统计基于 filteredDevices（过滤后的全量），分页只决定当前页显示哪些卡片，
+  // 避免组头 healthy/warning/fault 计数被误读为全局统计。
+  const stats = new Map<string, { total: number; healthy: number; warning: number; failed: number }>()
+  for (const d of filteredDevices.value) {
+    const key = groupKeyOf(d)
+    if (!stats.has(key)) stats.set(key, { total: 0, healthy: 0, warning: 0, failed: 0 })
+    const s = stats.get(key)!
+    s.total += 1
+    const state = verifyOf(d).state
+    if (state === 'success') s.healthy += 1
+    else if (state === 'warning') s.warning += 1
+    else if (state === 'failed') s.failed += 1
+  }
+
   const groups = new Map<string, DeviceInst[]>()
   for (const d of pagedDevices.value) {
-    const model = modelOf(d)
-    const key = `${model?.device_type || 'unknown'}::${d.model}`
+    const key = groupKeyOf(d)
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(d)
   }
@@ -132,10 +152,8 @@ const groupedDevices = computed(() => {
   return Array.from(groups.entries()).map(([key, devices]) => {
     const [typeId, modelId] = key.split('::')
     const model = store.deviceModels.find(m => m.id === modelId)
-    const healthy = devices.filter(d => verifyOf(d).state === 'success').length
-    const warning = devices.filter(d => verifyOf(d).state === 'warning').length
-    const failed = devices.filter(d => verifyOf(d).state === 'failed').length
-    return { key, typeId, modelId, model, devices, healthy, warning, failed }
+    const s = stats.get(key) || { total: devices.length, healthy: 0, warning: 0, failed: 0 }
+    return { key, typeId, modelId, model, devices, total: s.total, healthy: s.healthy, warning: s.warning, failed: s.failed }
   })
 })
 
@@ -147,12 +165,10 @@ function statusLabel(v: DeviceVerification) {
   return 'Unverified'
 }
 
-function statusType(v: DeviceVerification): '' | 'success' | 'warning' | 'danger' | 'info' {
-  if (v.state === 'success') return 'success'
-  if (v.state === 'warning') return 'warning'
-  if (v.state === 'failed') return 'danger'
-  if (v.state === 'running') return ''
-  return 'info'
+// DeviceVerifyState.running 表示“正在验证”（进行中），与 Task RUNNING（运行态）语义不同，
+// 映射共享 helper 时显式翻译为 verifying，避免被当作运行态染成 success 绿。
+function verifyTagType(v: DeviceVerification) {
+  return statusTagType(v.state === 'running' ? 'verifying' : v.state)
 }
 
 function stepText(step: VerifyStepState) {
@@ -180,23 +196,13 @@ function sleep(ms: number) {
 }
 
 function timestampAt(offsetMs = 0) {
-  const d = new Date(Date.now() - offsetMs)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return formatTimestamp(new Date(Date.now() - offsetMs))
 }
 
 function extraConnectionInfo(d: DeviceInst) {
   const protocol = modelOf(d)?.protocol
   if (protocol === 'ads') return `AMS Net ID ${d.host}.1.1`
   return ''
-}
-
-function stepTagType(step: VerifyStepState): '' | 'success' | 'warning' | 'danger' | 'info' {
-  if (step === 'success') return 'success'
-  if (step === 'partial') return 'warning'
-  if (step === 'failed') return 'danger'
-  if (step === 'checking') return ''
-  return 'info'
 }
 
 function protocolDescription(d: DeviceInst) {
@@ -214,7 +220,12 @@ function protocolDescription(d: DeviceInst) {
   return model?.protocol || 'Unknown'
 }
 
+// Verification 操作互斥：同一时刻只允许一个 verification operation
+// （Verify All 或某一台设备的 Verify），避免并发写同一 verification 状态。
+const verifyOperationActive = computed(() => verifyAllRunning.value || !!verifyingDeviceId.value)
+
 async function verifyDevice(d: DeviceInst, quiet = false) {
+  if (verifyOperationActive.value) return
   const v = verifyOf(d)
   verifyingDeviceId.value = d.device_id
   Object.assign(v, emptyVerify(), { state: 'running' as DeviceVerification['state'] })
@@ -358,7 +369,7 @@ function buildBulkVerification(d: DeviceInst): DeviceVerification {
 }
 
 async function verifyAll() {
-  if (verifyAllRunning.value) return
+  if (verifyOperationActive.value) return
 
   const targets = [...filteredDevices.value]
   if (!targets.length) {
@@ -933,16 +944,20 @@ async function saveConfig() {
   const affectedTasks = affectedTasksForDevice(device, editForm.value.device_group)
   const running = affectedTasks.filter(t => t.runtime === 'RUNNING')
   if ((modelChanged || groupChanged || endpointChanged) && affectedTasks.length) {
-    await ElMessageBox.confirm(
-      '<b>Device Configuration Change Impact</b><br><br>' +
-      affectedTasks.length + ' Task definition(s) affected; ' + running.length + ' currently running.<br>' +
-      (modelChanged ? 'Device Model / Point Table binding will change.<br>' : '') +
-      (groupChanged ? 'Device Group task membership will be recalculated.<br>' : '') +
-      (endpointChanged ? 'The device connection will be rebuilt.<br>' : '') +
-      '<br>Only affected acquisition instances will be stopped and restored if still valid.',
-      'Apply Device Changes',
-      { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
-    )
+    try {
+      await ElMessageBox.confirm(
+        '<b>Device Configuration Change Impact</b><br><br>' +
+        affectedTasks.length + ' Task definition(s) affected; ' + running.length + ' currently running.<br>' +
+        (modelChanged ? 'Device Model / Point Table binding will change.<br>' : '') +
+        (groupChanged ? 'Device Group task membership will be recalculated.<br>' : '') +
+        (endpointChanged ? 'The device connection will be rebuilt.<br>' : '') +
+        '<br>Only affected acquisition instances will be stopped and restored if still valid.',
+        'Apply Device Changes',
+        { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
+      )
+    } catch {
+      return
+    }
   }
 
   const runningIds = new Set(running.map(t => t.task_id))
@@ -973,15 +988,19 @@ async function del() {
   const groupTasks = store.tasks.filter(t => t.device_group === target.device_group)
   const running = affectedTasksForDevice(target).filter(t => t.runtime === 'RUNNING')
 
-  await ElMessageBox.confirm(
-    '<b>Delete Device "' + id + '"?</b><br><br>' +
-    running.length + ' running Task definition(s) have instances affected.<br>' +
-    directTasks.length + ' direct Task definition(s) will be kept and become INVALID.<br>' +
-    groupTasks.length + ' group Task definition(s) will remain and continue with their other devices.<br><br>' +
-    'No Task definition will be deleted automatically.',
-    'Delete Device',
-    { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
-  )
+  try {
+    await ElMessageBox.confirm(
+      '<b>Delete Device "' + id + '"?</b><br><br>' +
+      running.length + ' running Task definition(s) have instances affected.<br>' +
+      directTasks.length + ' direct Task definition(s) will be kept and become INVALID.<br>' +
+      groupTasks.length + ' group Task definition(s) will remain and continue with their other devices.<br><br>' +
+      'No Task definition will be deleted automatically.',
+      'Delete Device',
+      { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
+    )
+  } catch {
+    return
+  }
 
   for (const t of directTasks) t.runtime = 'STOPPED'
   store.devices = store.devices.filter(x => x !== target)
@@ -1060,10 +1079,10 @@ const dataRows = computed<DataRow[]>(() => {
       point_id: p.point_id,
       variable_name: p.variable_name,
       description: p.description,
-      value: failed ? '-' : p.data_type === 'bool' ? (i + revision) % 2 === 0 : Number(raw.toFixed(3)),
+      value: failed ? EMPTY : p.data_type === 'bool' ? (i + revision) % 2 === 0 : Number(raw.toFixed(3)),
       unit: unitSymbol(p.unit),
       groups: p.point_groups,
-      updated_at: failed ? '-' : timestampAt((i % 7) * 120),
+      updated_at: failed ? EMPTY : timestampAt((i % 7) * 120),
       data_type: p.data_type,
       scale: p.scale,
       offset: p.offset,
@@ -1082,6 +1101,21 @@ const visibleData = computed(() => dataRows.value.filter(r => {
 }))
 const dataSuccessCount = computed(() => dataRows.value.filter(r => r.read_state === 'success').length)
 const dataFailureCount = computed(() => dataRows.value.length - dataSuccessCount.value)
+
+// 大点表下只渲染当前页，避免 Auto Refresh 高频重建数百个卡片 DOM。
+const dataPage = ref(1)
+const dataPageSize = ref(50)
+const pagedData = computed(() => {
+  const start = (dataPage.value - 1) * dataPageSize.value
+  return visibleData.value.slice(start, start + dataPageSize.value)
+})
+watch([dataSearch, dataGroup], () => {
+  dataPage.value = 1
+})
+watch(visibleData, rows => {
+  const maxPage = Math.max(1, Math.ceil(rows.length / dataPageSize.value))
+  if (dataPage.value > maxPage) dataPage.value = maxPage
+})
 
 function stopDataRefreshTimer() {
   if (dataRefreshTimer !== null) {
@@ -1130,7 +1164,7 @@ function readPointRawData(point: PointDef, index: number) {
   const protocol = selectedModel.value?.protocol
   if (protocol === 'modbus') return `registers: [0x${(0x4200 + index).toString(16).toUpperCase()}, 0x0000]`
   if (protocol === 'ads') return `bytes: ${[0x42, 0xc8, index & 0xff, 0x00].map(x => x.toString(16).padStart(2, '0').toUpperCase()).join(' ')}`
-  return `ASDU: IOA=${point.address.ioa ?? '-'} value-bytes=42 C8 00 00`
+  return `ASDU: IOA=${point.address.ioa ?? EMPTY} value-bytes=42 C8 00 00`
 }
 function resetReadTest() {
   readResult.value = null
@@ -1157,9 +1191,9 @@ async function readSelectedPoint() {
         state: 'failed',
         timestamp: timestampAt(),
         latency_ms: timeout ? 3000 : 28,
-        raw_data: decodeError ? readPointRawData(point, index) : '-',
-        decoded_value: '-',
-        engineering_value: '-',
+        raw_data: decodeError ? readPointRawData(point, index) : EMPTY,
+        decoded_value: EMPTY,
+        engineering_value: EMPTY,
         error_category: timeout ? 'timeout' : notFound ? 'not_found' : 'decode',
         error_code: timeout ? 'READ_TIMEOUT' : notFound ? 'ADS_SYMBOL_NOT_FOUND' : 'DECODE_ERROR',
         error_message: timeout
@@ -1324,12 +1358,11 @@ function renderTrend() {
     }))
 
     trendChart.setOption({
-      animation: false,
-      tooltip: { trigger: 'axis' },
+      ...baseChartOption(),
       legend: { type: 'scroll', top: 10, left: 18, right: 18, selected: trendLegendSelected.value },
       grid: { top: 58, left: 56, right: 24, bottom: 42 },
-      xAxis: { type: 'time', boundaryGap: false },
-      yAxis: { type: 'value', scale: true },
+      xAxis: { type: 'time', boundaryGap: false, axisLabel: baseAxisLabel(), axisLine: baseAxisLine() },
+      yAxis: { type: 'value', scale: true, axisLabel: baseAxisLabel(), splitLine: baseSplitLine() },
       series,
     }, true)
     trendChart.resize()
@@ -1377,6 +1410,8 @@ watch(() => selected.value?.device_id, () => {
   readResult.value = null
   dataRevision.value = 0
   dataLastRefreshAt.value = ''
+  dataPage.value = 1
+  commandResult.value = null
   seedTrendSignals()
   if (tab.value === 'ControlTrend') renderTrend()
 })
@@ -1400,47 +1435,97 @@ onBeforeUnmount(() => {
 // ---- Control ----
 const cmdPoint = ref('')
 const cmdValue = ref(0)
+const cmdBool = ref(false)
 const sending = ref(false)
-const commandResult = ref<{
-  requested: number
-  readback: number
+interface CommandResult {
+  requested: number | boolean
+  // 失败时 readback 直接回显当前值，可能是字符串（如枚举/文本点）。
+  readback: string | number | boolean
   sentAt: string
   latency: number
   success: boolean
-} | null>(null)
+  error: string
+}
+const commandResult = ref<CommandResult | null>(null)
 
 const controlCandidates = computed(() => dataRows.value.filter(r => r.groups.includes('control')))
 const currentControlRow = computed(() => controlCandidates.value.find(r => r.point_id === cmdPoint.value))
+const cmdIsBool = computed(() => currentControlRow.value?.data_type === 'bool')
+
+function formatCommandValue(v: string | number | boolean) {
+  return typeof v === 'boolean' ? (v ? 'true' : 'false') : v
+}
 
 watch(controlCandidates, rows => {
   if (!cmdPoint.value || !rows.some(r => r.point_id === cmdPoint.value)) {
     cmdPoint.value = rows[0]?.point_id || ''
     cmdValue.value = Number(rows[0]?.value) || 0
+    cmdBool.value = rows[0]?.value === true
   }
 }, { immediate: true })
 
 watch(cmdPoint, id => {
   const row = controlCandidates.value.find(r => r.point_id === id)
-  if (row) cmdValue.value = Number(row.value) || 0
+  if (row) {
+    cmdValue.value = Number(row.value) || 0
+    cmdBool.value = row.value === true
+  }
   commandResult.value = null
 })
 
 async function sendCommand() {
-  if (!selected.value || !cmdPoint.value) {
+  if (sending.value) return
+  if (!selected.value || !currentControlRow.value) {
     ElMessage.warning('Select a command point first')
     return
   }
+  const device = selected.value
+  const row = currentControlRow.value
+  const target: number | boolean = cmdIsBool.value ? cmdBool.value : Number(cmdValue.value)
+  const targetText = `${formatCommandValue(target)}${row.unit ? ' ' + row.unit : ''}`
+
+  // 设备写操作必须显式确认：设备、点、当前值、目标值全部展示后再执行。
+  try {
+    await ElMessageBox.confirm(
+      `<b>Confirm device write</b><br><br>` +
+      `Device: <b>${device.device_id}</b><br>` +
+      `Point: <b>${row.point_id}</b>${row.variable_name ? ` · ${row.variable_name}` : ''}<br>` +
+      `Current Value: <b>${formatCommandValue(row.value)}${row.unit ? ' ' + row.unit : ''}</b><br>` +
+      `Target Value: <b>${targetText}</b>`,
+      'Send Command',
+      { type: 'warning', confirmButtonText: 'Send', cancelButtonText: 'Cancel', dangerouslyUseHTMLString: true },
+    )
+  } catch {
+    return
+  }
+
   sending.value = true
   commandResult.value = null
   try {
     await sleep(420)
-    const requested = Number(cmdValue.value)
+    // mock 失败规则固定（wtg-044 的设备写被拒绝），保证交互与测试可复现。
+    if (device.device_id === 'wtg-044') {
+      commandResult.value = {
+        requested: target,
+        readback: row.value,
+        sentAt: timestampAt(),
+        latency: 3000,
+        success: false,
+        error: 'Write request rejected by device (mock)',
+      }
+      ElMessage.error('Command failed (mock)')
+      return
+    }
+    const readback: number | boolean = typeof target === 'boolean'
+      ? target
+      : Number((target - 0.6).toFixed(2))
     commandResult.value = {
-      requested,
-      readback: Number((requested - 0.6).toFixed(2)),
+      requested: target,
+      readback,
       sentAt: timestampAt(),
-      latency: 160 + (selected.value.device_id.length % 6) * 7,
+      latency: 160 + (device.device_id.length % 6) * 7,
       success: true,
+      error: '',
     }
     ElMessage.success('Command completed (mock)')
   } finally {
@@ -1462,7 +1547,7 @@ async function sendCommand() {
           <el-button :loading="verifyAllRunning">Actions</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item :disabled="verifyAllRunning || !filteredDevices.length" @click="verifyAll">
+              <el-dropdown-item :disabled="verifyOperationActive || !filteredDevices.length" @click="verifyAll">
                 Verify All
               </el-dropdown-item>
               <DeviceMetadataManager dropdown-item />
@@ -1527,7 +1612,7 @@ async function sendCommand() {
           <div class="group-meta">
             <span>{{ group.model?.protocol?.toUpperCase() }}</span>
             <span>Point Table: {{ group.model?.point_table }}</span>
-            <span>{{ group.devices.length }} devices</span>
+            <span>{{ group.total }} devices</span>
           </div>
         </div>
         <div class="group-summary">
@@ -1546,7 +1631,7 @@ async function sendCommand() {
           :class="{ 'device-disabled': !d.enabled }"
         >
           <div class="device-card-top">
-            <el-link class="device-id-link" :underline="false" @click="openDev(d)">{{ d.device_id }}</el-link>
+            <el-button link class="device-id-link" @click="openDev(d)">{{ d.device_id }}</el-button>
             <div class="device-enabled">
               <span>Enabled</span>
               <el-switch v-model="d.enabled" size="small" @change="changeDeviceEnabled(d, !!$event)" />
@@ -1556,7 +1641,7 @@ async function sendCommand() {
           <div class="device-fields">
             <div>
               <span>Protocol</span>
-              <b>{{ modelOf(d)?.protocol?.toUpperCase() || '-' }}</b>
+              <b>{{ modelOf(d)?.protocol?.toUpperCase() || EMPTY }}</b>
             </div>
             <div>
               <span>IP</span>
@@ -1564,14 +1649,14 @@ async function sendCommand() {
             </div>
             <div>
               <span>Port</span>
-              <b>{{ d.port || modelOf(d)?.connection_defaults?.port || '-' }}</b>
+              <b>{{ d.port || modelOf(d)?.connection_defaults?.port || EMPTY }}</b>
             </div>
           </div>
 
           <div class="status-pills">
-            <el-tag size="small" :type="stepTagType(verifyOf(d).network)" :effect="verifyOf(d).network === 'checking' ? 'dark' : 'light'">Network</el-tag>
-            <el-tag size="small" :type="stepTagType(verifyOf(d).protocol)" :effect="verifyOf(d).protocol === 'checking' ? 'dark' : 'light'">Protocol</el-tag>
-            <el-tag size="small" :type="stepTagType(verifyOf(d).points)" :effect="verifyOf(d).points === 'checking' ? 'dark' : 'light'">Points</el-tag>
+            <el-tag size="small" :type="statusTagType(verifyOf(d).network)" :effect="verifyOf(d).network === 'checking' ? 'dark' : 'light'">Network</el-tag>
+            <el-tag size="small" :type="statusTagType(verifyOf(d).protocol)" :effect="verifyOf(d).protocol === 'checking' ? 'dark' : 'light'">Protocol</el-tag>
+            <el-tag size="small" :type="statusTagType(verifyOf(d).points)" :effect="verifyOf(d).points === 'checking' ? 'dark' : 'light'">Points</el-tag>
           </div>
         </el-card>
       </div>
@@ -1699,7 +1784,7 @@ async function sendCommand() {
           <div>
             <div class="drawer-title-row">
               <h2>{{ selected.device_id }}</h2>
-              <el-tag :type="statusType(selectedVerify)">
+              <el-tag :type="verifyTagType(selectedVerify)">
                 {{ statusLabel(selectedVerify) }}
               </el-tag>
             </div>
@@ -1788,7 +1873,7 @@ async function sendCommand() {
                   <el-button
                     type="primary"
                     :loading="verifyingDeviceId === selected.device_id"
-                    :disabled="verifyAllRunning"
+                    :disabled="verifyOperationActive && verifyingDeviceId !== selected.device_id"
                     @click="verifyDevice(selected)"
                   >
                     Verify Device
@@ -1924,7 +2009,7 @@ async function sendCommand() {
             </div>
 
             <div class="compact-data-grid">
-              <article v-for="r in visibleData" :key="r.point_id" class="compact-data-item" :class="{ 'data-read-failed': r.read_state === 'failed' }">
+              <article v-for="r in pagedData" :key="r.point_id" class="compact-data-item" :class="{ 'data-read-failed': r.read_state === 'failed' }">
                 <div class="compact-data-top">
                   <b :title="r.variable_name || r.point_id">{{ r.variable_name || r.point_id }}</b>
                   <div class="compact-data-value">
@@ -1934,6 +2019,16 @@ async function sendCommand() {
                 <time v-if="r.read_state === 'success'">{{ r.updated_at }}</time>
                 <small v-else class="data-error">{{ r.error }}</small>
               </article>
+            </div>
+
+            <div v-if="visibleData.length > dataPageSize" class="pagination">
+              <el-pagination
+                v-model:current-page="dataPage"
+                v-model:page-size="dataPageSize"
+                :page-sizes="[50, 100, 200]"
+                :total="visibleData.length"
+                :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+              />
             </div>
           </el-tab-pane>
 
@@ -1948,7 +2043,7 @@ async function sendCommand() {
 
                   <el-form label-position="top">
                     <el-form-item label="Command Point">
-                      <el-select v-model="cmdPoint" filterable class="app-full-width">
+                      <el-select v-model="cmdPoint" filterable class="app-full-width" :disabled="sending">
                         <el-option v-for="r in controlCandidates" :key="r.point_id" :label="`${r.point_id} · ${r.variable_name}`" :value="r.point_id" />
                       </el-select>
                     </el-form-item>
@@ -1964,9 +2059,10 @@ async function sendCommand() {
                     </el-descriptions>
 
                     <el-form-item label="Target Value" class="control-target-field">
-                      <el-input-number v-model="cmdValue" :step="1" controls-position="right" class="app-full-width" />
+                      <el-switch v-if="cmdIsBool" v-model="cmdBool" :disabled="sending" active-text="true" inactive-text="false" />
+                      <el-input-number v-else v-model="cmdValue" :step="1" controls-position="right" class="app-full-width" :disabled="sending" />
                     </el-form-item>
-                    <el-button type="primary" :loading="sending" :disabled="!currentControlRow" @click="sendCommand" class="app-full-width">Send Command</el-button>
+                    <el-button type="primary" :loading="sending" :disabled="!currentControlRow || sending" @click="sendCommand" class="app-full-width">Send Command</el-button>
                   </el-form>
                 </section>
 
@@ -1974,11 +2070,12 @@ async function sendCommand() {
                   <div class="panel-head"><div><h3>Command Result</h3><p>写入结果与回读值</p></div></div>
                   <div v-if="!commandResult" class="empty-state compact">No command executed in this session.</div>
                   <div v-else class="command-result">
-                    <div><span>Requested</span><b>{{ commandResult.requested }}</b></div>
+                    <div><span>Requested</span><b>{{ formatCommandValue(commandResult.requested) }}</b></div>
                     <div><span>Sent</span><b>{{ commandResult.sentAt }}</b></div>
-                    <div><span>Write</span><b class="step-success">✓ Success</b></div>
-                    <div><span>Read back</span><b>{{ commandResult.readback }}</b></div>
-                    <div><span>Difference</span><b>{{ (commandResult.readback - commandResult.requested).toFixed(2) }}</b></div>
+                    <div><span>Write</span><b :class="commandResult.success ? 'step-success' : 'app-text-fault'">{{ commandResult.success ? '✓ Success' : '✕ Failed' }}</b></div>
+                    <div v-if="commandResult.error"><span>Error</span><b class="app-text-fault">{{ commandResult.error }}</b></div>
+                    <div><span>Read back</span><b>{{ formatCommandValue(commandResult.readback) }}</b></div>
+                    <div v-if="commandResult.success && typeof commandResult.requested === 'number'"><span>Difference</span><b>{{ (Number(commandResult.readback) - commandResult.requested).toFixed(2) }}</b></div>
                     <div><span>Latency</span><b>{{ commandResult.latency }} ms</b></div>
                   </div>
                 </section>
@@ -1996,7 +2093,7 @@ async function sendCommand() {
                     <div class="record-action">
                       <el-button :loading="trendRecording" :disabled="!trendSignals.length" @click="recordTrendRawData">Record Raw Data</el-button>
                       <el-tooltip content="Chart may be downsampled; recording exports all raw samples in the selected time window." placement="bottom">
-                        <span class="help-dot" aria-label="Raw recording help">?</span>
+                        <button type="button" class="help-dot" aria-label="Raw recording help">?</button>
                       </el-tooltip>
                     </div>
                   </div>
@@ -2025,7 +2122,7 @@ async function sendCommand() {
     </el-drawer>
 
     <!-- Trend picker -->
-    <el-dialog v-model="trendPickerOpen" title="Select Trend Signals" width="760px">
+    <el-dialog v-model="trendPickerOpen" title="Select Trend Signals" width="var(--app-dialog-width-md)">
       <el-input
         v-model="trendSearch"
         clearable
@@ -2080,13 +2177,12 @@ async function sendCommand() {
 .trend-primary-actions,.trend-view-bar,.trend-window-control,.trend-update-control,.record-action{display:flex;align-items:center;gap:var(--app-space-2)}
 .trend-view-bar{justify-content:space-between;padding:var(--app-space-2) 0 var(--app-space-3);border-top:1px solid var(--app-border-soft)}
 .trend-window-control>span{color:var(--app-text-secondary);font-size:var(--app-font-label);white-space:nowrap}
-.help-dot{display:inline-flex;align-items:center;justify-content:center;width:var(--app-help-icon-size);height:var(--app-help-icon-size);border:1px solid var(--app-border-soft);border-radius:50%;color:var(--app-text-muted);font-size:var(--app-font-caption);cursor:help}
+.help-dot{display:inline-flex;align-items:center;justify-content:center;width:var(--app-help-icon-size);height:var(--app-help-icon-size);border:1px solid var(--app-border-soft);border-radius:50%;background:transparent;padding:0;color:var(--app-text-muted);font-size:var(--app-font-caption);cursor:help}
 .data-read-failed{border-color:var(--app-status-fault)}
 .data-error{color:var(--app-status-fault);font-size:var(--app-font-caption)}
 .control-definition{margin-bottom:var(--app-space-4)}
 .control-target-field{margin-top:var(--app-space-4)}
-@media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.connectivity-result-list>div{grid-template-columns:minmax(max-content,.45fr) minmax(max-content,.45fr) minmax(0,1fr)}}
-@media(max-width:1199px){.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
+@media(max-width:1199px){.read-test-layout{grid-template-columns:1fr}.trend-header,.trend-view-bar{align-items:flex-start;flex-direction:column}.trend-primary-actions,.trend-update-control{width:100%}.trend-view-bar{gap:var(--app-space-3)}}
 @media(max-width:767px){.connectivity-result-list>div{grid-template-columns:1fr;gap:var(--app-space-1)}.data-refresh-tools{align-items:stretch}.data-refresh-tools>*{max-width:100%}.trend-summary,.trend-primary-actions,.trend-window-control,.trend-update-control{flex-wrap:wrap}}
 
 .delete-summary{margin:var(--app-space-4) 0}.data-refresh-interval{width:var(--app-control-width-short)}

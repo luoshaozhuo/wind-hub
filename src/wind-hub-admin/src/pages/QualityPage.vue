@@ -4,6 +4,9 @@ import { InfoFilled } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
 import { protocolOfDevice, store } from '../mock/data'
+import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
+import { nowText } from '../utils/format'
+import { statusTagType } from '../utils/status'
 
 type ChannelState='Healthy'|'Degraded'|'Interrupted'|'Disabled'
 type WindowRange='1 h'|'24 h'|'7 d'
@@ -75,11 +78,6 @@ const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
 
-function nowText(){
-  const d=new Date()
-  const pad=(n:number)=>String(n).padStart(2,'0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 async function runCheck(){
   if(checking.value)return
   checking.value=true
@@ -383,11 +381,10 @@ function renderChart(){
   if(!chartEl.value||!drawer.value?.distribution.length)return
   chart=echarts.init(chartEl.value)
   chart.setOption({
-    animation:false,
-    tooltip:{trigger:'axis'},
+    ...baseChartOption(),
     grid:{left:44,right:18,top:20,bottom:42},
-    xAxis:{type:'category',data:drawer.value.distribution.map(x=>x.name)},
-    yAxis:{type:'value',minInterval:1},
+    xAxis:{type:'category',data:drawer.value.distribution.map(x=>x.name),axisLine:baseAxisLine(),axisLabel:baseAxisLabel()},
+    yAxis:{type:'value',minInterval:1,axisLabel:baseAxisLabel(),splitLine:baseSplitLine()},
     series:[{type:'bar',barMaxWidth:54,data:drawer.value.distribution.map(x=>x.value)}],
   })
 }
@@ -396,10 +393,7 @@ watch(drawerOpen,open=>{
   if(!open){chart?.dispose();chart=null}
 })
 function stateType(state:string){
-  if(state==='Healthy'||state==='Normal'||state==='Recovered')return 'success'
-  if(state==='Degraded'||state==='Warning')return 'warning'
-  if(state==='Interrupted'||state==='Fault'||state==='Active')return 'danger'
-  return 'info'
+  return statusTagType(state)
 }
 onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose()})
 </script>

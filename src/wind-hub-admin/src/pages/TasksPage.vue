@@ -13,6 +13,8 @@ import {
 } from '../mock/data'
 import { useViewport } from '../composables/useViewport'
 import type { DeviceInst, TaskDef } from '../mock/types'
+import { formatTimestamp, nowText } from '../utils/format'
+import { statusTagType } from '../utils/status'
 
 const createDialog = ref(false)
 const detailOpen = ref(false)
@@ -21,7 +23,7 @@ const selectedTaskId = ref('')
 const selectedDeviceId = ref('')
 const taskSnapshot = ref('')
 const taskLogLimit = ref(20)
-const { isMobile } = useViewport()
+const { isMobile, isDesktop } = useViewport()
 const drawerSize = computed(() => isMobile.value ? '100%' : 'min(var(--app-drawer-width-lg), 86vw)')
 
 const form=reactive({
@@ -57,13 +59,8 @@ const taskLogs=computed(()=>{
     {level:'INFO',message:'Runtime heartbeat OK'},
   ]
   return Array.from({length:120},(_,i)=>{
-    const totalSeconds=12*3600+42*60+31-i*7
-    const normalized=((totalSeconds%86400)+86400)%86400
-    const h=String(Math.floor(normalized/3600)).padStart(2,'0')
-    const m=String(Math.floor((normalized%3600)/60)).padStart(2,'0')
-    const s=String(normalized%60).padStart(2,'0')
     const base=templates[i%templates.length]
-    return {time:`${h}:${m}:${s}`,level:base.level,message:base.message}
+    return {time:formatTimestamp(new Date(Date.now()-i*7000)),level:base.level,message:base.message}
   })
 })
 const visibleTaskLogs=computed(()=>taskLogs.value.slice(0,taskLogLimit.value))
@@ -132,9 +129,11 @@ async function persistTask(existing?:TaskDef){
     const changed=existing.device!==device||existing.device_group!==device_group||existing.point_group!==form.point_group||
       existing.interval!==form.interval||JSON.stringify(existing.sinks)!==JSON.stringify(form.sinks)||existing.enabled!==form.enabled
     if(wasRunning&&changed){
-      await ElMessageBox.confirm(
-        'Task "'+existing.task_id+'" is running. Affected instances will stop while the definition is applied and restart only if still valid.',
-        'Task Change Impact',{type:'warning',confirmButtonText:'Apply Changes'})
+      try{
+        await ElMessageBox.confirm(
+          'Task "'+existing.task_id+'" is running. Affected instances will stop while the definition is applied and restart only if still valid.',
+          'Task Change Impact',{type:'warning',confirmButtonText:'Apply Changes'})
+      }catch{return false}
       existing.runtime='STOPPED'
     }
     Object.assign(existing,{device,device_group,point_group:form.point_group,interval:form.interval,sinks:[...form.sinks],enabled:form.enabled,updated_at:nowText()})
@@ -144,10 +143,18 @@ async function persistTask(existing?:TaskDef){
   refreshTaskValidity()
   return true
 }
-async function createTask(){ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created (mock)')} }
+const persisting=ref(false)
+async function createTask(){
+  if(persisting.value)return
+  persisting.value=true
+  try{ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created (mock)')} }
+  finally{persisting.value=false}
+}
 async function saveTaskEdit(){
-  if(!selectedTask.value) return
-  if(await persistTask(selectedTask.value)){loadForm(selectedTask.value); selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)')}
+  if(!selectedTask.value||persisting.value) return
+  persisting.value=true
+  try{ if(await persistTask(selectedTask.value)){loadForm(selectedTask.value); selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)') } }
+  finally{persisting.value=false}
 }
 async function changeEnabled(t:TaskDef,enabled:boolean){
   if(!enabled&&t.runtime==='RUNNING'){
@@ -156,26 +163,58 @@ async function changeEnabled(t:TaskDef,enabled:boolean){
   }
   refreshTaskValidity()
 }
-function toggle(t:TaskDef){
+// Start/Stop 运行状态机：STOPPED → STARTING → RUNNING，RUNNING → STOPPING → STOPPED。
+// 同一时刻只允许一个任务处于过渡态，过渡期间该任务的 Enabled/Delete 等冲突操作被禁用。
+// 状态翻转发生在 mock round-trip 完成之后，不做 Optimistic UI。
+const taskActionPending=ref('')
+function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms))}
+async function toggle(t:TaskDef){
+  if(taskActionPending.value)return
   refreshTaskValidity()
   if(t.valid===false){ElMessage.error(t.invalid_reason||'Task is invalid');return}
   if(t.runtime!=='RUNNING'&&!t.enabled){ElMessage.warning('Task is disabled');return}
-  t.runtime=t.runtime==='RUNNING'?'STOPPED':'RUNNING'
-  ElMessage.success(`Task ${t.task_id} ${t.runtime==='RUNNING'?'started':'stopped'} (mock)`)
+  taskActionPending.value=t.task_id
+  try{
+    if(t.runtime==='RUNNING'){
+      t.runtime='STOPPING'
+      await sleep(420)
+      t.runtime='STOPPED'
+      ElMessage.success(`Task ${t.task_id} stopped (mock)`)
+    }else{
+      t.runtime='STARTING'
+      await sleep(420)
+      // 固定失败规则：目标包含已知不可达设备 wtg-041 的任务启动失败，保证可复现。
+      const startFailed=devicesForTask(t).some(d=>d.device_id==='wtg-041')
+      if(startFailed){
+        t.runtime='STOPPED'
+        ElMessage.error(`Task ${t.task_id} failed to start: device wtg-041 unreachable (mock)`)
+        return
+      }
+      t.runtime='RUNNING'
+      ElMessage.success(`Task ${t.task_id} started (mock)`)
+    }
+  }finally{
+    taskActionPending.value=''
+  }
 }
 async function del(t:TaskDef){
-  await ElMessageBox.confirm(
-    t.runtime==='RUNNING'?'Task "'+t.task_id+'" is running and will be stopped before deletion.':'Delete task "'+t.task_id+'"?',
-    'Delete Task',{type:'warning',confirmButtonText:'Delete'})
+  if(taskActionPending.value)return
+  try{
+    await ElMessageBox.confirm(
+      t.runtime==='RUNNING'?'Task "'+t.task_id+'" is running and will be stopped before deletion.':'Delete task "'+t.task_id+'"?',
+      'Delete Task',{type:'warning',confirmButtonText:'Delete'})
+  }catch{return}
   t.runtime='STOPPED'; store.tasks=store.tasks.filter(x=>x!==t)
   if(selectedTaskId.value===t.task_id) detailOpen.value=false
   ElMessage.success('Task deleted (mock)')
 }
-function nowText(){
-  const d=new Date(); const p=(n:number)=>String(n).padStart(2,'0')
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
 function targetText(t:TaskDef){return t.device?`device: ${t.device}`:`group: ${t.device_group}`}
+function toggleLabel(t:TaskDef){
+  if(t.runtime==='RUNNING')return'Stop'
+  if(t.runtime==='STOPPING')return'Stopping'
+  if(t.runtime==='STARTING')return'Starting'
+  return'Start'
+}
 function devicePointCount(d:DeviceInst){return selectedTask.value?pointsOfTable(tableOfDevice(d)).filter(p=>p.point_groups.includes(selectedTask.value!.point_group)).length:0}
 function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 </script>
@@ -186,27 +225,27 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
 
     <el-card shadow="never">
       <el-table :data="store.tasks" row-key="task_id">
-        <el-table-column label="Task" min-width="190">
-          <template #default="{row}"><el-link :underline="false" @click="openDetail(row)"><b>{{row.task_id}}</b></el-link></template>
+        <el-table-column label="Task" min-width="150">
+          <template #default="{row}"><el-button link @click="openDetail(row)"><b>{{row.task_id}}</b></el-button></template>
         </el-table-column>
-        <el-table-column label="Target" min-width="180"><template #default="{row}">{{targetText(row)}}</template></el-table-column>
-        <el-table-column v-if="!isMobile" prop="point_group" label="Point Group" min-width="130"/>
-        <el-table-column v-if="!isMobile" label="Instances" width="100" align="right"><template #default="{row}">{{devicesForTask(row).length}}</template></el-table-column>
-        <el-table-column v-if="!isMobile" prop="created_at" label="Created" min-width="150"/>
-        <el-table-column prop="updated_at" label="Updated" min-width="150"/>
+        <el-table-column label="Target" min-width="150"><template #default="{row}">{{targetText(row)}}</template></el-table-column>
+        <el-table-column v-if="isDesktop" prop="point_group" label="Point Group" min-width="130"/>
+        <el-table-column v-if="isDesktop" label="Instances" width="100" align="right"><template #default="{row}">{{devicesForTask(row).length}}</template></el-table-column>
+        <el-table-column v-if="isDesktop" prop="created_at" label="Created" min-width="150"/>
+        <el-table-column v-if="isDesktop" prop="updated_at" label="Updated" min-width="150"/>
         <el-table-column label="Runtime" width="110">
           <template #default="{row}">
             <el-tooltip v-if="row.valid===false" :content="row.invalid_reason" placement="top"><el-tag type="danger">INVALID</el-tag></el-tooltip>
-            <el-tag v-else :type="row.runtime==='RUNNING'?'success':'info'">{{row.runtime}}</el-tag>
+            <el-tag v-else :type="statusTagType(row.runtime)">{{row.runtime}}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Enabled" width="100"><template #default="{row}"><el-switch v-model="row.enabled" @change="changeEnabled(row,!!$event)"/></template></el-table-column>
-        <el-table-column label="Operation" width="150">
+        <el-table-column label="Enabled" width="100"><template #default="{row}"><el-switch v-model="row.enabled" :disabled="taskActionPending===row.task_id" @change="changeEnabled(row,!!$event)"/></template></el-table-column>
+        <el-table-column label="Operation" width="150" fixed="right">
           <template #default="{row}">
-            <el-button size="small" :disabled="row.valid===false" @click="toggle(row)">{{row.runtime==='RUNNING'?'Stop':'Start'}}</el-button>
+            <el-button size="small" :loading="taskActionPending===row.task_id" :disabled="row.valid===false || (!!taskActionPending && taskActionPending!==row.task_id)" @click="toggle(row)">{{toggleLabel(row)}}</el-button>
             <el-dropdown trigger="click">
-              <el-button size="small">•••</el-button>
-              <template #dropdown><el-dropdown-menu><el-dropdown-item class="app-text-fault" @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
+              <el-button size="small" aria-label="More actions">•••</el-button>
+              <template #dropdown><el-dropdown-menu><el-dropdown-item class="app-text-fault" :disabled="!!taskActionPending" @click="del(row)">Delete</el-dropdown-item></el-dropdown-menu></template>
             </el-dropdown>
           </template>
         </el-table-column>
@@ -218,10 +257,10 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
         <div class="task-drawer-head">
           <div>
             <el-tag v-if="selectedTask.valid===false" type="danger">INVALID</el-tag>
-            <el-tag v-else :type="selectedTask.runtime==='RUNNING'?'success':'info'">{{selectedTask.runtime}}</el-tag>
+            <el-tag v-else :type="statusTagType(selectedTask.runtime)">{{selectedTask.runtime}}</el-tag>
             <span>{{taskDevices.length}} device instance(s) · {{totalPointBindings}} point binding(s)</span>
           </div>
-          <el-button @click="toggle(selectedTask)">{{selectedTask.runtime==='RUNNING'?'Stop':'Start'}}</el-button>
+          <el-button :loading="taskActionPending===selectedTask.task_id" :disabled="selectedTask.valid===false || (!!taskActionPending && taskActionPending!==selectedTask.task_id)" @click="toggle(selectedTask)">{{toggleLabel(selectedTask)}}</el-button>
         </div>
 
         <el-tabs v-model="detailTab">
@@ -281,7 +320,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
                 </div>
                 <div class="runtime-status-line">
                   <el-tag v-if="selectedTask.valid===false" type="danger">INVALID</el-tag>
-                  <el-tag v-else :type="selectedTask.runtime==='RUNNING'?'success':'info'">{{selectedTask.runtime}}</el-tag>
+                  <el-tag v-else :type="statusTagType(selectedTask.runtime)">{{selectedTask.runtime}}</el-tag>
                   <span>{{ selectedTask.enabled ? 'Enabled' : 'Disabled' }}</span>
                 </div>
                 <div class="runtime-metrics">

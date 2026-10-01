@@ -2,6 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CONFIG_FILES, yamlDiffs, yamlFiles } from '../mock/yaml'
+import { nowText } from '../utils/format'
 
 type ReviewLine={type:'same'|'add'|'remove';text:string}
 
@@ -19,10 +20,15 @@ const restoring=ref(false)
 const appliedSnapshot=reactive<Record<string,string>>(
   Object.fromEntries(CONFIG_FILES.map(name=>[name,yamlFiles[name]])),
 )
-const savedSnapshot=reactive<Record<string,string>>(
-  Object.fromEntries(CONFIG_FILES.map(name=>[name,yamlFiles[name]])),
-)
 const dirtyMap=reactive<Record<string,boolean>>({})
+
+// Apply / Import / Restore 统一走同一 revision 推进逻辑：
+// revision+1、历史头部插入 Applied 记录、旧 Applied 记录归档为 Archived。Backup 不产生 revision。
+function pushRevision(source:string,comment:string){
+  revision.value+=1
+  for(const entry of history.value)if(entry.status==='Applied')entry.status='Archived'
+  history.value.unshift({revision:revision.value,time:nowText(),source,comment,status:'Applied'})
+}
 
 function markDirty(){dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]}
 async function validate(){
@@ -35,28 +41,24 @@ async function validate(){
     return true
   }finally{validating.value=false}
 }
-function saveDraft(){
-  savedSnapshot[file.value]=yamlFiles[file.value]
-  dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]
-  ElMessage.success(dirtyMap[file.value]?file.value+' saved — pending apply (mock)':file.value+' saved (mock)')
-}
 async function apply(){
   if(applying.value||validating.value||!dirtyMap[file.value])return
   if(!await validate())return
   if(yamlFiles[file.value]!==appliedSnapshot[file.value]){
-    await ElMessageBox.confirm(
-      'The backend will validate, build diff and impact, then apply only affected runtime objects.',
-      'Apply Configuration',
-      {type:'warning',confirmButtonText:'Apply'},
-    )
+    try{
+      await ElMessageBox.confirm(
+        'The backend will validate, build diff and impact, then apply only affected runtime objects.',
+        'Apply Configuration',
+        {type:'warning',confirmButtonText:'Apply'},
+      )
+    }catch{return}
   }
   applying.value=true
   try{
     await new Promise(resolve=>setTimeout(resolve,350))
-    savedSnapshot[file.value]=yamlFiles[file.value]
     appliedSnapshot[file.value]=yamlFiles[file.value]
     dirtyMap[file.value]=false
-    revision.value+=1
+    pushRevision('Apply',file.value+' applied from workspace (mock)')
     ElMessage.success('Revision '+revision.value+' applied (mock)')
   }finally{applying.value=false}
 }
@@ -91,15 +93,17 @@ async function validateImport(){
 function closeImport(){importOpen.value=false;importState.name='';importState.validated=false}
 async function applyImport(){
   if(!importState.validated||importApplying.value||importValidating.value)return
-  await ElMessageBox.confirm(
-    'Apply the validated import as a new configuration revision?',
-    'Apply Import',
-    {type:'warning',confirmButtonText:'Apply Import'},
-  )
+  try{
+    await ElMessageBox.confirm(
+      'Apply the validated import as a new configuration revision?',
+      'Apply Import',
+      {type:'warning',confirmButtonText:'Apply Import'},
+    )
+  }catch{return}
   importApplying.value=true
   try{
     await new Promise(resolve=>setTimeout(resolve,350))
-    revision.value+=1
+    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target+' (mock)')
     closeImport()
     ElMessage.success('Imported as revision '+revision.value+' (mock)')
   }finally{importApplying.value=false}
@@ -113,15 +117,17 @@ const history=ref([
 ])
 async function restore(row:{revision:number}){
   if(restoring.value||applying.value||importApplying.value)return
-  await ElMessageBox.confirm(
-    'Compare revision '+row.revision+' with current, validate impact and apply it as a new revision?',
-    'Restore Revision',
-    {type:'warning',confirmButtonText:'Review & Restore'},
-  )
+  try{
+    await ElMessageBox.confirm(
+      'Compare revision '+row.revision+' with current, validate impact and apply it as a new revision?',
+      'Restore Revision',
+      {type:'warning',confirmButtonText:'Review & Restore'},
+    )
+  }catch{return}
   restoring.value=true
   try{
     await new Promise(resolve=>setTimeout(resolve,350))
-    revision.value+=1
+    pushRevision('Restore','Restored from revision '+row.revision+' (mock)')
     ElMessage.success('Restored as new revision '+revision.value+' (mock)')
   }finally{restoring.value=false}
 }
@@ -216,7 +222,7 @@ function createZip(files:Array<{name:string;content:string}>){
 }
 function createBackup(){
   const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
-  const archive=createZip(CONFIG_FILES.map(name=>({name,content:yamlFiles[name]})))
+  const archive=createZip(CONFIG_FILES.map(name=>({name,content:appliedSnapshot[name]})))
   downloadBlob('wind-hub-config-backup_'+stamp+'.zip',archive)
   ElMessage.success('Configuration backup downloaded')
 }
@@ -278,7 +284,6 @@ function handleAction(command:string){
 
               <div class="yaml-actions">
                 <el-button :loading="validating" :disabled="applying" @click="validate">Validate</el-button>
-                <el-button :disabled="applying" @click="saveDraft">Save Draft</el-button>
                 <el-button type="primary" :loading="applying" :disabled="!dirtyMap[file] || validating || applying" @click="apply">Apply</el-button>
               </div>
             </main>

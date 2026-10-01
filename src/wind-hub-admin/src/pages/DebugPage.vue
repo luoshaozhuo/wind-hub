@@ -37,8 +37,18 @@ const singleHost=ref('192.168.151.1')
 const subnet=reactive({ip:'192.168.151.1',mask:'255.255.255.0'})
 const portsInput=ref(DEFAULT_PORTS)
 const networkResults=ref<Array<Record<string,string|number>>>([])
+const networkPage=ref(1)
+const networkPageSize=ref(50)
 const scanProgress=ref(0)
 const scanTotal=ref(0)
+const pagedNetworkResults=computed(()=>{
+  const start=(networkPage.value-1)*networkPageSize.value
+  return networkResults.value.slice(start,start+networkPageSize.value)
+})
+watch([networkResults,networkPageSize],()=>{
+  const maxPage=Math.max(1,Math.ceil(networkResults.value.length/networkPageSize.value))
+  if(networkPage.value>maxPage)networkPage.value=maxPage
+})
 
 watch(networkMode,mode=>{
   networkTool.value='ping'
@@ -113,6 +123,7 @@ function simulatedHostResult(ip:string,index:number){
 async function runNetwork(){
   if(running.value)return
   networkResults.value=[]
+  networkPage.value=1
 
   if(networkMode.value==='single'){
     if(ipv4ToInt(singleHost.value)===null){ElMessage.warning('Enter a valid IPv4 address');return}
@@ -280,11 +291,13 @@ async function runWrite(){
   if(!writeValue.value.trim()){ElMessage.warning('Enter a write value');return}
   if(source.value==='group'&&!groupDeviceId.value){ElMessage.warning('Select one device in the group for write');return}
   if(source.value!=='manual'&&!selectedPoint.value){ElMessage.warning('Select a point');return}
-  await ElMessageBox.confirm(
-    'Send one diagnostic write and perform readback? Group writes always target only the selected device.',
-    'Diagnostic Write',
-    {type:'warning',confirmButtonText:'Write Once'},
-  )
+  try{
+    await ElMessageBox.confirm(
+      'Send one diagnostic write and perform readback? Group writes always target only the selected device.',
+      'Diagnostic Write',
+      {type:'warning',confirmButtonText:'Write Once'},
+    )
+  }catch{return}
   running.value=true
   try{
     await sleep(380)
@@ -363,9 +376,18 @@ async function runWrite(){
 
           <el-card shadow="never">
             <div class="panel-heading"><h2>Results</h2><p>{{networkResults.length}} result rows</p></div>
-            <el-table :data="networkResults" empty-text="Run a network diagnostic" height="var(--app-table-viewport-height)">
+            <el-table :data="pagedNetworkResults" empty-text="Run a network diagnostic" height="var(--app-table-viewport-height)">
               <el-table-column v-for="key in Object.keys(networkResults[0]||{})" :key="key" :prop="key" :label="key" min-width="110"/>
             </el-table>
+            <div v-if="networkResults.length>networkPageSize" class="pagination">
+              <el-pagination
+                v-model:current-page="networkPage"
+                v-model:page-size="networkPageSize"
+                :page-sizes="[50,100,200]"
+                :total="networkResults.length"
+                :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+              />
+            </div>
           </el-card>
         </div>
       </el-tab-pane>
