@@ -13,7 +13,7 @@ import {
 } from '../mock/data'
 import { useViewport } from '../composables/useViewport'
 import { logStore } from '../mock/runtime'
-import { startTask, stopTask, taskInstanceState } from '../mock/service'
+import { startTask, stopTask, taskInstanceState } from '../services/backend'
 import type { DeviceInst, TaskDef } from '../mock/types'
 import { formatTimestamp, nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
