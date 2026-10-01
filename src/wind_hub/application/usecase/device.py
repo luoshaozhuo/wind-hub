@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.config.schema import DeviceConfig
@@ -24,9 +24,9 @@ class DeviceSnapshot(BaseModel):
     device_type: str | None = None
     model: str | None = None
     device_group: str | None = None
-    extensions: dict[str, object]
-    port_override: int | None
-    extension_overrides: dict[str, object]
+    extensions: dict[str, object] = Field(default_factory=dict)
+    port_override: int | None = None
+    extension_overrides: dict[str, object] = Field(default_factory=dict)
     enabled: bool
     connected: bool
     consecutive_failures: int = 0
