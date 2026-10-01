@@ -188,3 +188,41 @@ class DeviceCommandResponse(BaseModel):
     readback_timestamp: datetime | None = None
     readback_quality: str | None = None
     readback_error: str | None = None
+
+
+class ConfigTextRequest(BaseModel):
+    """单文件配置验证/应用请求。"""
+
+    file: str
+    text: str
+
+
+class SettingsUpdateRequest(BaseModel):
+    """System Settings 结构化修改。"""
+
+    site_id: str | None = None
+    site_name: str | None = None
+    ads: dict[str, Any] | None = None
+    api: dict[str, Any] | None = None
+
+
+class DiagnosticPingRequest(BaseModel):
+    host: str
+
+
+class DiagnosticTcpRequest(BaseModel):
+    host: str
+    ports: list[int]
+
+
+class DiagnosticPointRequest(BaseModel):
+    device_id: str
+    point_id: str
+    value: Any = None
+
+
+class SubnetScanRequest(BaseModel):
+    cidr: str
+    ports: list[int] = Field(
+        default_factory=lambda: [502, 2404, 48898]
+    )
