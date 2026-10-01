@@ -228,6 +228,17 @@ class Runtime:
     # 组件只读视图（QueryUseCase / 适配器经此读取当前实例，热重载安全）
     # ------------------------------------------------------------------
 
+    def attach_metrics_hook(
+        self,
+        metrics_hook: RuntimeMetricsPort | None,
+    ) -> None:
+        """Attach or replace the optional runtime metrics observer.
+
+        This is a composition seam for external hosts such as wind-hub-server;
+        it does not change acquisition/control behavior.
+        """
+        self._metrics = metrics_hook
+
     @property
     def devices(self) -> dict[str, Device]:
         """当前设备注册表（热重载后就地反映最新内容）。"""
