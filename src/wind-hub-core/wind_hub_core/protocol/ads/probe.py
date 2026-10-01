@@ -70,14 +70,23 @@ class ADSProbe:
         pyads = _pyads()
         options = self._target.options
         net_id = str(options.get("target_net_id") or "") or None
-        target_port = int(options.get("target_port", options.get("ams_port", 801)))
+        twincat_version = str(options.get("twincat_version", "2"))
+        default_port = 851 if twincat_version == "3" else 801
+        target_port = int(
+            options.get("target_port", options.get("ams_port", default_port))
+        )
         timeout = float(options.get("timeout", 5.0))
         connection = pyads.Connection(net_id, target_port, self._target.host)
         connection.set_timeout(int(timeout * 1000))
-        await asyncio.to_thread(connection.open)
-        if not connection.is_open:
-            connection.close()
-            raise ConnectionError(f"ADS connection is not open: {self._target.device_id}")
+        try:
+            await asyncio.to_thread(connection.open)
+            if not connection.is_open:
+                raise ConnectionError(
+                    f"ADS connection is not open: {self._target.device_id}"
+                )
+        except Exception:
+            await asyncio.to_thread(connection.close)
+            raise
         self._connection = connection
         self._connected = True
 

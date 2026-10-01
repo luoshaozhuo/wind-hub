@@ -24,8 +24,10 @@ import uvicorn
 
 from wind_hub.adapter.inbound.webapi.app import build_api
 from wind_hub.application.app_context import AppContext, clear_context, set_context
-from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub.config.loader import load_config
+from wind_hub_server.config_validation import ServerConfigValidator
 from wind_hub_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
@@ -59,13 +61,36 @@ def build_api_server(rt: AssembledRuntime, settings: ServerSettings) -> uvicorn.
     return uvicorn.Server(config)
 
 
-async def reload_once(config: ConfigUseCase) -> None:
+async def reload_once(
+    config: ConfigUseCase,
+    validator: ServerConfigValidator | None = None,
+) -> None:
     """执行一次配置热重载并记录结果。
 
-    Args:
-        config: 当前进程装配的配置 Use Case。
+    reload 的主动现场验证只检查新增 Device。验证失败不会把现场暂时离线
+    误判为静态配置非法；Runtime 仍按既有 best-effort 语义应用配置。
     """
     logger.info("收到 SIGHUP，开始热重载")
+    if validator is not None:
+        try:
+            candidate = load_config(config.config_dir)
+            diff = compute_diff(config.current_config, candidate)
+            summary = await validator.validate_added_devices(
+                candidate,
+                set(diff.devices.added),
+            )
+            if summary.reports:
+                logger.info(
+                    "reload active validation completed: devices=%d errors=%d",
+                    len(summary.reports),
+                    summary.error_count,
+                )
+        except Exception:
+            logger.warning(
+                "reload active validation failed before Runtime reload",
+                exc_info=True,
+            )
+
     result = await config.reload()
     if result.success:
         logger.info("配置热重载成功")
@@ -73,12 +98,16 @@ async def reload_once(config: ConfigUseCase) -> None:
         logger.warning("配置热重载失败：%s", result.errors)
 
 
-async def _reload_loop(reload_event: asyncio.Event, config: ConfigUseCase) -> None:
+async def _reload_loop(
+    reload_event: asyncio.Event,
+    config: ConfigUseCase,
+    validator: ServerConfigValidator,
+) -> None:
     """长期消费 SIGHUP 事件，直到任务被进程停机流程取消。"""
     while True:
         await reload_event.wait()
         reload_event.clear()
-        await reload_once(config)
+        await reload_once(config, validator)
 
 
 def _install_signal_handlers(
@@ -147,6 +176,17 @@ async def run_server(settings: ServerSettings) -> int:
     """
     logging.basicConfig(level=logging.INFO)
 
+    validator = ServerConfigValidator(settings.config_dir)
+    startup_config = load_config(settings.config_dir)
+    validation = await validator.validate_startup(startup_config)
+    logger.info(
+        "startup active validation completed: devices=%d errors=%d repaired_points=%d",
+        len(validation.reports),
+        validation.error_count,
+        validation.repaired_points,
+    )
+
+    # 验证可能安全修正 points.yaml，因此装配必须重新从磁盘读取最终配置。
     rt = assemble(settings.config_dir)
     rt.log_store.install()
     _set_context(rt)
@@ -169,7 +209,9 @@ async def run_server(settings: ServerSettings) -> int:
             settings.host,
             settings.port,
         )
-        reload_task = asyncio.create_task(_reload_loop(reload_event, rt.config))
+        reload_task = asyncio.create_task(
+            _reload_loop(reload_event, rt.config, validator)
+        )
         await shutdown_event.wait()
         logger.info("收到停机信号，开始优雅停机")
     finally:
