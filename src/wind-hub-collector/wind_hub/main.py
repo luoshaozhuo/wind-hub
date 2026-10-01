@@ -12,6 +12,7 @@ import logging
 import signal
 from pathlib import Path
 
+from wind_hub.adapter.inbound.grpc import build_grpc_server
 from wind_hub.application.runtime.collector_identity import (
     build_collector_identity,
     default_collector_id,
@@ -36,6 +37,8 @@ async def run_collector(
     config_dir: str | Path,
     *,
     collector_id: str | None = None,
+    grpc_host: str = "127.0.0.1",
+    grpc_port: int = 50051,
     shutdown_timeout: float = 30.0,
 ) -> int:
     """启动 Collector 并阻塞到收到停机信号。
@@ -43,6 +46,8 @@ async def run_collector(
     Args:
         config_dir: 当前过渡阶段使用的现场 YAML 配置目录。
         collector_id: Collector 稳定标识；为空时读取环境变量或主机名。
+        grpc_host: gRPC 控制面监听地址。
+        grpc_port: gRPC 控制面监听端口。
         shutdown_timeout: Runtime 优雅停机整体硬超时，单位秒。
 
     Returns:
@@ -60,10 +65,18 @@ async def run_collector(
     )
     runtime = assemble(config_dir)
     runtime.log_store.install()
+    grpc_server = build_grpc_server(
+        runtime,
+        identity,
+        host=grpc_host,
+        port=grpc_port,
+    )
     shutdown_event = asyncio.Event()
     _install_signal_handlers(shutdown_event)
 
     try:
+        await grpc_server.start()
+        logger.info("Collector gRPC 控制面已监听 %s", grpc_server.endpoint)
         await start_runtime(runtime)
         logger.info(
             (
@@ -81,9 +94,12 @@ async def run_collector(
         logger.info("收到停机信号，开始优雅停机")
     finally:
         try:
-            await stop_runtime(runtime, timeout=shutdown_timeout)
+            await grpc_server.stop()
         finally:
-            runtime.log_store.uninstall()
+            try:
+                await stop_runtime(runtime, timeout=shutdown_timeout)
+            finally:
+                runtime.log_store.uninstall()
 
     logger.info("wind-hub-collector 已干净退出")
     return 0
@@ -109,6 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--grpc-host",
+        default="127.0.0.1",
+        help="gRPC 控制面监听地址，默认 127.0.0.1",
+    )
+    parser.add_argument(
+        "--grpc-port",
+        type=int,
+        default=50051,
+        help="gRPC 控制面监听端口，默认 50051",
+    )
+    parser.add_argument(
         "--shutdown-timeout",
         type=float,
         default=30.0,
@@ -124,6 +151,8 @@ def main() -> int:
         run_collector(
             args.config,
             collector_id=args.collector_id,
+            grpc_host=args.grpc_host,
+            grpc_port=args.grpc_port,
             shutdown_timeout=args.shutdown_timeout,
         )
     )

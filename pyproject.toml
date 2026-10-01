@@ -7,7 +7,9 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "wind_hub", from = "src/wind-hub-collector" },
-    { include = "wind_hub_server", from = "src/wind-hub-server" },\n    { include = "wind_hub_core", from = "src/wind-hub-core" },
+    { include = "wind_hub_server", from = "src/wind-hub-server" },
+    { include = "wind_hub_core", from = "src/wind-hub-core" },
+    { include = "wind_hub_ctl", from = "src/wind-hub-ctl" },
 ]
 
 [tool.poetry.dependencies]
@@ -19,6 +21,8 @@ fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
 structlog = "^24.0"
 prometheus-client = "^0.21"
+grpcio = "^1.75"
+protobuf = "^6.32"
 pymodbus = { version = "^3.6", optional = true }
 pyads = { version = "^3.4", optional = true }
 
@@ -47,6 +51,7 @@ import-linter = "^2.0"
 [tool.poetry.scripts]
 wind-hub = "wind_hub.adapter.inbound.cli.app:main"
 wind-hub-collector = "wind_hub.main:main"
+wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
 
 [tool.ruff]

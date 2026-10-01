@@ -14,11 +14,23 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2, json_format, struct_pb2
 
+from wind_hub.application.runtime.collector_identity import CollectorIdentity
 from wind_hub.assembly import AssembledRuntime
 from wind_hub.domain.model.command import Command
-
-_RUNTIME_SERVICE = "windhub.collector.v1.CollectorRuntimeService"
-_CONTROL_SERVICE = "windhub.collector.v1.CollectorControlService"
+from wind_hub_core.rpc.collector import (
+    CONTROL_SERVICE,
+    GET_COLLECTOR_INFO,
+    GET_RUNTIME_STATUS,
+    GET_TASK_INSTANCE,
+    LIST_DEVICES,
+    LIST_TASK_INSTANCES,
+    RUNTIME_SERVICE,
+    START_ASSIGNED_TASKS,
+    START_TASK_INSTANCE,
+    STOP_ASSIGNED_TASKS,
+    STOP_TASK_INSTANCE,
+    WRITE_POINT,
+)
 
 
 def _struct(data: dict[str, Any]) -> struct_pb2.Struct:
@@ -69,8 +81,13 @@ class CollectorGrpcServer:
 class CollectorRuntimeService:
     """Collector 运行态只读查询。"""
 
-    def __init__(self, runtime: AssembledRuntime) -> None:
+    def __init__(
+        self,
+        runtime: AssembledRuntime,
+        identity: CollectorIdentity,
+    ) -> None:
         self._runtime = runtime
+        self._identity = identity
 
     async def get_collector_info(
         self,
@@ -81,6 +98,10 @@ class CollectorRuntimeService:
         return _struct(
             {
                 "component": "wind-hub-collector",
+                "collector_id": self._identity.collector_id,
+                "boot_id": self._identity.boot_id,
+                "config_hash": self._identity.config_hash,
+                "config_revision": self._identity.config_revision,
                 "runtime_running": self._runtime.runtime.running,
             }
         )
@@ -234,29 +255,29 @@ class CollectorControlService:
 def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandler:
     """构建 Runtime service generic handler。"""
     return grpc.method_handlers_generic_handler(
-        _RUNTIME_SERVICE,
+        RUNTIME_SERVICE,
         {
-            "GetCollectorInfo": grpc.unary_unary_rpc_method_handler(
+            GET_COLLECTOR_INFO: grpc.unary_unary_rpc_method_handler(
                 service.get_collector_info,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "GetRuntimeStatus": grpc.unary_unary_rpc_method_handler(
+            GET_RUNTIME_STATUS: grpc.unary_unary_rpc_method_handler(
                 service.get_runtime_status,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "ListTaskInstances": grpc.unary_unary_rpc_method_handler(
+            LIST_TASK_INSTANCES: grpc.unary_unary_rpc_method_handler(
                 service.list_task_instances,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "GetTaskInstance": grpc.unary_unary_rpc_method_handler(
+            GET_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
                 service.get_task_instance,
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "ListDevices": grpc.unary_unary_rpc_method_handler(
+            LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
                 service.list_devices,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
@@ -268,29 +289,29 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
 def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandler:
     """构建 Control service generic handler。"""
     return grpc.method_handlers_generic_handler(
-        _CONTROL_SERVICE,
+        CONTROL_SERVICE,
         {
-            "StartTaskInstance": grpc.unary_unary_rpc_method_handler(
+            START_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
                 service.start_task_instance,
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "StopTaskInstance": grpc.unary_unary_rpc_method_handler(
+            STOP_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
                 service.stop_task_instance,
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "StartAssignedTasks": grpc.unary_unary_rpc_method_handler(
+            START_ASSIGNED_TASKS: grpc.unary_unary_rpc_method_handler(
                 service.start_assigned_tasks,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "StopAssignedTasks": grpc.unary_unary_rpc_method_handler(
+            STOP_ASSIGNED_TASKS: grpc.unary_unary_rpc_method_handler(
                 service.stop_assigned_tasks,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
-            "WritePoint": grpc.unary_unary_rpc_method_handler(
+            WRITE_POINT: grpc.unary_unary_rpc_method_handler(
                 service.write_point,
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
@@ -301,6 +322,7 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
 
 def build_grpc_server(
     runtime: AssembledRuntime,
+    identity: CollectorIdentity,
     *,
     host: str,
     port: int,
@@ -309,6 +331,7 @@ def build_grpc_server(
 
     Args:
         runtime: 已装配的 Collector Runtime。
+        identity: 本次 Collector 进程身份。
         host: gRPC 监听地址。
         port: gRPC 监听端口。
 
@@ -316,7 +339,7 @@ def build_grpc_server(
         可由 Collector 进程统一管理生命周期的 Server 包装。
     """
     server = grpc.aio.server()
-    runtime_service = CollectorRuntimeService(runtime)
+    runtime_service = CollectorRuntimeService(runtime, identity)
     control_service = CollectorControlService(runtime)
     server.add_generic_rpc_handlers(
         (
