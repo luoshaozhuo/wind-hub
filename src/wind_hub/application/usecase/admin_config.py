@@ -76,7 +76,6 @@ class AdminConfigUseCase:
         self._validate_candidate(name, text)
         path = self._path(name)
         old = path.read_text(encoding="utf-8") if path.exists() else ""
-        revision = self._create_revision(f"before {source} {name}")
 
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text, encoding="utf-8")
@@ -90,6 +89,9 @@ class AdminConfigUseCase:
                 "; ".join(result.errors) or "configuration apply failed"
             )
 
+        revision = self._create_revision(
+            f"{source} applied {name}"
+        )
         self._logs.append(
             "INFO",
             "config",
@@ -124,32 +126,56 @@ class AdminConfigUseCase:
         return sorted(index, key=lambda row: int(row["revision"]), reverse=True)
 
     async def restore(self, revision: int) -> dict[str, Any]:
+        """恢复历史 Applied 快照，并把恢复结果登记为一个新 revision。"""
         folder = self._history_dir / f"{revision:06d}"
         if not folder.is_dir():
             raise KeyError(str(revision))
 
-        rollback_revision = self._create_revision(
-            f"before restore {revision}"
-        )
-        rollback = self._history_dir / f"{rollback_revision:06d}"
-        for name in CONFIG_FILES:
-            src = folder / name
-            if src.exists():
-                shutil.copy2(src, self._config.config_dir / name)
-
-        result = await self._config.reload()
-        if not result.success:
+        with tempfile.TemporaryDirectory(
+            prefix="wind-hub-restore-"
+        ) as temp:
+            rollback = Path(temp)
             for name in CONFIG_FILES:
-                src = rollback / name
-                if src.exists():
-                    shutil.copy2(src, self._config.config_dir / name)
-            await self._config.reload()
-            raise ConfigError("; ".join(result.errors) or "restore failed")
+                current = self._config.config_dir / name
+                if current.exists():
+                    shutil.copy2(current, rollback / name)
 
-        self._logs.append("INFO", "config", str(revision), "revision restored")
+            for name in CONFIG_FILES:
+                src = folder / name
+                target = self._config.config_dir / name
+                if src.exists():
+                    shutil.copy2(src, target)
+                elif target.exists():
+                    target.unlink()
+
+            result = await self._config.reload()
+            if not result.success:
+                for name in CONFIG_FILES:
+                    saved = rollback / name
+                    target = self._config.config_dir / name
+                    if saved.exists():
+                        shutil.copy2(saved, target)
+                    elif target.exists():
+                        target.unlink()
+                await self._config.reload()
+                raise ConfigError(
+                    "; ".join(result.errors)
+                    or "restore failed"
+                )
+
+        new_revision = self._create_revision(
+            f"restored from revision {revision}"
+        )
+        self._logs.append(
+            "INFO",
+            "config",
+            str(new_revision),
+            f"restored from revision {revision}",
+        )
         return {
             "success": True,
-            "revision": revision,
+            "revision": new_revision,
+            "restored_from": revision,
             "duration_ms": result.duration_ms,
         }
 
