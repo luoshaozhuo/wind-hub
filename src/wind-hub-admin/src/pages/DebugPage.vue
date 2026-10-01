@@ -13,7 +13,7 @@ import {
   runProtocolWrite,
   sleep,
   subnetHostResult,
-} from '../mock/service'
+} from '../services/backend'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { DeviceInst, PointDef, Protocol } from '../mock/types'
 
@@ -125,8 +125,8 @@ async function runNetwork(){
     try{
       // Ping / Port Probe 结果与 Devices Verify 一致（§17.1/§17.2）：由 Mock Service 派生
       networkResults.value=networkTool.value==='ping'
-        ? [pingHost(singleHost.value)]
-        : probePorts(singleHost.value,parsePorts())
+        ? [await pingHost(singleHost.value)]
+        : await probePorts(singleHost.value,parsePorts())
     }finally{running.value=false}
     return
   }
