@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 from wind_hub.application.runtime.runtime import Runtime
@@ -18,6 +20,7 @@ class DeviceSnapshot(BaseModel):
     protocol: str
     host: str
     port: int
+    extensions: dict[str, Any]
     point_table: str
     device_type: str | None = None
     model: str | None = None
@@ -72,6 +75,7 @@ class DeviceUseCase:
             protocol=cfg.protocol,
             host=cfg.endpoint.host,
             port=cfg.endpoint.port,
+            extensions=dict(cfg.endpoint.extensions),
             point_table=cfg.point_table,
             device_type=cfg.device_type,
             model=cfg.model,
