@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  LATENCY,
-  applyDevicesYamlToState,
-  applySystemYamlToState,
+  applyConfig,
   configApplyImpact,
-  logConfigApplied,
-  sleep,
+  configBackup,
+  configHistory,
+  importConfig,
+  restoreConfig,
   validateConfig,
 } from '../api/service'
-import { CONFIG_FILES, yamlFiles } from '../api/yaml'
-import { nowText } from '../utils/format'
+import { initializeData } from '../api/data'
+import { CONFIG_FILES, loadYamlFiles, yamlFiles } from '../api/yaml'
 
 type ReviewLine={type:'same'|'add'|'remove';text:string}
 interface HistoryEntry {
@@ -20,83 +20,82 @@ interface HistoryEntry {
   source:string
   comment:string
   status:string
-  // Revision 快照（§18 三层：Working Copy / Applied / Revision History）：
-  // Restore 以快照为事实源真正回写 yamlFiles 与 runtime state。
-  snapshot:Record<string,string>
 }
 
 const section=ref<'files'|'history'>('files')
 const file=ref('devices.yaml')
 const editorMode=ref<'edit'|'review'>('review')
-const revision=ref(42)
+const revision=ref(0)
 const importOpen=ref(false)
 const validating=ref(false)
 const applying=ref(false)
 const importValidating=ref(false)
 const importApplying=ref(false)
 const restoring=ref(false)
-
-const appliedSnapshot=reactive<Record<string,string>>(
-  Object.fromEntries(CONFIG_FILES.map(name=>[name,yamlFiles[name]])),
-)
+const appliedSnapshot=reactive<Record<string,string>>({})
 const dirtyMap=reactive<Record<string,boolean>>({})
+const history=ref<HistoryEntry[]>([])
 
-function snapshotOfApplied(){
-  return Object.fromEntries(CONFIG_FILES.map(name=>[name,appliedSnapshot[name]]))
+function syncApplied(){
+  for(const name of CONFIG_FILES){
+    appliedSnapshot[name]=yamlFiles[name]||''
+    dirtyMap[name]=false
+  }
+  if(!CONFIG_FILES.includes(file.value))file.value=CONFIG_FILES[0]||''
 }
-
-// Apply / Import / Restore 统一走同一 revision 推进逻辑：
-// revision+1、历史头部插入 Applied 记录（含全量快照）、旧 Applied 记录归档为 Archived。
-// Backup 不产生 revision。
-function pushRevision(source:string,comment:string){
-  revision.value+=1
-  for(const entry of history.value)if(entry.status==='Applied')entry.status='Archived'
-  history.value.unshift({revision:revision.value,time:nowText(),source,comment,status:'Applied',snapshot:snapshotOfApplied()})
+async function loadHistory(){
+  const rows=await configHistory()
+  revision.value=rows[0]?.revision||0
+  history.value=rows.map((row,index)=>({
+    revision:row.revision,
+    time:row.created_at.replace('T',' ').slice(0,19),
+    source:row.source,
+    comment:row.comment,
+    status:index===0?'Applied':'Archived',
+  }))
 }
-
-// 配置文本应用后同步结构化 runtime state（§18：Devices / Settings / Overview 立即反映）
-function applyTextToState(name:string,text:string){
-  if(name==='system.yaml')applySystemYamlToState(text)
-  if(name==='devices.yaml')applyDevicesYamlToState(text)
-}
+onMounted(()=>{syncApplied();void loadHistory()})
 
 function markDirty(){dirtyMap[file.value]=yamlFiles[file.value]!==appliedSnapshot[file.value]}
-// Validate（§20）：确定性规则 —— 空文档 / Tab 缩进 / 重复 device_id / 未知引用失败，其余通过。
+
 async function validate(){
   if(validating.value||applying.value)return false
   validating.value=true
   try{
-    await sleep(LATENCY.uiLocal)
-    const result=validateConfig(file.value,yamlFiles[file.value])
+    const result=await validateConfig(file.value,yamlFiles[file.value])
     if(!result.ok){
-      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+' ')
+      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:''))
       return false
     }
-    ElMessage.success(file.value+' validation passed ')
+    ElMessage.success(file.value+' validation passed')
     return true
+  }catch(error){
+    ElMessage.error(error instanceof Error?error.message:String(error))
+    return false
   }finally{validating.value=false}
 }
-// Apply（§22）：confirm 展示按 target file 生成的影响范围；成功后回写 runtime state + 记录日志。
+
 async function apply(){
   if(applying.value||validating.value||!dirtyMap[file.value])return
   if(!await validate())return
   try{
     await ElMessageBox.confirm(
-      'Apply only affected runtime objects. Impact: '+configApplyImpact(file.value).join('; ')+'.',
+      'Apply affected runtime objects. Impact: '+configApplyImpact(file.value).join('; ')+'.',
       'Apply Configuration',
       {type:'warning',confirmButtonText:'Apply'},
     )
   }catch{return}
   applying.value=true
   try{
-    await sleep(LATENCY.configApply)
-    applyTextToState(file.value,yamlFiles[file.value])
+    const result=await applyConfig(file.value,yamlFiles[file.value],file.value+' applied from workspace')
+    if(!result.success)throw new Error(result.errors.join('; ')||'Apply failed')
     appliedSnapshot[file.value]=yamlFiles[file.value]
     dirtyMap[file.value]=false
-    pushRevision('Apply',file.value+' applied from workspace ')
-    logConfigApplied('Apply',file.value,revision.value)
-    ElMessage.success('Revision '+revision.value+' applied ')
-  }finally{applying.value=false}
+    await initializeData()
+    await loadHistory()
+    ElMessage.success('Revision '+(result.revision??revision.value)+' applied')
+  }catch(error){ElMessage.error(error instanceof Error?error.message:String(error))}
+  finally{applying.value=false}
 }
 
 function buildReview(before:string,after:string):ReviewLine[]{
@@ -112,205 +111,76 @@ function buildReview(before:string,after:string):ReviewLine[]{
   }
   return lines
 }
-const reviewLines=computed(()=>buildReview(appliedSnapshot[file.value],yamlFiles[file.value]))
+const reviewLines=computed(()=>buildReview(appliedSnapshot[file.value]||'',yamlFiles[file.value]||''))
 
-// Import（§21）：真正读取上传文件文本；空文件失败；与当前 Working Copy 相同 → No Changes，
-// 不同 → 复用 buildReview 生成真实 diff；Apply 后回写 yamlFiles + runtime state + revision。
 const importState=reactive<{target:string;name:string;text:string;validated:boolean;errors:string[];raw:File|null}>({
   target:'devices.yaml',name:'',text:'',validated:false,errors:[],raw:null,
 })
 function onImportChange(upload:{name?:string;raw?:File}){
-  importState.name=upload.name||''
-  importState.raw=upload.raw||null
-  importState.text=''
-  importState.validated=false
-  importState.errors=[]
+  importState.name=upload.name||'';importState.raw=upload.raw||null;importState.text='';importState.validated=false;importState.errors=[]
 }
 watch(()=>importState.target,()=>{importState.validated=false;importState.errors=[]})
 const importNoChanges=computed(()=>importState.validated&&importState.text===yamlFiles[importState.target])
-const importReviewLines=computed(()=>importState.validated?buildReview(yamlFiles[importState.target],importState.text):[])
+const importReviewLines=computed(()=>importState.validated?buildReview(yamlFiles[importState.target]||'',importState.text):[])
 const importImpacts=computed(()=>configApplyImpact(importState.target))
 async function validateImport(){
   if(importValidating.value||importApplying.value)return
   if(!importState.name||!importState.raw){ElMessage.warning('Select a YAML file first');return}
   importValidating.value=true
   try{
-    await sleep(LATENCY.uiLocal)
-    const text=await importState.raw.text()
-    importState.text=text
-    if(!text.trim()){
-      importState.errors=[importState.target+': uploaded file is empty']
-      importState.validated=false
-      ElMessage.error('Uploaded file is empty ')
-      return
-    }
-    const result=validateConfig(importState.target,text)
-    importState.errors=result.errors
-    importState.validated=result.ok
-    if(!result.ok){ElMessage.error('Import validation failed ');return}
-    ElMessage.success(text===yamlFiles[importState.target]?'Import validated — no changes ':'Import validated — diff ready ')
-  }finally{importValidating.value=false}
+    importState.text=await importState.raw.text()
+    if(!importState.text.trim()){importState.errors=[importState.target+': uploaded file is empty'];importState.validated=false;return}
+    const result=await validateConfig(importState.target,importState.text)
+    importState.errors=result.errors;importState.validated=result.ok
+    if(!result.ok){ElMessage.error('Import validation failed');return}
+    ElMessage.success(importNoChanges.value?'Import validated — no changes':'Import validated — diff ready')
+  }catch(error){ElMessage.error(error instanceof Error?error.message:String(error))}
+  finally{importValidating.value=false}
 }
 function closeImport(){importOpen.value=false;importState.name='';importState.text='';importState.validated=false;importState.errors=[];importState.raw=null}
 async function applyImport(){
   if(!importState.validated||importNoChanges.value||importApplying.value||importValidating.value)return
-  try{
-    await ElMessageBox.confirm(
-      'Apply the validated import as a new configuration revision? Impact: '+importImpacts.value.join('; ')+'.',
-      'Apply Import',
-      {type:'warning',confirmButtonText:'Apply Import'},
-    )
-  }catch{return}
+  try{await ElMessageBox.confirm('Apply the validated import as a new configuration revision?','Apply Import',{type:'warning',confirmButtonText:'Apply Import'})}catch{return}
   importApplying.value=true
   try{
-    await sleep(LATENCY.configApply)
-    yamlFiles[importState.target]=importState.text
-    applyTextToState(importState.target,importState.text)
-    appliedSnapshot[importState.target]=importState.text
-    dirtyMap[importState.target]=false
-    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target+' ')
-    logConfigApplied('Import',importState.target,revision.value)
-    closeImport()
-    ElMessage.success('Imported as revision '+revision.value+' ')
-  }finally{importApplying.value=false}
+    const result=await importConfig(importState.target,importState.text,'Imported '+importState.name)
+    if(!result.success)throw new Error(result.errors.join('; ')||'Import failed')
+    await loadYamlFiles();syncApplied();await initializeData();await loadHistory();closeImport()
+    ElMessage.success('Imported as revision '+(result.revision??revision.value))
+  }catch(error){ElMessage.error(error instanceof Error?error.message:String(error))}
+  finally{importApplying.value=false}
 }
 
-// Revision History（§18）：每个 revision 携带全量快照；Restore 以快照真正回写。
-const history=ref<HistoryEntry[]>([])
-{
-  const base=snapshotOfApplied()
-  // 旧版本快照：devices.yaml 中 wtg-025 还是旧 host，Restore 后可在 Devices 页看到真实变化
-  const older=snapshotOfApplied()
-  older['devices.yaml']=older['devices.yaml'].replace('host: "192.168.151.25"','host: "192.168.151.26"')
-  history.value=[
-    {revision:42,time:'2026-09-30 10:12:04',source:'Apply',comment:'Current applied configuration',status:'Applied',snapshot:base},
-    {revision:41,time:'2026-09-29 23:18:51',source:'Edit',comment:'Previous working revision',status:'Archived',snapshot:older},
-    {revision:40,time:'2026-09-29 18:06:33',source:'Import',comment:'ADS site configuration',status:'Archived',snapshot:{...older}},
-    {revision:39,time:'2026-09-28 15:42:10',source:'Apply',comment:'Before point table update',status:'Archived',snapshot:{...older}},
-  ]
-}
 async function restore(row:HistoryEntry){
   if(restoring.value||applying.value||importApplying.value)return
-  try{
-    await ElMessageBox.confirm(
-      'Compare revision '+row.revision+' with current, validate impact and apply it as a new revision?',
-      'Restore Revision',
-      {type:'warning',confirmButtonText:'Review & Restore'},
-    )
-  }catch{return}
+  try{await ElMessageBox.confirm('Restore revision '+row.revision+' as a new revision?','Restore Revision',{type:'warning',confirmButtonText:'Restore'})}catch{return}
   restoring.value=true
   try{
-    await sleep(LATENCY.configApply)
-    for(const name of CONFIG_FILES){
-      yamlFiles[name]=row.snapshot[name]
-      applyTextToState(name,row.snapshot[name])
-      appliedSnapshot[name]=row.snapshot[name]
-      dirtyMap[name]=false
-    }
-    pushRevision('Restore','Restored from revision '+row.revision+' ')
-    logConfigApplied('Restore','all files',revision.value)
-    ElMessage.success('Restored as new revision '+revision.value+' ')
-  }finally{restoring.value=false}
+    const result=await restoreConfig(row.revision)
+    if(!result.success)throw new Error(result.errors.join('; ')||'Restore failed')
+    await loadYamlFiles();syncApplied();await initializeData();await loadHistory()
+    ElMessage.success('Restored as revision '+(result.revision??revision.value))
+  }catch(error){ElMessage.error(error instanceof Error?error.message:String(error))}
+  finally{restoring.value=false}
 }
 
 function downloadBlob(filename:string,blob:Blob){
-  const url=URL.createObjectURL(blob)
-  const anchor=document.createElement('a')
-  anchor.href=url
-  anchor.download=filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+  const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=filename
+  document.body.appendChild(anchor);anchor.click();anchor.remove();URL.revokeObjectURL(url)
 }
-function downloadCurrent(){
-  downloadBlob(file.value,new Blob([yamlFiles[file.value]],{type:'text/yaml;charset=utf-8'}))
-}
-
-function crc32(bytes:Uint8Array){
-  let crc=0xffffffff
-  for(const byte of bytes){
-    crc^=byte
-    for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0)
-  }
-  return (crc^0xffffffff)>>>0
-}
-function concatBytes(parts:Uint8Array[]){
-  const size=parts.reduce((sum,part)=>sum+part.length,0)
-  const result=new Uint8Array(size)
-  let offset=0
-  for(const part of parts){result.set(part,offset);offset+=part.length}
-  return result
-}
-function zipHeader(size:number){
-  return new Uint8Array(size)
-}
-function createZip(files:Array<{name:string;content:string}>){
-  const encoder=new TextEncoder()
-  const locals:Uint8Array[]=[]
-  const centrals:Uint8Array[]=[]
-  let offset=0
-
-  for(const fileEntry of files){
-    const name=encoder.encode(fileEntry.name)
-    const data=encoder.encode(fileEntry.content)
-    const crc=crc32(data)
-
-    const local=zipHeader(30+name.length)
-    const localView=new DataView(local.buffer)
-    localView.setUint32(0,0x04034b50,true)
-    localView.setUint16(4,20,true)
-    localView.setUint16(6,0x0800,true)
-    localView.setUint16(8,0,true)
-    localView.setUint32(14,crc,true)
-    localView.setUint32(18,data.length,true)
-    localView.setUint32(22,data.length,true)
-    localView.setUint16(26,name.length,true)
-    local.set(name,30)
-    locals.push(local,data)
-
-    const central=zipHeader(46+name.length)
-    const centralView=new DataView(central.buffer)
-    centralView.setUint32(0,0x02014b50,true)
-    centralView.setUint16(4,20,true)
-    centralView.setUint16(6,20,true)
-    centralView.setUint16(8,0x0800,true)
-    centralView.setUint16(10,0,true)
-    centralView.setUint32(16,crc,true)
-    centralView.setUint32(20,data.length,true)
-    centralView.setUint32(24,data.length,true)
-    centralView.setUint16(28,name.length,true)
-    centralView.setUint32(42,offset,true)
-    central.set(name,46)
-    centrals.push(central)
-
-    offset+=local.length+data.length
-  }
-
-  const centralBytes=concatBytes(centrals)
-  const end=zipHeader(22)
-  const endView=new DataView(end.buffer)
-  endView.setUint32(0,0x06054b50,true)
-  endView.setUint16(8,files.length,true)
-  endView.setUint16(10,files.length,true)
-  endView.setUint32(12,centralBytes.length,true)
-  endView.setUint32(16,offset,true)
-
-  const archive=concatBytes([...locals,centralBytes,end])
-  const buffer=new ArrayBuffer(archive.byteLength)
-  new Uint8Array(buffer).set(archive)
-  return new Blob([buffer],{type:'application/zip'})
-}
-function createBackup(){
-  const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
-  const archive=createZip(CONFIG_FILES.map(name=>({name,content:appliedSnapshot[name]})))
-  downloadBlob('wind-hub-config-backup_'+stamp+'.zip',archive)
-  ElMessage.success('Configuration backup downloaded')
+function downloadCurrent(){downloadBlob(file.value,new Blob([yamlFiles[file.value]||''],{type:'text/yaml;charset=utf-8'}))}
+async function createBackup(){
+  try{
+    const archive=await configBackup()
+    const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
+    downloadBlob('wind-hub-config-backup_'+stamp+'.zip',archive)
+    ElMessage.success('Configuration backup downloaded')
+  }catch(error){ElMessage.error(error instanceof Error?error.message:String(error))}
 }
 function handleAction(command:string){
   if(command==='import')importOpen.value=true
   else if(command==='download-current')downloadCurrent()
-  else if(command==='backup')createBackup()
+  else if(command==='backup')void createBackup()
 }
 </script>
 

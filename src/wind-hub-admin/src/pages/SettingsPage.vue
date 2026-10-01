@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { store } from '../api/data'
-import { LATENCY, sleep } from '../api/service'
-import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../api/yaml'
+import { initializeData, store } from '../api/data'
+import { api, jsonBody } from '../api/client'
 
 const saving = ref(false)
 
@@ -31,7 +30,6 @@ function reset() {
 }
 
 async function save() {
-  // 防重 guard 必须在确认框之前：提交中再次点击直接返回，不重复弹确认。
   if (saving.value) return
   if (!form.siteId.trim() || !form.siteName.trim() || !form.adsLocalIp.trim() || !form.adsLocalAms.trim()) {
     ElMessage.error('Required fields cannot be empty')
@@ -42,7 +40,6 @@ async function save() {
     ElMessage.error('Local AMS Net ID must contain 6 numeric octets')
     return
   }
-
   const adsDeviceCount = store.devices.filter(d =>
     store.deviceModels.find(m => m.id === d.model)?.protocol === 'ads',
   ).length
@@ -55,32 +52,38 @@ async function save() {
       )
     } catch { return }
   }
-
   saving.value = true
   try {
-    store.systemInfo.siteId = form.siteId.trim()
-    store.systemInfo.siteName = form.siteName.trim()
-    store.systemInfo.timezone = form.timezone
-    store.systemInfo.logLevel = form.logLevel
-    store.systemInfo.tempDirectory = form.tempDirectory.trim()
-    store.systemInfo.dataDirectory = form.dataDirectory.trim()
-    store.systemInfo.reloadPolicy = form.reloadPolicy
-    store.systemInfo.apiHost = form.apiHost.trim()
-    store.systemInfo.apiPort = form.apiPort
-    store.systemInfo.timeSync = form.timeSync
-    store.systemInfo.ads.local_ip = form.adsLocalIp.trim()
-    store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
-    store.systemInfo.ads.username = form.adsUsername.trim()
-    store.systemInfo.ads.password = form.adsPassword
-    // §19 Settings↔YAML 同源：site / ads / interfaces.api 均在正式 schema 内，同步写回
-    // system.yaml mock；timezone / logLevel / 目录 / reloadPolicy / timeSync 不在 schema
-    // （extra=forbid），只保留在结构化 state，不私造 YAML 字段。
-    updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
-    updateMockAdsYaml(store.systemInfo.ads)
-    updateMockApiYaml(store.systemInfo.apiHost, store.systemInfo.apiPort)
-    await sleep(LATENCY.configApply)
+    const result = await api<{success:boolean;errors:string[]}>('/settings', {
+      method: 'PUT',
+      body: jsonBody({
+        site_id: form.siteId.trim(),
+        site_name: form.siteName.trim(),
+        api_enabled: true,
+        api_host: form.apiHost.trim(),
+        api_port: form.apiPort,
+        ads_local_ip: form.adsLocalIp.trim(),
+        ads_local_ams_net_id: form.adsLocalAms.trim(),
+        ads_username: form.adsUsername.trim(),
+        ads_password: form.adsPassword,
+      }),
+    })
+    if (!result.success) throw new Error(result.errors.join('; ') || 'Settings apply failed')
+    await initializeData()
+    Object.assign(form, {
+      siteId: store.systemInfo.siteId,
+      siteName: store.systemInfo.siteName,
+      apiHost: store.systemInfo.apiHost,
+      apiPort: store.systemInfo.apiPort,
+      adsLocalIp: store.systemInfo.ads.local_ip,
+      adsLocalAms: store.systemInfo.ads.local_ams_net_id,
+      adsUsername: store.systemInfo.ads.username,
+      adsPassword: store.systemInfo.ads.password,
+    })
     settingsSnapshot.value = JSON.stringify(form)
-    ElMessage.success('System settings saved — pending apply ')
+    ElMessage.success('System settings applied')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error))
   } finally {
     saving.value = false
   }
@@ -99,12 +102,12 @@ async function save() {
 
     <el-form label-position="top">
       <section class="settings-section">
-        <div class="settings-heading"><h2>Site</h2><p>Wind Hub 实例对应的现场身份。Site ID / Name 同步写入 system.yaml；Timezone 不在正式 schema，仅保存于结构化设置。</p></div>
+        <div class="settings-heading"><h2>Site</h2><p>Wind Hub 实例对应的现场身份。Site ID / Name 同步写入 system.yaml；Timezone 由宿主机管理，当前后端不提供写接口。</p></div>
         <div class="settings-fields">
           <el-form-item label="Site ID"><el-input v-model="form.siteId" /></el-form-item>
           <el-form-item label="Site Name"><el-input v-model="form.siteName" /></el-form-item>
           <el-form-item label="Timezone">
-            <el-select v-model="form.timezone">
+            <el-select v-model="form.timezone" disabled>
               <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
               <el-option label="UTC" value="UTC" />
             </el-select>
@@ -113,17 +116,17 @@ async function save() {
       </section>
 
       <section class="settings-section">
-        <div class="settings-heading"><h2>Runtime</h2><p>日志、工作目录与配置热重载策略。这些字段不在正式 system.yaml schema（extra=forbid），仅保存于结构化设置，不写入 YAML。</p></div>
+        <div class="settings-heading"><h2>Runtime</h2><p>日志、工作目录与配置热重载策略。这些字段属于宿主机/进程部署参数，当前页面只读。</p></div>
         <div class="settings-fields">
           <el-form-item label="Log Level">
-            <el-select v-model="form.logLevel">
+            <el-select v-model="form.logLevel" disabled>
               <el-option v-for="level in ['DEBUG','INFO','WARNING','ERROR']" :key="level" :label="level" :value="level" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Temporary Directory"><el-input v-model="form.tempDirectory" /></el-form-item>
-          <el-form-item label="Data Directory"><el-input v-model="form.dataDirectory" /></el-form-item>
+          <el-form-item label="Temporary Directory"><el-input v-model="form.tempDirectory" disabled /></el-form-item>
+          <el-form-item label="Data Directory"><el-input v-model="form.dataDirectory" disabled /></el-form-item>
           <el-form-item label="Reload Policy">
-            <el-select v-model="form.reloadPolicy">
+            <el-select v-model="form.reloadPolicy" disabled>
               <el-option label="Incremental" value="incremental" />
               <el-option label="Manual" value="manual" />
             </el-select>
@@ -150,12 +153,12 @@ async function save() {
       </section>
 
       <section class="settings-section">
-        <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。API Host / Port 同步写入 system.yaml interfaces.api；Time Synchronization 不在正式 schema，仅结构化保存。</p></div>
+        <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。API Host / Port 同步写入 system.yaml interfaces.api；Time Synchronization 由宿主机管理，当前页面只读。</p></div>
         <div class="settings-fields">
           <el-form-item label="API Host"><el-input v-model="form.apiHost" /></el-form-item>
           <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" class="app-full-width" /></el-form-item>
           <el-form-item label="Time Synchronization">
-            <el-select v-model="form.timeSync">
+            <el-select v-model="form.timeSync" disabled>
               <el-option label="systemd-timesyncd" value="systemd-timesyncd" />
               <el-option label="chrony" value="chrony" />
               <el-option label="External / Managed" value="external" />
