@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
 import {
   acquisitionChannels,
@@ -14,7 +14,7 @@ import {
   type QualityProblem,
   type QualityWindow,
 } from '../mock/quality'
-import { LATENCY, runQualityCheck, sleep } from '../services/backend'
+import { LATENCY, loadQuality, runQualityCheck, sleep } from '../services/backend'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -56,6 +56,11 @@ const drawerPages=reactive<Record<DrawerTable,number>>({tasks:1,devices:1,errors
 const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,errors:10,problems:10})
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
+const backendQuality=reactive<Record<string,any>>({})
+
+async function refreshQualityWindow(window:WindowRange){
+  backendQuality[window]=await loadQuality(window)
+}
 
 // Auto Check（§16）：Mock Service 推进 qualityCheckTick → qualityWindowData 全量重算。
 async function runCheck(){
@@ -64,6 +69,10 @@ async function runCheck(){
   try{
     await sleep(LATENCY.qualityCheck)
     await runQualityCheck()
+    await Promise.all([
+      refreshQualityWindow(channelWindow.value),
+      refreshQualityWindow(dataWindow.value),
+    ])
     lastChecked.value=nowText()
   }finally{checking.value=false}
 }
@@ -86,8 +95,8 @@ const pagedAcquisitionChannels=computed(()=>{
 const deliveryChannelRows=computed(()=>deliveryChannels())
 
 // 统一窗口数据源（§11–§15）：切窗口时 summary / events / metrics / dimensions / issues 全部联动。
-const channelWindowData=computed(()=>qualityWindowData(channelWindow.value))
-const dataWindowData=computed(()=>qualityWindowData(dataWindow.value))
+const channelWindowData=computed(()=>backendQuality[channelWindow.value]||qualityWindowData(channelWindow.value))
+const dataWindowData=computed(()=>backendQuality[dataWindow.value]||qualityWindowData(dataWindow.value))
 const channelSummary=computed(()=>channelWindowData.value.channelSummary)
 const communicationEvents=computed(()=>channelWindowData.value.communicationEvents)
 const dataMetrics=computed(()=>dataWindowData.value.dataMetrics)
@@ -102,6 +111,12 @@ const pagedCommunicationEvents=computed(()=>{
 watch(channelWindow,()=>{
   acquisitionPage.value=1
   eventPage.value=1
+  void refreshQualityWindow(channelWindow.value)
+})
+watch(dataWindow,()=>{void refreshQualityWindow(dataWindow.value)})
+onMounted(()=>{
+  void refreshQualityWindow(channelWindow.value)
+  void refreshQualityWindow(dataWindow.value)
 })
 watch(acquisitionPageSize,()=>{acquisitionPage.value=1})
 watch(eventPageSize,()=>{eventPage.value=1})
