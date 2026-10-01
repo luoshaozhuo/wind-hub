@@ -478,6 +478,7 @@ class QualityUseCase:
                 min(100.0, received / expected * 100),
             )
         )
+
         acquisition = list(
             self._runtime.acquisition_states().values()
         )
@@ -486,111 +487,180 @@ class QualityUseCase:
             for state in acquisition
             if state.consecutive_failures > 0
         ]
+        timeout_count = sum(
+            1
+            for state in failed
+            if "timeout" in (state.last_error or "").lower()
+        )
+        offline = [
+            device_id
+            for device_id, device in self._runtime.devices.items()
+            if not device.health().healthy
+        ]
+        reconnects = sum(
+            (
+                self._runtime.device_state(device_id).consecutive_failures
+                if self._runtime.device_state(device_id) is not None
+                else 0
+            )
+            for device_id in self._runtime.devices
+        )
+
         dimensions = [
             {
                 "key": "continuity",
                 "dimension": "Continuity",
-                "metric": f"{len(failed)} degraded tasks",
+                "status": "Fault" if failed else "Normal",
+                "metric": f"{len(failed)} stale tasks",
                 "detail": "Current acquisition failures",
-                "state": "fault" if failed else "normal",
             },
             {
                 "key": "timeliness",
                 "dimension": "Timeliness",
-                "metric": f"{len(failed)} delayed tasks",
+                "status": "Warning" if failed else "Normal",
+                "metric": f"{timeout_count} timeout tasks",
                 "detail": "Current runtime state",
-                "state": "warning" if failed else "normal",
             },
             {
                 "key": "completeness",
                 "dimension": "Completeness",
-                "metric": f"{completeness:.2f}%",
-                "detail": f"{missing} missing samples",
-                "state": (
-                    "normal"
+                "status": (
+                    "Normal"
                     if completeness >= 99.9
-                    else "warning"
+                    else "Warning"
                 ),
+                "metric": f"{completeness:.2f}%",
+                "detail": f"{missing} missing cycles",
             },
             {
                 "key": "validity",
                 "dimension": "Validity",
+                "status": "Warning" if bad else "Normal",
                 "metric": f"{bad} BAD points",
                 "detail": f"{received} received samples",
-                "state": "warning" if bad else "normal",
             },
             {
                 "key": "delivery",
                 "dimension": "Delivery Integrity",
+                "status": (
+                    "Fault"
+                    if self._runtime.points_dropped
+                    else "Normal"
+                ),
                 "metric": (
                     f"{self._runtime.points_dropped} "
                     "dropped points"
                 ),
                 "detail": "Runtime backpressure counter",
-                "state": (
-                    "fault"
-                    if self._runtime.points_dropped
-                    else "normal"
-                ),
             },
         ]
+
         issues = [
             {
+                "level": "Fault",
                 "object": state.instance_id,
+                "kind": "Task",
                 "dimension": "Continuity",
-                "error": (
-                    state.last_error
-                    or "collection failure"
-                ),
+                "issue": "Collection failed",
+                "duration": "Active",
+                "error": state.last_error or "collection failure",
             }
             for state in failed
         ]
+        issues.extend(
+            {
+                "level": "Fault",
+                "object": device_id,
+                "kind": "Device",
+                "dimension": "Timeliness",
+                "issue": "Device disconnected",
+                "duration": "Active",
+                "error": (
+                    self._runtime.device_state(device_id).last_error
+                    if self._runtime.device_state(device_id) is not None
+                    else "protocol unhealthy"
+                )
+                or "protocol unhealthy",
+            }
+            for device_id in offline
+        )
+
+        communication_events = [
+            {
+                "id": index + 1,
+                "time": datetime.now(UTC).isoformat(),
+                "object": state.instance_id,
+                "protocol": "RUNTIME",
+                "event": "Collection failure",
+                "state": "Active",
+                "error": state.last_error or "collection failure",
+                "duration": "Active",
+                "target": state.device_id,
+            }
+            for index, state in enumerate(failed)
+        ]
+
         return {
             "window": window,
-            "dataMetrics": [
+            "channelSummary": [
                 {
-                    "key": "expected",
-                    "label": "Expected Samples",
-                    "value": expected,
-                    "hint": window,
+                    "key": "interrupted",
+                    "label": "Interrupted",
+                    "value": len(offline),
+                    "tone": "danger",
                 },
                 {
-                    "key": "received",
-                    "label": "Received Samples",
-                    "value": received,
-                    "hint": window,
+                    "key": "degraded",
+                    "label": "Degraded",
+                    "value": len(failed),
+                    "tone": "warning",
+                },
+                {
+                    "key": "timeouts",
+                    "label": "Timeouts",
+                    "value": timeout_count,
+                    "tone": "warning",
+                },
+                {
+                    "key": "reconnects",
+                    "label": "Reconnects",
+                    "value": reconnects,
+                    "tone": "warning",
+                },
+            ],
+            "communicationEvents": communication_events,
+            "dataMetrics": [
+                {
+                    "key": "stale",
+                    "label": "Stale Tasks",
+                    "value": len(failed),
+                    "hint": "current",
+                    "tone": "danger",
                 },
                 {
                     "key": "missing",
-                    "label": "Missing Samples",
+                    "label": "Missing Cycles",
                     "value": missing,
-                    "hint": window,
+                    "hint": f"{received}/{expected} samples",
+                    "tone": "warning",
                 },
                 {
-                    "key": "bad",
-                    "label": "BAD Points",
+                    "key": "reads",
+                    "label": "Point Read Failures",
                     "value": bad,
                     "hint": window,
+                    "tone": "warning",
+                },
+                {
+                    "key": "dropped",
+                    "label": "Dropped Points",
+                    "value": self._runtime.points_dropped,
+                    "hint": "sink backpressure",
+                    "tone": "danger",
                 },
             ],
             "dimensions": dimensions,
             "issues": issues,
-            "channelSummary": [
-                {
-                    "key": "devices",
-                    "label": "Connected Devices",
-                    "value": sum(
-                        device.health().healthy
-                        for device in self._runtime.devices.values()
-                    ),
-                },
-                {
-                    "key": "tasks",
-                    "label": "Degraded Tasks",
-                    "value": len(failed),
-                },
-            ],
-            "communicationEvents": [],
         }
 
     def _expected_samples(
