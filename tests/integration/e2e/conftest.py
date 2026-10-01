@@ -95,7 +95,7 @@ async def api_client(runtime: AssembledRuntime):
     避免协议驱动（asyncio.Lock、pymodbus 连接都绑定在 runtime 所在循环）在
     跨循环调用 ``read`` / ``write`` 时崩溃。
     """
-    from wind_hub.adapter.inbound.webapi.app import build_api
+    from wind_hub_server.adapter.inbound.webapi.app import build_api
 
     set_runtime_context(runtime)
     transport = ASGITransport(app=build_api())

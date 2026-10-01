@@ -1,7 +1,7 @@
 """MonitoringMetrics 计数测试。"""
 
 from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.infra.monitoring import MonitoringMetrics
+from wind_hub_server.infra.monitoring import MonitoringMetrics
 
 
 def test_monitoring_metrics_counts_quality_events() -> None:

@@ -489,7 +489,7 @@ async def test_iec104_command_verified_on_server(
 async def test_webapi_main_endpoints(system) -> None:
     rt, _config_dir, sink_path = system
     set_runtime_context(rt)
-    from wind_hub.adapter.inbound.webapi.app import build_api
+    from wind_hub_server.adapter.inbound.webapi.app import build_api
 
     transport = ASGITransport(app=build_api())
     try:

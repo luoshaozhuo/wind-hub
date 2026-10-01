@@ -11,14 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from wind_hub.adapter.inbound.webapi.app import build_api
-from wind_hub.application.app_context import AppContext, clear_context, set_context
-from wind_hub.application.operation import OperationManager
-from wind_hub.application.usecase.device import DeviceSnapshot
-from wind_hub.application.usecase.device_control import DeviceCommandResult
-from wind_hub.application.usecase.device_data import DeviceDataItem, TrendSeries
+from wind_hub_server.adapter.inbound.webapi.app import build_api
+from wind_hub_server.application.app_context import AppContext, clear_context, set_context
+from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.usecase.device import DeviceSnapshot
+from wind_hub_server.application.usecase.device_control import DeviceCommandResult
+from wind_hub_server.application.usecase.device_data import DeviceDataItem, TrendSeries
 from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.application.usecase.overview import OverviewSnapshot
+from wind_hub_server.application.usecase.overview import OverviewSnapshot
 from wind_hub.application.usecase.task import TaskSummary
 
 
@@ -203,7 +203,7 @@ def test_v1_device_command_returns_readback_contract() -> None:
 def test_v1_phase5_quality_endpoint() -> None:
     quality = MagicMock()
     from datetime import UTC, datetime
-    from wind_hub.application.usecase.quality import QualitySnapshot
+    from wind_hub_server.application.usecase.quality import QualitySnapshot
 
     now = datetime.now(UTC)
     quality.snapshot.return_value = QualitySnapshot(
@@ -221,7 +221,7 @@ def test_v1_phase5_quality_endpoint() -> None:
 
 def test_v1_phase5_logs_endpoint() -> None:
     logs = MagicMock()
-    from wind_hub.application.usecase.logs import LogPage
+    from wind_hub_server.application.usecase.logs import LogPage
 
     logs.list_logs.return_value = LogPage(items=[], page=1, page_size=20, total=0)
     client = _client(AppContext(logs=logs))
@@ -235,7 +235,7 @@ def test_v1_phase5_logs_endpoint() -> None:
 def test_v1_phase5_system_health_endpoint() -> None:
     health = MagicMock()
     from datetime import UTC, datetime
-    from wind_hub.application.usecase.system_health import (
+    from wind_hub_server.application.usecase.system_health import (
         ResourceSeries,
         SystemHealthSnapshot,
     )
@@ -259,7 +259,7 @@ def test_v1_phase5_system_health_endpoint() -> None:
 
 
 def test_v1_admin_state_atomic_apply() -> None:
-    from wind_hub.application.usecase.config_admin import ConfigApplyResult
+    from wind_hub_server.application.usecase.config_admin import ConfigApplyResult
 
     admin_state = AsyncMock()
     admin_state.replace_all.return_value = ConfigApplyResult(

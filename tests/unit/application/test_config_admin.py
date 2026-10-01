@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from wind_hub.application.usecase.config_admin import CONFIG_FILES, ConfigAdminUseCase
+from wind_hub_server.application.usecase.config_admin import CONFIG_FILES, ConfigAdminUseCase
 
 
 def test_config_file_set_is_stable() -> None:

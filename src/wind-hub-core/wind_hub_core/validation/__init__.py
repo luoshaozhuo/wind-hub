@@ -9,7 +9,6 @@ from .models import (
     ValidationCode,
     ValidationSeverity,
 )
-from .ports import ProtocolProbe
 
 __all__ = [
     "AddressResolution",
@@ -17,7 +16,6 @@ __all__ = [
     "DeviceValidationReport",
     "PointProbeSpec",
     "PointValidationResult",
-    "ProtocolProbe",
     "ValidationCode",
     "ValidationSeverity",
 ]

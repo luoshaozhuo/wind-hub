@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from wind_hub.domain.model.point import PointValue
-from wind_hub.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
+from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 
 
 def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:

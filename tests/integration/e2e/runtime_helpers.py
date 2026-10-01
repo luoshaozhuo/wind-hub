@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wind_hub.application.app_context import AppContext, clear_context, set_context
+from wind_hub_server.application.app_context import AppContext, clear_context, set_context
 from wind_hub.application.usecase.task import TaskInstanceDetail
 from wind_hub.assembly import AssembledRuntime
 

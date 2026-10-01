@@ -1,6 +1,6 @@
 """QualityUseCase 的窗口差分测试。"""
 
-from wind_hub.application.usecase.quality import QualityUseCase
+from wind_hub_server.application.usecase.quality import QualityUseCase
 
 
 def test_quality_delta_never_negative() -> None:

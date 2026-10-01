@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from wind_hub.adapter.inbound.webapi.app import build_api
-from wind_hub.adapter.inbound.webapi.errors import APIError
-from wind_hub.application.app_context import AppContext, clear_context, set_context
+from wind_hub_server.adapter.inbound.webapi.app import build_api
+from wind_hub_server.adapter.inbound.webapi.errors import APIError
+from wind_hub_server.application.app_context import AppContext, clear_context, set_context
 from wind_hub.domain.model.errors import ProtocolError
 
 

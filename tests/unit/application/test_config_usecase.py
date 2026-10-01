@@ -31,7 +31,7 @@ import yaml
 
 from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
-from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import (
     CollectionTaskConfig,
@@ -155,7 +155,7 @@ async def test_init_does_not_load_config(tmp_path: Path, monkeypatch: pytest.Mon
     def _boom(_dir: Path) -> None:
         raise AssertionError("load_config must not be called by ConfigUseCase.__init__")
 
-    monkeypatch.setattr("wind_hub.application.usecase.config.load_config", _boom)
+    monkeypatch.setattr("wind_hub_server.application.usecase.config.load_config", _boom)
     usecase = ConfigUseCase(tmp_path, _mock_runtime(), cfg)
     assert usecase.current_config is cfg
 
