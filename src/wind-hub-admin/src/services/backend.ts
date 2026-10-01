@@ -402,3 +402,66 @@ export async function testPointRead(
     }
   }
 }
+
+
+export async function loadConfigHistory(){
+  return request<Array<{revision:number;created_at:string;message:string}>>(
+    '/config/history',
+  )
+}
+
+export async function restoreConfigRevision(revision:number){
+  return request(
+    `/config/history/${revision}/restore`,
+    {method:'POST'},
+  )
+}
+
+export async function downloadConfigBackup():Promise<Blob>{
+  const response=await fetch(API_BASE+'/config/backup')
+  if(!response.ok){
+    const body=await response.json().catch(()=>({}))
+    throw new Error(body?.error?.message||`HTTP ${response.status}`)
+  }
+  return response.blob()
+}
+
+export async function startSubnetScan(cidr:string,ports:number[]){
+  return request<{operation_id:string}>(
+    '/diagnostics/subnet-scan',
+    {method:'POST',body:JSON.stringify({cidr,ports})},
+  )
+}
+
+export async function getOperation(operationId:string){
+  return request<any>(
+    `/operations/${encodeURIComponent(operationId)}`,
+  )
+}
+
+export async function loadDeviceData(
+  deviceId:string,
+  params:{page?:number;page_size?:number;search?:string;point_group?:string}={},
+){
+  const query=new URLSearchParams()
+  for(const [key,value] of Object.entries(params)){
+    if(value!==undefined&&value!=='')query.set(key,String(value))
+  }
+  return request<any>(
+    `/devices/${encodeURIComponent(deviceId)}/data?${query}`,
+  )
+}
+
+export async function loadDeviceTrend(
+  deviceId:string,
+  pointIds:string[],
+  windowSeconds=600,
+){
+  const query=new URLSearchParams()
+  pointIds.forEach(id=>query.append('point_id',id))
+  query.set('window_seconds',String(windowSeconds))
+  query.set('limit_per_point','600')
+  return request<any[]>(
+    `/devices/${encodeURIComponent(deviceId)}/trend?${query}`,
+  )
+}
