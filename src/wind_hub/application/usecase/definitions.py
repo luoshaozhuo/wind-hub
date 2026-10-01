@@ -40,17 +40,12 @@ class DefinitionsUseCase:
                 for group in point.point_groups
             }
         )
+        models_raw = self._raw_mapping("device_models.yaml")
         return DefinitionsSnapshot(
-            units={key: value.model_dump() for key, value in cfg.units.units.items()},
-            device_types={
-                key: value.model_dump() for key, value in cfg.device_types.items()
-            },
-            device_models={
-                key: value.model_dump() for key, value in cfg.device_models.items()
-            },
-            point_tables={
-                key: value.model_dump() for key, value in cfg.point_tables.tables.items()
-            },
+            units=self._raw_mapping("units.yaml").get("units", {}),
+            device_types=models_raw.get("device_types", {}),
+            device_models=models_raw.get("device_models", {}),
+            point_tables=self._raw_mapping("points.yaml").get("point_tables", {}),
             point_groups=groups,
             device_groups=sorted(
                 {
@@ -108,3 +103,9 @@ class DefinitionsUseCase:
         if location is None:
             raise KeyError(kind)
         return location
+
+
+    def _raw_mapping(self, file_name: str) -> dict[str, Any]:
+        """读取 Applied YAML 原始结构，保留 extends/remove_points 等编辑语义。"""
+        loaded = yaml.safe_load(self._admin.read_file(file_name)) or {}
+        return cast(dict[str, Any], loaded)
