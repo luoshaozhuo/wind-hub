@@ -9,7 +9,9 @@ import {
   logConfigApplied,
   sleep,
   validateConfig,
-} from '../mock/service'
+  validateConfigRemote,
+  applyConfigRemote,
+} from '../services/backend'
 import { CONFIG_FILES, yamlFiles } from '../mock/yaml'
 import { nowText } from '../utils/format'
 
@@ -67,7 +69,7 @@ async function validate(){
   validating.value=true
   try{
     await sleep(LATENCY.uiLocal)
-    const result=validateConfig(file.value,yamlFiles[file.value])
+    const result=await validateConfigRemote(file.value,yamlFiles[file.value])
     if(!result.ok){
       ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+' (mock)')
       return false
@@ -144,7 +146,7 @@ async function validateImport(){
       ElMessage.error('Uploaded file is empty (mock)')
       return
     }
-    const result=validateConfig(importState.target,text)
+    const result=await validateConfigRemote(importState.target,text)
     importState.errors=result.errors
     importState.validated=result.ok
     if(!result.ok){ElMessage.error('Import validation failed (mock)');return}
