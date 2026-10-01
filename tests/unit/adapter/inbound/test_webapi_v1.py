@@ -256,3 +256,33 @@ def test_v1_phase5_system_health_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["cpu_count"] == 4
+
+
+def test_v1_admin_state_atomic_apply() -> None:
+    from wind_hub.application.usecase.config_admin import ConfigApplyResult
+
+    admin_state = AsyncMock()
+    admin_state.replace_all.return_value = ConfigApplyResult(
+        success=True,
+        revision=9,
+    )
+    client = _client(AppContext(admin_state=admin_state))
+
+    response = client.put(
+        "/api/v1/admin-state",
+        json={
+            "devices": [],
+            "tasks": [],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 9
+    admin_state.replace_all.assert_awaited_once()

@@ -205,6 +205,7 @@ def test_assemble_wires_runtime_engine_and_usecases() -> None:
         assert rt.runtime.engine is rt.engine
         assert rt.device_data is not None
         assert rt.device_control is not None
+        assert rt.admin_state is not None
         assert rt.config_admin is not None
         assert rt.settings is not None
         assert rt.definitions is not None

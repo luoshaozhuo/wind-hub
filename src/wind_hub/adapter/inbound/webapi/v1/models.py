@@ -252,8 +252,6 @@ class DefinitionsResponse(BaseModel):
     device_models: dict[str, dict[str, Any]]
     point_tables: dict[str, dict[str, Any]]
     point_groups: list[str]
-
-
     device_groups: list[str]
 
 
