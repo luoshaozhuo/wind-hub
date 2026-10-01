@@ -17,17 +17,16 @@ import {
 import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../mock/types'
 import {
   emptyVerification,
+  loadDeviceData,
+  loadDeviceTrend,
   readDevicePoint,
-  readPointValue,
   sendDeviceCommand,
   sleep,
   verifyAllDevices,
   verifyDevice as serviceVerifyDevice,
-  pointTrendSeries,
   type CommandOutcome,
   type PointReadResult,
 } from '../services/backend'
-import { deviceDataTick } from '../mock/runtime'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { EMPTY, formatTimestamp } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -922,37 +921,46 @@ let dataRefreshTimer: number | null = null
 
 const resolvedPoints = computed(() => selected.value ? pointsOfTable(tableOfDevice(selected.value)) : [])
 
-// Data 当前值来自 Mock Service 的统一点值序列（mock/runtime.ts）：
-// 与 Trend 尾点、Diagnostics Read、Read Test 同源；Command 成功后经
-// commandOverrides / deviceDataTick 触发本 computed 重算（§6 联动）。
+const backendDataRows=ref<any[]>([])
+
 const dataRows = computed<DataRow[]>(() => {
-  const d = selected.value
-  if (!d) return []
-  // 响应式依赖：手动/自动刷新与 Command 写回都会推进这两个计数器
-  void dataRevision.value
-  void deviceDataTick[d.device_id]
-  return resolvedPoints.value.map((p, i) => {
-    const pv = readPointValue(d, i, p.point_id, p.data_type)
-    const failed = pv.read_state === 'failed'
+  const definitions=new Map(resolvedPoints.value.map((point,index)=>[point.point_id,{point,index}]))
+  return backendDataRows.value.map(row=>{
+    const entry=definitions.get(row.point_id)
+    const point=entry?.point
+    const failed=row.quality==='bad'
     return {
-      point_id: p.point_id,
-      variable_name: p.variable_name,
-      description: p.description,
-      value: failed ? EMPTY : pv.value,
-      unit: unitSymbol(p.unit),
-      groups: p.point_groups,
-      updated_at: failed ? EMPTY : timestampAt((i % 7) * 120),
-      data_type: p.data_type,
-      scale: p.scale,
-      offset: p.offset,
-      address: pointAddressText(p),
-      updated: !failed,
-      read_state: pv.read_state,
-      error: pv.error,
-      index: i,
+      point_id:row.point_id,
+      variable_name:row.variable_name||point?.variable_name||'',
+      description:row.description||point?.description||'',
+      value:row.value ?? EMPTY,
+      unit:row.unit_symbol||unitSymbol(row.unit||point?.unit||'none'),
+      groups:row.point_groups||point?.point_groups||[],
+      updated_at:row.timestamp?formatTimestamp(row.timestamp):EMPTY,
+      data_type:row.data_type||point?.data_type||'',
+      scale:point?.scale??1,
+      offset:point?.offset??0,
+      address:point?pointAddressText(point):EMPTY,
+      updated:!!row.timestamp,
+      read_state:failed?'failed':'success',
+      error:failed?'BAD quality':'',
+      index:entry?.index??0,
     }
   })
 })
+
+async function fetchAllDeviceData(){
+  if(!selected.value)return
+  const rows:any[]=[]
+  let page=1
+  while(true){
+    const result=await loadDeviceData(selected.value.device_id,{page,page_size:200})
+    rows.push(...(result.items||[]))
+    if(rows.length>=Number(result.page?.total||rows.length))break
+    page+=1
+  }
+  backendDataRows.value=rows
+}
 
 const visibleData = computed(() => dataRows.value.filter(r => {
   const q = dataSearch.value.trim().toLowerCase()
@@ -987,9 +995,8 @@ async function refreshData() {
   if (!selected.value || dataRefreshing.value) return
   dataRefreshing.value = true
   try {
-    await sleep(260)
+    await fetchAllDeviceData()
     dataRevision.value += 1
-    deviceDataTick[selected.value.device_id] = (deviceDataTick[selected.value.device_id] || 0) + 1
     dataLastRefreshAt.value = timestampAt()
   } finally {
     dataRefreshing.value = false
@@ -1054,9 +1061,26 @@ function trendRangeMs() {
 
 // Trend 序列与 Data 当前值同源（§7）：尾点即 pointValueAt(当前时刻)，
 // Command 写回后趋势在同一序列上追加新值。
+const backendTrend=ref<Record<string,Array<[Date,number]>>>({})
+
 function makeTrendRawData(signal: TrendSignal): Array<[Date, number]> {
-  if (!selected.value) return []
-  return pointTrendSeries(selected.value, signal.id, signal.pointIndex, trendRangeMs())
+  return backendTrend.value[signal.id]||[]
+}
+
+async function refreshTrendData(){
+  if(!selected.value||!trendSignals.value.length)return
+  const rows=await loadDeviceTrend(
+    selected.value.device_id,
+    trendSignals.value.map(signal=>signal.id),
+    Math.max(1,Math.round(trendRangeMs()/1000)),
+  )
+  const next:Record<string,Array<[Date,number]>>={}
+  for(const series of rows){
+    next[series.point_id]=(series.samples||[])
+      .filter((sample:any)=>typeof sample.value==='number')
+      .map((sample:any)=>[new Date(sample.timestamp),Number(sample.value)])
+  }
+  backendTrend.value=next
 }
 
 function downsampleForChart(raw: [Date, number][], maxPoints = 240) {
@@ -1097,7 +1121,7 @@ async function recordTrendRawData() {
     a.download = `${selected.value.device_id}_waveform_${trendRange.value.replace(/\s+/g, '_')}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    ElMessage.success('Raw waveform data exported (mock)')
+    ElMessage.success('Raw waveform data exported')
   } finally {
     trendRecording.value = false
   }
@@ -1118,7 +1142,7 @@ function toggleTrendSelection(r: DataRow) {
     trendSignals.value.push(signal)
     trendLegendSelected.value[signal.label] = true
   }
-  renderTrend()
+  void refreshTrendData().then(renderTrend)
 }
 
 function seedTrendSignals() {
@@ -1178,7 +1202,9 @@ function stopTrendRefreshTimer() {
 function syncTrendRefreshTimer() {
   stopTrendRefreshTimer()
   if (drawer.value && tab.value === 'ControlTrend' && trendAutoRefresh.value) {
-    trendRefreshTimer = window.setInterval(renderTrend, 1000)
+    trendRefreshTimer = window.setInterval(() => {
+      void refreshTrendData().then(renderTrend)
+    }, 1000)
   }
 }
 function onResize() {
@@ -1194,14 +1220,14 @@ watch(tab, value => {
   }
   if (value === 'ControlTrend') {
     seedTrendSignals()
-    renderTrend()
+    void refreshTrendData().then(renderTrend)
     syncTrendRefreshTimer()
   } else {
     stopTrendRefreshTimer()
   }
 })
 watch([trendRange, trendAutoRefresh], () => {
-  if (tab.value === 'ControlTrend') renderTrend()
+  if (tab.value === 'ControlTrend') void refreshTrendData().then(renderTrend)
   syncTrendRefreshTimer()
 })
 watch(() => selected.value?.device_id, () => {
@@ -1209,6 +1235,8 @@ watch(() => selected.value?.device_id, () => {
   trendLegendSelected.value = {}
   readResult.value = null
   dataRevision.value = 0
+  backendDataRows.value = []
+  backendTrend.value = {}
   dataLastRefreshAt.value = ''
   dataPage.value = 1
   commandResult.value = null
