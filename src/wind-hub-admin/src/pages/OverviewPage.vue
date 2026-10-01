@@ -127,7 +127,7 @@ const protocolStats = computed(() => {
     .filter(x => x.total > 0)
 })
 
-// Overview 所有运行指标从统一 mock 事实源派生（§29 禁止跨页面不一致）：
+// Overview 所有运行指标从统一后端事实源派生：
 // qualityWindowData / acquisitionChannels / hostCurrent / logStore / deviceRuntimeState。
 const overviewQuality = computed(() => qualityWindowData('1 h'))
 const riskQuality24h = computed(() => qualityWindowData('24 h'))

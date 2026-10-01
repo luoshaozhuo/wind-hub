@@ -231,7 +231,7 @@ function targetDevicesForRead(){
   if(source.value==='group')return groupReadDevices.value
   return activeDevice.value?[activeDevice.value]:[]
 }
-// Protocol Read：来自与 Device Data 相同的 mock 数据源（§17.3），失败路径与场景一致。
+// Protocol Read：直接调用后端协议诊断接口，不读取前端缓存。
 async function runRead(){
   if(running.value)return
   if(source.value!=='manual'&&!selectedPoint.value){ElMessage.warning('Select a point');return}

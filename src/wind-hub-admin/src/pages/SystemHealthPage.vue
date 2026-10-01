@@ -80,7 +80,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
 
     <section class="health-section">
       <div class="section-title trends-title">
-        <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表为当前前端 mock。</p></div>
+        <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表来自后端监控采样历史。</p></div>
         <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="renderCharts"/>
       </div>
       <div class="chart-grid">

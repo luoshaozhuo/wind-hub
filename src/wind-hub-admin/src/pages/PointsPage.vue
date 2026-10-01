@@ -160,7 +160,7 @@ function resetPointTest() {
   testDeviceId.value = preferred?.device_id || ''
 }
 
-// 纯展示解码：对 backend service 返回的确定性原始字节做多类型候选解码（不产生 mock 状态）
+// 原始字节候选解码仅在后端协议适配器返回 raw bytes 时启用。
 function decodeCandidates(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer)
   const format = (v: number) => Number.isFinite(v) ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6))) : String(v)

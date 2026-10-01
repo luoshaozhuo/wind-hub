@@ -3,9 +3,9 @@ import { onMounted, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
 import { api } from '../api/client'
 import { queryLogs } from '../api/runtime'
-import type { MockLogEntry } from '../api/runtime'
+import type { RuntimeLogEntry } from '../api/runtime'
 
-type Entry = MockLogEntry
+type Entry = RuntimeLogEntry
 const rows=ref<Entry[]>([])
 const sources=ref<string[]>([])
 const total=ref(0)

@@ -223,7 +223,7 @@ function protocolDescription(d: DeviceInst) {
 // （Verify All 或某一台设备的 Verify），避免并发写同一 verification 状态。
 const verifyOperationActive = computed(() => verifyAllRunning.value || !!verifyingDeviceId.value)
 
-// 单台 Verify：流程推进与成败判定全部在 backend service（mock/service.ts），
+// 单台 Verify：流程推进与成败判定全部由后端 Diagnostics API 完成，
 // 页面只负责互斥守卫与结果反馈。
 async function verifyDevice(d: DeviceInst, quiet = false) {
   if (verifyOperationActive.value) return
@@ -924,7 +924,7 @@ let dataRefreshTimer: number | null = null
 
 const resolvedPoints = computed(() => selected.value ? pointsOfTable(tableOfDevice(selected.value)) : [])
 
-// Data 当前值来自 backend service 的统一点值序列（mock/runtime.ts）：
+// Data 当前值来自后端 LatestPointStore：
 // 与 Trend 尾点、Diagnostics Read、Read Test 同源；Command 成功后经
 // commandOverrides / deviceDataTick 触发本 computed 重算（§6 联动）。
 const dataRows = computed<DataRow[]>(() => {
