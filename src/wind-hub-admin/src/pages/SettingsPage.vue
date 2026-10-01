@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
-import { LATENCY, sleep, saveSettings } from '../services/backend'
+import { loadSettings, saveSettings } from '../services/backend'
 import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../mock/yaml'
 
 const saving = ref(false)
@@ -29,6 +29,22 @@ const dirty = computed(() => JSON.stringify(form) !== settingsSnapshot.value)
 function reset() {
   Object.assign(form, JSON.parse(settingsSnapshot.value))
 }
+
+async function loadBackendSettings(){
+  try{
+    const result=await loadSettings()
+    form.siteId=result.site_id||form.siteId
+    form.siteName=result.site_name||form.siteName
+    form.apiHost=result.api?.host||form.apiHost
+    form.apiPort=result.api?.port||form.apiPort
+    form.adsLocalIp=result.ads?.local_ip||form.adsLocalIp
+    form.adsLocalAms=result.ads?.local_ams_net_id||form.adsLocalAms
+    form.adsUsername=result.ads?.username||form.adsUsername
+    form.adsPassword=''
+    settingsSnapshot.value=JSON.stringify(form)
+  }catch{/* backend unavailable: keep current UI values */}
+}
+onMounted(()=>void loadBackendSettings())
 
 async function save() {
   // 防重 guard 必须在确认框之前：提交中再次点击直接返回，不重复弹确认。
@@ -58,6 +74,21 @@ async function save() {
 
   saving.value = true
   try {
+    await saveSettings({
+      site_id: form.siteId.trim(),
+      site_name: form.siteName.trim(),
+      ads: {
+        local_ip: form.adsLocalIp.trim(),
+        local_ams_net_id: form.adsLocalAms.trim(),
+        username: form.adsUsername.trim(),
+        password: form.adsPassword,
+      },
+      api: {
+        host: form.apiHost.trim(),
+        port: form.apiPort,
+        enabled: true,
+      },
+    })
     store.systemInfo.siteId = form.siteId.trim()
     store.systemInfo.siteName = form.siteName.trim()
     store.systemInfo.timezone = form.timezone
@@ -78,9 +109,8 @@ async function save() {
     updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
     updateMockAdsYaml(store.systemInfo.ads)
     updateMockApiYaml(store.systemInfo.apiHost, store.systemInfo.apiPort)
-    await sleep(LATENCY.configApply)
     settingsSnapshot.value = JSON.stringify(form)
-    ElMessage.success('System settings saved — pending apply (mock)')
+    ElMessage.success('System settings saved and applied')
   } finally {
     saving.value = false
   }
