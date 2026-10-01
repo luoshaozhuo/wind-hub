@@ -12,6 +12,8 @@ import {
   tableOfDevice,
 } from '../mock/data'
 import { useViewport } from '../composables/useViewport'
+import { logStore } from '../mock/runtime'
+import { startTask, stopTask, taskInstanceState } from '../mock/service'
 import type { DeviceInst, TaskDef } from '../mock/types'
 import { formatTimestamp, nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -48,20 +50,24 @@ const taskFormState=computed(()=>JSON.stringify({
 }))
 const taskDirty=computed(()=>!!selectedTask.value && taskFormState.value!==taskSnapshot.value)
 
+// Task 日志来自全局 mock log store（§24）：Start/Stop 失败等操作实时写入，
+// 历史条目按 task 对象确定性生成，与 Logs 页同源。
 const taskLogs=computed(()=>{
   const id=selectedTask.value?.task_id || 'task'
+  const fromStore=logStore.filter(entry=>entry.source==='task'&&entry.object===id)
   const templates=[
-    {level:'INFO',message:`${id} cycle completed · 0 errors`},
-    {level:'INFO',message:`${taskDevices.value.length} device instance(s) scheduled`},
-    {level:'WARN',message:'One collection cycle exceeded expected interval by 42 ms'},
-    {level:'INFO',message:'Sink delivery completed'},
-    {level:'INFO',message:'Point batch read completed'},
-    {level:'INFO',message:'Runtime heartbeat OK'},
+    {level:'INFO' as const,message:`${id} cycle completed · 0 errors`},
+    {level:'INFO' as const,message:`${taskDevices.value.length} device instance(s) scheduled`},
+    {level:'WARN' as const,message:'One collection cycle exceeded expected interval by 42 ms'},
+    {level:'INFO' as const,message:'Sink delivery completed'},
+    {level:'INFO' as const,message:'Point batch read completed'},
+    {level:'INFO' as const,message:'Runtime heartbeat OK'},
   ]
-  return Array.from({length:120},(_,i)=>{
+  const history=Array.from({length:120},(_,i)=>{
     const base=templates[i%templates.length]
-    return {time:formatTimestamp(new Date(Date.now()-i*7000)),level:base.level,message:base.message}
+    return {time:formatTimestamp(new Date(Date.now()-(i+1)*47000)),level:base.level,message:base.message}
   })
+  return [...fromStore,...history]
 })
 const visibleTaskLogs=computed(()=>taskLogs.value.slice(0,taskLogLimit.value))
 
@@ -164,10 +170,9 @@ async function changeEnabled(t:TaskDef,enabled:boolean){
   refreshTaskValidity()
 }
 // Start/Stop 运行状态机：STOPPED → STARTING → RUNNING，RUNNING → STOPPING → STOPPED。
+// 状态转换、可用性检查（含 wtg-041 不可达启动失败）、日志写入全部在 Mock Service（§8）。
 // 同一时刻只允许一个任务处于过渡态，过渡期间该任务的 Enabled/Delete 等冲突操作被禁用。
-// 状态翻转发生在 mock round-trip 完成之后，不做 Optimistic UI。
 const taskActionPending=ref('')
-function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms))}
 async function toggle(t:TaskDef){
   if(taskActionPending.value)return
   refreshTaskValidity()
@@ -176,27 +181,22 @@ async function toggle(t:TaskDef){
   taskActionPending.value=t.task_id
   try{
     if(t.runtime==='RUNNING'){
-      t.runtime='STOPPING'
-      await sleep(420)
-      t.runtime='STOPPED'
+      await stopTask(t)
       ElMessage.success(`Task ${t.task_id} stopped (mock)`)
     }else{
-      t.runtime='STARTING'
-      await sleep(420)
-      // 固定失败规则：目标包含已知不可达设备 wtg-041 的任务启动失败，保证可复现。
-      const startFailed=devicesForTask(t).some(d=>d.device_id==='wtg-041')
-      if(startFailed){
-        t.runtime='STOPPED'
-        ElMessage.error(`Task ${t.task_id} failed to start: device wtg-041 unreachable (mock)`)
+      const result=await startTask(t)
+      if(!result.ok){
+        ElMessage.error(`Task ${t.task_id} failed to start: ${result.error.message} (mock)`)
         return
       }
-      t.runtime='RUNNING'
       ElMessage.success(`Task ${t.task_id} started (mock)`)
     }
   }finally{
     taskActionPending.value=''
   }
 }
+// 实例级状态（§8.5）：wtg-025 RUNNING / wtg-026 point warning / wtg-041 FAILED
+function instanceState(t:TaskDef,d:DeviceInst){return taskInstanceState(t,d)}
 async function del(t:TaskDef){
   if(taskActionPending.value)return
   try{
@@ -344,6 +344,7 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
                 <el-table :data="taskDevices" row-key="device_id" highlight-current-row :current-row-key="selectedDevice?.device_id" max-height="560" @row-click="chooseDevice">
                   <el-table-column prop="device_id" label="Device" min-width="130"/>
                   <el-table-column prop="host" label="Host" min-width="145"/>
+                  <el-table-column label="State" width="105"><template #default="{row}"><el-tag :type="statusTagType(instanceState(selectedTask,row))" size="small">{{instanceState(selectedTask,row)}}</el-tag></template></el-table-column>
                   <el-table-column label="Points" width="78" align="right"><template #default="{row}">{{devicePointCount(row)}}</template></el-table-column>
                 </el-table>
               </div>

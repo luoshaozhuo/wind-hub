@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { store } from '../mock/data'
-import { updateMockAdsYaml, updateMockSiteYaml } from '../mock/yaml'
+import { LATENCY, sleep } from '../mock/service'
+import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../mock/yaml'
 
 const saving = ref(false)
 
@@ -71,9 +72,13 @@ async function save() {
     store.systemInfo.ads.local_ams_net_id = form.adsLocalAms.trim()
     store.systemInfo.ads.username = form.adsUsername.trim()
     store.systemInfo.ads.password = form.adsPassword
+    // §19 Settings↔YAML 同源：site / ads / interfaces.api 均在正式 schema 内，同步写回
+    // system.yaml mock；timezone / logLevel / 目录 / reloadPolicy / timeSync 不在 schema
+    // （extra=forbid），只保留在结构化 state，不私造 YAML 字段。
     updateMockSiteYaml(store.systemInfo.siteId, store.systemInfo.siteName)
     updateMockAdsYaml(store.systemInfo.ads)
-    await new Promise(resolve => setTimeout(resolve, 300))
+    updateMockApiYaml(store.systemInfo.apiHost, store.systemInfo.apiPort)
+    await sleep(LATENCY.configApply)
     settingsSnapshot.value = JSON.stringify(form)
     ElMessage.success('System settings saved — pending apply (mock)')
   } finally {
@@ -94,7 +99,7 @@ async function save() {
 
     <el-form label-position="top">
       <section class="settings-section">
-        <div class="settings-heading"><h2>Site</h2><p>Wind Hub 实例对应的现场身份。</p></div>
+        <div class="settings-heading"><h2>Site</h2><p>Wind Hub 实例对应的现场身份。Site ID / Name 同步写入 system.yaml；Timezone 不在正式 schema，仅保存于结构化设置。</p></div>
         <div class="settings-fields">
           <el-form-item label="Site ID"><el-input v-model="form.siteId" /></el-form-item>
           <el-form-item label="Site Name"><el-input v-model="form.siteName" /></el-form-item>
@@ -108,7 +113,7 @@ async function save() {
       </section>
 
       <section class="settings-section">
-        <div class="settings-heading"><h2>Runtime</h2><p>日志、工作目录与配置热重载策略。</p></div>
+        <div class="settings-heading"><h2>Runtime</h2><p>日志、工作目录与配置热重载策略。这些字段不在正式 system.yaml schema（extra=forbid），仅保存于结构化设置，不写入 YAML。</p></div>
         <div class="settings-fields">
           <el-form-item label="Log Level">
             <el-select v-model="form.logLevel">
@@ -145,7 +150,7 @@ async function save() {
       </section>
 
       <section class="settings-section">
-        <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。</p></div>
+        <div class="settings-heading"><h2>Service</h2><p>管理接口与时间同步。API Host / Port 同步写入 system.yaml interfaces.api；Time Synchronization 不在正式 schema，仅结构化保存。</p></div>
         <div class="settings-fields">
           <el-form-item label="API Host"><el-input v-model="form.apiHost" /></el-form-item>
           <el-form-item label="API Port"><el-input-number v-model="form.apiPort" :min="1" :max="65535" class="app-full-width" /></el-form-item>

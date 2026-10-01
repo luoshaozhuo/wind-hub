@@ -204,9 +204,10 @@ function modbusPoints(prefix: string, count: number): PointDef[] {
 const points: Record<string, PointDef[]> = {
   [DEFAULT_POINT_TABLE_ID]: [],
   beckhoff_base_v1: adsPoints('base', 12),
-  beckhoff_wtg_v1: adsPoints('wtg_ads', 40),
-  modbus_wtg_v1: modbusPoints('wtg_mb', 32),
-  pcs_modbus_v1: modbusPoints('pcs_mb', 24),
+  // §28 数据规模：每张业务点表 100+ 点，配合 Data 页分页展示
+  beckhoff_wtg_v1: adsPoints('wtg_ads', 120),
+  modbus_wtg_v1: modbusPoints('wtg_mb', 120),
+  pcs_modbus_v1: modbusPoints('pcs_mb', 100),
 }
 
 const devices: DeviceInst[] = []
@@ -281,9 +282,11 @@ const sinks: SinkDef[] = [
     verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
   },
   {
+    // 场景 F（§25）：db_main 启用但连接被拒绝 —— Verify/Write Test 失败，
+    // Quality Delivery Integrity 退化、Logs 出现 sink 错误
     name: 'db_main',
     type: 'db',
-    enabled: false,
+    enabled: true,
     params: {
       dsn: 'postgresql://windhub:windhub@localhost:5432/windhub',
       table: 'points',
@@ -292,15 +295,15 @@ const sinks: SinkDef[] = [
       pool_min_size: 1,
       pool_max_size: 10,
     },
-    runtime_state: 'disabled',
+    runtime_state: 'failed',
     last_test_at: '',
     last_write_at: '',
     latency_ms: 0,
-    error: '',
-    queue_depth: 0,
+    error: 'SINK_CONNECTION_REFUSED',
+    queue_depth: 128,
     writes_total: 0,
-    failures_total: 0,
-    dropped_points: 0,
+    failures_total: 14,
+    dropped_points: 6,
     verification: { state: 'never', checked_at: '', passed: 0, total: 0, checks: [] },
   },
   {

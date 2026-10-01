@@ -3,6 +3,17 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import { effectiveConnection, pointsOfTable, protocolOfDevice, store, tableOfDevice, unitSymbol } from '../mock/data'
+import {
+  LATENCY,
+  manualProtocolReadRow,
+  manualProtocolWriteRow,
+  pingHost,
+  probePorts,
+  runProtocolRead,
+  runProtocolWrite,
+  sleep,
+  subnetHostResult,
+} from '../mock/service'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { DeviceInst, PointDef, Protocol } from '../mock/types'
 
@@ -14,7 +25,6 @@ type Operation='read'|'write'
 const activeTab=ref<'network'|'protocol'>('network')
 const { isMobile }=useViewport()
 const running=ref(false)
-const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
 
 // Keep the admin mock aligned with wind_hub.config.ports_config default mapping / ports.yaml schema.
 const DEFAULT_PORT_MAPPING:Record<number,string>={
@@ -65,9 +75,6 @@ function parsePorts(){
   const values=[...new Set(portsInput.value.split(',').map(x=>Number(x.trim())).filter(x=>Number.isInteger(x)&&x>=1&&x<=65535))]
   return values
 }
-function portService(port:number){
-  return DEFAULT_PORT_MAPPING[port]||'custom'
-}
 function ipv4ToInt(ip:string){
   const parts=ip.trim().split('.').map(Number)
   if(parts.length!==4||parts.some(x=>!Number.isInteger(x)||x<0||x>255))return null
@@ -106,20 +113,6 @@ const subnetInfo=computed(()=>{
 })
 const scanPercent=computed(()=>scanTotal.value?Math.round(scanProgress.value/scanTotal.value*100):0)
 
-function simulatedHostResult(ip:string,index:number){
-  const known=store.devices.find(d=>d.host===ip)
-  const reachable=known?known.online:index%23===0||index%37===0
-  const protocol=known?protocolOfDevice(known):''
-  return {
-    IP:ip,
-    Ping:reachable?'Yes':'No',
-    ADS:reachable&&(protocol==='ads'||(!known&&index%37===0))?'Open':'—',
-    Modbus:reachable&&(protocol==='modbus'||(!known&&index%23===0))?'Open':'—',
-    IEC104:reachable&&protocol==='iec104'?'Open':'—',
-    Object:known?.device_id||'—',
-  }
-}
-
 async function runNetwork(){
   if(running.value)return
   networkResults.value=[]
@@ -130,29 +123,10 @@ async function runNetwork(){
     if(networkTool.value==='ports'&&!parsePorts().length){ElMessage.warning('Enter at least one valid port');return}
     running.value=true
     try{
-      await sleep(300)
-      if(networkTool.value==='ping'){
-        const known=store.devices.find(d=>d.host===singleHost.value)
-        networkResults.value=[{
-          IP:singleHost.value,
-          Reachable:known&&!known.online?'No':'Yes',
-          RTT:known&&!known.online?'—':'8 ms',
-          Loss:known&&!known.online?'100%':'0%',
-          Object:known?.device_id||'—',
-        }]
-      }else{
-        const known=store.devices.find(d=>d.host===singleHost.value)
-        const deviceProtocol=known?protocolOfDevice(known):''
-        networkResults.value=parsePorts().map((port,index)=>({
-          IP:singleHost.value,
-          Port:port,
-          Service:portService(port),
-          State:known
-            ? (known.online&&((deviceProtocol==='ads'&&port===48898)||(deviceProtocol==='modbus'&&port===502)||(deviceProtocol==='iec104'&&port===2404))?'Open':'Closed')
-            : (index===0?'Open':'Closed'),
-          Latency:index===0?'6 ms':'—',
-        }))
-      }
+      // Ping / Port Probe 结果与 Devices Verify 一致（§17.1/§17.2）：由 Mock Service 派生
+      networkResults.value=networkTool.value==='ping'
+        ? [pingHost(singleHost.value)]
+        : probePorts(singleHost.value,parsePorts())
     }finally{running.value=false}
     return
   }
@@ -171,11 +145,11 @@ async function runNetwork(){
       const end=Math.min(info.total,offset+batchSize)
       for(let i=offset;i<end;i++){
         const ip=intToIpv4((info.first+i)>>>0)
-        rows.push(simulatedHostResult(ip,i+1))
+        rows.push(subnetHostResult(ip,i+1))
       }
       scanProgress.value=end
       networkResults.value=[...rows]
-      await sleep(18)
+      await sleep(LATENCY.scanBatch)
     }
   }finally{running.value=false}
 }
@@ -266,31 +240,31 @@ function targetDevicesForRead(){
   if(source.value==='group')return groupReadDevices.value
   return activeDevice.value?[activeDevice.value]:[]
 }
+// Protocol Read：来自与 Device Data 相同的 mock 数据源（§17.3），失败路径与场景一致。
 async function runRead(){
   if(running.value)return
   if(source.value!=='manual'&&!selectedPoint.value){ElMessage.warning('Select a point');return}
   if(source.value==='manual'&&!manual.host.trim()){ElMessage.warning('Enter target host');return}
   running.value=true
   try{
-    await sleep(350)
     if(source.value==='manual'){
-      protocolResults.value=[{
-        Target:manual.host,Address:manualAddress(),Type:manual.dataType,Raw:'42 C8 00 00',Value:'100',Unit:'—',Result:'Success',Latency:'14 ms',
-      }]
+      protocolResults.value=[await manualProtocolReadRow(manual.host.trim(),manualAddress(),manual.dataType)]
     }else{
-      protocolResults.value=targetDevicesForRead().map((d,index)=>({
-        Target:d.device_id,Host:d.host,Point:selectedPoint.value?.point_id||'—',Address:pointAddress(selectedPoint.value),
-        Raw:'42 C8 00 00',Value:String(8.4+index/10),Unit:selectedPoint.value?unitSymbol(selectedPoint.value.unit):'',
-        Result:d.online?'Success':'Failed',Error:d.online?'—':'Connection unavailable',Latency:d.online?(12+index%9)+' ms':'—',
-      }))
+      protocolResults.value=await runProtocolRead(
+        targetDevicesForRead(),
+        selectedPoint.value as PointDef,
+        pointAddress(selectedPoint.value),
+      )
     }
   }finally{running.value=false}
 }
+// Protocol Write：与 Device Command 共享底层写操作（§17.4），成功后 Data / Trend / Logs 联动。
 async function runWrite(){
   if(running.value)return
   if(!writeValue.value.trim()){ElMessage.warning('Enter a write value');return}
   if(source.value==='group'&&!groupDeviceId.value){ElMessage.warning('Select one device in the group for write');return}
   if(source.value!=='manual'&&!selectedPoint.value){ElMessage.warning('Select a point');return}
+  if(source.value!=='manual'&&!activeDevice.value){ElMessage.warning('Select a device');return}
   try{
     await ElMessageBox.confirm(
       'Send one diagnostic write and perform readback? Group writes always target only the selected device.',
@@ -300,12 +274,16 @@ async function runWrite(){
   }catch{return}
   running.value=true
   try{
-    await sleep(380)
-    protocolResults.value=[{
-      Target:source.value==='manual'?manual.host:(activeDevice.value?.device_id||'—'),
-      Address:source.value==='manual'?manualAddress():pointAddress(selectedPoint.value),
-      Write:writeValue.value,Result:'Success',Readback:writeValue.value,Latency:'21 ms',
-    }]
+    if(source.value==='manual'){
+      protocolResults.value=[await manualProtocolWriteRow(manual.host.trim(),manualAddress(),writeValue.value.trim())]
+    }else{
+      protocolResults.value=[await runProtocolWrite(
+        activeDevice.value as DeviceInst,
+        selectedPoint.value as PointDef,
+        writeValue.value.trim(),
+        pointAddress(selectedPoint.value),
+      )]
+    }
   }finally{running.value=false}
 }
 </script>

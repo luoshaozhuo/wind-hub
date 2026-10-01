@@ -2,6 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { protocolOfDevice, store } from '../mock/data'
+import { healthRisks, hostCurrent } from '../mock/health'
+import { qualityWindowData } from '../mock/quality'
+import { deviceRuntimeState, logStore } from '../mock/runtime'
 import { useViewport } from '../composables/useViewport'
 
 const { isMobile, isTablet } = useViewport()
@@ -118,60 +121,103 @@ const protocolStats = computed(() => {
     .filter(x => x.total > 0)
 })
 
-const acquisition = {
-  success1m: 99.92,
-  success5m: 99.97,
-  avgLatencyMs: 86,
-  p95LatencyMs: 141,
-  timeout1m: 2,
-  overrun1m: 1,
+// Overview 所有运行指标从统一 mock 事实源派生（§29 禁止跨页面不一致）：
+// qualityWindowData / acquisitionChannels / hostCurrent / logStore / deviceRuntimeState。
+const overviewQuality = computed(() => qualityWindowData('1 h'))
+const riskQuality24h = computed(() => qualityWindowData('24 h'))
+const channelSummaryValue = (key: string) =>
+  overviewQuality.value.channelSummary.find(x => x.key === key)?.value ?? 0
+const dataMetricValue = (key: string) =>
+  overviewQuality.value.dataMetrics.find(x => x.key === key)?.value ?? 0
+
+const acquisition = computed(() => {
+  const interrupted = channelSummaryValue('interrupted')
+  const timeouts = channelSummaryValue('timeouts')
+  return {
+    success1m: Number((100 - interrupted * 0.08).toFixed(2)),
+    success5m: Number((100 - interrupted * 0.03).toFixed(2)),
+    avgLatencyMs: 86,
+    p95LatencyMs: 141,
+    timeout1m: Math.max(1, Math.round(timeouts / 7)),
+    overrun1m: interrupted ? 1 : 0,
+  }
+})
+
+const host = hostCurrent()
+
+const timeliness = computed(() => {
+  const running = store.tasks.filter(t => t.runtime === 'RUNNING')
+  const stale = running.filter(t =>
+    overviewQuality.value.issues.some(i => i.kind === 'Task' && i.object === t.task_id && i.dimension === 'Continuity'))
+  return {
+    totalTasks: running.length,
+    freshTasks: running.length - stale.length,
+    delayedTasks: 0,
+    staleTasks: stale.length,
+    worstTask: stale[0]?.task_id || '—',
+    worstAgeRatio: 8.7,
+  }
+})
+
+const communication = computed(() => ({
+  disconnected: channelSummaryValue('interrupted'),
+  timeout1m: acquisition.value.timeout1m,
+  reconnect1m: Math.max(1, Math.round(channelSummaryValue('reconnects') / 4)),
+  overrun1m: acquisition.value.overrun1m,
+}))
+
+const sinkToneOf = (state: string): Tone =>
+  state === 'healthy' ? 'normal' : state === 'warning' ? 'warning' : state === 'failed' ? 'danger' : 'muted'
+const sinkRuntime = computed(() => store.sinks.map(s => ({
+  name: s.name,
+  type: s.type,
+  state: s.enabled ? s.runtime_state.toUpperCase() : 'DISABLED',
+  tone: (s.enabled ? sinkToneOf(s.runtime_state) : 'muted') as Tone,
+})))
+const sinkCardTone = computed<Tone>(() =>
+  store.sinks.some(s => s.enabled && s.runtime_state === 'failed') ? 'danger'
+    : store.sinks.some(s => s.enabled && s.runtime_state === 'warning') ? 'warning'
+      : 'normal')
+
+// 对象当前是否仍处于故障场景：决定 Recent Events 的 ACTIVE / RECOVERED。
+function isActiveObject(object: string) {
+  const device = store.devices.find(d => d.device_id === object)
+  if (device) {
+    const runtime = deviceRuntimeState(device.device_id, device.enabled)
+    return runtime.network !== 'ok' || !!runtime.protocolError
+  }
+  const sink = store.sinks.find(s => s.name === object)
+  if (sink) return sink.enabled && sink.runtime_state === 'failed'
+  return false
 }
 
-const host = {
-  cpu: 18.4,
-  memory: 41.7,
-  diskFree: 68.2,
-  healthCheck: '3 s ago',
-}
+const recentEvents = computed<RecentEvent[]>(() =>
+  logStore
+    .filter(e => e.level !== 'INFO')
+    .slice(0, 4)
+    .map(e => ({
+      time: e.time.slice(11),
+      level: e.level as 'ERROR' | 'WARN',
+      object: e.object,
+      event: e.message,
+      state: isActiveObject(e.object) ? 'ACTIVE' as const : 'RECOVERED' as const,
+    })),
+)
 
-const timeliness = {
-  totalTasks: 2,
-  freshTasks: 1,
-  delayedTasks: 0,
-  staleTasks: 1,
-  worstTask: 'turbine-ads-all',
-  worstAgeRatio: 8.7,
-}
-
-const communication = {
-  disconnected: 1,
-  timeout1m: 2,
-  reconnect1m: 1,
-  overrun1m: 1,
-}
-
-const sinkRuntime = [
-  { name: 'file_archive', type: 'file', state: 'HEALTHY', tone: 'normal' as Tone },
-  { name: 'kafka_main', type: 'kafka', state: 'DISABLED', tone: 'muted' as Tone },
-  { name: 'db_main', type: 'db', state: 'DISABLED', tone: 'muted' as Tone },
-]
-
-const recentEvents: RecentEvent[] = [
-  { time: '19:00:48', level: 'ERROR', object: 'wtg-041', event: 'ADS disconnected', state: 'ACTIVE' },
-  { time: '19:00:33', level: 'WARN', object: 'turbine-ads-all', event: 'Interval overrun 42 ms', state: 'ACTIVE' },
-  { time: '19:00:21', level: 'WARN', object: 'wtg-003', event: 'Modbus read timeout', state: 'RECOVERED' },
-  { time: '19:00:06', level: 'ERROR', object: 'file_archive', event: 'Sink write retry', state: 'RECOVERED' },
-]
-
-const activeAlerts: ActiveAlert[] = [
-  { level: 'ERROR', object: 'wtg-041', event: 'ADS disconnected', since: '2026-09-27 18:46:12', duration: '13m 48s' },
-  { level: 'WARN', object: 'turbine-ads-all', event: 'Repeated interval overrun', since: '2026-09-27 18:53:41', duration: '6m 19s' },
-]
+const activeAlerts = computed<ActiveAlert[]>(() =>
+  overviewQuality.value.issues.map(issue => ({
+    level: issue.level === 'Fault' ? 'ERROR' as const : 'WARN' as const,
+    object: issue.object,
+    event: `${issue.issue} · ${issue.dimension}`,
+    since: logStore.find(e => e.object === issue.object)?.time || '—',
+    duration: issue.duration,
+  })),
+)
 const ACTIVE_ALERT_DISPLAY_LIMIT = 5
-const visibleActiveAlerts = computed(() => activeAlerts.slice(0, ACTIVE_ALERT_DISPLAY_LIMIT))
-const hiddenActiveAlertCount = computed(() => Math.max(0, activeAlerts.length - ACTIVE_ALERT_DISPLAY_LIMIT))
+const visibleActiveAlerts = computed(() => activeAlerts.value.slice(0, ACTIVE_ALERT_DISPLAY_LIMIT))
+const hiddenActiveAlertCount = computed(() => Math.max(0, activeAlerts.value.length - ACTIVE_ALERT_DISPLAY_LIMIT))
 
-const acquisitionTone = computed<Tone>(() => acquisition.success1m >= 99.9 ? 'normal' : acquisition.success1m >= 99 ? 'warning' : 'danger')
+const acquisitionTone = computed<Tone>(() => acquisition.value.success1m >= 99.9 ? 'normal' : acquisition.value.success1m >= 99 ? 'warning' : 'danger')
 const deviceTone = computed<Tone>(() => offline.value === 0 ? 'normal' : offline.value <= 2 ? 'warning' : 'danger')
 const taskTone = computed<Tone>(() => stoppedTasks.value === 0 ? 'normal' : 'warning')
 
@@ -318,7 +364,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card">
           <div class="card-top">
             <span class="card-label">Sinks</span>
-            <span class="ov-status-pill normal"><i></i>AVAILABLE</span>
+            <span class="ov-status-pill" :class="sinkCardTone"><i></i>{{ sinkCardTone === 'normal' ? 'AVAILABLE' : 'ATTENTION' }}</span>
           </div>
           <div class="hero-value info">{{ enabledSinks }} / {{ store.sinks.length }}</div>
           <div class="hero-caption">Enabled / Configured</div>
@@ -370,16 +416,16 @@ const statTone = (onlineCount: number, total: number): Tone => {
       </div>
       <div class="risk-summary-grid">
         <article class="industrial-card risk-summary-card">
-          <div class="card-top"><span class="card-label">Channel Quality</span><span class="ov-status-pill danger"><i></i>2 INTERRUPTED</span></div>
-          <div class="risk-summary-main">13 timeouts · 7 reconnects / 24 h</div>
+          <div class="card-top"><span class="card-label">Channel Quality</span><span class="ov-status-pill" :class="channelSummaryValue('interrupted') ? 'danger' : 'normal'"><i></i>{{ channelSummaryValue('interrupted') }} INTERRUPTED</span></div>
+          <div class="risk-summary-main">{{ riskQuality24h.channelSummary.find(x => x.key === 'timeouts')?.value ?? 0 }} timeouts · {{ riskQuality24h.channelSummary.find(x => x.key === 'reconnects')?.value ?? 0 }} reconnects / 24 h</div>
         </article>
         <article class="industrial-card risk-summary-card">
-          <div class="card-top"><span class="card-label">Data Quality</span><span class="ov-status-pill warning"><i></i>DEGRADED</span></div>
-          <div class="risk-summary-main">1 stale task · 13 missing cycles</div>
+          <div class="card-top"><span class="card-label">Data Quality</span><span class="ov-status-pill" :class="dataMetricValue('stale') ? 'danger' : 'normal'"><i></i>{{ dataMetricValue('stale') ? 'DEGRADED' : 'HEALTHY' }}</span></div>
+          <div class="risk-summary-main">{{ dataMetricValue('stale') }} stale task · {{ dataMetricValue('missing') }} missing cycles</div>
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top"><span class="card-label">System Health</span><span class="ov-status-pill danger"><i></i>CAPACITY RISK</span></div>
-          <div class="risk-summary-main">Disk ~2.7 days · RSS continuous growth</div>
+          <div class="risk-summary-main">{{ healthRisks[1].summary }} · {{ healthRisks[0].summary }}</div>
         </article>
       </div>
     </section>

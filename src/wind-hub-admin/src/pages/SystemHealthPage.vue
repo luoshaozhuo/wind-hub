@@ -1,54 +1,22 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+// System Health 数据源（§23）：曲线 / 风险卡片 / 资源明细 / 存储挂载全部来自
+// mock/health.ts 的确定性模型；切窗口只改变 healthSeries(range) 的输入。
+import { healthDetails, healthRisks, healthSeries, storageMounts, type HealthRange } from '../mock/health'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
-const range=ref<'1 h'|'24 h'|'7 d'|'30 d'>('24 h')
+const range=ref<HealthRange>('24 h')
 const memoryEl=ref<HTMLElement|null>(null)
 const diskEl=ref<HTMLElement|null>(null)
 const cpuEl=ref<HTMLElement|null>(null)
- const charts:echarts.ECharts[]=[]
+const charts:echarts.ECharts[]=[]
 let resizeObserver:ResizeObserver|null=null
 
-type TagType='success'|'warning'|'danger'
-type Risk={name:string;state:string;type:TagType;summary:string;detail:string}
+const risks=healthRisks
+const details=healthDetails
+const mounts=[...storageMounts]
 
-const risks:Risk[]=[
-  {name:'Memory Growth',state:'Warning',type:'warning',summary:'RSS +1.1 GB / 6 h',detail:'Continuous growth · projected process limit ~14 h'},
-  {name:'Storage Capacity',state:'Critical',type:'danger',summary:'38 GB free',detail:'14.2 GB / 24 h consumption · estimated full in 2.7 days'},
-  {name:'CPU / Thermal',state:'Warning',type:'warning',summary:'87% / 86°C',detail:'10 min CPU average · high-load duration 13 min'},
-  {name:'Runtime',state:'Normal',type:'success',summary:'3d 14h uptime',detail:'0 unexpected restarts · event loop stable'},
-]
-
-const details=[
-  {group:'Memory',items:[['Host used','62%'],['Host available','12.1 GB'],['wind-hub RSS','3.8 GB'],['RSS growth / 6h','+1.1 GB'],['Open FD','184'],['Asyncio tasks','67']]},
-  {group:'CPU / Thermal',items:[['Host CPU','91%'],['wind-hub CPU','72%'],['Load avg 1/5/15','7.8 / 7.2 / 6.4'],['CPU temp','86°C'],['High load','13 min'],['Throttling','No']]},
-]
-
-const storageMounts=[
-  {mount:'/',used:'28 GB / 100 GB',free:'72 GB',usage:'28%',growth:'+0.4 GB / 24 h',estimated:'> 30 days'},
-  {mount:'/data',used:'162 GB / 200 GB',free:'38 GB',usage:'81%',growth:'+9.2 GB / 24 h',estimated:'2.7 days'},
-  {mount:'/var',used:'19 GB / 30 GB',free:'11 GB',usage:'63%',growth:'+3.1 GB / 24 h',estimated:'8.4 days'},
-]
-
-function timeAxis(){
-  if(range.value==='1 h'){
-    return Array.from({length:13},(_,i)=>String((60-(12-i)*5+60)%60).padStart(2,'0')+'m')
-  }
-  if(range.value==='7 d'){
-    return Array.from({length:14},(_,i)=>'D-'+String(13-i))
-  }
-  if(range.value==='30 d'){
-    return Array.from({length:15},(_,i)=>'D-'+String((14-i)*2))
-  }
-  return Array.from({length:24},(_,i)=>String((i+1)%24).padStart(2,'0')+':00')
-}
-function rangeScale(){
-  if(range.value==='1 h')return 0.12
-  if(range.value==='7 d')return 4.2
-  if(range.value==='30 d')return 5
-  return 1
-}
 function baseOption(){
   return {
     ...baseChartOption(),
@@ -68,27 +36,23 @@ function renderCharts(){
   charts.splice(0).forEach(c=>c.dispose())
   resizeObserver?.disconnect()
   resizeObserver=new ResizeObserver(()=>charts.forEach(c=>c.resize()))
-  const axis=timeAxis()
-  const scale=rangeScale()
+  const series=healthSeries(range.value)
   const base=baseOption()
-  const stressStart=Math.floor(axis.length*0.7)
-  initChart(memoryEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
-    {name:'Host used',type:'line',showSymbol:false,data:axis.map((_,i)=>Number((9.4+i*0.05*scale+Math.sin(i/3)*0.25).toFixed(2)))},
-    {name:'wind-hub RSS',type:'line',showSymbol:false,data:axis.map((_,i)=>Number((2.1+i*0.071*scale+Math.sin(i/4)*0.05).toFixed(2)))},
+  initChart(memoryEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:series.axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
+    {name:'Host used',type:'line',showSymbol:false,data:series.memoryHost},
+    {name:'wind-hub RSS',type:'line',showSymbol:false,data:series.memoryRss},
   ]})
-  const diskBase=axis.map((_,i)=>Number((52.5-i*0.6*scale).toFixed(1)))
-  const forecastStart=Math.max(1,Math.floor(axis.length*0.75))
-  initChart(diskEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
-    {name:'Actual free',type:'line',showSymbol:false,data:diskBase},
-    {name:'Forecast',type:'line',showSymbol:false,lineStyle:{type:'dashed'},data:axis.map((_,i)=>i<forecastStart?null:Number((diskBase[forecastStart]-((i-forecastStart)*0.6*scale)).toFixed(1)))},
+  initChart(diskEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:series.axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
+    {name:'Actual free',type:'line',showSymbol:false,data:series.diskFree},
+    {name:'Forecast',type:'line',showSymbol:false,lineStyle:{type:'dashed'},data:series.diskForecast},
   ]})
-  initChart(cpuEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:axis},yAxis:[
+  initChart(cpuEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:series.axis},yAxis:[
     {...base.yAxis,min:0,max:100,name:'CPU %',nameTextStyle:{fontSize:10}},
     {type:'value',min:40,max:100,name:'°C',position:'right',axisLabel:baseAxisLabel(),splitLine:{show:false},nameTextStyle:{fontSize:10}},
   ],series:[
-    {name:'Host CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((42+Math.sin(i/2)*12+(i>stressStart?27:0)).toFixed(1)))},
-    {name:'wind-hub CPU',type:'line',showSymbol:false,yAxisIndex:0,data:axis.map((_,i)=>Number((28+Math.sin(i/2.3)*8+(i>stressStart?35:0)).toFixed(1)))},
-    {name:'CPU temperature',type:'line',showSymbol:false,yAxisIndex:1,data:axis.map((_,i)=>Number((58+Math.sin(i/3)*4+(i>stressStart?20:0)).toFixed(1)))},
+    {name:'Host CPU',type:'line',showSymbol:false,yAxisIndex:0,data:series.cpuHost},
+    {name:'wind-hub CPU',type:'line',showSymbol:false,yAxisIndex:0,data:series.cpuProcess},
+    {name:'CPU temperature',type:'line',showSymbol:false,yAxisIndex:1,data:series.cpuTemp},
   ]})
 }
 onMounted(()=>nextTick(renderCharts))
@@ -133,7 +97,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
         </el-card>
         <el-card shadow="never" class="storage-detail-card">
           <h3>Storage</h3>
-          <el-table :data="storageMounts" size="small" table-layout="fixed">
+          <el-table :data="mounts" size="small" table-layout="fixed">
             <el-table-column prop="mount" label="Mount" width="70"/>
             <el-table-column prop="used" label="Used / Total" min-width="120"/>
             <el-table-column prop="free" label="Free" width="80"/>

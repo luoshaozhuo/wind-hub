@@ -3,7 +3,8 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
 import { refreshTaskValidity, store } from '../mock/data'
-import type { SinkDef, SinkRuntimeState, SinkType, SinkVerificationCheck } from '../mock/types'
+import { verifySink as serviceVerifySink, writeTestSink } from '../mock/service'
+import type { SinkDef, SinkRuntimeState, SinkType } from '../mock/types'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
 
@@ -44,7 +45,6 @@ const draft=reactive({
 const sinkDraftState=computed(()=>JSON.stringify(draft))
 const sinkDirty=computed(()=>creating.value ? sinkDraftState.value!==sinkSnapshot.value : (!!selected.value && sinkDraftState.value!==sinkSnapshot.value))
 
-function sleep(ms:number){return new Promise(resolve=>setTimeout(resolve,ms))}
 function stateLabel(s:SinkDef){return !s.enabled?'Disabled':s.runtime_state.charAt(0).toUpperCase()+s.runtime_state.slice(1)}
 function endpointSummary(s:SinkDef){
   if(s.type==='kafka')return `${s.params.bootstrap_servers||'—'} · ${s.params.topic||'—'}`
@@ -107,101 +107,16 @@ async function saveSink(){
   }
   refreshTaskValidity();ElMessage.success(wasCreating?'Sink created (mock)':'Sink configuration saved (mock)')
 }
-function networkEndpoint(s:SinkDef){
-  if(s.type==='kafka'){
-    const first=String(s.params.bootstrap_servers||'localhost:9092').split(',')[0].trim()
-    const [host,portText]=first.split(':')
-    return {host:host||'localhost',port:Number(portText||9092)}
-  }
-  if(s.type==='db'){
-    const dsn=String(s.params.dsn||'')
-    const match=dsn.match(/^[a-zA-Z0-9+.-]+:\/\/(?:[^@/]+@)?([^:/]+)(?::(\d+))?/)
-    return {host:match?.[1]||'localhost',port:Number(match?.[2]||5432)}
-  }
-  return {host:'',port:0}
-}
-function resolvedHost(host:string){
-  if(host==='localhost') return '127.0.0.1'
-  if(/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host
-  return '192.168.10.25'
-}
-function checkPlan(s:SinkDef):Array<{layer:'network'|'protocol'|'target'|'filesystem';name:string;target:string;detail:string;blocks:boolean}>{
-  if(s.type==='file'){
-    const path=String(s.params.path||'')
-    const parent=path.includes('/')?path.slice(0,path.lastIndexOf('/'))||'/':'.'
-    return[
-      {layer:'filesystem',name:'Parent Path',target:parent,detail:'Resolve parent directory',blocks:true},
-      {layer:'filesystem',name:'Permission',target:parent,detail:'Check create/append permission',blocks:true},
-      {layer:'filesystem',name:'Open / Append',target:path,detail:'Open target for append without business payload',blocks:true},
-    ]
-  }
-  const ep=networkEndpoint(s)
-  const ip=resolvedHost(ep.host)
-  const common=[
-    {layer:'network' as const,name:'DNS',target:ep.host,detail:`Resolve ${ep.host} → ${ip}`,blocks:true},
-    {layer:'network' as const,name:'ICMP',target:ip,detail:'ICMP reachability check (advisory only)',blocks:false},
-    {layer:'network' as const,name:'TCP Port',target:`${ip}:${ep.port}`,detail:'Open TCP connection to remote endpoint',blocks:true},
-  ]
-  if(s.type==='kafka') return[
-    ...common,
-    {layer:'protocol',name:'Broker Session',target:`${ep.host}:${ep.port}`,detail:'Establish Kafka producer / broker session',blocks:true},
-    {layer:'target',name:'Metadata',target:String(s.params.topic||''),detail:'Request broker metadata',blocks:true},
-    {layer:'target',name:'Topic',target:String(s.params.topic||''),detail:'Verify configured topic is addressable',blocks:true},
-  ]
-  return[
-    ...common,
-    {layer:'protocol',name:'PostgreSQL Session',target:`${ep.host}:${ep.port}`,detail:'Establish PostgreSQL protocol session',blocks:true},
-    {layer:'protocol',name:'Authentication',target:ep.host,detail:'Authenticate configured DSN credentials',blocks:true},
-    {layer:'target',name:'SELECT 1',target:String(s.params.table||'points'),detail:'Execute lightweight read-only query',blocks:true},
-  ]
-}
-function simulatedCheckFailure(s:SinkDef,name:string){
-  if(s.name==='kafka_main'&&name==='Broker Session') return {code:'BROKER_TIMEOUT',latency:3000}
-  if(s.name==='db_main'&&name==='TCP Port') return {code:'TCP_CONNECTION_REFUSED',latency:32}
-  return null
-}
-function simulatedIcmpWarning(s:SinkDef,name:string){
-  return name==='ICMP' && s.type==='kafka'
-}
-async function verifySink(s:SinkDef,quiet=false){
-  if(!quiet){
-    if(sinkOperationActive.value)return
-    verifyingSink.value=s.name
-  }
-  const plan=checkPlan(s)
-  const checks:SinkVerificationCheck[]=[]
-  s.runtime_state='testing'
-  let blocked=false
-  for(const step of plan){
-    await sleep(90)
-    if(blocked){
-      checks.push({layer:step.layer,name:step.name,state:'skipped',target:step.target,latency_ms:0,detail:'Skipped after upstream failure',error_code:''})
-      continue
-    }
-    if(simulatedIcmpWarning(s,step.name)){
-      checks.push({layer:step.layer,name:step.name,state:'warning',target:step.target,latency_ms:1000,detail:'No ICMP reply; continue because TCP is authoritative',error_code:'ICMP_NO_REPLY'})
-      continue
-    }
-    const failure=simulatedCheckFailure(s,step.name)
-    if(failure){
-      checks.push({layer:step.layer,name:step.name,state:'failed',target:step.target,latency_ms:failure.latency,detail:step.detail+' failed',error_code:failure.code})
-      if(step.blocks) blocked=true
-    }else{
-      checks.push({layer:step.layer,name:step.name,state:'passed',target:step.target,latency_ms:2+checks.length*4,detail:step.detail+' passed',error_code:''})
-    }
-  }
-  const passed=checks.filter(c=>c.state==='passed').length
-  const failed=checks.some(c=>c.state==='failed')
-  s.verification={state:failed?'failed':'passed',checked_at:nowText(),passed,total:checks.length,checks}
-  s.last_test_at=s.verification.checked_at
-  s.latency_ms=Math.max(0,...checks.map(c=>c.latency_ms))
-  s.runtime_state=s.enabled?(failed?'failed':'healthy'):'disabled'
-  s.error=failed?(checks.find(c=>c.state==='failed')?.error_code||'Verification failed'):''
-  if(!quiet){
-    if(failed)ElMessage.error(`${s.name}: ${verifyLabel(s)}`)
+// Verify / Write Test：检查链构建、成败判定、runtime_state/计数器更新与日志
+// 全部在 Mock Service（§10）；页面只负责互斥守卫与结果展示。
+async function verifySink(s:SinkDef){
+  if(sinkOperationActive.value)return
+  verifyingSink.value=s.name
+  try{
+    await serviceVerifySink(s)
+    if(s.verification.state==='failed')ElMessage.error(`${s.name}: ${verifyLabel(s)}`)
     else ElMessage.success(`${s.name}: ${verifyLabel(s)}`)
-    verifyingSink.value=''
-  }
+  }finally{verifyingSink.value=''}
 }
 async function verifyAll(){
   if(sinkOperationActive.value)return
@@ -209,7 +124,7 @@ async function verifyAll(){
   if(!targets.length){ElMessage.warning('No Sinks configured');return}
   verifyAllRunning.value=true
   try{
-    for(const s of targets)await verifySink(s,true)
+    for(const s of targets)await serviceVerifySink(s)
     const failed=targets.filter(s=>s.verification.state==='failed').length
     const warning=targets.filter(s=>s.verification.checks.some(c=>c.state==='warning')).length
     batchVerification.value={
@@ -231,9 +146,7 @@ async function writeTest(s:SinkDef){
   }catch{return}
   writeTestingSink.value=s.name
   try{
-    await sleep(420)
-    s.last_write_at=nowText();s.writes_total+=1
-    testResult.value={ok:true,title:'Write test passed',detail:'Synthetic PointValue accepted by the Sink (mock).',latency:18}
+    testResult.value=await writeTestSink(s)
   }finally{writeTestingSink.value=''}
 }
 async function toggleEnabled(s:SinkDef,enabled:boolean){

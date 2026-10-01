@@ -3,47 +3,26 @@ import * as echarts from 'echarts'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { protocolOfDevice, store } from '../mock/data'
+import {
+  acquisitionChannels,
+  deliveryChannels,
+  qualityChannelMetricDetail,
+  qualityDimensionDetail,
+  qualityMetricDetail,
+  qualityWindowData,
+  type CommunicationEvent,
+  type QualityProblem,
+  type QualityWindow,
+} from '../mock/quality'
+import { LATENCY, runQualityCheck, sleep } from '../mock/service'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
 
-type ChannelState='Healthy'|'Degraded'|'Interrupted'|'Disabled'
-type WindowRange='1 h'|'24 h'|'7 d'
+type WindowRange=QualityWindow
 type DrawerKind='channel-metric'|'event'|'data-metric'|'dimension'
 type DrawerTable='tasks'|'devices'|'errors'|'problems'
 
-interface ChannelRow {
-  object:string
-  source:'Acquisition'|'Delivery'
-  protocol:string
-  state:ChannelState
-  target:string
-  last:string
-  latency:string
-  timeouts:number
-  reconnects:number
-  issue:string
-}
-interface CommunicationEvent {
-  id:number
-  time:string
-  object:string
-  protocol:string
-  event:string
-  state:'Active'|'Recovered'
-  error:string
-  duration:string
-  target:string
-}
-interface ProblemObject {
-  object:string
-  kind:'Task'|'Device'|'Point'|'Sink'
-  metric:string
-  expected:string
-  state:'Warning'|'Fault'
-  error:string
-}
 interface QualityDrawer {
   kind:DrawerKind
   title:string
@@ -52,7 +31,7 @@ interface QualityDrawer {
   tasks:Array<Record<string,string|number>>
   devices:Array<Record<string,string|number>>
   errors:Array<Record<string,string|number>>
-  problems:ProblemObject[]
+  problems:QualityProblem[]
 }
 
 const activeTab=ref<'channel'|'data'>('channel')
@@ -78,11 +57,13 @@ const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
 
+// Auto Check（§16）：Mock Service 推进 qualityCheckTick → qualityWindowData 全量重算。
 async function runCheck(){
   if(checking.value)return
   checking.value=true
   try{
-    await new Promise(resolve=>setTimeout(resolve,700))
+    await sleep(LATENCY.qualityCheck)
+    runQualityCheck()
     lastChecked.value=nowText()
   }finally{checking.value=false}
 }
@@ -95,84 +76,24 @@ function syncAutoCheck(){
 }
 watch([autoCheck,checkInterval],syncAutoCheck)
 
-const acquisitionChannels=computed<ChannelRow[]>(()=>store.devices.filter(d=>d.enabled).map((d,index)=>{
-  const interrupted=!d.online
-  const degraded=!interrupted&&(index%13===4||index%17===9)
-  const state:ChannelState=interrupted?'Interrupted':degraded?'Degraded':'Healthy'
-  const latency=interrupted?0:12+(index*11)%210
-  return {
-    object:d.device_id,
-    source:'Acquisition',
-    protocol:protocolOfDevice(d).toUpperCase(),
-    state,
-    target:d.host,
-    last:interrupted?'2026-09-30 18:36:14':`2026-09-30 18:${String(47-index%10).padStart(2,'0')}:${String((index*7)%60).padStart(2,'0')}`,
-    latency:interrupted?'—':latency+' ms',
-    timeouts:interrupted?8:degraded?2:0,
-    reconnects:interrupted?3:degraded?1:0,
-    issue:interrupted?'Protocol session unavailable':degraded?'Latency / reconnect degradation':'—',
-  }
-}))
+// 通道当前状态（窗口无关）：由 mock/quality.ts 从 deviceScenarios / sink 状态派生。
+const acquisitionChannelRows=computed(()=>acquisitionChannels())
+const acquisitionChannelCount=computed(()=>acquisitionChannelRows.value.length)
 const pagedAcquisitionChannels=computed(()=>{
   const start=(acquisitionPage.value-1)*acquisitionPageSize.value
-  return acquisitionChannels.value.slice(start,start+acquisitionPageSize.value)
+  return acquisitionChannelRows.value.slice(start,start+acquisitionPageSize.value)
 })
+const deliveryChannelRows=computed(()=>deliveryChannels())
 
-const deliveryChannels=computed<ChannelRow[]>(()=>store.sinks.map(s=>{
-  const state:ChannelState=!s.enabled?'Disabled':s.runtime_state==='failed'?'Interrupted':s.runtime_state==='healthy'?'Healthy':'Degraded'
-  return {
-    object:s.name,
-    source:'Delivery',
-    protocol:s.type==='db'?'POSTGRESQL':s.type.toUpperCase(),
-    state,
-    target:String(s.params.bootstrap_servers||s.params.dsn||s.params.path||'configured'),
-    last:s.last_write_at||'Never',
-    latency:s.enabled?(s.latency_ms?s.latency_ms+' ms':'—'):'—',
-    timeouts:s.runtime_state==='failed'?3:0,
-    reconnects:s.runtime_state==='warning'?1:0,
-    issue:s.error||(!s.enabled?'Disabled':'—'),
-  }
-}))
+// 统一窗口数据源（§11–§15）：切窗口时 summary / events / metrics / dimensions / issues 全部联动。
+const channelWindowData=computed(()=>qualityWindowData(channelWindow.value))
+const dataWindowData=computed(()=>qualityWindowData(dataWindow.value))
+const channelSummary=computed(()=>channelWindowData.value.channelSummary)
+const communicationEvents=computed(()=>channelWindowData.value.communicationEvents)
+const dataMetrics=computed(()=>dataWindowData.value.dataMetrics)
+const dimensionRows=computed(()=>dataWindowData.value.dimensions)
+const activeIssues=computed(()=>dataWindowData.value.issues)
 
-const rangeFactor=(range:WindowRange)=>range==='1 h'?0.25:range==='7 d'?5:1
-const channelFactor=computed(()=>rangeFactor(channelWindow.value))
-const dataFactor=computed(()=>rangeFactor(dataWindow.value))
-
-const channelSummary=computed(()=>{
-  const all=[...acquisitionChannels.value,...deliveryChannels.value]
-  return [
-    {key:'interrupted',label:'Interrupted',value:all.filter(x=>x.state==='Interrupted').length,tone:'danger'},
-    {key:'degraded',label:'Degraded',value:all.filter(x=>x.state==='Degraded').length,tone:'warning'},
-    {key:'timeouts',label:'Timeouts',value:Math.round(all.reduce((sum,x)=>sum+x.timeouts,0)*channelFactor.value),tone:'warning'},
-    {key:'reconnects',label:'Reconnects',value:Math.round(all.reduce((sum,x)=>sum+x.reconnects,0)*channelFactor.value),tone:'warning'},
-  ]
-})
-
-const communicationEvents=computed<CommunicationEvent[]>(()=>{
-  const rows:CommunicationEvent[]=[]
-  acquisitionChannels.value.forEach((row,index)=>{
-    if(row.state==='Healthy')return
-    const repeats=channelWindow.value==='1 h'?1:channelWindow.value==='7 d'?8:3
-    for(let n=0;n<repeats;n++){
-      rows.push({
-        id:(index+1)*100+n,
-        time:`2026-09-${String(30-Math.min(n,6)).padStart(2,'0')} 18:${String(42-index%30).padStart(2,'0')}:${String((index*7+n*3)%60).padStart(2,'0')}`,
-        object:row.object,
-        protocol:row.protocol,
-        event:row.state==='Interrupted'?'Connection lost':'Channel degraded',
-        state:n===0&&row.state==='Interrupted'?'Active':'Recovered',
-        error:row.state==='Interrupted'?'Session timeout / no response':row.issue,
-        duration:row.state==='Interrupted'?'12m 18s':'43s',
-        target:row.target,
-      })
-    }
-  })
-  rows.push({
-    id:1001,time:'2026-09-30 18:31:22',object:'file_archive',protocol:'FILE',
-    event:'Write retry',state:'Recovered',error:'Transient filesystem latency',duration:'2.1s',target:'/var/tmp/wind-hub/archive.jsonl',
-  })
-  return rows
-})
 const pagedCommunicationEvents=computed(()=>{
   const start=(eventPage.value-1)*eventPageSize.value
   return communicationEvents.value.slice(start,start+eventPageSize.value)
@@ -185,30 +106,11 @@ watch(channelWindow,()=>{
 watch(acquisitionPageSize,()=>{acquisitionPage.value=1})
 watch(eventPageSize,()=>{eventPage.value=1})
 
-function channelMetricDetail(key:string){
-  const base=[
-    {name:'00–04',value:0},
-    {name:'04–08',value:1},
-    {name:'08–12',value:key==='timeouts'?4:1},
-    {name:'12–16',value:key==='reconnects'?3:1},
-    {name:'16–20',value:key==='interrupted'?2:5},
-    {name:'20–24',value:1},
-  ]
-  const devices=[
-    {Device:'wtg-041',Protocol:'ADS',Events:key==='timeouts'?8:3,Duration:'12m 18s',LastEvent:'2026-09-30 18:36:14',Error:'ADS session timeout'},
-    {Device:'wtg-017',Protocol:'ADS',Events:key==='reconnects'?2:1,Duration:'48s',LastEvent:'2026-09-30 15:22:08',Error:'Repeated reconnect / high latency'},
-  ]
-  const errors=[
-    {Time:'2026-09-30 18:36:14',Device:'wtg-041',Event:'Disconnected',Error:'ADS session timeout'},
-    {Time:'2026-09-30 15:22:08',Device:'wtg-017',Event:'Channel degraded',Error:'Read latency above threshold'},
-  ]
-  return {distribution:base,devices,errors}
-}
 function resetDrawerPages(){
   for(const key of Object.keys(drawerPages) as DrawerTable[])drawerPages[key]=1
 }
 function openChannelMetric(metric:(typeof channelSummary.value)[number]){
-  const detail=channelMetricDetail(metric.key)
+  const detail=qualityChannelMetricDetail(metric.key,channelWindow.value)
   resetDrawerPages()
   drawer.value={
     kind:'channel-metric',
@@ -238,13 +140,6 @@ function openEvent(row:CommunicationEvent){
   drawerOpen.value=true
 }
 
-const dataMetrics=computed(()=>[
-  {key:'stale',label:'Stale Tasks',value:1,hint:'current',tone:'danger'},
-  {key:'missing',label:'Missing Cycles',value:Math.max(1,Math.round(13*dataFactor.value)),hint:dataWindow.value,tone:'warning'},
-  {key:'reads',label:'Point Read Failures',value:Math.max(1,Math.round(6*dataFactor.value)),hint:dataWindow.value,tone:'warning'},
-  {key:'dropped',label:'Dropped Points',value:0,hint:dataWindow.value,tone:'normal'},
-] as const)
-
 const dimensionInfo:Record<string,{definition:string;method:string;threshold:string}>={
   continuity:{
     definition:'判断采集序列是否连续，重点识别中断和连续缺失周期。',
@@ -273,40 +168,8 @@ const dimensionInfo:Record<string,{definition:string;method:string;threshold:str
   },
 }
 
-const dimensionRows=computed(()=>[
-  {key:'continuity',dimension:'Continuity',status:'Fault',metric:'1 stale task',detail:'Longest gap 12m 18s'},
-  {key:'timeliness',dimension:'Timeliness',status:'Warning',metric:'P95 freshness 1.9 × period',detail:'7 devices degraded'},
-  {key:'completeness',dimension:'Completeness',status:'Warning',metric:dataMetrics.value[1].value+' missing cycles',detail:'6 point reads failed'},
-  {key:'validity',dimension:'Validity',status:'Warning',metric:'2 decode errors',detail:'No timestamp/order error'},
-  {key:'delivery',dimension:'Delivery Integrity',status:'Normal',metric:'0 dropped points',detail:'File backlog 2'},
-])
-
-const activeIssues=computed(()=>[
-  {level:'Fault',object:'turbine-ads-all',kind:'Task',dimension:'Continuity',issue:'No fresh samples',duration:'12m 18s',error:'WTG-041 ADS session unavailable'},
-  {level:'Warning',object:'wtg-017',kind:'Device',dimension:'Timeliness',issue:'Freshness above threshold',duration:'4m 05s',error:'Repeated high read latency'},
-  {level:'Warning',object:'wtg-003',kind:'Device',dimension:'Completeness',issue:'Missing acquisition cycles',duration:'2m 41s',error:'Modbus read timeout'},
-])
-
-function metricDetail(key:string){
-  if(key==='stale')return {
-    tasks:[{Task:'turbine-ads-all',Expected:'1 s',LastSample:'2026-09-30 18:36:14',State:'Stale'}],
-    devices:[{Device:'wtg-041',Protocol:'ADS',LastSuccess:'2026-09-30 18:36:14',State:'Fault'}],
-    errors:[{Time:'2026-09-30 18:36:14',Object:'wtg-041',Error:'ADS session unavailable'},{Time:'2026-09-30 18:36:12',Object:'turbine-ads-all',Error:'No fresh samples'}],
-  }
-  if(key==='missing')return {
-    tasks:[{Task:'turbine-modbus-all',Expected:'1 s',LastSample:'2026-09-30 18:44:58',Missing:8,State:'Warning'},{Task:'pcs-fast',Expected:'1 s',LastSample:'2026-09-30 18:45:02',Missing:5,State:'Warning'}],
-    devices:[{Device:'wtg-003',LastSuccess:'2026-09-30 18:40:29',Missing:5,Error:'Read timeout'},{Device:'pcs-03',LastSuccess:'2026-09-30 18:39:06',Missing:3,Error:'TCP retry'},{Device:'wtg-017',LastSuccess:'2026-09-30 18:42:55',Missing:2,Error:'High latency'}],
-    errors:[{Time:'2026-09-30 18:40:31',Object:'wtg-003',Error:'Modbus read timeout'},{Time:'2026-09-30 18:39:08',Object:'pcs-03',Error:'TCP reconnect'}],
-  }
-  if(key==='reads')return {
-    tasks:[{Task:'turbine-ads-all',LastSample:'2026-09-30 18:42:10',Failures:4,State:'Warning'},{Task:'turbine-modbus-all',LastSample:'2026-09-30 18:41:50',Failures:2,State:'Warning'}],
-    devices:[{Device:'wtg-041',Point:'.wind_speed',LastSuccess:'2026-09-30 18:36:14',Error:'ADS read failed'},{Device:'wtg-003',Point:'grid_active_power',LastSuccess:'2026-09-30 18:41:49',Error:'Modbus timeout'}],
-    errors:[{Time:'2026-09-30 18:42:11',Object:'wtg-041/.wind_speed',Error:'ADSERR_DEVICE_SYMBOLNOTFOUND'},{Time:'2026-09-30 18:41:52',Object:'wtg-003/grid_active_power',Error:'Read timeout'}],
-  }
-  return {tasks:[],devices:[],errors:[]}
-}
 function openMetric(metric:(typeof dataMetrics.value)[number]){
-  const detail=metricDetail(metric.key)
+  const detail=qualityMetricDetail(metric.key,dataWindow.value)
   resetDrawerPages()
   drawer.value={
     kind:'data-metric',
@@ -321,37 +184,8 @@ function openMetric(metric:(typeof dataMetrics.value)[number]){
   drawerOpen.value=true
 }
 
-function dimensionDetail(key:string){
-  if(key==='continuity')return {
-    distribution:[{name:'Normal',value:54},{name:'Warning',value:1},{name:'Fault',value:1}],
-    problems:[{object:'turbine-ads-all',kind:'Task' as const,metric:'Gap 12m 18s',expected:'≤ 3 s',state:'Fault' as const,error:'No fresh samples'}],
-  }
-  if(key==='timeliness')return {
-    distribution:[{name:'≤1.0×',value:42},{name:'1.0–1.5×',value:7},{name:'1.5–3.0×',value:6},{name:'>3.0×',value:1}],
-    problems:[
-      {object:'wtg-041',kind:'Device' as const,metric:'No fresh data',expected:'≤ 1.5 × period',state:'Fault' as const,error:'ADS session unavailable'},
-      {object:'wtg-017',kind:'Device' as const,metric:'1.9 × period',expected:'≤ 1.5 × period',state:'Warning' as const,error:'High read latency'},
-      {object:'wtg-029',kind:'Device' as const,metric:'1.7 × period',expected:'≤ 1.5 × period',state:'Warning' as const,error:'Jitter burst'},
-    ],
-  }
-  if(key==='completeness')return {
-    distribution:[{name:'≥99.9%',value:50},{name:'99–99.9%',value:4},{name:'<99%',value:2}],
-    problems:[
-      {object:'wtg-003',kind:'Device' as const,metric:'5 missing cycles',expected:'0',state:'Warning' as const,error:'Modbus timeout'},
-      {object:'pcs-03',kind:'Device' as const,metric:'3 missing cycles',expected:'0',state:'Warning' as const,error:'TCP reconnect'},
-    ],
-  }
-  if(key==='validity')return {
-    distribution:[{name:'Valid',value:54},{name:'Warning',value:2},{name:'Fault',value:0}],
-    problems:[
-      {object:'wtg-041/.wind_speed',kind:'Point' as const,metric:'Decode failed',expected:'Valid float32',state:'Warning' as const,error:'Invalid payload length'},
-      {object:'wtg-028/grid_active_power',kind:'Point' as const,metric:'Decode failed',expected:'Valid float32',state:'Warning' as const,error:'NaN payload'},
-    ],
-  }
-  return {distribution:[{name:'Normal',value:3},{name:'Warning',value:0},{name:'Fault',value:0}],problems:[]}
-}
 function openDimension(row:(typeof dimensionRows.value)[number]){
-  const detail=dimensionDetail(row.key)
+  const detail=qualityDimensionDetail(row.key,dataWindow.value)
   resetDrawerPages()
   drawer.value={
     kind:'dimension',
@@ -451,12 +285,12 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
               <el-table-column v-if="!isTablet" prop="reconnects" label="Reconnects" width="100"/>
               <el-table-column prop="issue" label="Current Issue" min-width="180" show-overflow-tooltip/>
             </el-table>
-            <div v-if="acquisitionChannels.length>acquisitionPageSize" class="pagination">
+            <div v-if="acquisitionChannelCount>acquisitionPageSize" class="pagination">
               <el-pagination
                 v-model:current-page="acquisitionPage"
                 v-model:page-size="acquisitionPageSize"
                 :page-sizes="[20,50,100]"
-                :total="acquisitionChannels.length"
+                :total="acquisitionChannelCount"
                 :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
               />
             </div>
@@ -468,7 +302,7 @@ onBeforeUnmount(()=>{if(autoTimer)window.clearInterval(autoTimer);chart?.dispose
             <div><h2>Delivery Channels</h2><p>Sink 交付通道当前状态。</p></div>
           </div>
           <el-card shadow="never">
-            <el-table :data="deliveryChannels">
+            <el-table :data="deliveryChannelRows">
               <el-table-column prop="object" label="Sink" min-width="130"/>
               <el-table-column prop="protocol" label="Type" width="110"/>
               <el-table-column label="State" width="110"><template #default="{row}"><el-tag :type="stateType(row.state)">{{row.state}}</el-tag></template></el-table-column>

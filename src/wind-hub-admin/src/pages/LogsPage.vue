@@ -1,35 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { formatTimestamp } from '../utils/format'
+import { logStore } from '../mock/runtime'
+import type { MockLogEntry } from '../mock/runtime'
 
-interface Entry {
-  time: string
-  level: 'ERROR' | 'WARN' | 'INFO'
-  source: string
-  object: string
-  message: string
-}
+type Entry = MockLogEntry
 
-const sources = ['ads', 'modbus', 'iec104', 'task', 'runtime', 'sink']
-const samples: [Entry['level'], string, string, string][] = [
-  ['INFO', 'ads', 'wtg-040', 'connected (AMS route OK)'],
-  ['INFO', 'modbus', 'wtg-002', 'connected 192.168.100.102:502'],
-  ['WARN', 'task', 'turbine-ads-all', 'interval overrun 42 ms'],
-  ['ERROR', 'modbus', 'wtg-003', 'read timeout after 5000 ms'],
-  ['ERROR', 'ads', 'wtg-041', 'disconnected, retrying'],
-  ['INFO', 'runtime', 'engine', 'config reloaded (3 tasks updated)'],
-  ['WARN', 'sink', 'file_archive', 'queue usage 82%'],
-  ['INFO', 'task', 'pcs-fast', 'started'],
-  ['ERROR', 'sink', 'file_archive', 'write error: disk almost full (recovered)'],
-  ['INFO', 'ads', 'wtg-041', 'reconnect failed, backoff 8 s'],
-]
-
-const logs: Entry[] = Array.from({ length: 140 }, (_, i) => {
-  const [level, source, object, message] = samples[i % samples.length]
-  const time = new Date(2026, 8, 27, 15, 43 + Math.floor(i / 6), (i * 7) % 60)
-  return { time: formatTimestamp(time), level, source, object, message }
-})
+// 全局 mock log store（§24）：Verify / Task / Command / Sink / Config 等操作由
+// Mock Service 追加日志，本页只做筛选与分页，不自行生成条目。
+const logs = logStore
+// source 选项从条目并集派生：操作写入新 source（如 config / task）后自动出现。
+const sources = computed(() => [...new Set(logs.map(entry => entry.source))].sort())
 
 const level = ref<'All' | Entry['level']>('ERROR')
 const source = ref('All')

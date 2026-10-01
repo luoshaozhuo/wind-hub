@@ -15,6 +15,19 @@ import {
   unitSymbol,
 } from '../mock/data'
 import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../mock/types'
+import {
+  emptyVerification,
+  readDevicePoint,
+  readPointValue,
+  sendDeviceCommand,
+  sleep,
+  verifyAllDevices,
+  verifyDevice as serviceVerifyDevice,
+  pointTrendSeries,
+  type CommandOutcome,
+  type PointReadResult,
+} from '../mock/service'
+import { deviceDataTick } from '../mock/runtime'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { EMPTY, formatTimestamp } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -34,12 +47,15 @@ interface DataRow {
   updated: boolean
   read_state: 'success' | 'failed'
   error: string
+  // 点在解析后点表中的下标：Trend/Command 与 Data 共用同一点值序列的定位键
+  index: number
 }
 
 interface TrendSignal {
   id: string
   label: string
   unit: string
+  pointIndex: number
 }
 
 const search = ref('')
@@ -55,23 +71,8 @@ const verifyingDeviceId = ref('')
 const { isMobile } = useViewport()
 const detailDrawerSize = computed(() => isMobile.value ? '100%' : '72%')
 
-function emptyVerify(): DeviceVerification {
-  return {
-    state: 'idle',
-    network: 'unknown',
-    protocol: 'unknown',
-    points: 'unknown',
-    point_total: 0,
-    point_success: 0,
-    point_failed: 0,
-    verified_at: '',
-    latency_ms: 0,
-    errors: [],
-  }
-}
-
 function verifyOf(d: DeviceInst): DeviceVerification {
-  if (!store.deviceVerification[d.device_id]) store.deviceVerification[d.device_id] = emptyVerify()
+  if (!store.deviceVerification[d.device_id]) store.deviceVerification[d.device_id] = emptyVerification()
   return store.deviceVerification[d.device_id]
 }
 
@@ -191,10 +192,6 @@ function stepClass(step: VerifyStepState) {
   return `step-${step}`
 }
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
 function timestampAt(offsetMs = 0) {
   return formatTimestamp(new Date(Date.now() - offsetMs))
 }
@@ -224,148 +221,19 @@ function protocolDescription(d: DeviceInst) {
 // （Verify All 或某一台设备的 Verify），避免并发写同一 verification 状态。
 const verifyOperationActive = computed(() => verifyAllRunning.value || !!verifyingDeviceId.value)
 
+// 单台 Verify：流程推进与成败判定全部在 Mock Service（mock/service.ts），
+// 页面只负责互斥守卫与结果反馈。
 async function verifyDevice(d: DeviceInst, quiet = false) {
   if (verifyOperationActive.value) return
-  const v = verifyOf(d)
   verifyingDeviceId.value = d.device_id
-  Object.assign(v, emptyVerify(), { state: 'running' as DeviceVerification['state'] })
-
-  v.network = 'checking'
-  await sleep(260)
-
-  const networkFail = !d.enabled || d.device_id === 'wtg-041'
-  if (networkFail) {
-    v.network = 'failed'
-    v.state = 'failed'
-    v.verified_at = timestampAt()
-    v.errors.push({
-      stage: 'network',
-      target: d.host,
-      message: d.enabled ? 'Host unreachable' : 'Device is disabled',
-    })
-    verifyingDeviceId.value = ''
-    if (!quiet) ElMessage.error(`${d.device_id}: network verification failed`)
-    return
-  }
-
-  v.network = 'success'
-  v.latency_ms = 2 + (d.device_id.length % 7)
-
-  v.protocol = 'checking'
-  await sleep(300)
-
-  const protocolFail = d.device_id === 'wtg-043'
-  if (protocolFail) {
-    v.protocol = 'failed'
-    v.state = 'failed'
-    v.verified_at = timestampAt()
-    v.errors.push({
-      stage: 'protocol',
-      target: protocolDescription(d),
-      message: 'Protocol connection failed',
-    })
-    verifyingDeviceId.value = ''
-    if (!quiet) ElMessage.error(`${d.device_id}: protocol verification failed`)
-    return
-  }
-
-  v.protocol = 'success'
-  v.points = 'checking'
-  await sleep(420)
-
-  const points = pointsOfTable(tableOfDevice(d))
-  v.point_total = points.length
-
-  const failedPoints = d.device_id === 'wtg-026'
-    ? points.slice(0, 1)
-    : d.device_id === 'wtg-044'
-      ? points.slice(0, Math.min(3, points.length))
-      : []
-
-  v.point_failed = failedPoints.length
-  v.point_success = Math.max(0, v.point_total - v.point_failed)
-
-  for (const p of failedPoints) {
-    v.errors.push({
-      stage: 'points',
-      target: p.variable_name || p.point_id,
-      message: modelOf(d)?.protocol === 'ads'
-        ? 'ADS symbol not found / read failed'
-        : 'Read request returned invalid response',
-    })
-  }
-
-  if (v.point_failed === 0) {
-    v.points = 'success'
-    v.state = 'success'
-  } else if (v.point_success > 0) {
-    v.points = 'partial'
-    v.state = 'warning'
-  } else {
-    v.points = 'failed'
-    v.state = 'failed'
-  }
-
-  v.verified_at = timestampAt()
+  const v = await serviceVerifyDevice(d)
   verifyingDeviceId.value = ''
-  if (!quiet) {
-    if (v.state === 'success') ElMessage.success(`${d.device_id}: verification passed`)
-    else if (v.state === 'warning') ElMessage.warning(`${d.device_id}: point verification partially failed`)
-    else ElMessage.error(`${d.device_id}: verification failed`)
-  }
-}
-
-function buildBulkVerification(d: DeviceInst): DeviceVerification {
-  const result = emptyVerify()
-  result.verified_at = timestampAt()
-
-  if (!d.enabled || d.device_id === 'wtg-041') {
-    result.state = 'failed'
-    result.network = 'failed'
-    result.errors.push({ stage: 'network', target: d.host, message: d.enabled ? 'Host unreachable' : 'Device is disabled' })
-    return result
-  }
-
-  result.network = 'success'
-  result.latency_ms = 2 + (d.device_id.length % 7)
-
-  if (d.device_id === 'wtg-043') {
-    result.state = 'failed'
-    result.protocol = 'failed'
-    result.errors.push({ stage: 'protocol', target: protocolDescription(d), message: 'Protocol connection failed' })
-    return result
-  }
-
-  result.protocol = 'success'
-  const points = pointsOfTable(tableOfDevice(d))
-  result.point_total = points.length
-  const failedPoints = d.device_id === 'wtg-026'
-    ? points.slice(0, 1)
-    : d.device_id === 'wtg-044'
-      ? points.slice(0, Math.min(3, points.length))
-      : []
-
-  result.point_failed = failedPoints.length
-  result.point_success = Math.max(0, result.point_total - result.point_failed)
-  for (const p of failedPoints) {
-    result.errors.push({
-      stage: 'points',
-      target: p.variable_name || p.point_id,
-      message: modelOf(d)?.protocol === 'ads' ? 'ADS symbol not found / read failed' : 'Read request returned invalid response',
-    })
-  }
-
-  if (result.point_failed === 0) {
-    result.points = 'success'
-    result.state = 'success'
-  } else if (result.point_success > 0) {
-    result.points = 'partial'
-    result.state = 'warning'
-  } else {
-    result.points = 'failed'
-    result.state = 'failed'
-  }
-  return result
+  if (quiet) return
+  if (v.state === 'success') ElMessage.success(`${d.device_id}: verification passed`)
+  else if (v.state === 'warning') ElMessage.warning(`${d.device_id}: point verification partially failed`)
+  else if (v.errors[0]?.stage === 'network') ElMessage.error(`${d.device_id}: network verification failed`)
+  else if (v.errors[0]?.stage === 'protocol') ElMessage.error(`${d.device_id}: protocol verification failed`)
+  else ElMessage.error(`${d.device_id}: verification failed`)
 }
 
 async function verifyAll() {
@@ -379,22 +247,7 @@ async function verifyAll() {
 
   verifyAllRunning.value = true
   try {
-    for (const d of targets) {
-      Object.assign(verifyOf(d), emptyVerify(), {
-        state: 'running',
-        network: 'checking',
-        protocol: 'checking',
-        points: 'checking',
-      })
-    }
-
-    await sleep(1100)
-
-    const results = targets.map(d => [d, buildBulkVerification(d)] as const)
-    for (const [d, result] of results) Object.assign(verifyOf(d), result)
-
-    const failed = results.filter(([, v]) => v.state === 'failed').length
-    const warning = results.filter(([, v]) => v.state === 'warning').length
+    const { failed, warning } = await verifyAllDevices(targets)
     if (failed) ElMessage.error(`Verification complete: ${failed} failed, ${warning} warning`)
     else if (warning) ElMessage.warning(`Verification complete: ${warning} warning`)
     else ElMessage.success('Verification complete')
@@ -503,7 +356,7 @@ function createBatchDevices() {
       enabled: true,
       online: false,
     })
-    store.deviceVerification[row.id] = emptyVerify()
+    store.deviceVerification[row.id] = emptyVerification()
   }
   refreshTaskValidity()
   addOpen.value = false
@@ -678,7 +531,7 @@ function addDevice() {
     enabled: newDev.value.enabled,
     online: false,
   })
-  store.deviceVerification[id] = emptyVerify()
+  store.deviceVerification[id] = emptyVerification()
   refreshTaskValidity()
   addOpen.value = false
   ElMessage.success('Device created (mock)')
@@ -1055,7 +908,7 @@ function boolValue(value: unknown, fallback = false) {
   return value === undefined || value === null ? fallback : Boolean(value)
 }
 
-const selectedVerify = computed(() => selected.value ? verifyOf(selected.value) : emptyVerify())
+const selectedVerify = computed(() => selected.value ? verifyOf(selected.value) : emptyVerification())
 
 // ---- Read Test / Data ----
 const dataSearch = ref('')
@@ -1069,17 +922,23 @@ let dataRefreshTimer: number | null = null
 
 const resolvedPoints = computed(() => selected.value ? pointsOfTable(tableOfDevice(selected.value)) : [])
 
+// Data 当前值来自 Mock Service 的统一点值序列（mock/runtime.ts）：
+// 与 Trend 尾点、Diagnostics Read、Read Test 同源；Command 成功后经
+// commandOverrides / deviceDataTick 触发本 computed 重算（§6 联动）。
 const dataRows = computed<DataRow[]>(() => {
-  if (!selected.value) return []
-  const revision = dataRevision.value
+  const d = selected.value
+  if (!d) return []
+  // 响应式依赖：手动/自动刷新与 Command 写回都会推进这两个计数器
+  void dataRevision.value
+  void deviceDataTick[d.device_id]
   return resolvedPoints.value.map((p, i) => {
-    const failed = selected.value?.device_id === 'wtg-044' && i % 11 === 0
-    const raw = ((i * 31 + 17 + revision * 7) % 1300) / 10
+    const pv = readPointValue(d, i, p.point_id, p.data_type)
+    const failed = pv.read_state === 'failed'
     return {
       point_id: p.point_id,
       variable_name: p.variable_name,
       description: p.description,
-      value: failed ? EMPTY : p.data_type === 'bool' ? (i + revision) % 2 === 0 : Number(raw.toFixed(3)),
+      value: failed ? EMPTY : pv.value,
       unit: unitSymbol(p.unit),
       groups: p.point_groups,
       updated_at: failed ? EMPTY : timestampAt((i % 7) * 120),
@@ -1088,8 +947,9 @@ const dataRows = computed<DataRow[]>(() => {
       offset: p.offset,
       address: pointAddressText(p),
       updated: !failed,
-      read_state: failed ? 'failed' : 'success',
-      error: failed ? 'Read timeout (mock)' : '',
+      read_state: pv.read_state,
+      error: pv.error,
+      index: i,
     }
   })
 })
@@ -1129,6 +989,7 @@ async function refreshData() {
   try {
     await sleep(260)
     dataRevision.value += 1
+    deviceDataTick[selected.value.device_id] = (deviceDataTick[selected.value.device_id] || 0) + 1
     dataLastRefreshAt.value = timestampAt()
   } finally {
     dataRefreshing.value = false
@@ -1143,29 +1004,11 @@ function syncDataRefreshTimer() {
 watch([dataAutoRefresh, dataRefreshInterval], syncDataRefreshTimer)
 
 // ---- Read Test ----
-interface PointReadResult {
-  state: 'success' | 'failed'
-  timestamp: string
-  latency_ms: number
-  raw_data: string
-  decoded_value: string
-  engineering_value: string
-  error_category: string
-  error_code: string
-  error_message: string
-}
-
 const readPointId = ref('')
 const readLoading = ref(false)
 const readResult = ref<PointReadResult | null>(null)
 const readPoint = computed(() => resolvedPoints.value.find(p => p.point_id === readPointId.value))
 
-function readPointRawData(point: PointDef, index: number) {
-  const protocol = selectedModel.value?.protocol
-  if (protocol === 'modbus') return `registers: [0x${(0x4200 + index).toString(16).toUpperCase()}, 0x0000]`
-  if (protocol === 'ads') return `bytes: ${[0x42, 0xc8, index & 0xff, 0x00].map(x => x.toString(16).padStart(2, '0').toUpperCase()).join(' ')}`
-  return `ASDU: IOA=${point.address.ioa ?? EMPTY} value-bytes=42 C8 00 00`
-}
 function resetReadTest() {
   readResult.value = null
 }
@@ -1174,50 +1017,15 @@ watch(resolvedPoints, rows => {
 }, { immediate: true })
 watch(readPointId, resetReadTest)
 
+// 单点诊断读：成败与错误码由 Mock Service 按场景注册表决定（§5）
 async function readSelectedPoint() {
   if (!selected.value || !readPoint.value || readLoading.value) return
   readLoading.value = true
   readResult.value = null
   try {
-    await sleep(320)
     const point = readPoint.value
     const index = resolvedPoints.value.findIndex(p => p.point_id === point.point_id)
-    const timeout = selected.value.device_id === 'wtg-044'
-    const notFound = selectedModel.value?.protocol === 'ads' && point.variable_name.toLowerCase().includes('missing')
-    const decodeError = selected.value.device_id === 'wtg-045' && index % 3 === 0
-
-    if (timeout || notFound || decodeError) {
-      readResult.value = {
-        state: 'failed',
-        timestamp: timestampAt(),
-        latency_ms: timeout ? 3000 : 28,
-        raw_data: decodeError ? readPointRawData(point, index) : EMPTY,
-        decoded_value: EMPTY,
-        engineering_value: EMPTY,
-        error_category: timeout ? 'timeout' : notFound ? 'not_found' : 'decode',
-        error_code: timeout ? 'READ_TIMEOUT' : notFound ? 'ADS_SYMBOL_NOT_FOUND' : 'DECODE_ERROR',
-        error_message: timeout
-          ? 'Read request timed out after 3000 ms'
-          : notFound
-            ? 'Configured ADS symbol was not found on the remote PLC'
-            : 'Raw payload does not match the configured data type',
-      }
-      return
-    }
-
-    const rawValue = Number((35.2 + index * 2.75).toFixed(4))
-    const engineering = Number((rawValue * point.scale + point.offset).toFixed(4))
-    readResult.value = {
-      state: 'success',
-      timestamp: timestampAt(),
-      latency_ms: 12 + (index % 8) * 3,
-      raw_data: readPointRawData(point, index),
-      decoded_value: String(rawValue),
-      engineering_value: `${engineering} ${unitSymbol(point.unit)}`.trim(),
-      error_category: '',
-      error_code: '',
-      error_message: '',
-    }
+    readResult.value = await readDevicePoint(selected.value, point, index)
   } finally {
     readLoading.value = false
   }
@@ -1244,19 +1052,11 @@ function trendRangeMs() {
   return 60_000
 }
 
-function makeTrendRawData(index: number, endTime = Date.now()) {
-  const duration = trendRangeMs()
-  const rawStepMs = 1000
-  const count = Math.floor(duration / rawStepMs) + 1
-  return Array.from({ length: count }, (_, i) => {
-    const x = new Date(endTime - duration + i * rawStepMs)
-    const second = Math.floor(x.getTime() / 1000)
-    const y = 30
-      + index * 25
-      + Math.sin(second / 7 + index * 1.3) * (5 + index * 2)
-      + Math.sin(second / 19 + index) * 1.6
-    return [x, Number(y.toFixed(4))] as [Date, number]
-  })
+// Trend 序列与 Data 当前值同源（§7）：尾点即 pointValueAt(当前时刻)，
+// Command 写回后趋势在同一序列上追加新值。
+function makeTrendRawData(signal: TrendSignal): Array<[Date, number]> {
+  if (!selected.value) return []
+  return pointTrendSeries(selected.value, signal.id, signal.pointIndex, trendRangeMs())
 }
 
 function downsampleForChart(raw: [Date, number][], maxPoints = 240) {
@@ -1277,10 +1077,9 @@ async function recordTrendRawData() {
   }
   trendRecording.value = true
   try {
-    const endTime = Date.now()
     const rows: string[] = ['timestamp,device_id,point_id,variable_name,value,unit']
-    trendSignals.value.forEach((signal, index) => {
-      for (const [ts, value] of makeTrendRawData(index, endTime)) {
+    trendSignals.value.forEach(signal => {
+      for (const [ts, value] of makeTrendRawData(signal)) {
         rows.push([
           ts.toISOString(),
           selected.value!.device_id,
@@ -1315,7 +1114,7 @@ function toggleTrendSelection(r: DataRow) {
     trendSignals.value = trendSignals.value.filter(x => x.id !== r.point_id)
     delete trendLegendSelected.value[existing.label]
   } else {
-    const signal = { id: r.point_id, label: r.variable_name || r.point_id, unit: r.unit }
+    const signal = { id: r.point_id, label: r.variable_name || r.point_id, unit: r.unit, pointIndex: r.index }
     trendSignals.value.push(signal)
     trendLegendSelected.value[signal.label] = true
   }
@@ -1328,12 +1127,13 @@ function seedTrendSignals() {
     id: r.point_id,
     label: r.variable_name || r.point_id,
     unit: r.unit,
+    pointIndex: r.index,
   }))
   for (const s of trendSignals.value) trendLegendSelected.value[s.label] = true
 }
 
-function makeTrendData(index: number) {
-  return downsampleForChart(makeTrendRawData(index))
+function makeTrendData(signal: TrendSignal) {
+  return downsampleForChart(makeTrendRawData(signal))
 }
 
 function renderTrend() {
@@ -1349,12 +1149,12 @@ function renderTrend() {
       })
     }
 
-    const series = trendSignals.value.map((s, index) => ({
+    const series = trendSignals.value.map(s => ({
       name: s.label,
       type: 'line',
       showSymbol: false,
       smooth: true,
-      data: makeTrendData(index),
+      data: makeTrendData(s),
     }))
 
     trendChart.setOption({
@@ -1437,16 +1237,7 @@ const cmdPoint = ref('')
 const cmdValue = ref(0)
 const cmdBool = ref(false)
 const sending = ref(false)
-interface CommandResult {
-  requested: number | boolean
-  // 失败时 readback 直接回显当前值，可能是字符串（如枚举/文本点）。
-  readback: string | number | boolean
-  sentAt: string
-  latency: number
-  success: boolean
-  error: string
-}
-const commandResult = ref<CommandResult | null>(null)
+const commandResult = ref<CommandOutcome | null>(null)
 
 const controlCandidates = computed(() => dataRows.value.filter(r => r.groups.includes('control')))
 const currentControlRow = computed(() => controlCandidates.value.find(r => r.point_id === cmdPoint.value))
@@ -1502,32 +1293,22 @@ async function sendCommand() {
   sending.value = true
   commandResult.value = null
   try {
-    await sleep(420)
-    // mock 失败规则固定（wtg-044 的设备写被拒绝），保证交互与测试可复现。
-    if (device.device_id === 'wtg-044') {
-      commandResult.value = {
-        requested: target,
-        readback: row.value,
-        sentAt: timestampAt(),
-        latency: 3000,
-        success: false,
-        error: 'Write request rejected by device (mock)',
-      }
-      ElMessage.error('Command failed (mock)')
+    // 成败判定、readback、Data/Trend 联动与日志全部在 Mock Service（§6）
+    const pointIndex = resolvedPoints.value.findIndex(p => p.point_id === row.point_id)
+    const pointDef = pointIndex >= 0 ? resolvedPoints.value[pointIndex] : undefined
+    if (!pointDef) {
+      ElMessage.error('Command point no longer exists in the resolved point table')
       return
     }
-    const readback: number | boolean = typeof target === 'boolean'
-      ? target
-      : Number((target - 0.6).toFixed(2))
-    commandResult.value = {
-      requested: target,
-      readback,
-      sentAt: timestampAt(),
-      latency: 160 + (device.device_id.length % 6) * 7,
-      success: true,
-      error: '',
+    commandResult.value = await sendDeviceCommand(device, pointDef, pointIndex, target)
+    if (commandResult.value.success) {
+      ElMessage.success('Command completed (mock)')
+      // 成功后 Data 与 Trend 立即反映 readback（§6.4）
+      dataRevision.value += 1
+      if (tab.value === 'ControlTrend') renderTrend()
+    } else {
+      ElMessage.error('Command failed (mock)')
     }
-    ElMessage.success('Command completed (mock)')
   } finally {
     sending.value = false
   }

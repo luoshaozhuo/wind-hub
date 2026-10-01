@@ -17,6 +17,7 @@ import {
   validateAddress,
 } from '../mock/data'
 import { useViewport } from '../composables/useViewport'
+import { testPointRead } from '../mock/service'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { PointAddress, PointDef, Protocol } from '../mock/types'
 
@@ -159,22 +160,7 @@ function resetPointTest() {
   testDeviceId.value = preferred?.device_id || ''
 }
 
-function mockRawBytes(seed: string): Uint8Array {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i++) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  const bytes = new Uint8Array(8)
-  for (let i = 0; i < bytes.length; i++) {
-    hash ^= hash << 13
-    hash ^= hash >>> 17
-    hash ^= hash << 5
-    bytes[i] = hash & 0xff
-  }
-  return bytes
-}
-
+// 纯展示解码：对 Mock Service 返回的确定性原始字节做多类型候选解码（不产生 mock 状态）
 function decodeCandidates(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer)
   const format = (v: number) => Number.isFinite(v) ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6))) : String(v)
@@ -209,19 +195,16 @@ async function runPointTest() {
   testError.value = ''
   testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
   const started = performance.now()
-  await new Promise(resolve => setTimeout(resolve, 700))
-
-  if (!device.enabled || !device.online) {
-    testLatency.value = Math.round(performance.now() - started)
-    testError.value = device.enabled ? 'Device is offline' : 'Device is disabled'
+  // Test Read（§9.4）：成败与错误码由 Mock Service 按设备场景决定；
+  // 页面只负责把确定性原始字节做多种类型解码展示。
+  const outcome = await testPointRead(device, protocol.value, testRequest.value)
+  testLatency.value = Math.round(performance.now() - started)
+  if (!outcome.ok || !outcome.bytes) {
+    testError.value = outcome.errorCode ? outcome.error + ' (' + outcome.errorCode + ')' : outcome.error
     testLoading.value = false
     return
   }
-
-  const seed = [device.device_id, protocol.value, testRequest.value, draft.data_type].join('|')
-  const bytes = mockRawBytes(seed)
-  testCandidates.value = decodeCandidates(bytes)
-  testLatency.value = Math.round(performance.now() - started)
+  testCandidates.value = decodeCandidates(outcome.bytes)
   testLoading.value = false
 }
 

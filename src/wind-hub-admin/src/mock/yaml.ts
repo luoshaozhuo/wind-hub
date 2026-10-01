@@ -28,8 +28,11 @@ runtime:
 ads:
   local_ams_net_id: "192.168.151.244.1.2"
   local_ip: "192.168.151.244"
-  username: "Administrator"
-  password: ""
+  route_repair:
+    enabled: false
+    route_name: "PFR"
+    username: "Administrator"
+    password: ""
 
 sinks:
   - name: kafka_main
@@ -206,6 +209,8 @@ function yamlQuote(value: string) {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+// ads 段结构对齐正式 schema（src/wind_hub/config/schema.py ADSSystemConfig）：
+// username/password 属于 ads.route_repair，不允许平铺私造字段。
 export function updateMockAdsYaml(settings: {
   local_ip: string
   local_ams_net_id: string
@@ -216,18 +221,22 @@ export function updateMockAdsYaml(settings: {
   const block = `ads:
   local_ams_net_id: ${yamlQuote(settings.local_ams_net_id)}
   local_ip: ${yamlQuote(settings.local_ip)}
-  username: ${yamlQuote(settings.username)}
-  password: ${yamlQuote(settings.password)}`
+  route_repair:
+    enabled: false
+    route_name: "PFR"
+    username: ${yamlQuote(settings.username)}
+    password: ${yamlQuote(settings.password)}`
   yamlFiles['system.yaml'] = source.replace(/ads:\n[\s\S]*?(?=\n\nsinks:)/m, block)
 }
 
-// 每个文件独立的 mock diff
-export const yamlDiffs: Record<string, string> = {
-  'system.yaml': ` runtime:\n-  read_timeout: 3.0\n+  read_timeout: 5.0\n sinks:\n+  - name: file_archive\n+    type: file`,
-  'units.yaml': ` units:\n+  millisecond:\n+    symbol: ms\n+    name: Millisecond`,
-  'device_models.yaml': ` device_models:\n+  pcs_modbus_a:\n+    device_type: pcs\n+    protocol: modbus`,
-  'points.yaml': ` point_tables:\n   beckhoff_wtg_v1:\n+    extends: beckhoff_base_v1`,
-  'devices.yaml': ` devices:\n-      host: "192.168.151.26"\n+      host: "192.168.151.25"\n+  - device_id: wtg-049`,
-  'tasks.yaml': ` tasks:\n-    interval: 2.0\n+    interval: 1.0`,
-  'reporting.yaml': ` reporting:\n+  - device_id: wtg-001\n+    point_id: active_power\n+    ioa: 1001\n+    data_type: M_ME_NC_1`,
+// interfaces.api 段同步（正式 schema InterfaceConfig.api 含 host/port）
+export function updateMockApiYaml(host: string, port: number) {
+  const source = yamlFiles['system.yaml']
+  const block = `api:
+    enabled: true
+    host: ${yamlQuote(host)}
+    port: ${port}`
+  yamlFiles['system.yaml'] = source.replace(/api:\n\s*enabled:[^\n]*\n\s*host:[^\n]*\n\s*port:[^\n]*/m, block)
 }
+
+// Import diff 不再使用静态样例：ConfigPage 用 buildReview 对真实文本生成 diff（§21）。
