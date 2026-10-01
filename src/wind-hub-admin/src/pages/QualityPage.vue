@@ -62,7 +62,7 @@ async function refreshQualityWindow(window:WindowRange){
   backendQuality[window]=await loadQuality(window)
 }
 
-// Auto Check（§16）：Mock Service 推进 qualityCheckTick → qualityWindowData 全量重算。
+// Auto Check（§16）：backend service 推进 qualityCheckTick → qualityWindowData 全量重算。
 async function runCheck(){
   if(checking.value)return
   checking.value=true
@@ -85,14 +85,14 @@ function syncAutoCheck(){
 }
 watch([autoCheck,checkInterval],syncAutoCheck)
 
-// 通道当前状态（窗口无关）：由 mock/quality.ts 从 deviceScenarios / sink 状态派生。
-const acquisitionChannelRows=computed(()=>acquisitionChannels())
+// 通道当前状态（窗口无关）：由 quality data source 从 deviceScenarios / sink 状态派生。
+const acquisitionChannelRows=computed(()=>backendQuality[channelWindow.value]?.acquisitionChannels||acquisitionChannels())
 const acquisitionChannelCount=computed(()=>acquisitionChannelRows.value.length)
 const pagedAcquisitionChannels=computed(()=>{
   const start=(acquisitionPage.value-1)*acquisitionPageSize.value
   return acquisitionChannelRows.value.slice(start,start+acquisitionPageSize.value)
 })
-const deliveryChannelRows=computed(()=>deliveryChannels())
+const deliveryChannelRows=computed(()=>backendQuality[channelWindow.value]?.deliveryChannels||deliveryChannels())
 
 // 统一窗口数据源（§11–§15）：切窗口时 summary / events / metrics / dimensions / issues 全部联动。
 const channelWindowData=computed(()=>backendQuality[channelWindow.value]||qualityWindowData(channelWindow.value))
