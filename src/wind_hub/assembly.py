@@ -42,10 +42,13 @@ from wind_hub.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
 from wind_hub.application.command_dispatcher import CommandDispatcher
+from wind_hub.application.operation import OperationManager
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.device import DeviceUseCase
+from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
@@ -100,6 +103,15 @@ class AssembledRuntime:
 
     query: QueryUseCase
     """只读查询用例（含系统状态查询）。"""
+
+    devices: DeviceUseCase
+    """V1 设备查询用例。"""
+
+    overview: OverviewUseCase
+    """V1 Overview 聚合只读用例。"""
+
+    operations: OperationManager
+    """进程内 Operation 管理器。"""
 
     iec104_slave: IEC104SlaveServer | None = None
     """可选的 IEC104 从站代理（reporting.yaml 存在时装配），否则 ``None``."""
@@ -189,6 +201,9 @@ def assemble(
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
+    devices_usecase = DeviceUseCase(runtime)
+    overview = OverviewUseCase(query=query, tasks=tasks, config=config)
+    operations = OperationManager()
 
     # IEC104 从站代理：reporting.yaml 存在时才装配（可选组件）。
     iec104_slave: IEC104SlaveServer | None = None
@@ -205,6 +220,9 @@ def assemble(
         tasks=tasks,
         command=command,
         query=query,
+        devices=devices_usecase,
+        overview=overview,
+        operations=operations,
         iec104_slave=iec104_slave,
     )
 

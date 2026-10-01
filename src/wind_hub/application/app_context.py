@@ -15,9 +15,12 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
+from wind_hub.application.operation import OperationManager
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.device import DeviceUseCase
+from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 
@@ -47,7 +50,16 @@ class AppContext:
     """可选采集 Task 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
 
     runtime: Runtime | None = None
-    """可选 Runtime，供 ``/metrics`` 读取引擎快照（gauge 数据来源）。"""
+    """可选 Runtime，供 /metrics 读取引擎快照。"""
+
+    devices: DeviceUseCase | None = None
+    """V1 设备查询用例；聚合静态配置与实时连接状态。"""
+
+    overview: OverviewUseCase | None = None
+    """V1 Overview 聚合只读模型。"""
+
+    operations: OperationManager | None = None
+    """进程内异步 Operation 注册表。"""
 
 
 _context: AppContext | None = None

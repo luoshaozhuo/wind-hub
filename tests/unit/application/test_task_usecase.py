@@ -69,6 +69,9 @@ class _FakeRuntime:
     def instance_states(self) -> dict[str, TaskInstanceState]:
         return dict(self._states)
 
+    def acquisition_states(self) -> dict[str, object]:
+        return {}
+
     async def start_task_instance(self, instance_id: str) -> None:
         if instance_id not in self._instances:
             raise KeyError(instance_id)
@@ -314,4 +317,44 @@ async def test_stop_all_instances_second_run_is_noop() -> None:
     assert result.total == 2
     assert result.changed == 0
     assert result.unchanged == 2
+    assert runtime.stop_calls == ["t1:dev-a"]
+
+
+# ---------------------------------------------------------------------------
+# V1 Task aggregate operations
+# ---------------------------------------------------------------------------
+
+
+async def test_task_summary_reports_running_instances() -> None:
+    """聚合状态应保持生命周期与采集失败两个维度分离。"""
+    usecase, _ = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
+
+    summary = await usecase.get_task_summary("t1")
+
+    assert summary.runtime_state == "running"
+    assert summary.instance_count == 1
+    assert summary.running_instances == 1
+    assert summary.failed_instances == 0
+
+
+async def test_start_task_rejects_disabled_definition() -> None:
+    """禁用 Task 不允许通过 Task 级入口启动。"""
+    usecase, runtime = _usecase()
+
+    with pytest.raises(ValueError, match="disabled"):
+        await usecase.start_task("t2")
+
+    assert runtime.start_calls == []
+
+
+async def test_start_and_stop_task_operate_only_its_instances() -> None:
+    """Task 级启停只影响该定义展开出的实例。"""
+    usecase, runtime = _usecase()
+
+    started = await usecase.start_task("t1")
+    stopped = await usecase.stop_task("t1")
+
+    assert started.runtime_state == "running"
+    assert stopped.runtime_state == "stopped"
+    assert runtime.start_calls == ["t1:dev-a"]
     assert runtime.stop_calls == ["t1:dev-a"]

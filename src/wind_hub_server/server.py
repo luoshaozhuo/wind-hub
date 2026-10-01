@@ -109,6 +109,9 @@ def _set_context(rt: AssembledRuntime) -> None:
             runtime=rt.runtime,
             command=rt.command,
             query=rt.query,
+            devices=rt.devices,
+            overview=rt.overview,
+            operations=rt.operations,
         )
     )
 

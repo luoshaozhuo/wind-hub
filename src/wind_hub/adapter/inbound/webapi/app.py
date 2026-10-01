@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from wind_hub.adapter.inbound.webapi import errors
 from wind_hub.adapter.inbound.webapi.context import get_context
+from wind_hub.adapter.inbound.webapi.v1.router import router as v1_router
 from wind_hub.adapter.inbound.webapi.routes import (
     commands,
     config,
@@ -52,6 +53,7 @@ def build_api() -> FastAPI:
     app.include_router(config.router)
     app.include_router(tasks.router)
     app.include_router(metrics.router)
+    app.include_router(v1_router)
     return app
 
 
