@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from wind_hub.application.port.monitoring import (
+from wind_hub_server.application.port.monitoring import (
     HostSnapshot,
     MonitoringHistoryPort,
     MonitoringMetricsQueryPort,

@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from wind_hub.application.port.monitoring import HostSnapshot, MonitoringHistoryPort
+from wind_hub_server.application.port.monitoring import HostSnapshot, MonitoringHistoryPort
 
 HealthRange = Literal["1h", "24h", "7d", "30d"]
 

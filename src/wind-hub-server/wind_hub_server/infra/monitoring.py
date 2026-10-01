@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from wind_hub.application.port.monitoring import (
+from wind_hub_server.application.port.monitoring import (
     CounterSnapshot,
     HostSnapshot,
     MonitoringEvent,

@@ -1,4 +1,4 @@
-"""最新值与短期趋势存储端口。"""
+"""Server 最新值与短期趋势存储端口。"""
 
 from __future__ import annotations
 

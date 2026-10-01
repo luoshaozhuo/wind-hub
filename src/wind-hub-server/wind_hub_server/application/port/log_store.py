@@ -1,4 +1,4 @@
-"""Admin Logs 使用的结构化日志查询端口。"""
+"""Server Admin Logs 使用的结构化日志查询端口。"""
 
 from __future__ import annotations
 

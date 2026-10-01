@@ -7,7 +7,7 @@ import threading
 from collections import deque
 from datetime import UTC, datetime
 
-from wind_hub.application.port.log_store import LogEntry
+from wind_hub_server.application.port.log_store import LogEntry
 
 
 class _BufferHandler(logging.Handler):

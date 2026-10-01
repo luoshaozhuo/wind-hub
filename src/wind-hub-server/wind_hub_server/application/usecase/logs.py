@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from wind_hub.application.port.log_store import LogEntry, LogStorePort
+from wind_hub_server.application.port.log_store import LogEntry, LogStorePort
 
 
 class LogPage(BaseModel):

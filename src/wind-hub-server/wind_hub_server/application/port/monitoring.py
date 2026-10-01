@@ -1,4 +1,4 @@
-"""Quality/System Health 使用的监控查询端口与快照模型。"""
+"""Server Quality/System Health 使用的监控查询端口与快照模型。"""
 
 from __future__ import annotations
 

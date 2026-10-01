@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
 from wind_hub.application.runtime.device import Device
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub_server.application.usecase.config import ConfigUseCase
