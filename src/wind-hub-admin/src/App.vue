@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
@@ -13,10 +13,18 @@ import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import { store } from './mock/data'
 import { useViewport } from './composables/useViewport'
+import { hydrateAdminStore } from './services/bootstrap'
 
 const menu = ref('Devices')
 const mobileNavOpen = ref(false)
 const { isMobile } = useViewport()
+const backendReady=ref(false)
+const backendError=ref('')
+
+onMounted(async()=>{
+  try{await hydrateAdminStore();backendReady.value=true}
+  catch(error){backendError.value=String(error)}
+})
 
 const runMenu = [
   { key: 'Overview', label: 'Overview' },
@@ -69,7 +77,7 @@ function selectMenu(key: string) {
           <span class="version-item"><span class="version-label">Admin</span><b>{{ store.systemInfo.adminVersion }}</b></span>
         </div>
         <el-tag type="success">{{ store.systemInfo.runtimeStatus }}</el-tag>
-        <el-tag type="warning">mock</el-tag>
+        <el-tag :type="backendReady?'success':backendError?'danger':'info'">{{backendReady?'backend':backendError?'offline':'connecting'}}</el-tag>
       </el-header>
 
       <el-main class="app-main">
