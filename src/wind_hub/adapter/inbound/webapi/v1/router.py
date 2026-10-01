@@ -1,7 +1,7 @@
 """Admin API v1 路由。
 
-Admin API v1 当前覆盖 Phase 1–4：运行总览、设备/任务、Data/Trend/Command、
-Config/Settings/Definitions、Sinks 与 Diagnostics。
+Admin API v1 当前覆盖 Phase 1–5：运行总览、设备/任务、Data/Trend/Command、
+Config/Settings/Definitions、Sinks/Diagnostics、Quality/Logs/System Health。
 """
 
 from __future__ import annotations

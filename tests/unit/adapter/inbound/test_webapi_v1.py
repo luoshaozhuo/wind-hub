@@ -286,3 +286,35 @@ def test_v1_admin_state_atomic_apply() -> None:
     assert response.status_code == 200
     assert response.json()["revision"] == 9
     admin_state.replace_all.assert_awaited_once()
+
+def test_v1_request_validation_uses_422_envelope() -> None:
+    client = _client(AppContext())
+
+    response = client.post(
+        "/api/v1/diagnostics/ports",
+        json={"host": "127.0.0.1", "ports": [0]},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_v1_admin_tasks_reject_ambiguous_selector() -> None:
+    client = _client(AppContext())
+
+    response = client.put(
+        "/api/v1/admin-state/tasks",
+        json={
+            "items": [
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "device_group": "g1",
+                    "point_group": "fast",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"

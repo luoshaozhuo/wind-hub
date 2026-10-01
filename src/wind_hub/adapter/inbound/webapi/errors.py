@@ -5,8 +5,9 @@ Every failure is returned with a single envelope::
     {"error": {"code": "...", "message": "...", "details": {...}}}
 
 Internal stack traces are logged, not leaked to clients.  Status codes follow
-the unified contract (400 format / 404 not found / 409 conflict / 500 internal /
-503 unavailable).  Domain exceptions are mapped to these codes via a small
+the unified contract (422 validation / 404 not found / 409 conflict /
+500 internal / 503 unavailable / 504 timeout). Domain exceptions are mapped to
+these codes via a small
 lookup table rather than scattered ``try/except`` blocks in the routes.
 """
 
@@ -115,13 +116,13 @@ async def generic_error_handler(request: Request, exc: Exception) -> JSONRespons
 
 
 async def validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Map request-format errors to HTTP 400 with machine-readable details."""
+    """Map request-format errors to HTTP 422 with machine-readable details."""
     err = cast(RequestValidationError, exc)
     errors = [
         {"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")}
         for e in err.errors()
     ]
-    return _envelope(400, "VALIDATION_ERROR", "Invalid request", {"errors": errors})
+    return _envelope(422, "VALIDATION_ERROR", "Invalid request", {"errors": errors})
 
 
 def register_error_handlers(app: FastAPI) -> None:

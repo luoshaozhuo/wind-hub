@@ -43,11 +43,19 @@ class OperationRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     finished_at: datetime | None = None
-    total: int = 0
-    completed: int = 0
-    progress: float = 0.0
+    total: int = Field(default=0, ge=0)
+    completed: int = Field(default=0, ge=0)
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
     result: dict[str, object] | None = None
     error: OperationError | None = None
+
+
+_TERMINAL_STATES = {
+    OperationState.SUCCESS,
+    OperationState.PARTIAL,
+    OperationState.FAILED,
+    OperationState.CANCELLED,
+}
 
 
 class OperationManager:
@@ -85,17 +93,25 @@ class OperationManager:
             return record.model_copy(deep=True)
 
     def mark_running(self, operation_id: str) -> OperationRecord:
-        """把 Operation 推进到 running。"""
-        return self._update(
-            operation_id,
-            state=OperationState.RUNNING,
-            started_at=datetime.now(UTC),
-        )
+        """把 pending Operation 推进到 running；重复 running 幂等。"""
+        with self._lock:
+            record = self._require(operation_id)
+            self._ensure_not_terminal(record)
+            if record.state is OperationState.RUNNING:
+                return record.model_copy(deep=True)
+            if record.state is not OperationState.PENDING:
+                raise ValueError(f"invalid operation transition from {record.state}")
+            record.state = OperationState.RUNNING
+            record.started_at = datetime.now(UTC)
+            return record.model_copy(deep=True)
 
     def update_progress(self, operation_id: str, *, completed: int) -> OperationRecord:
         """更新已完成数量，并按 total 计算 0..1 进度。"""
         with self._lock:
             record = self._require(operation_id)
+            self._ensure_not_terminal(record)
+            if record.state is not OperationState.RUNNING:
+                raise ValueError("operation must be running before progress update")
             if completed < 0 or (record.total and completed > record.total):
                 raise ValueError("completed is outside operation total")
             record.completed = completed
@@ -108,6 +124,7 @@ class OperationManager:
         """把 Operation 标记为 success。"""
         with self._lock:
             record = self._require(operation_id)
+            self._ensure_not_terminal(record)
             record.state = OperationState.SUCCESS
             record.finished_at = datetime.now(UTC)
             record.result = result
@@ -125,6 +142,7 @@ class OperationManager:
         """把 Operation 标记为 partial，供批量操作表达部分成功。"""
         with self._lock:
             record = self._require(operation_id)
+            self._ensure_not_terminal(record)
             record.state = OperationState.PARTIAL
             record.finished_at = datetime.now(UTC)
             record.result = result
@@ -134,6 +152,7 @@ class OperationManager:
         """把 Operation 标记为 cancelled。"""
         with self._lock:
             record = self._require(operation_id)
+            self._ensure_not_terminal(record)
             record.state = OperationState.CANCELLED
             record.finished_at = datetime.now(UTC)
             return record.model_copy(deep=True)
@@ -145,6 +164,7 @@ class OperationManager:
         """把 Operation 标记为 failed，并记录稳定错误码。"""
         with self._lock:
             record = self._require(operation_id)
+            self._ensure_not_terminal(record)
             record.state = OperationState.FAILED
             record.finished_at = datetime.now(UTC)
             record.error = OperationError(
@@ -152,13 +172,11 @@ class OperationManager:
             )
             return record.model_copy(deep=True)
 
-    def _update(self, operation_id: str, **changes: object) -> OperationRecord:
-        """在锁内更新有限字段并返回深拷贝。"""
-        with self._lock:
-            record = self._require(operation_id)
-            for name, value in changes.items():
-                setattr(record, name, value)
-            return record.model_copy(deep=True)
+    @staticmethod
+    def _ensure_not_terminal(record: OperationRecord) -> None:
+        """终态不可再次推进，避免异步 worker 覆盖最终结果。"""
+        if record.state in _TERMINAL_STATES:
+            raise ValueError(f"operation '{record.operation_id}' is already terminal")
 
     def _require(self, operation_id: str) -> OperationRecord:
         """锁内获取真实记录对象；调用方负责持有 self._lock。"""

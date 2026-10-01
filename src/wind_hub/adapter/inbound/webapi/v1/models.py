@@ -5,18 +5,19 @@ DTO 与 application/domain 模型分离，保证 HTTP 契约可以独立演进�
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PageMeta(BaseModel):
     """统一分页元数据。"""
 
-    page: int
-    page_size: int
-    total: int
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
+    total: int = Field(ge=0)
 
 
 class DeviceResponse(BaseModel):
@@ -119,9 +120,9 @@ class OperationResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
-    total: int
-    completed: int
-    progress: float
+    total: int = Field(ge=0)
+    completed: int = Field(ge=0)
+    progress: float = Field(ge=0.0, le=1.0)
     result: dict[str, object] | None = None
     error: OperationErrorResponse | None = None
 
@@ -152,7 +153,7 @@ class DeviceDataPageResponse(BaseModel):
 class TrendSampleResponse(BaseModel):
     """趋势单个采样点 DTO。"""
 
-    value: object | None = None
+    value: Any = None
     quality: str
     timestamp: datetime
     source: str | None = None
@@ -297,8 +298,13 @@ class PingResponse(BaseModel):
 
 class PortsRequest(BaseModel):
     host: str
-    ports: list[int]
+    ports: list[int] = Field(min_length=1, max_length=256)
     timeout: float = Field(default=1.0, gt=0, le=10)
+
+    @field_validator("ports")
+    @classmethod
+    def _validate_ports(cls, ports: list[int]) -> list[int]:
+        return _validated_ports(ports)
 
 
 class PortProbeResponse(BaseModel):
@@ -310,7 +316,16 @@ class PortProbeResponse(BaseModel):
 class SubnetScanRequest(BaseModel):
     network: str
     timeout: float = Field(default=0.5, gt=0, le=10)
-    ports: list[int] = Field(default_factory=lambda: [502, 2404, 48898])
+    ports: list[int] = Field(
+        default_factory=lambda: [502, 2404, 48898],
+        min_length=1,
+        max_length=64,
+    )
+
+    @field_validator("ports")
+    @classmethod
+    def _validate_ports(cls, ports: list[int]) -> list[int]:
+        return _validated_ports(ports)
 
 
 class ProtocolCheckRequest(BaseModel):
@@ -462,7 +477,7 @@ class AdminDeviceItemRequest(BaseModel):
     model: str
     device_group: str | None = None
     host: str
-    port: int | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
     extensions: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
@@ -470,19 +485,34 @@ class AdminDeviceItemRequest(BaseModel):
 class AdminDevicesRequest(BaseModel):
     items: list[AdminDeviceItemRequest]
 
+    @model_validator(mode="after")
+    def _unique_device_ids(self) -> "AdminDevicesRequest":
+        _ensure_unique((item.device_id for item in self.items), "device_id")
+        return self
+
 
 class AdminTaskItemRequest(BaseModel):
     task_id: str
     device: str | None = None
     device_group: str | None = None
     point_group: str
-    interval: float | None = None
+    interval: float | None = Field(default=None, gt=0)
     sinks: list[str] = Field(default_factory=list)
     enabled: bool = True
 
 
 class AdminTasksRequest(BaseModel):
     items: list[AdminTaskItemRequest]
+
+    @model_validator(mode="after")
+    def _validate_tasks(self) -> "AdminTasksRequest":
+        _ensure_unique((item.task_id for item in self.items), "task_id")
+        for item in self.items:
+            if (item.device is None) == (item.device_group is None):
+                raise ValueError(
+                    f"task '{item.task_id}' requires exactly one of device/device_group"
+                )
+        return self
 
 
 class AdminSinkItemRequest(BaseModel):
@@ -495,6 +525,11 @@ class AdminSinkItemRequest(BaseModel):
 class AdminSinksRequest(BaseModel):
     items: list[AdminSinkItemRequest]
 
+    @model_validator(mode="after")
+    def _unique_sink_names(self) -> "AdminSinksRequest":
+        _ensure_unique((item.name for item in self.items), "sink name")
+        return self
+
 
 class AdminDefinitionsRequest(BaseModel):
     units: dict[str, dict[str, Any]]
@@ -503,8 +538,29 @@ class AdminDefinitionsRequest(BaseModel):
     point_tables: dict[str, dict[str, Any]]
 
 
+def _validated_ports(ports: list[int]) -> list[int]:
+    """校验端口范围并去重，保持请求顺序。"""
+    if any(port < 1 or port > 65535 for port in ports):
+        raise ValueError("ports must be between 1 and 65535")
+    return list(dict.fromkeys(ports))
+
+
+def _ensure_unique(values: Iterable[str], label: str) -> None:
+    """校验结构化批量请求的业务主键唯一。"""
+    items = list(values)
+    if len(items) != len(set(items)):
+        raise ValueError(f"duplicate {label}")
+
+
 class AdminStateRequest(BaseModel):
     devices: list[AdminDeviceItemRequest]
     tasks: list[AdminTaskItemRequest]
     sinks: list[AdminSinkItemRequest]
     definitions: AdminDefinitionsRequest
+
+    @model_validator(mode="after")
+    def _validate_state(self) -> "AdminStateRequest":
+        AdminDevicesRequest(items=self.devices)
+        AdminTasksRequest(items=self.tasks)
+        AdminSinksRequest(items=self.sinks)
+        return self

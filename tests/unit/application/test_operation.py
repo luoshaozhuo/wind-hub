@@ -59,3 +59,26 @@ def test_operation_partial_and_cancel_terminal_states() -> None:
     assert partial.state is OperationState.PARTIAL
     assert partial.result == {"failed": 1}
     assert cancelled.state is OperationState.CANCELLED
+
+def test_terminal_operation_cannot_be_overwritten() -> None:
+    """终态不可被迟到 worker 二次覆盖。"""
+    manager = OperationManager()
+    created = manager.create("diagnostics.scan", total=1)
+    manager.mark_running(created.operation_id)
+    manager.succeed(created.operation_id, {"ok": True})
+
+    with pytest.raises(ValueError, match="terminal"):
+        manager.fail(
+            created.operation_id,
+            code="LATE_ERROR",
+            message="late worker result",
+        )
+
+
+def test_progress_requires_running_state() -> None:
+    """pending Operation 不允许直接推进 progress。"""
+    manager = OperationManager()
+    created = manager.create("diagnostics.scan", total=2)
+
+    with pytest.raises(ValueError, match="running"):
+        manager.update_progress(created.operation_id, completed=1)
