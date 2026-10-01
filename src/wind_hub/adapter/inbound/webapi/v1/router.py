@@ -23,6 +23,7 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     AdminDevicesRequest,
     AdminSinksRequest,
     AdminTasksRequest,
+    AdminStateRequest,
     ConfigApplyResponse,
     ConfigContentResponse,
     ConfigFileResponse,
@@ -50,7 +51,8 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     SinkResponse,
     SinkTestResponse,
     SinkUpsertRequest,
-    SubnetScanRequest,    OperationResponse,
+    SubnetScanRequest,
+    OperationResponse,
     OverviewResponse,
     PageMeta,
     TaskInstanceResponse,
@@ -725,10 +727,10 @@ async def get_quality(
 
 @router.post("/quality/check", response_model=QualityResponse, tags=["v1-quality"])
 async def run_quality_check(
-    window: str = Query("24h", pattern="^(1h|24h|7d)$"),
+    window: QualityWindow = Query("24h"),
 ) -> QualityResponse:
-    """真实后端无需推进 mock tick；Check 立即采样并重算。"""
-    snapshot = _quality().snapshot(window)  # type: ignore[arg-type]
+    """立即采样并按真实窗口重算。"""
+    snapshot = _quality().snapshot(window)
     return QualityResponse(**snapshot.model_dump())
 
 
@@ -816,5 +818,20 @@ async def replace_admin_definitions(
 ) -> ConfigApplyResponse:
     result = await _admin_state().replace_definitions(
         AdminDefinitionsState(**request.model_dump())
+    )
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.put(
+    "/admin-state",
+    response_model=ConfigApplyResponse,
+    tags=["v1-admin-state"],
+)
+async def replace_admin_state(request: AdminStateRequest) -> ConfigApplyResponse:
+    result = await _admin_state().replace_all(
+        devices=[AdminDeviceItem(**item.model_dump()) for item in request.devices],
+        tasks=[AdminTaskItem(**item.model_dump()) for item in request.tasks],
+        sinks=[AdminSinkItem(**item.model_dump()) for item in request.sinks],
+        definitions=AdminDefinitionsState(**request.definitions.model_dump()),
     )
     return ConfigApplyResponse(**result.model_dump())

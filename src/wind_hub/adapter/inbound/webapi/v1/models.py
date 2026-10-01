@@ -500,3 +500,10 @@ class AdminDefinitionsRequest(BaseModel):
     device_types: dict[str, dict[str, Any]]
     device_models: dict[str, dict[str, Any]]
     point_tables: dict[str, dict[str, Any]]
+
+
+class AdminStateRequest(BaseModel):
+    devices: list[AdminDeviceItemRequest]
+    tasks: list[AdminTaskItemRequest]
+    sinks: list[AdminSinkItemRequest]
+    definitions: AdminDefinitionsRequest

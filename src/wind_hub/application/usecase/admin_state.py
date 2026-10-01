@@ -53,6 +53,65 @@ class AdminStateUseCase:
     async def replace_devices(
         self, items: list[AdminDeviceItem]
     ) -> ConfigApplyResult:
+        content = self._devices_yaml(items)
+        return await self._admin.apply_file(
+            "devices.yaml",
+            content,
+            source="admin-devices",
+            comment="Devices page structured update",
+        )
+
+    async def replace_tasks(self, items: list[AdminTaskItem]) -> ConfigApplyResult:
+        content = self._tasks_yaml(items)
+        return await self._admin.apply_file(
+            "tasks.yaml",
+            content,
+            source="admin-tasks",
+            comment="Tasks page structured update",
+        )
+
+    async def replace_sinks(self, items: list[AdminSinkItem]) -> ConfigApplyResult:
+        content = self._system_yaml_with_sinks(items)
+        return await self._admin.apply_file(
+            "system.yaml",
+            content,
+            source="admin-sinks",
+            comment="Sinks page structured update",
+        )
+
+    async def replace_definitions(
+        self, state: AdminDefinitionsState
+    ) -> ConfigApplyResult:
+        files = self._definition_files(state)
+        return await self._admin.apply_files(
+            files,
+            source="admin-definitions",
+            comment="Definitions/Points structured update",
+        )
+
+
+    async def replace_all(
+        self,
+        devices: list[AdminDeviceItem],
+        tasks: list[AdminTaskItem],
+        sinks: list[AdminSinkItem],
+        definitions: AdminDefinitionsState,
+    ) -> ConfigApplyResult:
+        """一次事务提交前端结构化配置，解决跨文件引用更新。"""
+        files = {
+            "devices.yaml": self._devices_yaml(devices),
+            "tasks.yaml": self._tasks_yaml(tasks),
+            "system.yaml": self._system_yaml_with_sinks(sinks),
+            **self._definition_files(definitions),
+        }
+        return await self._admin.apply_files(
+            files,
+            source="admin-state",
+            comment="Admin structured state update",
+        )
+
+    @staticmethod
+    def _devices_yaml(items: list[AdminDeviceItem]) -> str:
         rows: list[dict[str, Any]] = []
         for item in items:
             endpoint: dict[str, Any] = {"host": item.host}
@@ -69,17 +128,12 @@ class AdminStateUseCase:
             if item.device_group:
                 row["device_group"] = item.device_group
             rows.append(row)
-        content = yaml.safe_dump(
+        return yaml.safe_dump(
             {"devices": rows}, allow_unicode=True, sort_keys=False
         )
-        return await self._admin.apply_file(
-            "devices.yaml",
-            content,
-            source="admin-devices",
-            comment="Devices page structured update",
-        )
 
-    async def replace_tasks(self, items: list[AdminTaskItem]) -> ConfigApplyResult:
+    @staticmethod
+    def _tasks_yaml(items: list[AdminTaskItem]) -> str:
         rows: list[dict[str, Any]] = []
         for item in items:
             row: dict[str, Any] = {
@@ -95,32 +149,17 @@ class AdminStateUseCase:
             if item.interval is not None:
                 row["interval"] = item.interval
             rows.append(row)
-        content = yaml.safe_dump(
-            {"tasks": rows}, allow_unicode=True, sort_keys=False
-        )
-        return await self._admin.apply_file(
-            "tasks.yaml",
-            content,
-            source="admin-tasks",
-            comment="Tasks page structured update",
-        )
+        return yaml.safe_dump({"tasks": rows}, allow_unicode=True, sort_keys=False)
 
-    async def replace_sinks(self, items: list[AdminSinkItem]) -> ConfigApplyResult:
+    def _system_yaml_with_sinks(self, items: list[AdminSinkItem]) -> str:
         loaded = yaml.safe_load(self._admin.read_file("system.yaml")) or {}
         raw = cast(dict[str, Any], loaded)
         raw["sinks"] = [item.model_dump(mode="json") for item in items]
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            "system.yaml",
-            content,
-            source="admin-sinks",
-            comment="Sinks page structured update",
-        )
+        return yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
 
-    async def replace_definitions(
-        self, state: AdminDefinitionsState
-    ) -> ConfigApplyResult:
-        files = {
+    @staticmethod
+    def _definition_files(state: AdminDefinitionsState) -> dict[str, str]:
+        return {
             "units.yaml": yaml.safe_dump(
                 {"units": state.units}, allow_unicode=True, sort_keys=False
             ),
@@ -138,8 +177,3 @@ class AdminStateUseCase:
                 sort_keys=False,
             ),
         }
-        return await self._admin.apply_files(
-            files,
-            source="admin-definitions",
-            comment="Definitions/Points structured update",
-        )
