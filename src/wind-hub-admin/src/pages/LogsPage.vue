@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { logStore } from '../mock/runtime'
-import type { MockLogEntry } from '../mock/runtime'
+import { loadLogs } from '../services/backend'
 
-type Entry = MockLogEntry
+type Entry = { time:string; level:'ERROR'|'WARN'|'INFO'; source:string; object:string; message:string }
 
 // 全局 mock log store（§24）：Verify / Task / Command / Sink / Config 等操作由
 // Mock Service 追加日志，本页只做筛选与分页，不自行生成条目。
-const logs = logStore
+const logs = ref<Entry[]>([])
 // source 选项从条目并集派生：操作写入新 source（如 config / task）后自动出现。
-const sources = computed(() => [...new Set(logs.map(entry => entry.source))].sort())
+const sources = computed(() => [...new Set(logs.value.map(entry => entry.source))].sort())
 
 const level = ref<'All' | Entry['level']>('ERROR')
 const source = ref('All')
@@ -19,7 +18,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const { isMobile, isTablet } = useViewport()
 
-const filteredLogs = computed(() => logs.filter(entry =>
+const filteredLogs = computed(() => logs.value.filter(entry =>
   (level.value === 'All' || entry.level === level.value) &&
   (source.value === 'All' || entry.source === source.value) &&
   (!keyword.value || `${entry.source} ${entry.object} ${entry.message}`.toLowerCase().includes(keyword.value.toLowerCase()))
@@ -30,9 +29,21 @@ const pagedLogs = computed(() => {
   return filteredLogs.value.slice(start, start + pageSize.value)
 })
 
+async function refreshLogs(){
+  const result = await loadLogs({
+    level: level.value,
+    source: source.value,
+    keyword: keyword.value,
+    page: 1,
+    page_size: 1000,
+  })
+  logs.value = result.items
+}
 watch([level, source, keyword, pageSize], () => {
   page.value = 1
+  void refreshLogs()
 })
+onMounted(() => void refreshLogs())
 </script>
 
 <template>
@@ -46,7 +57,7 @@ watch([level, source, keyword, pageSize], () => {
 
     <el-card shadow="never">
       <div class="logs-toolbar">
-        <div class="row"><b>Log Stream</b><el-tag>mock</el-tag></div>
+        <div class="row"><b>Log Stream</b><el-tag>backend</el-tag></div>
         <div class="logs-filters">
           <el-select v-model="level" aria-label="Log level">
             <el-option v-for="item in ['ERROR','WARN','INFO','All']" :key="item" :label="item" :value="item" />
