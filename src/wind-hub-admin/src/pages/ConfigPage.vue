@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   LATENCY,
@@ -12,6 +12,7 @@ import {
   validateConfigRemote,
   applyConfigRemote,
   downloadConfigBackup,
+  loadConfigFiles,
   loadConfigHistory,
   restoreConfigRevision,
 } from '../services/backend'
@@ -320,7 +321,17 @@ async function refreshBackendHistory(){
     snapshot:snapshotOfApplied(),
   }))
 }
-void refreshBackendHistory()
+async function loadBackendConfig(){
+  const files=await loadConfigFiles()
+  for(const name of CONFIG_FILES){
+    if(files[name]===undefined)continue
+    yamlFiles[name]=files[name]
+    appliedSnapshot[name]=files[name]
+    dirtyMap[name]=false
+  }
+  await refreshBackendHistory()
+}
+onMounted(()=>void loadBackendConfig())
 function handleAction(command:string){
   if(command==='import')importOpen.value=true
   else if(command==='download-current')downloadCurrent()
