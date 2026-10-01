@@ -103,7 +103,7 @@ function selectMenu(key: string) {
             <el-button size="small" @click="boot">Retry</el-button>
           </template>
         </el-alert>
-        <section v-if="!booting" class="content">
+        <section v-if="!booting && !bootError" class="content">
           <OverviewPage v-if="menu === 'Overview'" />
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />

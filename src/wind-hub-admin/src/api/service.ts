@@ -1,7 +1,6 @@
 import { ApiError, api, apiBlob, jsonBody } from './client'
 import {
-  pointsOfTable, protocolOfDevice, refreshRuntimeState, refreshTaskValidity, store,
-  tableOfDevice, unitSymbol,
+  pointsOfTable, protocolOfDevice, refreshTaskValidity, store, tableOfDevice, unitSymbol,
 } from './data'
 import type {
   DeviceInst, DeviceVerification, PointDef, SinkDef, SinkVerificationCheck, TaskDef,
@@ -286,8 +285,6 @@ export async function scanSubnet(
     Object:store.devices.find(d=>d.host===String(host.ip||''))?.device_id||'—',
   }))
 }
-export function subnetHostResult(ip:string,_index:number){return {IP:ip,Ping:'—',ADS:'—',Modbus:'—',IEC104:'—',Object:'—'}}
-
 export interface DiagnosticReadRow {[key:string]:string;Target:string;Host:string;Point:string;Address:string;Raw:string;Value:string;Unit:string;Result:string;Error:string;Latency:string}
 export async function runProtocolRead(devices:DeviceInst[],point:PointDef,addressText:string):Promise<DiagnosticReadRow[]>{
   return await Promise.all(devices.map(async d=>{
@@ -344,10 +341,6 @@ export async function configHistory(){
 }
 export async function configBackup(){return await apiBlob('/config/backup')}
 export function configApplyImpact(file:string){return ['Validate full configuration','Apply '+file,'Incremental runtime reconfigure']}
-export async function applySystemYamlToState(_text:string){await refreshRuntimeState()}
-export async function applyDevicesYamlToState(_text:string){await refreshRuntimeState()}
-export async function logConfigApplied(_source:string,_file:string,_revision:number){await loadLogs()}
-
 export interface PointTestOutcome {ok:boolean;error:string;errorCode:string;latency:number;bytes?:Uint8Array}
 export async function testPointRead(device:DeviceInst,_protocol:string,requestText:string):Promise<PointTestOutcome>{
   const points=pointsOfTable(tableOfDevice(device))
