@@ -27,11 +27,14 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     ConfigTextRequest,
     DefinitionsResponse,
     DefinitionUpsertRequest,
+    LogEntryResponse,
+    LogPageResponse,
     PingRequest,
     PingResponse,
     PortProbeResponse,
     PortsRequest,
     PointTableTestRequest,
+    QualityResponse,
     ProtocolCheckRequest,
     ProtocolCheckResponse,
     ProtocolReadRequest,
@@ -39,6 +42,7 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     ProtocolWriteRequest,
     SettingsRequest,
     SettingsResponse,
+    SystemHealthResponse,
     SinkResponse,
     SinkTestResponse,
     SinkUpsertRequest,
@@ -58,9 +62,12 @@ from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
+from wind_hub.application.usecase.logs import LogsUseCase
+from wind_hub.application.usecase.quality import QualityUseCase, QualityWindow
 from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.settings import SettingsUseCase
 from wind_hub.application.usecase.sink import SinkUseCase
+from wind_hub.application.usecase.system_health import HealthRange, SystemHealthUseCase
 from wind_hub.application.usecase.task import (
     TaskInstanceDetail,
     TaskSummary,
@@ -129,6 +136,27 @@ def _diagnostics() -> DiagnosticUseCase:
     if ctx.diagnostics is None:
         raise APIError("SERVICE_UNAVAILABLE", "diagnostics use case is not configured", 503)
     return ctx.diagnostics
+
+
+def _quality() -> QualityUseCase:
+    ctx = get_ctx()
+    if ctx.quality is None:
+        raise APIError("SERVICE_UNAVAILABLE", "quality use case is not configured", 503)
+    return ctx.quality
+
+
+def _logs() -> LogsUseCase:
+    ctx = get_ctx()
+    if ctx.logs is None:
+        raise APIError("SERVICE_UNAVAILABLE", "logs use case is not configured", 503)
+    return ctx.logs
+
+
+def _system_health() -> SystemHealthUseCase:
+    ctx = get_ctx()
+    if ctx.system_health is None:
+        raise APIError("SERVICE_UNAVAILABLE", "system health use case is not configured", 503)
+    return ctx.system_health
 
 
 def _tasks() -> TaskUseCase:
@@ -665,3 +693,56 @@ async def diagnostic_protocol_write(
 ) -> DeviceCommandResponse:
     result = await _diagnostics().write(request.device_id, request.point_id, request.value)
     return DeviceCommandResponse(**result.model_dump())
+
+
+# ------------------------------ Phase 5: Quality / Logs / System Health
+
+@router.get("/quality", response_model=QualityResponse, tags=["v1-quality"])
+async def get_quality(
+    window: QualityWindow = Query("24h"),
+) -> QualityResponse:
+    snapshot = _quality().snapshot(window)
+    return QualityResponse(**snapshot.model_dump())
+
+
+@router.post("/quality/check", response_model=QualityResponse, tags=["v1-quality"])
+async def run_quality_check(
+    window: str = Query("24h", pattern="^(1h|24h|7d)$"),
+) -> QualityResponse:
+    """真实后端无需推进 mock tick；Check 立即采样并重算。"""
+    snapshot = _quality().snapshot(window)  # type: ignore[arg-type]
+    return QualityResponse(**snapshot.model_dump())
+
+
+@router.get("/logs", response_model=LogPageResponse, tags=["v1-logs"])
+async def list_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    level: str | None = Query(None),
+    source: str | None = Query(None),
+    keyword: str | None = Query(None),
+) -> LogPageResponse:
+    result = _logs().list_logs(
+        page=page, page_size=page_size, level=level, source=source, keyword=keyword
+    )
+    return LogPageResponse(
+        items=[LogEntryResponse(**row.model_dump()) for row in result.items],
+        page=PageMeta(page=result.page, page_size=result.page_size, total=result.total),
+    )
+
+
+@router.get("/logs/sources", response_model=list[str], tags=["v1-logs"])
+async def list_log_sources() -> list[str]:
+    return _logs().sources()
+
+
+@router.get(
+    "/system-health",
+    response_model=SystemHealthResponse,
+    tags=["v1-system-health"],
+)
+async def get_system_health(
+    range_name: HealthRange = Query("24h", alias="range"),
+) -> SystemHealthResponse:
+    snapshot = _system_health().snapshot(range_name)
+    return SystemHealthResponse(**snapshot.model_dump())

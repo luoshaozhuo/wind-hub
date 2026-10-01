@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -198,3 +198,61 @@ def test_v1_device_command_returns_readback_contract() -> None:
     control.send.assert_awaited_once_with(
         "d1", "limit", 80.0, timeout=5.0, command_id="c1"
     )
+
+
+def test_v1_phase5_quality_endpoint() -> None:
+    quality = MagicMock()
+    from datetime import UTC, datetime
+    from wind_hub.application.usecase.quality import QualitySnapshot
+
+    now = datetime.now(UTC)
+    quality.snapshot.return_value = QualitySnapshot(
+        window="24h", sampled_from=now, sampled_to=now,
+        acquisition_channels=[], delivery_channels=[],
+        channel_summary=[], data_metrics=[], dimensions=[], issues=[], events=[],
+    )
+    client = _client(AppContext(quality=quality))
+
+    response = client.get("/api/v1/quality?window=24h")
+
+    assert response.status_code == 200
+    assert response.json()["window"] == "24h"
+
+
+def test_v1_phase5_logs_endpoint() -> None:
+    logs = MagicMock()
+    from wind_hub.application.usecase.logs import LogPage
+
+    logs.list_logs.return_value = LogPage(items=[], page=1, page_size=20, total=0)
+    client = _client(AppContext(logs=logs))
+
+    response = client.get("/api/v1/logs")
+
+    assert response.status_code == 200
+    assert response.json()["page"]["total"] == 0
+
+
+def test_v1_phase5_system_health_endpoint() -> None:
+    health = MagicMock()
+    from datetime import UTC, datetime
+    from wind_hub.application.usecase.system_health import (
+        ResourceSeries,
+        SystemHealthSnapshot,
+    )
+
+    now = datetime.now(UTC)
+    health.snapshot.return_value = SystemHealthSnapshot(
+        range="24h", sampled_at=now, uptime_seconds=1.0, cpu_count=4,
+        load_average=None, risks=[], mounts=[],
+        series=ResourceSeries(
+            timestamps=[], memory_host_gb=[], memory_rss_gb=[],
+            cpu_host_pct=[], cpu_process_pct=[], cpu_temp_c=[], disk_free_gb=[],
+        ),
+        current={},
+    )
+    client = _client(AppContext(system_health=health))
+
+    response = client.get("/api/v1/system-health?range=24h")
+
+    assert response.status_code == 200
+    assert response.json()["cpu_count"] == 4

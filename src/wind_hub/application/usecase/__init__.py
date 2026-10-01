@@ -14,8 +14,11 @@ from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceCommandResult, DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataItem, DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
+from wind_hub.application.usecase.logs import LogsUseCase
+from wind_hub.application.usecase.quality import QualityUseCase
 from wind_hub.application.usecase.settings import SettingsUseCase
 from wind_hub.application.usecase.sink import SinkUseCase
+from wind_hub.application.usecase.system_health import SystemHealthUseCase
 from wind_hub.application.usecase.query import AcquisitionInfo, QueryUseCase, SystemStatus
 from wind_hub.application.usecase.task import (
     TaskBatchResult,
@@ -39,10 +42,13 @@ __all__ = [
     "DefinitionsUseCase",
     "DiagnosticUseCase",
     "OverviewSnapshot",
+    "LogsUseCase",
     "OverviewUseCase",
+    "QualityUseCase",
     "QueryUseCase",
     "SettingsUseCase",
     "SinkUseCase",
+    "SystemHealthUseCase",
     "SystemStatus",
     "TaskBatchResult",
     "TaskDetail",

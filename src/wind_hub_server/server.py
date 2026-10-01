@@ -119,6 +119,9 @@ def _set_context(rt: AssembledRuntime) -> None:
             definitions=rt.definitions,
             sinks=rt.sink_ops,
             diagnostics=rt.diagnostics,
+            quality=rt.quality,
+            logs=rt.logs,
+            system_health=rt.system_health,
         )
     )
 
@@ -144,6 +147,7 @@ async def run_server(settings: ServerSettings) -> int:
     logging.basicConfig(level=logging.INFO)
 
     rt = assemble(settings.config_dir)
+    rt.log_store.install()
     _set_context(rt)
 
     shutdown_event = asyncio.Event()
@@ -181,6 +185,7 @@ async def run_server(settings: ServerSettings) -> int:
         finally:
             # 即使停机超时/失败，也不能把上一轮进程上下文泄漏给嵌入式测试。
             clear_context()
+            rt.log_store.uninstall()
 
     logger.info("wind-hub-server 已干净退出")
     return 0

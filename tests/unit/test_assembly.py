@@ -210,6 +210,12 @@ def test_assemble_wires_runtime_engine_and_usecases() -> None:
         assert rt.definitions is not None
         assert rt.sink_ops is not None
         assert rt.diagnostics is not None
+        assert rt.monitoring is not None
+        assert rt.monitoring_metrics is not None
+        assert rt.log_store is not None
+        assert rt.quality is not None
+        assert rt.logs is not None
+        assert rt.system_health is not None
         # Runtime 与 CommandDispatcher 共享同一 Device 注册表
         # （热重载就地增删后双方立即可见的前提）
         assert rt.dispatcher._devices is rt.runtime.devices  # noqa: SLF001

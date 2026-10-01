@@ -341,3 +341,114 @@ class ProtocolWriteRequest(BaseModel):
     device_id: str
     point_id: str
     value: Any
+
+
+class QualityChannelResponse(BaseModel):
+    object: str
+    source: str
+    protocol: str
+    state: str
+    target: str
+    latency_ms: float | None = None
+    timeouts: int
+    reconnects: int
+    issue: str | None = None
+
+
+class QualityMetricResponse(BaseModel):
+    key: str
+    label: str
+    value: float | int
+    hint: str
+    status: str
+
+
+class QualityDimensionResponse(BaseModel):
+    key: str
+    dimension: str
+    status: str
+    metric: str
+    detail: str
+
+
+class QualityIssueResponse(BaseModel):
+    level: str
+    object: str
+    kind: str
+    dimension: str
+    issue: str
+    duration_seconds: float | None = None
+    error: str | None = None
+
+
+class CommunicationEventResponse(BaseModel):
+    timestamp: datetime
+    object: str
+    event: str
+    state: str
+    evidence: str
+
+
+class QualityResponse(BaseModel):
+    window: str
+    sampled_from: datetime
+    sampled_to: datetime
+    acquisition_channels: list[QualityChannelResponse]
+    delivery_channels: list[QualityChannelResponse]
+    channel_summary: list[QualityMetricResponse]
+    data_metrics: list[QualityMetricResponse]
+    dimensions: list[QualityDimensionResponse]
+    issues: list[QualityIssueResponse]
+    events: list[CommunicationEventResponse]
+
+
+class LogEntryResponse(BaseModel):
+    timestamp: datetime
+    level: str
+    source: str
+    object: str
+    message: str
+
+
+class LogPageResponse(BaseModel):
+    items: list[LogEntryResponse]
+    page: PageMeta
+
+
+class HealthRiskResponse(BaseModel):
+    name: str
+    state: str
+    summary: str
+    detail: str
+
+
+class StorageMountResponse(BaseModel):
+    mount: str
+    used_gb: float
+    total_gb: float
+    free_gb: float
+    usage_pct: float
+    growth_24h_gb: float | None = None
+    estimated_full_days: float | None = None
+
+
+class ResourceSeriesResponse(BaseModel):
+    timestamps: list[datetime]
+    memory_host_gb: list[float | None]
+    memory_rss_gb: list[float | None]
+    cpu_host_pct: list[float | None]
+    cpu_process_pct: list[float | None]
+    cpu_temp_c: list[float | None]
+    disk_free_gb: list[float | None]
+
+
+class SystemHealthResponse(BaseModel):
+    range: str
+    sampled_at: datetime
+    uptime_seconds: float
+    cpu_count: int
+    load_average: tuple[float, float, float] | None
+    risks: list[HealthRiskResponse]
+    mounts: list[StorageMountResponse]
+    series: ResourceSeriesResponse
+    current: dict[str, float | int | str | None]

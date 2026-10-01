@@ -26,9 +26,12 @@ from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
+from wind_hub.application.usecase.logs import LogsUseCase
+from wind_hub.application.usecase.quality import QualityUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.settings import SettingsUseCase
 from wind_hub.application.usecase.sink import SinkUseCase
+from wind_hub.application.usecase.system_health import SystemHealthUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 
 
@@ -88,6 +91,15 @@ class AppContext:
 
     diagnostics: DiagnosticUseCase | None = None
     """网络/协议诊断用例。"""
+
+    quality: QualityUseCase | None = None
+    """采集/交付质量聚合用例。"""
+
+    logs: LogsUseCase | None = None
+    """结构化进程日志查询用例。"""
+
+    system_health: SystemHealthUseCase | None = None
+    """宿主机/进程资源健康用例。"""
 
 
 _context: AppContext | None = None

@@ -54,9 +54,12 @@ from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
+from wind_hub.application.usecase.logs import LogsUseCase
+from wind_hub.application.usecase.quality import QualityUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.settings import SettingsUseCase
 from wind_hub.application.usecase.sink import SinkUseCase
+from wind_hub.application.usecase.system_health import SystemHealthUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import (
@@ -69,6 +72,12 @@ from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.infra import metrics
+from wind_hub.infra.log_store import LogStore
+from wind_hub.infra.monitoring import (
+    CompositeRuntimeMetrics,
+    MonitoringMetrics,
+    MonitoringService,
+)
 from wind_hub.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 from wind_hub.infra.protocol_registry import protocol_registry
 
@@ -142,6 +151,24 @@ class AssembledRuntime:
     diagnostics: DiagnosticUseCase
     """网络/协议诊断用例。"""
 
+    monitoring: MonitoringService
+    """Quality/System Health 共用后台监控采样器。"""
+
+    monitoring_metrics: MonitoringMetrics
+    """采集质量事件与累计计数事实源。"""
+
+    log_store: LogStore
+    """结构化进程日志缓冲。"""
+
+    quality: QualityUseCase
+    """Quality 聚合用例。"""
+
+    logs: LogsUseCase
+    """Logs 查询用例。"""
+
+    system_health: SystemHealthUseCase
+    """System Health 查询用例。"""
+
     iec104_slave: IEC104SlaveServer | None = None
     """可选的 IEC104 从站代理（reporting.yaml 存在时装配），否则 ``None``."""
 
@@ -194,6 +221,8 @@ def assemble(
 
     latest_points = InMemoryLatestPointStore()
     trend_store = InMemoryTrendStore(max_samples_per_point=3600)
+    monitoring_metrics = MonitoringMetrics()
+    log_store = LogStore(capacity=2000)
 
     # 采集引擎：PointValue 数据流的统一处理入口；采集回调接 Prometheus    # 计数器（domain 不依赖 infra，由组合根注入）。
     # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
@@ -204,6 +233,7 @@ def assemble(
     )
     engine.add_observer(latest_points.put_batch)
     engine.add_observer(trend_store.append_batch)
+    engine.add_observer(monitoring_metrics.observe_points)
 
     # Runtime：组件生命周期与状态编排核心，持有引擎/Task 定义/分发器；
     # 热重载重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
@@ -219,7 +249,9 @@ def assemble(
         # 运行时事件指标（connect 失败/重连/collect 完成/poll 时序）接
         # Prometheus；application 不 import infra.metrics，由组合根注入
         # 结构化实现。
-        metrics_hook=metrics.PrometheusRuntimeMetrics(),
+        metrics_hook=CompositeRuntimeMetrics(
+            metrics.PrometheusRuntimeMetrics(), monitoring_metrics
+        ),
     )
 
     # 初始快照直接复用启动时唯一一次 load_config 的结果（单一快照：
@@ -244,6 +276,10 @@ def assemble(
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(runtime, config, config_admin, make_sink)
     diagnostics = DiagnosticUseCase(runtime, query, device_control, operations)
+    monitoring = MonitoringService(runtime, monitoring_metrics)
+    quality = QualityUseCase(runtime, config, monitoring_metrics, monitoring)
+    logs = LogsUseCase(log_store)
+    system_health = SystemHealthUseCase(monitoring)
 
     # IEC104 从站代理：reporting.yaml 存在时才装配（可选组件）。
     iec104_slave: IEC104SlaveServer | None = None
@@ -270,6 +306,12 @@ def assemble(
         definitions=definitions,
         sink_ops=sink_ops,
         diagnostics=diagnostics,
+        monitoring=monitoring,
+        monitoring_metrics=monitoring_metrics,
+        log_store=log_store,
+        quality=quality,
+        logs=logs,
+        system_health=system_health,
         iec104_slave=iec104_slave,
     )
 
@@ -308,6 +350,7 @@ async def start_runtime(
         api_task = asyncio.create_task(api_server.serve())
     await _maybe_init_ads_local(rt)
     await rt.runtime.start()
+    await rt.monitoring.start()
     if rt.iec104_slave is not None:
         try:
             await rt.iec104_slave.start()
@@ -347,6 +390,7 @@ async def stop_runtime(rt: AssembledRuntime, timeout: float = 30.0) -> None:
         rt: 待停机的运行时。
         timeout: 停机整体硬超时（秒）。
     """
+    await rt.monitoring.stop()
     if rt.iec104_slave is not None:
         try:
             await rt.iec104_slave.stop()
