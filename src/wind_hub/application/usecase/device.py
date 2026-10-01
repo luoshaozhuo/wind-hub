@@ -9,6 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from wind_hub.application.runtime.runtime import Runtime
+from wind_hub.config.schema import DeviceConfig
 from wind_hub.application.usecase.config import ConfigUseCase
 
 
@@ -24,7 +25,7 @@ class DeviceSnapshot(BaseModel):
     model: str | None = None
     device_group: str | None = None
     extensions: dict[str, object]
-    port_override: int | None = None
+    port_override: int | None
     extension_overrides: dict[str, object]
     enabled: bool
     connected: bool
@@ -95,10 +96,9 @@ class DeviceUseCase:
             last_error=state.last_error if state is not None else None,
         )
 
-
     def _connection_overrides(
         self,
-        cfg: object,
+        cfg: DeviceConfig,
     ) -> tuple[int | None, dict[str, object]]:
         """从 resolved endpoint 反推出实例连接差异，避免把型号默认值固化。"""
         endpoint = cfg.endpoint
