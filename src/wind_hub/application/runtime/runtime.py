@@ -234,6 +234,11 @@ class Runtime:
         return self._devices
 
     @property
+    def sinks(self) -> dict[str, SinkPort]:
+        """当前 Sink 注册表（热重载后就地反映最新内容）。"""
+        return self._sinks
+
+    @property
     def engine(self) -> AcquisitionEngine:
         """当前采集引擎（观察者注册、采集计数的入口）。"""
         return self._engine
