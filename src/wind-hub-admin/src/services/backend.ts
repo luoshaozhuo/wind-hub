@@ -85,22 +85,30 @@ export async function readDevicePoint(
       },
     )
     return {
-      ok: true,
-      error: '',
-      errorCode: '',
-      latency: Number(
+      state: 'success',
+      timestamp: row.Timestamp || new Date().toISOString(),
+      latency_ms: Number(
         String(row.Latency || '0').replace(/[^0-9.]/g, ''),
       ) || 0,
-      value: row.Value,
-      raw: '—',
-    } as PointReadResult
+      raw_data: '—',
+      decoded_value: String(row.Value ?? '—'),
+      engineering_value: String(row.Value ?? '—'),
+      error_category: '',
+      error_code: '',
+      error_message: '',
+    }
   } catch (error) {
     return {
-      ok: false,
-      error: String(error),
-      errorCode: 'PROTOCOL_ERROR',
-      latency: 0,
-    } as PointReadResult
+      state: 'failed',
+      timestamp: new Date().toISOString(),
+      latency_ms: 0,
+      raw_data: '—',
+      decoded_value: '—',
+      engineering_value: '—',
+      error_category: 'protocol',
+      error_code: 'PROTOCOL_ERROR',
+      error_message: String(error),
+    }
   }
 }
 
@@ -125,11 +133,12 @@ export async function sendDeviceCommand(
   )
   return {
     requested: row.requested,
-    readback: row.readback,
+    readback: row.readback ?? '—',
     sentAt: row.sent_at,
     latency: Math.round(row.latency_ms),
     success: row.success,
     error: row.error || row.readback_error || '',
+    error_code: row.success ? '' : 'COMMAND_FAILED',
   }
 }
 
@@ -145,7 +154,17 @@ export async function startTask(
     task.runtime = 'RUNNING'
     return { ok: true }
   } catch (error) {
-    return { ok: false, error: String(error) }
+    return {
+      ok: false,
+      error: {
+        code: 'TASK_START_FAILED',
+        message: String(error),
+        stage: 'start',
+        target: task.task_id,
+        timestamp: new Date().toISOString(),
+        details: '',
+      },
+    }
   }
 }
 
