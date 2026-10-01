@@ -2,8 +2,8 @@
 import * as echarts from 'echarts'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 // System Health 数据源（§23）：曲线 / 风险卡片 / 资源明细 / 存储挂载全部来自
-// mock/health.ts 的确定性模型；切窗口只改变 healthSeries(range) 的输入。
-import { healthDetails, healthRisks, healthSeries, storageMounts, type HealthRange } from '../mock/health'
+// backend System Health API 的确定性模型；切窗口只改变 healthSeries(range) 的输入。
+import { healthDetails, healthRisks, healthSeries, storageMounts, type HealthRange } from '../api/health'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
 const range=ref<HealthRange>('24 h')

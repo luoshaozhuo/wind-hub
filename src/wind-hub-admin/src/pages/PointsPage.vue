@@ -15,11 +15,11 @@ import {
   tableProtocol,
   unitSymbol,
   validateAddress,
-} from '../mock/data'
+} from '../api/data'
 import { useViewport } from '../composables/useViewport'
-import { testPointRead } from '../mock/service'
-import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
-import type { PointAddress, PointDef, Protocol } from '../mock/types'
+import { testPointRead } from '../api/service'
+import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../api/types'
+import type { PointAddress, PointDef, Protocol } from '../api/types'
 
 const pointTable = ref('beckhoff_wtg_v1')
 const protocol = computed(() => tableProtocol(pointTable.value) || 'ads')
@@ -160,7 +160,7 @@ function resetPointTest() {
   testDeviceId.value = preferred?.device_id || ''
 }
 
-// 纯展示解码：对 Mock Service 返回的确定性原始字节做多类型候选解码（不产生 mock 状态）
+// 纯展示解码：对 backend service 返回的确定性原始字节做多类型候选解码（不产生 mock 状态）
 function decodeCandidates(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer)
   const format = (v: number) => Number.isFinite(v) ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6))) : String(v)
@@ -195,7 +195,7 @@ async function runPointTest() {
   testError.value = ''
   testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
   const started = performance.now()
-  // Test Read（§9.4）：成败与错误码由 Mock Service 按设备场景决定；
+  // Test Read（§9.4）：成败与错误码由 backend service 按设备场景决定；
   // 页面只负责把确定性原始字节做多种类型解码展示。
   const outcome = await testPointRead(device, protocol.value, testRequest.value)
   testLatency.value = Math.round(performance.now() - started)
@@ -362,7 +362,7 @@ async function saveTable() {
       target.extends = tableDraft.extends
     })
     tableSnapshot.value = JSON.stringify(tableDraft)
-    ElMessage.success('Point table updated (mock)')
+    ElMessage.success('Point table updated ')
   } else {
     store.pointTables.push({
       id,
@@ -372,7 +372,7 @@ async function saveTable() {
     })
     store.points[id] = []
     pointTable.value = id
-    ElMessage.success('Point table created (mock)')
+    ElMessage.success('Point table created ')
     newTable()
   }
 }
@@ -410,7 +410,7 @@ async function deleteTable(row: { id: string; protocol: Protocol; points: number
   }
   if (tableEditingId.value === row.id) newTable()
   refreshTaskValidity()
-  ElMessage.success('Point table deleted (mock)')
+  ElMessage.success('Point table deleted ')
 }
 
 function newGroup() {
@@ -459,7 +459,7 @@ function saveGroup() {
     newGroup()
   }
 
-  ElMessage.success(groupEditingId.value ? 'Point group updated (mock)' : 'Point group created (mock)')
+  ElMessage.success(groupEditingId.value ? 'Point group updated ' : 'Point group created ')
 }
 
 async function deleteGroup(row: { id: string; points: number; tasks: number; system?: boolean }) {
@@ -489,7 +489,7 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
   } catch { return }
   store.pointGroups.splice(store.pointGroups.findIndex(g => g.id === row.id), 1)
   if (groupEditingId.value === row.id) newGroup()
-  ElMessage.success('Point group deleted (mock)')
+  ElMessage.success('Point group deleted ')
 }
 
 // ---- Add / Edit Point ----
@@ -660,7 +660,7 @@ async function savePoint() {
   })
 
   pointEdit.value = false
-  ElMessage.success(editing.value ? 'Point updated and applied (mock)' : 'Point added and applied (mock)')
+  ElMessage.success(editing.value ? 'Point updated and applied ' : 'Point added and applied ')
 }
 
 async function delPoint(p: PointDef) {
@@ -680,7 +680,7 @@ async function delPoint(p: PointDef) {
       if (parentHasPoint && !table.remove_points.includes(p.point_id)) table.remove_points.push(p.point_id)
     }
   })
-  ElMessage.success(origin === 'inherited' ? 'Inherited point excluded (mock)' : 'Point deleted (mock)')
+  ElMessage.success(origin === 'inherited' ? 'Inherited point excluded ' : 'Point deleted ')
 }
 
 async function resetOverride(p: PointDef) {
@@ -694,7 +694,7 @@ async function resetOverride(p: PointDef) {
     const table = store.pointTables.find(t => t.id === pointTable.value)
     if (table) table.remove_points = table.remove_points.filter(id => id !== p.point_id)
   })
-  ElMessage.success('Override reset to parent definition (mock)')
+  ElMessage.success('Override reset to parent definition ')
 }
 
 </script>

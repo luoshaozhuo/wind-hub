@@ -5,9 +5,9 @@ const props = withDefaults(defineProps<{ dropdownItem?: boolean }>(), {
   dropdownItem: false,
 })
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { devicesForTask, refreshTaskValidity, resetDeviceConnectionOverrides, store } from '../mock/data'
-import { ADS_READ_MODES, PROTOCOLS } from '../mock/types'
-import type { DeviceModelDef, Protocol } from '../mock/types'
+import { devicesForTask, refreshTaskValidity, resetDeviceConnectionOverrides, store } from '../api/data'
+import { ADS_READ_MODES, PROTOCOLS } from '../api/types'
+import type { DeviceModelDef, Protocol } from '../api/types'
 import { useViewport } from '../composables/useViewport'
 
 type ManageSection = 'model' | 'type' | 'group'
@@ -305,7 +305,7 @@ async function saveModel() {
   }
   const savedId = id
   const wasEditing = !!editingId.value
-  ElMessage.success(wasEditing ? 'Device model updated (mock)' : 'Device model created (mock)')
+  ElMessage.success(wasEditing ? 'Device model updated ' : 'Device model created ')
   if (wasEditing) {
     const saved = store.deviceModels.find(x => x.id === savedId)
     if (saved) openEditModel(saved)
@@ -323,7 +323,7 @@ function saveType() {
   }
   const savedId = id
   const wasEditing = !!editingId.value
-  ElMessage.success(wasEditing ? 'Device type updated (mock)' : 'Device type created (mock)')
+  ElMessage.success(wasEditing ? 'Device type updated ' : 'Device type created ')
   if (wasEditing) {
     const saved = store.deviceTypes.find(x => x.id === savedId)
     if (saved) openEditType(saved)
@@ -366,7 +366,7 @@ async function saveGroup() {
   }
   const savedId = id
   const wasEditing = !!editingId.value
-  ElMessage.success(wasEditing ? 'Device group updated (mock)' : 'Device group created (mock)')
+  ElMessage.success(wasEditing ? 'Device group updated ' : 'Device group created ')
   if (wasEditing) {
     const saved = store.deviceGroups.find(x => x.id === savedId)
     if (saved) openEditGroup(saved)
@@ -420,7 +420,7 @@ async function resetModelDeviceOverrides() {
   for (const t of tasks) {
     if (runningIds.has(t.task_id) && t.enabled && t.valid !== false) t.runtime = 'RUNNING'
   }
-  ElMessage.success('Device connection overrides reset to Model defaults (mock)')
+  ElMessage.success('Device connection overrides reset to Model defaults ')
 }
 
 async function deleteModel(row: { id: string }) {

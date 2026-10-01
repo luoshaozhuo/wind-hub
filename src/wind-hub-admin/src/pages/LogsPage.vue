@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { logStore } from '../mock/runtime'
-import type { MockLogEntry } from '../mock/runtime'
+import { logStore } from '../api/runtime'
+import type { MockLogEntry } from '../api/runtime'
 
 type Entry = MockLogEntry
 
-// 全局 mock log store（§24）：Verify / Task / Command / Sink / Config 等操作由
-// Mock Service 追加日志，本页只做筛选与分页，不自行生成条目。
+// 全局 backend log store（§24）：Verify / Task / Command / Sink / Config 等操作由
+// backend service 追加日志，本页只做筛选与分页，不自行生成条目。
 const logs = logStore
 // source 选项从条目并集派生：操作写入新 source（如 config / task）后自动出现。
 const sources = computed(() => [...new Set(logs.map(entry => entry.source))].sort())

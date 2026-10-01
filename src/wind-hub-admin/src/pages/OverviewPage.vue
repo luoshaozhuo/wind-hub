@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { protocolOfDevice, store } from '../mock/data'
-import { healthRisks, hostCurrent } from '../mock/health'
-import { qualityWindowData } from '../mock/quality'
-import { deviceRuntimeState, logStore } from '../mock/runtime'
+import { protocolOfDevice, store } from '../api/data'
+import { healthRisks, hostCurrent } from '../api/health'
+import { qualityWindowData } from '../api/quality'
+import { deviceRuntimeState, logStore } from '../api/runtime'
 import { useViewport } from '../composables/useViewport'
 
 const { isMobile, isTablet } = useViewport()

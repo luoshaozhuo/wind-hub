@@ -9,8 +9,8 @@ import {
   logConfigApplied,
   sleep,
   validateConfig,
-} from '../mock/service'
-import { CONFIG_FILES, yamlFiles } from '../mock/yaml'
+} from '../api/service'
+import { CONFIG_FILES, yamlFiles } from '../api/yaml'
 import { nowText } from '../utils/format'
 
 type ReviewLine={type:'same'|'add'|'remove';text:string}
@@ -21,7 +21,7 @@ interface HistoryEntry {
   comment:string
   status:string
   // Revision 快照（§18 三层：Working Copy / Applied / Revision History）：
-  // Restore 以快照为事实源真正回写 yamlFiles 与 mock state。
+  // Restore 以快照为事实源真正回写 yamlFiles 与 runtime state。
   snapshot:Record<string,string>
 }
 
@@ -54,7 +54,7 @@ function pushRevision(source:string,comment:string){
   history.value.unshift({revision:revision.value,time:nowText(),source,comment,status:'Applied',snapshot:snapshotOfApplied()})
 }
 
-// 配置文本应用后同步结构化 mock state（§18：Devices / Settings / Overview 立即反映）
+// 配置文本应用后同步结构化 runtime state（§18：Devices / Settings / Overview 立即反映）
 function applyTextToState(name:string,text:string){
   if(name==='system.yaml')applySystemYamlToState(text)
   if(name==='devices.yaml')applyDevicesYamlToState(text)
@@ -69,14 +69,14 @@ async function validate(){
     await sleep(LATENCY.uiLocal)
     const result=validateConfig(file.value,yamlFiles[file.value])
     if(!result.ok){
-      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+' (mock)')
+      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+' ')
       return false
     }
-    ElMessage.success(file.value+' validation passed (mock)')
+    ElMessage.success(file.value+' validation passed ')
     return true
   }finally{validating.value=false}
 }
-// Apply（§22）：confirm 展示按 target file 生成的影响范围；成功后回写 mock state + 记录日志。
+// Apply（§22）：confirm 展示按 target file 生成的影响范围；成功后回写 runtime state + 记录日志。
 async function apply(){
   if(applying.value||validating.value||!dirtyMap[file.value])return
   if(!await validate())return
@@ -93,9 +93,9 @@ async function apply(){
     applyTextToState(file.value,yamlFiles[file.value])
     appliedSnapshot[file.value]=yamlFiles[file.value]
     dirtyMap[file.value]=false
-    pushRevision('Apply',file.value+' applied from workspace (mock)')
+    pushRevision('Apply',file.value+' applied from workspace ')
     logConfigApplied('Apply',file.value,revision.value)
-    ElMessage.success('Revision '+revision.value+' applied (mock)')
+    ElMessage.success('Revision '+revision.value+' applied ')
   }finally{applying.value=false}
 }
 
@@ -115,7 +115,7 @@ function buildReview(before:string,after:string):ReviewLine[]{
 const reviewLines=computed(()=>buildReview(appliedSnapshot[file.value],yamlFiles[file.value]))
 
 // Import（§21）：真正读取上传文件文本；空文件失败；与当前 Working Copy 相同 → No Changes，
-// 不同 → 复用 buildReview 生成真实 diff；Apply 后回写 yamlFiles + mock state + revision。
+// 不同 → 复用 buildReview 生成真实 diff；Apply 后回写 yamlFiles + runtime state + revision。
 const importState=reactive<{target:string;name:string;text:string;validated:boolean;errors:string[];raw:File|null}>({
   target:'devices.yaml',name:'',text:'',validated:false,errors:[],raw:null,
 })
@@ -141,14 +141,14 @@ async function validateImport(){
     if(!text.trim()){
       importState.errors=[importState.target+': uploaded file is empty']
       importState.validated=false
-      ElMessage.error('Uploaded file is empty (mock)')
+      ElMessage.error('Uploaded file is empty ')
       return
     }
     const result=validateConfig(importState.target,text)
     importState.errors=result.errors
     importState.validated=result.ok
-    if(!result.ok){ElMessage.error('Import validation failed (mock)');return}
-    ElMessage.success(text===yamlFiles[importState.target]?'Import validated — no changes (mock)':'Import validated — diff ready (mock)')
+    if(!result.ok){ElMessage.error('Import validation failed ');return}
+    ElMessage.success(text===yamlFiles[importState.target]?'Import validated — no changes ':'Import validated — diff ready ')
   }finally{importValidating.value=false}
 }
 function closeImport(){importOpen.value=false;importState.name='';importState.text='';importState.validated=false;importState.errors=[];importState.raw=null}
@@ -168,10 +168,10 @@ async function applyImport(){
     applyTextToState(importState.target,importState.text)
     appliedSnapshot[importState.target]=importState.text
     dirtyMap[importState.target]=false
-    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target+' (mock)')
+    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target+' ')
     logConfigApplied('Import',importState.target,revision.value)
     closeImport()
-    ElMessage.success('Imported as revision '+revision.value+' (mock)')
+    ElMessage.success('Imported as revision '+revision.value+' ')
   }finally{importApplying.value=false}
 }
 
@@ -207,9 +207,9 @@ async function restore(row:HistoryEntry){
       appliedSnapshot[name]=row.snapshot[name]
       dirtyMap[name]=false
     }
-    pushRevision('Restore','Restored from revision '+row.revision+' (mock)')
+    pushRevision('Restore','Restored from revision '+row.revision+' ')
     logConfigApplied('Restore','all files',revision.value)
-    ElMessage.success('Restored as new revision '+revision.value+' (mock)')
+    ElMessage.success('Restored as new revision '+revision.value+' ')
   }finally{restoring.value=false}
 }
 
@@ -407,13 +407,13 @@ function handleAction(command:string){
         <div class="drawer-section-head"><h3>Validation</h3><el-button type="primary" :loading="importValidating" :disabled="!importState.name || importApplying" @click="validateImport">Validate & Compare</el-button></div>
         <el-empty v-if="!importState.name" description="Select a YAML file to continue"/>
         <template v-else-if="importState.errors.length">
-          <el-alert type="error" :closable="false" title="Import validation failed (mock)"/>
+          <el-alert type="error" :closable="false" title="Import validation failed "/>
           <pre class="diff-preview">{{importState.errors.join('\n')}}</pre>
         </template>
         <el-empty v-else-if="!importState.validated" description="Validate the uploaded YAML to continue"/>
         <el-alert v-else-if="importNoChanges" type="info" :closable="false" title="No Changes — uploaded YAML matches the current working copy"/>
         <template v-else>
-          <el-alert type="success" :closable="false" title="Syntax, schema and reference validation passed (mock)"/>
+          <el-alert type="success" :closable="false" title="Syntax, schema and reference validation passed "/>
           <h3>Changes</h3>
           <div class="review-editor import-review">
             <div v-for="(line,index) in importReviewLines" :key="index" :class="['review-line',line.type]">

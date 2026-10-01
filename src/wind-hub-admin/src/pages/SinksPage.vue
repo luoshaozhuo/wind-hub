@@ -2,9 +2,9 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
-import { refreshTaskValidity, store } from '../mock/data'
-import { verifySink as serviceVerifySink, writeTestSink } from '../mock/service'
-import type { SinkDef, SinkRuntimeState, SinkType } from '../mock/types'
+import { refreshTaskValidity, store } from '../api/data'
+import { verifySink as serviceVerifySink, writeTestSink } from '../api/service'
+import type { SinkDef, SinkRuntimeState, SinkType } from '../api/types'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
 
@@ -105,10 +105,10 @@ async function saveSink(){
     }
     selected.value.params=params;selected.value.enabled=draft.enabled;selected.value.runtime_state=draft.enabled?'unknown':'disabled';selected.value.error='';loadDraft(selected.value)
   }
-  refreshTaskValidity();ElMessage.success(wasCreating?'Sink created (mock)':'Sink configuration saved (mock)')
+  refreshTaskValidity();ElMessage.success(wasCreating?'Sink created ':'Sink configuration saved ')
 }
 // Verify / Write Test：检查链构建、成败判定、runtime_state/计数器更新与日志
-// 全部在 Mock Service（§10）；页面只负责互斥守卫与结果展示。
+// 全部在 backend service（§10）；页面只负责互斥守卫与结果展示。
 async function verifySink(s:SinkDef){
   if(sinkOperationActive.value)return
   verifyingSink.value=s.name
@@ -159,7 +159,7 @@ async function deleteSink(s:SinkDef){
   try{
     await ElMessageBox.confirm('Delete Sink "'+s.name+'"?','Delete Sink',{type:'warning',confirmButtonText:'Delete'})
   }catch{return}
-  store.sinks.splice(store.sinks.indexOf(s),1);drawerOpen.value=false;ElMessage.success('Sink deleted (mock)')
+  store.sinks.splice(store.sinks.indexOf(s),1);drawerOpen.value=false;ElMessage.success('Sink deleted ')
 }
 </script>
 

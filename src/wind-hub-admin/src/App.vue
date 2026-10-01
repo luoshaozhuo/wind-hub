@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
@@ -11,11 +11,32 @@ import SystemHealthPage from './pages/SystemHealthPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
-import { store } from './mock/data'
+import { store, initializeData } from './api/data'
 import { useViewport } from './composables/useViewport'
+import { loadYamlFiles } from './api/yaml'
+import { loadLogs } from './api/runtime'
+import { loadQualityWindow } from './api/quality'
+import { loadHealth, syncHealthPresentation } from './api/health'
 
 const menu = ref('Devices')
 const mobileNavOpen = ref(false)
+const booting = ref(true)
+const bootError = ref('')
+onMounted(async()=>{
+  try{
+    await initializeData()
+    await Promise.all([
+      loadYamlFiles(),
+      loadLogs(),
+      loadQualityWindow('24 h'),
+      loadHealth('24 h').then(syncHealthPresentation),
+    ])
+  }catch(error){
+    bootError.value=error instanceof Error?error.message:String(error)
+  }finally{
+    booting.value=false
+  }
+})
 const { isMobile } = useViewport()
 
 const runMenu = [
@@ -69,11 +90,12 @@ function selectMenu(key: string) {
           <span class="version-item"><span class="version-label">Admin</span><b>{{ store.systemInfo.adminVersion }}</b></span>
         </div>
         <el-tag type="success">{{ store.systemInfo.runtimeStatus }}</el-tag>
-        <el-tag type="warning">mock</el-tag>
+        <el-tag :type="bootError ? 'danger' : booting ? 'warning' : 'success'">{{ bootError ? 'API ERROR' : booting ? 'CONNECTING' : 'LIVE' }}</el-tag>
       </el-header>
 
       <el-main class="app-main">
-        <section class="content">
+        <el-alert v-if="bootError" :title="bootError" type="error" show-icon :closable="false" class="app-api-error"/>
+        <section v-if="!booting" class="content">
           <OverviewPage v-if="menu === 'Overview'" />
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />

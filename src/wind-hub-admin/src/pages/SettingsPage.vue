@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { store } from '../mock/data'
-import { LATENCY, sleep } from '../mock/service'
-import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../mock/yaml'
+import { store } from '../api/data'
+import { LATENCY, sleep } from '../api/service'
+import { updateMockAdsYaml, updateMockApiYaml, updateMockSiteYaml } from '../api/yaml'
 
 const saving = ref(false)
 
@@ -80,7 +80,7 @@ async function save() {
     updateMockApiYaml(store.systemInfo.apiHost, store.systemInfo.apiPort)
     await sleep(LATENCY.configApply)
     settingsSnapshot.value = JSON.stringify(form)
-    ElMessage.success('System settings saved — pending apply (mock)')
+    ElMessage.success('System settings saved — pending apply ')
   } finally {
     saving.value = false
   }

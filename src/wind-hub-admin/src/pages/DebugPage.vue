@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useViewport } from '../composables/useViewport'
-import { effectiveConnection, pointsOfTable, protocolOfDevice, store, tableOfDevice, unitSymbol } from '../mock/data'
+import { effectiveConnection, pointsOfTable, protocolOfDevice, store, tableOfDevice, unitSymbol } from '../api/data'
 import {
   LATENCY,
   manualProtocolReadRow,
@@ -13,9 +13,9 @@ import {
   runProtocolWrite,
   sleep,
   subnetHostResult,
-} from '../mock/service'
-import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
-import type { DeviceInst, PointDef, Protocol } from '../mock/types'
+} from '../api/service'
+import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../api/types'
+import type { DeviceInst, PointDef, Protocol } from '../api/types'
 
 type NetworkMode='single'|'subnet'
 type NetworkTool='ping'|'ports'
@@ -123,7 +123,7 @@ async function runNetwork(){
     if(networkTool.value==='ports'&&!parsePorts().length){ElMessage.warning('Enter at least one valid port');return}
     running.value=true
     try{
-      // Ping / Port Probe 结果与 Devices Verify 一致（§17.1/§17.2）：由 Mock Service 派生
+      // Ping / Port Probe 结果与 Devices Verify 一致（§17.1/§17.2）：由 backend service 派生
       networkResults.value=networkTool.value==='ping'
         ? [pingHost(singleHost.value)]
         : probePorts(singleHost.value,parsePorts())

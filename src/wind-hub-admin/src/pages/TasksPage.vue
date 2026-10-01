@@ -10,11 +10,11 @@ import {
   refreshTaskValidity,
   store,
   tableOfDevice,
-} from '../mock/data'
+} from '../api/data'
 import { useViewport } from '../composables/useViewport'
-import { logStore } from '../mock/runtime'
-import { startTask, stopTask, taskInstanceState } from '../mock/service'
-import type { DeviceInst, TaskDef } from '../mock/types'
+import { logStore } from '../api/runtime'
+import { startTask, stopTask, taskInstanceState } from '../api/service'
+import type { DeviceInst, TaskDef } from '../api/types'
 import { formatTimestamp, nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
 
@@ -50,7 +50,7 @@ const taskFormState=computed(()=>JSON.stringify({
 }))
 const taskDirty=computed(()=>!!selectedTask.value && taskFormState.value!==taskSnapshot.value)
 
-// Task 日志来自全局 mock log store（§24）：Start/Stop 失败等操作实时写入，
+// Task 日志来自全局 backend log store（§24）：Start/Stop 失败等操作实时写入，
 // 历史条目按 task 对象确定性生成，与 Logs 页同源。
 const taskLogs=computed(()=>{
   const id=selectedTask.value?.task_id || 'task'
@@ -153,13 +153,13 @@ const persisting=ref(false)
 async function createTask(){
   if(persisting.value)return
   persisting.value=true
-  try{ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created (mock)')} }
+  try{ if(await persistTask()){createDialog.value=false;ElMessage.success('Task created ')} }
   finally{persisting.value=false}
 }
 async function saveTaskEdit(){
   if(!selectedTask.value||persisting.value) return
   persisting.value=true
-  try{ if(await persistTask(selectedTask.value)){loadForm(selectedTask.value); selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated (mock)') } }
+  try{ if(await persistTask(selectedTask.value)){loadForm(selectedTask.value); selectedDeviceId.value=taskDevices.value[0]?.device_id||''; ElMessage.success('Task updated ') } }
   finally{persisting.value=false}
 }
 async function changeEnabled(t:TaskDef,enabled:boolean){
@@ -170,7 +170,7 @@ async function changeEnabled(t:TaskDef,enabled:boolean){
   refreshTaskValidity()
 }
 // Start/Stop 运行状态机：STOPPED → STARTING → RUNNING，RUNNING → STOPPING → STOPPED。
-// 状态转换、可用性检查（含 wtg-041 不可达启动失败）、日志写入全部在 Mock Service（§8）。
+// 状态转换、可用性检查（含 wtg-041 不可达启动失败）、日志写入全部在 backend service（§8）。
 // 同一时刻只允许一个任务处于过渡态，过渡期间该任务的 Enabled/Delete 等冲突操作被禁用。
 const taskActionPending=ref('')
 async function toggle(t:TaskDef){
@@ -182,14 +182,14 @@ async function toggle(t:TaskDef){
   try{
     if(t.runtime==='RUNNING'){
       await stopTask(t)
-      ElMessage.success(`Task ${t.task_id} stopped (mock)`)
+      ElMessage.success(`Task ${t.task_id} stopped `)
     }else{
       const result=await startTask(t)
       if(!result.ok){
-        ElMessage.error(`Task ${t.task_id} failed to start: ${result.error.message} (mock)`)
+        ElMessage.error(`Task ${t.task_id} failed to start: ${result.error.message} `)
         return
       }
-      ElMessage.success(`Task ${t.task_id} started (mock)`)
+      ElMessage.success(`Task ${t.task_id} started `)
     }
   }finally{
     taskActionPending.value=''
@@ -206,7 +206,7 @@ async function del(t:TaskDef){
   }catch{return}
   t.runtime='STOPPED'; store.tasks=store.tasks.filter(x=>x!==t)
   if(selectedTaskId.value===t.task_id) detailOpen.value=false
-  ElMessage.success('Task deleted (mock)')
+  ElMessage.success('Task deleted ')
 }
 function targetText(t:TaskDef){return t.device?`device: ${t.device}`:`group: ${t.device_group}`}
 function toggleLabel(t:TaskDef){

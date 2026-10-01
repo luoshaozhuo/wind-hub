@@ -30,6 +30,7 @@ class DeviceResponse(BaseModel):
     device_type: str | None = None
     model: str | None = None
     device_group: str | None = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
     connected: bool
     consecutive_failures: int

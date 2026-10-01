@@ -13,8 +13,8 @@ import {
   type CommunicationEvent,
   type QualityProblem,
   type QualityWindow,
-} from '../mock/quality'
-import { LATENCY, runQualityCheck, sleep } from '../mock/service'
+} from '../api/quality'
+import { LATENCY, runQualityCheck, sleep } from '../api/service'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -57,7 +57,7 @@ const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
 
-// Auto Check（§16）：Mock Service 推进 qualityCheckTick → qualityWindowData 全量重算。
+// Auto Check（§16）：backend service 推进 qualityCheckTick → qualityWindowData 全量重算。
 async function runCheck(){
   if(checking.value)return
   checking.value=true
@@ -76,7 +76,7 @@ function syncAutoCheck(){
 }
 watch([autoCheck,checkInterval],syncAutoCheck)
 
-// 通道当前状态（窗口无关）：由 mock/quality.ts 从 deviceScenarios / sink 状态派生。
+// 通道当前状态（窗口无关）：由 backend Quality API 从 deviceScenarios / sink 状态派生。
 const acquisitionChannelRows=computed(()=>acquisitionChannels())
 const acquisitionChannelCount=computed(()=>acquisitionChannelRows.value.length)
 const pagedAcquisitionChannels=computed(()=>{

@@ -13,8 +13,8 @@ import {
   store,
   tableOfDevice,
   unitSymbol,
-} from '../mock/data'
-import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../mock/types'
+} from '../api/data'
+import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../api/types'
 import {
   emptyVerification,
   readDevicePoint,
@@ -26,8 +26,8 @@ import {
   pointTrendSeries,
   type CommandOutcome,
   type PointReadResult,
-} from '../mock/service'
-import { deviceDataTick } from '../mock/runtime'
+} from '../api/service'
+import { deviceDataTick } from '../api/runtime'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { EMPTY, formatTimestamp } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -221,7 +221,7 @@ function protocolDescription(d: DeviceInst) {
 // （Verify All 或某一台设备的 Verify），避免并发写同一 verification 状态。
 const verifyOperationActive = computed(() => verifyAllRunning.value || !!verifyingDeviceId.value)
 
-// 单台 Verify：流程推进与成败判定全部在 Mock Service（mock/service.ts），
+// 单台 Verify：流程推进与成败判定全部在 backend service（mock/service.ts），
 // 页面只负责互斥守卫与结果反馈。
 async function verifyDevice(d: DeviceInst, quiet = false) {
   if (verifyOperationActive.value) return
@@ -360,7 +360,7 @@ function createBatchDevices() {
   }
   refreshTaskValidity()
   addOpen.value = false
-  ElMessage.success(rows.length + ' devices created from templates (mock)')
+  ElMessage.success(rows.length + ' devices created from templates ')
 }
 
 const newDev = ref({
@@ -534,7 +534,7 @@ function addDevice() {
   store.deviceVerification[id] = emptyVerification()
   refreshTaskValidity()
   addOpen.value = false
-  ElMessage.success('Device created (mock)')
+  ElMessage.success('Device created ')
 }
 
 // ---- Drawer / Config ----
@@ -830,7 +830,7 @@ async function saveConfig() {
   }
 
   loadEditForm()
-  ElMessage.success('Device config updated (mock)')
+  ElMessage.success('Device config updated ')
 }
 
 async function del() {
@@ -860,7 +860,7 @@ async function del() {
   delete store.deviceVerification[id]
   refreshTaskValidity()
   drawer.value = false
-  ElMessage.success('Device deleted; referenced task definitions were preserved (mock)')
+  ElMessage.success('Device deleted; referenced task definitions were preserved ')
 }
 
 const deleteAllOpen = ref(false)
@@ -882,7 +882,7 @@ function deleteAllDevices() {
   drawer.value = false
   refreshTaskValidity()
   deleteAllOpen.value = false
-  ElMessage.success(count + ' devices deleted; Task Definitions preserved and revalidated (mock)')
+  ElMessage.success(count + ' devices deleted; Task Definitions preserved and revalidated ')
 }
 
 const selectedModel = computed(() => selected.value ? modelOf(selected.value) : undefined)
@@ -922,7 +922,7 @@ let dataRefreshTimer: number | null = null
 
 const resolvedPoints = computed(() => selected.value ? pointsOfTable(tableOfDevice(selected.value)) : [])
 
-// Data 当前值来自 Mock Service 的统一点值序列（mock/runtime.ts）：
+// Data 当前值来自 backend service 的统一点值序列（mock/runtime.ts）：
 // 与 Trend 尾点、Diagnostics Read、Read Test 同源；Command 成功后经
 // commandOverrides / deviceDataTick 触发本 computed 重算（§6 联动）。
 const dataRows = computed<DataRow[]>(() => {
@@ -1017,7 +1017,7 @@ watch(resolvedPoints, rows => {
 }, { immediate: true })
 watch(readPointId, resetReadTest)
 
-// 单点诊断读：成败与错误码由 Mock Service 按场景注册表决定（§5）
+// 单点诊断读：成败与错误码由 backend service 按场景注册表决定（§5）
 async function readSelectedPoint() {
   if (!selected.value || !readPoint.value || readLoading.value) return
   readLoading.value = true
@@ -1097,7 +1097,7 @@ async function recordTrendRawData() {
     a.download = `${selected.value.device_id}_waveform_${trendRange.value.replace(/\s+/g, '_')}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    ElMessage.success('Raw waveform data exported (mock)')
+    ElMessage.success('Raw waveform data exported ')
   } finally {
     trendRecording.value = false
   }
@@ -1293,7 +1293,7 @@ async function sendCommand() {
   sending.value = true
   commandResult.value = null
   try {
-    // 成败判定、readback、Data/Trend 联动与日志全部在 Mock Service（§6）
+    // 成败判定、readback、Data/Trend 联动与日志全部在 backend service（§6）
     const pointIndex = resolvedPoints.value.findIndex(p => p.point_id === row.point_id)
     const pointDef = pointIndex >= 0 ? resolvedPoints.value[pointIndex] : undefined
     if (!pointDef) {
@@ -1302,12 +1302,12 @@ async function sendCommand() {
     }
     commandResult.value = await sendDeviceCommand(device, pointDef, pointIndex, target)
     if (commandResult.value.success) {
-      ElMessage.success('Command completed (mock)')
+      ElMessage.success('Command completed ')
       // 成功后 Data 与 Trend 立即反映 readback（§6.4）
       dataRevision.value += 1
       if (tab.value === 'ControlTrend') renderTrend()
     } else {
-      ElMessage.error('Command failed (mock)')
+      ElMessage.error('Command failed ')
     }
   } finally {
     sending.value = false
