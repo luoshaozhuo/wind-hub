@@ -6,8 +6,8 @@ authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 readme = "README.md"
 license = "MIT"
 packages = [
-    { include = "wind_hub", from = "src" },
-    { include = "wind_hub_server", from = "src" },
+    { include = "wind_hub", from = "src/wind-hub-collector" },
+    { include = "wind_hub_server", from = "src/wind-hub-server" },
 ]
 
 [tool.poetry.dependencies]
