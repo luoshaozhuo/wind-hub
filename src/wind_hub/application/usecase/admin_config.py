@@ -6,6 +6,8 @@ import json
 import os
 import shutil
 import tempfile
+import zipfile
+from io import BytesIO
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -125,19 +127,48 @@ class AdminConfigUseCase:
         folder = self._history_dir / f"{revision:06d}"
         if not folder.is_dir():
             raise KeyError(str(revision))
+
+        rollback_revision = self._create_revision(
+            f"before restore {revision}"
+        )
+        rollback = self._history_dir / f"{rollback_revision:06d}"
         for name in CONFIG_FILES:
             src = folder / name
             if src.exists():
                 shutil.copy2(src, self._config.config_dir / name)
+
         result = await self._config.reload()
         if not result.success:
+            for name in CONFIG_FILES:
+                src = rollback / name
+                if src.exists():
+                    shutil.copy2(src, self._config.config_dir / name)
+            await self._config.reload()
             raise ConfigError("; ".join(result.errors) or "restore failed")
+
         self._logs.append("INFO", "config", str(revision), "revision restored")
         return {
             "success": True,
             "revision": revision,
             "duration_ms": result.duration_ms,
         }
+
+    def backup_zip(self) -> bytes:
+        """打包当前 Applied Configuration，不包含 history。"""
+        buffer = BytesIO()
+        with zipfile.ZipFile(
+            buffer,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as archive:
+            for name in CONFIG_FILES:
+                path = self._config.config_dir / name
+                if path.exists():
+                    archive.writestr(
+                        name,
+                        path.read_text(encoding="utf-8"),
+                    )
+        return buffer.getvalue()
 
     def settings(self) -> dict[str, Any]:
         system = self._config.current_config.system
