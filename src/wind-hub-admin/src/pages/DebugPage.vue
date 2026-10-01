@@ -12,7 +12,8 @@ import {
   runProtocolRead,
   runProtocolWrite,
   sleep,
-  subnetHostResult,
+  startSubnetScan,
+  getOperation,
 } from '../services/backend'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { DeviceInst, PointDef, Protocol } from '../mock/types'
@@ -139,18 +140,31 @@ async function runNetwork(){
   scanProgress.value=0
   scanTotal.value=info.total
   try{
-    const rows:Array<Record<string,string|number>>=[]
-    const batchSize=32
-    for(let offset=0;offset<info.total;offset+=batchSize){
-      const end=Math.min(info.total,offset+batchSize)
-      for(let i=offset;i<end;i++){
-        const ip=intToIpv4((info.first+i)>>>0)
-        rows.push(subnetHostResult(ip,i+1))
+    const started=await startSubnetScan(info.network,parsePorts())
+    while(true){
+      const op=await getOperation(started.operation_id)
+      scanProgress.value=op.completed||0
+      if(op.state==='success'){
+        networkResults.value=(op.result?.hosts||[]).map((row:any)=>({
+          IP:row.IP,
+          Ports:Array.isArray(row.Ports)?row.Ports.join(', '):String(row.Ports||'—'),
+        }))
+        break
       }
-      scanProgress.value=end
-      networkResults.value=[...rows]
-      await sleep(LATENCY.scanBatch)
+      if(['failed','cancelled','partial'].includes(op.state)){
+        if(op.state==='partial'){
+          networkResults.value=(op.result?.hosts||[]).map((row:any)=>({
+            IP:row.IP,
+            Ports:Array.isArray(row.Ports)?row.Ports.join(', '):String(row.Ports||'—'),
+          }))
+          break
+        }
+        throw new Error(op.error?.message||'Subnet scan failed')
+      }
+      await sleep(250)
     }
+  }catch(error){
+    ElMessage.error(String(error))
   }finally{running.value=false}
 }
 
