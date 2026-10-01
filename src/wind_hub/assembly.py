@@ -42,10 +42,20 @@ from wind_hub.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
 from wind_hub.application.command_dispatcher import CommandDispatcher
+from wind_hub.application.event_log import EventLogStore
 from wind_hub.application.operation import OperationManager
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
+from wind_hub.application.usecase.admin_config import AdminConfigUseCase
+from wind_hub.application.usecase.admin_runtime import (
+    DeviceVerifyUseCase,
+    DiagnosticUseCase,
+    QualityRecorder,
+    QualityUseCase,
+    SinkUseCase,
+    SystemHealthUseCase,
+)
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
@@ -122,6 +132,27 @@ class AssembledRuntime:
     operations: OperationManager
     """进程内 Operation 管理器。"""
 
+    admin_config: AdminConfigUseCase
+    """Admin 配置/Settings/Definitions。"""
+
+    sink_ops: SinkUseCase
+    """Sink 运维用例。"""
+
+    diagnostics: DiagnosticUseCase
+    """诊断用例。"""
+
+    quality: QualityUseCase
+    """质量统计用例。"""
+
+    system_health: SystemHealthUseCase
+    """主机/进程资源健康用例。"""
+
+    device_verify: DeviceVerifyUseCase
+    """设备验证用例。"""
+
+    logs: EventLogStore
+    """结构化事件日志。"""
+
     iec104_slave: IEC104SlaveServer | None = None
     """可选的 IEC104 从站代理（reporting.yaml 存在时装配），否则 ``None``."""
 
@@ -174,6 +205,7 @@ def assemble(
 
     latest_points = InMemoryLatestPointStore()
     trend_store = InMemoryTrendStore(max_samples_per_point=3600)
+    quality_recorder = QualityRecorder()
 
     # 采集引擎：PointValue 数据流的统一处理入口；采集回调接 Prometheus    # 计数器（domain 不依赖 infra，由组合根注入）。
     # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
@@ -184,6 +216,7 @@ def assemble(
     )
     engine.add_observer(latest_points.put_batch)
     engine.add_observer(trend_store.append_batch)
+    engine.add_observer(quality_recorder.observe)
 
     # Runtime：组件生命周期与状态编排核心，持有引擎/Task 定义/分发器；
     # 热重载重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
@@ -219,6 +252,17 @@ def assemble(
     device_control = DeviceControlUseCase(command, query, latest_points, trend_store)
     overview = OverviewUseCase(query=query, tasks=tasks, config=config)
     operations = OperationManager()
+    logs = EventLogStore()
+    admin_config = AdminConfigUseCase(config, logs)
+    sink_ops = SinkUseCase(runtime, logs)
+    diagnostics = DiagnosticUseCase(query, device_control, operations, logs)
+    quality = QualityUseCase(
+        runtime,
+        lambda: config.current_config,
+        quality_recorder,
+    )
+    system_health = SystemHealthUseCase()
+    device_verify = DeviceVerifyUseCase(runtime, query, logs)
 
     # IEC104 从站代理：reporting.yaml 存在时才装配（可选组件）。
     iec104_slave: IEC104SlaveServer | None = None
@@ -240,6 +284,13 @@ def assemble(
         device_control=device_control,
         overview=overview,
         operations=operations,
+        admin_config=admin_config,
+        sink_ops=sink_ops,
+        diagnostics=diagnostics,
+        quality=quality,
+        system_health=system_health,
+        device_verify=device_verify,
+        logs=logs,
         iec104_slave=iec104_slave,
     )
 
