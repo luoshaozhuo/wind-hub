@@ -17,7 +17,7 @@ import {
   validateAddress,
 } from '../mock/data'
 import { useViewport } from '../composables/useViewport'
-import { testPointRead } from '../mock/service'
+import { testPointRead } from '../services/backend'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../mock/types'
 import type { PointAddress, PointDef, Protocol } from '../mock/types'
 
