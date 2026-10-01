@@ -13,8 +13,21 @@ const cpuEl=ref<HTMLElement|null>(null)
 const charts:echarts.ECharts[]=[]
 let resizeObserver:ResizeObserver|null=null
 
-const risks=computed(()=>health.value.risks||[])
-const mounts=computed(()=>health.value.mounts||[])
+const risks=computed(()=>(health.value.risks||[]).map((risk:any)=>({
+  ...risk,
+  type:risk.state==='WARNING'?'warning':risk.state==='FAULT'?'danger':'success',
+})))
+const formatBytes=(value:number)=>value>=1073741824
+  ?(value/1073741824).toFixed(1)+' GB'
+  :(value/1048576).toFixed(1)+' MB'
+const mounts=computed(()=>(health.value.mounts||[]).map((mount:any)=>({
+  mount:mount.mount,
+  used:formatBytes(mount.used)+' / '+formatBytes(mount.total),
+  free:formatBytes(mount.free),
+  usage:(mount.usage_pct??0)+'%',
+  growth:'—',
+  estimated:'—',
+})))
 const details=computed(()=>[
   {group:'Host',items:[
     ['Memory Used',health.value.current?.memory_used||0],
@@ -50,11 +63,11 @@ function renderCharts(){
     axis:raw.map((x:any)=>new Date(x.time).toLocaleTimeString()),
     memoryHost:raw.map((x:any)=>(x.memory_used||0)/1073741824),
     memoryRss:raw.map((x:any)=>(x.process_rss||0)/1073741824),
-    diskFree:raw.map(()=>0),
-    diskForecast:raw.map(()=>0),
+    diskFree:raw.map((x:any)=>(x.root_disk_free||0)/1073741824),
+    diskForecast:raw.map((x:any)=>(x.root_disk_free||0)/1073741824),
     cpuHost:raw.map((x:any)=>(x.load1||0)*100/Math.max(1,x.cpu_count||1)),
     cpuProcess:raw.map(()=>0),
-    cpuTemp:raw.map(()=>0),
+    cpuTemp:raw.map((x:any)=>x.cpu_temperature??null),
   }
   const base=baseOption()
   initChart(memoryEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:series.axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
