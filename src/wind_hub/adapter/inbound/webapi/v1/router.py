@@ -6,13 +6,17 @@ Device/Task 配置 CRUD、Verify、Config Apply 等后续接口不在本文件�
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from wind_hub.adapter.inbound.webapi.context import get_ctx
 from wind_hub.adapter.inbound.webapi.errors import APIError
 from wind_hub.adapter.inbound.webapi.v1.models import (
+    ConfigTextRequest,
+    DiagnosticPingRequest,
+    DiagnosticPointRequest,
+    DiagnosticTcpRequest,
     DeviceCommandRequest,
     DeviceCommandResponse,
     DeviceDataItemResponse,
@@ -20,6 +24,8 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     DevicePageResponse,
     DeviceResponse,
     OperationResponse,
+    SettingsUpdateRequest,
+    SubnetScanRequest,
     OverviewResponse,
     PageMeta,
     TaskInstanceResponse,
@@ -328,3 +334,317 @@ def _trend_response(row: TrendSeries) -> TrendSeriesResponse:
             for sample in row.samples
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3-5 Admin endpoints
+# ---------------------------------------------------------------------------
+
+
+def _required(name: str) -> Any:
+    """从 AppContext 取已装配服务；缺失统一返回 503。"""
+    ctx = get_ctx()
+    value = getattr(ctx, name)
+    if value is None:
+        raise APIError(
+            "SERVICE_UNAVAILABLE",
+            f"{name} is not configured",
+            503,
+        )
+    return value
+
+
+@router.get("/config/files", tags=["v1-config"])
+async def config_files() -> list[dict[str, Any]]:
+    return _required("admin_config").list_files()
+
+
+@router.get("/config/files/{name}", tags=["v1-config"])
+async def config_file(name: str) -> dict[str, str]:
+    try:
+        text = _required("admin_config").read_file(name)
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND",
+            f"unknown config file '{name}'",
+            404,
+        ) from None
+    return {"name": name, "text": text}
+
+
+@router.post("/config/validate", tags=["v1-config"])
+async def config_validate(
+    request: ConfigTextRequest,
+) -> dict[str, Any]:
+    return _required("admin_config").validate(
+        request.file,
+        request.text,
+    )
+
+
+@router.post("/config/apply", tags=["v1-config"])
+async def config_apply(
+    request: ConfigTextRequest,
+) -> dict[str, Any]:
+    return await _required("admin_config").apply(
+        request.file,
+        request.text,
+    )
+
+
+@router.get("/config/history", tags=["v1-config"])
+async def config_history() -> list[dict[str, Any]]:
+    return _required("admin_config").history()
+
+
+@router.post(
+    "/config/history/{revision}/restore",
+    tags=["v1-config"],
+)
+async def config_restore(
+    revision: int,
+) -> dict[str, Any]:
+    try:
+        return await _required("admin_config").restore(
+            revision
+        )
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND",
+            f"unknown revision '{revision}'",
+            404,
+        ) from None
+
+
+@router.get("/config/backup", tags=["v1-config"])
+async def config_backup() -> Response:
+    data = _required("admin_config").backup_zip()
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                'attachment; filename="wind-hub-config.zip"'
+        },
+    )
+
+
+@router.get("/settings", tags=["v1-config"])
+async def get_settings() -> dict[str, Any]:
+    return _required("admin_config").settings()
+
+
+@router.put("/settings", tags=["v1-config"])
+async def put_settings(
+    request: SettingsUpdateRequest,
+) -> dict[str, Any]:
+    payload = request.model_dump(exclude_none=True)
+    return await _required(
+        "admin_config"
+    ).update_settings(payload)
+
+
+@router.get("/definitions", tags=["v1-config"])
+async def definitions() -> dict[str, Any]:
+    return _required("admin_config").definitions()
+
+
+@router.get("/sinks", tags=["v1-sinks"])
+async def sinks() -> list[dict[str, Any]]:
+    return _required("sinks").list()
+
+
+@router.post(
+    "/sinks/{name}/verify",
+    tags=["v1-sinks"],
+)
+async def verify_sink(name: str) -> dict[str, Any]:
+    try:
+        return await _required("sinks").verify(name)
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND",
+            f"unknown sink '{name}'",
+            404,
+        ) from None
+
+
+@router.post(
+    "/sinks/{name}/write-test",
+    tags=["v1-sinks"],
+)
+async def write_test_sink(
+    name: str,
+) -> dict[str, Any]:
+    try:
+        return await _required("sinks").write_test(
+            name
+        )
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND",
+            f"unknown sink '{name}'",
+            404,
+        ) from None
+
+
+@router.post(
+    "/diagnostics/ping",
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_ping(
+    request: DiagnosticPingRequest,
+) -> dict[str, str]:
+    return await _required("diagnostics").ping(
+        request.host
+    )
+
+
+@router.post(
+    "/diagnostics/tcp",
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_tcp(
+    request: DiagnosticTcpRequest,
+) -> list[dict[str, str | int]]:
+    return await _required("diagnostics").tcp(
+        request.host,
+        request.ports,
+    )
+
+
+@router.post(
+    "/diagnostics/protocol/read",
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_read(
+    request: DiagnosticPointRequest,
+) -> dict[str, Any]:
+    return await _required(
+        "diagnostics"
+    ).protocol_read(
+        request.device_id,
+        request.point_id,
+    )
+
+
+@router.post(
+    "/diagnostics/protocol/write",
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_write(
+    request: DiagnosticPointRequest,
+) -> dict[str, Any]:
+    return await _required(
+        "diagnostics"
+    ).protocol_write(
+        request.device_id,
+        request.point_id,
+        request.value,
+    )
+
+
+@router.post(
+    "/diagnostics/subnet-scan",
+    tags=["v1-diagnostics"],
+)
+async def subnet_scan(
+    request: SubnetScanRequest,
+) -> dict[str, str]:
+    try:
+        operation_id = await _required(
+            "diagnostics"
+        ).start_scan(
+            request.cidr,
+            request.ports,
+        )
+    except ValueError as exc:
+        raise APIError(
+            "VALIDATION_ERROR",
+            str(exc),
+            400,
+        ) from exc
+    return {"operation_id": operation_id}
+
+
+@router.post(
+    "/verify/devices/{device_id}",
+    tags=["v1-devices"],
+)
+async def verify_device(
+    device_id: str,
+) -> dict[str, Any]:
+    try:
+        return await _required(
+            "device_verify"
+        ).verify(device_id)
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND",
+            f"unknown device '{device_id}'",
+            404,
+        ) from None
+
+
+@router.post(
+    "/verify/devices",
+    tags=["v1-devices"],
+)
+async def verify_devices(
+    device_ids: list[str],
+) -> dict[str, Any]:
+    return await _required(
+        "device_verify"
+    ).verify_all(device_ids)
+
+
+@router.get("/quality", tags=["v1-quality"])
+async def quality(
+    window: str = "24 h",
+) -> dict[str, Any]:
+    return _required("quality").snapshot(window)
+
+
+@router.post("/quality/check", tags=["v1-quality"])
+async def quality_check(
+    window: str = "24 h",
+) -> dict[str, Any]:
+    return _required("quality").snapshot(window)
+
+
+@router.get("/system/health", tags=["v1-system"])
+async def system_health(
+    window: str = "24 h",
+) -> dict[str, Any]:
+    return _required(
+        "system_health"
+    ).snapshot(window)
+
+
+@router.get("/logs", tags=["v1-logs"])
+async def logs(
+    level: str | None = None,
+    source: str | None = None,
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    rows = _required("logs").query(
+        level=level,
+        source=source,
+        keyword=keyword,
+    )
+    start = (page - 1) * page_size
+    return {
+        "items": [
+            row.model_dump(mode="json")
+            for row in rows[
+                start : start + page_size
+            ]
+        ],
+        "page": {
+            "page": page,
+            "page_size": page_size,
+            "total": len(rows),
+        },
+    }
