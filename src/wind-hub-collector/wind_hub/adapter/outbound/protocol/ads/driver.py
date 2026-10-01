@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import logging
+import struct
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig, from_device_config
@@ -95,6 +98,8 @@ class ADSDriver:
         self._lock = asyncio.Lock()
 
         self._points: dict[str, ADSPoint] = {}
+        self._mapping_revision = 0
+        self._resolved_revision = -1
         self._connected = False
         self._failed = False
         self._shutdown = False
@@ -116,11 +121,16 @@ class ADSDriver:
     # ------------------------------------------------------------------
 
     def set_points_mapping(self, points: list[PointConfig]) -> None:
-        """Resolve a point table to :class:`ADSPoint` entries (last one wins)."""
+        """加载点表映射。
+
+        symbol-only 点不会在这里访问 PLC；连接建立后统一解析一次并缓存。
+        热重载重新注入点表时递增 revision，下一次读之前只重新解析一次。
+        """
         mapping: dict[str, ADSPoint] = {}
         for point in points:
             mapping[point.point_id] = parse_point(point)
         self._points = mapping
+        self._mapping_revision += 1
 
     # ------------------------------------------------------------------
     # ProtocolPort — connect / close
@@ -138,7 +148,8 @@ class ADSDriver:
                 return
             self._shutdown = False
             last_exc = await self._connect_with_retry()
-            self._monitor_task = asyncio.create_task(self._monitor_loop())
+            if self._monitor_task is None or self._monitor_task.done():
+                self._monitor_task = asyncio.create_task(self._monitor_loop())
             if last_exc is not None:
                 self._reconnect_event.set()
                 raise ProtocolError(
@@ -205,10 +216,13 @@ class ADSDriver:
         return last_exc
 
     async def _do_connect(self) -> None:
-        """Create and open the pyads connection (blocking calls on a thread)."""
+        """创建唯一 ADS Connection，并在首连时解析 symbol 地址。
+
+        重连前先关闭旧 Connection，避免传输失败后残留的 open 对象导致
+        同一 PLC 被重复建连。已解析的点表地址在 Driver 生命周期内复用。
+        """
         pyads = _pyads()
-        # ``None`` lets pyads auto-detect the Net ID from the IP address, as its
-        # ``open()`` does.
+        self._close_connection()
         net_id = self._config.target_net_id or None
         connection = pyads.Connection(net_id, self._config.target_port, self._host)
         connection.set_timeout(int(self._config.timeout * 1000))
@@ -217,6 +231,55 @@ class ADSDriver:
             connection.close()
             raise ProtocolError(f"ADS: failed to open connection to {self._host}")
         self._connection = connection
+        await self._resolve_points_once()
+
+    async def _resolve_points_once(self) -> None:
+        """解析当前点表中尚未拥有 index 地址的 symbol，并缓存结果。
+
+        单个 symbol 不存在只保留为未解析点，后续读时返回 BAD；连接级异常
+        继续上抛，让现有 reconnect 机制处理。一个 mapping revision 至多
+        执行一次解析，避免每个采样周期重复查询符号信息。
+        """
+        if self._resolved_revision == self._mapping_revision:
+            return
+        for point_id, point in list(self._points.items()):
+            if point.address_resolved:
+                continue
+            if point.symbol is None:
+                continue
+            try:
+                symbol = await asyncio.to_thread(self._connection.get_symbol, point.symbol)
+            except Exception as exc:
+                if _is_point_level_ads_error(exc):
+                    logger.warning(
+                        "ADS: cannot resolve symbol '%s' for point '%s'",
+                        point.symbol,
+                        point_id,
+                    )
+                    continue
+                raise
+            index_group = getattr(symbol, "index_group", None)
+            index_offset = getattr(symbol, "index_offset", None)
+            if not isinstance(index_group, int) or not isinstance(index_offset, int):
+                logger.warning(
+                    "ADS: symbol '%s' returned invalid address for point '%s'",
+                    point.symbol,
+                    point_id,
+                )
+                continue
+            size = point.size
+            plc_type = getattr(symbol, "plc_type", None)
+            if plc_type is not None:
+                with contextlib.suppress(TypeError):
+                    size = ctypes.sizeof(plc_type)
+            self._points[point_id] = replace(
+                point,
+                index_group=index_group,
+                index_offset=index_offset,
+                size=size,
+                address_resolved=True,
+            )
+        self._resolved_revision = self._mapping_revision
 
     def _close_connection(self) -> None:
         connection, self._connection = self._connection, None
@@ -282,79 +345,126 @@ class ADSDriver:
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
 
     async def _read_sum(self, points: list[PointRef]) -> list[PointValue]:
-        """Read points via one (or more) ADS Sum commands using symbols.
+        """按已解析 index_group/index_offset 执行 ADS SUM read。
 
-        Points without a symbol (``index_group``/``index_offset`` addressing)
-        are unsupported by the Sum command and raise ``NotImplementedError``.  A
-        symbol whose sub-command fails (missing from the response) is reported
-        as ``BAD``; an overall Sum failure raises :class:`ProtocolError`.
+        symbol 仅在连接/点表变更时解析；周期采集不再调用 read_by_name 或
+        read_list_by_name。固定长度基础类型按 max_subs_per_sum 分块批量读。
+        未解析点和单个子命令错误降级为 BAD，不影响同批其他点。
         """
+        await self._resolve_points_once()
         results: list[PointValue | None] = [None] * len(points)
-        symbol_points: list[tuple[int, PointRef, ADSPoint]] = []
-        for i, ref in enumerate(points):
-            ap = self._points.get(ref.point_id)
-            if ap is None:
-                results[i] = self._bad_value(ref)
+        fixed: list[tuple[int, PointRef, ADSPoint]] = []
+        variable: list[tuple[int, PointRef, ADSPoint]] = []
+
+        for index, ref in enumerate(points):
+            point = self._points.get(ref.point_id)
+            if point is None or not point.address_resolved:
+                results[index] = self._bad_value(ref)
                 continue
-            if ap.symbol is None:
-                raise NotImplementedError(
-                    f"ADS Sum read requires symbol addressing; "
-                    f"point '{ref.point_id}' has no symbol"
-                )
-            symbol_points.append((i, ref, ap))
+            if point.size <= 0:
+                variable.append((index, ref, point))
+            else:
+                fixed.append((index, ref, point))
 
         max_subs = self._config.max_subs_per_sum
-        for start in range(0, len(symbol_points), max_subs):
-            chunk = symbol_points[start : start + max_subs]
-            symbols = [ap.symbol for _, _, ap in chunk]
-            try:
-                values = await asyncio.to_thread(self._connection.read_list_by_name, symbols)
-            except Exception as exc:
-                raise ProtocolError(f"ADS Sum read failed: {exc}") from exc
-            for i, ref, ap in chunk:
-                if ap.symbol not in values:
-                    results[i] = self._bad_value(ref)
-                else:
-                    results[i] = PointValue(
-                        device_id=ref.device_id,
-                        point_id=ref.point_id,
-                        value=values[ap.symbol],
-                        quality=Quality.GOOD,
-                        source="ads",
+        for start in range(0, len(fixed), max_subs):
+            chunk = fixed[start : start + max_subs]
+            addresses = [
+                (point.index_group, point.index_offset, point.size)
+                for _, _, point in chunk
+            ]
+            raw = await asyncio.to_thread(self._sum_read_bytes, addresses)
+            data_offset = 4 * len(chunk)
+            for item_index, (result_index, ref, point) in enumerate(chunk):
+                error = struct.unpack_from("<I", raw, item_index * 4)[0]
+                value_bytes = raw[data_offset : data_offset + point.size]
+                data_offset += point.size
+                if error:
+                    logger.warning(
+                        "ADS: sum read sub-command failed point='%s' error=%d",
+                        ref.point_id,
+                        error,
                     )
-        return [r for r in results if r is not None]
+                    results[result_index] = self._bad_value(ref)
+                    continue
+                results[result_index] = PointValue(
+                    device_id=ref.device_id,
+                    point_id=ref.point_id,
+                    value=self._decode_value(value_bytes, point),
+                    quality=Quality.GOOD,
+                    source="ads",
+                )
+
+        for result_index, ref, point in variable:
+            try:
+                value = await asyncio.to_thread(
+                    self._connection.read,
+                    point.index_group,
+                    point.index_offset,
+                    _plc_datatype(point.data_type),
+                )
+            except Exception as exc:
+                if _is_point_level_ads_error(exc):
+                    results[result_index] = self._bad_value(ref)
+                    continue
+                raise
+            results[result_index] = PointValue(
+                device_id=ref.device_id,
+                point_id=ref.point_id,
+                value=value,
+                quality=Quality.GOOD,
+                source="ads",
+            )
+
+        return [result for result in results if result is not None]
+
+    def _sum_read_bytes(self, addresses: list[tuple[int, int, int]]) -> bytes:
+        """调用 pyads 地址型 ADS SUM read。
+
+        pyads Connection 没有公开的按地址列表方法，因此适配器在第三方库
+        边界内调用 pyads.pyads_ex.adsSumReadBytes；高层不会接触该内部 API。
+        """
+        from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
+
+        return bytes(
+            adsSumReadBytes(
+                self._connection._port,
+                self._connection._adr,
+                addresses,
+            )
+        )
+
+    @staticmethod
+    def _decode_value(raw: bytes, point: ADSPoint) -> Any:
+        """按已知基础 ADS 类型解码 SUM read 数据。"""
+        if point.data_type == "STRING":
+            return raw.split(b"\x00", 1)[0].decode("utf-8")
+        plc_type = _plc_datatype(point.data_type)
+        value = plc_type.from_buffer_copy(raw)
+        return value.value if hasattr(value, "value") else value
 
     async def _read_sequential(self, points: list[PointRef]) -> list[PointValue]:
-        """Read each point with an individual ``Read``, concurrency-limited.
-
-        寻址优先级：点配置了 ``symbol`` 时用 ``read_by_name``（Symbol 寻址），
-        否则回退 ``index_group``/``index_offset`` 兼容寻址。
-
-        部分失败语义：单点级错误（ADS 1808 符号不存在）降级为该点
-        ``Quality.BAD``，不影响批次内其它点；其余错误（超时/传输）无法与
-        连接级故障可靠区分，继续上抛走断线/重连路径。
-        """
+        """按已解析 index_group/index_offset 逐点读取，并限制并发。"""
+        await self._resolve_points_once()
         sem = asyncio.Semaphore(self._config.max_concurrent_reads)
 
         async def read_one(ref: PointRef) -> PointValue:
-            ap = self._points.get(ref.point_id)
-            if ap is None:
+            point = self._points.get(ref.point_id)
+            if point is None or not point.address_resolved:
                 return self._bad_value(ref)
-            plctype = _plc_datatype(ap.data_type)
             try:
                 async with sem:
-                    if ap.symbol is not None:
-                        value = await asyncio.to_thread(
-                            self._connection.read_by_name, ap.symbol, plctype
-                        )
-                    else:
-                        value = await asyncio.to_thread(
-                            self._connection.read, ap.index_group, ap.index_offset, plctype
-                        )
+                    value = await asyncio.to_thread(
+                        self._connection.read,
+                        point.index_group,
+                        point.index_offset,
+                        _plc_datatype(point.data_type),
+                    )
             except Exception as exc:
                 if _is_point_level_ads_error(exc):
                     logger.warning(
-                        "ADS: symbol not found for point '%s' — marked BAD", ref.point_id
+                        "ADS: address read failed for point '%s' — marked BAD",
+                        ref.point_id,
                     )
                     return self._bad_value(ref)
                 raise
@@ -405,20 +515,19 @@ class ADSDriver:
             if ap is None:
                 results.append(self._failed_result(cmd, f"unknown point '{cmd.point_id}'"))
                 continue
+            if not ap.address_resolved:
+                results.append(
+                    self._failed_result(cmd, f"unresolved ADS address for point '{cmd.point_id}'")
+                )
+                continue
             plctype = _plc_datatype(ap.data_type)
-            if ap.symbol is not None:
-                # 写入优先级：symbol 存在时永远走 Symbol 寻址，不用 index。
-                await asyncio.to_thread(
-                    self._connection.write_by_name, ap.symbol, cmd.value, plctype
-                )
-            else:
-                await asyncio.to_thread(
-                    self._connection.write,
-                    ap.index_group,
-                    ap.index_offset,
-                    cmd.value,
-                    plctype,
-                )
+            await asyncio.to_thread(
+                self._connection.write,
+                ap.index_group,
+                ap.index_offset,
+                cmd.value,
+                plctype,
+            )
             results.append(CommandResult(command_id=cmd.command_id, success=True))
         return results
 

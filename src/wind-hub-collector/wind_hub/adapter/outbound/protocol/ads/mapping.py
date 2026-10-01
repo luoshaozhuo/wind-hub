@@ -65,9 +65,10 @@ class ADSPoint:
     """Byte size (``0`` = variable length, e.g. a null-terminated string)."""
 
     symbol: str | None = None
-    """PLC symbol name for symbol addressing (``read_list_by_name`` and device
-    notifications).  ``None`` means the point is addressed by
-    ``index_group``/``index_offset`` only."""
+    """PLC symbol name，仅用于地址解析与诊断；运行时读写使用 index 地址。"""
+
+    address_resolved: bool = True
+    """index_group/index_offset 是否来自明确配置或已完成的 symbol 解析。"""
 
 
 def map_data_type(data_type: str) -> tuple[int, str]:
@@ -124,7 +125,8 @@ def parse_point(point: PointConfig) -> ADSPoint:
             f"ADS point '{point.point_id}': missing 'symbol' or "
             f"'index_group'/'index_offset' in address"
         )
-    # Symbol-only addressing defaults index_group/index_offset to 0 (unused).
+    address_resolved = index_group is not None and index_offset is not None
+    # Symbol-only 配置在 Driver 建连后解析一次；0/0 只是未解析占位，不参与读写。
     ig: Any = index_group if index_group is not None else 0
     io: Any = index_offset if index_offset is not None else 0
 
@@ -148,4 +150,5 @@ def parse_point(point: PointConfig) -> ADSPoint:
         data_type=ads_name,
         size=size,
         symbol=symbol,
+        address_resolved=address_resolved,
     )
