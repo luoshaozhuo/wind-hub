@@ -689,6 +689,8 @@ class SystemHealthUseCase:
             if hasattr(os, "getloadavg")
             else 0.0
         )
+        root_usage = shutil.disk_usage("/")
+        temperature = self._cpu_temperature()
         return {
             "time": datetime.now(UTC),
             "memory_total": mem_total,
@@ -699,7 +701,25 @@ class SystemHealthUseCase:
             "process_rss": rss,
             "load1": load1,
             "cpu_count": os.cpu_count() or 1,
+            "root_disk_free": root_usage.free,
+            "cpu_temperature": temperature,
         }
+
+    def _cpu_temperature(self) -> float | None:
+        """读取 Linux thermal zone 温度；无传感器时返回 None。"""
+        for path in sorted(
+            Path("/sys/class/thermal").glob(
+                "thermal_zone*/temp"
+            )
+        ):
+            try:
+                raw = float(path.read_text().strip())
+            except (OSError, ValueError):
+                continue
+            value = raw / 1000 if raw > 1000 else raw
+            if 0 < value < 150:
+                return round(value, 1)
+        return None
 
     def _mounts(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
