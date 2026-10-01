@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from wind_hub.application.operation import OperationManager
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.admin_state import AdminStateUseCase
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
@@ -76,6 +77,9 @@ class AppContext:
 
     operations: OperationManager | None = None
     """进程内异步 Operation 注册表。"""
+
+    admin_state: AdminStateUseCase | None = None
+    """前端结构化配置批量写用例。"""
 
     config_admin: ConfigAdminUseCase | None = None
     """配置文件管理/历史用例。"""

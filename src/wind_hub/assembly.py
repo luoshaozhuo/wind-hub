@@ -45,6 +45,7 @@ from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.operation import OperationManager
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
+from wind_hub.application.usecase.admin_state import AdminStateUseCase
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
@@ -135,6 +136,9 @@ class AssembledRuntime:
 
     operations: OperationManager
     """进程内 Operation 管理器。"""
+
+    admin_state: AdminStateUseCase
+    """前端结构化配置批量写用例。"""
 
     config_admin: ConfigAdminUseCase
     """配置文件管理与 revision 用例。"""
@@ -272,6 +276,7 @@ def assemble(
     overview = OverviewUseCase(query=query, tasks=tasks, config=config)
     operations = OperationManager()
     config_admin = ConfigAdminUseCase(config)
+    admin_state = AdminStateUseCase(config_admin)
     settings = SettingsUseCase(config, config_admin)
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(runtime, config, config_admin, make_sink)
@@ -301,6 +306,7 @@ def assemble(
         device_control=device_control,
         overview=overview,
         operations=operations,
+        admin_state=admin_state,
         config_admin=config_admin,
         settings=settings,
         definitions=definitions,

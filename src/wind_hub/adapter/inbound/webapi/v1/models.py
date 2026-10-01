@@ -129,7 +129,6 @@ class DeviceDataItemResponse(BaseModel):
     point_id: str
     variable_name: str | None = None
     point_groups: list[str]
-    device_groups: list[str]
     data_type: str
     unit: str
     unit_symbol: str
@@ -252,6 +251,9 @@ class DefinitionsResponse(BaseModel):
     device_models: dict[str, dict[str, Any]]
     point_tables: dict[str, dict[str, Any]]
     point_groups: list[str]
+
+
+    device_groups: list[str]
 
 
 class DefinitionUpsertRequest(BaseModel):
@@ -452,3 +454,49 @@ class SystemHealthResponse(BaseModel):
     mounts: list[StorageMountResponse]
     series: ResourceSeriesResponse
     current: dict[str, float | int | str | None]
+
+
+class AdminDeviceItemRequest(BaseModel):
+    device_id: str
+    model: str
+    device_group: str | None = None
+    host: str
+    port: int | None = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class AdminDevicesRequest(BaseModel):
+    items: list[AdminDeviceItemRequest]
+
+
+class AdminTaskItemRequest(BaseModel):
+    task_id: str
+    device: str | None = None
+    device_group: str | None = None
+    point_group: str
+    interval: float | None = None
+    sinks: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class AdminTasksRequest(BaseModel):
+    items: list[AdminTaskItemRequest]
+
+
+class AdminSinkItemRequest(BaseModel):
+    name: str
+    type: str
+    enabled: bool = True
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminSinksRequest(BaseModel):
+    items: list[AdminSinkItemRequest]
+
+
+class AdminDefinitionsRequest(BaseModel):
+    units: dict[str, dict[str, Any]]
+    device_types: dict[str, dict[str, Any]]
+    device_models: dict[str, dict[str, Any]]
+    point_tables: dict[str, dict[str, Any]]

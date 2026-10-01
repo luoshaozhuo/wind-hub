@@ -114,6 +114,7 @@ def _set_context(rt: AssembledRuntime) -> None:
             device_control=rt.device_control,
             overview=rt.overview,
             operations=rt.operations,
+            admin_state=rt.admin_state,
             config_admin=rt.config_admin,
             settings=rt.settings,
             definitions=rt.definitions,

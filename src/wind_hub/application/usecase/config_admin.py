@@ -143,6 +143,51 @@ class ConfigAdminUseCase:
         revision = self._record_revision(source=source, comment=comment)
         return ConfigApplyResult(success=True, revision=revision)
 
+    async def apply_files(
+        self,
+        files: dict[str, str],
+        *,
+        source: str = "api",
+        comment: str = "",
+    ) -> ConfigApplyResult:
+        """原子应用一组配置文件，并且只推进一次 revision。"""
+        if not files:
+            return ConfigApplyResult(success=True)
+        async with self._apply_lock:
+            try:
+                candidate = self._load_candidates(files)
+            except Exception as exc:
+                return ConfigApplyResult(success=False, errors=[str(exc)])
+            diff = compute_diff(self._config.current_config, candidate)
+            if not diff.has_any_changes:
+                return ConfigApplyResult(success=True)
+            previous = {
+                name: (self._base / name).read_bytes()
+                for name in CONFIG_FILES
+                if (self._base / name).is_file()
+            }
+            try:
+                for name, content in files.items():
+                    self._atomic_write(self._path(name), content)
+                result = await self._config.reload()
+            except Exception as exc:
+                result = None
+                errors = [str(exc) or type(exc).__name__]
+            else:
+                errors = list(result.errors)
+            if result is None or not result.success:
+                self._replace_bytes(previous)
+                rollback = await self._config.reload()
+                if not rollback.success:
+                    errors.append(f"rollback reload failed: {rollback.errors}")
+                return ConfigApplyResult(
+                    success=False,
+                    errors=errors,
+                    rollback_performed=True,
+                )
+            revision = self._record_revision(source=source, comment=comment)
+            return ConfigApplyResult(success=True, revision=revision)
+
     def backup_bytes(self) -> bytes:
         """把当前 Applied YAML 集打成 ZIP；不包含 .history。"""
         buffer = io.BytesIO()
@@ -191,15 +236,21 @@ class ConfigAdminUseCase:
         return ConfigApplyResult(success=True, revision=new_revision)
 
     def _load_candidate(self, name: str, content: str) -> Config:
-        """构造临时完整配置集并返回正式 Config。"""
-        self._path(name)
+        """构造单文件候选配置集并返回正式 Config。"""
+        return self._load_candidates({name: content})
+
+    def _load_candidates(self, files: dict[str, str]) -> Config:
+        """构造多文件候选配置集并执行正式完整加载。"""
+        for name in files:
+            self._path(name)
         with tempfile.TemporaryDirectory(prefix="wind-hub-config-") as tmp:
             target = Path(tmp)
             for file_name in CONFIG_FILES:
                 source = self._base / file_name
                 if source.is_file():
                     shutil.copy2(source, target / file_name)
-            (target / name).write_text(content, encoding="utf-8")
+            for name, content in files.items():
+                (target / name).write_text(content, encoding="utf-8")
             return load_config(target)
 
     def _path(self, name: str) -> Path:

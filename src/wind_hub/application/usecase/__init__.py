@@ -5,6 +5,7 @@ Use Case；不再使用 ``Service`` 命名，也不为单一实现叠加 inbound
 port interface。
 """
 
+from wind_hub.application.usecase.admin_state import AdminStateUseCase
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
@@ -30,6 +31,7 @@ from wind_hub.application.usecase.task import (
 
 __all__ = [
     "AcquisitionInfo",
+    "AdminStateUseCase",
     "CommandUseCase",
     "DeviceCommandResult",
     "DeviceControlUseCase",
