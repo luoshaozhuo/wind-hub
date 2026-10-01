@@ -1,7 +1,7 @@
 """Admin API v1 路由。
 
-Phase 1 只提供 Overview、Devices、Tasks 和 Operation 查询；Device/Task 配置
-CRUD、Verify、Config Apply 等后续接口不在本文件提前占位。
+Phase 1/2 提供 Overview、Devices、Tasks、Operation、Data/Trend 和 Command；
+Device/Task 配置 CRUD、Verify、Config Apply 等后续接口不在本文件提前占位。
 """
 
 from __future__ import annotations
@@ -13,6 +13,10 @@ from fastapi import APIRouter, Query
 from wind_hub.adapter.inbound.webapi.context import get_ctx
 from wind_hub.adapter.inbound.webapi.errors import APIError
 from wind_hub.adapter.inbound.webapi.v1.models import (
+    DeviceCommandRequest,
+    DeviceCommandResponse,
+    DeviceDataItemResponse,
+    DeviceDataPageResponse,
     DevicePageResponse,
     DeviceResponse,
     OperationResponse,
@@ -21,9 +25,13 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     TaskInstanceResponse,
     TaskPageResponse,
     TaskResponse,
+    TrendSampleResponse,
+    TrendSeriesResponse,
 )
 from wind_hub.application.operation import OperationRecord
 from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
+from wind_hub.application.usecase.device_control import DeviceControlUseCase
+from wind_hub.application.usecase.device_data import DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
 from wind_hub.application.usecase.task import (
     TaskInstanceDetail,
@@ -42,6 +50,22 @@ def _devices() -> DeviceUseCase:
     if ctx.devices is None:
         raise APIError("SERVICE_UNAVAILABLE", "device use case is not configured", 503)
     return ctx.devices
+
+
+def _device_data() -> DeviceDataUseCase:
+    """返回 Devices Data/Trend 用例。"""
+    ctx = get_ctx()
+    if ctx.device_data is None:
+        raise APIError("SERVICE_UNAVAILABLE", "device data use case is not configured", 503)
+    return ctx.device_data
+
+
+def _device_control() -> DeviceControlUseCase:
+    """返回设备控制与回读用例。"""
+    ctx = get_ctx()
+    if ctx.device_control is None:
+        raise APIError("SERVICE_UNAVAILABLE", "device control use case is not configured", 503)
+    return ctx.device_control
 
 
 def _tasks() -> TaskUseCase:
@@ -208,3 +232,99 @@ async def get_operation(operation_id: str) -> OperationResponse:
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown operation '{operation_id}'", 404) from None
     return _operation_response(row)
+
+
+@router.get(
+    "/devices/{device_id}/data",
+    response_model=DeviceDataPageResponse,
+    tags=["v1-devices"],
+)
+async def get_device_data(
+    device_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=200),
+    search: str | None = Query(None),
+    point_group: str | None = Query(None),
+) -> DeviceDataPageResponse:
+    """从 LatestPointStore 查询设备当前点值，不主动访问 PLC。"""
+    try:
+        rows = await _device_data().list_data(
+            device_id, search=search, point_group=point_group
+        )
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown device '{device_id}'", 404) from None
+    paged, meta = _page(rows, page, page_size)
+    return DeviceDataPageResponse(
+        items=[
+            DeviceDataItemResponse(
+                **{
+                    **row.model_dump(),
+                    "quality": row.quality.value if row.quality is not None else None,
+                }
+            )
+            for row in paged
+        ],
+        page=meta,
+    )
+
+
+@router.get(
+    "/devices/{device_id}/trend",
+    response_model=list[TrendSeriesResponse],
+    tags=["v1-devices"],
+)
+async def get_device_trend(
+    device_id: str,
+    point_id: list[str] = Query(...),
+    window_seconds: int = Query(600, ge=1, le=604800),
+    limit_per_point: int = Query(600, ge=1, le=3600),
+) -> list[TrendSeriesResponse]:
+    """查询短期内存趋势，不访问历史数据库。"""
+    try:
+        series = await _device_data().trend(
+            device_id,
+            point_id,
+            window_seconds=window_seconds,
+            limit_per_point=limit_per_point,
+        )
+    except KeyError as exc:
+        raise APIError("NOT_FOUND", str(exc), 404) from exc
+    return [_trend_response(row) for row in series]
+
+
+@router.post(
+    "/devices/{device_id}/commands",
+    response_model=DeviceCommandResponse,
+    tags=["v1-devices"],
+)
+async def send_device_command(
+    device_id: str, request: DeviceCommandRequest
+) -> DeviceCommandResponse:
+    """真实写入设备；写成功后回读并刷新 Latest/Trend Store。"""
+    result = await _device_control().send(
+        device_id,
+        request.point_id,
+        request.value,
+        timeout=request.timeout,
+        command_id=request.command_id,
+    )
+    return DeviceCommandResponse(**result.model_dump())
+
+
+def _trend_response(row: TrendSeries) -> TrendSeriesResponse:
+    """Application TrendSeries 转 API DTO。"""
+    return TrendSeriesResponse(
+        point_id=row.point_id,
+        variable_name=row.variable_name,
+        unit=row.unit,
+        unit_symbol=row.unit_symbol,
+        samples=[
+            TrendSampleResponse(
+                value=sample.value,
+                quality=sample.quality.value,
+                timestamp=sample.timestamp,
+                source=sample.source,
+            )
+            for sample in row.samples
+        ],
+    )

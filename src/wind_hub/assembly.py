@@ -48,6 +48,8 @@ from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
+from wind_hub.application.usecase.device_control import DeviceControlUseCase
+from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
@@ -62,6 +64,7 @@ from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub.domain.model.errors import ConfigError
 from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.infra import metrics
+from wind_hub.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 from wind_hub.infra.protocol_registry import protocol_registry
 
 logger = logging.getLogger(__name__)
@@ -106,6 +109,12 @@ class AssembledRuntime:
 
     devices: DeviceUseCase
     """V1 设备查询用例。"""
+
+    device_data: DeviceDataUseCase
+    """V1 Devices Data / Trend 查询用例。"""
+
+    device_control: DeviceControlUseCase
+    """V1 设备控制与回读用例。"""
 
     overview: OverviewUseCase
     """V1 Overview 聚合只读用例。"""
@@ -163,14 +172,18 @@ def assemble(
         on_command_failed=metrics.commands_failed_total.inc,
     )
 
-    # 采集引擎：PointValue 数据流的统一处理入口；采集回调接 Prometheus
-    # 计数器（domain 不依赖 infra，由组合根注入）。
+    latest_points = InMemoryLatestPointStore()
+    trend_store = InMemoryTrendStore(max_samples_per_point=3600)
+
+    # 采集引擎：PointValue 数据流的统一处理入口；采集回调接 Prometheus    # 计数器（domain 不依赖 infra，由组合根注入）。
     # read_timeout 是应用层对一次批量读的外层兜底（协议内部超时仍各自保留）。
     engine = AcquisitionEngine(
         on_points_collected=lambda n: metrics.points_collected_total.inc(n),
         on_points_bad=lambda n: metrics.points_bad_total.inc(n),
         read_timeout=cfg.system.runtime.read_timeout,
     )
+    engine.add_observer(latest_points.put_batch)
+    engine.add_observer(trend_store.append_batch)
 
     # Runtime：组件生命周期与状态编排核心，持有引擎/Task 定义/分发器；
     # 热重载重建组件用的工厂一并注入，使 Runtime 不依赖具体适配器。
@@ -202,6 +215,8 @@ def assemble(
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
     devices_usecase = DeviceUseCase(runtime)
+    device_data = DeviceDataUseCase(runtime, config, latest_points, trend_store)
+    device_control = DeviceControlUseCase(command, query, latest_points, trend_store)
     overview = OverviewUseCase(query=query, tasks=tasks, config=config)
     operations = OperationManager()
 
@@ -221,6 +236,8 @@ def assemble(
         command=command,
         query=query,
         devices=devices_usecase,
+        device_data=device_data,
+        device_control=device_control,
         overview=overview,
         operations=operations,
         iec104_slave=iec104_slave,

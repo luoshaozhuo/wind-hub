@@ -203,6 +203,8 @@ def test_assemble_wires_runtime_engine_and_usecases() -> None:
         assert set(rt.runtime._task_defs) == {"fast"}  # noqa: SLF001
         # Runtime 与 AssembledRuntime 暴露的引擎是同一实例
         assert rt.runtime.engine is rt.engine
+        assert rt.device_data is not None
+        assert rt.device_control is not None
         # Runtime 与 CommandDispatcher 共享同一 Device 注册表
         # （热重载就地增删后双方立即可见的前提）
         assert rt.dispatcher._devices is rt.runtime.devices  # noqa: SLF001

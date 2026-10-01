@@ -20,6 +20,8 @@ from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
+from wind_hub.application.usecase.device_control import DeviceControlUseCase
+from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
@@ -54,6 +56,12 @@ class AppContext:
 
     devices: DeviceUseCase | None = None
     """V1 设备查询用例；聚合静态配置与实时连接状态。"""
+
+    device_data: DeviceDataUseCase | None = None
+    """V1 Devices Data / Trend 缓存查询用例。"""
+
+    device_control: DeviceControlUseCase | None = None
+    """V1 设备写控制与回读用例。"""
 
     overview: OverviewUseCase | None = None
     """V1 Overview 聚合只读模型。"""

@@ -6,6 +6,7 @@ DTO 与 application/domain 模型分离，保证 HTTP 契约可以独立演进�
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -120,3 +121,70 @@ class OperationResponse(BaseModel):
     progress: float
     result: dict[str, object] | None = None
     error: OperationErrorResponse | None = None
+
+
+class DeviceDataItemResponse(BaseModel):
+    """Devices Data 单点最新值 DTO。"""
+
+    point_id: str
+    variable_name: str | None = None
+    point_groups: list[str]
+    data_type: str
+    unit: str
+    unit_symbol: str
+    description: str | None = None
+    value: Any = None
+    quality: str | None = None
+    timestamp: datetime | None = None
+    source: str | None = None
+
+
+class DeviceDataPageResponse(BaseModel):
+    """Devices Data 分页响应。"""
+
+    items: list[DeviceDataItemResponse]
+    page: PageMeta
+
+
+class TrendSampleResponse(BaseModel):
+    """趋势单个采样点 DTO。"""
+
+    value: object | None = None
+    quality: str
+    timestamp: datetime
+    source: str | None = None
+
+
+class TrendSeriesResponse(BaseModel):
+    """单变量趋势序列 DTO。"""
+
+    point_id: str
+    variable_name: str | None = None
+    unit: str
+    unit_symbol: str
+    samples: list[TrendSampleResponse]
+
+
+class DeviceCommandRequest(BaseModel):
+    """设备控制请求。"""
+
+    point_id: str
+    value: Any
+    timeout: float = Field(default=5.0, gt=0, le=30)
+    command_id: str | None = None
+
+
+class DeviceCommandResponse(BaseModel):
+    """写入确认和真实回读结果。"""
+
+    command_id: str
+    requested: Any
+    success: bool
+    error: str | None = None
+    sent_at: datetime
+    finished_at: datetime
+    latency_ms: float
+    readback: Any = None
+    readback_timestamp: datetime | None = None
+    readback_quality: str | None = None
+    readback_error: str | None = None

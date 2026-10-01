@@ -15,6 +15,9 @@ from wind_hub.adapter.inbound.webapi.app import build_api
 from wind_hub.application.app_context import AppContext, clear_context, set_context
 from wind_hub.application.operation import OperationManager
 from wind_hub.application.usecase.device import DeviceSnapshot
+from wind_hub.application.usecase.device_control import DeviceCommandResult
+from wind_hub.application.usecase.device_data import DeviceDataItem, TrendSeries
+from wind_hub.domain.model.point import PointValue, Quality
 from wind_hub.application.usecase.overview import OverviewSnapshot
 from wind_hub.application.usecase.task import TaskSummary
 
@@ -140,3 +143,58 @@ def test_v1_unknown_operation_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_v1_device_data_is_paginated_cache_view() -> None:
+    data = AsyncMock()
+    data.list_data.return_value = [
+        DeviceDataItem(
+            point_id="p1", point_groups=["fast"], data_type="float32",
+            unit="none", unit_symbol="", value=1.5, quality=Quality.GOOD,
+        )
+    ]
+    client = _client(AppContext(device_data=data))
+
+    response = client.get("/api/v1/devices/d1/data?page_size=100")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["quality"] == "good"
+    assert response.json()["items"][0]["value"] == 1.5
+
+
+def test_v1_device_trend_returns_samples() -> None:
+    data = AsyncMock()
+    data.trend.return_value = [
+        TrendSeries(
+            point_id="p1", unit="none", unit_symbol="",
+            samples=[PointValue(device_id="d1", point_id="p1", value=2.5)],
+        )
+    ]
+    client = _client(AppContext(device_data=data))
+
+    response = client.get("/api/v1/devices/d1/trend?point_id=p1")
+
+    assert response.status_code == 200
+    assert response.json()[0]["samples"][0]["value"] == 2.5
+
+
+def test_v1_device_command_returns_readback_contract() -> None:
+    control = AsyncMock()
+    control.send.return_value = DeviceCommandResult(
+        command_id="c1", requested=80.0, success=True,
+        sent_at=PointValue(device_id="d", point_id="p", value=0).timestamp,
+        finished_at=PointValue(device_id="d", point_id="p", value=0).timestamp,
+        latency_ms=12.0, readback=79.8, readback_quality="good",
+    )
+    client = _client(AppContext(device_control=control))
+
+    response = client.post(
+        "/api/v1/devices/d1/commands",
+        json={"point_id": "limit", "value": 80.0, "command_id": "c1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["readback"] == 79.8
+    control.send.assert_awaited_once_with(
+        "d1", "limit", 80.0, timeout=5.0, command_id="c1"
+    )

@@ -8,6 +8,8 @@ port interface。
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
+from wind_hub.application.usecase.device_control import DeviceCommandResult, DeviceControlUseCase
+from wind_hub.application.usecase.device_data import DeviceDataItem, DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
 from wind_hub.application.usecase.query import AcquisitionInfo, QueryUseCase, SystemStatus
 from wind_hub.application.usecase.task import (
@@ -21,6 +23,10 @@ from wind_hub.application.usecase.task import (
 __all__ = [
     "AcquisitionInfo",
     "CommandUseCase",
+    "DeviceCommandResult",
+    "DeviceControlUseCase",
+    "DeviceDataItem",
+    "DeviceDataUseCase",
     "DeviceSnapshot",
     "DeviceUseCase",
     "ConfigUseCase",
@@ -33,5 +39,6 @@ __all__ = [
     "TaskInstanceDetail",
     "TaskSummary",
     "TaskUseCase",
+    "TrendSeries",
     "compute_diff",
 ]
