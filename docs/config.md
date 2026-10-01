@@ -60,8 +60,8 @@ runtime:
 
 ### ads — 进程级 ADS 本机配置
 
-`local_ams_net_id` / `local_ip` / `route_repair`：本机作为 AMS 路由器的
-身份与 route 自动修复参数；不使用 ADS 设备时整段省略即可。
+`local_ams_net_id` / `local_ip` 定义本机 AMS 身份；`username` / `password`
+为 ADS 管理凭据。运行时不自动向 PLC 写入 route；不使用 ADS 设备时整段省略即可。
 
 ### sinks — Sink 定义
 

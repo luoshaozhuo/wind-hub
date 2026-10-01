@@ -19,11 +19,16 @@ from wind_hub.application.operation import OperationManager
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
+from wind_hub.application.usecase.definitions import DefinitionsUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
+from wind_hub.application.usecase.settings import SettingsUseCase
+from wind_hub.application.usecase.sink import SinkUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 
 
@@ -68,6 +73,21 @@ class AppContext:
 
     operations: OperationManager | None = None
     """进程内异步 Operation 注册表。"""
+
+    config_admin: ConfigAdminUseCase | None = None
+    """配置文件管理/历史用例。"""
+
+    settings: SettingsUseCase | None = None
+    """System Settings 用例。"""
+
+    definitions: DefinitionsUseCase | None = None
+    """Definitions 聚合查询用例。"""
+
+    sinks: SinkUseCase | None = None
+    """Sink 管理与测试用例。"""
+
+    diagnostics: DiagnosticUseCase | None = None
+    """网络/协议诊断用例。"""
 
 
 _context: AppContext | None = None

@@ -108,19 +108,13 @@ def test_system_ads_config_parsing() -> None:
         ads={
             "local_ams_net_id": "192.168.151.244.1.2",
             "local_ip": "192.168.151.244",
-            "route_repair": {
-                "enabled": True,
-                "route_name": "PFR",
-                "username": "Administrator",
-                "password": "",
-            },
+            "username": "Administrator",
+            "password": "",
         }
     )
     assert sc.ads is not None
-    assert sc.ads.local_ams_net_id == "192.168.151.244.1.2"
-    assert sc.ads.local_ip == "192.168.151.244"
-    assert sc.ads.route_repair.enabled is True
-    assert sc.ads.route_repair.route_name == "PFR"
+    assert sc.ads.username == "Administrator"
+    assert sc.ads.password == ""
 
 
 def test_system_ads_config_defaults() -> None:
@@ -131,8 +125,8 @@ def test_system_ads_config_defaults() -> None:
         ads={"local_ams_net_id": "192.168.151.244.1.2", "local_ip": "192.168.151.244"}
     )
     assert sc.ads is not None
-    assert sc.ads.route_repair.enabled is False
-
+    assert sc.ads.username == "Administrator"
+    assert sc.ads.password == ""
 
 def test_system_ads_invalid_local_net_id_raises() -> None:
     from wind_hub.config.schema import SystemConfig

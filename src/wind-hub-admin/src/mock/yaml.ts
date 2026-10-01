@@ -28,11 +28,8 @@ runtime:
 ads:
   local_ams_net_id: "192.168.151.244.1.2"
   local_ip: "192.168.151.244"
-  route_repair:
-    enabled: false
-    route_name: "PFR"
-    username: "Administrator"
-    password: ""
+  username: "Administrator"
+  password: ""
 
 sinks:
   - name: kafka_main
@@ -209,8 +206,7 @@ function yamlQuote(value: string) {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
-// ads 段结构对齐正式 schema（src/wind_hub/config/schema.py ADSSystemConfig）：
-// username/password 属于 ads.route_repair，不允许平铺私造字段。
+// ads 段结构对齐正式 schema：Global ADS 直接保存 username/password。
 export function updateMockAdsYaml(settings: {
   local_ip: string
   local_ams_net_id: string
@@ -218,14 +214,7 @@ export function updateMockAdsYaml(settings: {
   password: string
 }) {
   const source = yamlFiles['system.yaml']
-  const block = `ads:
-  local_ams_net_id: ${yamlQuote(settings.local_ams_net_id)}
-  local_ip: ${yamlQuote(settings.local_ip)}
-  route_repair:
-    enabled: false
-    route_name: "PFR"
-    username: ${yamlQuote(settings.username)}
-    password: ${yamlQuote(settings.password)}`
+  const block = `ads:\n  local_ams_net_id: ${yamlQuote(settings.local_ams_net_id)}\n  local_ip: ${yamlQuote(settings.local_ip)}\n  username: ${yamlQuote(settings.username)}\n  password: ${yamlQuote(settings.password)}`
   yamlFiles['system.yaml'] = source.replace(/ads:\n[\s\S]*?(?=\n\nsinks:)/m, block)
 }
 

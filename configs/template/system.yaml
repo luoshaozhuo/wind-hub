@@ -31,13 +31,8 @@ ads:
   # 本机（wind-hub 所在主机/容器）AMS Net ID 与 IP
   local_ams_net_id: "192.168.1.10.1.2"
   local_ip: "192.168.1.10"
-  # route 自动修复：首次连接 PLC 失败时执行一次 add_route_to_plc 后重连；
-  # 每台 PLC 每进程生命周期最多一次
-  route_repair:
-    enabled: false
-    route_name: "PFR"
-    username: "Administrator"
-    password: ""
+  username: "Administrator"
+  password: ""
 
 sinks:
   # Sink 定义 — Task 的 targets 通过名称引用它们

@@ -157,6 +157,11 @@ class ConfigUseCase:
         self._current = current_config
 
     @property
+    def config_dir(self) -> Path:
+        """当前运行实例的配置目录。"""
+        return self._config_dir
+
+    @property
     def current_config(self) -> Config:
         """The currently active configuration."""
         return self._current

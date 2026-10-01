@@ -111,43 +111,27 @@ def _validate_ams_net_id(net_id: str) -> str:
     return net_id
 
 
-class ADSRouteRepairConfig(BaseModel):
-    """一次性 ADS route 自动修复参数（进程级）。
-
-    仅当 PLC 首次连接失败时触发一次 ``add_route_to_plc``——用于
-    Linux/WSL/容器环境下本机到 PLC 的 AMS route 缺失的自恢复。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = False
-    route_name: str = "PFR"
-    username: str = "Administrator"
-    password: str = ""
-
-
 class ADSSystemConfig(BaseModel):
-    """进程级 ADS 本机配置（``system.yaml`` 的 ``ads`` 段）。
-
-    描述 wind-hub 所在 Linux/容器作为 AMS 路由器的本机身份，不属于任何单台
-    Device；进程启动时用于 ``open_port`` + ``set_local_address``。
-    """
+    """进程级 ADS 本机身份与凭据。"""
 
     model_config = ConfigDict(extra="forbid")
 
     local_ams_net_id: str
-    """本机 AMS Net ID（dotted-numeric，如 ``"192.168.151.244.1.2"``）。"""
+    """本机 AMS Net ID。"""
 
     local_ip: str
-    """本机 IP——route 修复时向 PLC 注册的本机地址。"""
+    """本机 IP。"""
 
-    route_repair: ADSRouteRepairConfig = Field(default_factory=ADSRouteRepairConfig)
+    username: str = "Administrator"
+    """ADS 管理用户名；供显式路由/诊断工具使用，不做自动 route repair。"""
+
+    password: str = ""
+    """ADS 管理密码，默认空。"""
 
     @field_validator("local_ams_net_id")
     @classmethod
     def _check_local_ams_net_id(cls, v: str) -> str:
         return _validate_ams_net_id(v)
-
 
 class SiteConfig(BaseModel):
     """当前部署实例所属现场的身份（``system.yaml`` 的 ``site`` 段）。

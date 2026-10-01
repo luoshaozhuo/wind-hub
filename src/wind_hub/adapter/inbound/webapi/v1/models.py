@@ -129,6 +129,7 @@ class DeviceDataItemResponse(BaseModel):
     point_id: str
     variable_name: str | None = None
     point_groups: list[str]
+    device_groups: list[str]
     data_type: str
     unit: str
     unit_symbol: str
@@ -188,3 +189,155 @@ class DeviceCommandResponse(BaseModel):
     readback_timestamp: datetime | None = None
     readback_quality: str | None = None
     readback_error: str | None = None
+
+
+class ConfigFileResponse(BaseModel):
+    name: str
+    exists: bool
+    optional: bool
+
+
+class ConfigContentResponse(BaseModel):
+    name: str
+    content: str
+
+
+class ConfigTextRequest(BaseModel):
+    name: str
+    content: str
+    comment: str = ""
+
+
+class ConfigReviewResponse(BaseModel):
+    name: str
+    valid: bool
+    changed: bool
+    errors: list[str]
+    diff: dict[str, object]
+
+
+class ConfigApplyResponse(BaseModel):
+    success: bool
+    revision: int | None = None
+    errors: list[str]
+    rollback_performed: bool
+
+
+class ConfigRevisionResponse(BaseModel):
+    revision: int
+    created_at: datetime
+    source: str
+    comment: str
+
+
+class SettingsResponse(BaseModel):
+    site_id: str
+    site_name: str | None = None
+    api_enabled: bool
+    api_host: str
+    api_port: int
+    ads_local_ip: str | None = None
+    ads_local_ams_net_id: str | None = None
+    ads_username: str = "Administrator"
+    ads_password: str = ""
+
+
+class SettingsRequest(SettingsResponse):
+    api_port: int = Field(ge=1, le=65535)
+
+
+class DefinitionsResponse(BaseModel):
+    units: dict[str, dict[str, Any]]
+    device_types: dict[str, dict[str, Any]]
+    device_models: dict[str, dict[str, Any]]
+    point_tables: dict[str, dict[str, Any]]
+    point_groups: list[str]
+
+
+class DefinitionUpsertRequest(BaseModel):
+    value: dict[str, Any]
+
+
+class SinkResponse(BaseModel):
+    name: str
+    type: str
+    enabled: bool
+    params: dict[str, Any]
+    healthy: bool
+    message: str | None = None
+    queue_depth: int
+
+
+class SinkUpsertRequest(BaseModel):
+    type: str
+    enabled: bool = True
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class SinkTestResponse(BaseModel):
+    success: bool
+    latency_ms: float
+    message: str | None = None
+    steps: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PingRequest(BaseModel):
+    host: str
+    timeout: float = Field(default=1.0, gt=0, le=10)
+
+
+class PingResponse(BaseModel):
+    host: str
+    reachable: bool
+    latency_ms: float
+
+
+class PortsRequest(BaseModel):
+    host: str
+    ports: list[int]
+    timeout: float = Field(default=1.0, gt=0, le=10)
+
+
+class PortProbeResponse(BaseModel):
+    port: int
+    state: str
+    latency_ms: float
+
+
+class SubnetScanRequest(BaseModel):
+    network: str
+    timeout: float = Field(default=0.5, gt=0, le=10)
+    ports: list[int] = Field(default_factory=lambda: [502, 2404, 48898])
+
+
+class ProtocolCheckRequest(BaseModel):
+    device_id: str
+
+
+class ProtocolCheckResponse(BaseModel):
+    device_id: str
+    connected: bool
+
+
+class ProtocolReadRequest(BaseModel):
+    device_id: str
+    point_id: str
+
+
+class ProtocolReadResponse(BaseModel):
+    device_id: str
+    point_id: str
+    value: Any = None
+    quality: str
+    timestamp: datetime
+    source: str | None = None
+
+
+class PointTableTestRequest(BaseModel):
+    device_id: str
+
+
+class ProtocolWriteRequest(BaseModel):
+    device_id: str
+    point_id: str
+    value: Any

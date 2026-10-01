@@ -1,0 +1,76 @@
+"""Web/应用诊断使用的 Linux 网络探测基础设施。"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import ipaddress
+import math
+import shutil
+import time
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PingProbeResult:
+    host: str
+    reachable: bool
+    latency_ms: float
+
+
+@dataclass(frozen=True)
+class PortProbeResult:
+    port: int
+    state: str
+    latency_ms: float
+
+
+def expand_network(network: str, max_ips: int = 4096) -> list[str]:
+    """展开 IPv4 CIDR/单 IP，并限制最多 4096 个地址。"""
+    try:
+        net = ipaddress.ip_network(network.strip(), strict=False)
+    except ValueError as exc:
+        raise ValueError(f"invalid network '{network}': {exc}") from exc
+    ips = [str(ip) for ip in net.hosts()]
+    if len(ips) > max_ips:
+        raise ValueError(f"network expands to {len(ips)} IPs; limit is {max_ips}")
+    return ips
+
+
+async def ping_host(host: str, timeout: float = 1.0) -> PingProbeResult:
+    """调用系统 ping；极简容器无 ping 时返回 unreachable。"""
+    started = time.monotonic()
+    if shutil.which("ping") is None:
+        return PingProbeResult(host, False, (time.monotonic() - started) * 1000)
+    wait = max(1, math.ceil(timeout))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", str(wait), host,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        code = await asyncio.wait_for(proc.wait(), timeout=timeout + 1.0)
+    except (OSError, TimeoutError):
+        code = 1
+    return PingProbeResult(host, code == 0, (time.monotonic() - started) * 1000)
+
+
+async def probe_port(host: str, port: int, timeout: float = 1.0) -> PortProbeResult:
+    """TCP connect 探测：open/closed/timeout/unreachable。"""
+    started = time.monotonic()
+    state = "open"
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+    except ConnectionRefusedError:
+        state = "closed"
+    except TimeoutError:
+        state = "timeout"
+    except OSError:
+        state = "unreachable"
+    else:
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+    return PortProbeResult(port, state, (time.monotonic() - started) * 1000)

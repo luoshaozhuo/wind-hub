@@ -47,11 +47,16 @@ from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
+from wind_hub.application.usecase.definitions import DefinitionsUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
+from wind_hub.application.usecase.settings import SettingsUseCase
+from wind_hub.application.usecase.sink import SinkUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import (
@@ -121,6 +126,21 @@ class AssembledRuntime:
 
     operations: OperationManager
     """进程内 Operation 管理器。"""
+
+    config_admin: ConfigAdminUseCase
+    """配置文件管理与 revision 用例。"""
+
+    settings: SettingsUseCase
+    """System Settings 用例。"""
+
+    definitions: DefinitionsUseCase
+    """Definitions 聚合读模型。"""
+
+    sink_ops: SinkUseCase
+    """Sink 管理与测试用例。"""
+
+    diagnostics: DiagnosticUseCase
+    """网络/协议诊断用例。"""
 
     iec104_slave: IEC104SlaveServer | None = None
     """可选的 IEC104 从站代理（reporting.yaml 存在时装配），否则 ``None``."""
@@ -219,6 +239,11 @@ def assemble(
     device_control = DeviceControlUseCase(command, query, latest_points, trend_store)
     overview = OverviewUseCase(query=query, tasks=tasks, config=config)
     operations = OperationManager()
+    config_admin = ConfigAdminUseCase(config)
+    settings = SettingsUseCase(config, config_admin)
+    definitions = DefinitionsUseCase(config, config_admin)
+    sink_ops = SinkUseCase(runtime, config, config_admin, make_sink)
+    diagnostics = DiagnosticUseCase(runtime, query, device_control, operations)
 
     # IEC104 从站代理：reporting.yaml 存在时才装配（可选组件）。
     iec104_slave: IEC104SlaveServer | None = None
@@ -240,6 +265,11 @@ def assemble(
         device_control=device_control,
         overview=overview,
         operations=operations,
+        config_admin=config_admin,
+        settings=settings,
+        definitions=definitions,
+        sink_ops=sink_ops,
+        diagnostics=diagnostics,
         iec104_slave=iec104_slave,
     )
 

@@ -1,14 +1,14 @@
 """Admin API v1 路由。
 
-Phase 1/2 提供 Overview、Devices、Tasks、Operation、Data/Trend 和 Command；
-Device/Task 配置 CRUD、Verify、Config Apply 等后续接口不在本文件提前占位。
+Admin API v1 当前覆盖 Phase 1–4：运行总览、设备/任务、Data/Trend/Command、
+Config/Settings/Definitions、Sinks 与 Diagnostics。
 """
 
 from __future__ import annotations
 
 from typing import TypeVar
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from wind_hub.adapter.inbound.webapi.context import get_ctx
 from wind_hub.adapter.inbound.webapi.errors import APIError
@@ -19,7 +19,30 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     DeviceDataPageResponse,
     DevicePageResponse,
     DeviceResponse,
-    OperationResponse,
+    ConfigApplyResponse,
+    ConfigContentResponse,
+    ConfigFileResponse,
+    ConfigReviewResponse,
+    ConfigRevisionResponse,
+    ConfigTextRequest,
+    DefinitionsResponse,
+    DefinitionUpsertRequest,
+    PingRequest,
+    PingResponse,
+    PortProbeResponse,
+    PortsRequest,
+    PointTableTestRequest,
+    ProtocolCheckRequest,
+    ProtocolCheckResponse,
+    ProtocolReadRequest,
+    ProtocolReadResponse,
+    ProtocolWriteRequest,
+    SettingsRequest,
+    SettingsResponse,
+    SinkResponse,
+    SinkTestResponse,
+    SinkUpsertRequest,
+    SubnetScanRequest,    OperationResponse,
     OverviewResponse,
     PageMeta,
     TaskInstanceResponse,
@@ -29,10 +52,15 @@ from wind_hub.adapter.inbound.webapi.v1.models import (
     TrendSeriesResponse,
 )
 from wind_hub.application.operation import OperationRecord
+from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
+from wind_hub.application.usecase.definitions import DefinitionsUseCase
 from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
+from wind_hub.application.usecase.settings import SettingsUseCase
+from wind_hub.application.usecase.sink import SinkUseCase
 from wind_hub.application.usecase.task import (
     TaskInstanceDetail,
     TaskSummary,
@@ -66,6 +94,41 @@ def _device_control() -> DeviceControlUseCase:
     if ctx.device_control is None:
         raise APIError("SERVICE_UNAVAILABLE", "device control use case is not configured", 503)
     return ctx.device_control
+
+
+def _config_admin() -> ConfigAdminUseCase:
+    ctx = get_ctx()
+    if ctx.config_admin is None:
+        raise APIError("SERVICE_UNAVAILABLE", "config admin is not configured", 503)
+    return ctx.config_admin
+
+
+def _settings() -> SettingsUseCase:
+    ctx = get_ctx()
+    if ctx.settings is None:
+        raise APIError("SERVICE_UNAVAILABLE", "settings use case is not configured", 503)
+    return ctx.settings
+
+
+def _definitions() -> DefinitionsUseCase:
+    ctx = get_ctx()
+    if ctx.definitions is None:
+        raise APIError("SERVICE_UNAVAILABLE", "definitions use case is not configured", 503)
+    return ctx.definitions
+
+
+def _sinks() -> SinkUseCase:
+    ctx = get_ctx()
+    if ctx.sinks is None:
+        raise APIError("SERVICE_UNAVAILABLE", "sink use case is not configured", 503)
+    return ctx.sinks
+
+
+def _diagnostics() -> DiagnosticUseCase:
+    ctx = get_ctx()
+    if ctx.diagnostics is None:
+        raise APIError("SERVICE_UNAVAILABLE", "diagnostics use case is not configured", 503)
+    return ctx.diagnostics
 
 
 def _tasks() -> TaskUseCase:
@@ -328,3 +391,277 @@ def _trend_response(row: TrendSeries) -> TrendSeriesResponse:
             for sample in row.samples
         ],
     )
+
+
+# ------------------------------ Phase 3: Config / Settings / Definitions
+
+@router.get("/config/files", response_model=list[ConfigFileResponse], tags=["v1-config"])
+async def list_config_files() -> list[ConfigFileResponse]:
+    return [ConfigFileResponse(**row.model_dump()) for row in _config_admin().list_files()]
+
+
+@router.get("/config/files/{name}", response_model=ConfigContentResponse, tags=["v1-config"])
+async def get_config_file(name: str) -> ConfigContentResponse:
+    try:
+        content = _config_admin().read_file(name)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown config file '{name}'", 404) from None
+    return ConfigContentResponse(name=name, content=content)
+
+
+@router.post("/config/validate", response_model=ConfigReviewResponse, tags=["v1-config"])
+async def validate_config(request: ConfigTextRequest) -> ConfigReviewResponse:
+    try:
+        review = _config_admin().validate_file(request.name, request.content)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown config file '{request.name}'", 404) from None
+    return ConfigReviewResponse(**review.model_dump())
+
+
+@router.post("/config/review", response_model=ConfigReviewResponse, tags=["v1-config"])
+async def review_config(request: ConfigTextRequest) -> ConfigReviewResponse:
+    return await validate_config(request)
+
+
+@router.post("/config/apply", response_model=ConfigApplyResponse, tags=["v1-config"])
+async def apply_config(request: ConfigTextRequest) -> ConfigApplyResponse:
+    try:
+        result = await _config_admin().apply_file(
+            request.name, request.content, source="config", comment=request.comment
+        )
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown config file '{request.name}'", 404) from None
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.post("/config/import", response_model=ConfigApplyResponse, tags=["v1-config"])
+async def import_config(request: ConfigTextRequest) -> ConfigApplyResponse:
+    """上传内容已由前端读取为文本时，与 Apply 共用完整校验/回滚链。"""
+    return await apply_config(request)
+
+
+@router.get("/config/backup", tags=["v1-config"])
+async def download_config_backup() -> Response:
+    payload = _config_admin().backup_bytes()
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=wind-hub-config.zip"},
+    )
+
+
+@router.get(
+    "/config/history",
+    response_model=list[ConfigRevisionResponse],
+    tags=["v1-config"],
+)
+async def config_history() -> list[ConfigRevisionResponse]:
+    return [
+        ConfigRevisionResponse(**row.model_dump()) for row in _config_admin().history()
+    ]
+
+
+@router.post(
+    "/config/history/{revision}/restore",
+    response_model=ConfigApplyResponse,
+    tags=["v1-config"],
+)
+async def restore_config(revision: int) -> ConfigApplyResponse:
+    try:
+        result = await _config_admin().restore_revision(revision)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown revision '{revision}'", 404) from None
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.get("/settings", response_model=SettingsResponse, tags=["v1-settings"])
+async def get_settings() -> SettingsResponse:
+    return SettingsResponse(**_settings().get().model_dump())
+
+
+@router.put("/settings", response_model=ConfigApplyResponse, tags=["v1-settings"])
+async def update_settings(request: SettingsRequest) -> ConfigApplyResponse:
+    from wind_hub.application.usecase.settings import SettingsUpdate
+
+    result = await _settings().update(SettingsUpdate(**request.model_dump()))
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.get("/definitions", response_model=DefinitionsResponse, tags=["v1-definitions"])
+async def get_definitions() -> DefinitionsResponse:
+    return DefinitionsResponse(**_definitions().snapshot().model_dump())
+
+
+@router.put(
+    "/definitions/{kind}/{name}",
+    response_model=ConfigApplyResponse,
+    tags=["v1-definitions"],
+)
+async def upsert_definition(
+    kind: str, name: str, request: DefinitionUpsertRequest
+) -> ConfigApplyResponse:
+    try:
+        result = await _definitions().upsert(kind, name, request.value)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown definition kind '{kind}'", 404) from None
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.delete(
+    "/definitions/{kind}/{name}",
+    response_model=ConfigApplyResponse,
+    tags=["v1-definitions"],
+)
+async def delete_definition(kind: str, name: str) -> ConfigApplyResponse:
+    try:
+        result = await _definitions().delete(kind, name)
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND", f"unknown definition '{kind}/{name}'", 404
+        ) from None
+    return ConfigApplyResponse(**result.model_dump())
+
+
+# ------------------------------ Phase 4: Sinks / Diagnostics
+
+@router.get("/sinks", response_model=list[SinkResponse], tags=["v1-sinks"])
+async def list_sinks() -> list[SinkResponse]:
+    return [SinkResponse(**row.model_dump()) for row in _sinks().list_sinks()]
+
+
+@router.get("/sinks/{name}", response_model=SinkResponse, tags=["v1-sinks"])
+async def get_sink(name: str) -> SinkResponse:
+    try:
+        row = _sinks().get_sink(name)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    return SinkResponse(**row.model_dump())
+
+
+@router.put("/sinks/{name}", response_model=ConfigApplyResponse, tags=["v1-sinks"])
+async def upsert_sink(name: str, request: SinkUpsertRequest) -> ConfigApplyResponse:
+    try:
+        result = await _sinks().upsert(name, request.model_dump())
+    except ValueError as exc:
+        raise APIError("VALIDATION_ERROR", str(exc), 422) from exc
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.delete("/sinks/{name}", response_model=ConfigApplyResponse, tags=["v1-sinks"])
+async def delete_sink(name: str) -> ConfigApplyResponse:
+    try:
+        result = await _sinks().delete(name)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    return ConfigApplyResponse(**result.model_dump())
+
+
+@router.post("/sinks/{name}/verify", response_model=SinkTestResponse, tags=["v1-sinks"])
+async def verify_sink(name: str) -> SinkTestResponse:
+    try:
+        result = await _sinks().verify(name)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    return SinkTestResponse(**result.model_dump())
+
+
+@router.post(
+    "/sinks/{name}/write-test",
+    response_model=SinkTestResponse,
+    tags=["v1-sinks"],
+)
+async def sink_write_test(name: str) -> SinkTestResponse:
+    try:
+        result = await _sinks().write_test(name)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
+    return SinkTestResponse(**result.model_dump())
+
+
+@router.post("/diagnostics/ping", response_model=PingResponse, tags=["v1-diagnostics"])
+async def diagnostic_ping(request: PingRequest) -> PingResponse:
+    result = await _diagnostics().ping(request.host, request.timeout)
+    return PingResponse(**result.model_dump())
+
+
+@router.post(
+    "/diagnostics/ports",
+    response_model=list[PortProbeResponse],
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_ports(request: PortsRequest) -> list[PortProbeResponse]:
+    rows = await _diagnostics().ports(request.host, request.ports, request.timeout)
+    return [PortProbeResponse(**row.model_dump()) for row in rows]
+
+
+@router.post("/diagnostics/subnet-scan", response_model=OperationResponse, tags=["v1-diagnostics"])
+async def diagnostic_subnet_scan(request: SubnetScanRequest) -> OperationResponse:
+    try:
+        operation = _diagnostics().start_subnet_scan(
+            request.network, timeout=request.timeout, ports=request.ports
+        )
+    except ValueError as exc:
+        raise APIError("VALIDATION_ERROR", str(exc), 422) from exc
+    return _operation_response(operation)
+
+
+@router.post(
+    "/diagnostics/protocol/check",
+    response_model=ProtocolCheckResponse,
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_protocol_check(
+    request: ProtocolCheckRequest,
+) -> ProtocolCheckResponse:
+    try:
+        connected = await _diagnostics().protocol_check(request.device_id)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown device '{request.device_id}'", 404) from None
+    return ProtocolCheckResponse(device_id=request.device_id, connected=connected)
+
+
+@router.post(
+    "/diagnostics/protocol/read",
+    response_model=ProtocolReadResponse,
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_protocol_read(request: ProtocolReadRequest) -> ProtocolReadResponse:
+    try:
+        value = await _diagnostics().read(request.device_id, request.point_id)
+    except Exception as exc:
+        raise APIError("PROTOCOL_READ_FAILED", str(exc), 503) from exc
+    return ProtocolReadResponse(
+        device_id=value.device_id,
+        point_id=value.point_id,
+        value=value.value,
+        quality=value.quality.value,
+        timestamp=value.timestamp,
+        source=value.source,
+    )
+
+
+@router.post(
+    "/diagnostics/point-table",
+    response_model=OperationResponse,
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_point_table(request: PointTableTestRequest) -> OperationResponse:
+    try:
+        operation = _diagnostics().start_point_table_test(request.device_id)
+    except KeyError:
+        raise APIError(
+            "NOT_FOUND", f"unknown device '{request.device_id}'", 404
+        ) from None
+    return _operation_response(operation)
+
+
+@router.post(
+    "/diagnostics/protocol/write",
+    response_model=DeviceCommandResponse,
+    tags=["v1-diagnostics"],
+)
+async def diagnostic_protocol_write(
+    request: ProtocolWriteRequest,
+) -> DeviceCommandResponse:
+    result = await _diagnostics().write(request.device_id, request.point_id, request.value)
+    return DeviceCommandResponse(**result.model_dump())

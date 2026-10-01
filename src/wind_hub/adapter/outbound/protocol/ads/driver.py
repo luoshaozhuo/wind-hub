@@ -23,7 +23,6 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from wind_hub.adapter.outbound.protocol.ads import router as ads_router
 from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig, from_device_config
 from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint, parse_point
 from wind_hub.adapter.outbound.protocol.ads.subscription import ADSSubscription
@@ -99,10 +98,6 @@ class ADSDriver:
         self._connected = False
         self._failed = False
         self._shutdown = False
-        # route 自动修复：每个进程生命周期内每台设备最多一次，且只发生在首次
-        # 连接成功之前——已成功连接过的设备掉线只走 reconnect，不再 add route。
-        self._route_repair_attempted = False
-        self._ever_connected = False
 
         self._reconnect_event = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
@@ -181,9 +176,8 @@ class ADSDriver:
         budget = self._config.reconnect_max_retries + 1
         for attempt in range(budget):
             try:
-                await self._connect_once_with_repair()
+                await self._do_connect()
                 self._connected = True
-                self._ever_connected = True
                 self._failed = False
                 logger.info(
                     "ADS: connected to %s (net id %s)", self._host, self._config.target_net_id
@@ -209,28 +203,6 @@ class ADSDriver:
                     )
         self._failed = True
         return last_exc
-
-    async def _connect_once_with_repair(self) -> None:
-        """One connect attempt, with a one-shot route repair on first failure.
-
-        流程：正常连接 → 成功即返回；失败且 route 修复可用（``route_repair``
-        启用、本设备尚未修复过、且从未成功连接过）→ 执行一次
-        ``add_route_to_plc`` 后再连接一次。修复或重连仍失败则异常原样上抛，
-        由外层 retry/reconnect 机制接管；之后不再触发 add route。
-        """
-        try:
-            await self._do_connect()
-            return
-        except Exception as first_exc:
-            if (
-                self._route_repair_attempted
-                or self._ever_connected
-                or not await ads_router.repair_route_once(self._host)
-            ):
-                raise first_exc
-            self._route_repair_attempted = True
-            logger.info("ADS: route repaired for %s — retrying connect once", self._host)
-        await self._do_connect()
 
     async def _do_connect(self) -> None:
         """Create and open the pyads connection (blocking calls on a thread)."""

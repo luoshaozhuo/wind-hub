@@ -7,10 +7,15 @@ port interface。
 
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub.application.usecase.config_admin import ConfigAdminUseCase
+from wind_hub.application.usecase.definitions import DefinitionsUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.device import DeviceSnapshot, DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceCommandResult, DeviceControlUseCase
 from wind_hub.application.usecase.device_data import DeviceDataItem, DeviceDataUseCase, TrendSeries
 from wind_hub.application.usecase.overview import OverviewSnapshot, OverviewUseCase
+from wind_hub.application.usecase.settings import SettingsUseCase
+from wind_hub.application.usecase.sink import SinkUseCase
 from wind_hub.application.usecase.query import AcquisitionInfo, QueryUseCase, SystemStatus
 from wind_hub.application.usecase.task import (
     TaskBatchResult,
@@ -29,10 +34,15 @@ __all__ = [
     "DeviceDataUseCase",
     "DeviceSnapshot",
     "DeviceUseCase",
+    "ConfigAdminUseCase",
     "ConfigUseCase",
+    "DefinitionsUseCase",
+    "DiagnosticUseCase",
     "OverviewSnapshot",
     "OverviewUseCase",
     "QueryUseCase",
+    "SettingsUseCase",
+    "SinkUseCase",
     "SystemStatus",
     "TaskBatchResult",
     "TaskDetail",
