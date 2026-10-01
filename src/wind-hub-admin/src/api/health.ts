@@ -14,12 +14,19 @@ export function healthSeries(_range:HealthRange):HealthSeries{
   if(!d)return {axis:[],memoryHost:[],memoryRss:[],cpuHost:[],cpuProcess:[],cpuTemp:[],diskFree:[],diskForecast:[],stressStart:0,forecastStart:0}
   return {axis:d.series.timestamps.map(x=>x.replace('T',' ').slice(5,16)),memoryHost:nums(d.series.memory_host_gb),memoryRss:nums(d.series.memory_rss_gb),cpuHost:nums(d.series.cpu_host_pct),cpuProcess:nums(d.series.cpu_process_pct),cpuTemp:nums(d.series.cpu_temp_c),diskFree:nums(d.series.disk_free_gb),diskForecast:d.series.disk_free_gb.map(()=>null),stressStart:0,forecastStart:d.series.timestamps.length}
 }
-export const healthRisks=reactive<Array<{name:string;state:string;type:'success'|'warning'|'danger'|'info';summary:string;detail:string}>>([])
+type HealthTagType='success'|'warning'|'danger'|'info'
+function healthTagType(state:string):HealthTagType{
+  if(state==='Fault')return'danger'
+  if(state==='Warning')return'warning'
+  if(state==='Healthy')return'success'
+  return'info'
+}
+export const healthRisks=reactive<Array<{name:string;state:string;type:HealthTagType;summary:string;detail:string}>>([])
 export const healthDetails=reactive<Array<{group:string;items:Array<[string,string]>}>>([])
 export const storageMounts=reactive<Array<{mount:string;used:string;free:string;usage:string;growth:string;estimated:string}>>([])
 export function syncHealthPresentation(){
   const d=state.data;if(!d)return
-  healthRisks.splice(0,healthRisks.length,...d.risks.map(r=>({name:r.name,state:r.state,type:r.state==='Fault'?'danger':r.state==='Warning'?'warning':r.state==='Healthy'?'success':'info',summary:r.summary,detail:r.detail})))
+  healthRisks.splice(0,healthRisks.length,...d.risks.map(r=>({name:r.name,state:r.state,type:healthTagType(r.state),summary:r.summary,detail:r.detail})))
   const c=d.current
   healthDetails.splice(0,healthDetails.length,
     {group:'Memory',items:[['Host used',c.memory_used_gb==null?'—':c.memory_used_gb.toFixed(2)+' GB'],['Host total',c.memory_total_gb==null?'—':c.memory_total_gb.toFixed(2)+' GB'],['wind-hub RSS',c.process_rss_gb==null?'—':c.process_rss_gb.toFixed(2)+' GB']]},
@@ -40,6 +47,6 @@ export function hostCurrent(){
     diskFree,
     healthCheck:data?'live':'—',
     uptimeSeconds:data?.uptime_seconds??0,
-    sampledAt:data?.series.timestamps.at(-1)||'',
+    sampledAt:data?.series.timestamps[data.series.timestamps.length-1]||'',
   }
 }

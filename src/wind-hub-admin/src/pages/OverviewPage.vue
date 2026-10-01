@@ -47,9 +47,9 @@ onBeforeUnmount(() => {
 })
 
 const lastStart = computed(() => {
-  const host = computed(hostCurrent)
-  if(!host.sampledAt||!host.uptimeSeconds)return '—'
-  return new Date(new Date(host.sampledAt).getTime()-host.uptimeSeconds*1000)
+  const current=hostCurrent()
+  if(!current.sampledAt||!current.uptimeSeconds)return '—'
+  return new Date(new Date(current.sampledAt).getTime()-current.uptimeSeconds*1000)
     .toISOString().replace('T',' ').slice(0,19)
 })
 const lastStop = '—'
@@ -147,16 +147,20 @@ const acquisition = computed(() => {
     .sort((a,b)=>a-b)
   const avg=latencies.length?latencies.reduce((sum,value)=>sum+value,0)/latencies.length:0
   const p95=latencies.length?latencies[Math.min(latencies.length-1,Math.ceil(latencies.length*.95)-1)]:0
+  const timelinessDimension=overviewQuality.value.dimensions.find(row=>row.key==='timeliness')
+  const overrunText=timelinessDimension?.metric||''
+  const overrunMatch=overrunText.match(/^(\d+)/)
   return {
     availability,
     avgLatencyMs: avg,
     p95LatencyMs: p95,
     timeouts: channelSummaryValue('timeouts'),
     reconnects: channelSummaryValue('reconnects'),
+    overruns:Number(overrunMatch?.[1]||0),
   }
 })
 
-const host = hostCurrent()
+const host = computed(hostCurrent)
 
 const timeliness = computed(() => {
   const running = store.tasks.filter(t => t.runtime === 'RUNNING')
@@ -176,7 +180,7 @@ const communication = computed(() => ({
   disconnected: channelSummaryValue('interrupted'),
   timeout1m: acquisition.value.timeouts,
   reconnect1m: acquisition.value.reconnects,
-  overrun1m: 0,
+  overrun1m: acquisition.value.overruns,
 }))
 
 const sinkToneOf = (state: string): Tone =>
@@ -326,7 +330,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
               <el-tooltip placement="bottom-start" effect="dark" :show-after="200" :hide-after="100" :teleported="true">
                 <template #content>
                   <div class="metric-tooltip">
-                    <div><b>Success / 1 min</b>：最近 1 分钟成功采集次数 / 计划采集次数</div>
+                    <div><b>Current availability</b>：当前健康采集通道数 / 当前启用采集通道数</div>
                     <div><b>Timeout</b>：最近 1 分钟协议读超时次数</div>
                     <div><b>Overrun</b>：单次采集执行时间超过任务采样周期的次数</div>
                   </div>
@@ -337,12 +341,12 @@ const statTone = (onlineCount: number, total: number): Tone => {
             <span class="ov-status-pill" :class="acquisitionTone"><i></i>{{ acquisition.availability >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span>
           </div>
           <div class="hero-value" :class="acquisitionTone">{{ acquisition.availability.toFixed(2) }}%</div>
-          <div class="hero-caption">Success / 1 min</div>
+          <div class="hero-caption">Current availability</div>
           <div class="four-metrics">
             <div><span>P95 latency</span><b class="value info">{{ acquisition.p95LatencyMs.toFixed(0) }} ms</b></div>
             <div><span>Avg latency</span><b class="value info">{{ acquisition.avgLatencyMs }} ms</b></div>
-            <div><span>Timeout</span><b class="value warning">{{ acquisition.timeout1m }}</b></div>
-            <div><span>Overrun</span><b class="value warning">{{ acquisition.overrun1m }}</b></div>
+            <div><span>Timeout / 1 h</span><b class="value warning">{{ acquisition.timeouts }}</b></div>
+            <div><span>Overrun / 1 h</span><b class="value warning">{{ acquisition.overruns }}</b></div>
           </div>
         </article>
 
@@ -369,8 +373,8 @@ const statTone = (onlineCount: number, total: number): Tone => {
           <div class="four-metrics">
             <div><span>Running</span><b class="value normal">{{ runningTasks }}</b></div>
             <div><span>Stopped</span><b class="value muted">{{ stoppedTasks }}</b></div>
-            <div><span>Timeout / 1m</span><b class="value warning">{{ acquisition.timeout1m }}</b></div>
-            <div><span>Overrun / 1m</span><b class="value warning">{{ acquisition.overrun1m }}</b></div>
+            <div><span>Timeout / 1m</span><b class="value warning">{{ acquisition.timeouts }}</b></div>
+            <div><span>Overrun / 1m</span><b class="value warning">{{ acquisition.overruns }}</b></div>
           </div>
         </article>
 
@@ -438,7 +442,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top"><span class="card-label">System Health</span><span class="ov-status-pill danger"><i></i>CAPACITY RISK</span></div>
-          <div class="risk-summary-main">{{ healthRisks[1].summary }} · {{ healthRisks[0].summary }}</div>
+          <div class="risk-summary-main">{{ healthRisks[1]?.summary ?? '—' }} · {{ healthRisks[0]?.summary ?? '—' }}</div>
         </article>
       </div>
     </section>
