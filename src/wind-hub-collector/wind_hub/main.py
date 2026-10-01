@@ -64,7 +64,6 @@ async def run_collector(
         collector_id=collector_id,
     )
     runtime = assemble(config_dir)
-    runtime.log_store.install()
     grpc_server = build_grpc_server(
         runtime,
         identity,
@@ -96,10 +95,7 @@ async def run_collector(
         try:
             await grpc_server.stop()
         finally:
-            try:
-                await stop_runtime(runtime, timeout=shutdown_timeout)
-            finally:
-                runtime.log_store.uninstall()
+            await stop_runtime(runtime, timeout=shutdown_timeout)
 
     logger.info("wind-hub-collector 已干净退出")
     return 0
