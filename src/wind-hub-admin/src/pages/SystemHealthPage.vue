@@ -1,21 +1,30 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-// System Health 数据源（§23）：曲线 / 风险卡片 / 资源明细 / 存储挂载全部来自
-// mock/health.ts 的确定性模型；切窗口只改变 healthSeries(range) 的输入。
-import { healthDetails, healthRisks, healthSeries, storageMounts, type HealthRange } from '../mock/health'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { loadSystemHealth } from '../services/backend'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
+type HealthRange='1 h'|'24 h'|'7 d'|'30 d'
 const range=ref<HealthRange>('24 h')
+const health=ref<any>({risks:[],series:[],mounts:[],current:{}})
 const memoryEl=ref<HTMLElement|null>(null)
 const diskEl=ref<HTMLElement|null>(null)
 const cpuEl=ref<HTMLElement|null>(null)
 const charts:echarts.ECharts[]=[]
 let resizeObserver:ResizeObserver|null=null
 
-const risks=healthRisks
-const details=healthDetails
-const mounts=[...storageMounts]
+const risks=computed(()=>health.value.risks||[])
+const mounts=computed(()=>health.value.mounts||[])
+const details=computed(()=>[
+  {group:'Host',items:[
+    ['Memory Used',health.value.current?.memory_used||0],
+    ['Load 1m',health.value.current?.load1||0],
+  ]},
+  {group:'Process',items:[
+    ['RSS',health.value.current?.process_rss||0],
+    ['CPU Count',health.value.current?.cpu_count||0],
+  ]},
+])
 
 function baseOption(){
   return {
@@ -36,7 +45,17 @@ function renderCharts(){
   charts.splice(0).forEach(c=>c.dispose())
   resizeObserver?.disconnect()
   resizeObserver=new ResizeObserver(()=>charts.forEach(c=>c.resize()))
-  const series=healthSeries(range.value)
+  const raw=health.value.series||[]
+  const series={
+    axis:raw.map((x:any)=>new Date(x.time).toLocaleTimeString()),
+    memoryHost:raw.map((x:any)=>(x.memory_used||0)/1073741824),
+    memoryRss:raw.map((x:any)=>(x.process_rss||0)/1073741824),
+    diskFree:raw.map(()=>0),
+    diskForecast:raw.map(()=>0),
+    cpuHost:raw.map((x:any)=>(x.load1||0)*100/Math.max(1,x.cpu_count||1)),
+    cpuProcess:raw.map(()=>0),
+    cpuTemp:raw.map(()=>0),
+  }
   const base=baseOption()
   initChart(memoryEl.value,{...base,legend:{top:4,right:8,textStyle:{fontSize:10}},xAxis:{...base.xAxis,data:series.axis},yAxis:{...base.yAxis,name:'GB',nameTextStyle:{fontSize:10}},series:[
     {name:'Host used',type:'line',showSymbol:false,data:series.memoryHost},
@@ -55,7 +74,8 @@ function renderCharts(){
     {name:'CPU temperature',type:'line',showSymbol:false,yAxisIndex:1,data:series.cpuTemp},
   ]})
 }
-onMounted(()=>nextTick(renderCharts))
+async function loadHealth(){health.value=await loadSystemHealth(range.value);await nextTick();renderCharts()}
+onMounted(()=>void loadHealth())
 onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())})
 </script>
 
@@ -78,8 +98,8 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
 
     <section class="health-section">
       <div class="section-title trends-title">
-        <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表为当前前端 mock。</p></div>
-        <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="renderCharts"/>
+        <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表来自 wind-hub-server 真实资源采样。</p></div>
+        <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="loadHealth"/>
       </div>
       <div class="chart-grid">
         <el-card shadow="never"><div class="chart-head"><b>Memory</b><span>Host used / wind-hub RSS</span></div><div ref="memoryEl" class="health-chart"/></el-card>
