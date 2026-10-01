@@ -11,6 +11,9 @@ import {
   validateConfig,
   validateConfigRemote,
   applyConfigRemote,
+  downloadConfigBackup,
+  loadConfigHistory,
+  restoreConfigRevision,
 } from '../services/backend'
 import { CONFIG_FILES, yamlFiles } from '../mock/yaml'
 import { nowText } from '../utils/format'
@@ -71,10 +74,10 @@ async function validate(){
     await sleep(LATENCY.uiLocal)
     const result=await validateConfigRemote(file.value,yamlFiles[file.value])
     if(!result.ok){
-      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+' (mock)')
+      ElMessage.error(result.errors[0]+(result.errors.length>1?` (+${result.errors.length-1} more)`:'')+'')
       return false
     }
-    ElMessage.success(file.value+' validation passed (mock)')
+    ElMessage.success(file.value+' validation passed')
     return true
   }finally{validating.value=false}
 }
@@ -91,13 +94,14 @@ async function apply(){
   }catch{return}
   applying.value=true
   try{
-    await sleep(LATENCY.configApply)
+    const result:any=await applyConfigRemote(file.value,yamlFiles[file.value])
     applyTextToState(file.value,yamlFiles[file.value])
     appliedSnapshot[file.value]=yamlFiles[file.value]
     dirtyMap[file.value]=false
-    pushRevision('Apply',file.value+' applied from workspace (mock)')
+    pushRevision('Apply',file.value+' applied from workspace')
+    revision.value=Number(result.revision||revision.value)
     logConfigApplied('Apply',file.value,revision.value)
-    ElMessage.success('Revision '+revision.value+' applied (mock)')
+    ElMessage.success('Revision '+revision.value+' applied')
   }finally{applying.value=false}
 }
 
@@ -143,14 +147,14 @@ async function validateImport(){
     if(!text.trim()){
       importState.errors=[importState.target+': uploaded file is empty']
       importState.validated=false
-      ElMessage.error('Uploaded file is empty (mock)')
+      ElMessage.error('Uploaded file is empty')
       return
     }
     const result=await validateConfigRemote(importState.target,text)
     importState.errors=result.errors
     importState.validated=result.ok
-    if(!result.ok){ElMessage.error('Import validation failed (mock)');return}
-    ElMessage.success(text===yamlFiles[importState.target]?'Import validated — no changes (mock)':'Import validated — diff ready (mock)')
+    if(!result.ok){ElMessage.error('Import validation failed');return}
+    ElMessage.success(text===yamlFiles[importState.target]?'Import validated — no changes':'Import validated — diff ready')
   }finally{importValidating.value=false}
 }
 function closeImport(){importOpen.value=false;importState.name='';importState.text='';importState.validated=false;importState.errors=[];importState.raw=null}
@@ -165,15 +169,16 @@ async function applyImport(){
   }catch{return}
   importApplying.value=true
   try{
-    await sleep(LATENCY.configApply)
+    const result:any=await applyConfigRemote(importState.target,importState.text)
     yamlFiles[importState.target]=importState.text
     applyTextToState(importState.target,importState.text)
     appliedSnapshot[importState.target]=importState.text
     dirtyMap[importState.target]=false
-    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target+' (mock)')
+    pushRevision('Import','Imported '+(importState.name||'uploaded YAML')+' → '+importState.target)
+    revision.value=Number(result.revision||revision.value)
     logConfigApplied('Import',importState.target,revision.value)
     closeImport()
-    ElMessage.success('Imported as revision '+revision.value+' (mock)')
+    ElMessage.success('Imported as revision '+revision.value)
   }finally{importApplying.value=false}
 }
 
@@ -202,16 +207,9 @@ async function restore(row:HistoryEntry){
   }catch{return}
   restoring.value=true
   try{
-    await sleep(LATENCY.configApply)
-    for(const name of CONFIG_FILES){
-      yamlFiles[name]=row.snapshot[name]
-      applyTextToState(name,row.snapshot[name])
-      appliedSnapshot[name]=row.snapshot[name]
-      dirtyMap[name]=false
-    }
-    pushRevision('Restore','Restored from revision '+row.revision+' (mock)')
-    logConfigApplied('Restore','all files',revision.value)
-    ElMessage.success('Restored as new revision '+revision.value+' (mock)')
+    await restoreConfigRevision(row.revision)
+    ElMessage.success('Revision '+row.revision+' restored')
+    await refreshBackendHistory()
   }finally{restoring.value=false}
 }
 
@@ -303,16 +301,30 @@ function createZip(files:Array<{name:string;content:string}>){
   new Uint8Array(buffer).set(archive)
   return new Blob([buffer],{type:'application/zip'})
 }
-function createBackup(){
+async function createBackup(){
   const stamp=new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
-  const archive=createZip(CONFIG_FILES.map(name=>({name,content:appliedSnapshot[name]})))
+  const archive=await downloadConfigBackup()
   downloadBlob('wind-hub-config-backup_'+stamp+'.zip',archive)
   ElMessage.success('Configuration backup downloaded')
 }
+async function refreshBackendHistory(){
+  const rows=await loadConfigHistory()
+  if(!rows.length)return
+  revision.value=Math.max(...rows.map(row=>Number(row.revision)))
+  history.value=rows.map((row,index)=>({
+    revision:Number(row.revision),
+    time:row.created_at,
+    source:'Backend',
+    comment:row.message,
+    status:index===0?'Applied':'Archived',
+    snapshot:snapshotOfApplied(),
+  }))
+}
+void refreshBackendHistory()
 function handleAction(command:string){
   if(command==='import')importOpen.value=true
   else if(command==='download-current')downloadCurrent()
-  else if(command==='backup')createBackup()
+  else if(command==='backup')void createBackup()
 }
 </script>
 
@@ -409,13 +421,13 @@ function handleAction(command:string){
         <div class="drawer-section-head"><h3>Validation</h3><el-button type="primary" :loading="importValidating" :disabled="!importState.name || importApplying" @click="validateImport">Validate & Compare</el-button></div>
         <el-empty v-if="!importState.name" description="Select a YAML file to continue"/>
         <template v-else-if="importState.errors.length">
-          <el-alert type="error" :closable="false" title="Import validation failed (mock)"/>
+          <el-alert type="error" :closable="false" title="Import validation failed"/>
           <pre class="diff-preview">{{importState.errors.join('\n')}}</pre>
         </template>
         <el-empty v-else-if="!importState.validated" description="Validate the uploaded YAML to continue"/>
         <el-alert v-else-if="importNoChanges" type="info" :closable="false" title="No Changes — uploaded YAML matches the current working copy"/>
         <template v-else>
-          <el-alert type="success" :closable="false" title="Syntax, schema and reference validation passed (mock)"/>
+          <el-alert type="success" :closable="false" title="Syntax, schema and reference validation passed"/>
           <h3>Changes</h3>
           <div class="review-editor import-review">
             <div v-for="(line,index) in importReviewLines" :key="index" :class="['review-line',line.type]">
