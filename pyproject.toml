@@ -5,7 +5,10 @@ description = "风电场主控通信模块：协议无关、输出无关的工�
 authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 readme = "README.md"
 license = "MIT"
-packages = [{ include = "wind_hub", from = "src" }]
+packages = [
+    { include = "wind_hub", from = "src" },
+    { include = "wind_hub_server", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -43,6 +46,7 @@ import-linter = "^2.0"
 
 [tool.poetry.scripts]
 wind-hub = "wind_hub.adapter.inbound.cli.app:main"
+wind-hub-server = "wind_hub_server.main:main"
 
 [tool.ruff]
 line-length = 100
