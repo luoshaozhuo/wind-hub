@@ -26,7 +26,7 @@ import {
   pointTrendSeries,
   type CommandOutcome,
   type PointReadResult,
-} from '../mock/service'
+} from '../services/backend'
 import { deviceDataTick } from '../mock/runtime'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { EMPTY, formatTimestamp } from '../utils/format'
