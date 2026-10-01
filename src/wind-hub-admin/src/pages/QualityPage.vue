@@ -14,7 +14,7 @@ import {
   type QualityProblem,
   type QualityWindow,
 } from '../mock/quality'
-import { LATENCY, runQualityCheck, sleep } from '../mock/service'
+import { LATENCY, runQualityCheck, sleep } from '../services/backend'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -63,7 +63,7 @@ async function runCheck(){
   checking.value=true
   try{
     await sleep(LATENCY.qualityCheck)
-    runQualityCheck()
+    await runQualityCheck()
     lastChecked.value=nowText()
   }finally{checking.value=false}
 }
