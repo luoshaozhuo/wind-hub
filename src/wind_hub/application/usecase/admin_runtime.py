@@ -154,22 +154,66 @@ class SinkUseCase:
     def __init__(
         self,
         runtime: Runtime,
+        config_getter: Callable[[], Config],
         logs: EventLogStore,
     ) -> None:
         self._runtime = runtime
+        self._config_getter = config_getter
         self._logs = logs
 
     def list(self) -> list[dict[str, Any]]:
         depths = self._runtime.sink_queue_depths()
-        return [
-            {
-                "name": name,
-                "healthy": sink.health().healthy,
-                "message": sink.health().message,
-                "queue_depth": depths.get(name, 0),
-            }
-            for name, sink in self._runtime.sinks.items()
-        ]
+        configured = {
+            sink.name: sink
+            for sink in self._config_getter().system.sinks
+        }
+        rows: list[dict[str, Any]] = []
+        for name, cfg in configured.items():
+            runtime_sink = self._runtime.sinks.get(name)
+            health = (
+                runtime_sink.health()
+                if runtime_sink is not None
+                else None
+            )
+            rows.append(
+                {
+                    "name": name,
+                    "type": cfg.type,
+                    "enabled": cfg.enabled,
+                    "params": dict(cfg.params),
+                    "runtime_state": (
+                        "disabled"
+                        if not cfg.enabled
+                        else (
+                            "healthy"
+                            if health is not None
+                            and health.healthy
+                            else "failed"
+                        )
+                    ),
+                    "error": (
+                        health.message
+                        if health is not None
+                        and health.message
+                        else ""
+                    ),
+                    "queue_depth": depths.get(name, 0),
+                    "last_test_at": "",
+                    "last_write_at": "",
+                    "latency_ms": 0,
+                    "writes_total": 0,
+                    "failures_total": 0,
+                    "dropped_points": 0,
+                    "verification": {
+                        "state": "never",
+                        "checked_at": "",
+                        "passed": 0,
+                        "total": 0,
+                        "checks": [],
+                    },
+                }
+            )
+        return rows
 
     async def verify(self, name: str) -> dict[str, Any]:
         sink = self._runtime.sinks.get(name)
