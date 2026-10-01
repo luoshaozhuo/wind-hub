@@ -216,7 +216,6 @@ function chooseDevice(d:DeviceInst){selectedDeviceId.value=d.device_id}
           <template #default="{row}"><el-button link @click="openDetail(row)"><b>{{row.task_id}}</b></el-button></template>
         </el-table-column>
         <el-table-column label="Target" min-width="150"><template #default="{row}">{{targetText(row)}}</template></el-table-column>
-        <el-table-column v-if="isDesktop" prop="point_group" label="Point Group" min-width="130"/>
         <el-table-column v-if="isDesktop" label="Instances" width="100" align="right"><template #default="{row}">{{devicesForTask(row).length}}</template></el-table-column>
         <el-table-column v-if="isDesktop" prop="created_at" label="Created" min-width="150"/>
         <el-table-column v-if="isDesktop" prop="updated_at" label="Updated" min-width="150"/>

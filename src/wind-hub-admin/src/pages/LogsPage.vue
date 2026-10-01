@@ -1,39 +1,45 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { loadLogs, logStore } from '../api/runtime'
+import { api } from '../api/client'
+import { queryLogs } from '../api/runtime'
 import type { MockLogEntry } from '../api/runtime'
 
 type Entry = MockLogEntry
+const rows=ref<Entry[]>([])
+const sources=ref<string[]>([])
+const total=ref(0)
+const loading=ref(false)
+const level=ref<'All'|Entry['level']>('ERROR')
+const source=ref('All')
+const keyword=ref('')
+const page=ref(1)
+const pageSize=ref(20)
+const {isMobile,isTablet}=useViewport()
 
-// 全局 backend log store（§24）：Verify / Task / Command / Sink / Config 等操作由
-// backend service 追加日志，本页只做筛选与分页，不自行生成条目。
-const logs = logStore
-// source 选项从条目并集派生：操作写入新 source（如 config / task）后自动出现。
-const sources = computed(() => [...new Set(logs.map(entry => entry.source))].sort())
-
-const level = ref<'All' | Entry['level']>('ERROR')
-const source = ref('All')
-const keyword = ref('')
-const page = ref(1)
-const pageSize = ref(20)
-const { isMobile, isTablet } = useViewport()
-onMounted(()=>{void loadLogs(200)})
-
-const filteredLogs = computed(() => logs.filter(entry =>
-  (level.value === 'All' || entry.level === level.value) &&
-  (source.value === 'All' || entry.source === source.value) &&
-  (!keyword.value || `${entry.source} ${entry.object} ${entry.message}`.toLowerCase().includes(keyword.value.toLowerCase()))
-))
-
-const pagedLogs = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return filteredLogs.value.slice(start, start + pageSize.value)
-})
-
-watch([level, source, keyword, pageSize], () => {
-  page.value = 1
-})
+async function load(){
+  if(loading.value)return
+  loading.value=true
+  try{
+    const result=await queryLogs({
+      page:page.value,pageSize:pageSize.value,
+      level:level.value,source:source.value,keyword:keyword.value,
+    })
+    rows.value=result.items.map(entry=>({
+      time:entry.timestamp.replace('T',' ').replace('Z','').slice(0,19),
+      level:(entry.level==='WARNING'?'WARN':entry.level) as Entry['level'],
+      source:entry.source,object:entry.object,message:entry.message,
+    }))
+    total.value=result.page.total
+  }finally{loading.value=false}
+}
+async function loadSources(){
+  sources.value=await api<string[]>('/logs/sources')
+}
+watch([level,source,keyword,pageSize],()=>{page.value=1;void load()})
+watch(page,()=>{void load()})
+onMounted(()=>{void Promise.all([load(),loadSources()])})
+</script>
 </script>
 
 <template>
@@ -60,7 +66,7 @@ watch([level, source, keyword, pageSize], () => {
         </div>
       </div>
 
-      <el-table :data="pagedLogs" height="var(--app-table-viewport-height)" empty-text="No logs match current filters">
+      <el-table v-loading="loading" :data="rows" height="var(--app-table-viewport-height)" empty-text="No logs match current filters">
         <el-table-column v-if="!isMobile" prop="time" label="Time" width="180" />
         <el-table-column label="Level" width="100">
           <template #default="{ row }">
@@ -77,7 +83,7 @@ watch([level, source, keyword, pageSize], () => {
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :page-sizes="[20, 50, 100]"
-          :total="filteredLogs.length"
+          :total="total"
           :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
         />
       </div>

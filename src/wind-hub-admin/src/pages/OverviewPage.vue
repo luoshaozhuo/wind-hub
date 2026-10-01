@@ -47,7 +47,7 @@ onBeforeUnmount(() => {
 })
 
 const lastStart = computed(() => {
-  const host = hostCurrent()
+  const host = computed(hostCurrent)
   if(!host.sampledAt||!host.uptimeSeconds)return '—'
   return new Date(new Date(host.sampledAt).getTime()-host.uptimeSeconds*1000)
     .toISOString().replace('T',' ').slice(0,19)

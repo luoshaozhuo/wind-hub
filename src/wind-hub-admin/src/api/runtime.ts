@@ -21,7 +21,9 @@ export const deviceDataTick=reactive<Record<string,number>>({})
 export const logStore=reactive<RuntimeLogEntry[]>([])
 
 export async function loadLogs(limit=200){
-  const result=await api<LogPage>(`/logs?page=1&page_size=${Math.min(200,limit)}&level=All`)
+  const result=await api<LogPage>(
+    `/logs?page=1&page_size=${Math.min(200,limit)}&level=All`,
+  )
   logStore.splice(0,logStore.length,...result.items.map(row=>({
     time:row.timestamp.replace('T',' ').replace('Z','').slice(0,19),
     level:(row.level==='WARNING'?'WARN':row.level) as RuntimeLogEntry['level'],
@@ -47,4 +49,18 @@ export function deviceRuntimeState(deviceId:string, enabled=true){
     }
   }
   return {network:'ok' as const,protocolError:null,failingPointIndexes:[],commandRejected:false,degradation:null}
+}
+
+
+export async function queryLogs(options:{
+  page:number;pageSize:number;level?:string;source?:string;keyword?:string
+}){
+  const params=new URLSearchParams({
+    page:String(options.page),
+    page_size:String(options.pageSize),
+  })
+  if(options.level&&options.level!=='All')params.set('level',options.level)
+  if(options.source&&options.source!=='All')params.set('source',options.source)
+  if(options.keyword)params.set('keyword',options.keyword)
+  return await api<LogPage>('/logs?'+params.toString())
 }

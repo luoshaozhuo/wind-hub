@@ -101,12 +101,24 @@ const trendCache=new Map<string,Array<[Date,number]>>()
 function pointKey(deviceId:string,pointId:string){return deviceId+'::'+pointId}
 
 export async function refreshDeviceData(deviceId:string){
-  const page=await api<DataPage>('/devices/'+encodeURIComponent(deviceId)+'/data?page=1&page_size=200')
-  for(const row of page.items){
-    valueCache.set(pointKey(deviceId,row.point_id),{
-      value:(row.value??'—') as number|boolean|string,quality:row.quality,timestamp:row.timestamp,
-    })
-  }
+  let pageNumber=1
+  let loaded=0
+  let total=0
+  do{
+    const page=await api<DataPage>(
+      '/devices/'+encodeURIComponent(deviceId)+'/data?page='+pageNumber+'&page_size=200',
+    )
+    total=page.page.total
+    loaded+=page.items.length
+    for(const row of page.items){
+      valueCache.set(pointKey(deviceId,row.point_id),{
+        value:(row.value??'—') as number|boolean|string,
+        quality:row.quality,
+        timestamp:row.timestamp,
+      })
+    }
+    pageNumber+=1
+  }while(loaded<total)
   deviceDataTick[deviceId]=(deviceDataTick[deviceId]||0)+1
 }
 
