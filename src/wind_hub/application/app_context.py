@@ -15,12 +15,21 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
+from wind_hub.application.event_log import EventLogStore
 from wind_hub.application.operation import OperationManager
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.device import DeviceUseCase
 from wind_hub.application.usecase.device_control import DeviceControlUseCase
+from wind_hub.application.usecase.admin_config import AdminConfigUseCase
+from wind_hub.application.usecase.admin_runtime import (
+    DeviceVerifyUseCase,
+    DiagnosticUseCase,
+    QualityUseCase,
+    SinkUseCase,
+    SystemHealthUseCase,
+)
 from wind_hub.application.usecase.device_data import DeviceDataUseCase
 from wind_hub.application.usecase.overview import OverviewUseCase
 from wind_hub.application.usecase.query import QueryUseCase
@@ -68,6 +77,27 @@ class AppContext:
 
     operations: OperationManager | None = None
     """进程内异步 Operation 注册表。"""
+
+    admin_config: AdminConfigUseCase | None = None
+    """Admin 配置/Settings/Definitions 用例。"""
+
+    sinks: SinkUseCase | None = None
+    """Sink 状态、验证与写测试用例。"""
+
+    diagnostics: DiagnosticUseCase | None = None
+    """网络与协议诊断用例。"""
+
+    quality: QualityUseCase | None = None
+    """采集质量窗口统计用例。"""
+
+    system_health: SystemHealthUseCase | None = None
+    """主机与进程资源健康用例。"""
+
+    device_verify: DeviceVerifyUseCase | None = None
+    """设备验证用例。"""
+
+    logs: EventLogStore | None = None
+    """结构化事件日志。"""
 
 
 _context: AppContext | None = None
