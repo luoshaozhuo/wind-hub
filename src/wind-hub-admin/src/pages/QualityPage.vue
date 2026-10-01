@@ -57,7 +57,7 @@ const drawerPageSizes=reactive<Record<DrawerTable,number>>({tasks:10,devices:10,
 const chartEl=ref<HTMLElement|null>(null)
 let chart:echarts.ECharts|null=null
 
-// Auto Check（§16）：backend service 推进 qualityCheckTick → qualityWindowData 全量重算。
+// Auto Check：调用后端 /quality/check 立即采样，并按真实时间窗口重算。
 async function runCheck(){
   if(checking.value)return
   checking.value=true
@@ -76,7 +76,7 @@ function syncAutoCheck(){
 }
 watch([autoCheck,checkInterval],syncAutoCheck)
 
-// 通道当前状态（窗口无关）：由 backend Quality API 从 deviceScenarios / sink 状态派生。
+// 通道当前状态由 backend Quality API 从 Runtime device/sink 状态派生。
 const acquisitionChannelRows=computed(()=>acquisitionChannels(channelWindow.value))
 const acquisitionChannelCount=computed(()=>acquisitionChannelRows.value.length)
 const pagedAcquisitionChannels=computed(()=>{

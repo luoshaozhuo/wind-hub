@@ -22,7 +22,9 @@ const menu = ref('Devices')
 const mobileNavOpen = ref(false)
 const booting = ref(true)
 const bootError = ref('')
-onMounted(async()=>{
+async function boot(){
+  booting.value=true
+  bootError.value=''
   try{
     await initializeData()
     await Promise.all([
@@ -36,7 +38,9 @@ onMounted(async()=>{
   }finally{
     booting.value=false
   }
-})
+}
+onMounted(()=>{void boot()})
+
 const { isMobile } = useViewport()
 
 const runMenu = [
@@ -94,7 +98,11 @@ function selectMenu(key: string) {
       </el-header>
 
       <el-main class="app-main">
-        <el-alert v-if="bootError" :title="bootError" type="error" show-icon :closable="false" class="app-api-error"/>
+        <el-alert v-if="bootError" :title="bootError" type="error" show-icon :closable="false" class="app-api-error">
+          <template #default>
+            <el-button size="small" @click="boot">Retry</el-button>
+          </template>
+        </el-alert>
         <section v-if="!booting" class="content">
           <OverviewPage v-if="menu === 'Overview'" />
           <DevicesPage v-if="menu === 'Devices'" />

@@ -7,9 +7,28 @@ export interface QualityProblem {object:string;kind:'Task'|'Device'|'Point'|'Sin
 export interface QualityDimensionRow {key:'continuity'|'timeliness'|'completeness'|'validity'|'delivery';dimension:string;status:'Normal'|'Warning'|'Fault';metric:string;detail:string}
 export interface QualityIssue {level:'Fault'|'Warning';object:string;kind:'Task'|'Device'|'Point'|'Sink';dimension:string;issue:string;duration:string;error:string}
 interface ChannelRow {object:string;source:'Acquisition'|'Delivery';protocol:string;state:'Healthy'|'Degraded'|'Interrupted'|'Disabled';target:string;last:string;latency:string;timeouts:number;reconnects:number;issue:string}
+interface BackendQualityChannel {
+  object:string;source:'Acquisition'|'Delivery';protocol:string;
+  state:'Healthy'|'Degraded'|'Interrupted'|'Disabled';target:string;
+  latency_ms:number|null;timeouts:number;reconnects:number;issue:string|null
+}
+interface BackendMetric {key:string;label:string;value:number;hint:string;status:string}
+interface BackendDimension extends QualityDimensionRow {}
+interface BackendIssue {
+  level:'Fault'|'Warning';object:string;kind:'Task'|'Device'|'Point'|'Sink';
+  dimension:string;issue:string;duration_seconds:number|null;error:string|null
+}
+interface BackendEvent {
+  timestamp:string;object:string;event:string;state:'Active'|'Recovered';evidence:string
+}
 interface BackendQuality {
-  acquisition_channels:Array<any>;delivery_channels:Array<any>;channel_summary:Array<any>;data_metrics:Array<any>;
-  dimensions:Array<any>;issues:Array<any>;events:Array<any>
+  acquisition_channels:BackendQualityChannel[]
+  delivery_channels:BackendQualityChannel[]
+  channel_summary:BackendMetric[]
+  data_metrics:BackendMetric[]
+  dimensions:BackendDimension[]
+  issues:BackendIssue[]
+  events:BackendEvent[]
 }
 export interface QualityWindowData {
   channelSummary:Array<{key:string;label:string;value:number;tone:string}>
@@ -27,7 +46,7 @@ const channelCache=reactive<Record<QualityWindow,{acquisition:ChannelRow[];deliv
   '1 h':{acquisition:[],delivery:[]},'24 h':{acquisition:[],delivery:[]},'7 d':{acquisition:[],delivery:[]},
 })
 function apiWindow(window:QualityWindow){return window==='1 h'?'1h':window==='24 h'?'24h':'7d'}
-function channel(row:any):ChannelRow{return {object:String(row.object),source:row.source,protocol:String(row.protocol),state:row.state,target:String(row.target),last:'—',latency:row.latency_ms==null?'—':Math.round(row.latency_ms)+' ms',timeouts:Number(row.timeouts||0),reconnects:Number(row.reconnects||0),issue:String(row.issue||'—')}}
+function channel(row:BackendQualityChannel):ChannelRow{return {object:String(row.object),source:row.source,protocol:String(row.protocol),state:row.state,target:String(row.target),last:'—',latency:row.latency_ms==null?'—':Math.round(row.latency_ms)+' ms',timeouts:Number(row.timeouts||0),reconnects:Number(row.reconnects||0),issue:String(row.issue||'—')}}
 export async function loadQualityWindow(window:QualityWindow,check=false){
   const row=await api<BackendQuality>('/quality'+(check?'/check':'')+'?window='+apiWindow(window),check?{method:'POST'}:{})
   channelCache[window]={acquisition:row.acquisition_channels.map(channel),delivery:row.delivery_channels.map(channel)}

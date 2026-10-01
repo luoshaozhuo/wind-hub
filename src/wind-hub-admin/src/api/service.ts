@@ -1,4 +1,4 @@
-import { api, apiBlob, jsonBody } from './client'
+import { ApiError, api, apiBlob, jsonBody } from './client'
 import {
   pointsOfTable, protocolOfDevice, refreshRuntimeState, refreshTaskValidity, store,
   tableOfDevice, unitSymbol,
@@ -8,8 +8,10 @@ import type {
 } from './types'
 import { deviceDataTick, loadLogs } from './runtime'
 
-export const LATENCY={uiLocal:0,verifyStep:0,command:0,taskTransition:0,qualityCheck:0,diagnostic:0,configApply:0,scanBatch:0}
-export function sleep(ms:number){return new Promise<void>(resolve=>window.setTimeout(resolve,ms))}
+const OPERATION_POLL_MS=500
+const OPERATION_TIMEOUT_MS=5*60*1000
+
+function sleep(ms:number){return new Promise<void>(resolve=>window.setTimeout(resolve,ms))}
 
 interface Operation {
   operation_id:string; state:string; total:number; completed:number; progress:number;
@@ -33,13 +35,27 @@ export function emptyVerification():DeviceVerification {
   return {state:'idle',network:'unknown',protocol:'unknown',points:'unknown',point_total:0,point_success:0,point_failed:0,verified_at:'',latency_ms:0,errors:[]}
 }
 
-async function pollOperation(id:string):Promise<Operation>{
-  for(let attempt=0;attempt<300;attempt++){
+async function pollOperation(
+  id:string,
+  onProgress?:(completed:number,total:number)=>void,
+):Promise<Operation>{
+  const deadline=Date.now()+OPERATION_TIMEOUT_MS
+  while(Date.now()<deadline){
     const row=await api<Operation>('/operations/'+encodeURIComponent(id))
-    if(['success','partial','failed','cancelled'].includes(row.state))return row
-    await sleep(100)
+    onProgress?.(row.completed,row.total)
+    if(['success','partial','failed','cancelled'].includes(row.state)){
+      if(row.state==='failed'||row.state==='cancelled'){
+        throw new ApiError(
+          row.error?.message||('Operation '+row.state),
+          409,
+          row.error?.code||('OPERATION_'+row.state.toUpperCase()),
+        )
+      }
+      return row
+    }
+    await sleep(OPERATION_POLL_MS)
   }
-  throw new Error('Operation timed out')
+  throw new ApiError('Operation timed out',504,'OPERATION_TIMEOUT')
 }
 
 export async function verifyDevice(d:DeviceInst):Promise<DeviceVerification>{
@@ -248,22 +264,27 @@ export async function probePorts(host:string,ports:number[]){
   const rows=await api<Array<{port:number;state:string;latency_ms:number}>>('/diagnostics/ports',{method:'POST',body:jsonBody({host,ports,timeout:1})})
   return rows.map(row=>({IP:host,Port:row.port,Service:String(row.port),State:row.state.charAt(0).toUpperCase()+row.state.slice(1),Latency:Math.round(row.latency_ms)+' ms'}))
 }
-export async function scanSubnet(network:string,ports:number[],onProgress?:(completed:number,total:number)=>void){
-  const op=await api<Operation>('/diagnostics/subnet-scan',{method:'POST',body:jsonBody({network,ports,timeout:.5})})
-  for(;;){
-    const row=await api<Operation>('/operations/'+encodeURIComponent(op.operation_id))
-    onProgress?.(row.completed,row.total)
-    if(['success','partial','failed','cancelled'].includes(row.state)){
-      if(row.state==='failed')throw new Error(row.error?.message||'Subnet scan failed')
-      const hosts=Array.isArray(row.result?.hosts)?row.result!.hosts as Array<Record<string,unknown>>:[]
-      return hosts.map(host=>({IP:String(host.ip||''),Ping:host.reachable?'Yes':'No',
-        ADS:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(48898)?'Open':'—',
-        Modbus:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(502)?'Open':'—',
-        IEC104:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(2404)?'Open':'—',
-        Object:store.devices.find(d=>d.host===String(host.ip||''))?.device_id||'—'}))
-    }
-    await sleep(100)
-  }
+export async function scanSubnet(
+  network:string,
+  ports:number[],
+  onProgress?:(completed:number,total:number)=>void,
+){
+  const op=await api<Operation>('/diagnostics/subnet-scan',{
+    method:'POST',
+    body:jsonBody({network,ports,timeout:.5}),
+  })
+  const row=await pollOperation(op.operation_id,onProgress)
+  const hosts=Array.isArray(row.result?.hosts)
+    ? row.result.hosts as Array<Record<string,unknown>>
+    : []
+  return hosts.map(host=>({
+    IP:String(host.ip||''),
+    Ping:host.reachable?'Yes':'No',
+    ADS:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(48898)?'Open':'—',
+    Modbus:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(502)?'Open':'—',
+    IEC104:Array.isArray(host.open_ports)&&(host.open_ports as unknown[]).includes(2404)?'Open':'—',
+    Object:store.devices.find(d=>d.host===String(host.ip||''))?.device_id||'—',
+  }))
 }
 export function subnetHostResult(ip:string,_index:number){return {IP:ip,Ping:'—',ADS:'—',Modbus:'—',IEC104:'—',Object:'—'}}
 
@@ -336,4 +357,3 @@ export async function testPointRead(device:DeviceInst,_protocol:string,requestTe
   return {ok:result.state==='success',error:result.error_message,errorCode:result.error_code,latency:result.latency_ms}
 }
 
-export async function runQualityCheck(){return}

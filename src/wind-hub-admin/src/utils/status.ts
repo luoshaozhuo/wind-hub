@@ -1,7 +1,7 @@
 // 共享状态展示映射：业务状态字符串 → Element Plus tag type。
 // 只负责“状态色语义”这一件事；状态文案（label）仍由各页面按业务语境自行决定。
-// 覆盖的状态集合来自 mock/types.ts 的真实枚举：
-//   DeviceVerifyState / VerifyStepState / SinkRuntimeState / TaskDef.runtime / Quality 页状态文案。
+// 覆盖的状态集合来自 api/types.ts 与后端 /api/v1 状态契约：
+// DeviceVerification / SinkRuntimeState / Task runtime / Quality 状态文案。
 // 进行中的状态（checking/testing/starting/stopping/verifying）返回 undefined，
 // 让 el-tag 落回默认 primary 样式，避免传 '' 触发 prop 校验警告。
 

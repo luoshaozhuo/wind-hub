@@ -40,7 +40,6 @@ watch([level,source,keyword,pageSize],()=>{page.value=1;void load()})
 watch(page,()=>{void load()})
 onMounted(()=>{void Promise.all([load(),loadSources()])})
 </script>
-</script>
 
 <template>
   <div class="standard-page logs-page">

@@ -2,7 +2,27 @@ import { reactive } from 'vue'
 import { api } from './client'
 export type HealthRange='1 h'|'24 h'|'7 d'|'30 d'
 export interface HealthSeries {axis:string[];memoryHost:number[];memoryRss:number[];cpuHost:number[];cpuProcess:number[];cpuTemp:number[];diskFree:number[];diskForecast:Array<number|null>;stressStart:number;forecastStart:number}
-interface BackendHealth {uptime_seconds:number;cpu_count:number;load_average:[number,number,number]|null;risks:Array<{name:string;state:string;summary:string;detail:string}>;mounts:Array<any>;series:{timestamps:string[];memory_host_gb:Array<number|null>;memory_rss_gb:Array<number|null>;cpu_host_pct:Array<number|null>;cpu_process_pct:Array<number|null>;cpu_temp_c:Array<number|null>;disk_free_gb:Array<number|null>};current:Record<string,number|null>}
+interface BackendMount {
+  mount:string;used_gb:number;total_gb:number;free_gb:number;usage_pct:number;
+  growth_24h_gb:number|null;estimated_full_days:number|null
+}
+interface BackendHealth {
+  uptime_seconds:number
+  cpu_count:number
+  load_average:[number,number,number]|null
+  risks:Array<{name:string;state:string;summary:string;detail:string}>
+  mounts:BackendMount[]
+  series:{
+    timestamps:string[]
+    memory_host_gb:Array<number|null>
+    memory_rss_gb:Array<number|null>
+    cpu_host_pct:Array<number|null>
+    cpu_process_pct:Array<number|null>
+    cpu_temp_c:Array<number|null>
+    disk_free_gb:Array<number|null>
+  }
+  current:Record<string,number|null>
+}
 const state=reactive<{data:BackendHealth|null}>({data:null})
 function apiRange(range:HealthRange){return range.replace(' ','')}
 export async function loadHealth(range:HealthRange){
