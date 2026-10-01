@@ -49,7 +49,6 @@ ruff = "^0.8"
 import-linter = "^2.0"
 
 [tool.poetry.scripts]
-wind-hub = "wind_hub.adapter.inbound.cli.app:main"
 wind-hub-collector = "wind_hub.main:main"
 wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
