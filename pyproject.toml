@@ -7,7 +7,7 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "wind_hub", from = "src/wind-hub-collector" },
-    { include = "wind_hub_server", from = "src/wind-hub-server" },
+    { include = "wind_hub_server", from = "src/wind-hub-server" },\n    { include = "wind_hub_core", from = "src/wind-hub-core" },
 ]
 
 [tool.poetry.dependencies]
