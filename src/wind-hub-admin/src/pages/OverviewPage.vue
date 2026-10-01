@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { protocolOfDevice, store } from '../api/data'
-import { healthRisks, hostCurrent } from '../api/health'
-import { qualityWindowData } from '../api/quality'
-import { deviceRuntimeState, logStore } from '../api/runtime'
+import { protocolOfDevice, refreshRuntimeState, store } from '../api/data'
+import { healthRisks, hostCurrent, loadHealth, syncHealthPresentation } from '../api/health'
+import { acquisitionChannels, loadQualityWindow, qualityWindowData } from '../api/quality'
+import { deviceRuntimeState, loadLogs, logStore } from '../api/runtime'
 import { useViewport } from '../composables/useViewport'
 
 const { isMobile, isTablet } = useViewport()
@@ -27,27 +27,33 @@ interface ActiveAlert {
   duration: string
 }
 
-const now = ref(Date.now())
 let timer: number | undefined
 
+async function refreshOverview(){
+  await Promise.all([
+    refreshRuntimeState(),
+    loadQualityWindow('1 h'),
+    loadQualityWindow('24 h'),
+    loadHealth('24 h').then(syncHealthPresentation),
+    loadLogs(200),
+  ])
+}
 onMounted(() => {
-  timer = window.setInterval(() => {
-    now.value = Date.now()
-  }, 1000)
+  void refreshOverview()
+  timer = window.setInterval(() => { void refreshOverview() }, 5000)
 })
-
 onBeforeUnmount(() => {
   if (timer !== undefined) window.clearInterval(timer)
 })
 
-/*
- * Service uptime = Wind Hub 服务从最近一次成功启动到当前的连续运行时间。
- * 与主机 uptime 区分。
- */
-const serviceStartedAt = Date.now() - (((18 * 24 + 7) * 60 + 42) * 60 + 16) * 1000
-const lastStart = '2026-09-09 11:36:12'
-const lastStop = '2026-09-09 11:34:08'
-const lastReload = '2026-09-27 17:42:31'
+const lastStart = computed(() => {
+  const host = hostCurrent()
+  if(!host.sampledAt||!host.uptimeSeconds)return '—'
+  return new Date(new Date(host.sampledAt).getTime()-host.uptimeSeconds*1000)
+    .toISOString().replace('T',' ').slice(0,19)
+})
+const lastStop = '—'
+const lastReload = '—'
 
 const formatDuration = (ms: number) => {
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -58,7 +64,7 @@ const formatDuration = (ms: number) => {
   return `${days}d ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-const serviceUptime = computed(() => formatDuration(now.value - serviceStartedAt))
+const serviceUptime = computed(() => formatDuration(hostCurrent().uptimeSeconds * 1000))
 
 const enabledDevices = computed(() => store.devices.filter(d => d.enabled))
 const online = computed(() => enabledDevices.value.filter(d => d.online).length)
@@ -131,15 +137,22 @@ const dataMetricValue = (key: string) =>
   overviewQuality.value.dataMetrics.find(x => x.key === key)?.value ?? 0
 
 const acquisition = computed(() => {
-  const interrupted = channelSummaryValue('interrupted')
-  const timeouts = channelSummaryValue('timeouts')
+  const channels=acquisitionChannels('1 h')
+  const enabled=channels.filter(row=>row.state!=='Disabled')
+  const healthy=enabled.filter(row=>row.state==='Healthy').length
+  const availability=enabled.length?healthy/enabled.length*100:100
+  const latencies=enabled
+    .map(row=>Number.parseFloat(row.latency))
+    .filter(value=>Number.isFinite(value))
+    .sort((a,b)=>a-b)
+  const avg=latencies.length?latencies.reduce((sum,value)=>sum+value,0)/latencies.length:0
+  const p95=latencies.length?latencies[Math.min(latencies.length-1,Math.ceil(latencies.length*.95)-1)]:0
   return {
-    success1m: Number((100 - interrupted * 0.08).toFixed(2)),
-    success5m: Number((100 - interrupted * 0.03).toFixed(2)),
-    avgLatencyMs: 86,
-    p95LatencyMs: 141,
-    timeout1m: Math.max(1, Math.round(timeouts / 7)),
-    overrun1m: interrupted ? 1 : 0,
+    availability,
+    avgLatencyMs: avg,
+    p95LatencyMs: p95,
+    timeouts: channelSummaryValue('timeouts'),
+    reconnects: channelSummaryValue('reconnects'),
   }
 })
 
@@ -155,15 +168,15 @@ const timeliness = computed(() => {
     delayedTasks: 0,
     staleTasks: stale.length,
     worstTask: stale[0]?.task_id || '—',
-    worstAgeRatio: 8.7,
+    worstAgeRatio: null as number|null,
   }
 })
 
 const communication = computed(() => ({
   disconnected: channelSummaryValue('interrupted'),
-  timeout1m: acquisition.value.timeout1m,
-  reconnect1m: Math.max(1, Math.round(channelSummaryValue('reconnects') / 4)),
-  overrun1m: acquisition.value.overrun1m,
+  timeout1m: acquisition.value.timeouts,
+  reconnect1m: acquisition.value.reconnects,
+  overrun1m: 0,
 }))
 
 const sinkToneOf = (state: string): Tone =>
@@ -217,7 +230,7 @@ const ACTIVE_ALERT_DISPLAY_LIMIT = 5
 const visibleActiveAlerts = computed(() => activeAlerts.value.slice(0, ACTIVE_ALERT_DISPLAY_LIMIT))
 const hiddenActiveAlertCount = computed(() => Math.max(0, activeAlerts.value.length - ACTIVE_ALERT_DISPLAY_LIMIT))
 
-const acquisitionTone = computed<Tone>(() => acquisition.value.success1m >= 99.9 ? 'normal' : acquisition.value.success1m >= 99 ? 'warning' : 'danger')
+const acquisitionTone = computed<Tone>(() => acquisition.value.availability >= 99.9 ? 'normal' : acquisition.value.availability >= 99 ? 'warning' : 'danger')
 const deviceTone = computed<Tone>(() => offline.value === 0 ? 'normal' : offline.value <= 2 ? 'warning' : 'danger')
 const taskTone = computed<Tone>(() => stoppedTasks.value === 0 ? 'normal' : 'warning')
 
@@ -321,12 +334,12 @@ const statTone = (onlineCount: number, total: number): Tone => {
                 <el-icon class="info-icon" aria-label="Acquisition 指标定义"><InfoFilled /></el-icon>
               </el-tooltip>
             </span>
-            <span class="ov-status-pill" :class="acquisitionTone"><i></i>{{ acquisition.success1m >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span>
+            <span class="ov-status-pill" :class="acquisitionTone"><i></i>{{ acquisition.availability >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span>
           </div>
-          <div class="hero-value" :class="acquisitionTone">{{ acquisition.success1m.toFixed(2) }}%</div>
+          <div class="hero-value" :class="acquisitionTone">{{ acquisition.availability.toFixed(2) }}%</div>
           <div class="hero-caption">Success / 1 min</div>
           <div class="four-metrics">
-            <div><span>5 min</span><b class="value normal">{{ acquisition.success5m.toFixed(2) }}%</b></div>
+            <div><span>P95 latency</span><b class="value info">{{ acquisition.p95LatencyMs.toFixed(0) }} ms</b></div>
             <div><span>Avg latency</span><b class="value info">{{ acquisition.avgLatencyMs }} ms</b></div>
             <div><span>Timeout</span><b class="value warning">{{ acquisition.timeout1m }}</b></div>
             <div><span>Overrun</span><b class="value warning">{{ acquisition.overrun1m }}</b></div>
@@ -480,7 +493,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
             <div><span>Fresh</span><b class="value normal">{{ timeliness.freshTasks }} / {{ timeliness.totalTasks }}</b></div>
             <div><span>Delayed</span><b class="value warning">{{ timeliness.delayedTasks }} / {{ timeliness.totalTasks }}</b></div>
             <div><span>Stale</span><b class="value danger">{{ timeliness.staleTasks }} / {{ timeliness.totalTasks }}</b></div>
-            <div><span>Worst task</span><b class="value danger" :title="timeliness.worstTask">{{ timeliness.worstTask }} · {{ timeliness.worstAgeRatio.toFixed(1) }} ×</b></div>
+            <div><span>Worst task</span><b class="value danger" :title="timeliness.worstTask">{{ timeliness.worstTask }}</b></div>
           </div>
         </article>
 

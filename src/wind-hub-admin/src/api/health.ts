@@ -27,4 +27,19 @@ export function syncHealthPresentation(){
   )
   storageMounts.splice(0,storageMounts.length,...d.mounts.map(m=>({mount:m.mount,used:m.used_gb.toFixed(1)+' GB / '+m.total_gb.toFixed(1)+' GB',free:m.free_gb.toFixed(1)+' GB',usage:m.usage_pct.toFixed(1)+'%',growth:m.growth_24h_gb==null?'—':m.growth_24h_gb.toFixed(2)+' GB / 24 h',estimated:m.estimated_full_days==null?'—':m.estimated_full_days.toFixed(1)+' days'})))
 }
-export function hostCurrent(){const c=state.data?.current;return {cpu:c?.cpu_host_pct??0,memory:c?.memory_total_gb&&c?.memory_used_gb?c.memory_used_gb/c.memory_total_gb*100:0,diskFree:c?.disk_free_gb??0,healthCheck:'live'}}
+export function hostCurrent(){
+  const data=state.data
+  const c=data?.current
+  const memory=c?.memory_total_gb&&c?.memory_used_gb
+    ? c.memory_used_gb/c.memory_total_gb*100 : 0
+  const diskFree=c?.disk_total_gb&&c?.disk_free_gb
+    ? c.disk_free_gb/c.disk_total_gb*100 : 0
+  return {
+    cpu:c?.cpu_host_pct??0,
+    memory,
+    diskFree,
+    healthCheck:data?'live':'—',
+    uptimeSeconds:data?.uptime_seconds??0,
+    sampledAt:data?.series.timestamps.at(-1)||'',
+  }
+}
