@@ -484,3 +484,52 @@ export async function loadDeviceTrend(
     `/devices/${encodeURIComponent(deviceId)}/trend?${query}`,
   )
 }
+
+
+export async function loadOverview(){
+  return request<any>('/overview')
+}
+
+export async function loadDevices(){
+  const items:any[]=[]
+  let page=1
+  while(true){
+    const result=await request<any>(`/devices?page=${page}&page_size=200`)
+    items.push(...(result.items||[]))
+    if(items.length>=Number(result.page?.total||items.length))break
+    page+=1
+  }
+  return items
+}
+
+export async function loadTasks(){
+  const items:any[]=[]
+  let page=1
+  while(true){
+    const result=await request<any>(`/tasks?page=${page}&page_size=200`)
+    items.push(...(result.items||[]))
+    if(items.length>=Number(result.page?.total||items.length))break
+    page+=1
+  }
+  return items
+}
+
+export async function loadSinks(){
+  return request<any[]>('/sinks')
+}
+
+export async function loadDefinitions(){
+  return request<any>('/definitions')
+}
+
+export async function loadConfigFiles(){
+  const rows=await request<Array<{name:string}>>('/config/files')
+  const result:Record<string,string>={}
+  await Promise.all(rows.map(async row=>{
+    const file=await request<{name:string;text:string}>(
+      `/config/files/${encodeURIComponent(row.name)}`,
+    )
+    result[file.name]=file.text
+  }))
+  return result
+}
