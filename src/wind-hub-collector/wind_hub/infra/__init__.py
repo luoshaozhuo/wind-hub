@@ -1,1 +1,1 @@
-"""Infrastructure — 日志、指标、注册中心。"""
+"""Collector infrastructure：协议注册与轻量基础设施。"""

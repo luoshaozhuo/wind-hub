@@ -26,11 +26,9 @@ class ValidationCode(StrEnum):
     PING_FAILED = "PING_FAILED"
     TCP_PORT_UNREACHABLE = "TCP_PORT_UNREACHABLE"
     PROTOCOL_CONNECT_FAILED = "PROTOCOL_CONNECT_FAILED"
-    PROTOCOL_AUTH_FAILED = "PROTOCOL_AUTH_FAILED"
     POINT_RESOLVE_FAILED = "POINT_RESOLVE_FAILED"
     POINT_MAPPING_MISMATCH = "POINT_MAPPING_MISMATCH"
     POINT_READ_FAILED = "POINT_READ_FAILED"
-    POINT_TYPE_MISMATCH = "POINT_TYPE_MISMATCH"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +51,6 @@ class PointProbeSpec:
     """协议无关的点探测输入。"""
 
     point_id: str
-    variable_name: str | None
     data_type: str
     address: dict[str, Any]
 

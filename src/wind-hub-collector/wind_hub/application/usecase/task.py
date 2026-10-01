@@ -1,7 +1,7 @@
 """Task use case——采集 Task / Task Instance 显式生命周期控制的应用编排。
 
-基于 :class:`~wind_hub.application.runtime.runtime.Runtime`，供 CLI /
-Web API 管理采集任务：查询 Task 定义与展开后的实例、start/stop 单个实例、
+基于 :class:`~wind_hub.application.runtime.runtime.Runtime`，供 Collector gRPC
+控制面管理采集任务：查询 Task 定义与展开后的实例、start/stop 单个实例、
 批量启停。
 
 核心语义：
@@ -30,7 +30,7 @@ from wind_hub.config.schema import CollectionTaskConfig
 
 
 class TaskDetail(BaseModel):
-    """Task Definition 的展示级快照——供 CLI / Web API 呈现。"""
+    """Task Definition 的控制面快照。"""
 
     task_id: str
     device: str | None = None

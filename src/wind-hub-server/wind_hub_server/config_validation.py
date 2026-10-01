@@ -543,7 +543,6 @@ class ServerConfigValidator:
         """把 Collector 配置模型转换为 common probe 输入。"""
         return PointProbeSpec(
             point_id=point.point_id,
-            variable_name=point.variable_name,
             data_type=point.data_type,
             address=point.address.model_dump(
                 mode="python",

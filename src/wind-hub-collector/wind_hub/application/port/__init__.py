@@ -1,7 +1,5 @@
-"""Application 层 outbound port——应用对外部能力的依赖边界。
+"""Collector Application 层 outbound port。
 
-这里放置由 application 层（Runtime、Use Case）消费、由 outbound adapter /
-infra 实现的端口接口。被 domain 服务直接消费的扩展点端口
-（``ProtocolPort``）保留在 ``domain.port.outbound``，避免 domain 反向依赖
-application。
+这里只保留 Collector Runtime 直接依赖、由 outbound adapter 实现的应用端口。
+协议驱动端口 ProtocolPort 属于 domain 扩展点，继续位于 domain.port。
 """

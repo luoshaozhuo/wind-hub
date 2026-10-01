@@ -1,1 +1,1 @@
-"""Domain layer — 六边形核心，零外部依赖。"""
+"""Collector Domain 层：采集、命令与协议无关领域模型。"""
