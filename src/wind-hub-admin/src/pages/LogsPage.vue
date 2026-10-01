@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
-import { logStore } from '../api/runtime'
+import { loadLogs, logStore } from '../api/runtime'
 import type { MockLogEntry } from '../api/runtime'
 
 type Entry = MockLogEntry
@@ -18,6 +18,7 @@ const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const { isMobile, isTablet } = useViewport()
+onMounted(()=>{void loadLogs(200)})
 
 const filteredLogs = computed(() => logs.filter(entry =>
   (level.value === 'All' || entry.level === level.value) &&
@@ -46,7 +47,7 @@ watch([level, source, keyword, pageSize], () => {
 
     <el-card shadow="never">
       <div class="logs-toolbar">
-        <div class="row"><b>Log Stream</b><el-tag>mock</el-tag></div>
+        <div class="row"><b>Log Stream</b><el-tag type="success">live</el-tag></div>
         <div class="logs-filters">
           <el-select v-model="level" aria-label="Log level">
             <el-option v-for="item in ['ERROR','WARN','INFO','All']" :key="item" :label="item" :value="item" />

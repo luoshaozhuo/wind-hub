@@ -12,7 +12,7 @@ import {
   runProtocolRead,
   runProtocolWrite,
   sleep,
-  subnetHostResult,
+  scanSubnet,
 } from '../api/service'
 import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../api/types'
 import type { DeviceInst, PointDef, Protocol } from '../api/types'
@@ -125,8 +125,8 @@ async function runNetwork(){
     try{
       // Ping / Port Probe 结果与 Devices Verify 一致（§17.1/§17.2）：由 backend service 派生
       networkResults.value=networkTool.value==='ping'
-        ? [pingHost(singleHost.value)]
-        : probePorts(singleHost.value,parsePorts())
+        ? [await pingHost(singleHost.value)]
+        : await probePorts(singleHost.value,parsePorts())
     }finally{running.value=false}
     return
   }
@@ -139,18 +139,11 @@ async function runNetwork(){
   scanProgress.value=0
   scanTotal.value=info.total
   try{
-    const rows:Array<Record<string,string|number>>=[]
-    const batchSize=32
-    for(let offset=0;offset<info.total;offset+=batchSize){
-      const end=Math.min(info.total,offset+batchSize)
-      for(let i=offset;i<end;i++){
-        const ip=intToIpv4((info.first+i)>>>0)
-        rows.push(subnetHostResult(ip,i+1))
-      }
-      scanProgress.value=end
-      networkResults.value=[...rows]
-      await sleep(LATENCY.scanBatch)
-    }
+    networkResults.value=await scanSubnet(
+      info.network,
+      parsePorts().length?parsePorts():[502,2404,48898],
+      (completed,total)=>{scanProgress.value=completed;scanTotal.value=total},
+    )
   }finally{running.value=false}
 }
 

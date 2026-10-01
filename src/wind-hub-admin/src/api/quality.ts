@@ -40,8 +40,8 @@ export async function loadQualityWindow(window:QualityWindow,check=false){
   }
 }
 export function qualityWindowData(window:QualityWindow){return cache[window]}
-export function acquisitionChannels(){return channelCache['24 h'].acquisition}
-export function deliveryChannels(){return channelCache['24 h'].delivery}
+export function acquisitionChannels(window:QualityWindow='24 h'){return channelCache[window].acquisition}
+export function deliveryChannels(window:QualityWindow='24 h'){return channelCache[window].delivery}
 export function qualityMetricDetail(key:string,window:QualityWindow){
   const data=cache[window];const issues=data.issues.filter(i=>key==='dropped'?i.dimension.includes('Delivery'):true)
   return {tasks:issues.filter(i=>i.kind==='Task').map(i=>({Task:i.object,State:i.level,Error:i.error})),devices:issues.filter(i=>i.kind==='Device'||i.kind==='Point').map(i=>({Device:i.object,State:i.level,Error:i.error})),errors:issues.map(i=>({Object:i.object,Error:i.error}))}

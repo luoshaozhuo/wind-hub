@@ -15,7 +15,7 @@ import { useViewport } from '../composables/useViewport'
 import { logStore } from '../api/runtime'
 import { startTask, stopTask, taskInstanceState } from '../api/service'
 import type { DeviceInst, TaskDef } from '../api/types'
-import { formatTimestamp, nowText } from '../utils/format'
+import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
 
 const createDialog = ref(false)
@@ -53,21 +53,8 @@ const taskDirty=computed(()=>!!selectedTask.value && taskFormState.value!==taskS
 // Task 日志来自全局 backend log store（§24）：Start/Stop 失败等操作实时写入，
 // 历史条目按 task 对象确定性生成，与 Logs 页同源。
 const taskLogs=computed(()=>{
-  const id=selectedTask.value?.task_id || 'task'
-  const fromStore=logStore.filter(entry=>entry.source==='task'&&entry.object===id)
-  const templates=[
-    {level:'INFO' as const,message:`${id} cycle completed · 0 errors`},
-    {level:'INFO' as const,message:`${taskDevices.value.length} device instance(s) scheduled`},
-    {level:'WARN' as const,message:'One collection cycle exceeded expected interval by 42 ms'},
-    {level:'INFO' as const,message:'Sink delivery completed'},
-    {level:'INFO' as const,message:'Point batch read completed'},
-    {level:'INFO' as const,message:'Runtime heartbeat OK'},
-  ]
-  const history=Array.from({length:120},(_,i)=>{
-    const base=templates[i%templates.length]
-    return {time:formatTimestamp(new Date(Date.now()-(i+1)*47000)),level:base.level,message:base.message}
-  })
-  return [...fromStore,...history]
+  const id=selectedTask.value?.task_id || ''
+  return logStore.filter(entry=>entry.source==='task'&&(!id||entry.object===id))
 })
 const visibleTaskLogs=computed(()=>taskLogs.value.slice(0,taskLogLimit.value))
 

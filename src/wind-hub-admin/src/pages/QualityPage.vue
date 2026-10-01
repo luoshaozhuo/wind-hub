@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useViewport } from '../composables/useViewport'
 import {
   acquisitionChannels,
@@ -10,6 +10,7 @@ import {
   qualityDimensionDetail,
   qualityMetricDetail,
   qualityWindowData,
+  loadQualityWindow,
   type CommunicationEvent,
   type QualityProblem,
   type QualityWindow,
@@ -62,8 +63,8 @@ async function runCheck(){
   if(checking.value)return
   checking.value=true
   try{
-    await sleep(LATENCY.qualityCheck)
-    runQualityCheck()
+    await loadQualityWindow(channelWindow.value,true)
+    if(dataWindow.value!==channelWindow.value)await loadQualityWindow(dataWindow.value,true)
     lastChecked.value=nowText()
   }finally{checking.value=false}
 }
@@ -77,13 +78,13 @@ function syncAutoCheck(){
 watch([autoCheck,checkInterval],syncAutoCheck)
 
 // 通道当前状态（窗口无关）：由 backend Quality API 从 deviceScenarios / sink 状态派生。
-const acquisitionChannelRows=computed(()=>acquisitionChannels())
+const acquisitionChannelRows=computed(()=>acquisitionChannels(channelWindow.value))
 const acquisitionChannelCount=computed(()=>acquisitionChannelRows.value.length)
 const pagedAcquisitionChannels=computed(()=>{
   const start=(acquisitionPage.value-1)*acquisitionPageSize.value
   return acquisitionChannelRows.value.slice(start,start+acquisitionPageSize.value)
 })
-const deliveryChannelRows=computed(()=>deliveryChannels())
+const deliveryChannelRows=computed(()=>deliveryChannels(channelWindow.value))
 
 // 统一窗口数据源（§11–§15）：切窗口时 summary / events / metrics / dimensions / issues 全部联动。
 const channelWindowData=computed(()=>qualityWindowData(channelWindow.value))
@@ -99,9 +100,15 @@ const pagedCommunicationEvents=computed(()=>{
   return communicationEvents.value.slice(start,start+eventPageSize.value)
 })
 
-watch(channelWindow,()=>{
+watch(channelWindow,window=>{
   acquisitionPage.value=1
   eventPage.value=1
+  void loadQualityWindow(window)
+})
+watch(dataWindow,window=>{void loadQualityWindow(window)})
+onMounted(()=>{
+  void loadQualityWindow(channelWindow.value)
+  if(dataWindow.value!==channelWindow.value)void loadQualityWindow(dataWindow.value)
 })
 watch(acquisitionPageSize,()=>{acquisitionPage.value=1})
 watch(eventPageSize,()=>{eventPage.value=1})

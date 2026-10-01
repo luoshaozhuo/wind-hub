@@ -3,7 +3,7 @@ import * as echarts from 'echarts'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 // System Health 数据源（§23）：曲线 / 风险卡片 / 资源明细 / 存储挂载全部来自
 // backend System Health API 的确定性模型；切窗口只改变 healthSeries(range) 的输入。
-import { healthDetails, healthRisks, healthSeries, storageMounts, type HealthRange } from '../api/health'
+import { healthDetails, healthRisks, healthSeries, loadHealth, storageMounts, syncHealthPresentation, type HealthRange } from '../api/health'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
 const range=ref<HealthRange>('24 h')
@@ -15,7 +15,7 @@ let resizeObserver:ResizeObserver|null=null
 
 const risks=healthRisks
 const details=healthDetails
-const mounts=[...storageMounts]
+const mounts=storageMounts
 
 function baseOption(){
   return {
@@ -32,7 +32,9 @@ function initChart(el:HTMLElement|null,option:any){
   charts.push(chart)
   resizeObserver?.observe(el)
 }
-function renderCharts(){
+async function renderCharts(){
+  await loadHealth(range.value)
+  syncHealthPresentation()
   charts.splice(0).forEach(c=>c.dispose())
   resizeObserver?.disconnect()
   resizeObserver=new ResizeObserver(()=>charts.forEach(c=>c.resize()))
@@ -55,7 +57,7 @@ function renderCharts(){
     {name:'CPU temperature',type:'line',showSymbol:false,yAxisIndex:1,data:series.cpuTemp},
   ]})
 }
-onMounted(()=>nextTick(renderCharts))
+onMounted(()=>nextTick(()=>void renderCharts()))
 onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())})
 </script>
 
@@ -79,7 +81,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();charts.forEach(c=>c.dispose())
     <section class="health-section">
       <div class="section-title trends-title">
         <div><h2>Resource Trends</h2><p>趋势比单个瞬时值更重要；图表为当前前端 mock。</p></div>
-        <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="renderCharts"/>
+        <el-segmented v-model="range" :options="['1 h','24 h','7 d','30 d']" @change="()=>void renderCharts()"/>
       </div>
       <div class="chart-grid">
         <el-card shadow="never"><div class="chart-head"><b>Memory</b><span>Host used / wind-hub RSS</span></div><div ref="memoryEl" class="health-chart"/></el-card>

@@ -9,6 +9,8 @@ export interface RuntimeLogEntry {
   message:string
 }
 
+export type MockLogEntry = RuntimeLogEntry
+
 interface LogPage {
   items:Array<{timestamp:string;level:string;source:string;object:string;message:string}>
   page:{page:number;page_size:number;total:number}

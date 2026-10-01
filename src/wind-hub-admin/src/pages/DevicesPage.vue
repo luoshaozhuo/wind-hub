@@ -24,6 +24,8 @@ import {
   verifyAllDevices,
   verifyDevice as serviceVerifyDevice,
   pointTrendSeries,
+  refreshDeviceData,
+  loadTrendSeries,
   type CommandOutcome,
   type PointReadResult,
 } from '../api/service'
@@ -987,9 +989,8 @@ async function refreshData() {
   if (!selected.value || dataRefreshing.value) return
   dataRefreshing.value = true
   try {
-    await sleep(260)
+    await refreshDeviceData(selected.value.device_id)
     dataRevision.value += 1
-    deviceDataTick[selected.value.device_id] = (deviceDataTick[selected.value.device_id] || 0) + 1
     dataLastRefreshAt.value = timestampAt()
   } finally {
     dataRefreshing.value = false
@@ -1118,7 +1119,7 @@ function toggleTrendSelection(r: DataRow) {
     trendSignals.value.push(signal)
     trendLegendSelected.value[signal.label] = true
   }
-  renderTrend()
+  void renderTrend()
 }
 
 function seedTrendSignals() {
@@ -1136,7 +1137,14 @@ function makeTrendData(signal: TrendSignal) {
   return downsampleForChart(makeTrendRawData(signal))
 }
 
-function renderTrend() {
+async function renderTrend() {
+  if(selected.value && trendSignals.value.length){
+    await loadTrendSeries(
+      selected.value,
+      trendSignals.value.map(signal=>signal.id),
+      trendRangeMs(),
+    )
+  }
   trendLastRefreshAt.value = timestampAt()
   nextTick(() => {
     if (!trendChartEl.value) return
@@ -1178,7 +1186,7 @@ function stopTrendRefreshTimer() {
 function syncTrendRefreshTimer() {
   stopTrendRefreshTimer()
   if (drawer.value && tab.value === 'ControlTrend' && trendAutoRefresh.value) {
-    trendRefreshTimer = window.setInterval(renderTrend, 1000)
+    trendRefreshTimer = window.setInterval(()=>void void renderTrend(), 1000)
   }
 }
 function onResize() {
@@ -1194,14 +1202,14 @@ watch(tab, value => {
   }
   if (value === 'ControlTrend') {
     seedTrendSignals()
-    renderTrend()
+    void renderTrend()
     syncTrendRefreshTimer()
   } else {
     stopTrendRefreshTimer()
   }
 })
 watch([trendRange, trendAutoRefresh], () => {
-  if (tab.value === 'ControlTrend') renderTrend()
+  if (tab.value === 'ControlTrend') void renderTrend()
   syncTrendRefreshTimer()
 })
 watch(() => selected.value?.device_id, () => {
@@ -1213,7 +1221,7 @@ watch(() => selected.value?.device_id, () => {
   dataPage.value = 1
   commandResult.value = null
   seedTrendSignals()
-  if (tab.value === 'ControlTrend') renderTrend()
+  if (tab.value === 'ControlTrend') void renderTrend()
 })
 
 function onDeviceDrawerClosed() {
@@ -1305,7 +1313,7 @@ async function sendCommand() {
       ElMessage.success('Command completed ')
       // 成功后 Data 与 Trend 立即反映 readback（§6.4）
       dataRevision.value += 1
-      if (tab.value === 'ControlTrend') renderTrend()
+      if (tab.value === 'ControlTrend') void renderTrend()
     } else {
       ElMessage.error('Command failed ')
     }
