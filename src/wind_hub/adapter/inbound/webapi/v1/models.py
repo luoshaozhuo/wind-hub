@@ -26,6 +26,7 @@ class DeviceResponse(BaseModel):
     protocol: str
     host: str
     port: int
+    extensions: dict[str, Any]
     point_table: str
     device_type: str | None = None
     model: str | None = None
