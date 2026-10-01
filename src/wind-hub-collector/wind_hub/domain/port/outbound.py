@@ -1,8 +1,8 @@
 """Domain 扩展点端口——由 domain 服务直接消费、由适配器实现的接口。
 
-``ProtocolPort`` 被 ``domain.acquisition`` / ``domain.command`` 消费——它是
-domain 的扩展点，因此保留在 domain 层。application 消费的端口
-（Sink / 调度）位于 ``wind_hub.application.port``。
+``ProtocolPort`` 是采集与运行时设备使用的协议扩展点，因此保留在 domain
+层。Application 层自己的 outbound port（当前为 Sink）位于
+``wind_hub.application.port``。
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ class InterrogationCapable(Protocol):
 
 
 class HealthStatus(BaseModel):
-    """Minimal health-check placeholder — refined in a later step."""
+    """协议或 Sink 的轻量健康状态快照。"""
 
     healthy: bool
     """``True`` when the component is operating normally."""

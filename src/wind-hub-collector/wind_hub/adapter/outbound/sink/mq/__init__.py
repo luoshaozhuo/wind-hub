@@ -1,1 +1,1 @@
-"""Message queue sink adapter (placeholder)."""
+"""Message queue sink adapter。"""\n

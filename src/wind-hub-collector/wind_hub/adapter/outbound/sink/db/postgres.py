@@ -32,7 +32,6 @@ from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.port.outbound import HealthStatus
-from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +88,6 @@ class DBSink(SinkPort):
             )
 
         # 运行时状态 —— 由 `asyncio.Lock` 保护；连接池在 open 后创建。
-        self._name = config.name
         self._pool: Any = None
         self._lock = asyncio.Lock()
         self._healthy = True
@@ -194,11 +192,8 @@ class DBSink(SinkPort):
                 for i in range(0, len(rows), self._batch_size):
                     await self._pool.executemany(sql, rows[i : i + self._batch_size])
             except Exception as exc:
-                metrics.sink_write_failures_total.labels(sink_name=self._name).inc()
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"DBSink write failed: {exc}") from exc
-            metrics.sink_writes_total.labels(sink_name=self._name).inc()
-            metrics.sink_points_written_total.labels(sink_name=self._name).inc(len(batch))
             self._mark_healthy()
 
     async def flush(self) -> None:

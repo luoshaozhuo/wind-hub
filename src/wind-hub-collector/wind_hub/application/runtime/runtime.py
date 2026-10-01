@@ -346,7 +346,7 @@ class Runtime:
         Raises:
             KeyError: ``instance_id`` 不存在。
             Exception: 采集启动失败（如订阅注册失败）——状态保持 STOPPED，
-                错误原样上抛给调用方（CLI / Web API）。
+                错误原样上抛给控制面调用方。
         """
         instance = self._task_instances.get(instance_id)
         if instance is None:

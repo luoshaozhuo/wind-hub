@@ -129,20 +129,6 @@ class TestLifecycle:
         with pytest.raises(SinkError, match="before open"):
             await sink.write([_pv()])
 
-    async def test_successful_write_increments_sink_points_written_total(
-        self, tmp_path: Path
-    ) -> None:
-        """决策 0.2：write 成功后按批内点数累加吞吐计数。"""
-        from prometheus_client import REGISTRY
-
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels) or 0.0
-        sink = FileSink(_cfg(str(tmp_path / "out.jsonl")))
-        await sink.open()
-        await sink.write([_pv(point_id="a"), _pv(point_id="b")])
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels)
-        assert after - before == 2.0
 
 
 # ---------------------------------------------------------------------------

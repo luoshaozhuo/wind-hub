@@ -248,20 +248,6 @@ class TestWrite:
         await sink.flush()  # asyncpg 无应用层缓冲，flush 应为无操作且不抛异常
         await sink.close()
 
-    async def test_successful_write_increments_sink_points_written_total(
-        self, fake_asyncpg: None
-    ) -> None:
-        """决策 0.2：write 成功后按批内点数累加吞吐计数（含 batch_size 分片）。"""
-        from prometheus_client import REGISTRY
-
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels) or 0.0
-        sink = DBSink(_cfg(batch_size=2))
-        await sink.open()
-        await sink.write([_pv(point_id=f"p{i}") for i in range(5)])
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels)
-        assert after - before == 5.0
 
 
 # ---------------------------------------------------------------------------

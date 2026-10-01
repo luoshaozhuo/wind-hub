@@ -37,7 +37,6 @@ from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.port.outbound import HealthStatus
-from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,6 @@ class FileSink(SinkPort):
         self._compressor: Compressor = self._build_compressor(params)
 
         # 运行时状态 —— 由 `asyncio.Lock` 保护，仅在同一事件循环内被调度器调用。
-        self._name = config.name
         self._file: BinaryIO | None = None
         self._buffer: list[str] = []
         self._current_size = 0
@@ -186,11 +184,8 @@ class FileSink(SinkPort):
                 if self._check_rollover():
                     self._rollover()
             except OSError as exc:
-                metrics.sink_write_failures_total.labels(sink_name=self._name).inc()
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"FileSink write failed for {self._path}: {exc}") from exc
-            metrics.sink_writes_total.labels(sink_name=self._name).inc()
-            metrics.sink_points_written_total.labels(sink_name=self._name).inc(len(batch))
             self._mark_healthy()
 
     async def flush(self) -> None:

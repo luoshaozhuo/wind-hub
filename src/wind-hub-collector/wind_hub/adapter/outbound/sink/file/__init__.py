@@ -1,1 +1,1 @@
-"""File sink adapter (placeholder)."""
+"""File sink adapter。"""\n

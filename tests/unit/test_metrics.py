@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from prometheus_client import REGISTRY
 
-from wind_hub.infra import metrics
+from wind_hub_server.infra import metrics
 
 
 def test_update_gauges_sets_device_and_sink_counts() -> None:

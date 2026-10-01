@@ -90,7 +90,7 @@ class RuntimeLifecycle:
                 self._runtime._sink_tasks[name] = task
 
             # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
-            # 采集，只有 CLI / Web API 的显式 start 才启动 acquisition。
+            # 采集，只有 gRPC 控制面的显式 start 才启动 acquisition。
             await self._runtime._sync_task_instances()
 
             self._runtime._started = True

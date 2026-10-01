@@ -15,7 +15,7 @@
 注意 ``send()`` 入队即返回，broker ack 异步完成：每次 ``send`` 返回的
 future 被暂存，在后续 ``write``（收割已决项）与 ``flush``（gather 全部）
 时核对——broker 端失败据此累计进失败计数并写入
-``sink_write_failures_total`` 指标（决策 3），否则 broker 故障不可见。
+写入失败会累计到 Sink 自身健康状态，broker 故障通过 health() 暴露。
 """
 
 from __future__ import annotations
@@ -36,7 +36,6 @@ from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.port.outbound import HealthStatus
-from wind_hub.infra import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -204,19 +203,16 @@ class KafkaSink(SinkPort):
                     )
                     self._pending_futures.append(future)
             except Exception as exc:
-                metrics.sink_write_failures_total.labels(sink_name=self._name).inc()
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"KafkaSink write failed: {exc}") from exc
             if self._reap_done_futures() == 0:
-                metrics.sink_writes_total.labels(sink_name=self._name).inc()
-                metrics.sink_points_written_total.labels(sink_name=self._name).inc(len(batch))
                 self._mark_healthy()
 
     async def flush(self) -> None:
         """冲刷生产者缓冲，并核对全部在途 send future 的 broker ack（决策 3）。
 
         broker 端失败（ack 失败）累计进失败计数并记入
-        ``sink_write_failures_total``，达到阈值后 ``health()`` 报告
+        失败会累计到 Sink 健康状态，达到阈值后 ``health()`` 报告
         unhealthy——否则 ``send()`` 入队即返回会让 broker 故障完全不可见。
 
         Raises:
@@ -242,7 +238,6 @@ class KafkaSink(SinkPort):
                     failures += 1
                     self._record_failure(f"broker ack failed: {res}")
         if failures:
-            metrics.sink_write_failures_total.labels(sink_name=self._name).inc(failures)
             logger.warning("KafkaSink '%s': %d message(s) rejected by broker", self._name, failures)
         else:
             self._mark_healthy()
@@ -300,7 +295,6 @@ class KafkaSink(SinkPort):
                 self._record_failure(f"broker ack failed: {exc}")
         self._pending_futures = remaining
         if failures:
-            metrics.sink_write_failures_total.labels(sink_name=self._name).inc(failures)
         return failures
 
     # -- 内部：健康跟踪 ---------------------------------------------------

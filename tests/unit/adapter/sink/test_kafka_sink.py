@@ -16,8 +16,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from prometheus_client import REGISTRY
-
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError, SinkError
@@ -337,62 +335,3 @@ class TestBrokerAckFailures:
         assert sink._consecutive_failures == 0  # noqa: SLF001
         assert sink.health() == HealthStatus(healthy=True)
         await sink.close()
-
-
-# ---------------------------------------------------------------------------
-# 写入指标（决策 6）
-# ---------------------------------------------------------------------------
-
-
-class TestMetrics:
-    async def test_successful_write_increments_sink_writes_total(
-        self, fake_producer: type[_FakeProducer]
-    ) -> None:
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_writes_total", labels) or 0.0
-        sink = KafkaSink(_cfg())
-        await sink.open()
-        await sink.write([_pv()])
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_writes_total", labels)
-        assert after - before == 1.0
-
-    async def test_failed_write_increments_sink_write_failures_total(
-        self, fake_producer: type[_FakeProducer]
-    ) -> None:
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_write_failures_total", labels) or 0.0
-        sink = KafkaSink(_cfg())
-        await sink.open()
-        _FakeProducer.fail_send = True
-        with pytest.raises(SinkError):
-            await sink.write([_pv()])
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_write_failures_total", labels)
-        assert after - before == 1.0
-
-    async def test_broker_nack_increments_sink_write_failures_total(
-        self, fake_producer: type[_FakeProducer]
-    ) -> None:
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_write_failures_total", labels) or 0.0
-        sink = KafkaSink(_cfg())
-        await sink.open()
-        _FakeProducer.fail_broker = True
-        await sink.write([_pv(), _pv()])  # 两条 ack 失败在 write 末尾收割
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_write_failures_total", labels)
-        assert after - before == 2.0
-
-    async def test_successful_write_increments_sink_points_written_total(
-        self, fake_producer: type[_FakeProducer]
-    ) -> None:
-        """决策 0.2：write 成功后按批内点数累加吞吐计数。"""
-        labels = {"sink_name": "s1"}
-        before = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels) or 0.0
-        sink = KafkaSink(_cfg())
-        await sink.open()
-        await sink.write([_pv(), _pv(), _pv()])
-        await sink.close()
-        after = REGISTRY.get_sample_value("wind_hub_sink_points_written_total", labels)
-        assert after - before == 3.0

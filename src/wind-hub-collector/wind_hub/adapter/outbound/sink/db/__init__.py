@@ -1,1 +1,1 @@
-"""Database sink adapter (placeholder)."""
+"""Database sink adapter。"""\n
