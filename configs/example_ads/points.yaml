@@ -8,10 +8,11 @@
 # - 点表支持单继承（extends / remove_points / 点位补丁）；子表缺省继承
 #   父表 protocol，显式配置必须与父表一致（禁止跨协议继承）。
 #
-# ADS address 字段（Symbol 优先）：
-#     symbol: .wind_speed                   # 推荐：仅 Symbol 寻址
-#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset 成对
-#     index_offset: 0x1234                  #   出现（只写一个是配置错误）
+# ADS address 字段（运行期统一使用 index 地址）：
+#     symbol: .wind_speed                   # 可用于地址解析与展示
+#     index_group: 0x4020                   # 可直接配置，必须与 index_offset 成对
+#     index_offset: 0x1234                  # 出现（只写一个是配置错误）
+#   symbol 与 index 可同时配置；正式 read/write/sum/notification 均使用 index 地址。
 #   symbol 与 index 同时配置是允许的——实际读写永远以 symbol 优先；
 #   三者全空是配置错误。
 #   注意：read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位
