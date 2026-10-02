@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -64,49 +66,46 @@ class CollectorTaskUseCase:
         self._assignments = assignments
 
     async def list_tasks(self) -> list[TaskDetail]:
-        _, collector = self._default_collector()
-        rows = await collector.list_tasks()
+        rows = await self._list_assigned_task_rows()
         return [
             TaskDetail.model_validate(
-                {
-                    **row,
-                    "assigned_worker_id": self._assignments.worker_for_task(
-                        str(row["task_id"])
-                    ),
-                }
+                {**row, "assigned_worker_id": worker_id}
             )
-            for row in rows
+            for worker_id, row in rows
         ]
 
     async def list_task_summaries(self) -> list[TaskSummary]:
-        _, collector = self._default_collector()
-        rows = await collector.list_tasks()
+        rows = await self._list_assigned_task_rows()
         return [
             TaskSummary.model_validate(
-                {
-                    **row,
-                    "assigned_worker_id": self._assignments.worker_for_task(
-                        str(row["task_id"])
-                    ),
-                }
+                {**row, "assigned_worker_id": worker_id}
             )
-            for row in rows
+            for worker_id, row in rows
         ]
 
     async def list_instances(self) -> list[TaskInstanceDetail]:
-        _, collector = self._default_collector()
-        rows = await collector.list_task_instances()
-        return [
-            TaskInstanceDetail.model_validate(
-                {
-                    **row,
-                    "assigned_worker_id": self._assignments.worker_for_task(
-                        str(row["task_id"])
-                    ),
-                }
+        assignments = self._assignments.list_assignments()
+        by_worker: dict[str, set[str]] = {}
+        for assignment in assignments:
+            by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
+
+        results = await asyncio.gather(
+            *(
+                self._collectors.get(worker_id).list_task_instances()
+                for worker_id in sorted(by_worker)
             )
-            for row in rows
-        ]
+        )
+        rows: list[TaskInstanceDetail] = []
+        for worker_id, worker_rows in zip(sorted(by_worker), results, strict=True):
+            assigned_task_ids = by_worker[worker_id]
+            rows.extend(
+                TaskInstanceDetail.model_validate(
+                    {**row, "assigned_worker_id": worker_id}
+                )
+                for row in worker_rows
+                if str(row.get("task_id") or "") in assigned_task_ids
+            )
+        return rows
 
     async def get_instance(self, instance_id: str) -> TaskInstanceDetail:
         rows = await self.list_instances()
@@ -117,18 +116,26 @@ class CollectorTaskUseCase:
 
     async def get_task_summary(self, task_id: str) -> TaskSummary:
         """返回指定 Task 的当前聚合状态。"""
-        rows = await self.list_task_summaries()
+        worker_id = self._assignments.worker_for_task(task_id)
+        rows = await self._collectors.get(worker_id).list_tasks()
         for row in rows:
-            if row.task_id == task_id:
-                return row
+            if str(row.get("task_id") or "") == task_id:
+                return TaskSummary.model_validate(
+                    {**row, "assigned_worker_id": worker_id}
+                )
         raise KeyError(task_id)
 
     async def list_task_instances(self, task_id: str) -> list[TaskInstanceDetail]:
         """返回指定 Task 当前展开的全部实例。"""
-        summaries = await self.list_task_summaries()
-        if not any(row.task_id == task_id for row in summaries):
-            raise KeyError(task_id)
-        return [row for row in await self.list_instances() if row.task_id == task_id]
+        worker_id = self._assignments.worker_for_task(task_id)
+        rows = await self._collectors.get(worker_id).list_task_instances()
+        return [
+            TaskInstanceDetail.model_validate(
+                {**row, "assigned_worker_id": worker_id}
+            )
+            for row in rows
+            if str(row.get("task_id") or "") == task_id
+        ]
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
         current = await self.get_instance(instance_id)
@@ -161,6 +168,32 @@ class CollectorTaskUseCase:
         return TaskSummary.model_validate(
             {**data, "assigned_worker_id": worker_id}
         )
+
+    async def _list_assigned_task_rows(
+        self,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """按 assignment 查询各 Collector，并过滤非本 Worker Task。"""
+        assignments = self._assignments.list_assignments()
+        by_worker: dict[str, set[str]] = {}
+        for assignment in assignments:
+            by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
+
+        worker_ids = sorted(by_worker)
+        results = await asyncio.gather(
+            *(
+                self._collectors.get(worker_id).list_tasks()
+                for worker_id in worker_ids
+            )
+        )
+        rows: list[tuple[str, dict[str, Any]]] = []
+        for worker_id, worker_rows in zip(worker_ids, results, strict=True):
+            assigned_task_ids = by_worker[worker_id]
+            rows.extend(
+                (worker_id, row)
+                for row in worker_rows
+                if str(row.get("task_id") or "") in assigned_task_ids
+            )
+        return rows
 
     async def start_all_instances(self) -> TaskBatchResult:
         _, collector = self._default_collector()

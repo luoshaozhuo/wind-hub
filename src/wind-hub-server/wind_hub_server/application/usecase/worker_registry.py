@@ -1,8 +1,8 @@
 """Server 进程内 Worker Registry。
 
 Registry 只维护控制面已知 Worker 的身份、endpoint 与最近一次探测事实，不负责
-进程拉起、任务分配或 RPC 路由选择。当前固定登记一个 Collector 和一个 Commander，
-为后续多 Worker/主备扩展提供稳定状态模型。
+进程拉起、任务分配或 RPC 路由选择。支持登记多个 Collector；Commander 当前保持
+唯一，为后续多 Worker/主备扩展提供稳定状态模型。
 """
 
 from __future__ import annotations
@@ -61,6 +61,8 @@ class WorkerRegistryUseCase:
         self._collectors = collectors
         self._commander = commander
         self._lock = asyncio.Lock()
+        if len({definition.worker_id for definition in definitions}) != len(definitions):
+            raise ValueError("duplicate worker_id in definitions")
         self._records = {
             definition.worker_id: WorkerRecord(
                 worker_id=definition.worker_id,
@@ -70,18 +72,28 @@ class WorkerRegistryUseCase:
             )
             for definition in definitions
         }
-        self._collector_worker_id = self._worker_id_for_role(WorkerRole.COLLECTOR)
+        self._collector_worker_ids = self._worker_ids_for_role(WorkerRole.COLLECTOR)
+        if not self._collector_worker_ids:
+            raise ValueError("at least one collector worker is required")
         self._commander_worker_id = self._worker_id_for_role(WorkerRole.COMMANDER)
-        self._collectors.get(self._collector_worker_id)
+        for worker_id in self._collector_worker_ids:
+            self._collectors.get(worker_id)
 
     async def refresh(self) -> list[WorkerRecord]:
         """并发探测全部已登记 Worker，并原子更新最近状态。"""
-        collector_result, commander_result = await asyncio.gather(
-            self._probe_collector(),
+        results = await asyncio.gather(
+            *(self._probe_collector(worker_id) for worker_id in self._collector_worker_ids),
             self._probe_commander(),
         )
+        collector_results = results[:-1]
+        commander_result = results[-1]
         async with self._lock:
-            self._records[self._collector_worker_id] = collector_result
+            for worker_id, result in zip(
+                self._collector_worker_ids,
+                collector_results,
+                strict=True,
+            ):
+                self._records[worker_id] = result
             self._records[self._commander_worker_id] = commander_result
             return self._snapshot_unlocked()
 
@@ -98,12 +110,12 @@ class WorkerRegistryUseCase:
             except KeyError as exc:
                 raise KeyError(worker_id) from exc
 
-    async def _probe_collector(self) -> WorkerRecord:
-        """读取 Collector 身份/配置状态；RPC 失败只更新 Registry 状态。"""
+    async def _probe_collector(self, worker_id: str) -> WorkerRecord:
+        """读取指定 Collector 身份/配置状态；RPC 失败只更新 Registry 状态。"""
         now = datetime.now(UTC)
-        previous = self._records[self._collector_worker_id]
+        previous = self._records[worker_id]
         try:
-            collector = self._collectors.get(self._collector_worker_id)
+            collector = self._collectors.get(worker_id)
             status = await collector.config_status()
         except Exception as exc:
             return self._offline(previous, now, exc)
@@ -171,13 +183,17 @@ class WorkerRegistryUseCase:
             for worker_id in sorted(self._records)
         ]
 
-    def _worker_id_for_role(self, role: WorkerRole) -> str:
-        """返回指定角色唯一 Worker ID。"""
-        matches = [
+    def _worker_ids_for_role(self, role: WorkerRole) -> list[str]:
+        """返回指定角色全部 Worker ID。"""
+        return sorted(
             worker_id
             for worker_id, record in self._records.items()
             if record.role is role
-        ]
+        )
+
+    def _worker_id_for_role(self, role: WorkerRole) -> str:
+        """返回指定角色唯一 Worker ID。"""
+        matches = self._worker_ids_for_role(role)
         if len(matches) != 1:
             raise ValueError(
                 f"expected exactly one {role.value} worker, got {len(matches)}"
