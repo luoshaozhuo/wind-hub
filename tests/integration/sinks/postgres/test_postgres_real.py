@@ -17,8 +17,12 @@ import pytest
 
 from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
+
+# 默认路径由 Docker Compose 拉起真实服务（外部实例经环境变量接管）；
+# 服务真实性显式标注，不计入 mock。
+pytestmark = [pytest.mark.docker, pytest.mark.real_service]
 
 
 def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue:
@@ -108,6 +112,52 @@ class TestPostgresWrite:
         await sink.open()
         await sink.close()
         await sink.close()
+
+
+class TestPostgresTimeoutRecovery:
+    async def test_write_timeout_then_pool_recovers(self, postgres_service: str) -> None:
+        """write 超时 → SinkError → 数据库恢复 → 后续 write 成功且 health 复位。
+
+        用独立连接的 ``LOCK TABLE ... ACCESS EXCLUSIVE`` 制造真实阻塞（而非
+        mock asyncpg），触发 ``asyncio.wait_for`` 取消在途 ``executemany``；
+        重点验证被取消的 asyncpg operation 不会让连接池永久损坏——锁释放
+        （“PostgreSQL 恢复”）后同一 sink 必须能再次写成功。
+        """
+        table = _table()
+        sink = _sink(postgres_service, table, create_table=True, write_timeout=0.3)
+        await sink.open()
+        blocker = await asyncpg.connect(postgres_service)
+        try:
+            async with blocker.transaction():
+                # 持锁期间 INSERT 必然阻塞；事务退出（提交/回滚）即释放锁。
+                await blocker.execute(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE")
+
+                with pytest.raises(SinkError, match="timed out"):
+                    await sink.write([_pv("rotor.speed", 1.0)])
+                # 失败已计数并记录错误；单次失败未达 unhealthy 阈值。
+                assert "timed out" in (sink.health().message or "")
+
+            # “PostgreSQL 恢复”：锁已释放，同一连接池必须恢复可用。
+            await sink.write([_pv("rotor.speed", 2.0)])
+            assert sink.health().healthy is True
+            assert sink.health().message is None
+
+            conn = await asyncpg.connect(postgres_service)
+            try:
+                rows = await conn.fetch(f"SELECT point_id, value FROM {table}")
+            finally:
+                await conn.close()
+            # 被取消的写未落库；恢复后的写真实落库。
+            assert len(rows) == 1
+            assert json.loads(rows[0]["value"]) == 2.0
+        finally:
+            await blocker.close()
+            await sink.close()
+            conn = await asyncpg.connect(postgres_service)
+            try:
+                await conn.execute(f"DROP TABLE IF EXISTS {table}")
+            finally:
+                await conn.close()
 
 
 class TestPostgresConfigValidation:
