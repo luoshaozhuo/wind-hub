@@ -9,7 +9,3 @@ async def start_task_instance(
     instance_id: str,
 ) -> TaskInstanceDetail:
     return await rt.tasks.start_instance(instance_id)
-
-
-async def start_all_task_instances(rt: AssembledRuntime) -> None:
-    await rt.tasks.start_all_instances()
