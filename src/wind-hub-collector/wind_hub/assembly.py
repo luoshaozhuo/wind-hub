@@ -118,7 +118,11 @@ def assemble(
             protocol=protocol,
         )
 
-    sinks = {sink.name: make_sink(sink) for sink in cfg.system.sinks}
+    sinks = {
+        sink.name: make_sink(sink)
+        for sink in cfg.system.sinks
+        if sink.enabled
+    }
 
     dispatcher = CommandDispatcher(
         devices,
