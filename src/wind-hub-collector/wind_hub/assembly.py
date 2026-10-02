@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+# 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
 import wind_hub.adapter.outbound.protocol  # noqa: F401
 from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
@@ -52,7 +53,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class AssembledRuntime:
-    """Collector 最小运行对象图。"""
+    """Collector 最小运行对象图。
+
+    Attributes:
+        boot_config: 进程启动时加载的配置快照；仅表示启动基线。
+        runtime: Collector 运行时聚合根。
+        engine: 采集执行引擎。
+        dispatcher: 设备写指令分发器。
+        sinks: 已装配的 Sink 实例注册表。
+        tasks: Task / Task Instance 控制用例。
+        command: 写指令用例。
+        query: 只读查询用例。
+        config: 本地 YAML 增量热重载用例。
+        iec104_slave: 可选 IEC104 reporting 从站代理。
+    """
 
     boot_config: Config
     runtime: Runtime
@@ -70,7 +84,23 @@ def assemble(
     config_dir: str | Path,
     sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
 ) -> AssembledRuntime:
-    """从 YAML 配置同步装配 Collector，不执行网络 I/O。"""
+    """从 YAML 配置同步装配 Collector，不执行网络 I/O。
+
+    Args:
+        config_dir: 现场配置目录。
+        sink_factory: 可选 Sink 工厂；测试或定制部署可注入替代实现。
+
+    Returns:
+        完整但尚未启动的 AssembledRuntime。
+
+    Raises:
+        ConfigError: 配置缺失、跨文件引用非法或 Sink 类型未知。
+        Exception: 协议/Sink 构造阶段的其他配置型异常原样传播。
+
+    Notes:
+        本函数只构造对象图和内存映射；设备连接、Sink open、IEC104 reporting
+        监听均在 start_runtime 阶段发生。
+    """
     cfg = load_config(config_dir)
     make_sink = sink_factory or _create_sink
 
@@ -135,7 +165,15 @@ def assemble(
 
 
 async def start_runtime(rt: AssembledRuntime) -> None:
-    """启动 Collector Runtime 及可选 IEC104 reporting 从站。"""
+    """启动 Collector Runtime 及可选 IEC104 reporting 从站。
+
+    Args:
+        rt: 已完成同步装配的 Collector 对象图。
+
+    Notes:
+        Runtime 启动失败会向上传播；可选 IEC104 reporting 从站启动失败仅记录
+        告警并继续，使采集主链路不因附加上送能力失效而退出。
+    """
     await _maybe_init_ads_local(rt)
     await rt.runtime.start()
 
@@ -176,7 +214,18 @@ async def stop_runtime(
     rt: AssembledRuntime,
     timeout: float = 30.0,
 ) -> None:
-    """停止可选 IEC104 从站并优雅停止 Collector Runtime。"""
+    """停止可选 IEC104 从站并优雅停止 Collector Runtime。
+
+    Args:
+        rt: 当前 Collector 对象图。
+        timeout: Runtime 整体停机硬超时，单位秒。
+
+    Raises:
+        TimeoutError: Runtime 未在硬超时内完成优雅停机。
+
+    Notes:
+        IEC104 reporting 从站停止失败只记录告警，仍继续释放 Runtime 主资源。
+    """
     if rt.iec104_slave is not None:
         try:
             await rt.iec104_slave.stop()

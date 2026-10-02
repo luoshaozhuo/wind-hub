@@ -63,12 +63,21 @@ class AcquisitionRuntimeState:
     """最近一次失败的简要描述（面向 status 输出）。"""
 
     def begin(self, now: float) -> None:
-        """一次 collect 开始。"""
+        """记录一次 collect 开始。
+
+        Args:
+            now: 单调时钟时间戳。
+        """
         self.running = True
         self.last_started_at = now
 
     def finish_success(self, now: float, *, partial: bool = False) -> None:
-        """一次 collect 成功结束（partial = 批次含 BAD 点，仍算成功）。"""
+        """记录一次 collect 成功结束。
+
+        Args:
+            now: 单调时钟时间戳。
+            partial: 批次是否含 BAD 点；partial 仍视为成功并清零连续失败。
+        """
         self._finish(now)
         self.last_success_at = now
         self.consecutive_failures = 0
@@ -77,7 +86,12 @@ class AcquisitionRuntimeState:
         # 状态层不累计——保持状态模型最小。
 
     def finish_failure(self, now: float, error: BaseException | str) -> None:
-        """一次 collect 失败结束（读异常 / 全部点 BAD / 断线跳过）。"""
+        """记录一次 collect 失败结束。
+
+        Args:
+            now: 单调时钟时间戳。
+            error: 读异常、全部点 BAD 或断线跳过等失败原因。
+        """
         self._finish(now)
         self.consecutive_failures += 1
         self.last_error = _error_text(error)

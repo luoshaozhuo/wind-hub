@@ -31,7 +31,14 @@ RECONNECT_BACKOFF_MAX = 30.0
 
 
 def reconnect_delay(consecutive_failures: int) -> float:
-    """第 ``consecutive_failures`` 次（>=1）连续失败后的等待时长。"""
+    """计算连续连接失败后的重连等待时长。
+
+    Args:
+        consecutive_failures: 当前连续失败次数；小于 1 时按首次失败处理。
+
+    Returns:
+        指数退避后的等待秒数，不超过 RECONNECT_BACKOFF_MAX。
+    """
     k = max(0, consecutive_failures - 1)
     return min(RECONNECT_BACKOFF_MAX, RECONNECT_BACKOFF_INITIAL * (2.0**k))
 
@@ -65,14 +72,23 @@ class DeviceRuntimeState:
     """最近一次失败的简要描述（面向 status 输出）。"""
 
     def mark_success(self, now: float) -> None:
-        """connect / read 成功：恢复 connected，清零失败计数。"""
+        """记录 connect/read 成功并清零失败计数。
+
+        Args:
+            now: 单调时钟时间戳。
+        """
         self.connected = True
         self.consecutive_failures = 0
         self.last_success_at = now
         self.last_error = None
 
     def mark_connect_failure(self, now: float, error: BaseException) -> None:
-        """connect 失败：累计失败次数并按 backoff 推迟下次重试。"""
+        """记录 connect 失败并推进重连退避窗口。
+
+        Args:
+            now: 单调时钟时间戳。
+            error: 本次连接失败异常。
+        """
         self.connected = False
         self.consecutive_failures += 1
         self.last_failure_at = now
@@ -82,7 +98,14 @@ class DeviceRuntimeState:
     def mark_read_failure(
         self, now: float, error: BaseException, *, connection_level: bool
     ) -> None:
-        """read 失败：记录错误；连接级失败额外标记断线，交回 ensure 路径重连。"""
+        """记录 read 失败。
+
+        Args:
+            now: 单调时钟时间戳。
+            error: 本次读取失败异常。
+            connection_level: 是否属于连接级失败；为 True 时额外标记断线，
+                交由后续 ensure_connected 路径重连。
+        """
         self.last_failure_at = now
         self.last_error = _error_text(error)
         if connection_level:

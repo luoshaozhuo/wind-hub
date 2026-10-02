@@ -16,7 +16,14 @@ from uuid import uuid4
 
 @dataclass(frozen=True, slots=True)
 class CollectorIdentity:
-    """单个 Collector 进程实例的稳定/启动期身份。"""
+    """单个 Collector 进程实例的稳定/启动期身份。
+
+    Attributes:
+        collector_id: 部署侧稳定 Collector 标识。
+        boot_id: 单次进程启动唯一标识。
+        config_hash: 启动时配置集指纹。
+        config_revision: Server 管理的显式配置版本；未接入时为 None。
+    """
 
     collector_id: str
     boot_id: str
@@ -76,7 +83,15 @@ def build_collector_identity(
     *,
     collector_id: str | None = None,
 ) -> CollectorIdentity:
-    """构造本次 Collector 进程身份快照。"""
+    """构造本次 Collector 进程身份快照。
+
+    Args:
+        config_dir: 用于计算启动配置指纹的现场配置目录。
+        collector_id: 显式 Collector ID；为空时使用环境变量或主机名。
+
+    Returns:
+        本次进程启动的 CollectorIdentity。
+    """
     return CollectorIdentity(
         collector_id=collector_id or default_collector_id(),
         boot_id=uuid4().hex,

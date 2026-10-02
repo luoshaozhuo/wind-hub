@@ -99,7 +99,11 @@ class TaskUseCase:
         self._runtime = runtime
 
     async def list_tasks(self) -> list[TaskDetail]:
-        """返回当前全部 Task Definition 的展示级快照。"""
+        """返回当前全部 Task Definition 的展示级快照。
+
+        Returns:
+            TaskDetail 列表。
+        """
         return [
             TaskDetail(
                 task_id=t.task_id,
@@ -114,7 +118,11 @@ class TaskUseCase:
         ]
 
     async def list_instances(self) -> list[TaskInstanceDetail]:
-        """返回当前全部 Task Instance 的展示级快照。"""
+        """返回当前全部 Task Instance 的展示级快照。
+
+        Returns:
+            TaskInstanceDetail 列表。
+        """
         states = self._runtime.instance_states()
         return [
             self._to_detail(inst, states[inst.instance_id])
@@ -124,6 +132,12 @@ class TaskUseCase:
     async def get_instance(self, instance_id: str) -> TaskInstanceDetail:
         """返回单个实例的展示级快照。
 
+        Args:
+            instance_id: Task Instance 稳定标识。
+
+        Returns:
+            当前实例定义与生命周期状态。
+
         Raises:
             KeyError: ``instance_id`` 不存在。
         """
@@ -131,26 +145,48 @@ class TaskUseCase:
         return self._to_detail(inst, self._runtime.instance_states()[instance_id])
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
-        """启动单个实例的持续采集（幂等；POLL 协议第一轮按 fixed-rate
-        节拍立即开始，订阅协议注册后等待远端推送）。
+        """启动单个实例的持续采集。
+
+        Args:
+            instance_id: Task Instance 稳定标识。
+
+        Returns:
+            启动后的实例快照。
 
         Raises:
             KeyError: ``instance_id`` 不存在。
+
+        Notes:
+            操作幂等；POLL 协议第一轮按 fixed-rate 节拍立即开始，订阅协议注册后
+            等待远端推送。
         """
         await self._runtime.start_task_instance(instance_id)
         return await self.get_instance(instance_id)
 
     async def stop_instance(self, instance_id: str) -> TaskInstanceDetail:
-        """停止单个实例的周期采集（幂等；不删除实例、不断开设备连接）。
+        """停止单个实例的持续采集。
+
+        Args:
+            instance_id: Task Instance 稳定标识。
+
+        Returns:
+            停止后的实例快照。
 
         Raises:
             KeyError: ``instance_id`` 不存在。
+
+        Notes:
+            操作幂等；不删除实例、不断开设备连接。
         """
         await self._runtime.stop_task_instance(instance_id)
         return await self.get_instance(instance_id)
 
     async def list_task_summaries(self) -> list[TaskSummary]:
-        """返回全部 Task 的定义与实例聚合状态。"""
+        """返回全部 Task 的定义与实例聚合状态。
+
+        Returns:
+            TaskSummary 列表。
+        """
         return [
             await self.get_task_summary(task_id)
             for task_id in self._runtime.task_definitions()
@@ -158,6 +194,12 @@ class TaskUseCase:
 
     async def get_task_summary(self, task_id: str) -> TaskSummary:
         """返回单个 Task 的聚合状态。
+
+        Args:
+            task_id: Task Definition 稳定标识。
+
+        Returns:
+            Task 定义、实例数量和聚合生命周期状态。
 
         Raises:
             KeyError: task_id 不存在。
@@ -199,6 +241,12 @@ class TaskUseCase:
     async def list_task_instances(self, task_id: str) -> list[TaskInstanceDetail]:
         """返回指定 Task 展开的全部实例。
 
+        Args:
+            task_id: Task Definition 稳定标识。
+
+        Returns:
+            属于该 Task 的 TaskInstanceDetail 列表。
+
         Raises:
             KeyError: task_id 不存在。
         """
@@ -212,6 +260,12 @@ class TaskUseCase:
 
     async def start_task(self, task_id: str) -> TaskSummary:
         """启动一个 Task 展开的全部实例，并返回聚合状态。
+
+        Args:
+            task_id: Task Definition 稳定标识。
+
+        Returns:
+            启动后的 TaskSummary。
 
         Raises:
             KeyError: task_id 不存在。
@@ -227,6 +281,12 @@ class TaskUseCase:
     async def stop_task(self, task_id: str) -> TaskSummary:
         """停止一个 Task 展开的全部实例，并返回聚合状态。
 
+        Args:
+            task_id: Task Definition 稳定标识。
+
+        Returns:
+            停止后的 TaskSummary。
+
         Raises:
             KeyError: task_id 不存在。
         """
@@ -236,13 +296,24 @@ class TaskUseCase:
         return await self.get_task_summary(task_id)
 
     async def start_all_instances(self) -> TaskBatchResult:
-        """启动全部 Task Instance——已 RUNNING 的保持不变。"""
+        """启动全部 Task Instance。
+
+        Returns:
+            批量操作总数、状态变化数和未变化数。
+
+        Notes:
+            已处于 RUNNING 的实例保持不变。
+        """
         return await self._set_all(start=True)
 
     async def stop_all_instances(self) -> TaskBatchResult:
-        """停止全部 Task Instance 的周期采集。
+        """停止全部 Task Instance 的持续采集。
 
-        不停止 Runtime，不断开设备连接，不关闭 Sink。
+        Returns:
+            批量操作总数、状态变化数和未变化数。
+
+        Notes:
+            不停止 Runtime，不断开设备连接，不关闭 Sink。
         """
         return await self._set_all(start=False)
 

@@ -296,10 +296,12 @@ class Runtime:
 
     @property
     def device_count(self) -> int:
+        """返回当前 Runtime 注册的设备数量。"""
         return len(self._devices)
 
     @property
     def sink_count(self) -> int:
+        """返回当前 Runtime 注册的 Sink 数量。"""
         return len(self._sinks)
 
     @property

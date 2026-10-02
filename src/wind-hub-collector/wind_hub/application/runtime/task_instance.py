@@ -72,5 +72,13 @@ class CollectionTaskInstance(BaseModel):
 
 
 def task_instance_id(task_id: str, device_id: str) -> str:
-    """Task Instance 标识约定：``{task_id}:{device_id}``。"""
+    """构造稳定 Task Instance 标识。
+
+    Args:
+        task_id: Task Definition 稳定标识。
+        device_id: 具体设备稳定标识。
+
+    Returns:
+        形如 {task_id}:{device_id} 的实例标识。
+    """
     return f"{task_id}:{device_id}"

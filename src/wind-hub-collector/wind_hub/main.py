@@ -46,7 +46,16 @@ async def _reload_loop(
     reload_event: asyncio.Event,
     runtime: AssembledRuntime,
 ) -> None:
-    """消费 SIGHUP 并调用 Collector 自身的 ConfigUseCase。"""
+    """持续消费配置重载事件，并调用 Collector 自身的 ConfigUseCase。
+
+    Args:
+        reload_event: SIGHUP 或控制路径设置的重载事件。
+        runtime: 当前 Collector 对象图。
+
+    Notes:
+        本协程设计为进程级后台任务，只在 Collector 停机时取消。单次 reload
+        失败通过 ReloadResult 记录，不终止下一次事件处理。
+    """
     while True:
         await reload_event.wait()
         reload_event.clear()
@@ -174,7 +183,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """同步 CLI 入口。"""
+    """同步 CLI 入口。
+
+    Returns:
+        Collector 正常退出时返回 0。
+
+    Raises:
+        SystemExit: 参数解析失败时由 argparse 触发。
+        Exception: 启动或运行阶段未被下层收敛的异常原样传播，由进程管理器处理。
+    """
     args = build_parser().parse_args()
     return asyncio.run(
         run_collector(

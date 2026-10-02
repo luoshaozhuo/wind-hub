@@ -24,9 +24,23 @@ class CommandUseCase:
         self._dispatcher = dispatcher
 
     async def send(self, cmd: Command) -> CommandResult:
-        """下发单条指令，等待结果。"""
+        """下发单条指令并等待执行结果。
+
+        Args:
+            cmd: 待下发 Command。
+
+        Returns:
+            CommandResult；协议失败、未知设备和超时均由 Dispatcher 收敛为失败结果。
+        """
         return await self._dispatcher.send(cmd)
 
     async def send_batch(self, cmds: list[Command]) -> list[CommandResult]:
-        """并发下发多条指令，按输入顺序返回结果。"""
+        """并发下发多条指令。
+
+        Args:
+            cmds: 待下发命令列表。
+
+        Returns:
+            与输入顺序一致的 CommandResult 列表；单条失败不取消同批其他命令。
+        """
         return await self._dispatcher.send_batch(cmds)
