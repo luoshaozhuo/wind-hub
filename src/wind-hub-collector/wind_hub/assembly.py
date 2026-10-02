@@ -111,7 +111,6 @@ def assemble(
     for device_cfg in cfg.devices.devices:
         protocol = _create_protocol(device_cfg)
         points = cfg.points_for_device(device_cfg.device_id)
-        protocol.set_points_mapping(points)
         devices[device_cfg.device_id] = Device(
             config=device_cfg,
             points=points,

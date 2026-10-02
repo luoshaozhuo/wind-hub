@@ -23,8 +23,9 @@ class DeviceSession:
         protocol: 已按 DeviceConfig 创建的协议 Driver。
 
     Notes:
-        本对象不主动建立连接；调用方显式执行 connect/close。点表轻量热更新可通过
-        set_points 完成，并同步重建 Driver 内部寻址映射。
+        本对象不主动建立连接；调用方显式执行 connect/close。构造时立即把当前
+        resolved 点表注入 Driver，以保证会话一旦创建即可安全 read/write；后续
+        轻量热更新通过 set_points 同步重建寻址映射。
     """
 
     def __init__(
@@ -36,6 +37,7 @@ class DeviceSession:
         self._config = config
         self._points = points
         self._protocol = protocol
+        self._protocol.set_points_mapping(points)
 
     @property
     def config(self) -> DeviceConfig:

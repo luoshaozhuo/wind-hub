@@ -740,7 +740,6 @@ class Runtime:
             await self.rebuild_device(device_id, cfg, protocol, points)
             return
 
-        protocol.set_points_mapping(points)
         device = Device(config=cfg, points=points, protocol=protocol)
         self._devices[device_id] = device
         self._device_states[device_id] = DeviceRuntimeState()
@@ -817,7 +816,6 @@ class Runtime:
                     exc_info=True,
                 )
 
-        new_protocol.set_points_mapping(points)
         device = Device(config=new_cfg, points=points, protocol=new_protocol)
         self._devices[device_id] = device
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
