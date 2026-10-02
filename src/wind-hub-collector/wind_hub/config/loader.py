@@ -29,6 +29,7 @@ from wind_hub.config.schema import (
     PointTablesConfig,
     ReportingConfig,
     ResolvedPointTables,
+    SinkConfig,
     SystemConfig,
     TasksConfig,
     UnitsConfig,
@@ -385,6 +386,7 @@ def _validate_device_binding(
             f"Device '{device.device_id}' references unknown point_table "
             f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
         )
+
 
 def _validate_ads_address(table: str, point: PointConfig) -> None:
     """校验 ADS 点位地址形式。
