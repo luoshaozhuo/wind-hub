@@ -177,6 +177,63 @@ class TestWriteAndSubscribe:
 
 
 # ===========================================================================
+# connect recovery
+# ===========================================================================
+
+
+class TestConnectRecovery:
+    async def test_failed_connect_closes_temporary_session(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closed = False
+
+        class _FailingSession(_FakeSessionBase):
+            async def start(self) -> None:
+                raise ProtocolError("handshake failed")
+
+            async def close(self) -> None:
+                nonlocal closed
+                closed = True
+
+        monkeypatch.setattr(iec104_driver_module, "IEC104Session", _FailingSession)
+        driver = IEC104Driver(_make_device_config())
+
+        with pytest.raises(ProtocolError, match="handshake failed"):
+            await driver.connect()
+
+        assert closed is True
+        assert driver._failed is True  # noqa: SLF001
+        assert driver._session is None  # noqa: SLF001
+
+    async def test_explicit_connect_recovers_after_failed_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _RecoveredSession(_FakeSessionBase):
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__(**kwargs)
+                self._closed = asyncio.Event()
+
+            async def start(self) -> None:
+                return None
+
+            async def close(self) -> None:
+                self._closed.set()
+
+            async def wait_closed(self) -> None:
+                await self._closed.wait()
+
+        monkeypatch.setattr(iec104_driver_module, "IEC104Session", _RecoveredSession)
+        driver = IEC104Driver(_make_device_config())
+        driver._failed = True  # noqa: SLF001
+
+        await driver.connect()
+        try:
+            assert driver._failed is False  # noqa: SLF001
+            assert driver._session is not None  # noqa: SLF001
+        finally:
+            await driver.close()
+
+# ===========================================================================
 # health
 # ===========================================================================
 
