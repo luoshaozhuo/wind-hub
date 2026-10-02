@@ -16,6 +16,7 @@ from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import clear_context, set_context
 from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.assembly import ServerRuntime, assemble_server
 from wind_hub_server.config_validation import ServerConfigValidator
 from wind_hub_server.settings import ServerSettings
@@ -114,6 +115,59 @@ async def _worker_probe_loop(
             raise
         except Exception:
             logger.warning("worker registry refresh failed", exc_info=True)
+        await asyncio.sleep(interval)
+
+
+async def _task_placement_reconcile_loop(
+    tasks: CollectorTaskUseCase,
+    *,
+    interval: float,
+) -> None:
+    """周期收敛 Task placement，阻止错误 Worker 持续采集。"""
+    previous: tuple[
+        bool,
+        int,
+        int,
+        tuple[str, ...],
+        tuple[str, ...],
+        tuple[str, ...],
+    ] | None = None
+    while True:
+        try:
+            result = await tasks.reconcile_placement()
+            current = (
+                result.safe,
+                result.wrong_running_instances,
+                result.stopped_instances,
+                tuple(result.unavailable_workers),
+                tuple(result.orphaned_tasks),
+                tuple(result.errors),
+            )
+            if current != previous:
+                log = (
+                    logger.warning
+                    if not result.safe or result.wrong_running_instances
+                    else logger.info
+                )
+                log(
+                    "task placement reconciliation: safe=%s generation=%d "
+                    "workers=%d examined=%d wrong_running=%d stopped=%d "
+                    "unavailable=%s orphaned=%s errors=%s",
+                    result.safe,
+                    result.generation,
+                    result.scanned_workers,
+                    result.examined_instances,
+                    result.wrong_running_instances,
+                    result.stopped_instances,
+                    result.unavailable_workers,
+                    result.orphaned_tasks,
+                    result.errors,
+                )
+                previous = current
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("task placement reconciliation failed", exc_info=True)
         await asyncio.sleep(interval)
 
 
@@ -223,12 +277,30 @@ async def run_server(settings: ServerSettings) -> int:
     api_task: asyncio.Task[None] | None = None
     reload_task: asyncio.Task[None] | None = None
     reconcile_task: asyncio.Task[None] | None = None
+    placement_reconcile_task: asyncio.Task[None] | None = None
     worker_probe_task: asyncio.Task[None] | None = None
 
     try:
+        await runtime.worker_registry.refresh()
+        placement = await runtime.tasks.reconcile_placement()
+        if placement.wrong_running_instances:
+            logger.warning(
+                "task placement startup reconciliation stopped %d/%d "
+                "wrong running instance(s)",
+                placement.stopped_instances,
+                placement.wrong_running_instances,
+            )
+        if not placement.safe:
+            logger.warning(
+                "task placement is not safe; start operations remain blocked: "
+                "unavailable=%s orphaned=%s errors=%s",
+                placement.unavailable_workers,
+                placement.orphaned_tasks,
+                placement.errors,
+            )
+
         api_task = asyncio.create_task(server.serve())
         await runtime.monitoring.start()
-        await runtime.worker_registry.refresh()
 
         logger.info(
             "wind-hub-server 已启动（%d 台设备，%d 个 sink）；API %s:%d",
@@ -243,6 +315,12 @@ async def run_server(settings: ServerSettings) -> int:
         reconcile_task = asyncio.create_task(
             _reconcile_loop(
                 runtime.config,
+                interval=settings.reconcile_interval,
+            )
+        )
+        placement_reconcile_task = asyncio.create_task(
+            _task_placement_reconcile_loop(
+                runtime.tasks,
                 interval=settings.reconcile_interval,
             )
         )
@@ -264,7 +342,12 @@ async def run_server(settings: ServerSettings) -> int:
         try:
             background_tasks = [
                 task
-                for task in (reload_task, reconcile_task, worker_probe_task)
+                for task in (
+                    reload_task,
+                    reconcile_task,
+                    placement_reconcile_task,
+                    worker_probe_task,
+                )
                 if task is not None
             ]
             for task in background_tasks:

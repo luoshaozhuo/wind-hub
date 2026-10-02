@@ -58,6 +58,7 @@ class ServerRuntime:
     worker_registry: WorkerRegistryUseCase
     collector_directory: StaticCollectorDirectory
     task_assignments: TaskAssignmentUseCase
+    tasks: CollectorTaskUseCase
 
 
 def assemble_server(
@@ -209,4 +210,5 @@ def assemble_server(
         worker_registry=worker_registry,
         collector_directory=collector_directory,
         task_assignments=task_assignments,
+        tasks=worker_tasks,
     )

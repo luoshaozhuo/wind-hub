@@ -12,13 +12,16 @@ from wind_hub_server.application.port.collector_directory import CollectorDirect
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import (
     TaskAssignmentUseCase,
-    TaskPlacementError,
     TaskPlacementState,
 )
 
 
 class TaskWorkerUnavailableError(RuntimeError):
     """Task 所属 Collector 当前不可用或身份非法。"""
+
+
+class TaskPlacementUnsafeError(RuntimeError):
+    """当前 placement 尚未完成安全收敛，禁止新的 start 操作。"""
 
 
 class TaskInstanceState(str, Enum):
@@ -55,6 +58,20 @@ class TaskBatchResult(BaseModel):
     unchanged: int
 
 
+class TaskPlacementReconcileResult(BaseModel):
+    """一次 placement reconciliation 结果。"""
+
+    safe: bool
+    generation: int
+    scanned_workers: int
+    unavailable_workers: list[str]
+    orphaned_tasks: list[str]
+    examined_instances: int
+    wrong_running_instances: int
+    stopped_instances: int
+    errors: list[str]
+
+
 class TaskSummary(TaskDetail):
     runtime_state: str
     instance_count: int
@@ -75,6 +92,7 @@ class CollectorTaskUseCase:
         self._collectors = collectors
         self._assignments = assignments
         self._config = config
+        self._reconciled_generation: int | None = None
 
     async def _verified_collector(self, worker_id: str):
         """返回在线且身份与 placement worker_id 一致的 Collector。"""
@@ -92,6 +110,112 @@ class CollectorTaskUseCase:
                 f"reported={reported_id or '<empty>'}"
             )
         return collector
+
+    @property
+    def placement_safe(self) -> bool:
+        """当前 placement 代次是否已完成安全收敛。"""
+        return self._reconciled_generation == self._assignments.generation
+
+    def _require_safe_start(self) -> None:
+        """仅在当前 placement 代次完成安全收敛后允许新的 start。"""
+        if not self.placement_safe:
+            raise TaskPlacementUnsafeError(
+                "task placement is not safely reconciled"
+            )
+
+    async def reconcile_placement(self) -> TaskPlacementReconcileResult:
+        """停止跑在错误 Collector 上的实例，并建立当前 placement 安全栅栏。"""
+        generation = self._assignments.generation
+        assignments = {
+            row.task_id: row
+            for row in self._assignments.list_assignments()
+        }
+        enabled_tasks = {
+            task.task_id
+            for task in self._config.current_config.tasks.tasks
+            if task.enabled
+        }
+        orphaned_tasks = sorted(
+            row.task_id
+            for row in assignments.values()
+            if row.state is TaskPlacementState.ORPHANED
+        )
+        worker_ids = self._collectors.list_worker_ids()
+
+        async def fetch(worker_id: str):
+            collector = await self._verified_collector(worker_id)
+            return collector, await collector.list_task_instances()
+
+        results = await asyncio.gather(
+            *(fetch(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
+        )
+        unavailable_workers: list[str] = []
+        errors: list[str] = []
+        examined_instances = 0
+        wrong_running_instances = 0
+        stopped_instances = 0
+
+        for worker_id, result in zip(worker_ids, results, strict=True):
+            if isinstance(result, BaseException):
+                unavailable_workers.append(worker_id)
+                errors.append(
+                    f"{worker_id}: {str(result) or type(result).__name__}"
+                )
+                continue
+
+            collector, rows = result
+            for row in rows:
+                examined_instances += 1
+                if str(row.get("state") or "") != TaskInstanceState.RUNNING.value:
+                    continue
+                task_id = str(row.get("task_id") or "")
+                assignment = assignments.get(task_id)
+                expected_worker = (
+                    assignment.worker_id
+                    if task_id in enabled_tasks
+                    and assignment is not None
+                    and assignment.state is TaskPlacementState.ASSIGNED
+                    else None
+                )
+                if expected_worker == worker_id:
+                    continue
+
+                wrong_running_instances += 1
+                instance_id = str(row.get("instance_id") or "")
+                if not instance_id:
+                    errors.append(
+                        f"{worker_id}: running task '{task_id}' has empty instance_id"
+                    )
+                    continue
+                try:
+                    await collector.stop_task_instance(instance_id)
+                except Exception as exc:
+                    errors.append(
+                        f"{worker_id}/{instance_id}: stop failed: "
+                        f"{str(exc) or type(exc).__name__}"
+                    )
+                else:
+                    stopped_instances += 1
+
+        safe = (
+            not unavailable_workers
+            and not orphaned_tasks
+            and not errors
+            and self._assignments.generation == generation
+        )
+        self._reconciled_generation = generation if safe else None
+        return TaskPlacementReconcileResult(
+            safe=safe,
+            generation=generation,
+            scanned_workers=len(worker_ids),
+            unavailable_workers=unavailable_workers,
+            orphaned_tasks=orphaned_tasks,
+            examined_instances=examined_instances,
+            wrong_running_instances=wrong_running_instances,
+            stopped_instances=stopped_instances,
+            errors=errors,
+        )
 
     async def list_tasks(self) -> list[TaskDetail]:
         """返回全部 Task Definition，包括未分配 Task。"""
@@ -129,7 +253,8 @@ class CollectorTaskUseCase:
         assignments = [
             row
             for row in self._assignments.list_assignments()
-            if row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED
+            and row.worker_id is not None
         ]
         by_worker: dict[str, set[str]] = {}
         for assignment in assignments:
@@ -179,9 +304,10 @@ class CollectorTaskUseCase:
         if cfg is None:
             raise KeyError(task_id)
         assignment = self._assignments.assignment_for_task(task_id)
-        if assignment.worker_id is None:
-            return self._fallback_summary(cfg, None)
+        if assignment.state is not TaskPlacementState.ASSIGNED:
+            return self._fallback_summary(cfg, assignment.worker_id)
 
+        assert assignment.worker_id is not None
         try:
             collector = await self._verified_collector(assignment.worker_id)
             rows = await collector.list_tasks()
@@ -201,8 +327,9 @@ class CollectorTaskUseCase:
     async def list_task_instances(self, task_id: str) -> list[TaskInstanceDetail]:
         """返回指定 Task 当前展开的全部实例；未分配 Task 返回空列表。"""
         assignment = self._assignments.assignment_for_task(task_id)
-        if assignment.worker_id is None:
+        if assignment.state is not TaskPlacementState.ASSIGNED:
             return []
+        assert assignment.worker_id is not None
         try:
             collector = await self._verified_collector(assignment.worker_id)
             rows = await collector.list_task_instances()
@@ -217,6 +344,7 @@ class CollectorTaskUseCase:
         ]
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
+        self._require_safe_start()
         current = await self.get_instance(instance_id)
         collector = await self._verified_collector(current.assigned_worker_id)
         data = await collector.start_task_instance(instance_id)
@@ -233,6 +361,7 @@ class CollectorTaskUseCase:
         )
 
     async def start_task(self, task_id: str) -> TaskSummary:
+        self._require_safe_start()
         worker_id = self._assignments.worker_for_task(task_id)
         collector = await self._verified_collector(worker_id)
         data = await collector.start_task(task_id)
@@ -263,7 +392,8 @@ class CollectorTaskUseCase:
         assignments = [
             row
             for row in self._assignments.list_assignments()
-            if row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED
+            and row.worker_id is not None
         ]
         by_worker: dict[str, set[str]] = {}
         for assignment in assignments:
@@ -296,22 +426,27 @@ class CollectorTaskUseCase:
         cfg: Any,
         worker_id: str | None,
     ) -> TaskSummary:
-        """构造未分配或 Worker 未返回 Task 时的诚实控制面状态。"""
+        """构造未分配、孤儿或 Worker 未返回 Task 时的诚实控制面状态。"""
+        placement_state = (
+            self._assignments.assignment_for_task(cfg.task_id).state
+        )
         return TaskSummary(
             task_id=cfg.task_id,
             assigned_worker_id=worker_id,
-            placement_state=(
-                TaskPlacementState.ASSIGNED
-                if worker_id is not None
-                else TaskPlacementState.UNASSIGNED
-            ),
+            placement_state=placement_state,
             device=cfg.device,
             device_group=cfg.device_group,
             point_group=cfg.point_group,
             interval=cfg.interval,
             targets=[target.sink for target in cfg.targets],
             enabled=cfg.enabled,
-            runtime_state="unavailable" if worker_id is not None else "unassigned",
+            runtime_state=(
+                "orphaned"
+                if placement_state is TaskPlacementState.ORPHANED
+                else "unavailable"
+                if worker_id is not None
+                else "unassigned"
+            ),
             instance_count=0,
             running_instances=0,
             stopped_instances=0,
@@ -320,6 +455,7 @@ class CollectorTaskUseCase:
 
     async def start_all_instances(self) -> TaskBatchResult:
         """按 assignment 启动全部 Task Instance。"""
+        self._require_safe_start()
         return await self._set_all_instances(start=True)
 
     async def stop_all_instances(self) -> TaskBatchResult:

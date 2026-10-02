@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import os
 from enum import StrEnum
 from hashlib import sha256
+from pathlib import Path
 
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.usecase.config import ConfigUseCase
+
+_STATE_VERSION = 1
 
 
 class TaskPlacementState(StrEnum):
@@ -16,6 +21,7 @@ class TaskPlacementState(StrEnum):
 
     ASSIGNED = "assigned"
     UNASSIGNED = "unassigned"
+    ORPHANED = "orphaned"
 
 
 class TaskAssignment(BaseModel):
@@ -31,10 +37,11 @@ class TaskPlacementError(RuntimeError):
 
 
 class TaskAssignmentUseCase:
-    """Server 持有的 Task placement 状态。
+    """Server 持有并持久化的 Task placement 状态。
 
-    初始启动和新增 Task 使用 rendezvous hashing 做稳定 placement；同一 Worker
-    集合下新增/删除其他 Task 不会迁移已有 Task。显式迁移必须经 assign/unassign。
+    首次启动使用 rendezvous hashing 建立稳定 placement；之后从状态文件恢复。
+    已有 Owner 不再登记时保留原 worker_id 并标记 ORPHANED，禁止自动漂移到新
+    Collector，以避免 Server 重启/Worker 集合变化后形成重复采集。
     """
 
     def __init__(
@@ -44,17 +51,86 @@ class TaskAssignmentUseCase:
     ) -> None:
         self._config = config
         self._collectors = collectors
+        self._state_path = config.config_dir / ".state" / "task-placement.json"
         self._placements: dict[str, str | None] = {}
-        self._initialize()
+        self._generation = 0
+        if self._state_path.exists():
+            self._load()
+            self.sync()
+        else:
+            self._initialize()
+            self._persist()
+
+    @property
+    def generation(self) -> int:
+        """返回当前 placement 代次；placement 变化时单调递增。"""
+        self.sync()
+        return self._generation
+
+    @property
+    def state_path(self) -> Path:
+        """返回 placement 状态文件路径。"""
+        return self._state_path
 
     def _initialize(self) -> None:
-        """为启动时 Task 建立稳定 placement。"""
+        """为首次启动时的 Task 建立稳定 placement。"""
         worker_ids = self._collectors.list_worker_ids()
-        for task in self._config.current_config.tasks.tasks:
-            self._placements[task.task_id] = self._select_worker(
-                task.task_id,
-                worker_ids,
+        self._placements = {
+            task.task_id: self._select_worker(task.task_id, worker_ids)
+            for task in self._config.current_config.tasks.tasks
+        }
+        self._generation = 1
+
+    def _load(self) -> None:
+        """读取并校验已持久化 placement。"""
+        raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or raw.get("version") != _STATE_VERSION:
+            raise ValueError(
+                f"unsupported task placement state: {self._state_path}"
             )
+        placements = raw.get("placements")
+        if not isinstance(placements, dict):
+            raise ValueError(
+                f"invalid task placement state: {self._state_path}"
+            )
+
+        loaded: dict[str, str | None] = {}
+        for task_id, worker_id in placements.items():
+            if not isinstance(task_id, str) or not task_id:
+                raise ValueError(
+                    f"invalid task_id in placement state: {self._state_path}"
+                )
+            if worker_id is not None and (
+                not isinstance(worker_id, str) or not worker_id
+            ):
+                raise ValueError(
+                    f"invalid worker_id for task '{task_id}' in placement state"
+                )
+            loaded[task_id] = worker_id
+        self._placements = loaded
+        self._generation = 1
+
+    def _persist(self) -> None:
+        """原子写入 placement 状态文件。"""
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": _STATE_VERSION,
+            "placements": dict(sorted(self._placements.items())),
+        }
+        temp_path = self._state_path.with_name(
+            f".{self._state_path.name}.{os.getpid()}.tmp"
+        )
+        with temp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, self._state_path)
+
+    def _changed(self) -> None:
+        """记录 placement 变化并持久化。"""
+        self._generation += 1
+        self._persist()
 
     def sync(self) -> None:
         """与当前成功配置同步 Task 集合，不迁移已有 Task。"""
@@ -62,18 +138,20 @@ class TaskAssignmentUseCase:
             task.task_id
             for task in self._config.current_config.tasks.tasks
         }
+        changed = False
+
         for task_id in list(self._placements):
             if task_id not in task_ids:
                 del self._placements[task_id]
+                changed = True
 
-        existing_workers = set(self._collectors.list_worker_ids())
-        for task_id, worker_id in list(self._placements.items()):
-            if worker_id is not None and worker_id not in existing_workers:
-                self._placements[task_id] = None
-
-        worker_ids = sorted(existing_workers)
+        worker_ids = self._collectors.list_worker_ids()
         for task_id in sorted(task_ids - set(self._placements)):
             self._placements[task_id] = self._select_worker(task_id, worker_ids)
+            changed = True
+
+        if changed:
+            self._changed()
 
     @staticmethod
     def _select_worker(task_id: str, worker_ids: list[str]) -> str | None:
@@ -87,13 +165,23 @@ class TaskAssignmentUseCase:
             ).digest(),
         )
 
+    def _state_for(self, worker_id: str | None) -> TaskPlacementState:
+        """根据当前 Worker 目录解释持久化 Owner。"""
+        if worker_id is None:
+            return TaskPlacementState.UNASSIGNED
+        if worker_id in set(self._collectors.list_worker_ids()):
+            return TaskPlacementState.ASSIGNED
+        return TaskPlacementState.ORPHANED
+
     def assign(self, task_id: str, worker_id: str) -> TaskAssignment:
         """显式把 Task 分配给指定 Collector。"""
         self.sync()
         if task_id not in self._placements:
             raise KeyError(task_id)
         self._collectors.get(worker_id)
-        self._placements[task_id] = worker_id
+        if self._placements[task_id] != worker_id:
+            self._placements[task_id] = worker_id
+            self._changed()
         return self.assignment_for_task(task_id)
 
     def unassign(self, task_id: str) -> TaskAssignment:
@@ -101,7 +189,9 @@ class TaskAssignmentUseCase:
         self.sync()
         if task_id not in self._placements:
             raise KeyError(task_id)
-        self._placements[task_id] = None
+        if self._placements[task_id] is not None:
+            self._placements[task_id] = None
+            self._changed()
         return self.assignment_for_task(task_id)
 
     def assignment_for_task(self, task_id: str) -> TaskAssignment:
@@ -113,18 +203,20 @@ class TaskAssignmentUseCase:
         return TaskAssignment(
             task_id=task_id,
             worker_id=worker_id,
-            state=(
-                TaskPlacementState.ASSIGNED
-                if worker_id is not None
-                else TaskPlacementState.UNASSIGNED
-            ),
+            state=self._state_for(worker_id),
         )
 
     def worker_for_task(self, task_id: str) -> str:
-        """返回指定 Task 的 Collector；未分配 Task 抛 TaskPlacementError。"""
+        """返回可执行 Collector；未分配/孤儿 placement 抛 TaskPlacementError。"""
         assignment = self.assignment_for_task(task_id)
-        if assignment.worker_id is None:
+        if assignment.state is TaskPlacementState.UNASSIGNED:
             raise TaskPlacementError(f"task '{task_id}' is unassigned")
+        if assignment.state is TaskPlacementState.ORPHANED:
+            raise TaskPlacementError(
+                f"task '{task_id}' is orphaned from worker "
+                f"'{assignment.worker_id}'"
+            )
+        assert assignment.worker_id is not None
         return assignment.worker_id
 
     def list_assignments(self) -> list[TaskAssignment]:
@@ -134,26 +226,23 @@ class TaskAssignmentUseCase:
             TaskAssignment(
                 task_id=task_id,
                 worker_id=worker_id,
-                state=(
-                    TaskPlacementState.ASSIGNED
-                    if worker_id is not None
-                    else TaskPlacementState.UNASSIGNED
-                ),
+                state=self._state_for(worker_id),
             )
             for task_id, worker_id in sorted(self._placements.items())
         ]
 
     def task_ids_for_worker(self, worker_id: str) -> list[str]:
-        """返回当前分配给指定 Worker 的 Task ID。"""
+        """返回当前确实分配给指定 Worker 的 Task ID。"""
         self._collectors.get(worker_id)
         return [
             row.task_id
             for row in self.list_assignments()
-            if row.worker_id == worker_id
+            if row.state is TaskPlacementState.ASSIGNED
+            and row.worker_id == worker_id
         ]
 
     def worker_ids_for_device(self, device_id: str) -> list[str]:
-        """返回实际承载指定设备采集 Task 的 Collector。"""
+        """返回实际承载指定设备采集 Task 的当前 Collector。"""
         devices = self._config.current_config.devices.devices
         device = next((item for item in devices if item.device_id == device_id), None)
         if device is None:
@@ -162,7 +251,8 @@ class TaskAssignmentUseCase:
         assignments = {
             row.task_id: row.worker_id
             for row in self.list_assignments()
-            if row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED
+            and row.worker_id is not None
         }
         workers: set[str] = set()
         for task in self._config.current_config.tasks.tasks:
@@ -178,7 +268,7 @@ class TaskAssignmentUseCase:
         return sorted(workers)
 
     def worker_ids_for_sink(self, sink_name: str) -> list[str]:
-        """返回实际向指定 Sink 写入的 Collector。"""
+        """返回实际向指定 Sink 写入的当前 Collector。"""
         if not any(
             sink.name == sink_name
             for sink in self._config.current_config.system.sinks
@@ -188,7 +278,8 @@ class TaskAssignmentUseCase:
         assignments = {
             row.task_id: row.worker_id
             for row in self.list_assignments()
-            if row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED
+            and row.worker_id is not None
         }
         workers = {
             assignments[task.task_id]

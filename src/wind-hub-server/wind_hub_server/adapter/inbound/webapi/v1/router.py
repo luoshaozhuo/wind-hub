@@ -87,6 +87,7 @@ from wind_hub_server.application.usecase.task_assignment import TaskPlacementErr
 from wind_hub_server.application.usecase.worker_tasks import (
     CollectorTaskUseCase,
     TaskInstanceDetail,
+    TaskPlacementUnsafeError,
     TaskSummary,
     TaskWorkerUnavailableError,
 )
@@ -352,6 +353,8 @@ async def start_task(task_id: str) -> TaskResponse:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     except TaskPlacementError as exc:
         raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
+    except TaskPlacementUnsafeError as exc:
+        raise APIError("PLACEMENT_UNSAFE", str(exc), 503) from exc
     except TaskWorkerUnavailableError as exc:
         raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     except ValueError as exc:
