@@ -1,7 +1,7 @@
 """wind-hub-server process host.
 
-Server owns Web/Admin/Config/Quality concerns.  Collector core remains isolated
-behind ServerRuntime.collector during the current embedded-worker transition.
+Server owns Web/Admin/Config/Quality concerns；Collector/Commander 作为独立
+Worker 仅通过 gRPC 访问。
 """
 
 from __future__ import annotations
@@ -126,6 +126,23 @@ async def run_server(settings: ServerSettings) -> int:
         validation.error_count,
         validation.repaired_points,
     )
+
+    if validation.repaired_points:
+        logger.warning(
+            "启动验证已修复 %d 个 ADS 点地址，开始激活修复后的配置",
+            validation.repaired_points,
+        )
+        activation = await runtime.config.reload()
+        if not activation.success:
+            raise RuntimeError(
+                "failed to activate startup validation repairs: "
+                + "; ".join(activation.errors)
+            )
+        startup_config = runtime.config.current_config
+        logger.info(
+            "启动验证修复已在 Collector/Commander 激活，changed_tables=%s",
+            activation.diff.point_tables_changed,
+        )
 
     runtime.log_store.install()
     set_context(runtime.context)
