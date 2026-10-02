@@ -52,3 +52,4 @@ Thumbs.db
 # Project
 **/node_modules/
 **/.vite/
+tests/test.env
