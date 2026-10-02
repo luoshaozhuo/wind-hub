@@ -13,8 +13,8 @@
 - 非法配置：中止重载、不触碰 Runtime、旧快照保持；
 - 无变更：不调用 reconfigure 直接成功；
 - 有变更：以 ``(new_config, diff)`` 调用 ``Runtime.reconfigure`` 一次；
-- reconfigure 返回错误：``success=False``、错误透传、**快照仍提交**
-  （部分失败语义：已应用的变更不回滚，下次 reload 以新快照为基准）；
+- reconfigure 返回错误：``success=False``、错误透传、旧快照保留，后续相同 reload 可重试；
+- ``system.runtime`` / ``system.ads`` 变化显式要求 Collector 重启；
 - 点表继承的父表变化向子表传播。
 
 Runtime 用 mock——本层只验证编排，重构执行由
@@ -256,23 +256,43 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     assert usecase.current_config is new_cfg
 
 
-async def test_reload_commits_snapshot_even_on_partial_failure(tmp_path: Path) -> None:
-    """reconfigure 部分失败：success=False、错误透传，但快照仍提交。"""
+async def test_reload_partial_failure_retains_snapshot_and_retries(tmp_path: Path) -> None:
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime(reconfigure_errors=["sink: open failed"])
     usecase = _usecase(tmp_path, runtime)
+    snapshot_before = usecase.current_config
 
     _write_configs(tmp_path, devices=[_make_device("d1"), _make_device("d2")])
     result = await usecase.reload()
 
     assert result.success is False
     assert result.errors == ["sink: open failed"]
-    # 快照已提交：再次 reload 同一目录内容时 diff 基准是新快照 → 无变更
-    result2 = await usecase.reload()
-    assert result2.success is True
-    assert result2.diff.has_any_changes is False
-    assert runtime.reconfigure.await_count == 1  # 第二轮不再调用
+    assert usecase.current_config is snapshot_before
 
+    result2 = await usecase.reload()
+    assert result2.success is False
+    assert result2.diff.devices.added == ["d2"]
+    assert runtime.reconfigure.await_count == 2
+
+
+async def test_reload_runtime_change_requires_restart(tmp_path: Path) -> None:
+    _write_configs(tmp_path, devices=[_make_device("d1")])
+    runtime = _mock_runtime()
+    usecase = _usecase(tmp_path, runtime)
+    snapshot_before = usecase.current_config
+
+    system_path = tmp_path / "system.yaml"
+    raw = yaml.safe_load(system_path.read_text())
+    raw["runtime"]["queue_maxsize"] = 20
+    system_path.write_text(yaml.safe_dump(raw))
+
+    result = await usecase.reload()
+
+    assert result.success is False
+    assert result.diff.runtime_changed is True
+    assert "restart" in result.errors[0]
+    runtime.reconfigure.assert_not_awaited()
+    assert usecase.current_config is snapshot_before
 
 async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
     _write_configs(
