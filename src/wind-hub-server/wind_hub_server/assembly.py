@@ -33,7 +33,6 @@ from wind_hub_server.application.usecase.system_health import SystemHealthUseCas
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.worker_model import (
-    COLLECTOR_WORKER_ID,
     COMMANDER_WORKER_ID,
     WorkerCapability,
     WorkerDefinition,
@@ -54,7 +53,7 @@ class ServerRuntime:
     config: ConfigUseCase
     monitoring: MonitoringService
     log_store: LogStore
-    collector_client: CollectorGrpcClient
+    collector_clients: dict[str, CollectorGrpcClient]
     commander_client: CommanderGrpcClient
     worker_registry: WorkerRegistryUseCase
     collector_directory: StaticCollectorDirectory
@@ -64,11 +63,17 @@ class ServerRuntime:
 def assemble_server(
     config_dir: str | Path,
     *,
-    collector_target: str = "127.0.0.1:50051",
+    collector_targets: dict[str, str] | None = None,
     commander_target: str = "127.0.0.1:50052",
 ) -> ServerRuntime:
     """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
-    collector_client = CollectorGrpcClient(collector_target)
+    endpoints = dict(collector_targets or {"collector": "127.0.0.1:50051"})
+    if not endpoints:
+        raise ValueError("collector_targets must not be empty")
+    collector_clients = {
+        worker_id: CollectorGrpcClient(endpoint)
+        for worker_id, endpoint in endpoints.items()
+    }
     commander_client = CommanderGrpcClient(commander_target)
 
     latest = InMemoryLatestPointStore()
@@ -78,18 +83,21 @@ def assemble_server(
 
     startup_config = ConfigUseCase.load_directory(config_dir)
 
-    collector_definition = WorkerDefinition(
-        worker_id=COLLECTOR_WORKER_ID,
-        role=WorkerRole.COLLECTOR,
-        endpoint=collector_target,
-        capabilities=[
-            WorkerCapability.CONFIG,
-            WorkerCapability.TASK_RUNTIME,
-            WorkerCapability.ACQUISITION_STATUS,
-            WorkerCapability.SINK,
-            WorkerCapability.METRICS,
-        ],
-    )
+    collector_definitions = [
+        WorkerDefinition(
+            worker_id=worker_id,
+            role=WorkerRole.COLLECTOR,
+            endpoint=endpoint,
+            capabilities=[
+                WorkerCapability.CONFIG,
+                WorkerCapability.TASK_RUNTIME,
+                WorkerCapability.ACQUISITION_STATUS,
+                WorkerCapability.SINK,
+                WorkerCapability.METRICS,
+            ],
+        )
+        for worker_id, endpoint in endpoints.items()
+    ]
     commander_definition = WorkerDefinition(
         worker_id=COMMANDER_WORKER_ID,
         role=WorkerRole.COMMANDER,
@@ -100,9 +108,10 @@ def assemble_server(
             WorkerCapability.DIAGNOSTICS,
         ],
     )
+    default_worker_id = collector_definitions[0].worker_id
     collector_directory = StaticCollectorDirectory(
-        {collector_definition.worker_id: collector_client},
-        default_worker_id=collector_definition.worker_id,
+        collector_clients,
+        default_worker_id=default_worker_id,
     )
     config = ConfigUseCase(
         config_dir=config_dir,
@@ -113,7 +122,7 @@ def assemble_server(
     worker_registry = WorkerRegistryUseCase(
         collector_directory,
         commander_client,
-        definitions=[collector_definition, commander_definition],
+        definitions=[*collector_definitions, commander_definition],
     )
     task_assignments = TaskAssignmentUseCase(config, collector_directory)
     collector_aggregate = CollectorAggregateUseCase(
@@ -198,7 +207,7 @@ def assemble_server(
         config=config,
         monitoring=monitoring,
         log_store=log_store,
-        collector_client=collector_client,
+        collector_clients=collector_clients,
         commander_client=commander_client,
         worker_registry=worker_registry,
         collector_directory=collector_directory,

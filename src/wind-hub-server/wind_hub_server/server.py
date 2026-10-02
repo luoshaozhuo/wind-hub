@@ -178,7 +178,7 @@ async def run_server(settings: ServerSettings) -> int:
     startup_config = ConfigUseCase.load_directory(settings.config_dir)
     runtime = assemble_server(
         settings.config_dir,
-        collector_target=settings.collector_target,
+        collector_targets=settings.collector_endpoints,
         commander_target=settings.commander_target,
     )
     validator = ServerConfigValidator(
@@ -282,7 +282,7 @@ async def run_server(settings: ServerSettings) -> int:
             await runtime.monitoring.stop()
         finally:
             await asyncio.gather(
-                runtime.collector_client.close(),
+                *(client.close() for client in runtime.collector_clients.values()),
                 runtime.commander_client.close(),
                 return_exceptions=True,
             )
