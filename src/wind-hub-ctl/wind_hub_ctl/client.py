@@ -20,6 +20,7 @@ from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
+    DIAGNOSTIC_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
     GET_TASK,
@@ -28,7 +29,11 @@ from wind_hub_core.rpc.collector import (
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     READ_POINT,
+    RESOLVE_POINT,
     RELOAD_CONFIG,
+    VERIFY_DEVICE,
+    VERIFY_POINT,
+    VERIFY_POINTS,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK,
@@ -314,6 +319,52 @@ class CollectorClient:
             ReloadResult 的动态 JSON 字典，包含成功状态、diff 和错误列表。
         """
         return await self._call_empty(CONTROL_SERVICE, RELOAD_CONFIG)
+
+
+    async def verify_device(
+        self,
+        device_id: str,
+        *,
+        timeout: float = 1.0,
+    ) -> dict[str, Any]:
+        """验证设备网络、TCP 与协议会话。"""
+        return await self._call_struct(
+            DIAGNOSTIC_SERVICE,
+            VERIFY_DEVICE,
+            {"device_id": device_id, "timeout": timeout},
+        )
+
+    async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]:
+        """解析点位协议地址；ADS 返回实际 index_group/index_offset。"""
+        return await self._call_struct(
+            DIAGNOSTIC_SERVICE,
+            RESOLVE_POINT,
+            {"device_id": device_id, "point_id": point_id},
+        )
+
+    async def verify_point(self, device_id: str, point_id: str) -> dict[str, Any]:
+        """实际读取单点并返回 raw/engineering value。"""
+        return await self._call_struct(
+            DIAGNOSTIC_SERVICE,
+            VERIFY_POINT,
+            {"device_id": device_id, "point_id": point_id},
+        )
+
+    async def verify_points(
+        self,
+        device_id: str,
+        *,
+        point_group: str | None = None,
+    ) -> dict[str, Any]:
+        """验证整个设备点表或指定 point_group。"""
+        payload: dict[str, Any] = {"device_id": device_id}
+        if point_group is not None:
+            payload["point_group"] = point_group
+        return await self._call_struct(
+            DIAGNOSTIC_SERVICE,
+            VERIFY_POINTS,
+            payload,
+        )
 
     async def write(
         self,
