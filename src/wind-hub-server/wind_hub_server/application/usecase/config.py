@@ -8,6 +8,7 @@ Server 指定 revision/hash 的 Prepare/Activate/Abort。配置事务在进程�
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -107,6 +108,8 @@ class ConfigUseCase:
         self._desired_config_hash: str | None = None
         self._transaction_lock = asyncio.Lock()
         self._accept_transactions = True
+        self._applied_files = self._snapshot_config_files()
+        self._applied_config_hash = fingerprint_config_set(self._config_dir)
 
     @property
     def config_dir(self) -> Path:
@@ -211,15 +214,21 @@ class ConfigUseCase:
                     f"before={before_hash} after={config_hash}"
                 )
         except Exception as exc:
+            errors = [str(exc) or type(exc).__name__]
+            errors.extend(self._restore_applied_files())
             return ReloadResult(
                 success=False,
                 diff=ConfigDiff(),
-                errors=[str(exc) or type(exc).__name__],
+                errors=errors,
                 duration_ms=(time.monotonic() - started) * 1000,
             )
 
         diff = compute_diff(self._current, candidate)
-        if not diff.has_any_changes and not force_workers:
+        if (
+            not diff.has_any_changes
+            and not force_workers
+            and config_hash == self._applied_config_hash
+        ):
             return ReloadResult(
                 success=True,
                 diff=diff,
@@ -260,6 +269,7 @@ class ConfigUseCase:
 
         if not all(prepare_ok):
             errors.extend(await self._abort_prepared_revision(revision_id))
+            errors.extend(self._restore_applied_files())
             return ReloadResult(
                 success=False,
                 diff=diff,
@@ -310,14 +320,91 @@ class ConfigUseCase:
             self._current = candidate
             self._desired_revision = revision_id
             self._desired_config_hash = config_hash
+            self._applied_files = self._snapshot_config_files()
+            self._applied_config_hash = config_hash
         else:
             errors.extend(await self._abort_prepared_revision(revision_id))
+            errors.extend(await self._rollback_to_applied_config())
         return ReloadResult(
             success=success,
             diff=diff,
             errors=errors,
             duration_ms=(time.monotonic() - started) * 1000,
         )
+
+    def _config_roots(self) -> list[Path]:
+        """返回参与配置指纹的 YAML 根目录。"""
+        site_dir = self._config_dir.resolve()
+        roots = [site_dir]
+        common_dir = site_dir.parent / "common"
+        if common_dir.is_dir() and common_dir != site_dir:
+            roots.append(common_dir)
+        return roots
+
+    def _snapshot_config_files(self) -> dict[Path, bytes]:
+        """保存当前已接受配置集的 YAML 文件快照。"""
+        snapshot: dict[Path, bytes] = {}
+        for root in self._config_roots():
+            for path in root.rglob("*"):
+                if (
+                    path.is_file()
+                    and path.suffix.lower() in {".yaml", ".yml"}
+                    and ".history" not in path.relative_to(root).parts
+                ):
+                    snapshot[path.resolve()] = path.read_bytes()
+        return snapshot
+
+    def _restore_applied_files(self) -> list[str]:
+        """把磁盘 YAML 恢复到最近一次成功激活的配置集。"""
+        errors: list[str] = []
+        try:
+            current = {
+                path.resolve()
+                for root in self._config_roots()
+                for path in root.rglob("*")
+                if (
+                    path.is_file()
+                    and path.suffix.lower() in {".yaml", ".yml"}
+                    and ".history" not in path.relative_to(root).parts
+                )
+            }
+            for path in current - set(self._applied_files):
+                path.unlink()
+            for path, content in self._applied_files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temp = path.with_name(f".{path.name}.rollback.tmp")
+                temp.write_bytes(content)
+                os.replace(temp, path)
+        except Exception as exc:
+            errors.append(
+                "restore applied config files failed: "
+                + (str(exc) or type(exc).__name__)
+            )
+        return errors
+
+    async def _rollback_to_applied_config(self) -> list[str]:
+        """恢复磁盘并把全部 Worker 强制收敛到最近成功配置。"""
+        errors = self._restore_applied_files()
+        if errors:
+            return errors
+
+        revision_id = self._desired_revision or f"rollback-{self._applied_config_hash}"
+        outcomes = await asyncio.gather(
+            self._reconcile_worker(
+                "collector",
+                revision_id,
+                self._applied_config_hash,
+            ),
+            self._reconcile_worker(
+                "commander",
+                revision_id,
+                self._applied_config_hash,
+            ),
+        )
+        for name, outcome in zip(("collector", "commander"), outcomes, strict=True):
+            if outcome not in {"reconciled", "already-current"}:
+                errors.append(f"{name} rollback failed: {outcome}")
+        return errors
 
     async def _abort_prepared_revision(self, revision_id: str) -> list[str]:
         """Prepare 整体失败后尽力撤销两端同 revision 候选状态。"""

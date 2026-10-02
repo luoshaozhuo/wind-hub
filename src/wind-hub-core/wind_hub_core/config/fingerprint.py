@@ -19,9 +19,13 @@ def fingerprint_config_set(config_dir: str | Path) -> str:
     for root in roots:
         prefix = root.name
         for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}:
-                relative = path.relative_to(root).as_posix()
-                files.append((f"{prefix}/{relative}", path))
+            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+                continue
+            relative_path = path.relative_to(root)
+            if ".history" in relative_path.parts:
+                continue
+            relative = relative_path.as_posix()
+            files.append((f"{prefix}/{relative}", path))
 
     for relative, path in sorted(files):
         digest.update(relative.encode("utf-8"))
