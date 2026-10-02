@@ -42,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="info",
         help="uvicorn 日志级别（debug/info/warning/error/critical）",
     )
+    parser.add_argument(
+        "--collector-target",
+        default="127.0.0.1:50051",
+        help="Collector gRPC endpoint，默认 127.0.0.1:50051",
+    )
+    parser.add_argument(
+        "--commander-target",
+        default="127.0.0.1:50052",
+        help="Commander gRPC endpoint，默认 127.0.0.1:50052",
+    )
     return parser
 
 
@@ -61,6 +71,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         port=args.port,
         shutdown_timeout=args.shutdown_timeout,
         log_level=args.log_level,
+        collector_target=args.collector_target,
+        commander_target=args.commander_target,
     )
     return asyncio.run(run_server(settings))
 

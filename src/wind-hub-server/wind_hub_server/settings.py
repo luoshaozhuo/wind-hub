@@ -27,6 +27,8 @@ class ServerSettings:
     port: int = 8080
     shutdown_timeout: float = 30.0
     log_level: str = "info"
+    collector_target: str = "127.0.0.1:50051"
+    commander_target: str = "127.0.0.1:50052"
 
     def __post_init__(self) -> None:
         """校验仅属于进程宿主的参数，不读取文件系统。"""
@@ -38,6 +40,10 @@ class ServerSettings:
             raise ValueError("shutdown_timeout must be greater than 0")
         if not self.log_level.strip():
             raise ValueError("log_level must not be empty")
+        if not self.collector_target.strip():
+            raise ValueError("collector_target must not be empty")
+        if not self.commander_target.strip():
+            raise ValueError("commander_target must not be empty")
 
     @classmethod
     def from_values(
@@ -48,6 +54,8 @@ class ServerSettings:
         port: int = 8080,
         shutdown_timeout: float = 30.0,
         log_level: str = "info",
+        collector_target: str = "127.0.0.1:50051",
+        commander_target: str = "127.0.0.1:50052",
     ) -> "ServerSettings":
         """从 CLI/调用方的基础值构造设置。
 
@@ -67,4 +75,6 @@ class ServerSettings:
             port=port,
             shutdown_timeout=shutdown_timeout,
             log_level=log_level,
+            collector_target=collector_target,
+            commander_target=commander_target,
         )
