@@ -98,6 +98,7 @@ class TestParsePoint:
         )
         ap = parse_point(point)
         assert ap.data_type == "REAL"
+        assert ap.address_resolved is True
 
     def test_explicit_size_override(self) -> None:
         ap = parse_point(_point("s", "str", size=64))
@@ -138,13 +139,15 @@ class TestParsePoint:
         assert ap.index_group == 0
         assert ap.index_offset == 0
         assert ap.data_type == "REAL"
+        assert ap.address_resolved is False
 
-    def test_symbol_with_index_pair_is_valid(self) -> None:
-        """symbol 与 index 同时存在合法；两者都保留（读写时 symbol 优先）。"""
+    def test_symbol_with_index_pair_requires_session_resolution(self) -> None:
+        """symbol 与 index 可同时配置，但生产地址必须由当前 PLC session 解析。"""
         ap = parse_point(_point("s", "float32", symbol="MAIN.speed"))
         assert ap.symbol == "MAIN.speed"
         assert ap.index_group == 0x4020
         assert ap.index_offset == 0
+        assert ap.address_resolved is False
 
     def test_symbol_with_only_index_group_raises(self) -> None:
         """symbol 存在时 index 两字段仍须成对；只给一个即非法。"""

@@ -3,9 +3,10 @@
 PointConfig.address 的动态字段承载 symbol、index_group、index_offset、ADS 类型
 覆盖和可选 size。本模块只做纯配置转换，不访问 PLC。
 
-symbol-only 点在这里保持“地址未解析”状态；真正的 index_group/index_offset
-由 ADSDriver 建连后解析一次。address.model_extra 使用 Any 是 Pydantic 动态协议
-字段边界，转换完成后会收敛为 ADSPoint 的强类型字段。
+只要配置了 symbol，该点在这里都保持“地址未解析”状态；即使同时提供了
+index_group/index_offset，也只把它们作为配置参考值保留，真正运行地址必须由
+ADSDriver 在当前 ADS session 建立后通过 symbol 重新解析。纯 index-only 点则
+直接视为已解析。address.model_extra 使用 Any 是 Pydantic 动态协议字段边界。
 """
 
 from __future__ import annotations
@@ -136,8 +137,10 @@ def parse_point(point: PointConfig) -> ADSPoint:
             f"ADS point '{point.point_id}': missing 'symbol' or "
             f"'index_group'/'index_offset' in address"
         )
-    address_resolved = index_group is not None and index_offset is not None
-    # symbol-only 点在 Driver 建连后解析一次；0/0 仅满足临时结构字段，不参与读写。
+    # 只要存在 symbol，运行地址就必须来自当前 PLC session 的 symbol 解析。
+    # 同时配置的 index 仅保留作参考/诊断，不允许直接进入生产读写。
+    address_resolved = symbol is None and index_group is not None and index_offset is not None
+    # symbol-only 点使用 0/0 作为临时结构字段；address_resolved=False 时绝不参与读写。
     # Any 来自 Pydantic extra 的动态 YAML 边界，int() 会在返回 ADSPoint 前收敛类型。
     ig: Any = index_group if index_group is not None else 0
     io: Any = index_offset if index_offset is not None else 0
