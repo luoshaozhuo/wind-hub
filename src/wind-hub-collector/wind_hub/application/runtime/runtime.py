@@ -316,7 +316,7 @@ class Runtime:
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（单调不减）。"""
+        """累计未交付点数——背压丢弃或目标 Sink 不可用的点值总数（单调不减）。"""
         return self._points_dropped
 
     def sink_queue_depths(self) -> dict[str, int]:
