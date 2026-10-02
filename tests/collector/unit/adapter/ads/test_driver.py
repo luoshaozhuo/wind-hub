@@ -49,7 +49,7 @@ class FakeConnection:
     def __init__(self, *args: object, **kwargs: object) -> None:
         self.is_open = False
         self.values: dict[tuple[int, int], object] = {}
-        self.symbol_values: dict[str, object] = {}
+        self.symbol_addresses: dict[str, tuple[int, int]] = {}
         self.index_read_calls = 0
         self.index_write_calls = 0
         self.timeout_ms: int | None = None
@@ -69,11 +69,6 @@ class FakeConnection:
         self.index_read_calls += 1
         return self.values.get((index_group, index_offset))
 
-    def read_by_name(self, symbol: str, plc_datatype: object) -> object:
-        if not self.is_open:
-            raise RuntimeError("connection is closed")
-        return self.symbol_values.get(symbol)
-
     def write(
         self, index_group: int, index_offset: int, value: object, plc_datatype: object
     ) -> None:
@@ -82,17 +77,33 @@ class FakeConnection:
         self.index_write_calls += 1
         self.values[(index_group, index_offset)] = value
 
-    def write_by_name(self, symbol: str, value: object, plc_datatype: object) -> None:
-        if not self.is_open:
-            raise RuntimeError("connection is closed")
-        self.symbol_values[symbol] = value
+    def get_symbol(self, symbol: str) -> object:
+        if symbol not in self.symbol_addresses:
+            raise KeyError(symbol)
+        index_group, index_offset = self.symbol_addresses[symbol]
+        return SimpleNamespace(
+            index_group=index_group,
+            index_offset=index_offset,
+            plc_type=None,
+            symbol_type="REAL",
+        )
+
+    def notification(self, plc_datatype: object) -> object:
+        def decorator(callback: object) -> object:
+            return callback
+
+        return decorator
 
     def add_device_notification(
-        self, symbol: str, attr: object, callback: object, user_handle: object = None
+        self,
+        address: tuple[int, int],
+        attr: object,
+        callback: object,
+        user_handle: object = None,
     ) -> tuple[object, object]:
         if not self.is_open:
             raise RuntimeError("connection is closed")
-        handle: tuple[object, object] = (symbol, "handle")
+        handle: tuple[object, object] = (address, "handle")
         return (handle, user_handle)
 
     def del_device_notification(self, handle: object, user_handle: object) -> None:
@@ -194,23 +205,21 @@ class TestRead:
         with pytest.raises(ProtocolError, match="not connected"):
             await driver.read([PointRef(device_id="test-dev", point_id="p")])
 
-    async def test_sequential_read_prefers_symbol(
+    async def test_sequential_read_uses_index_when_symbol_also_present(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """symbol+index 同时存在时，sequential 读用 read_by_name（symbol 优先）。"""
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         await driver.connect()
         conn = driver._connection
-        conn.symbol_values["MAIN.speed"] = 1200.5
-        conn.values[(0x4020, 0)] = -1.0  # 若误走 index 读会拿到该值
+        conn.values[(0x4020, 0)] = 1200.5
 
         values = await driver.read([PointRef(device_id="test-dev", point_id="speed")])
         await driver.close()
 
         assert values[0].value == 1200.5
         assert values[0].quality == Quality.GOOD
-        assert conn.index_read_calls == 0  # 未走 index 读
+        assert conn.index_read_calls == 1
 
     async def test_sequential_read_uses_index_without_symbol(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
@@ -254,32 +263,46 @@ class TestRead:
         assert [v.value for v in values] == [1.0, 2.0, 3.0]
         assert conn.index_read_calls == 3  # 3 个点 = 3 次读
 
-    async def test_symbol_not_found_marks_only_that_point_bad(
+    async def test_symbol_resolution_failure_marks_only_that_point_bad(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """批量读部分失败：ADS 1808（符号不存在）是单点级错误——该点 BAD，
-        批次内其它点不受影响，顺序与数量不变。"""
         import pyads
 
         class _SymbolErrorConnection(FakeConnection):
-            def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+            def get_symbol(self, symbol: str) -> object:
                 if symbol == "MAIN.missing":
                     raise pyads.ADSError(1808, "symbol not found")
-                return super().read_by_name(symbol, plc_datatype)
+                mapping = {
+                    "MAIN.speed": (0x4020, 0),
+                    "MAIN.temp": (0x4020, 8),
+                }
+                index_group, index_offset = mapping[symbol]
+                return SimpleNamespace(
+                    index_group=index_group,
+                    index_offset=index_offset,
+                    plc_type=None,
+                    symbol_type="REAL",
+                )
 
         monkeypatch.setattr("pyads.Connection", _SymbolErrorConnection)
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [
-                _make_point_config("speed", "float32", symbol="MAIN.speed"),
-                _make_point_config("missing", "float32", symbol="MAIN.missing"),
-                _make_point_config("temp", "float32", symbol="MAIN.temp"),
+                _make_point_config(
+                    "speed", "float32", index_group=None, index_offset=None, symbol="MAIN.speed"
+                ),
+                _make_point_config(
+                    "missing", "float32", index_group=None, index_offset=None, symbol="MAIN.missing"
+                ),
+                _make_point_config(
+                    "temp", "float32", index_group=None, index_offset=None, symbol="MAIN.temp"
+                ),
             ]
         )
         await driver.connect()
         conn = driver._connection
-        conn.symbol_values["MAIN.speed"] = 1200.5
-        conn.symbol_values["MAIN.temp"] = 65.0
+        conn.values[(0x4020, 0)] = 1200.5
+        conn.values[(0x4020, 8)] = 65.0
 
         values = await driver.read(
             [
@@ -288,38 +311,34 @@ class TestRead:
                 PointRef(device_id="test-dev", point_id="temp"),
             ]
         )
-        assert driver.health().healthy is True  # 单点错误不触发断线
+        assert driver.health().healthy is True
         await driver.close()
 
         assert [v.point_id for v in values] == ["speed", "missing", "temp"]
         assert values[0].quality == Quality.GOOD
         assert values[0].value == 1200.5
-        assert values[1].quality == Quality.BAD  # 符号不存在 → 单点 BAD
+        assert values[1].quality == Quality.BAD
         assert values[1].value is None
         assert values[2].quality == Quality.GOOD
         assert values[2].value == 65.0
-
-    async def test_other_ads_error_propagates_as_protocol_error(
+    async def test_index_read_ads_error_propagates_as_protocol_error(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """非 1808 的 ADS 错误（如 1861 超时）无法与连接级故障区分——
-        保持上抛 ProtocolError 并走断线路径，不伪造成功。"""
         import pyads
 
         class _TimeoutConnection(FakeConnection):
-            def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+            def read(self, index_group: int, index_offset: int, plc_datatype: object) -> object:
                 raise pyads.ADSError(1861, "timeout elapsed")
 
         monkeypatch.setattr("pyads.Connection", _TimeoutConnection)
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
-        driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
+        driver.set_points_mapping([_make_point_config("speed", "float32")])
         await driver.connect()
 
         with pytest.raises(ProtocolError, match="ADS read failed"):
             await driver.read([PointRef(device_id="test-dev", point_id="speed")])
-        assert driver.health().healthy is False  # 断线路径（后台重连）
+        assert driver.health().healthy is False
         await driver.close()
-
 
 # ---------------------------------------------------------------------------
 # write
@@ -366,10 +385,9 @@ class TestWrite:
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         assert await driver.write([]) == []
 
-    async def test_write_prefers_symbol(
+    async def test_write_uses_index_when_symbol_also_present(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """symbol 存在时写入调 write_by_name，不调 index write。"""
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [_make_point_config("setpoint", "float32", symbol="MAIN.setpoint")]
@@ -383,8 +401,8 @@ class TestWrite:
         await driver.close()
 
         assert results[0].success is True
-        assert conn.symbol_values["MAIN.setpoint"] == 88.0
-        assert conn.index_write_calls == 0  # 未走 index 写
+        assert conn.values[(0x4020, 0)] == 88.0
+        assert conn.index_write_calls == 1
 
     async def test_write_uses_index_without_symbol(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
