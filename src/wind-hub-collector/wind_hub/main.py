@@ -108,10 +108,14 @@ async def run_collector(
     _install_signal_handlers(shutdown_event, reload_event)
     reload_task: asyncio.Task[None] | None = None
 
+    runtime_start_attempted = False
+    grpc_started = False
     try:
-        await grpc_server.start()
-        logger.info("Collector gRPC 控制面已监听 %s", grpc_server.endpoint)
+        runtime_start_attempted = True
         await start_runtime(runtime)
+        await grpc_server.start()
+        grpc_started = True
+        logger.info("Collector gRPC 控制面已监听 %s", grpc_server.endpoint)
         reload_task = asyncio.create_task(_reload_loop(reload_event, runtime))
         logger.info(
             (
@@ -135,9 +139,11 @@ async def run_collector(
             except asyncio.CancelledError:
                 pass
         try:
-            await grpc_server.stop()
+            if grpc_started:
+                await grpc_server.stop()
         finally:
-            await stop_runtime(runtime, timeout=shutdown_timeout)
+            if runtime_start_attempted:
+                await stop_runtime(runtime, timeout=shutdown_timeout)
 
     logger.info("wind-hub-collector 已干净退出")
     return 0
