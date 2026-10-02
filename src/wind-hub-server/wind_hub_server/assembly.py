@@ -29,6 +29,7 @@ from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
+from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.worker_model import (
     COLLECTOR_WORKER_ID,
@@ -56,6 +57,7 @@ class ServerRuntime:
     commander_client: CommanderGrpcClient
     worker_registry: WorkerRegistryUseCase
     collector_directory: StaticCollectorDirectory
+    task_assignments: TaskAssignmentUseCase
 
 
 def assemble_server(
@@ -113,7 +115,11 @@ def assemble_server(
         commander_client,
         definitions=[collector_definition, commander_definition],
     )
-    worker_tasks = CollectorTaskUseCase(collector_directory)
+    task_assignments = TaskAssignmentUseCase(config, collector_directory)
+    worker_tasks = CollectorTaskUseCase(
+        collector_directory,
+        task_assignments,
+    )
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
         config,
@@ -188,4 +194,5 @@ def assemble_server(
         commander_client=commander_client,
         worker_registry=worker_registry,
         collector_directory=collector_directory,
+        task_assignments=task_assignments,
     )

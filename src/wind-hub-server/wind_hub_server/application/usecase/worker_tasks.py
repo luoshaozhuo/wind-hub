@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
 
 class TaskInstanceState(str, Enum):
@@ -54,31 +55,55 @@ class TaskSummary(TaskDetail):
 class CollectorTaskUseCase:
     """Server 的 Task facade；所有生命周期操作发往独立 Collector。"""
 
-    def __init__(self, collectors: CollectorDirectory) -> None:
+    def __init__(
+        self,
+        collectors: CollectorDirectory,
+        assignments: TaskAssignmentUseCase,
+    ) -> None:
         self._collectors = collectors
+        self._assignments = assignments
 
     async def list_tasks(self) -> list[TaskDetail]:
-        worker_id, collector = self._default_collector()
+        _, collector = self._default_collector()
         rows = await collector.list_tasks()
         return [
-            TaskDetail.model_validate({**row, "assigned_worker_id": worker_id})
+            TaskDetail.model_validate(
+                {
+                    **row,
+                    "assigned_worker_id": self._assignments.worker_for_task(
+                        str(row["task_id"])
+                    ),
+                }
+            )
             for row in rows
         ]
 
     async def list_task_summaries(self) -> list[TaskSummary]:
-        worker_id, collector = self._default_collector()
+        _, collector = self._default_collector()
         rows = await collector.list_tasks()
         return [
-            TaskSummary.model_validate({**row, "assigned_worker_id": worker_id})
+            TaskSummary.model_validate(
+                {
+                    **row,
+                    "assigned_worker_id": self._assignments.worker_for_task(
+                        str(row["task_id"])
+                    ),
+                }
+            )
             for row in rows
         ]
 
     async def list_instances(self) -> list[TaskInstanceDetail]:
-        worker_id, collector = self._default_collector()
+        _, collector = self._default_collector()
         rows = await collector.list_task_instances()
         return [
             TaskInstanceDetail.model_validate(
-                {**row, "assigned_worker_id": worker_id}
+                {
+                    **row,
+                    "assigned_worker_id": self._assignments.worker_for_task(
+                        str(row["task_id"])
+                    ),
+                }
             )
             for row in rows
         ]
@@ -122,19 +147,19 @@ class CollectorTaskUseCase:
         )
 
     async def start_task(self, task_id: str) -> TaskSummary:
-        current = await self.get_task_summary(task_id)
-        collector = self._collectors.get(current.assigned_worker_id)
+        worker_id = self._assignments.worker_for_task(task_id)
+        collector = self._collectors.get(worker_id)
         data = await collector.start_task(task_id)
         return TaskSummary.model_validate(
-            {**data, "assigned_worker_id": current.assigned_worker_id}
+            {**data, "assigned_worker_id": worker_id}
         )
 
     async def stop_task(self, task_id: str) -> TaskSummary:
-        current = await self.get_task_summary(task_id)
-        collector = self._collectors.get(current.assigned_worker_id)
+        worker_id = self._assignments.worker_for_task(task_id)
+        collector = self._collectors.get(worker_id)
         data = await collector.stop_task(task_id)
         return TaskSummary.model_validate(
-            {**data, "assigned_worker_id": current.assigned_worker_id}
+            {**data, "assigned_worker_id": worker_id}
         )
 
     async def start_all_instances(self) -> TaskBatchResult:
