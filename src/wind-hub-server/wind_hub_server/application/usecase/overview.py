@@ -9,8 +9,8 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.application.usecase.task import TaskUseCase
+from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
 
 class OverviewSnapshot(BaseModel):
@@ -37,7 +37,7 @@ class OverviewUseCase:
     """Overview 页的应用层 Read Model。"""
 
     def __init__(
-        self, *, query: QueryUseCase, tasks: TaskUseCase, config: ConfigUseCase
+        self, *, query: WorkerQueryUseCase, tasks: CollectorTaskUseCase, config: ConfigUseCase
     ) -> None:
         self._query = query
         self._tasks = tasks

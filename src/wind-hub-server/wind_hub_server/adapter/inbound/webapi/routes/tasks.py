@@ -1,6 +1,6 @@
 """``/tasks`` — 采集 Task / Task Instance 生命周期管理。
 
-路由只经 ``tasks``（:class:`~wind_hub.application.usecase.task.TaskUseCase`）
+路由只经 Server 的 CollectorTaskUseCase
 操作实例生命周期，不直接访问 Runtime。start/stop 幂等；未知
 ``instance_id`` 统一映射为 404。
 """
@@ -16,17 +16,17 @@ from wind_hub_server.adapter.inbound.webapi.models import (
     TaskInstanceResponse,
     TaskResponse,
 )
-from wind_hub.application.usecase.task import (
+from wind_hub_server.application.usecase.worker_tasks import (
+    CollectorTaskUseCase,
     TaskBatchResult,
     TaskDetail,
     TaskInstanceDetail,
-    TaskUseCase,
 )
 
 router = APIRouter(tags=["tasks"])
 
 
-def _tasks() -> TaskUseCase:
+def _tasks() -> CollectorTaskUseCase:
     ctx = get_ctx()
     if ctx.tasks is None:
         raise APIError("SERVICE_UNAVAILABLE", "tasks use case is not configured", status_code=503)

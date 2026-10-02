@@ -35,6 +35,8 @@ from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
+from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.infra.log_store import LogStore
@@ -94,6 +96,8 @@ def assemble_server(
         runtime=collector.runtime,
         current_config=collector.boot_config,
     )
+    worker_query = WorkerQueryUseCase(collector_client, commander_client)
+    worker_tasks = CollectorTaskUseCase(collector_client)
     devices = DeviceUseCase(collector.runtime, config)
     device_data = DeviceDataUseCase(
         collector.runtime,
@@ -107,8 +111,8 @@ def assemble_server(
         trend,
     )
     overview = OverviewUseCase(
-        query=collector.query,
-        tasks=collector.tasks,
+        query=worker_query,
+        tasks=worker_tasks,
         config=config,
     )
     operations = OperationManager()
@@ -143,10 +147,9 @@ def assemble_server(
 
     context = AppContext(
         config=config,
-        tasks=collector.tasks,
+        tasks=worker_tasks,
         runtime=collector.runtime,
-        command=collector.command,
-        query=collector.query,
+        query=worker_query,
         devices=devices,
         device_data=device_data,
         device_control=device_control,
