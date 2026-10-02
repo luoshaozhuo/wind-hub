@@ -52,7 +52,7 @@ class PointVerifyResult(BaseModel):
     scale: float
     offset: float
     unit: str
-    readable: bool
+    readable: bool | None = None
     raw_value: Any = None
     engineering_value: Any = None
     quality: str | None = None
@@ -163,12 +163,13 @@ class DiagnosticUseCase:
         """解析点位协议地址；ADS 会实际查询 symbol 信息但不读取点值。"""
         device = self._device(device_id)
         point = self._point(device_id, point_id)
-        resolved = await self._resolve_addresses(device_id, [point])
+        resolved, errors = await self._resolve_addresses(device_id, [point])
         return self._point_result(
             device_id,
             point,
             resolved.get(point.point_id),
-            readable=False,
+            readable=None,
+            error=errors.get(point.point_id),
         )
 
     async def verify_point(
@@ -179,8 +180,8 @@ class DiagnosticUseCase:
         """实际读取单点并返回 raw/engineering value 与地址信息。"""
         device = self._device(device_id)
         point = self._point(device_id, point_id)
-        resolved = await self._resolve_addresses(device_id, [point])
-        rows = await self._verify_read(device_id, [point], resolved)
+        resolved, errors = await self._resolve_addresses(device_id, [point])
+        rows = await self._verify_read(device_id, [point], resolved, errors)
         return rows[0]
 
     async def verify_points(
@@ -201,8 +202,8 @@ class DiagnosticUseCase:
                 f"unknown or empty point group '{device_id}/{point_group}'",
                 "",
             )
-        resolved = await self._resolve_addresses(device_id, points)
-        rows = await self._verify_read(device_id, points, resolved)
+        resolved, errors = await self._resolve_addresses(device_id, points)
+        rows = await self._verify_read(device_id, points, resolved, errors)
         passed = sum(1 for row in rows if row.readable)
         return PointsVerifyResult(
             device_id=device_id,
@@ -230,17 +231,23 @@ class DiagnosticUseCase:
         self,
         device_id: str,
         points: list[PointConfig],
-    ) -> dict[str, dict[str, Any]]:
-        """返回协议地址事实；ADS symbol 通过短生命周期 Probe 解析。"""
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+        """返回协议地址事实和逐点解析错误。
+
+        ADS 在同一短生命周期 Probe 内逐点解析；单点失败不会终止整批。
+        """
         device = self._device(device_id)
         if device.config.protocol != "ads":
-            return {
-                point.point_id: point.address.model_dump(
-                    mode="json",
-                    exclude_none=True,
-                )
-                for point in points
-            }
+            return (
+                {
+                    point.point_id: point.address.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    )
+                    for point in points
+                },
+                {},
+            )
 
         target = DeviceProbeTarget(
             device_id=device_id,
@@ -248,35 +255,46 @@ class DiagnosticUseCase:
             options=dict(device.config.endpoint.extensions),
         )
         probe = ADSProbe(target)
-        specs = [
-            PointProbeSpec(
-                point_id=point.point_id,
-                data_type=point.data_type,
-                address=point.address.model_dump(mode="python", exclude_none=True),
-            )
-            for point in points
-        ]
+        resolved_rows: dict[str, dict[str, Any]] = {}
+        errors: dict[str, str] = {}
         try:
             await probe.connect()
-            resolved = await probe.resolve_points(specs)
+            for point in points:
+                spec = PointProbeSpec(
+                    point_id=point.point_id,
+                    data_type=point.data_type,
+                    address=point.address.model_dump(
+                        mode="python",
+                        exclude_none=True,
+                    ),
+                )
+                try:
+                    resolved = await probe.resolve_points([spec])
+                except Exception as exc:
+                    errors[point.point_id] = str(exc) or type(exc).__name__
+                    continue
+                item = resolved[point.point_id]
+                resolved_rows[point.point_id] = {
+                    "symbol": item.symbol,
+                    "index_group": item.index_group,
+                    "index_offset": item.index_offset,
+                    "size": item.size,
+                    "protocol_type": item.protocol_type,
+                }
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            for point in points:
+                errors.setdefault(point.point_id, error)
         finally:
             await probe.close()
-        return {
-            point_id: {
-                "symbol": item.symbol,
-                "index_group": item.index_group,
-                "index_offset": item.index_offset,
-                "size": item.size,
-                "protocol_type": item.protocol_type,
-            }
-            for point_id, item in resolved.items()
-        }
+        return resolved_rows, errors
 
     async def _verify_read(
         self,
         device_id: str,
         points: list[PointConfig],
         resolved: dict[str, dict[str, Any]],
+        address_errors: dict[str, str],
     ) -> list[PointVerifyResult]:
         """使用当前 Runtime Driver 批量读取原始值，并逐点形成诊断结果。"""
         device = self._device(device_id)
@@ -288,14 +306,17 @@ class DiagnosticUseCase:
                     point,
                     resolved.get(point.point_id),
                     readable=False,
-                    error=error,
+                    error=address_errors.get(point.point_id, error),
                 )
                 for point in points
             ]
 
+        readable_points = [
+            point for point in points if point.point_id not in address_errors
+        ]
         refs = [
             PointRef(device_id=device_id, point_id=point.point_id)
-            for point in points
+            for point in readable_points
         ]
         try:
             values = await device.protocol.read(refs)
@@ -307,7 +328,7 @@ class DiagnosticUseCase:
                     point,
                     resolved.get(point.point_id),
                     readable=False,
-                    error=error,
+                    error=address_errors.get(point.point_id, error),
                 )
                 for point in points
             ]
@@ -315,6 +336,18 @@ class DiagnosticUseCase:
         by_id = {value.point_id: value for value in values}
         rows: list[PointVerifyResult] = []
         for point in points:
+            address_error = address_errors.get(point.point_id)
+            if address_error is not None:
+                rows.append(
+                    self._point_result(
+                        device_id,
+                        point,
+                        resolved.get(point.point_id),
+                        readable=False,
+                        error=address_error,
+                    )
+                )
+                continue
             value = by_id.get(point.point_id)
             if value is None:
                 rows.append(
