@@ -140,11 +140,11 @@ class ConfigUseCase:
     1. 从磁盘加载新配置（load + schema 校验，失败即中止，不应用任何改动）；
     2. 计算 :class:`ConfigDiff`（无变更则直接返回成功）；
     3. 调用 :meth:`Runtime.reconfigure` 执行全部运行时重构；
-    4. 提交新配置为当前快照，返回 :class:`ReloadResult`。
+    4. 仅当全部运行时重构成功时，提交新配置为当前快照。
 
-    reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``——部分失败
-    时 ``success`` 为 ``False``，但配置快照仍提交（与旧语义一致：已应用的
-    变更不回滚，下一次 reload 以新快照为 diff 基准）。
+    reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``。部分失败时
+    ``success=False`` 且成功基线保持不变；下一次 reload 会重新计算同一 diff
+    并重试。Runtime 的重构路径必须保持可重复调用。
     """
 
     def __init__(self, config_dir: str | Path, runtime: Runtime, current_config: Config) -> None:
@@ -180,8 +180,8 @@ class ConfigUseCase:
 
         Notes:
             新 YAML 加载失败时不触碰 Runtime。Runtime.reconfigure 允许部分应用；
-            因此其返回错误时 success=False，但新配置仍作为后续 diff 基线提交，
-            不伪造事务回滚语义。
+            若返回错误，本用例不推进 current_config/config_hash 成功基线，
+            使同一 YAML 在下一次 reload 时可以继续重试未完成重构。
         """
         t0 = time.monotonic()
 
@@ -212,12 +212,14 @@ class ConfigUseCase:
         #    重注入的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
         errors = await self._runtime.reconfigure(new_cfg, diff)
 
-        # 4. 提交新快照与指纹，作为下一次 reload 基线。
-        self._current = new_cfg
-        self._config_hash = fingerprint_config_set(self._config_dir)
-
         duration_ms = (time.monotonic() - t0) * 1000
         success = len(errors) == 0
+
+        # 4. 只有全部重构成功才推进成功基线。部分失败时保留旧基线，
+        #    下一次 reload 会重新生成同一 diff；Runtime 负责幂等重试。
+        if success:
+            self._current = new_cfg
+            self._config_hash = fingerprint_config_set(self._config_dir)
         logger.info(
             "Reload %s in %.1f ms",
             "succeeded" if success else "partially failed",

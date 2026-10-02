@@ -682,7 +682,20 @@ class Runtime:
         protocol: ProtocolPort,
         points: list[PointConfig],
     ) -> None:
-        """运行时新增设备——装配 Device、连接、同步采集实例（默认 STOPPED）。"""
+        """运行时新增设备；重复应用同一目标配置时安全收敛。
+
+        部分 reload 失败后下一次会重放同一 diff。若设备已经按目标配置存在，
+        不重复替换协议实例，只立即重试连接；若同 ID 但配置不同，则走 rebuild。
+        """
+        existing = self._devices.get(device_id)
+        if existing is not None:
+            if existing.config.model_dump() == cfg.model_dump() and existing.points == points:
+                await self.ensure_connected(device_id, force=True)
+                await self._sync_task_instances()
+                return
+            await self.rebuild_device(device_id, cfg, protocol, points)
+            return
+
         protocol.set_points_mapping(points)
         device = Device(config=cfg, points=points, protocol=protocol)
         self._devices[device_id] = device
@@ -807,17 +820,22 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def add_sink(self, sink_name: str, cfg: SinkConfig, sink: SinkPort) -> None:
-        """运行时新增 sink——打开、建队列、启动消费者。
+        """运行时新增 sink；open 成功后才提交到 Runtime 注册表。
+
+        部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
+        收敛到目标实例，避免重复注册消费者或遗留半初始化对象。
 
         Raises:
-            Exception: ``sink.open()`` 失败原样上抛（热重载编排方据此记录
-                错误并保留旧状态）。
+            Exception: ``sink.open()`` 失败原样上抛；失败前不修改注册表。
         """
-        self._sinks[sink_name] = sink
-        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._config.queue_maxsize)
-        self._queues[sink_name] = queue
+        if sink_name in self._sinks:
+            await self.rebuild_sink(sink_name, cfg, sink)
+            return
 
         await sink.open()
+        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._config.queue_maxsize)
+        self._sinks[sink_name] = sink
+        self._queues[sink_name] = queue
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
         if self._running:
@@ -856,20 +874,23 @@ class Runtime:
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
     async def rebuild_sink(self, sink_name: str, new_cfg: SinkConfig, new_sink: SinkPort) -> None:
-        """重建 sink——停旧消费者、换入新实例、启动新消费者。
+        """重建 sink——先打开新实例，成功后再切换旧实例。
 
-        既有队列保留，避免在途数据丢失。
+        既有队列保留，避免在途数据丢失。新 sink 打开失败时旧 sink 与消费者
+        完全保持不变，使 reload 可以安全重试。
 
         Raises:
             Exception: 新 sink 的 ``open()`` 失败原样上抛。
         """
+        await new_sink.open()
+
         task = self._sink_tasks.pop(sink_name, None)
         if task is not None:
             task.cancel()
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
 
-        old_sink = self._sinks.pop(sink_name, None)
+        old_sink = self._sinks.get(sink_name)
         if old_sink is not None:
             try:
                 await old_sink.flush()
@@ -889,7 +910,7 @@ class Runtime:
                 )
 
         self._sinks[sink_name] = new_sink
-        await new_sink.open()
+        self._unhealthy_sinks.discard(sink_name)
         logger.info("Hot-reload: sink '%s' re-opened", sink_name)
 
         if self._running:
