@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pyads  # noqa: F401 — real module, only ``Connection`` is patched
 import pytest
@@ -27,7 +28,7 @@ class MockAdsConnection:
         self.ams_net_id = ams_net_id
         self.ip = ip
         self.is_open = False
-        self.callbacks: dict[str, object] = {}
+        self.callbacks: dict[tuple[int, int], object] = {}
 
     def set_timeout(self, ms: int) -> None:
         pass
@@ -38,11 +39,28 @@ class MockAdsConnection:
     def close(self) -> None:
         self.is_open = False
 
+    def get_symbol(self, name: str) -> object:
+        return SimpleNamespace(
+            index_group=0x4020,
+            index_offset=100,
+            plc_type=pyads.PLCTYPE_REAL,
+        )
+
+    def notification(self, plc_datatype: object) -> object:
+        def decorator(callback: object) -> object:
+            return callback
+
+        return decorator
+
     def add_device_notification(
-        self, symbol: str, attr: object, callback: object, user_handle: object = None
+        self,
+        address: tuple[int, int],
+        attr: object,
+        callback: object,
+        user_handle: object = None,
     ) -> tuple[object, object]:
-        self.callbacks[symbol] = callback
-        return ((symbol, "handle"), user_handle)
+        self.callbacks[address] = callback
+        return ((address, "handle"), user_handle)
 
     def del_device_notification(self, handle: object, user_handle: object) -> None:
         pass
@@ -104,7 +122,8 @@ class TestAdsNotificationIntegration:
             # Simulate pyads' worker thread firing the callback.
             sub = next(iter(driver._subscriptions))  # noqa: SLF001
             conn = sub._connections[0]  # noqa: SLF001
-            conn.callbacks["MAIN.rotorSpeed"](None, "MAIN.rotorSpeed", None, 1500.5)
+            address = (0x4020, 100)
+            conn.callbacks[address](None, address, None, 1500.5)
             await asyncio.sleep(0.05)  # let the loop deliver through on_data
         finally:
             await driver.close()
