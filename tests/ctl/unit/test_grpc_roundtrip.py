@@ -101,12 +101,83 @@ class _Command:
         )
 
 
+class _Diagnostic:
+    async def verify_device(self, device_id: str, *, timeout: float = 1.0) -> _Payload:
+        return _Payload(
+            {
+                "device_id": device_id,
+                "protocol": "modbus",
+                "host": "127.0.0.1",
+                "port": 502,
+                "ok": True,
+                "stages": [
+                    {"name": "network", "ok": True, "message": ""},
+                    {"name": "transport", "ok": True, "message": "TCP 502 reachable"},
+                    {"name": "protocol", "ok": True, "message": "protocol session is healthy"},
+                ],
+            }
+        )
+
+    async def resolve_point(self, device_id: str, point_id: str) -> _Payload:
+        return _Payload(
+            {
+                "device_id": device_id,
+                "point_id": point_id,
+                "protocol": "ads",
+                "configured_address": {"symbol": ".wind_speed"},
+                "resolved_address": {"index_group": 16448, "index_offset": 100},
+                "data_type": "float32",
+                "scale": 1.0,
+                "offset": 0.0,
+                "unit": "none",
+                "readable": None,
+            }
+        )
+
+    async def verify_point(self, device_id: str, point_id: str) -> _Payload:
+        return _Payload(
+            {
+                "device_id": device_id,
+                "point_id": point_id,
+                "protocol": "modbus",
+                "configured_address": {"address": 1},
+                "resolved_address": {"address": 1},
+                "data_type": "float32",
+                "scale": 2.0,
+                "offset": 1.0,
+                "unit": "none",
+                "readable": True,
+                "raw_value": 5.0,
+                "engineering_value": 11.0,
+                "quality": "good",
+            }
+        )
+
+    async def verify_points(
+        self,
+        device_id: str,
+        *,
+        point_group: str | None = None,
+    ) -> _Payload:
+        return _Payload(
+            {
+                "device_id": device_id,
+                "point_group": point_group,
+                "checked": 1,
+                "passed": 1,
+                "failed": 0,
+                "points": [],
+            }
+        )
+
+
 class _AssembledRuntime:
     runtime = _RuntimeCore()
     query = _Query()
     tasks = _Tasks()
     command = _Command()
     config = _Config()
+    diagnostic = _Diagnostic()
 
 
 @pytest.mark.asyncio
@@ -169,6 +240,19 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
 
             reloaded = await client.reload()
             assert reloaded["success"] is True
+
+            verified_device = await client.verify_device("d1")
+            assert verified_device["ok"] is True
+
+            resolved = await client.resolve_point("d1", "p1")
+            assert resolved["resolved_address"]["index_group"] == 16448
+
+            verified_point = await client.verify_point("d1", "p1")
+            assert verified_point["raw_value"] == 5.0
+            assert verified_point["engineering_value"] == 11.0
+
+            verified_points = await client.verify_points("d1", point_group="g")
+            assert verified_points["passed"] == 1
 
             written = await client.write("d1", "p1", 10.0)
             assert written["success"] is True
