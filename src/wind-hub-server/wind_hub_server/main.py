@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Commander gRPC endpoint，默认 127.0.0.1:50052",
     )
     parser.add_argument(
+        "--reconcile-interval",
+        type=float,
+        default=30.0,
+        help="Worker 配置 revision/hash 对账周期（秒），默认 30",
+    )
+    parser.add_argument(
         "--worker-probe-interval",
         type=float,
         default=5.0,
@@ -79,6 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log_level=args.log_level,
         collector_target=args.collector_target,
         commander_target=args.commander_target,
+        reconcile_interval=args.reconcile_interval,
         worker_probe_interval=args.worker_probe_interval,
     )
     return asyncio.run(run_server(settings))

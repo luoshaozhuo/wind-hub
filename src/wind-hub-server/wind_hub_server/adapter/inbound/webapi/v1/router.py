@@ -761,7 +761,7 @@ async def run_quality_check(
     window: QualityWindow = Query("24h"),
 ) -> QualityResponse:
     """立即采样并按真实窗口重算。"""
-    snapshot = _quality().snapshot(window)
+    snapshot = await _quality().snapshot(window)
     return QualityResponse(**snapshot.model_dump())
 
 
