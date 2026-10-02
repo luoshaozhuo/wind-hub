@@ -6,6 +6,8 @@ TCP connection.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
