@@ -27,6 +27,7 @@ class CommanderApp:
     command: CommandUseCase
     read: ReadUseCase
     diagnostic: DiagnosticUseCase
+    config_dir: Path
 
 
 def assemble_commander(config_dir: str | Path) -> CommanderApp:
@@ -44,4 +45,5 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         command=CommandUseCase(runtime, dispatcher),
         read=ReadUseCase(runtime),
         diagnostic=DiagnosticUseCase(runtime),
+        config_dir=Path(config_dir),
     )

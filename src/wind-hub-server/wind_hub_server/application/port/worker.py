@@ -11,6 +11,8 @@ from wind_hub_core.model.point import PointValue
 class CommanderPort(Protocol):
     """即时设备操作端口。"""
 
+    async def reload_config(self) -> dict[str, Any]: ...
+
     async def read_point(self, device_id: str, point_id: str) -> PointValue: ...
 
     async def read_points(

@@ -10,6 +10,7 @@ from wind_hub_core.rpc.commander import (
     GET_STATUS,
     READ_POINT,
     READ_POINTS,
+    RELOAD_CONFIG,
     RESOLVE_POINT,
     VERIFY_DEVICE,
     VERIFY_POINT,
@@ -30,6 +31,14 @@ class CommanderGrpcClient(GrpcClientBase):
     async def status(self) -> dict[str, Any]:
         return from_struct(
             await self.call_empty_struct(rpc_path(GET_STATUS))
+        )
+
+    async def reload_config(self) -> dict[str, Any]:
+        return from_struct(
+            await self.call_empty_struct(
+                rpc_path(RELOAD_CONFIG),
+                timeout=30.0,
+            )
         )
 
     async def read_point(self, device_id: str, point_id: str) -> PointValue:

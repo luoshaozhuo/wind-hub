@@ -18,7 +18,7 @@ from wind_hub_core.model.reload import (
     SinkDiff,
     TaskDiff,
 )
-from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
 
 
 def compute_diff(old: Config, new: Config) -> ConfigDiff:
@@ -94,10 +94,12 @@ class ConfigUseCase:
         self,
         config_dir: str | Path,
         collector: CollectorPort,
+        commander: CommanderPort,
         current_config: Config,
     ) -> None:
         self._config_dir = Path(config_dir)
         self._collector = collector
+        self._commander = commander
         self._current = current_config
 
     @property
@@ -138,18 +140,28 @@ class ConfigUseCase:
                 duration_ms=(time.monotonic() - started) * 1000,
             )
 
+        errors: list[str] = []
+        collector_success = False
+        commander_success = False
+
         try:
             remote = await self._collector.reload_config()
+            collector_success = bool(remote.get("success"))
+            errors.extend(str(item) for item in list(remote.get("errors") or []))
+            if not collector_success and not errors:
+                errors.append("collector reload failed")
         except Exception as exc:
-            return ReloadResult(
-                success=False,
-                diff=diff,
-                errors=[str(exc) or type(exc).__name__],
-                duration_ms=(time.monotonic() - started) * 1000,
-            )
+            errors.append(f"collector reload failed: {str(exc) or type(exc).__name__}")
 
-        success = bool(remote.get("success"))
-        errors = [str(item) for item in list(remote.get("errors") or [])]
+        try:
+            remote = await self._commander.reload_config()
+            commander_success = bool(remote.get("success"))
+            if not commander_success:
+                errors.append("commander reload failed")
+        except Exception as exc:
+            errors.append(f"commander reload failed: {str(exc) or type(exc).__name__}")
+
+        success = collector_success and commander_success
         if success:
             self._current = candidate
 

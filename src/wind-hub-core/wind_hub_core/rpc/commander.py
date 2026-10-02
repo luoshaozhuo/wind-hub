@@ -8,6 +8,7 @@ COMMANDER_SERVICE = "windhub.commander.v1.CommanderService"
 
 GET_STATUS = "GetStatus"
 LIST_DEVICES = "ListDevices"
+RELOAD_CONFIG = "ReloadConfig"
 READ_POINT = "ReadPoint"
 READ_POINTS = "ReadPoints"
 WRITE_POINT = "WritePoint"

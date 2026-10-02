@@ -66,6 +66,7 @@ def assemble_server(
     config = ConfigUseCase(
         config_dir=config_dir,
         collector=collector_client,
+        commander=commander_client,
         current_config=startup_config,
     )
 

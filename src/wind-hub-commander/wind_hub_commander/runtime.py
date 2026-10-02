@@ -23,15 +23,60 @@ class CommanderRuntime:
         self.config = config
         self.devices: dict[str, DeviceSession] = {}
         self._connect_locks: dict[str, asyncio.Lock] = {}
+        self._reload_lock = asyncio.Lock()
+        self._populate_sessions(config)
 
+    def _build_sessions(
+        self,
+        config: CommanderConfig,
+    ) -> tuple[dict[str, DeviceSession], dict[str, asyncio.Lock]]:
+        """基于候选配置构造完整会话集合，不执行网络 I/O。"""
+        devices: dict[str, DeviceSession] = {}
+        locks: dict[str, asyncio.Lock] = {}
         for device_config in config.devices.devices:
             protocol = protocol_registry.create(device_config.protocol, device_config)
-            self.devices[device_config.device_id] = DeviceSession(
+            devices[device_config.device_id] = DeviceSession(
                 config=device_config,
                 points=config.points_for_device(device_config.device_id),
                 protocol=protocol,
             )
-            self._connect_locks[device_config.device_id] = asyncio.Lock()
+            locks[device_config.device_id] = asyncio.Lock()
+        return devices, locks
+
+    def _populate_sessions(self, config: CommanderConfig) -> None:
+        """初始化会话注册表。"""
+        devices, locks = self._build_sessions(config)
+        self.devices.update(devices)
+        self._connect_locks.update(locks)
+
+    async def reload(self, config: CommanderConfig) -> None:
+        """以完整候选配置替换 Commander 会话注册表。
+
+        候选会话先全部构造成功，再原位替换 devices 字典，保证 CommandDispatcher
+        持有的映射引用持续有效。旧会话在切换后统一关闭。
+        """
+        new_devices, new_locks = self._build_sessions(config)
+        async with self._reload_lock:
+            old_devices = list(self.devices.items())
+            self.devices.clear()
+            self.devices.update(new_devices)
+            self._connect_locks.clear()
+            self._connect_locks.update(new_locks)
+            self.config = config
+
+        results = await asyncio.gather(
+            *(device.close() for _device_id, device in old_devices),
+            return_exceptions=True,
+        )
+        for (device_id, _device), result in zip(old_devices, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Commander reload 后关闭旧会话失败 device=%s error=%s",
+                    device_id,
+                    result,
+                )
+
+        await self.start()
 
     async def start(self) -> None:
         """初始化进程级协议资源，不主动连接所有设备。"""

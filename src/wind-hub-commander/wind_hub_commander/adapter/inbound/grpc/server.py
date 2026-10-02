@@ -13,6 +13,7 @@ import grpc
 from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub_commander.assembly import CommanderApp
+from wind_hub_commander.config import load_commander_config
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.rpc.commander import (
@@ -21,6 +22,7 @@ from wind_hub_core.rpc.commander import (
     LIST_DEVICES,
     READ_POINT,
     READ_POINTS,
+    RELOAD_CONFIG,
     RESOLVE_POINT,
     VERIFY_DEVICE,
     VERIFY_POINT,
@@ -94,6 +96,22 @@ class CommanderService:
             for device in self._app.runtime.devices.values()
         ]
         return _struct({"devices": rows})
+
+    async def reload_config(
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """从 Commander 本地配置目录加载并切换设备会话。"""
+        del request
+        try:
+            candidate = load_commander_config(self._app.config_dir)
+            await self._app.runtime.reload(candidate)
+            self._app.config = candidate
+        except Exception as exc:
+            await _abort(context, exc)
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct({"success": True})
 
     async def read_point(
         self,
@@ -278,6 +296,11 @@ def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
         ),
         LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
             service.list_devices,
+            request_deserializer=empty_pb2.Empty.FromString,
+            response_serializer=struct_pb2.Struct.SerializeToString,
+        ),
+        RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
+            service.reload_config,
             request_deserializer=empty_pb2.Empty.FromString,
             response_serializer=struct_pb2.Struct.SerializeToString,
         ),
