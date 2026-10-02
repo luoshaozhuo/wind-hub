@@ -1,12 +1,5 @@
-"""设备协议适配器注册入口。
+"""兼容导入层；设备协议 Driver 的唯一实现位于 wind-hub-core。"""
 
-导入各协议 driver 仅用于触发 protocol_registry 自注册；这里不创建连接，也不
-执行网络 I/O。
-"""
-
-# 以下导入既用于包级 re-export，也触发各 Driver 的 protocol_registry 自注册；改为显式注册后可移除 F401 抑制。
-from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver  # noqa: F401
-from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver  # noqa: F401
-from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver  # noqa: F401
+from wind_hub_core.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 __all__ = ["ADSDriver", "IEC104Driver", "ModbusDriver"]
