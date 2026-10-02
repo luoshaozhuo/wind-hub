@@ -42,6 +42,9 @@ class RuntimeConfig(BaseModel):
     connect_timeout: float = 10.0
     """单设备连接超时，单位秒。"""
 
+    connect_concurrency: int = 32
+    """Runtime 启动时并发连接设备的上限；避免大量离线设备串行放大启动耗时。"""
+
     read_timeout: float = 5.0
     """单次批量读的应用层兜底超时，单位秒；协议 Driver 内部仍保留底层超时。"""
 
@@ -56,6 +59,8 @@ class RuntimeConfig(BaseModel):
                 f"Invalid backpressure_policy '{self.backpressure_policy}'; "
                 f"must be one of {sorted(allowed)}"
             )
+        if self.connect_concurrency <= 0:
+            raise ConfigError("connect_concurrency must be > 0")
         return self
 
 
@@ -269,6 +274,7 @@ class DeviceModelConfig(BaseModel):
     """绑定的点表名（``points.yaml`` 中 ``point_tables`` 的键）。"""
     read_mode: str | None = None
     """ADS 读取策略（``'sum'`` / ``'sequential'``，缺省 ``'sum'``）。
+    symbol 只用于地址解析；正式读写均使用 index_group/index_offset。
     仅 ``protocol == 'ads'`` 可配置；其他协议配置此字段是配置错误。"""
     properties: dict[str, Any] = Field(default_factory=dict)
     """型号级开放属性（如 ``rated_power_kw``）——不做强类型约束。"""
@@ -398,9 +404,9 @@ class DeviceConfig(BaseModel):
     设备范围。"""
     enabled: bool = True
     read_mode: str = "sum"
-    """ADS 读取策略：``'sum'``（单条 Sum 命令，Symbol 批量寻址，用于周期
-    采集）或 ``'sequential'``（逐点 Read，仅用于 CLI/API 单次读取与诊断，
-    不参与周期采集）。仅对 ``protocol == 'ads'`` 有意义。"""
+    """ADS 读取策略：``'sum'``（按已解析 index 地址执行 Sum Read，用于周期
+    采集）或 ``'sequential'``（按 index 地址逐点 Read，仅用于 CLI/API 单次读取
+    与诊断，不参与周期采集）。仅对 ``protocol == 'ads'`` 有意义。"""
 
     @property
     def supports_scheduled_collection(self) -> bool:
