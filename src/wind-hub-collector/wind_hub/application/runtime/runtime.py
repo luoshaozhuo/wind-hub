@@ -553,10 +553,12 @@ class Runtime:
 
         语义：
 
-        - 已连接 → 立即 ``True``（零开销快路径）；
+        - ``force=False`` 且 Runtime 状态已连接 → 立即 ``True``（零开销快路径）；
         - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
-          1 Hz 轮询不会形成每秒一次的 connect 风暴；
-        - ``force=True`` 用于显式控制/诊断请求，忽略重连节流窗口并立即尝试一次；
+          高频轮询不会形成 connect 风暴；
+        - ``force=True`` 用于显式控制/诊断请求：若 Runtime 状态显示已连接，
+          还会检查协议 Driver health；health 不健康时忽略重连节流窗口并立即
+          执行一次幂等 ``connect()``；
         - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
           （失败计数清零），失败则按指数 backoff 推迟下次窗口
           （1 s → 2 s → … → 30 s 封顶）。
@@ -565,12 +567,26 @@ class Runtime:
         重连监控（ADS/Modbus/IEC104 均有），``connect`` 的幂等实现会让
         重复调用安全收敛。
         """
-        state = self._state_for(device_id)
-        if state.connected:
-            return True
         device = self._devices.get(device_id)
         if device is None:
             return False
+        state = self._state_for(device_id)
+
+        if state.connected:
+            if not force:
+                return True
+            try:
+                health = device.health()
+            except Exception:
+                health = HealthStatus(healthy=False, message="health check failed")
+            if health.healthy:
+                return True
+            logger.info(
+                "Device '%s' runtime state is connected but protocol health is unhealthy; "
+                "forcing reconnect",
+                device_id,
+            )
+
         now = self._clock()
         if not force and now < state.next_retry_at:
             return False
