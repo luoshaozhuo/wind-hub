@@ -36,6 +36,9 @@ class CommandUseCase:
         Returns:
             CommandResult；连接失败、协议失败、未知设备和超时均收敛为失败结果。
         """
+        cached = self._dispatcher.get_cached(cmd.command_id)
+        if cached is not None:
+            return cached
         if cmd.device_id in self._runtime.devices:
             if not await self._runtime.ensure_connected(cmd.device_id, force=True):
                 return CommandResult(
