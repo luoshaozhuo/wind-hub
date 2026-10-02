@@ -924,3 +924,49 @@ class TestHealth:
             assert rt.running is True  # 单组件失败不阻塞整体启动
         finally:
             await rt.stop()
+
+class TestCoreLifecycleHardening:
+    async def test_disabled_device_is_not_connected_on_start(self) -> None:
+        rt, protos, _, _ = _build_runtime(
+            devices=[_make_device_config("d1", enabled=False)],
+            tasks=[],
+        )
+        await rt.start()
+        try:
+            assert protos["d1"].connect.await_count == 0
+            assert rt.running is True
+        finally:
+            await rt.stop()
+
+    async def test_stop_does_not_block_on_full_queue_without_consumer(self) -> None:
+        rt, _, sinks, _ = _build_runtime(
+            devices=[],
+            tasks=[],
+            backpressure="drop_new",
+            queue_maxsize=1,
+        )
+        sinks["s1"].open = AsyncMock(side_effect=RuntimeError("open failed"))
+        await rt.start()
+        await rt.dispatch({"s1": [_value()]})
+        assert rt.sink_queue_depths()["s1"] == 1
+        await asyncio.wait_for(rt.stop(), timeout=0.2)
+        assert rt.running is False
+
+    async def test_rebuild_sink_open_failure_keeps_old_sink(self) -> None:
+        rt, _, sinks, _ = _build_runtime(devices=[], tasks=[])
+        await rt.start()
+        old_sink = sinks["s1"]
+        old_task = rt._sink_tasks["s1"]  # noqa: SLF001
+        new_sink = _mock_sink()
+        new_sink.open = AsyncMock(side_effect=RuntimeError("open failed"))
+
+        with pytest.raises(RuntimeError, match="open failed"):
+            await rt.rebuild_sink(
+                "s1",
+                SinkConfig(name="s1", type="file"),
+                new_sink,
+            )
+
+        assert rt.sinks["s1"] is old_sink
+        assert rt._sink_tasks["s1"] is old_task  # noqa: SLF001
+        await rt.stop()
