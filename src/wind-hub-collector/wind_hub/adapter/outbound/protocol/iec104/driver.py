@@ -549,7 +549,7 @@ class IEC104Driver:
     # ==================================================================
 
     def health(self) -> HealthStatus:
-        """Return current health status."""
+        """返回当前缓存的 IEC104 连接健康状态；该同步接口不主动执行网络探测。"""
         if self._failed:
             return HealthStatus(
                 healthy=False,
