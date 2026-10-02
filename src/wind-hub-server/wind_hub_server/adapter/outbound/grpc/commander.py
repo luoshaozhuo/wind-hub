@@ -13,7 +13,9 @@ from wind_hub_core.rpc.commander_io_codec import (
     point_value_from_proto,
 )
 from wind_hub_core.rpc.commander import (
+    ACTIVATE_CONFIG,
     GET_STATUS,
+    PREPARE_CONFIG,
     READ_POINT,
     READ_POINTS,
     RELOAD_CONFIG,
@@ -43,6 +45,24 @@ class CommanderGrpcClient(GrpcClientBase):
         return from_struct(
             await self.call_empty_struct(
                 rpc_path(RELOAD_CONFIG),
+                timeout=30.0,
+            )
+        )
+
+    async def prepare_config(self, revision_id: str) -> dict[str, Any]:
+        return from_struct(
+            await self.call_struct(
+                rpc_path(PREPARE_CONFIG),
+                to_struct({"revision_id": revision_id}),
+                timeout=30.0,
+            )
+        )
+
+    async def activate_config(self, revision_id: str) -> dict[str, Any]:
+        return from_struct(
+            await self.call_struct(
+                rpc_path(ACTIVATE_CONFIG),
+                to_struct({"revision_id": revision_id}),
                 timeout=30.0,
             )
         )

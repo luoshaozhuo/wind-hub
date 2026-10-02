@@ -13,6 +13,8 @@ from wind_hub_core.rpc.collector import (
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     RELOAD_CONFIG,
+    PREPARE_CONFIG,
+    ACTIVATE_CONFIG,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK,
@@ -95,6 +97,22 @@ class CollectorGrpcClient(GrpcClientBase):
             timeout=30.0,
         )
 
+    async def prepare_config(self, revision_id: str) -> dict[str, Any]:
+        return await self._struct(
+            CONTROL_SERVICE,
+            PREPARE_CONFIG,
+            {"revision_id": revision_id},
+            timeout=30.0,
+        )
+
+    async def activate_config(self, revision_id: str) -> dict[str, Any]:
+        return await self._struct(
+            CONTROL_SERVICE,
+            ACTIVATE_CONFIG,
+            {"revision_id": revision_id},
+            timeout=30.0,
+        )
+
     async def _empty(
         self,
         service: str,
@@ -114,10 +132,13 @@ class CollectorGrpcClient(GrpcClientBase):
         service: str,
         method: str,
         payload: dict[str, Any],
+        *,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         return from_struct(
             await self.call_struct(
                 rpc_path(service, method),
                 to_struct(payload),
+                timeout=timeout,
             )
         )

@@ -6,7 +6,9 @@ Server 负责配置文件加载、校验、diff 与成功基线；Collector 只�
 
 from __future__ import annotations
 
+import asyncio
 import time
+from uuid import uuid4
 from pathlib import Path
 
 from wind_hub_core.config.loader import load_config
@@ -88,7 +90,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
 
 
 class ConfigUseCase:
-    """Server 配置成功基线与 Collector reload 编排。"""
+    """Server 配置成功基线与双 Worker prepare/activate 编排。"""
 
     def __init__(
         self,
@@ -120,7 +122,7 @@ class ConfigUseCase:
         return load_config(self._config_dir)
 
     async def reload(self) -> ReloadResult:
-        """校验本地候选配置并通知 Collector reload。"""
+        """校验候选配置；双 Worker prepare 成功后再并发 activate。"""
         started = time.monotonic()
         try:
             candidate = self.load_disk()
@@ -140,28 +142,74 @@ class ConfigUseCase:
                 duration_ms=(time.monotonic() - started) * 1000,
             )
 
+        revision_id = uuid4().hex
+
+        prepared = await asyncio.gather(
+            self._collector.prepare_config(revision_id),
+            self._commander.prepare_config(revision_id),
+            return_exceptions=True,
+        )
         errors: list[str] = []
-        collector_success = False
-        commander_success = False
+        prepare_ok: list[bool] = []
 
-        try:
-            remote = await self._collector.reload_config()
-            collector_success = bool(remote.get("success"))
-            errors.extend(str(item) for item in list(remote.get("errors") or []))
-            if not collector_success and not errors:
-                errors.append("collector reload failed")
-        except Exception as exc:
-            errors.append(f"collector reload failed: {str(exc) or type(exc).__name__}")
+        for name, result in zip(
+            ("collector", "commander"),
+            prepared,
+            strict=True,
+        ):
+            if isinstance(result, BaseException):
+                errors.append(
+                    f"{name} prepare failed: {str(result) or type(result).__name__}"
+                )
+                prepare_ok.append(False)
+                continue
+            success = bool(result.get("success"))
+            prepare_ok.append(success)
+            if not success:
+                remote_errors = [
+                    str(item) for item in list(result.get("errors") or [])
+                ]
+                errors.extend(
+                    remote_errors or [f"{name} prepare failed"]
+                )
 
-        try:
-            remote = await self._commander.reload_config()
-            commander_success = bool(remote.get("success"))
-            if not commander_success:
-                errors.append("commander reload failed")
-        except Exception as exc:
-            errors.append(f"commander reload failed: {str(exc) or type(exc).__name__}")
+        if not all(prepare_ok):
+            return ReloadResult(
+                success=False,
+                diff=diff,
+                errors=errors,
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
 
-        success = collector_success and commander_success
+        activated = await asyncio.gather(
+            self._collector.activate_config(revision_id),
+            self._commander.activate_config(revision_id),
+            return_exceptions=True,
+        )
+        activate_ok: list[bool] = []
+
+        for name, result in zip(
+            ("collector", "commander"),
+            activated,
+            strict=True,
+        ):
+            if isinstance(result, BaseException):
+                errors.append(
+                    f"{name} activate failed: {str(result) or type(result).__name__}"
+                )
+                activate_ok.append(False)
+                continue
+            success = bool(result.get("success"))
+            activate_ok.append(success)
+            if not success:
+                remote_errors = [
+                    str(item) for item in list(result.get("errors") or [])
+                ]
+                errors.extend(
+                    remote_errors or [f"{name} activate failed"]
+                )
+
+        success = all(activate_ok)
         if success:
             self._current = candidate
 
