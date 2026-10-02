@@ -688,6 +688,11 @@ class Runtime:
         self._devices[device_id] = device
         self._device_states[device_id] = DeviceRuntimeState()
 
+        if not cfg.enabled:
+            await self._sync_task_instances()
+            logger.info("Hot-reload: device '%s' added disabled", device_id)
+            return
+
         try:
             await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
             self._device_states[device_id].mark_success(self._clock())
@@ -767,25 +772,27 @@ class Runtime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
 
-        try:
-            await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
-            self._device_states[device_id].mark_success(self._clock())
-            logger.info("Hot-reload: device '%s' reconnected", device_id)
-        except TimeoutError:
-            self._note_connect_failure(device_id, TimeoutError("connect timeout"))
-            logger.warning(
-                "connect timeout: device=%s timeout=%.1fs — connect failed after rebuild",
-                device_id,
-                self._config.connect_timeout,
-            )
-        except Exception as exc:
-            self._note_connect_failure(device_id, exc)
-            logger.warning(
-                "Hot-reload: device '%s' connect failed after rebuild",
-                device_id,
-                exc_info=True,
-            )
-
+        if new_cfg.enabled:
+            try:
+                await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
+                self._device_states[device_id].mark_success(self._clock())
+                logger.info("Hot-reload: device '%s' reconnected", device_id)
+            except TimeoutError:
+                self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+                logger.warning(
+                    "connect timeout: device=%s timeout=%.1fs — connect failed after rebuild",
+                    device_id,
+                    self._config.connect_timeout,
+                )
+            except Exception as exc:
+                self._note_connect_failure(device_id, exc)
+                logger.warning(
+                    "Hot-reload: device '%s' connect failed after rebuild",
+                    device_id,
+                    exc_info=True,
+                )
+        else:
+            logger.info("Hot-reload: device '%s' disabled — connection skipped", device_id)
         # device_group / enabled 可能随新配置变化——重新展开采集实例。
         await self._sync_task_instances()
 
@@ -807,17 +814,20 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def add_sink(self, sink_name: str, cfg: SinkConfig, sink: SinkPort) -> None:
-        """运行时新增 sink——打开、建队列、启动消费者。
+        """运行时新增 sink——先打开成功，再安装到 Runtime。
 
         Raises:
-            Exception: ``sink.open()`` 失败原样上抛（热重载编排方据此记录
-                错误并保留旧状态）。
+            Exception: ``sink.open()`` 失败原样上抛；失败时 Runtime 注册表与队列
+                保持不变，不留下半装配 Sink。
         """
-        self._sinks[sink_name] = sink
-        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._config.queue_maxsize)
-        self._queues[sink_name] = queue
-
+        del cfg
         await sink.open()
+
+        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(
+            maxsize=self._config.queue_maxsize
+        )
+        self._sinks[sink_name] = sink
+        self._queues[sink_name] = queue
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
         if self._running:
@@ -856,20 +866,26 @@ class Runtime:
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
     async def rebuild_sink(self, sink_name: str, new_cfg: SinkConfig, new_sink: SinkPort) -> None:
-        """重建 sink——停旧消费者、换入新实例、启动新消费者。
+        """重建 sink——先确认新实例可打开，再替换旧实例。
 
-        既有队列保留，避免在途数据丢失。
+        既有队列保留，避免在途数据丢失。若新实例 ``open()`` 失败，旧 Sink、
+        旧 consumer 和队列完全不动，热重载调用方可安全报告失败。
 
         Raises:
             Exception: 新 sink 的 ``open()`` 失败原样上抛。
         """
+        del new_cfg
+        await new_sink.open()
+
         task = self._sink_tasks.pop(sink_name, None)
         if task is not None:
             task.cancel()
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
 
-        old_sink = self._sinks.pop(sink_name, None)
+        old_sink = self._sinks.get(sink_name)
+        self._sinks[sink_name] = new_sink
+
         if old_sink is not None:
             try:
                 await old_sink.flush()
@@ -888,8 +904,6 @@ class Runtime:
                     exc_info=True,
                 )
 
-        self._sinks[sink_name] = new_sink
-        await new_sink.open()
         logger.info("Hot-reload: sink '%s' re-opened", sink_name)
 
         if self._running:
@@ -969,44 +983,41 @@ class Runtime:
             )
 
     async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建设备；新增/重建的协议实例由工厂创建。
+        """按目标配置收敛 Device，使部分失败后的同一 diff 可以安全重试。
 
-        仅 ``point_table`` / ``device_group`` 变化的设备走轻量路径——就地
-        更新配置、按需重注入点映射，不重建 Protocol 连接。
+        判断以 Runtime 当前 Device 状态为准，而不是假设 diff 中的 added/updated
+        尚未执行：已经成功应用到目标配置的设备直接跳过；缺失或不一致的设备
+        再执行 add/rebuild。这样 ConfigUseCase 可以在部分失败时保留旧快照，
+        下一次 reload 重试相同 diff 而不会重复泄漏连接。
         """
-        new_devices = {d.device_id: d for d in new_cfg.devices.devices}
-
-        lightweight: set[str] = set()
-        for did in diff.devices.updated:
-            old_device = self._devices.get(did)
-            if old_device is not None and _changed_fields(old_device.config, new_devices[did]) <= (
-                _LIGHTWEIGHT_DEVICE_FIELDS
-            ):
-                lightweight.add(did)
-
+        desired = {d.device_id: d for d in new_cfg.devices.devices}
         factory = self._protocol_factory
-        if factory is None and (diff.devices.added or set(diff.devices.updated) - lightweight):
-            raise RuntimeError("protocol factory is not wired into Runtime")
 
         for did in diff.devices.removed:
-            await self.remove_device(did)
+            if did in self._devices:
+                await self.remove_device(did)
 
-        for did in diff.devices.added:
-            cfg = new_devices[did]
-            # 入口已守卫：有新增/非轻量更新时 factory 必然非 None
-            assert factory is not None
-            protocol = factory(cfg)
-            await self.add_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
-
-        for did in diff.devices.updated:
-            cfg = new_devices[did]
-            if did in lightweight:
-                self._apply_lightweight_device_update(did, cfg, new_cfg)
+        changed_ids = list(diff.devices.added) + list(diff.devices.updated)
+        for did in changed_ids:
+            cfg = desired[did]
+            current = self._devices.get(did)
+            if current is not None and current.config == cfg:
                 continue
-            assert factory is not None  # 同上——入口守卫保证
-            protocol = factory(cfg)
-            await self.rebuild_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
 
+            if current is not None:
+                changed_fields = _changed_fields(current.config, cfg)
+                if changed_fields <= _LIGHTWEIGHT_DEVICE_FIELDS:
+                    self._apply_lightweight_device_update(did, cfg, new_cfg)
+                    continue
+
+            if factory is None:
+                raise RuntimeError("protocol factory is not wired into Runtime")
+            protocol = factory(cfg)
+            points = self._points_for_device(new_cfg, did)
+            if current is None:
+                await self.add_device(did, cfg, protocol, points)
+            else:
+                await self.rebuild_device(did, cfg, protocol, points)
     def _apply_lightweight_device_update(
         self, device_id: str, new_dev: DeviceConfig, new_cfg: Config
     ) -> None:
@@ -1018,10 +1029,12 @@ class Runtime:
         """
         device = self._devices[device_id]
         old_dev = device.config
-        device.config = new_dev
 
+        # 先更新可能失败的点映射，成功后再提交配置；失败时 Runtime 仍保持
+        # 旧配置事实，使下一次同 diff 重试能够正确识别未完成状态。
         if new_dev.point_table != old_dev.point_table:
             device.set_points(self._points_for_device(new_cfg, device_id))
+        device.config = new_dev
 
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
@@ -1031,27 +1044,47 @@ class Runtime:
         return config.points_for_device(device_id)
 
     async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建 sink；新实例由工厂创建。"""
-        factory = self._sink_factory
-        if factory is None and (diff.sinks.added or diff.sinks.updated):
-            raise RuntimeError("sink factory is not wired into Runtime")
-        new_sinks = {s.name: s for s in new_cfg.system.sinks}
+        """按新配置的 enabled 状态增删重建 Sink。
 
-        for name in diff.sinks.removed:
+        Runtime 只持有 enabled Sink。热重载时：
+        - enabled -> disabled：移除运行实例；
+        - disabled -> enabled：创建并启动运行实例；
+        - enabled 且配置更新：重建运行实例；
+        - disabled 且仍 disabled：不创建任何对象。
+        """
+        configured = {s.name: s for s in new_cfg.system.sinks}
+        desired = {name: cfg for name, cfg in configured.items() if cfg.enabled}
+        current = set(self._sinks)
+
+        changed = set(diff.sinks.added) | set(diff.sinks.updated) | set(diff.sinks.removed)
+        remove_names = sorted(
+            name for name in changed if name in current and name not in desired
+        )
+        add_names = sorted(
+            name for name in changed if name in desired and name not in current
+        )
+        rebuild_names = sorted(
+            name
+            for name in diff.sinks.updated
+            if name in desired and name in current
+        )
+
+        factory = self._sink_factory
+        if factory is None and (add_names or rebuild_names):
+            raise RuntimeError("sink factory is not wired into Runtime")
+
+        for name in remove_names:
             await self.remove_sink(name)
 
-        for name in diff.sinks.added:
-            cfg = new_sinks[name]
-            # 入口已守卫：有新增/更新时 factory 必然非 None
+        for name in add_names:
+            cfg = desired[name]
             assert factory is not None
-            sink = factory(cfg)
-            await self.add_sink(name, cfg, sink)
+            await self.add_sink(name, cfg, factory(cfg))
 
-        for name in diff.sinks.updated:
-            cfg = new_sinks[name]
-            assert factory is not None  # 同上——入口守卫保证
-            sink = factory(cfg)
-            await self.rebuild_sink(name, cfg, sink)
+        for name in rebuild_names:
+            cfg = desired[name]
+            assert factory is not None
+            await self.rebuild_sink(name, cfg, factory(cfg))
 
     # ------------------------------------------------------------------
     # 私有——sink 背压与消费者
