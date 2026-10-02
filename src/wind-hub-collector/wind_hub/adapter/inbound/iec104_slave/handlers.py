@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     DoublePoint,
