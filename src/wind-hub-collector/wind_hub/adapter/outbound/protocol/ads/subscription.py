@@ -5,8 +5,8 @@ pyads 在 worker thread 调用 notification callback，因此 callback 只允许
 执行协程或修改 Driver 状态。
 
 一个 ADSSubscription 拥有自己的 connection pool，每条 connection 的 handle
-数量受 max_notifications_per_connection 限制。subscribe 根据 symbol 集合差异
-增删注册；close 注销 notification 并关闭全部 connection。
+数量受 max_notifications_per_connection 限制。subscribe 根据 point_id 和已解析
+index 地址的差异增删注册；close 注销 notification 并关闭全部 connection。
 
 pyads 回调对象缺少稳定类型标注，因此 connection/handle/callback 参数局部使用
 Any；这些类型不会进入 ProtocolPort 或领域模型。
@@ -32,6 +32,11 @@ def _pyads() -> Any:
     import pyads  # type: ignore[import-untyped]
 
     return pyads
+
+
+def _plc_datatype(ads_name: str) -> Any:
+    """返回 ADS 类型名对应的 pyads PLCTYPE；第三方 ctypes 类型以 Any 隔离。"""
+    return getattr(_pyads(), f"PLCTYPE_{ads_name}")
 
 
 class ADSSubscription:
@@ -64,12 +69,12 @@ class ADSSubscription:
         # 订阅建立时传入；不再是设备级配置。
         self._cycle_time = cycle_time
 
-        # symbol 到已解析 ADSPoint。
+        # point_id 到已解析 ADSPoint；运行期注册不再依赖 symbol。
         self._points: dict[str, ADSPoint] = {}
         # pyads connection 与其 handle 计数使用平行列表维护。
         self._connections: list[Any] = []
         self._loads: list[int] = []
-        # symbol 到 (connection index, notification handle, user handle) 的注册表。
+        # point_id 到 (connection index, notification handle, user handle) 的注册表。
         self._handles: dict[str, tuple[int, Any, Any]] = {}
 
         # worker thread 只写线程安全队列；事件循环负责后续异步分发。
@@ -84,18 +89,27 @@ class ADSSubscription:
         """同步目标订阅集合，只增删差异项。
 
         Args:
-            points: 目标 ADSPoint 列表；没有 symbol 的点无法使用 notification，会被忽略。
+            points: 已解析 index_group/index_offset 的目标 ADSPoint 列表。
+                未解析点不会注册 notification。
         """
-        new_points: dict[str, ADSPoint] = {ap.symbol: ap for ap in points if ap.symbol is not None}
-        current = set(self._points)
+        new_points = {ap.point_id: ap for ap in points if ap.address_resolved}
+        current = self._points
 
-        added = [new_points[s] for s in new_points if s not in current]
-        removed = [s for s in current if s not in new_points]
+        removed = [
+            point_id
+            for point_id, point in current.items()
+            if point_id not in new_points or new_points[point_id] != point
+        ]
+        added = [
+            point
+            for point_id, point in new_points.items()
+            if point_id not in current or current[point_id] != point
+        ]
 
-        if added:
-            await self._register(added)
         if removed:
             await self._unregister(removed)
+        if added:
+            await self._register(added)
 
         self._points = new_points
 
@@ -137,11 +151,9 @@ class ADSSubscription:
         return conn
 
     async def _register(self, points: list[ADSPoint]) -> None:
-        """逐点注册 notification，并按单连接 handle 上限自动扩展 connection。"""
+        """按 index_group/index_offset 注册 notification，并管理连接容量。"""
         pyads = _pyads()
         for ap in points:
-            symbol = ap.symbol
-            assert symbol is not None  # subscribe() pre-filters symbolless points
             idx = self._connection_for()
             if idx < 0:
                 conn = await self._create_connection()
@@ -154,18 +166,24 @@ class ADSSubscription:
                 cycle_time=self._cycle_time,
                 max_delay=self._config.max_delay,
             )
+            callback = conn.notification(_plc_datatype(ap.data_type))(
+                self._notification_callback(ap)
+            )
             handle, user_handle = await asyncio.to_thread(
-                conn.add_device_notification, symbol, attr, self._on_notification
+                conn.add_device_notification,
+                (ap.index_group, ap.index_offset),
+                attr,
+                callback,
             )
             self._loads[idx] += 1
-            self._handles[symbol] = (idx, handle, user_handle)
+            self._handles[ap.point_id] = (idx, handle, user_handle)
 
-    async def _unregister(self, symbols: list[str]) -> None:
-        """注销指定 symbol 的 notification，并释放对应 handle 配额。"""
-        for symbol in symbols:
-            if symbol not in self._handles:
+    async def _unregister(self, point_ids: list[str]) -> None:
+        """注销指定 point_id 的 notification，并释放对应 handle 配额。"""
+        for point_id in point_ids:
+            if point_id not in self._handles:
                 continue
-            idx, handle, user_handle = self._handles.pop(symbol)
+            idx, handle, user_handle = self._handles.pop(point_id)
             conn = self._connections[idx]
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(conn.del_device_notification, handle, user_handle)
@@ -175,21 +193,33 @@ class ADSSubscription:
     # worker thread 回调到 event loop 的安全交接
     # ------------------------------------------------------------------
 
-    def _on_notification(self, handle: Any, name: str, timestamp: Any, value: Any) -> None:
+    def _notification_callback(self, point: ADSPoint) -> Callable[..., None]:
+        """为一个已解析点创建 pyads notification 回调并固定 point_id。"""
+
+        def callback(handle: Any, address: Any, timestamp: Any, value: Any) -> None:
+            self._on_notification(point, handle, address, timestamp, value)
+
+        return callback
+
+    def _on_notification(
+        self,
+        point: ADSPoint,
+        handle: Any,
+        address: Any,
+        timestamp: Any,
+        value: Any,
+    ) -> None:
         """接收 pyads worker thread 的 notification 回调。
 
-        这里只构造 PointValue、入队并调度 drain；不访问 ADS API，不 await 协程，
-        也不修改 Driver 连接状态。handle/timestamp/value 的 Any 来自 pyads
-        未类型化 callback 边界。
+        point 在注册时已经绑定，因此回调不依赖 symbol 名称反查。address 为
+        pyads 返回的 index_group/index_offset 地址；这些未类型化第三方值
+        仅停留在适配器边界。
         """
-        ap = self._points.get(name)
-        if ap is None:
-            return
         if timestamp is None:
             timestamp = datetime.now(UTC)
         pv = PointValue(
             device_id=self._device_id,
-            point_id=ap.point_id,
+            point_id=point.point_id,
             value=value,
             quality=Quality.GOOD,
             timestamp=timestamp,
