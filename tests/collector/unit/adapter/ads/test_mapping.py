@@ -98,7 +98,7 @@ class TestParsePoint:
         )
         ap = parse_point(point)
         assert ap.data_type == "REAL"
-        assert ap.address_resolved is False
+        assert ap.address_resolved is True
 
     def test_explicit_size_override(self) -> None:
         ap = parse_point(_point("s", "str", size=64))
@@ -139,6 +139,7 @@ class TestParsePoint:
         assert ap.index_group == 0
         assert ap.index_offset == 0
         assert ap.data_type == "REAL"
+        assert ap.address_resolved is False
 
     def test_symbol_with_index_pair_requires_session_resolution(self) -> None:
         """symbol 与 index 可同时配置，但生产地址必须由当前 PLC session 解析。"""
