@@ -103,6 +103,7 @@ class ConfigUseCase:
         self._collector = collector
         self._commander = commander
         self._current = current_config
+        self._transaction_lock = asyncio.Lock()
 
     @property
     def config_dir(self) -> Path:
@@ -122,12 +123,16 @@ class ConfigUseCase:
         return load_config(self._config_dir)
 
     async def reload(self, *, force_workers: bool = False) -> ReloadResult:
-        """校验候选配置并执行双 Worker prepare/activate。
+        """串行执行双 Worker 配置事务。
 
-        force_workers=True 时，即使 Server 基线与磁盘候选无结构差异，也会强制
-        两个 Worker 重新 Prepare/Activate。该模式用于失败后的配置回滚，
-        防止部分 Activate 后因 Server diff 为零而跳过 Worker 收敛。
+        所有入口（Web Apply、SIGHUP、回滚、恢复）最终都进入本方法，因此同一
+        Server 进程内任一时刻只允许一个 revision 处于 prepare/activate 阶段。
         """
+        async with self._transaction_lock:
+            return await self._reload_locked(force_workers=force_workers)
+
+    async def _reload_locked(self, *, force_workers: bool) -> ReloadResult:
+        """在配置事务锁内执行一次完整 prepare/activate。"""
         started = time.monotonic()
         try:
             candidate = self.load_disk()
