@@ -21,7 +21,7 @@ from wind_hub.adapter.outbound.protocol.ads import router as ads_router
 from wind_hub.config.schema import Config
 from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.point import PointRef, Quality
-from wind_hub.infra.protocol_registry import protocol_registry
+from wind_hub_core.protocol.registry import protocol_registry
 from wind_hub_core.protocol.ads import ADSProbe
 from wind_hub_core.validation.models import (
     AddressResolution,

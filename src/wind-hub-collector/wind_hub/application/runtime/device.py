@@ -37,7 +37,7 @@ from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointRef, PointValue
 from wind_hub_core.model.health import HealthStatus
-from wind_hub.domain.port.outbound import (
+from wind_hub_core.protocol.port import (
     AcquisitionMode,
     InterrogationCapable,
     ProtocolPort,

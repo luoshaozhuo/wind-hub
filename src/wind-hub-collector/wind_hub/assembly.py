@@ -46,8 +46,8 @@ from wind_hub.config.schema import (
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub_core.model.errors import ConfigError
-from wind_hub.domain.port.outbound import ProtocolPort
-from wind_hub.infra.protocol_registry import protocol_registry
+from wind_hub_core.protocol.port import ProtocolPort
+from wind_hub_core.protocol.registry import protocol_registry
 
 logger = logging.getLogger(__name__)
 

@@ -58,7 +58,7 @@ from wind_hub.domain.acquisition.engine import AcquisitionEngine
 from wind_hub_core.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff
 from wind_hub_core.model.health import HealthStatus
-from wind_hub.domain.port.outbound import AcquisitionMode, ProtocolPort
+from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 logger = logging.getLogger(__name__)
 
