@@ -1027,13 +1027,26 @@ class Runtime:
         """点表内容变化时，对绑定受影响表的既有设备重注入点映射。
 
         仅重注入内存映射（``Device.set_points``——点表 + 协议映射），
-        不触碰 Protocol 连接；设备 diff 中已增删重建的设备跳过（它们的
-        映射已由 add/rebuild/lightweight 路径写入）。
+        不触碰 Protocol 连接。新增/删除设备跳过；updated 设备若已经成功
+        收敛到目标配置则仍会重注入，避免“轻量设备字段变化 + 点表内容变化”
+        时遗漏新 mapping。
         """
         changed_tables = set(diff.point_tables_changed)
-        skip = set(diff.devices.added) | set(diff.devices.updated) | set(diff.devices.removed)
+        removed = set(diff.devices.removed)
+        added = set(diff.devices.added)
+        target_devices = {d.device_id: d for d in new_config.devices.devices}
+
         for did, device in self._devices.items():
-            if did in skip or device.config.point_table not in changed_tables:
+            if did in removed or did in added:
+                continue
+            target = target_devices.get(did)
+            if target is None:
+                continue
+            # 设备更新阶段若未成功收敛到目标配置，不在这里继续叠加点表变化；
+            # 成功的轻量更新/重建以及未更新设备都可安全重注入当前目标点表。
+            if device.config.model_dump() != target.model_dump():
+                continue
+            if device.config.point_table not in changed_tables:
                 continue
             device.set_points(self._points_for_device(new_config, did))
             logger.info(
