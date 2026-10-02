@@ -14,7 +14,7 @@ import pytest
 from wind_hub_core.protocol.modbus.mapping import parse_point
 from wind_hub_core.config.loader import load_config
 
-SITE_DIR = Path(__file__).resolve().parents[3] / "configs" / "example_modbus"
+SITE_DIR = Path(__file__).resolve().parents[4] / "configs" / "example_modbus"
 
 EXPECTED_DEVICE_IDS = {"wtg-002", "wtg-003"}
 

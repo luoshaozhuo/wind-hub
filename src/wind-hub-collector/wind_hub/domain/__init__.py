@@ -1,1 +1,1 @@
-"""Collector Domain 层：采集、命令与协议无关领域模型。"""
+"""Collector Domain 层：仅保留采集领域逻辑与 Collector 专属模型。"""
