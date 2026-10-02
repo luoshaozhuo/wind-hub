@@ -379,3 +379,38 @@ class Config(BaseModel):
         """``{device_id: 点集}``——每个键都是独立 list（见
         :meth:`points_for_device` 的快拍语义）。"""
         return {d.device_id: self.points_for_device(d.device_id) for d in self.devices.devices}
+
+
+__all__ = [
+    "ADSSystemConfig",
+    "SiteConfig",
+    "UnitConfig",
+    "UnitsConfig",
+    "DeviceTypeConfig",
+    "DeviceModelConfig",
+    "DeviceModelsConfig",
+    "InstanceEndpoint",
+    "DeviceInstanceConfig",
+    "DeviceInstancesConfig",
+    "DeviceConfig",
+    "DevicesConfig",
+    "PointAddress",
+    "PointConfig",
+    "PointPatch",
+    "PointTableConfig",
+    "PointTablesConfig",
+    "ResolvedPointTable",
+    "ResolvedPointTables",
+    "RuntimeConfig",
+    "SinkConfig",
+    "ApiConfig",
+    "CliConfig",
+    "InterfaceConfig",
+    "SystemConfig",
+    "TaskTarget",
+    "CollectionTaskConfig",
+    "TasksConfig",
+    "ReportingPoint",
+    "ReportingConfig",
+    "Config",
+]

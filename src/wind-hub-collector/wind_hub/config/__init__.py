@@ -1,11 +1,14 @@
-"""Collector 配置层：YAML schema、加载、继承展开和运行时配置解析。"""
+"""Collector 配置入口。
 
-from wind_hub_core.config.device_resolver import resolve_devices
+公共设备、点表和单位模型以及纯 Resolver 来自 wind-hub-core；本包仅聚合
+Collector 专属配置和 YAML 加载入口。
+"""
+
 from wind_hub.config.loader import load_config
+from wind_hub.config.schema import CollectionTaskConfig, Config, SystemConfig, TasksConfig
+from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
-from wind_hub.config.schema import (
-    CollectionTaskConfig,
-    Config,
+from wind_hub_core.config.schema import (
     DeviceInstancesConfig,
     DeviceModelConfig,
     DeviceModelsConfig,
@@ -14,8 +17,6 @@ from wind_hub.config.schema import (
     PointTablesConfig,
     ResolvedPointTables,
     SiteConfig,
-    SystemConfig,
-    TasksConfig,
 )
 
 __all__ = [
