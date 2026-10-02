@@ -13,14 +13,11 @@
 #     index_group: 0x4020                   # 可直接配置，必须与 index_offset 成对
 #     index_offset: 0x1234                  # 出现（只写一个是配置错误）
 #   symbol 与 index 可同时配置；正式 read/write/sum/notification 均使用 index 地址。
-#   symbol 与 index 同时配置是允许的——实际读写永远以 symbol 优先；
-#   三者全空是配置错误。
-#   注意：read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位
-#   配置 symbol（Sum 命令按 Symbol 批量读）。
+#   symbol 与 index 均未配置时属于配置错误。
 
 point_tables:
 
-  # ADS 现场机组点表 —— Symbol 严格使用现场 PLC 名；scale=1、offset=0。
+  # ADS 现场机组点表 —— symbol 使用现场 PLC 名用于地址解析；scale=1、offset=0。
   wtg_ads_site_v1:
     protocol: ads
     points:
