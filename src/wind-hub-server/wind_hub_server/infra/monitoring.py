@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import resource
 import shutil
@@ -20,6 +21,8 @@ from wind_hub_server.application.port.monitoring import (
 )
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.application.port.worker import CollectorPort
+
+logger = logging.getLogger(__name__)
 
 
 class MonitoringMetrics:
@@ -206,10 +209,17 @@ class MonitoringService:
         return self._started_at
 
     async def start(self) -> None:
-        """启动后台采样；幂等。"""
+        """启动后台采样；Collector 暂不可达时仍允许 Server 启动。"""
         if self._task is not None and not self._task.done():
             return
-        await self.refresh_now()
+        try:
+            await self.refresh_now()
+        except Exception as exc:
+            logger.warning(
+                "Collector 初始监控快照获取失败，Server 将继续启动: %s",
+                exc,
+            )
+            self.capture_now()
         self._task = asyncio.create_task(self._loop())
 
     async def refresh_now(self) -> HostSnapshot:
@@ -281,8 +291,9 @@ class MonitoringService:
             await asyncio.sleep(self._interval)
             try:
                 await self.refresh_now()
-            except Exception:
+            except Exception as exc:
                 # Collector 暂时不可达时保留最后一次成功快照，下一周期重试。
+                logger.warning("Collector 监控快照刷新失败: %s", exc)
                 continue
 
     @staticmethod

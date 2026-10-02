@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from google.protobuf import empty_pb2
-
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.rpc.commander import (
@@ -30,13 +28,16 @@ class CommanderGrpcClient(GrpcClientBase):
     """通过 gRPC 调用独立 Commander。"""
 
     async def status(self) -> dict[str, Any]:
-        call = self.unary_empty_struct(rpc_path(GET_STATUS))
-        return from_struct(await call(empty_pb2.Empty()))
+        return from_struct(
+            await self.call_empty_struct(rpc_path(GET_STATUS))
+        )
 
     async def read_point(self, device_id: str, point_id: str) -> PointValue:
-        call = self.unary_struct(rpc_path(READ_POINT))
         data = from_struct(
-            await call(to_struct({"device_id": device_id, "point_id": point_id}))
+            await self.call_struct(
+                rpc_path(READ_POINT),
+                to_struct({"device_id": device_id, "point_id": point_id}),
+            )
         )
         return PointValue.model_validate(data)
 
@@ -45,15 +46,15 @@ class CommanderGrpcClient(GrpcClientBase):
         device_id: str,
         point_ids: list[str],
     ) -> list[PointValue]:
-        call = self.unary_struct(rpc_path(READ_POINTS))
         data = from_struct(
-            await call(
+            await self.call_struct(
+                rpc_path(READ_POINTS),
                 to_struct(
                     {
                         "device_id": device_id,
                         "point_ids": point_ids,
                     }
-                )
+                ),
             )
         )
         return [
@@ -62,8 +63,13 @@ class CommanderGrpcClient(GrpcClientBase):
         ]
 
     async def write(self, command: Command) -> CommandResult:
-        call = self.unary_struct(rpc_path(WRITE_POINT))
-        data = from_struct(await call(to_struct(command.model_dump(mode="json"))))
+        data = from_struct(
+            await self.call_struct(
+                rpc_path(WRITE_POINT),
+                to_struct(command.model_dump(mode="json")),
+                timeout=max(self.default_timeout, command.timeout + 1.0),
+            )
+        )
         return CommandResult.model_validate(data)
 
     async def verify_device(
@@ -71,9 +77,12 @@ class CommanderGrpcClient(GrpcClientBase):
         device_id: str,
         timeout: float = 1.0,
     ) -> dict[str, Any]:
-        call = self.unary_struct(rpc_path(VERIFY_DEVICE))
         return from_struct(
-            await call(to_struct({"device_id": device_id, "timeout": timeout}))
+            await self.call_struct(
+                rpc_path(VERIFY_DEVICE),
+                to_struct({"device_id": device_id, "timeout": timeout}),
+                timeout=max(self.default_timeout, timeout + 1.0),
+            )
         )
 
     async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]:
@@ -90,8 +99,12 @@ class CommanderGrpcClient(GrpcClientBase):
         payload: dict[str, Any] = {"device_id": device_id}
         if point_group is not None:
             payload["point_group"] = point_group
-        call = self.unary_struct(rpc_path(VERIFY_POINTS))
-        return from_struct(await call(to_struct(payload)))
+        return from_struct(
+            await self.call_struct(
+                rpc_path(VERIFY_POINTS),
+                to_struct(payload),
+            )
+        )
 
     async def _point_call(
         self,
@@ -99,7 +112,9 @@ class CommanderGrpcClient(GrpcClientBase):
         device_id: str,
         point_id: str,
     ) -> dict[str, Any]:
-        call = self.unary_struct(rpc_path(method))
         return from_struct(
-            await call(to_struct({"device_id": device_id, "point_id": point_id}))
+            await self.call_struct(
+                rpc_path(method),
+                to_struct({"device_id": device_id, "point_id": point_id}),
+            )
         )

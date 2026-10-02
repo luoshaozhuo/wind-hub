@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from google.protobuf import empty_pb2
-
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     GET_RUNTIME_STATUS,
@@ -91,11 +89,25 @@ class CollectorGrpcClient(GrpcClientBase):
         return await self._empty(CONTROL_SERVICE, STOP_ASSIGNED_TASKS)
 
     async def reload_config(self) -> dict[str, Any]:
-        return await self._empty(CONTROL_SERVICE, RELOAD_CONFIG)
+        return await self._empty(
+            CONTROL_SERVICE,
+            RELOAD_CONFIG,
+            timeout=30.0,
+        )
 
-    async def _empty(self, service: str, method: str) -> dict[str, Any]:
-        call = self.unary_empty_struct(rpc_path(service, method))
-        return from_struct(await call(empty_pb2.Empty()))
+    async def _empty(
+        self,
+        service: str,
+        method: str,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        return from_struct(
+            await self.call_empty_struct(
+                rpc_path(service, method),
+                timeout=timeout,
+            )
+        )
 
     async def _struct(
         self,
@@ -103,5 +115,9 @@ class CollectorGrpcClient(GrpcClientBase):
         method: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        call = self.unary_struct(rpc_path(service, method))
-        return from_struct(await call(to_struct(payload)))
+        return from_struct(
+            await self.call_struct(
+                rpc_path(service, method),
+                to_struct(payload),
+            )
+        )
