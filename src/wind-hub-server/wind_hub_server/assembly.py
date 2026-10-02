@@ -18,7 +18,7 @@ from wind_hub.application.port.sink import SinkPort
 from wind_hub.assembly import AssembledRuntime as CollectorRuntime
 from wind_hub.assembly import assemble as assemble_collector
 from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase

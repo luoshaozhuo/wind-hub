@@ -11,7 +11,7 @@ from wind_hub_server.application.operation import OperationManager, OperationRec
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub_server.application.usecase.device_control import DeviceCommandResult, DeviceControlUseCase
 from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 from wind_hub_server.infra.network_probe import expand_network, ping_host, probe_port
 
 

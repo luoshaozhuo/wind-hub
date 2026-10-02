@@ -7,8 +7,8 @@ from fastapi import APIRouter
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.models import PointValueResponse
-from wind_hub.domain.model.errors import CommandError
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.errors import CommandError
+from wind_hub_core.model.point import PointValue
 
 router = APIRouter(tags=["points"])
 

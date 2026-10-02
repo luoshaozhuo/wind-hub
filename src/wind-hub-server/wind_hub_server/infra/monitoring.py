@@ -19,7 +19,7 @@ from wind_hub_server.application.port.monitoring import (
     MonitoringEvent,
 )
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.point import PointValue, Quality
 
 
 class MonitoringMetrics:

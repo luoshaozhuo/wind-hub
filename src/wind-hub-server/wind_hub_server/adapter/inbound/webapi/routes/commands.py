@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.models import CommandRequest, CommandResponse
-from wind_hub.domain.model.command import Command, CommandResult
+from wind_hub_core.model.command import Command, CommandResult
 
 router = APIRouter(tags=["commands"])
 

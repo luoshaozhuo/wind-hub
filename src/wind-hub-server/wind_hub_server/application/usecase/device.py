@@ -9,7 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.schema import DeviceConfig
+from wind_hub_core.config.schema import DeviceConfig
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 

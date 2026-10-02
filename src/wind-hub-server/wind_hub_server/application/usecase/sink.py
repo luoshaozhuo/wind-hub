@@ -14,7 +14,7 @@ from wind_hub.application.runtime.runtime import Runtime
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
 from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 
 class SinkSnapshot(BaseModel):

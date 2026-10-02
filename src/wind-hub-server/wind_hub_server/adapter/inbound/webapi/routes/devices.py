@@ -8,7 +8,7 @@ from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.models import DeviceInfoResponse
 from wind_hub.domain.model.device import DeviceInfo
-from wind_hub.domain.model.errors import CommandError
+from wind_hub_core.model.errors import CommandError
 
 router = APIRouter(tags=["devices"])
 

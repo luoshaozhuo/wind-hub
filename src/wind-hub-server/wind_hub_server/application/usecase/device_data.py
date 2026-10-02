@@ -11,7 +11,7 @@ from wind_hub_server.application.port.point_store import LatestPointStore, Trend
 from wind_hub.application.runtime.device import Device
 from wind_hub.application.runtime.runtime import Runtime
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.point import PointValue, Quality
 
 
 class DeviceDataItem(BaseModel):

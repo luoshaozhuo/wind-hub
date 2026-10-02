@@ -20,7 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from wind_hub.domain.model.errors import (
+from wind_hub_core.model.errors import (
     CommandError,
     ConfigError,
     OperationTimeoutError,

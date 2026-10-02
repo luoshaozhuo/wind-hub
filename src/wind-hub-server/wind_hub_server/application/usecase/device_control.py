@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.domain.model.command import Command
+from wind_hub_core.model.command import Command
 
 
 class DeviceCommandResult(BaseModel):
