@@ -183,6 +183,9 @@ class Runtime:
         self._task_instances: dict[str, CollectionTaskInstance] = {}
         self._instance_states: dict[str, TaskInstanceState] = {}
         self._acquisition_handles: dict[str, AcquisitionHandle] = {}
+        # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
+        # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
+        self._restart_pending: set[str] = set()
 
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
@@ -404,8 +407,10 @@ class Runtime:
         if instance_id not in self._task_instances:
             raise KeyError(instance_id)
         if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
+            self._restart_pending.discard(instance_id)
             return
         self._instance_states[instance_id] = TaskInstanceState.STOPPED
+        self._restart_pending.discard(instance_id)
         await self._close_acquisition_handle(instance_id)
 
     def _poll_stats_hook(
@@ -461,6 +466,7 @@ class Runtime:
             self._task_instances.pop(iid, None)
             self._instance_states.pop(iid, None)
             self._acq_states.pop(iid, None)
+            self._restart_pending.discard(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
         for iid, instance in desired.items():
@@ -470,26 +476,38 @@ class Runtime:
             if is_new:
                 self._instance_states[iid] = TaskInstanceState.STOPPED
                 logger.info("Task instance '%s' registered (stopped)", iid)
-            elif (
-                old is not None
-                and self._instance_states[iid] is TaskInstanceState.RUNNING
-                and (
-                    old.interval != instance.interval
-                    or old.point_group != instance.point_group
-                    or instance.device_id in restart_subscription_devices
-                )
-            ):
-                # 节拍、选点或订阅地址变化：重建采集句柄，保持 RUNNING 状态。
-                self._instance_states[iid] = TaskInstanceState.STOPPED
-                await self._close_acquisition_handle(iid)
-                try:
-                    await self.start_task_instance(iid)
-                except Exception:
-                    logger.warning(
-                        "Task instance '%s' failed to restart acquisition after reload",
-                        iid,
-                        exc_info=True,
+            else:
+                was_running = self._instance_states[iid] is TaskInstanceState.RUNNING
+                needs_restart = (
+                    iid in self._restart_pending
+                    or (
+                        was_running
+                        and (
+                            old.interval != instance.interval
+                            or old.point_group != instance.point_group
+                            or instance.device_id in restart_subscription_devices
+                        )
                     )
+                )
+                if needs_restart:
+                    # 节拍、选点或订阅地址变化：重建采集句柄并恢复 RUNNING。
+                    # 失败时保留 pending，reconfigure 向上返回错误，下一次 reload
+                    # 继续重试，避免“reload 成功但实例永久 STOPPED”。
+                    self._restart_pending.add(iid)
+                    if was_running:
+                        self._instance_states[iid] = TaskInstanceState.STOPPED
+                        await self._close_acquisition_handle(iid)
+                    try:
+                        await self.start_task_instance(iid)
+                    except Exception:
+                        logger.warning(
+                            "Task instance '%s' failed to restart acquisition after reload",
+                            iid,
+                            exc_info=True,
+                        )
+                        raise
+                    else:
+                        self._restart_pending.discard(iid)
             state = self._acq_states.get(iid)
             if (
                 state is None
