@@ -24,35 +24,38 @@ class ReadUseCase:
         point_ids: list[str],
     ) -> list[PointValue]:
         """一次连接保证后批量读取多个点并返回工程值。"""
-        try:
-            device = self._runtime.device(device_id)
-        except KeyError as exc:
-            raise CommandError(str(exc), "") from exc
+        async with self._runtime.operation():
+            try:
+                device = self._runtime.device(device_id)
+            except KeyError as exc:
+                raise CommandError(str(exc), "") from exc
 
-        if not point_ids:
-            raise CommandError("point_ids must be non-empty", "")
+            if not point_ids:
+                raise CommandError("point_ids must be non-empty", "")
 
-        known = {point.point_id for point in device.points}
-        missing = [point_id for point_id in point_ids if point_id not in known]
-        if missing:
-            raise CommandError(
-                f"unknown points on device '{device_id}': {missing}",
-                "",
+            known = {point.point_id for point in device.points}
+            missing = [point_id for point_id in point_ids if point_id not in known]
+            if missing:
+                raise CommandError(
+                    f"unknown points on device '{device_id}': {missing}",
+                    "",
+                )
+            if not await self._runtime.ensure_connected(device_id):
+                raise CommandError(f"device '{device_id}' is not connected", "")
+
+            values = await device.read_points(
+                [
+                    PointRef(device_id=device_id, point_id=point_id)
+                    for point_id in point_ids
+                ]
             )
-        if not await self._runtime.ensure_connected(device_id):
-            raise CommandError(f"device '{device_id}' is not connected", "")
-
-        values = await device.read_points(
-            [
-                PointRef(device_id=device_id, point_id=point_id)
-                for point_id in point_ids
+            by_id = {value.point_id: value for value in values}
+            missing_values = [
+                point_id for point_id in point_ids if point_id not in by_id
             ]
-        )
-        by_id = {value.point_id: value for value in values}
-        missing_values = [point_id for point_id in point_ids if point_id not in by_id]
-        if missing_values:
-            raise CommandError(
-                f"device '{device_id}' returned no values for points {missing_values}",
-                "",
-            )
-        return [by_id[point_id] for point_id in point_ids]
+            if missing_values:
+                raise CommandError(
+                    f"device '{device_id}' returned no values for points {missing_values}",
+                    "",
+                )
+            return [by_id[point_id] for point_id in point_ids]

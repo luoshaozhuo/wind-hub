@@ -1,13 +1,18 @@
 """Commander 设备会话运行时。
 
-Runtime 持有 DeviceSession 注册表并按需建立连接。它没有周期任务、采集循环、
-Sink 或后台调度，只为即时 read/write/diagnostic 提供连接生命周期。
+Runtime 持有按 generation 管理的 DeviceSession 注册表。read/write/diagnostic
+进入时固定当前 generation；reload 原子切换新 generation，并等待旧 generation
+在途操作自然结束后再关闭旧会话。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import AsyncIterator
 
 from wind_hub_commander.config import CommanderConfig
 from wind_hub_core.device.session import DeviceSession
@@ -16,21 +21,41 @@ from wind_hub_core.protocol import protocol_registry
 logger = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
+class _Generation:
+    """一代 Commander 配置对应的会话集合。"""
+
+    config: CommanderConfig
+    devices: dict[str, DeviceSession]
+    connect_locks: dict[str, asyncio.Lock]
+    active_operations: int = 0
+    drained: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def __post_init__(self) -> None:
+        self.drained.set()
+
+
 class CommanderRuntime:
-    """Commander 设备会话注册表与连接生命周期管理器。"""
+    """Commander 设备会话注册表与 generation 生命周期管理器。"""
 
     def __init__(self, config: CommanderConfig) -> None:
-        self.config = config
-        self.devices: dict[str, DeviceSession] = {}
-        self._connect_locks: dict[str, asyncio.Lock] = {}
         self._reload_lock = asyncio.Lock()
-        self._populate_sessions(config)
+        self._operation_generation: ContextVar[_Generation | None] = ContextVar(
+            "commander_operation_generation",
+            default=None,
+        )
+        self._current = self._build_generation(config)
+        # 保持原有 devices 映射对象引用稳定，供状态查询等只读代码使用。
+        self.devices: dict[str, DeviceSession] = {}
+        self.devices.update(self._current.devices)
 
-    def _build_sessions(
-        self,
-        config: CommanderConfig,
-    ) -> tuple[dict[str, DeviceSession], dict[str, asyncio.Lock]]:
-        """基于候选配置构造完整会话集合，不执行网络 I/O。"""
+    @property
+    def config(self) -> CommanderConfig:
+        """返回当前激活配置。"""
+        return self._current.config
+
+    def _build_generation(self, config: CommanderConfig) -> _Generation:
+        """基于候选配置构造完整 generation，不执行网络 I/O。"""
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
         for device_config in config.devices.devices:
@@ -41,53 +66,65 @@ class CommanderRuntime:
                 protocol=protocol,
             )
             locks[device_config.device_id] = asyncio.Lock()
-        return devices, locks
+        return _Generation(
+            config=config,
+            devices=devices,
+            connect_locks=locks,
+        )
 
-    def _populate_sessions(self, config: CommanderConfig) -> None:
-        """初始化会话注册表。"""
-        devices, locks = self._build_sessions(config)
-        self.devices.update(devices)
-        self._connect_locks.update(locks)
+    @asynccontextmanager
+    async def operation(self) -> AsyncIterator[None]:
+        """固定当前 generation，直到本次设备操作结束。"""
+        inherited = self._operation_generation.get()
+        if inherited is not None:
+            yield
+            return
+
+        generation = self._current
+        generation.active_operations += 1
+        if generation.active_operations == 1:
+            generation.drained.clear()
+        token = self._operation_generation.set(generation)
+        try:
+            yield
+        finally:
+            self._operation_generation.reset(token)
+            generation.active_operations -= 1
+            if generation.active_operations == 0:
+                generation.drained.set()
+
+    def _generation(self) -> _Generation:
+        """返回当前操作固定的 generation，否则返回最新 generation。"""
+        return self._operation_generation.get() or self._current
 
     async def reload(self, config: CommanderConfig) -> None:
-        """以完整候选配置替换 Commander 会话注册表。
+        """原子切换新 generation，并在旧操作排空后关闭旧会话。"""
+        new_generation = self._build_generation(config)
 
-        候选会话先全部构造成功，再原位替换 devices 字典，保证 CommandDispatcher
-        持有的映射引用持续有效。旧会话在切换后统一关闭。
-        """
-        new_devices, new_locks = self._build_sessions(config)
         async with self._reload_lock:
-            old_devices = list(self.devices.items())
+            old_generation = self._current
+            self._current = new_generation
             self.devices.clear()
-            self.devices.update(new_devices)
-            self._connect_locks.clear()
-            self._connect_locks.update(new_locks)
-            self.config = config
-
-        results = await asyncio.gather(
-            *(device.close() for _device_id, device in old_devices),
-            return_exceptions=True,
-        )
-        for (device_id, _device), result in zip(old_devices, results, strict=True):
-            if isinstance(result, BaseException):
-                logger.warning(
-                    "Commander reload 后关闭旧会话失败 device=%s error=%s",
-                    device_id,
-                    result,
-                )
+            self.devices.update(new_generation.devices)
 
         await self.start()
+        await old_generation.drained.wait()
+        await self._close_generation(old_generation, reason="reload")
 
     async def start(self) -> None:
-        """初始化进程级协议资源，不主动连接所有设备。"""
-        if self.config.ads is None:
+        """初始化当前 generation 的进程级协议资源，不主动连接所有设备。"""
+        generation = self._current
+        if generation.config.ads is None:
             return
-        if not any(device.config.protocol == "ads" for device in self.devices.values()):
+        if not any(
+            device.config.protocol == "ads"
+            for device in generation.devices.values()
+        ):
             return
         from wind_hub_core.protocol.ads import router as ads_router
 
         try:
-            await ads_router.ensure_local_initialized(self.config.ads)
+            await ads_router.ensure_local_initialized(generation.config.ads)
         except Exception:
             logger.warning(
                 "Commander ADS 本机初始化失败；ADS 操作将保持不可用，其他协议继续服务",
@@ -95,8 +132,19 @@ class CommanderRuntime:
             )
 
     async def stop(self) -> None:
-        """并发关闭全部设备会话；单设备关闭失败不阻断其余资源释放。"""
-        items = list(self.devices.items())
+        """等待当前在途操作完成，再关闭当前 generation。"""
+        generation = self._current
+        await generation.drained.wait()
+        await self._close_generation(generation, reason="stop")
+
+    async def _close_generation(
+        self,
+        generation: _Generation,
+        *,
+        reason: str,
+    ) -> None:
+        """并发关闭一代设备会话；单设备失败不阻断其他资源释放。"""
+        items = list(generation.devices.items())
         results = await asyncio.gather(
             *(device.close() for _device_id, device in items),
             return_exceptions=True,
@@ -104,25 +152,32 @@ class CommanderRuntime:
         for (device_id, _device), result in zip(items, results, strict=True):
             if isinstance(result, BaseException):
                 logger.warning(
-                    "Commander 关闭设备会话失败 device=%s error=%s",
+                    "Commander %s 关闭设备会话失败 device=%s error=%s",
+                    reason,
                     device_id,
                     result,
                 )
 
     def device(self, device_id: str) -> DeviceSession:
-        """按 ID 返回设备会话。"""
+        """按 ID 从当前操作固定 generation 返回设备会话。"""
+        generation = self._generation()
         try:
-            return self.devices[device_id]
+            return generation.devices[device_id]
         except KeyError as exc:
             raise KeyError(f"unknown device '{device_id}'") from exc
 
     async def ensure_connected(self, device_id: str) -> bool:
-        """确保指定设备连接可用；同设备并发连接由锁串行化。"""
-        device = self.device(device_id)
+        """确保固定 generation 中的设备连接可用。"""
+        generation = self._generation()
+        try:
+            device = generation.devices[device_id]
+            lock = generation.connect_locks[device_id]
+        except KeyError as exc:
+            raise KeyError(f"unknown device '{device_id}'") from exc
+
         if device.health().healthy:
             return True
 
-        lock = self._connect_locks[device_id]
         async with lock:
             if device.health().healthy:
                 return True
@@ -137,7 +192,7 @@ class CommanderRuntime:
             try:
                 await asyncio.wait_for(
                     device.connect(),
-                    timeout=self.config.connect_timeout,
+                    timeout=generation.config.connect_timeout,
                 )
             except Exception as exc:
                 logger.warning(

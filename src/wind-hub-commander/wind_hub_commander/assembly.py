@@ -35,7 +35,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
     config = load_commander_config(config_dir)
     runtime = CommanderRuntime(config)
     dispatcher = CommandDispatcher(
-        runtime.devices,
+        runtime,
         default_timeout=config.write_timeout,
     )
     return CommanderApp(

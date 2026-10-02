@@ -94,6 +94,15 @@ class DiagnosticUseCase:
         *,
         timeout: float = 1.0,
     ) -> DeviceVerifyResult:
+        async with self._runtime.operation():
+            return await self._verify_device(device_id, timeout=timeout)
+
+    async def _verify_device(
+        self,
+        device_id: str,
+        *,
+        timeout: float = 1.0,
+    ) -> DeviceVerifyResult:
         """验证 ICMP、TCP 和当前协议会话三层通信事实。
 
         Args:
@@ -193,6 +202,14 @@ class DiagnosticUseCase:
         device_id: str,
         point_id: str,
     ) -> PointVerifyResult:
+        async with self._runtime.operation():
+            return await self._resolve_point(device_id, point_id)
+
+    async def _resolve_point(
+        self,
+        device_id: str,
+        point_id: str,
+    ) -> PointVerifyResult:
         """解析点位协议地址；ADS 会实际查询 symbol 信息但不读取点值。"""
         point = self._point(device_id, point_id)
         resolved, errors = await self._resolve_addresses(device_id, [point])
@@ -209,6 +226,14 @@ class DiagnosticUseCase:
         device_id: str,
         point_id: str,
     ) -> PointVerifyResult:
+        async with self._runtime.operation():
+            return await self._verify_point(device_id, point_id)
+
+    async def _verify_point(
+        self,
+        device_id: str,
+        point_id: str,
+    ) -> PointVerifyResult:
         """实际读取单点并返回 raw/engineering value 与地址信息。"""
         point = self._point(device_id, point_id)
         device = self._device(device_id)
@@ -219,6 +244,18 @@ class DiagnosticUseCase:
         return rows[0]
 
     async def verify_points(
+        self,
+        device_id: str,
+        *,
+        point_group: str | None = None,
+    ) -> PointsVerifyResult:
+        async with self._runtime.operation():
+            return await self._verify_points(
+                device_id,
+                point_group=point_group,
+            )
+
+    async def _verify_points(
         self,
         device_id: str,
         *,
@@ -253,10 +290,10 @@ class DiagnosticUseCase:
         )
 
     def _device(self, device_id: str):
-        device = self._runtime.devices.get(device_id)
-        if device is None:
-            raise CommandError(f"unknown device '{device_id}'", "")
-        return device
+        try:
+            return self._runtime.device(device_id)
+        except KeyError as exc:
+            raise CommandError(f"unknown device '{device_id}'", "") from exc
 
     def _point(self, device_id: str, point_id: str) -> PointConfig:
         device = self._device(device_id)

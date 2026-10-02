@@ -9,10 +9,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import OrderedDict
-from collections.abc import Mapping
-
-from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_commander.runtime import CommanderRuntime
 
 
 class CommandDispatcher:
@@ -20,13 +18,13 @@ class CommandDispatcher:
 
     def __init__(
         self,
-        devices: Mapping[str, DeviceSession],
+        runtime: CommanderRuntime,
         *,
         default_timeout: float,
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
     ) -> None:
-        self._devices = devices
+        self._runtime = runtime
         self._default_timeout = default_timeout
         self._cache_max = idempotency_cache_size
         self._cache_ttl = idempotency_ttl
@@ -61,40 +59,45 @@ class CommandDispatcher:
         return list(await asyncio.gather(*(self.send(command) for command in commands)))
 
     async def _execute(self, command: Command) -> CommandResult:
-        device = self._devices.get(command.device_id)
-        if device is None:
-            result = CommandResult(
-                command_id=command.command_id,
-                success=False,
-                error=f"Unknown device '{command.device_id}'",
-            )
-            self._cache_store(command.command_id, result, time.monotonic())
-            return result
-
-        timeout = command.timeout if command.timeout > 0 else self._default_timeout
-        try:
-            results = await asyncio.wait_for(device.write([command]), timeout=timeout)
-            result = (
-                results[0]
-                if results
-                else CommandResult(
+        async with self._runtime.operation():
+            try:
+                device = self._runtime.device(command.device_id)
+            except KeyError:
+                result = CommandResult(
                     command_id=command.command_id,
                     success=False,
-                    error="DeviceSession.write returned empty list",
+                    error=f"Unknown device '{command.device_id}'",
                 )
-            )
-        except TimeoutError:
-            result = CommandResult(
-                command_id=command.command_id,
-                success=False,
-                error=f"write timeout after {timeout:.1f}s",
-            )
-        except Exception as exc:
-            result = CommandResult(
-                command_id=command.command_id,
-                success=False,
-                error=str(exc) or type(exc).__name__,
-            )
+                self._cache_store(command.command_id, result, time.monotonic())
+                return result
+
+            timeout = command.timeout if command.timeout > 0 else self._default_timeout
+            try:
+                results = await asyncio.wait_for(
+                    device.write([command]),
+                    timeout=timeout,
+                )
+                result = (
+                    results[0]
+                    if results
+                    else CommandResult(
+                        command_id=command.command_id,
+                        success=False,
+                        error="DeviceSession.write returned empty list",
+                    )
+                )
+            except TimeoutError:
+                result = CommandResult(
+                    command_id=command.command_id,
+                    success=False,
+                    error=f"write timeout after {timeout:.1f}s",
+                )
+            except Exception as exc:
+                result = CommandResult(
+                    command_id=command.command_id,
+                    success=False,
+                    error=str(exc) or type(exc).__name__,
+                )
 
         self._cache_store(command.command_id, result, time.monotonic())
         return result
