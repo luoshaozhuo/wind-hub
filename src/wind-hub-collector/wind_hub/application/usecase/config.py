@@ -146,9 +146,9 @@ class ConfigUseCase:
     3. 调用 :meth:`Runtime.reconfigure` 执行全部运行时重构；
     4. 提交新配置为当前快照，返回 :class:`ReloadResult`。
 
-    reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``——部分失败
-    时 ``success`` 为 ``False``，但配置快照仍提交（与旧语义一致：已应用的
-    变更不回滚，下一次 reload 以新快照为 diff 基准）。
+    reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``。任一运行时
+    重构失败时不提交新快照；Runtime 的增量操作按当前状态收敛，因此下一次
+    相同 reload 可安全重试未完成部分。
     """
 
     def __init__(self, config_dir: str | Path, runtime: Runtime, current_config: Config) -> None:
@@ -184,8 +184,8 @@ class ConfigUseCase:
 
         Notes:
             新 YAML 加载失败时不触碰 Runtime。Runtime.reconfigure 允许部分应用；
-            因此其返回错误时 success=False，但新配置仍作为后续 diff 基线提交，
-            不伪造事务回滚语义。
+            若返回错误，成功应用的部分不回滚，但当前配置快照仍保持旧值，下一次
+            相同 reload 会基于 Runtime 当前状态安全重试未完成部分。
         """
         t0 = time.monotonic()
 
@@ -237,20 +237,26 @@ class ConfigUseCase:
         #    重注入的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
         errors = await self._runtime.reconfigure(new_cfg, diff)
 
-        # 4. 提交新快照与指纹，作为下一次 reload 基线。
+        duration_ms = (time.monotonic() - t0) * 1000
+        if errors:
+            logger.warning(
+                "Reload partially failed in %.1f ms; current config snapshot retained",
+                duration_ms,
+            )
+            return ReloadResult(
+                success=False,
+                diff=diff,
+                errors=errors,
+                duration_ms=duration_ms,
+            )
+
+        # 4. 仅在全部运行时变更成功后提交新快照与指纹。
         self._current = new_cfg
         self._config_hash = fingerprint_config_set(self._config_dir)
-
-        duration_ms = (time.monotonic() - t0) * 1000
-        success = len(errors) == 0
-        logger.info(
-            "Reload %s in %.1f ms",
-            "succeeded" if success else "partially failed",
-            duration_ms,
-        )
+        logger.info("Reload succeeded in %.1f ms", duration_ms)
         return ReloadResult(
-            success=success,
+            success=True,
             diff=diff,
-            errors=errors,
+            errors=[],
             duration_ms=duration_ms,
         )
