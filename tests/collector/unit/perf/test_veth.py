@@ -9,8 +9,8 @@ import subprocess
 
 import pytest
 
-from tests.perf import veth as veth_mod
-from tests.perf.veth import VethManager
+from tests.collector.perf import veth as veth_mod
+from tests.collector.perf.veth import VethManager
 
 
 class _FakeIp:

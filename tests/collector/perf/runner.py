@@ -2,14 +2,14 @@
 
 流程（决策 4/6）：
 
-1. 启动对应协议的本地 server（:mod:`tests.perf.servers`）；
+1. 启动对应协议的本地 server（:mod:`tests.collector.perf.servers`）；
 2. 在 veth 两端应用 netem 场景（中断场景改为测量中触发一次）；
 3. 生成压测专用配置（单设备、NullSink——隔离外部 IO
    耗时，专注采集 + 分发链路；背压队列放大到不可能触顶，丢点只可能
    来自网络侧）；
 4. ``assemble`` + ``start_runtime`` 起真实引擎；
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
-6. 停引擎、清 netem、返回 :class:`~tests.perf.collector.PerfMetrics`。
+6. 停引擎、清 netem、返回 :class:`~tests.collector.perf.collector.PerfMetrics`。
 
 延迟经 engine observer 采集（派发前口径）；重连经每秒轮询
 驱动 ``health()`` 的跳变识别（不修改任何驱动）。
@@ -31,9 +31,9 @@ from pathlib import Path
 import yaml
 
 from tests.fixtures.sinks.null_sink import NullSink
-from tests.perf.collector import MetricsCollector, PerfMetrics
-from tests.perf.netem import NetemController, NetemScenario
-from tests.perf.servers import (
+from tests.collector.perf.collector import MetricsCollector, PerfMetrics
+from tests.collector.perf.netem import NetemController, NetemScenario
+from tests.collector.perf.servers import (
     start_ads_server,
     start_iec104_server,
     start_modbus_server,

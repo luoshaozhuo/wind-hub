@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from tests.perf.collector import PerfMetrics
-from tests.perf.reporter import (
+from tests.collector.perf.collector import PerfMetrics
+from tests.collector.perf.reporter import (
     aggregate_runs,
     generate_json_report,
     generate_markdown_report,

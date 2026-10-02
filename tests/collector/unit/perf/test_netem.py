@@ -9,8 +9,8 @@ import subprocess
 
 import pytest
 
-from tests.perf import netem as netem_mod
-from tests.perf.netem import NetemController, NetemScenario
+from tests.collector.perf import netem as netem_mod
+from tests.collector.perf.netem import NetemController, NetemScenario
 
 
 class _FakeTc:

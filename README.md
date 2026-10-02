@@ -118,7 +118,7 @@ poetry run lint-imports
 
 ## 性能压测
 
-压测框架在 `tests/perf/` 下：三个协议（Modbus / IEC104 / ADS）都用本地
+压测框架在 `tests/collector/perf/` 下：三个协议（Modbus / IEC104 / ADS）都用本地
 真实 server 跑完整链路，用 `tc netem` 在专用 veth pair（10.99.0.1 ↔
 10.99.0.2）上注入延迟/抖动/丢包/中断，输出 Markdown + JSON 报告
 （吞吐、P50/P95/P99 延迟、重连行为、CPU/内存/FD）。
@@ -142,7 +142,7 @@ sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py
 - 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
 - Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
 - 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
-- 组件单元测试（全部 mock，不需要 root）在 `tests/unit/perf/`。
+- 组件单元测试（全部 mock，不需要 root）在 `tests/collector/unit/perf/`。
 
 ## 许可证
 

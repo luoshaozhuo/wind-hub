@@ -17,7 +17,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tests.perf.collector import PerfMetrics, _percentile
+from tests.collector.perf.collector import PerfMetrics, _percentile
 
 logger = logging.getLogger(__name__)
 

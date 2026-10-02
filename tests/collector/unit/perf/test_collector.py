@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from tests.perf import collector as collector_mod
-from tests.perf.collector import MetricsCollector, _percentile
+from tests.collector.perf import collector as collector_mod
+from tests.collector.perf.collector import MetricsCollector, _percentile
 
 
 class _Stats:

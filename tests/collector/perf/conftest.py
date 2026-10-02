@@ -12,8 +12,8 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from tests.perf.netem import NetemController
-from tests.perf.veth import VethManager, VethPair
+from tests.collector.perf.netem import NetemController
+from tests.collector.perf.veth import VethManager, VethPair
 
 
 @pytest.fixture

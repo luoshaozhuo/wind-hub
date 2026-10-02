@@ -68,7 +68,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 [tool.ruff.lint.per-file-ignores]
 # IEC104 测试类名刻意对应协议类型 ID（如 M_SP_NA_1 / C_SC_NA_1），
 # 不是常规 CapWords 命名，N801 在此处无意义。
-"tests/unit/adapter/iec104/test_info_objects.py" = ["N801"]
+"tests/collector/unit/adapter/iec104/test_info_objects.py" = ["N801"]
 
 [tool.mypy]
 strict = true
