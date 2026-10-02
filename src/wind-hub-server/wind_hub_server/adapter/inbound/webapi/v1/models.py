@@ -51,7 +51,8 @@ class TaskResponse(BaseModel):
     """Task Definition 与实例聚合运行状态 DTO。"""
 
     task_id: str
-    assigned_worker_id: str
+    assigned_worker_id: str | None
+    placement_state: str
     device: str | None = None
     device_group: str | None = None
     point_group: str

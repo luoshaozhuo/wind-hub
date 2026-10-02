@@ -108,11 +108,7 @@ def assemble_server(
             WorkerCapability.DIAGNOSTICS,
         ],
     )
-    default_worker_id = collector_definitions[0].worker_id
-    collector_directory = StaticCollectorDirectory(
-        collector_clients,
-        default_worker_id=default_worker_id,
-    )
+    collector_directory = StaticCollectorDirectory(collector_clients)
     config = ConfigUseCase(
         config_dir=config_dir,
         collectors=collector_directory,
@@ -134,6 +130,7 @@ def assemble_server(
     worker_tasks = CollectorTaskUseCase(
         collector_directory,
         task_assignments,
+        config,
     )
     devices = DeviceUseCase(collector_aggregate, config)
     device_data = DeviceDataUseCase(

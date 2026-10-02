@@ -83,6 +83,7 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import HealthRange, SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.task_assignment import TaskPlacementError
 from wind_hub_server.application.usecase.worker_tasks import (
     CollectorTaskUseCase,
     TaskInstanceDetail,
@@ -348,6 +349,8 @@ async def start_task(task_id: str) -> TaskResponse:
         row = await _tasks().start_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
+    except TaskPlacementError as exc:
+        raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
     except ValueError as exc:
         raise APIError("TASK_DISABLED", str(exc), 409) from exc
     return _task_response(row)
@@ -360,6 +363,8 @@ async def stop_task(task_id: str) -> TaskResponse:
         row = await _tasks().stop_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
+    except TaskPlacementError as exc:
+        raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
     return _task_response(row)
 
 

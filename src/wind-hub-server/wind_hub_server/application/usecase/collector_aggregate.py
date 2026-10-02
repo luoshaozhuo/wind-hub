@@ -84,7 +84,8 @@ class CollectorAggregateUseCase:
                     "device_id": cfg.device_id,
                     "protocol": cfg.protocol,
                     "connected": (
-                        len(present) == len(owners)
+                        bool(owners)
+                        and len(present) == len(owners)
                         and all(bool(row.get("connected")) for row in present)
                     ),
                     "consecutive_failures": max(
@@ -125,7 +126,8 @@ class CollectorAggregateUseCase:
                 {
                     "name": cfg.name,
                     "healthy": (
-                        len(present) == len(owners)
+                        bool(owners)
+                        and len(present) == len(owners)
                         and all(bool(row.get("healthy")) for row in present)
                     ),
                     "message": next(

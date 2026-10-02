@@ -103,6 +103,12 @@ class SinkUseCase:
         self._config_for(name)
         started = time.monotonic()
         worker_ids = self._assignments.worker_ids_for_sink(name)
+        if not worker_ids:
+            return SinkTestResult(
+                success=False,
+                latency_ms=(time.monotonic() - started) * 1000,
+                message="sink is not assigned to any collector",
+            )
         results = await asyncio.gather(
             *(self._collectors.get(worker_id).verify_sink(name) for worker_id in worker_ids)
         )
@@ -124,6 +130,12 @@ class SinkUseCase:
         self._config_for(name)
         started = time.monotonic()
         worker_ids = self._assignments.worker_ids_for_sink(name)
+        if not worker_ids:
+            return SinkTestResult(
+                success=False,
+                latency_ms=(time.monotonic() - started) * 1000,
+                message="sink is not assigned to any collector",
+            )
         results = await asyncio.gather(
             *(
                 self._collectors.get(worker_id).write_test_sink(name)

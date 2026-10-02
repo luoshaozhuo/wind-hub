@@ -10,11 +10,6 @@ from wind_hub_server.application.port.worker import CollectorPort
 class CollectorDirectory(Protocol):
     """按 Server 逻辑 worker_id 定位 Collector 出站端口。"""
 
-    @property
-    def default_worker_id(self) -> str:
-        """返回当前默认 Collector worker_id。"""
-        ...
-
     def get(self, worker_id: str) -> CollectorPort:
         """返回指定 Collector；未知 worker_id 抛 KeyError。"""
         ...
