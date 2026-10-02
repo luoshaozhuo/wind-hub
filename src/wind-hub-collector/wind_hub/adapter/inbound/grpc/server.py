@@ -25,6 +25,7 @@ from wind_hub_core.rpc.collector import (
     GET_TASK,
     GET_TASK_INSTANCE,
     LIST_DEVICES,
+    LIST_SINKS,
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     READ_POINT,
@@ -259,6 +260,28 @@ class CollectorRuntimeService:
             raise
 
         return _struct(value.model_dump(mode="json"))
+
+    async def list_sinks(
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """列出当前 Runtime Sink 健康状态与队列深度。"""
+        del request, context
+        health = self._runtime.runtime.health()
+        depths = self._runtime.runtime.sink_queue_depths()
+        items = []
+        for name, sink in self._runtime.runtime.sinks.items():
+            current = health.get(name)
+            items.append(
+                {
+                    "name": name,
+                    "healthy": bool(current.healthy) if current is not None else False,
+                    "message": current.message if current is not None else None,
+                    "queue_depth": int(depths.get(name, 0)),
+                }
+            )
+        return _struct({"items": items})
 
     async def list_devices(
         self,
@@ -608,6 +631,11 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
             ),
             LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
                 service.list_devices,
+                request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            LIST_SINKS: grpc.unary_unary_rpc_method_handler(
+                service.list_sinks,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),

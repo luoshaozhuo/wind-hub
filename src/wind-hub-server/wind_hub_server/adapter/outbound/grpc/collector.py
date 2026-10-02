@@ -10,6 +10,7 @@ from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     GET_RUNTIME_STATUS,
     LIST_DEVICES,
+    LIST_SINKS,
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     RELOAD_CONFIG,
@@ -37,6 +38,10 @@ class CollectorGrpcClient(GrpcClientBase):
 
     async def list_devices(self) -> list[dict[str, Any]]:
         data = await self._empty(RUNTIME_SERVICE, LIST_DEVICES)
+        return list(data.get("items") or [])
+
+    async def list_sinks(self) -> list[dict[str, Any]]:
+        data = await self._empty(RUNTIME_SERVICE, LIST_SINKS)
         return list(data.get("items") or [])
 
     async def list_tasks(self) -> list[dict[str, Any]]:

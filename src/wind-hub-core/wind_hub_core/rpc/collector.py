@@ -19,6 +19,7 @@ GET_TASK = "GetTask"
 LIST_TASK_INSTANCES = "ListTaskInstances"
 GET_TASK_INSTANCE = "GetTaskInstance"
 LIST_DEVICES = "ListDevices"
+LIST_SINKS = "ListSinks"
 READ_POINT = "ReadPoint"
 
 START_TASK = "StartTask"
