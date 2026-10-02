@@ -1,16 +1,13 @@
-"""Integration test — ADS Sum read against a mocked pyads connection.
-
-Exercises the driver end-to-end (connect → Sum read → close) using symbol
-addressing.  The mock returns a partial symbol dict: symbols the "PLC" does not
-know are simply omitted, which the driver reports as ``BAD`` — modelling a
-per-sub-command failure without a real TwinCAT runtime.
-"""
+"""ADS 地址解析 + Sum Read 的 mock 集成测试。"""
 
 from __future__ import annotations
 
+import ctypes
+import struct
 from collections.abc import Iterator
+from types import SimpleNamespace
 
-import pyads  # noqa: F401 — real module, only ``Connection`` is patched
+import pyads
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
@@ -21,19 +18,22 @@ _AMS_NET_ID = "192.168.0.100.1.1"
 
 
 class MockAdsConnection:
-    """Synchronous stand-in for ``pyads.Connection`` with a symbol table."""
+    """提供 PLC symbol 地址事实的最小 pyads.Connection 替身。"""
 
     def __init__(self, ams_net_id: str | None, ams_port: int | None, ip: str | None) -> None:
         self.ams_net_id = ams_net_id
+        self.ams_port = ams_port
         self.ip = ip
         self.is_open = False
-        self.symbol_values: dict[str, object] = {
-            "MAIN.rotorSpeed": 1500.5,
-            "MAIN.genPower": 800.0,
+        self._port = 1
+        self._adr = object()
+        self.symbols = {
+            "MAIN.rotorSpeed": (0x4020, 100),
+            "MAIN.genPower": (0x4020, 104),
         }
 
     def set_timeout(self, ms: int) -> None:
-        pass
+        del ms
 
     def open(self) -> None:
         self.is_open = True
@@ -41,12 +41,16 @@ class MockAdsConnection:
     def close(self) -> None:
         self.is_open = False
 
-    def read_list_by_name(
-        self, names: list[str], *args: object, **kwargs: object
-    ) -> dict[str, object]:
-        if not self.is_open:
-            raise pyads.ADSError(text="connection closed")
-        return {n: self.symbol_values[n] for n in names if n in self.symbol_values}
+    def get_symbol(self, symbol: str) -> object:
+        if symbol not in self.symbols:
+            raise pyads.ADSError(1808, "symbol not found")
+        index_group, index_offset = self.symbols[symbol]
+        return SimpleNamespace(
+            index_group=index_group,
+            index_offset=index_offset,
+            plc_type=ctypes.c_float,
+            symbol_type="REAL",
+        )
 
 
 @pytest.fixture
@@ -78,8 +82,17 @@ def _make_symbol_point(point_id: str, symbol: str) -> PointConfig:
     )
 
 
+def _payload(values: list[float], errors: list[int] | None = None) -> bytes:
+    errors = errors or [0] * len(values)
+    return b"".join(struct.pack("<I", error) for error in errors) + b"".join(
+        struct.pack("<f", value) for value in values
+    )
+
+
 class TestAdsSumIntegration:
-    async def test_sum_read_happy_path(self, ads_connection: None) -> None:
+    async def test_sum_read_happy_path(
+        self, ads_connection: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         driver = ADSDriver(_make_device_config())
         driver.set_points_mapping(
             [
@@ -87,8 +100,8 @@ class TestAdsSumIntegration:
                 _make_symbol_point("gen.power", "MAIN.genPower"),
             ]
         )
-
         await driver.connect()
+        monkeypatch.setattr(driver, "_sum_read_bytes", lambda addresses: _payload([1500.5, 800.0]))
         try:
             values = await driver.read(
                 [
@@ -103,7 +116,9 @@ class TestAdsSumIntegration:
         assert values[0].quality == Quality.GOOD
         assert values[1].value == pytest.approx(800.0)
 
-    async def test_sum_read_missing_symbol_reported_bad(self, ads_connection: None) -> None:
+    async def test_sum_read_missing_symbol_reported_bad(
+        self, ads_connection: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         driver = ADSDriver(_make_device_config())
         driver.set_points_mapping(
             [
@@ -111,8 +126,8 @@ class TestAdsSumIntegration:
                 _make_symbol_point("missing", "MAIN.doesNotExist"),
             ]
         )
-
         await driver.connect()
+        monkeypatch.setattr(driver, "_sum_read_bytes", lambda addresses: _payload([1500.5]))
         try:
             values = await driver.read(
                 [
