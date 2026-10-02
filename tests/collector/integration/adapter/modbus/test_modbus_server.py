@@ -17,9 +17,9 @@ from collections.abc import Iterator
 import pytest
 
 from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.point import PointRef, Quality
 
 # Wire addresses used by the tests.
 _FLOAT_READ_ADDR = 100

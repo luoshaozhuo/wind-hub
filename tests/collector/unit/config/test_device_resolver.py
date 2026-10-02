@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.config.device_resolver import resolve_devices
-from wind_hub.config.schema import (
+from wind_hub_core.config.device_resolver import resolve_devices
+from wind_hub_core.config.schema import (
     DeviceInstancesConfig,
     DeviceModelsConfig,
 )
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 
 def _models(**models: dict) -> DeviceModelsConfig:

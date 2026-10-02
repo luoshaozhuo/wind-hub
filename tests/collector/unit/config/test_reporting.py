@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from wind_hub.config.reporting import load_reporting
-from wind_hub.config.schema import ReportingConfig, ReportingPoint
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.reporting import load_reporting
+from wind_hub_core.config.schema import ReportingConfig, ReportingPoint
+from wind_hub_core.model.errors import ConfigError
 
 
 def _point(

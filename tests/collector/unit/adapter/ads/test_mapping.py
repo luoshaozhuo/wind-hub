@@ -9,8 +9,8 @@ from wind_hub.adapter.outbound.protocol.ads.mapping import (
     map_data_type,
     parse_point,
 )
-from wind_hub.config.schema import PointAddress, PointConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import PointAddress, PointConfig
+from wind_hub_core.model.errors import ConfigError
 
 
 def _point(

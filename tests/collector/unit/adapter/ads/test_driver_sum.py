@@ -10,9 +10,9 @@ import pyads
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointRef, Quality
 
 
 def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceConfig:

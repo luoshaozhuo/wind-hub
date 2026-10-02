@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from wind_hub.config.schema import (
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
     DevicesConfig,
@@ -21,8 +21,8 @@ from wind_hub.config.schema import (
     TasksConfig,
     TaskTarget,
 )
-from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.device import Endpoint
+from wind_hub_core.model.errors import ConfigError
 
 # ---------------------------------------------------------------------------
 # SystemConfig / RuntimeConfig

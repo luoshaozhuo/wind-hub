@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 import wind_hub.adapter.outbound.protocol  # noqa: F401 — trigger self-registration
-from wind_hub.config.schema import DeviceConfig, Endpoint
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import DeviceConfig, Endpoint
+from wind_hub_core.model.errors import ConfigError
 from wind_hub.domain.port.outbound import HealthStatus
 from wind_hub.infra.protocol_registry import (
     ProtocolRegistry,

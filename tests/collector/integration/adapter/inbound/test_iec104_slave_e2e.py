@@ -37,9 +37,9 @@ from wind_hub.adapter.outbound.protocol.iec104.codec import (
     encode_i_frame,
     encode_u_frame,
 )
-from wind_hub.config.schema import ReportingPoint
-from wind_hub.domain.model.command import CommandResult
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.config.schema import ReportingPoint
+from wind_hub_core.model.command import CommandResult
+from wind_hub_core.model.point import PointValue
 
 
 def _reporting() -> list[ReportingPoint]:

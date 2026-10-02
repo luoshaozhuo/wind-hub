@@ -15,8 +15,8 @@ import pyads  # noqa: F401 — real module, only ``Connection`` is patched
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.point import PointRef, PointValue
 
 _AMS_NET_ID = "192.168.0.100.1.1"
 

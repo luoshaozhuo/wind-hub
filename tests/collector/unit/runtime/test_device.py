@@ -24,10 +24,10 @@ from wind_hub.application.runtime.device import (
     Device,
     PollingAcquisitionHandle,
 )
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointRef, PointValue, Quality
 from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, SubscriptionHandle
 
 pytestmark = pytest.mark.asyncio

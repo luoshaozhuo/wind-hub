@@ -15,7 +15,7 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.apci import (
     encode_u_frame,
 )
 from wind_hub.adapter.outbound.protocol.iec104.codec.types import UFrameType
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 # ==========================================================================
 # I-frame

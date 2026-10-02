@@ -17,9 +17,9 @@ from pathlib import Path
 
 from wind_hub.application.runtime.collector_identity import fingerprint_config_set
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config
-from wind_hub.domain.model.reload import (
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import Config
+from wind_hub_core.model.reload import (
     ConfigDiff,
     DeviceDiff,
     ReloadResult,

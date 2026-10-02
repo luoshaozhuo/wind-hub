@@ -18,9 +18,10 @@ from typing import Any
 import pytest
 
 from wind_hub.adapter.outbound.sink.file.csv import FileSink
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.config.schema import SinkConfig
+from wind_hub.domain.model.errors import SinkError
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointValue, Quality
 from wind_hub.domain.port.outbound import HealthStatus
 
 _TS = datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC)

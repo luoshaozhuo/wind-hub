@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.config.point_table_resolver import resolve_point_tables
-from wind_hub.config.schema import (
+from wind_hub_core.config.point_table_resolver import resolve_point_tables
+from wind_hub_core.config.schema import (
     PointAddress,
     PointConfig,
     PointPatch,
     PointTableConfig,
     PointTablesConfig,
 )
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 # ---------------------------------------------------------------------------
 # Helpers

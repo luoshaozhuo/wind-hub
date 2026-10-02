@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ConfigError, ProtocolError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.errors import ConfigError, ProtocolError
+from wind_hub_core.model.point import PointRef, Quality
 from wind_hub.domain.port.outbound import AcquisitionMode
 
 

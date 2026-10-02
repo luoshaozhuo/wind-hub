@@ -15,9 +15,9 @@ import pytest
 
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
 from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.point import PointValue, Quality
 
 # ===========================================================================
 # helpers
@@ -227,7 +227,7 @@ class TestRemoteControlIntegration:
 
     async def test_write_raises_when_not_connected(self) -> None:
         """write() on a disconnected driver raises ProtocolError."""
-        from wind_hub.domain.model.errors import ProtocolError
+        from wind_hub_core.model.errors import ProtocolError
 
         cfg = _make_device_config(2404)
         driver = IEC104Driver(cfg)

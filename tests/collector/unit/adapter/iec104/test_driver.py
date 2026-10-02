@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 
 from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.point import PointRef, PointValue
 
 # ---------------------------------------------------------------------------
 # helper — build a minimal DeviceConfig for IEC104
@@ -144,7 +144,7 @@ class TestReadNotConnected:
         driver = IEC104Driver(cfg)
         points = [PointRef(device_id="test-device", point_id="rotor.speed")]
 
-        from wind_hub.domain.model.errors import ProtocolError
+        from wind_hub_core.model.errors import ProtocolError
 
         with pytest.raises(ProtocolError, match="not connected"):
             await driver.read(points)
@@ -224,7 +224,7 @@ import logging  # noqa: E402
 
 import wind_hub.adapter.outbound.protocol.iec104.driver as iec104_driver_module  # noqa: E402
 from wind_hub.adapter.outbound.protocol.iec104.driver import _is_timeout_related  # noqa: E402
-from wind_hub.domain.model.errors import ProtocolError  # noqa: E402
+from wind_hub_core.model.errors import ProtocolError  # noqa: E402
 
 
 class _FakeSessionBase:

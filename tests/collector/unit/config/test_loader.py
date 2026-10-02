@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from tests.config_helper import write_config_tree
-from wind_hub.config.loader import (
+from wind_hub_core.config.loader import (
     load_config,
     load_device_models,
     load_devices,
@@ -18,7 +18,7 @@ from wind_hub.config.loader import (
     load_system,
     load_tasks,
 )
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 # ---------------------------------------------------------------------------
 # Helpers

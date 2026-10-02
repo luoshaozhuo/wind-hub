@@ -11,8 +11,8 @@ import pyads
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.point import PointRef, Quality
 
 _AMS_NET_ID = "192.168.0.100.1.1"
 

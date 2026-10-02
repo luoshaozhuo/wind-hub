@@ -48,8 +48,8 @@ from wind_hub.adapter.outbound.protocol.iec104.codec import (
     QualityFlag,
     TypeID,
 )
-from wind_hub.domain.model.command import CommandResult
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.command import CommandResult
+from wind_hub_core.model.point import PointValue
 
 logger = logging.getLogger(__name__)
 

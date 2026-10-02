@@ -6,7 +6,7 @@ ASDU 组装和控制方向命令寻址。
 
 from __future__ import annotations
 
-from wind_hub.config.schema import ReportingPoint
+from wind_hub_core.config.schema import ReportingPoint
 
 
 def build_ioa_mapping(reporting: list[ReportingPoint]) -> dict[tuple[str, str], int]:

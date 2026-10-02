@@ -32,8 +32,8 @@ import yaml
 from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import (
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
@@ -41,7 +41,7 @@ from wind_hub.config.schema import (
     SinkConfig,
     TaskTarget,
 )
-from wind_hub.domain.model.device import Endpoint
+from wind_hub_core.model.device import Endpoint
 
 pytestmark = pytest.mark.asyncio
 

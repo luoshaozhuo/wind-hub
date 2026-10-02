@@ -14,7 +14,7 @@ from wind_hub.adapter.outbound.sink.file.rotation import (
     TimeRotation,
     build_rotation,
 )
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 _BYTES_PER_MB = 1024 * 1024
 _SECONDS_PER_HOUR = 3600.0

@@ -1,14 +1,14 @@
 """PostgreSQL 输出 sink —— 用 asyncpg 连接池把点值批量 INSERT 到关系表。
 
 实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实数据库走向：把一批
-:class:`~wind_hub.domain.model.point.PointValue` 映射为行，经 ``asyncpg``
+:class:`~wind_hub_core.model.point.PointValue` 映射为行，经 ``asyncpg``
 连接池的 ``executemany`` 批量写入 ``table``；``value`` 列以 JSON 序列化后按
 ``JSONB`` 落库（决策 5，兼容任意标量/结构化值），``timestamp`` 传 ``datetime``
 由驱动编码为 ``TIMESTAMPTZ``。``create_table: true`` 时在 ``open`` 阶段执行
 ``CREATE TABLE IF NOT EXISTS``（默认表结构见 :data:`_DEFAULT_SCHEMA`）。
 
 参数在**构造时**校验（缺 ``dsn`` / ``table`` 抛
-:class:`~wind_hub.domain.model.errors.ConfigError`）；运行时状态由
+:class:`~wind_hub_core.model.errors.ConfigError`）；运行时状态由
 ``asyncio.Lock`` 保护；写入失败抛 :class:`~wind_hub.domain.model.errors.SinkError`，
 连续失败达到阈值后 ``health()`` 报告 unhealthy（决策 6/8，复用 FileSink 模式）。
 """
@@ -28,7 +28,7 @@ from typing import Any
 import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort
-from wind_hub.config.schema import SinkConfig
+from wind_hub_core.config.schema import SinkConfig
 from wind_hub.domain.model.errors import SinkError
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue

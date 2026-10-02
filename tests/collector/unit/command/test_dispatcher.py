@@ -9,8 +9,8 @@ import pytest
 
 from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.runtime.device import Device
-from wind_hub.config.schema import DeviceConfig, Endpoint
-from wind_hub.domain.model.command import Command, CommandResult
+from wind_hub_core.config.schema import DeviceConfig, Endpoint
+from wind_hub_core.model.command import Command, CommandResult
 
 # ---------------------------------------------------------------------------
 # helpers

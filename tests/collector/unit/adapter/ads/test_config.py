@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.config import from_device_config
-from wind_hub.config.schema import DeviceConfig, Endpoint
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import DeviceConfig, Endpoint
+from wind_hub_core.model.errors import ConfigError
 
 
 def _cfg(**extensions: object) -> DeviceConfig:
@@ -102,7 +102,7 @@ def test_empty_net_id_allowed() -> None:
 
 
 def test_system_ads_config_parsing() -> None:
-    from wind_hub.config.schema import SystemConfig
+    from wind_hub_core.config.schema import SystemConfig
 
     sc = SystemConfig(
         ads={
@@ -118,7 +118,7 @@ def test_system_ads_config_parsing() -> None:
 
 
 def test_system_ads_config_defaults() -> None:
-    from wind_hub.config.schema import SystemConfig
+    from wind_hub_core.config.schema import SystemConfig
 
     assert SystemConfig().ads is None
     sc = SystemConfig(
@@ -129,7 +129,7 @@ def test_system_ads_config_defaults() -> None:
     assert sc.ads.password == ""
 
 def test_system_ads_invalid_local_net_id_raises() -> None:
-    from wind_hub.config.schema import SystemConfig
+    from wind_hub_core.config.schema import SystemConfig
 
     with pytest.raises(ConfigError, match="AMS Net ID"):
         SystemConfig(ads={"local_ams_net_id": "bad", "local_ip": "192.168.151.244"})

@@ -22,9 +22,9 @@ from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
 from wind_hub.adapter.outbound.protocol.iec104.subscriptions import (
     SubscriptionRegistry,
 )
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointRef, PointValue, Quality
 from wind_hub.domain.port.outbound import AcquisitionMode
 
 # ---------------------------------------------------------------------------

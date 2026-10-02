@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from wind_hub.adapter.outbound.protocol.modbus.config import from_device_config
-from wind_hub.config.schema import DeviceConfig, Endpoint
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import DeviceConfig, Endpoint
+from wind_hub_core.model.errors import ConfigError
 
 
 def _cfg(**extensions: object) -> DeviceConfig:

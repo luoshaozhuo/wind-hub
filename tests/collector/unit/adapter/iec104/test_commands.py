@@ -10,8 +10,8 @@ from wind_hub.adapter.outbound.protocol.iec104.commands import (
     PendingCommand,
     PendingCommandRegistry,
 )
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import CommandError
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.errors import CommandError
 
 # ---------------------------------------------------------------------------
 # helper

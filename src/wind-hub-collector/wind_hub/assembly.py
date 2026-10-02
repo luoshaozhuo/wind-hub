@@ -38,8 +38,8 @@ from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import (
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import (
     Config,
     ReportingConfig,
     SinkConfig,

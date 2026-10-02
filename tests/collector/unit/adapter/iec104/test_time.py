@@ -13,7 +13,7 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.time import (
     from_datetime,
     to_datetime,
 )
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 
 class TestEncodeCP56Time2a:

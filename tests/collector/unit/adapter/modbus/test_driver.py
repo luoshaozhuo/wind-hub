@@ -9,10 +9,10 @@ import pytest
 
 import wind_hub.adapter.outbound.protocol.modbus.driver as modbus_driver_module
 from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointRef, Quality
 
 
 def _make_device_config(**extensions: object) -> DeviceConfig:

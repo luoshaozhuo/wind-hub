@@ -30,8 +30,8 @@ from wind_hub.adapter.outbound.protocol.iec104.session import (
     _extract_quality,
     _extract_value,
 )
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointValue, Quality
 
 # ---------------------------------------------------------------------------
 # Session fixture — created but not started (no TCP)

@@ -9,8 +9,8 @@ from wind_hub.adapter.outbound.protocol.modbus.mapping import (
     group_consecutive_reads,
     parse_point,
 )
-from wind_hub.config.schema import PointAddress, PointConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import PointAddress, PointConfig
+from wind_hub_core.model.errors import ConfigError
 
 
 def _point(

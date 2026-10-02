@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from wind_hub.adapter.outbound.protocol.iec104.session import IEC104Session
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 logger = logging.getLogger(__name__)
 

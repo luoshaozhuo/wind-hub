@@ -14,10 +14,10 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
     TypeID,
 )
 from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
-from wind_hub.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef
+from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointRef
 
 # ---------------------------------------------------------------------------
 # helpers

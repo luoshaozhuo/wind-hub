@@ -16,7 +16,7 @@ import pytest
 from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig
 from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint
 from wind_hub.adapter.outbound.protocol.ads.subscription import ADSSubscription
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 
 def _config(max_notifications_per_connection: int = 550) -> ADSConfig:

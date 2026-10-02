@@ -29,7 +29,7 @@ from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.runtime.device import Device
 from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.config.schema import (
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
@@ -38,9 +38,9 @@ from wind_hub.config.schema import (
     TaskTarget,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.errors import CommandError, ProtocolError
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.model.device import Endpoint
+from wind_hub_core.model.errors import CommandError, ProtocolError
+from wind_hub_core.model.point import PointRef, PointValue
 from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
 
 pytestmark = pytest.mark.asyncio
