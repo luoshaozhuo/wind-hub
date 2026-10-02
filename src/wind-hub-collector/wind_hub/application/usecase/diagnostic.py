@@ -30,8 +30,8 @@ class DiagnosticStage(BaseModel):
 
     name: str
     ok: bool
-    code: str
-    severity: str
+    code: ValidationCode
+    severity: ValidationSeverity
     message: str = ""
 
 
@@ -61,8 +61,8 @@ class PointVerifyResult(BaseModel):
     unit: str
     readable: bool | None = None
     ok: bool = False
-    code: str = ValidationCode.OK
-    severity: str = ValidationSeverity.INFO
+    code: ValidationCode = ValidationCode.OK
+    severity: ValidationSeverity = ValidationSeverity.INFO
     raw_value: Any = None
     engineering_value: Any = None
     quality: str | None = None
@@ -78,6 +78,7 @@ class PointsVerifyResult(BaseModel):
     checked: int
     passed: int
     failed: int
+    ok: bool
     points: list[PointVerifyResult]
 
 
@@ -245,6 +246,7 @@ class DiagnosticUseCase:
             checked=len(rows),
             passed=passed,
             failed=len(rows) - passed,
+            ok=passed == len(rows),
             points=rows,
         )
 
