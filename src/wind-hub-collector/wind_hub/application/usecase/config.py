@@ -127,6 +127,10 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         point_tables_changed=point_tables_changed,
         # units 是纯展示元数据：变化不触发设备重连，但要让新快照提交
         units_changed=old.units != new.units,
+        # Runtime 队列/超时与进程级 ADS 本机身份不能在现有对象图上安全原地切换；
+        # 显式进入 diff，由 reload 返回“需要重启”，禁止静默吞掉配置变化。
+        runtime_changed=old.system.runtime != new.system.runtime,
+        ads_changed=old.system.ads != new.system.ads,
     )
 
 
@@ -200,11 +204,32 @@ class ConfigUseCase:
         # 2. 计算纯结构 diff。
         diff = compute_diff(self._current, new_cfg)
         if not diff.has_any_changes:
+            # site/interfaces 等 Collector 不消费的元数据即使变化，也同步当前快照，
+            # 避免 current_config 与磁盘配置长期漂移。
+            self._current = new_cfg
             self._config_hash = fingerprint_config_set(self._config_dir)
-            logger.info("Reload: no changes detected")
+            logger.info("Reload: no runtime-affecting changes detected")
             return ReloadResult(
                 success=True,
                 diff=diff,
+                duration_ms=(time.monotonic() - t0) * 1000,
+            )
+
+        restart_required: list[str] = []
+        if diff.runtime_changed:
+            restart_required.append("system.runtime")
+        if diff.ads_changed:
+            restart_required.append("system.ads")
+        if restart_required:
+            message = (
+                "reload requires Collector restart for: "
+                + ", ".join(restart_required)
+            )
+            logger.warning(message)
+            return ReloadResult(
+                success=False,
+                diff=diff,
+                errors=[message],
                 duration_ms=(time.monotonic() - t0) * 1000,
             )
 
