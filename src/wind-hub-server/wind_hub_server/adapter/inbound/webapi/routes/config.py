@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.models import ReloadResponse
-from wind_hub.domain.model.reload import ReloadResult
+from wind_hub_core.model.reload import ReloadResult
 
 router = APIRouter(tags=["config"])
 

@@ -15,9 +15,7 @@ from typing import cast
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config
+from wind_hub_server.application.usecase.config import Config, ConfigUseCase, compute_diff
 
 
 CONFIG_FILES = (
@@ -251,7 +249,7 @@ class ConfigAdminUseCase:
                     shutil.copy2(source, target / file_name)
             for name, content in files.items():
                 (target / name).write_text(content, encoding="utf-8")
-            return load_config(target)
+            return self._config.load_directory(target)
 
     def _path(self, name: str) -> Path:
         """约束文件名，禁止目录穿越。"""
