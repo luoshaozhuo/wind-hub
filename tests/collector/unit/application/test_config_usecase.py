@@ -13,8 +13,8 @@
 - 非法配置：中止重载、不触碰 Runtime、旧快照保持；
 - 无变更：不调用 reconfigure 直接成功；
 - 有变更：以 ``(new_config, diff)`` 调用 ``Runtime.reconfigure`` 一次；
-- reconfigure 返回错误：``success=False``、错误透传、**快照仍提交**
-  （部分失败语义：已应用的变更不回滚，下次 reload 以新快照为基准）；
+- reconfigure 返回错误：``success=False``、错误透传、成功快照不推进；
+  下一次 reload 重新计算同一 diff 并重试；
 - 点表继承的父表变化向子表传播。
 
 Runtime 用 mock——本层只验证编排，重构执行由
@@ -256,22 +256,27 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     assert usecase.current_config is new_cfg
 
 
-async def test_reload_commits_snapshot_even_on_partial_failure(tmp_path: Path) -> None:
-    """reconfigure 部分失败：success=False、错误透传，但快照仍提交。"""
+async def test_reload_partial_failure_keeps_success_baseline_for_retry(tmp_path: Path) -> None:
+    """reconfigure 部分失败：成功基线不推进，同一配置下一次继续重试。"""
     _write_configs(tmp_path, devices=[_make_device("d1")])
     runtime = _mock_runtime(reconfigure_errors=["sink: open failed"])
     usecase = _usecase(tmp_path, runtime)
+    snapshot_before = usecase.current_config
 
     _write_configs(tmp_path, devices=[_make_device("d1"), _make_device("d2")])
     result = await usecase.reload()
 
     assert result.success is False
     assert result.errors == ["sink: open failed"]
-    # 快照已提交：再次 reload 同一目录内容时 diff 基准是新快照 → 无变更
+    assert usecase.current_config is snapshot_before
+
+    runtime.reconfigure.return_value = []
     result2 = await usecase.reload()
+
     assert result2.success is True
-    assert result2.diff.has_any_changes is False
-    assert runtime.reconfigure.await_count == 1  # 第二轮不再调用
+    assert result2.diff.devices.added == ["d2"]
+    assert runtime.reconfigure.await_count == 2
+    assert [d.device_id for d in usecase.current_config.devices.devices] == ["d1", "d2"]
 
 
 async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
