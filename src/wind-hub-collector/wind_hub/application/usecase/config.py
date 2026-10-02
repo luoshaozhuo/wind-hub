@@ -131,6 +131,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         # 显式进入 diff，由 reload 返回“需要重启”，禁止静默吞掉配置变化。
         runtime_changed=old.system.runtime != new.system.runtime,
         ads_changed=old.system.ads != new.system.ads,
+        reporting_changed=old.reporting != new.reporting,
     )
 
 
@@ -220,6 +221,8 @@ class ConfigUseCase:
             restart_required.append("system.runtime")
         if diff.ads_changed:
             restart_required.append("system.ads")
+        if diff.reporting_changed:
+            restart_required.append("reporting")
         if restart_required:
             message = (
                 "reload requires Collector restart for: "
