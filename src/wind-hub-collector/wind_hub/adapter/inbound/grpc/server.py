@@ -27,6 +27,8 @@ from wind_hub_core.rpc.collector import (
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     RELOAD_CONFIG,
+    PREPARE_CONFIG,
+    ACTIVATE_CONFIG,
     VERIFY_SINK,
     WRITE_TEST_SINK,
     RUNTIME_SERVICE,
@@ -122,6 +124,8 @@ class CollectorRuntimeService:
                 "config_hash": self._runtime.config.config_hash,
                 "boot_config_hash": self._identity.config_hash,
                 "config_revision": self._identity.config_revision,
+                "active_revision": self._runtime.config.active_revision,
+                "prepared_revision": self._runtime.config.prepared_revision,
                 "runtime_running": self._runtime.runtime.running,
             }
         )
@@ -459,16 +463,44 @@ class CollectorControlService:
         result = await self._runtime.tasks.stop_all_instances()
         return _struct(result.model_dump(mode="json"))
 
+    async def prepare_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """加载并保存候选配置，不修改当前 Runtime。"""
+        try:
+            revision_id = _required_string(_request_dict(request), "revision_id")
+            result = await self._runtime.config.prepare_config(revision_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        payload = result.model_dump(mode="json")
+        payload["revision_id"] = revision_id
+        return _struct(payload)
+
+    async def activate_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """激活指定 prepared revision，并执行现有增量 reconfigure。"""
+        try:
+            revision_id = _required_string(_request_dict(request), "revision_id")
+            result = await self._runtime.config.activate_config(revision_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        payload = result.model_dump(mode="json")
+        payload["revision_id"] = revision_id
+        return _struct(payload)
+
     async def reload_config(
         self,
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """从 Collector 本地配置目录执行一次增量热重载。
-
-        Returns:
-            ReloadResult 的 Protobuf Struct 表示。
-        """
+        """兼容入口：按 prepare → activate 执行一次增量热重载。"""
         del request, context
         result = await self._runtime.config.reload()
         return _struct(result.model_dump(mode="json"))
@@ -577,6 +609,16 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
             RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
                 service.reload_config,
                 request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            PREPARE_CONFIG: grpc.unary_unary_rpc_method_handler(
+                service.prepare_config,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
+                service.activate_config,
+                request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
         },

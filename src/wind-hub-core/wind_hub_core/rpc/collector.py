@@ -30,6 +30,8 @@ STOP_TASK_INSTANCE = "StopTaskInstance"
 START_ASSIGNED_TASKS = "StartAssignedTasks"
 STOP_ASSIGNED_TASKS = "StopAssignedTasks"
 RELOAD_CONFIG = "ReloadConfig"
+PREPARE_CONFIG = "PrepareConfig"
+ACTIVATE_CONFIG = "ActivateConfig"
 
 
 
