@@ -90,6 +90,14 @@ class PointValidationResult:
     """单点在单设备上的主动验证结果。
 
     只记录探测事实和稳定错误码，不决定是否阻止 reload 或是否写回配置。
+
+    Attributes:
+        point_id: 点稳定标识。
+        readable: 是否成功完成一次协议读取。
+        code: 稳定验证结果码。
+        severity: 结果严重度。
+        message: 面向调用方的补充说明。
+        resolved: 已解析协议地址；未解析或解析失败时为 None。
     """
 
     point_id: str
@@ -105,6 +113,17 @@ class DeviceValidationReport:
     """单台设备的分层验证结果。
 
     ping、TCP、协议连接和点读取分层保存，调用方可以区分网络阻断与协议错误。
+
+    Attributes:
+        device_id: 设备稳定标识。
+        point_table: 本次验证使用的点表标识。
+        ping_ok: ICMP 探测是否成功。
+        port_ok: TCP 端口探测是否成功。
+        protocol_ok: 协议级连接是否成功。
+        code: 设备级稳定验证结果码。
+        severity: 设备级结果严重度。
+        message: 面向调用方的补充说明。
+        points: 单点验证结果集合。
     """
 
     device_id: str

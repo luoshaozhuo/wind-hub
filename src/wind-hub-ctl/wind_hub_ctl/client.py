@@ -146,15 +146,27 @@ class CollectorClient:
         return _dict(response)
 
     async def info(self) -> dict[str, Any]:
-        """查询 Collector 进程身份、配置指纹和 Runtime 运行状态。"""
+        """查询 Collector 进程身份、配置指纹和 Runtime 运行状态。
+
+        Returns:
+            CollectorInfo 的动态 JSON 字典。
+        """
         return await self._call_empty(RUNTIME_SERVICE, GET_COLLECTOR_INFO)
 
     async def status(self) -> dict[str, Any]:
-        """查询 Collector Runtime 的聚合运行状态。"""
+        """查询 Collector Runtime 的聚合运行状态。
+
+        Returns:
+            Runtime 状态的动态 JSON 字典。
+        """
         return await self._call_empty(RUNTIME_SERVICE, GET_RUNTIME_STATUS)
 
     async def devices(self) -> dict[str, Any]:
-        """列出当前 Runtime 注册的设备及其连接状态。"""
+        """列出当前 Runtime 注册的设备及其连接状态。
+
+        Returns:
+            包含设备列表的动态 JSON 字典。
+        """
         return await self._call_empty(RUNTIME_SERVICE, LIST_DEVICES)
 
     async def read(self, device_id: str, point_id: str) -> dict[str, Any]:
@@ -174,11 +186,22 @@ class CollectorClient:
         )
 
     async def tasks(self) -> dict[str, Any]:
-        """列出 Task Definition 及其聚合运行状态。"""
+        """列出 Task Definition 及其聚合运行状态。
+
+        Returns:
+            包含 Task 列表的动态 JSON 字典。
+        """
         return await self._call_empty(RUNTIME_SERVICE, LIST_TASKS)
 
     async def task(self, task_id: str) -> dict[str, Any]:
-        """按稳定 task_id 查询一个 Task 的聚合状态。"""
+        """按稳定 task_id 查询一个 Task 的聚合状态。
+
+        Args:
+            task_id: Task Definition 的稳定标识。
+
+        Returns:
+            Task 聚合状态的动态 JSON 字典。
+        """
         return await self._call_struct(
             RUNTIME_SERVICE,
             GET_TASK,
@@ -186,11 +209,22 @@ class CollectorClient:
         )
 
     async def task_instances(self) -> dict[str, Any]:
-        """列出当前展开的全部 Task Instance。"""
+        """列出当前展开的全部 Task Instance。
+
+        Returns:
+            包含 Task Instance 列表的动态 JSON 字典。
+        """
         return await self._call_empty(RUNTIME_SERVICE, LIST_TASK_INSTANCES)
 
     async def task_instance(self, instance_id: str) -> dict[str, Any]:
-        """按 instance_id 查询一个 Task Instance。"""
+        """按 instance_id 查询一个 Task Instance。
+
+        Args:
+            instance_id: Task Instance 的稳定标识。
+
+        Returns:
+            Task Instance 状态的动态 JSON 字典。
+        """
         return await self._call_struct(
             RUNTIME_SERVICE,
             GET_TASK_INSTANCE,
@@ -198,7 +232,14 @@ class CollectorClient:
         )
 
     async def start_task(self, task_id: str) -> dict[str, Any]:
-        """按 task_id 启动该 Task 当前展开的全部实例。"""
+        """按 task_id 启动该 Task 当前展开的全部实例。
+
+        Args:
+            task_id: Task Definition 的稳定标识。
+
+        Returns:
+            启动后的 Task 聚合状态。
+        """
         return await self._call_struct(
             CONTROL_SERVICE,
             START_TASK,
@@ -206,7 +247,14 @@ class CollectorClient:
         )
 
     async def stop_task(self, task_id: str) -> dict[str, Any]:
-        """按 task_id 停止该 Task 当前展开的全部实例。"""
+        """按 task_id 停止该 Task 当前展开的全部实例。
+
+        Args:
+            task_id: Task Definition 的稳定标识。
+
+        Returns:
+            停止后的 Task 聚合状态。
+        """
         return await self._call_struct(
             CONTROL_SERVICE,
             STOP_TASK,
@@ -214,7 +262,14 @@ class CollectorClient:
         )
 
     async def start_task_instance(self, instance_id: str) -> dict[str, Any]:
-        """启动单个 Task Instance，不影响同 Task 的其他实例。"""
+        """启动单个 Task Instance，不影响同 Task 的其他实例。
+
+        Args:
+            instance_id: 待启动的 Task Instance 标识。
+
+        Returns:
+            启动后的 Task Instance 状态。
+        """
         return await self._call_struct(
             CONTROL_SERVICE,
             START_TASK_INSTANCE,
@@ -222,7 +277,14 @@ class CollectorClient:
         )
 
     async def stop_task_instance(self, instance_id: str) -> dict[str, Any]:
-        """停止单个 Task Instance，不删除实例定义。"""
+        """停止单个 Task Instance，不删除实例定义。
+
+        Args:
+            instance_id: 待停止的 Task Instance 标识。
+
+        Returns:
+            停止后的 Task Instance 状态。
+        """
         return await self._call_struct(
             CONTROL_SERVICE,
             STOP_TASK_INSTANCE,
@@ -230,15 +292,27 @@ class CollectorClient:
         )
 
     async def start_all(self) -> dict[str, Any]:
-        """启动当前 Collector 已分配的全部 Task Instance。"""
+        """启动当前 Collector 已分配的全部 Task Instance。
+
+        Returns:
+            批量启动结果的动态 JSON 字典。
+        """
         return await self._call_empty(CONTROL_SERVICE, START_ASSIGNED_TASKS)
 
     async def stop_all(self) -> dict[str, Any]:
-        """停止当前 Collector 已分配的全部 Task Instance。"""
+        """停止当前 Collector 已分配的全部 Task Instance。
+
+        Returns:
+            批量停止结果的动态 JSON 字典。
+        """
         return await self._call_empty(CONTROL_SERVICE, STOP_ASSIGNED_TASKS)
 
     async def reload(self) -> dict[str, Any]:
-        """触发 Collector 从本地配置目录执行一次增量热重载。"""
+        """触发 Collector 从本地配置目录执行一次增量热重载。
+
+        Returns:
+            ReloadResult 的动态 JSON 字典，包含成功状态、diff 和错误列表。
+        """
         return await self._call_empty(CONTROL_SERVICE, RELOAD_CONFIG)
 
     async def write(

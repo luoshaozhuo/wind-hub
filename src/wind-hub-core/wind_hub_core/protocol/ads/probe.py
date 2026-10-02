@@ -47,6 +47,7 @@ def _pyads() -> Any:
     Raises:
         ImportError: 运行 ADS 探测但环境未安装 pyads。
     """
+    # pyads 当前未提供可供 mypy 使用的完整类型信息；待上游发布稳定类型声明后移除抑制。
     import pyads  # type: ignore[import-untyped]
 
     return pyads
