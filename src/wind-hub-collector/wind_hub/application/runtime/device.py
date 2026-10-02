@@ -32,15 +32,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
-from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointRef, PointValue
-from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
     InterrogationCapable,
-    ProtocolPort,
     SubscriptionHandle,
 )
 
@@ -149,146 +146,12 @@ class _SubscriptionAcquisitionHandle:
         await self._subscription.close()
 
 
-class Device:
-    """运行时设备——配置、点表与协议实例的唯一聚合。
+class Device(DeviceSession):
+    """Collector 运行时设备。
 
-    热重载语义：
-
-    - 点表变化：:meth:`set_points` 就地更新点表并重注入协议映射，
-      不重建连接；
-    - 协议/连接参数变化：由 Runtime 整体替换 ``Device`` 对象（本对象
-      视为随协议实例同生命周期）。
+    基础连接、读写、点表和工程值换算继承自 DeviceSession；本类只增加周期轮询/
+    协议订阅的采集生命周期，使 Collector Runtime 不承担设备通信细节。
     """
-
-    def __init__(
-        self,
-        config: DeviceConfig,
-        points: list[PointConfig],
-        protocol: ProtocolPort,
-    ) -> None:
-        self._config = config
-        self._points = points
-        self._protocol = protocol
-
-    # ------------------------------------------------------------------
-    # 身份与配置
-    # ------------------------------------------------------------------
-
-    @property
-    def config(self) -> DeviceConfig:
-        """当前设备配置快照（热重载轻量更新时就地替换）。"""
-        return self._config
-
-    @config.setter
-    def config(self, value: DeviceConfig) -> None:
-        self._config = value
-
-    @property
-    def device_id(self) -> str:
-        return self._config.device_id
-
-    @property
-    def device_group(self) -> str | None:
-        return self._config.device_group
-
-    @property
-    def enabled(self) -> bool:
-        return self._config.enabled
-
-    @property
-    def protocol(self) -> ProtocolPort:
-        """协议运行实例（寻址与批量读写由其实现）。"""
-        return self._protocol
-
-    @property
-    def points(self) -> list[PointConfig]:
-        """当前解析后的点表。"""
-        return self._points
-
-    @property
-    def acquisition_mode(self) -> AcquisitionMode:
-        """持续采集能力——直接透传协议 capability。"""
-        return self._protocol.acquisition_mode
-
-    # ------------------------------------------------------------------
-    # 点表
-    # ------------------------------------------------------------------
-
-    def set_points(self, points: list[PointConfig]) -> None:
-        """更新点表并重注入协议映射（热重载轻量路径，不触碰连接）。"""
-        self._points = points
-        self._protocol.set_points_mapping(points)
-
-    def point_group_points(self, point_group: str) -> list[PointConfig]:
-        """选出 ``point_groups`` 含 ``point_group`` 的全部点位。"""
-        return [p for p in self._points if point_group in p.point_groups]
-
-    def point_refs(self, point_group: str) -> list[PointRef]:
-        """该 point_group 的批量读寻址引用。"""
-        return [
-            PointRef(device_id=self.device_id, point_id=p.point_id)
-            for p in self.point_group_points(point_group)
-        ]
-
-    # ------------------------------------------------------------------
-    # 点值解释（scale/offset——采集链路中唯一的值变换）
-    # ------------------------------------------------------------------
-
-    def _normalize_values(self, values: list[PointValue]) -> list[PointValue]:
-        """把协议原生值按点表换算为工程值：``value = raw * scale + offset``。
-
-        仅对数值（``int`` / ``float``，``bool`` 除外）值执行；``None`` /
-        ``str`` / ``bool`` 原样透传。``quality`` / ``timestamp`` / ``source``
-        等元数据一律不变——quality 只来自协议原生判定。点表查不到的点
-        （防御性分支，正常不会发生）原样透传。
-        """
-        by_id = {p.point_id: p for p in self._points}
-        out: list[PointValue] = []
-        for pv in values:
-            point = by_id.get(pv.point_id)
-            if (
-                point is None
-                or (point.scale == 1.0 and point.offset == 0.0)
-                or not isinstance(pv.value, int | float)
-                or isinstance(pv.value, bool)
-            ):
-                out.append(pv)
-                continue
-            out.append(pv.model_copy(update={"value": pv.value * point.scale + point.offset}))
-        return out
-
-    # ------------------------------------------------------------------
-    # 连接生命周期（委托协议实例）
-    # ------------------------------------------------------------------
-
-    async def connect(self) -> None:
-        await self._protocol.connect()
-
-    async def close(self) -> None:
-        await self._protocol.close()
-
-    def health(self) -> HealthStatus:
-        return self._protocol.health()
-
-    # ------------------------------------------------------------------
-    # 读写（委托协议实例）
-    # ------------------------------------------------------------------
-
-    async def read(self, point_group: str) -> list[PointValue]:
-        """批量读取该 point_group 的全部点位，返回工程值（scale/offset 已应用）。"""
-        return self._normalize_values(await self._protocol.read(self.point_refs(point_group)))
-
-    async def read_points(self, refs: list[PointRef]) -> list[PointValue]:
-        """按显式引用批量读取（CLI/API 单次读取路径），返回工程值。"""
-        return self._normalize_values(await self._protocol.read(refs))
-
-    async def write(self, cmds: list[Command]) -> list[CommandResult]:
-        """批量写命令——每个命令对应一个 :class:`CommandResult`。"""
-        return await self._protocol.write(cmds)
-
-    # ------------------------------------------------------------------
-    # 持续采集
-    # ------------------------------------------------------------------
 
     async def start_acquisition(
         self,
