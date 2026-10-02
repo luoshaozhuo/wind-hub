@@ -916,6 +916,42 @@ class TestReconfigure:
             await rt.stop()
 
 
+    async def test_lightweight_device_update_and_point_table_change_reinjects_mapping(self) -> None:
+        """device_group 轻量更新与点表内容变化同时发生时不得漏掉新 mapping。"""
+        d1 = _make_device_config("d1", device_group="old")
+        task = _make_task("t1", device="d1")
+        rt, protos, _, _ = _build_runtime(
+            devices=[d1],
+            tasks=[task],
+            points={"d1": [_make_point("p1")]},
+        )
+        await rt.start()
+        try:
+            d1_new = _make_device_config("d1", device_group="new")
+            new_tables = {
+                "t1": ResolvedPointTable(
+                    protocol="modbus",
+                    points=[_make_point("p1"), _make_point("p2")],
+                )
+            }
+            new_cfg = _full_config(devices=[d1_new], tasks=[task], tables=new_tables)
+            diff = ConfigDiff(
+                devices=DeviceDiff(updated=["d1"]),
+                points_changed=True,
+                point_tables_changed=["t1"],
+            )
+
+            errors = await rt.reconfigure(new_cfg, diff)
+
+            assert errors == []
+            assert rt.devices["d1"].config.device_group == "new"
+            assert [p.point_id for p in rt.devices["d1"].points] == ["p1", "p2"]
+            assert protos["d1"].set_points_mapping.call_count == 2
+            assert protos["d1"].connect.await_count == 1
+        finally:
+            await rt.stop()
+
+
     async def test_point_table_change_restarts_running_subscription_handle(self) -> None:
         """订阅型设备点表变化时，RUNNING instance 必须注销旧订阅并重新注册。"""
         devices = [_make_device_config("d1", protocol="ads")]
