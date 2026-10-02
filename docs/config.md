@@ -20,6 +20,10 @@ wind-hub 的一个配置目录是**完全独立、自包含**的完整配置集�
 `Runtime.reconfigure`），状态处理规则见
 [architecture.md §9](architecture.md)。
 
+`system.runtime`、`system.ads` 或 `reporting.yaml` 的运行参数变化不会伪装成
+热更新成功；当前明确返回“需要重启 Collector”。运行时组件变更若部分失败，
+旧配置快照保持不变，下一次 reload 可继续重试未完成部分。
+
 `reporting.yaml` 缺失、或 `reporting` 为空列表，均表示不启用 IEC104
 从站代理（`Config.reporting` 为 `None` 或空映射，Runtime 不启动从站服务）。
 
@@ -33,6 +37,7 @@ runtime:
   backpressure_policy: drop_old  # drop_old | drop_new | block
   shutdown_timeout: 30.0       # 优雅停机等待在途操作完成的上限（秒）
   connect_timeout: 10.0        # 单次设备连接尝试上限（秒）
+  connect_concurrency: 32       # 启动时并发连接设备上限
   read_timeout: 5.0            # 单次批量读的应用层外层超时（秒）
   write_timeout: 5.0           # 单次写入默认超时（秒）
 ```
@@ -42,7 +47,7 @@ runtime:
 [architecture.md §3](architecture.md)）：
 
 - `connect_timeout` — Runtime 在启动、重连节流窗口、热增/重建设备时
-  包裹 `connect()`；
+  包裹 `connect()`；启动阶段最多并发 `connect_concurrency` 台设备；
 - `read_timeout` — `AcquisitionEngine.collect` 包裹一次
   `ProtocolPort.read`；读超时按连接级失败处理（标记断线、走重连节流）；
 - `write_timeout` — `Command.timeout <= 0`（命令未自带超时）时
@@ -150,7 +155,8 @@ point_tables:
   （禁止跨协议继承）。`ResolvedPointTable.protocol` 供运行态与 admin
   直接读取。
 - 地址按点表 protocol 在加载期校验：ADS 要求 `symbol` 或
-  `index_group` + `index_offset` 成对；Modbus 要求合法 register_type
+  `index_group` + `index_offset` 成对；`symbol` 仅用于地址解析/展示，正式
+  read/write/sum/notification 统一使用 index 地址；Modbus 要求合法 register_type
   （`coil` / `discrete_input` / `holding` / `input` 及别名）与非负
   `address`；IEC104 要求合法 `ioa`。
 - `point_groups` 为**多值**——一个点可同时属于多个组；Task 按
@@ -185,7 +191,8 @@ tasks:
 - `device_group` — 展开为该分组下全部**启用**设备，每台一个实例；
   设备增删或分组变化在热重载时自动增删实例，不重启 Runtime；
 - `targets` 中同一 sink 重复出现是配置错误；
-- 加载期跨文件校验：target sink 存在；device 存在；device_group 至少
+- target sink 必须存在且 `enabled: true`；
+- 加载期跨文件校验：device 存在；device_group 至少
   匹配一台设备；`point_group` 必须存在于每个匹配到的启用设备的点表
   （报错时列出缺失设备）；引用 ADS `read_mode: sequential` 设备报错。
 
