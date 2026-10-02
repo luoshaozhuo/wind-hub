@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 
 pytestmark = pytest.mark.modbus
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
-from wind_hub.domain.model.errors import CommandError
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
+from wind_hub_collector.domain.model.errors import CommandError
 
 from tests.collector.functional.conftest import (
     MODBUS_POINTS,

@@ -12,12 +12,12 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_collector.adapter.outbound.protocol.modbus.driver import ModbusDriver
+from wind_hub_collector.config.loader import load_config
+from wind_hub_collector.config.schema import DeviceConfig, PointConfig
+from wind_hub_collector.domain.model.command import Command
+from wind_hub_collector.domain.model.errors import ProtocolError
+from wind_hub_collector.domain.model.point import PointRef, Quality
 
 from tests.collector.functional.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer

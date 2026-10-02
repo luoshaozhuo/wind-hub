@@ -8,8 +8,8 @@ from typing import Any
 import grpc
 import pytest
 
-from wind_hub.adapter.inbound.grpc.server import build_grpc_server
-from wind_hub.application.runtime.collector_identity import CollectorIdentity
+from wind_hub_collector.adapter.inbound.grpc.server import build_grpc_server
+from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_ctl.client import CollectorClient
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc

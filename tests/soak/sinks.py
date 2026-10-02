@@ -12,9 +12,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.domain.model.point import PointValue
+from wind_hub_collector.domain.port.outbound import HealthStatus
 
 from tests.soak.metrics import append_bounded
 

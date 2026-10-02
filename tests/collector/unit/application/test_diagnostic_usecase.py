@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.runtime.device import Device
-from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
+from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.validation.models import AddressResolution
@@ -79,7 +79,7 @@ async def test_ads_verify_point_reads_probe_resolved_address(
             return 12.5
 
     monkeypatch.setattr(
-        "wind_hub.application.usecase.diagnostic.ADSProbe",
+        "wind_hub_collector.application.usecase.diagnostic.ADSProbe",
         FakeProbe,
     )
 

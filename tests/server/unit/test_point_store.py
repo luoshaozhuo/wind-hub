@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from wind_hub.domain.model.point import PointValue
+from wind_hub_collector.domain.model.point import PointValue
 from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 
 

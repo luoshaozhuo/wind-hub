@@ -1,7 +1,7 @@
 """Unit tests for the CommandUseCase application usecase.
 
 验证对象：``application/usecase/command.py`` 把指令下发委托给
-:class:`~wind_hub.application.command_dispatcher.CommandDispatcher`——``send`` /
+:class:`~wind_hub_collector.application.command_dispatcher.CommandDispatcher`——``send`` /
 ``send_batch`` 原样转发，幂等与超时由 CommandDispatcher 保证，服务本身不增加语义。
 """
 
@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub.application.command_dispatcher import CommandDispatcher
-from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.application.usecase.command import CommandUseCase
+from wind_hub_collector.application.command_dispatcher import CommandDispatcher
+from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_collector.application.usecase.command import CommandUseCase
 from wind_hub_core.model.command import Command, CommandResult
 
 

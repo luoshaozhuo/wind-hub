@@ -15,8 +15,8 @@ from collections.abc import AsyncIterator
 import pytest
 
 pytestmark = pytest.mark.modbus
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import CommandError, ProtocolError
+from wind_hub_collector.domain.model.command import Command
+from wind_hub_collector.domain.model.errors import CommandError, ProtocolError
 
 from tests.collector.functional.conftest import FunctionalContext
 from tests.system.process import free_port

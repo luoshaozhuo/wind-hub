@@ -10,20 +10,20 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
-from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub.adapter.inbound.iec104_slave.handlers import (
+from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
+from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
+from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
     MAX_APDU_ASDU_BYTES,
     MAX_ASDU_PAYLOAD_BYTES,
     OBJECT_SIZE_BYTES,
     IEC104SlaveHandlers,
 )
-from wind_hub.adapter.inbound.iec104_slave.mapping import (
+from wind_hub_collector.adapter.inbound.iec104_slave.mapping import (
     build_data_type_mapping,
     build_ioa_mapping,
     build_reverse_mapping,
 )
-from wind_hub.adapter.inbound.iec104_slave.session import IEC104SlaveSession
+from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,

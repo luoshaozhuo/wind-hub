@@ -38,7 +38,7 @@ from tests.collector.perf.servers import (
     start_iec104_server,
     start_modbus_server,
 )
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
 from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.point import PointValue

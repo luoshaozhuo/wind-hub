@@ -19,9 +19,9 @@ import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.config_helper import write_config_tree
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
 
-_MODULE = "wind_hub.adapter.outbound.sink.mq.kafka"
+_MODULE = "wind_hub_collector.adapter.outbound.sink.mq.kafka"
 _PORT = 15030
 
 

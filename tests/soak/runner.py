@@ -28,11 +28,11 @@ from tests.collector.perf.netem import NetemController, NetemScenario
 from tests.collector.perf.servers import ModbusServerHandle
 from tests.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.soak.sinks import RecordingSink, percentile
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import ProtocolPort
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.config.schema import SinkConfig
+from wind_hub_collector.domain.model.command import Command
+from wind_hub_collector.domain.model.point import PointValue
+from wind_hub_collector.domain.port.outbound import ProtocolPort
 
 logger = logging.getLogger(__name__)
 
@@ -293,11 +293,11 @@ async def run_soak(
     def _sink_factory(cfg: SinkConfig) -> RecordingSink:
         inner = None
         if profile.sink == "kafka":
-            from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
+            from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
 
             inner = KafkaSink(cfg)
         elif profile.sink == "postgres":
-            from wind_hub.adapter.outbound.sink.db.postgres import DBSink
+            from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
 
             inner = DBSink(cfg)
         sink = RecordingSink(inner)

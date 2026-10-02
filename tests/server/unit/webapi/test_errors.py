@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.application.app_context import AppContext, clear_context, set_context
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_collector.domain.model.errors import ProtocolError
 
 
 @pytest.fixture(autouse=True)

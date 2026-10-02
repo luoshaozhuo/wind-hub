@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-from wind_hub.assembly import AssembledRuntime
+from wind_hub_collector.assembly import AssembledRuntime
 
 
 async def test_full_startup_health_and_devices(

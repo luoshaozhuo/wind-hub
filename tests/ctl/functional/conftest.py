@@ -31,9 +31,9 @@ from tests.collector.functional.conftest import (
 )
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.system.process import free_port
-from wind_hub.adapter.inbound.grpc.server import CollectorGrpcServer, build_grpc_server
-from wind_hub.application.runtime.collector_identity import CollectorIdentity
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.adapter.inbound.grpc.server import CollectorGrpcServer, build_grpc_server
+from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub_ctl.main import main as ctl_main
 
 T = TypeVar("T")

@@ -3,8 +3,8 @@
 from unittest.mock import AsyncMock
 
 from wind_hub_server.application.usecase.device_control import DeviceControlUseCase
-from wind_hub.domain.model.command import CommandResult
-from wind_hub.domain.model.point import PointValue
+from wind_hub_collector.domain.model.command import CommandResult
+from wind_hub_collector.domain.model.point import PointValue
 from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 
 

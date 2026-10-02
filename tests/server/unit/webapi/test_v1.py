@@ -17,7 +17,7 @@ from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.device import DeviceSnapshot
 from wind_hub_server.application.usecase.device_control import DeviceCommandResult
 from wind_hub_server.application.usecase.device_data import DeviceDataItem, TrendSeries
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_collector.domain.model.point import PointValue, Quality
 from wind_hub_server.application.usecase.overview import OverviewSnapshot
 from wind_hub_server.application.usecase.worker_tasks import TaskSummary
 

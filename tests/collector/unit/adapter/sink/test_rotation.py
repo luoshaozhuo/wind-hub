@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from wind_hub.adapter.outbound.sink.file.rotation import (
+from wind_hub_collector.adapter.outbound.sink.file.rotation import (
     CompositeRotation,
     NoRotation,
     RotationPolicy,

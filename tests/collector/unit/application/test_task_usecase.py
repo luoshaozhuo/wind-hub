@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.application.runtime.task_instance import (
+from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
 )
-from wind_hub.application.usecase.task import TaskUseCase
+from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_core.config.schema import CollectionTaskConfig, TaskTarget
 
 pytestmark = pytest.mark.asyncio

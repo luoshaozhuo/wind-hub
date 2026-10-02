@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
-from wind_hub.config.loader import load_config
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_collector.adapter.outbound.protocol.iec104.driver import IEC104Driver
+from wind_hub_collector.config.loader import load_config
+from wind_hub_collector.domain.model.errors import ProtocolError
+from wind_hub_collector.domain.model.point import PointRef, Quality
 
 from tests.config_helper import write_config_tree
 from tests.fixtures.servers.iec104_server import IEC104MockServer

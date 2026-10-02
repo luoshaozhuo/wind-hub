@@ -23,9 +23,9 @@ from typer.testing import CliRunner
 
 from modbus_debug.cli import app, watch_loop
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config, DeviceConfig
-from wind_hub.domain.model.device import Endpoint
+from wind_hub_collector.config.loader import load_config
+from wind_hub_collector.config.schema import Config, DeviceConfig
+from wind_hub_collector.domain.model.device import Endpoint
 
 SITE_DIR = Path(__file__).resolve().parents[2] / "configs" / "example_modbus"
 PORT_A = 15202

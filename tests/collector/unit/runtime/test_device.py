@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from wind_hub.application.runtime.device import (
+from wind_hub_collector.application.runtime.device import (
     Device,
     PollingAcquisitionHandle,
 )

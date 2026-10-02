@@ -23,7 +23,7 @@ import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.config_helper import write_config_tree
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 
 _CSV_HEADER = ["device_id", "point_id", "value", "quality", "timestamp", "source"]
 

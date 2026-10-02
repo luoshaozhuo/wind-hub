@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import uvicorn
 
-from wind_hub.domain.model.reload import ConfigDiff, ReloadResult
+from wind_hub_collector.domain.model.reload import ConfigDiff, ReloadResult
 from wind_hub_server.server import build_api_server, reload_once
 from wind_hub_server.settings import ServerSettings
 

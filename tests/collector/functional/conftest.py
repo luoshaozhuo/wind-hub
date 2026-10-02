@@ -21,9 +21,9 @@ from tests.config_helper import write_config_tree
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
 from tests.system.process import free_port
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub.config.schema import SinkConfig
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.config.schema import SinkConfig
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: list[dict[str, Any]] = [
@@ -70,7 +70,7 @@ def functional_sink_factory(cfg: SinkConfig) -> SinkPort:
     if cfg.type == "null":
         return NullSink()
     # 复用组合根的适配器装配，避免在测试侧复制第二套 sink 接线。
-    from wind_hub.assembly import _create_sink
+    from wind_hub_collector.assembly import _create_sink
 
     return _create_sink(cfg)
 

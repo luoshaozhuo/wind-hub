@@ -14,16 +14,16 @@ from typing import Any
 
 import pytest
 
-from wind_hub.adapter.outbound.sink.db.postgres import DBSink
+from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub.domain.model.errors import SinkError
+from wind_hub_collector.domain.model.errors import SinkError
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.model.health import HealthStatus
 
 _TS = datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC)
 
-_MODULE = "wind_hub.adapter.outbound.sink.db.postgres"
+_MODULE = "wind_hub_collector.adapter.outbound.sink.db.postgres"
 
 _DEFAULT_CREATE = (
     "CREATE TABLE IF NOT EXISTS t (device_id TEXT NOT NULL, point_id TEXT NOT NULL, "

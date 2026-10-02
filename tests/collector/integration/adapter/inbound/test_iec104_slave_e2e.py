@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.adapter.inbound.iec104_slave import (
+from wind_hub_collector.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
     IEC104SlaveServer,

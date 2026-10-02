@@ -6,10 +6,10 @@ import tempfile
 from pathlib import Path
 
 from tests.config_helper import write_config_tree
-from wind_hub.application.runtime import Runtime
-from wind_hub.application.usecase.config import ConfigUseCase
-from wind_hub.application.usecase.task import TaskUseCase
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.usecase.config import ConfigUseCase
+from wind_hub_collector.application.usecase.task import TaskUseCase
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub_core.config.schema import RuntimeConfig, SinkConfig
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.health import HealthStatus
@@ -148,7 +148,7 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
 
 
 def test_assemble_loads_config_once(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    import wind_hub.assembly as assembly_module
+    import wind_hub_collector.assembly as assembly_module
 
     real_load = assembly_module.load_config
     calls = 0

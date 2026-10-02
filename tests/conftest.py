@@ -24,9 +24,9 @@ import pytest
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.config.schema import SinkConfig
+from wind_hub_collector.domain.model.errors import ConfigError
 
 FIXTURE_CONFIGS = Path(__file__).resolve().parent / "fixtures" / "configs"
 _TESTS_ROOT = Path(__file__).resolve().parent

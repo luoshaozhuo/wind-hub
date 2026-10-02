@@ -6,11 +6,11 @@ authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 readme = "README.md"
 license = "MIT"
 packages = [
-    { include = "wind_hub", from = "src/wind-hub-collector" },
-    { include = "wind_hub_server", from = "src/wind-hub-server" },
-    { include = "wind_hub_commander", from = "src/wind-hub-commander" },
-    { include = "wind_hub_core", from = "src/wind-hub-core" },
-    { include = "wind_hub_ctl", from = "src/wind-hub-ctl" },
+    { include = "wind_hub_collector", from = "src" },
+    { include = "wind_hub_server", from = "src" },
+    { include = "wind_hub_commander", from = "src" },
+    { include = "wind_hub_core", from = "src" },
+    { include = "wind_hub_ctl", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -26,6 +26,9 @@ grpcio = "^1.75"
 protobuf = "^6.32"
 pymodbus = { version = "^3.6", optional = true }
 pyads = { version = "^3.4", optional = true }
+aiokafka = { version = "^0.14", optional = true }
+asyncpg = { version = "^0.31", optional = true }
+influxdb-client = { version = "^1.48", optional = true }
 
 [tool.poetry.extras]
 ads = ["pyads"]
@@ -51,7 +54,7 @@ ruff = "^0.8"
 import-linter = "^2.0"
 
 [tool.poetry.scripts]
-wind-hub-collector = "wind_hub.main:main"
+wind-hub-collector = "wind_hub_collector.main:main"
 wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
 wind-hub-commander = "wind_hub_commander.main:main"
@@ -85,22 +88,22 @@ markers = [
 ]
 
 [tool.importlinter]
-root_package = "wind_hub"
+root_package = "wind_hub_collector"
 
 [[tool.importlinter.contracts]]
 name = "Domain 不得依赖 Adapter 和 Infra"
 type = "forbidden"
-source_modules = ["wind_hub.domain"]
-forbidden_modules = ["wind_hub.adapter", "wind_hub.infra"]
+source_modules = ["wind_hub_collector.domain"]
+forbidden_modules = ["wind_hub_collector.adapter", "wind_hub_collector.infra"]
 
 [[tool.importlinter.contracts]]
 name = "Domain 不得依赖 Application"
 type = "forbidden"
-source_modules = ["wind_hub.domain"]
-forbidden_modules = ["wind_hub.application"]
+source_modules = ["wind_hub_collector.domain"]
+forbidden_modules = ["wind_hub_collector.application"]
 
 [[tool.importlinter.contracts]]
 name = "Application 不得依赖 Adapter"
 type = "forbidden"
-source_modules = ["wind_hub.application"]
-forbidden_modules = ["wind_hub.adapter"]
+source_modules = ["wind_hub_collector.application"]
+forbidden_modules = ["wind_hub_collector.adapter"]

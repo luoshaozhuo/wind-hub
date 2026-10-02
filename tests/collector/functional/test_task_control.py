@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 pytestmark = pytest.mark.modbus
-from wind_hub.application.runtime.task_instance import TaskInstanceState
-from wind_hub.application.usecase.task import TaskBatchResult
+from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
+from wind_hub_collector.application.usecase.task import TaskBatchResult
 
 from tests.collector.functional.conftest import DEFAULT_TASK, FunctionalContext
 from tests.fixtures.sinks.null_sink import NullSink

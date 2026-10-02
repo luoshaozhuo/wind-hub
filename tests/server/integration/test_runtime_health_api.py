@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-from wind_hub.assembly import AssembledRuntime, stop_runtime
+from wind_hub_collector.assembly import AssembledRuntime, stop_runtime
 
 
 async def test_graceful_shutdown_transitions_to_down(

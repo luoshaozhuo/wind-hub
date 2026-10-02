@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 
-from wind_hub.adapter.outbound.sink.file.csv import FileSink
+from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub.domain.model.errors import SinkError
+from wind_hub_collector.domain.model.errors import SinkError
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.model.health import HealthStatus

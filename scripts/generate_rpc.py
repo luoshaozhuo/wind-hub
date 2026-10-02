@@ -1,4 +1,4 @@
-"""生成 wind-hub-core 中提交入库的 gRPC/Protobuf Python 代码。"""
+"""生成 wind_hub_core 中提交入库的 gRPC/Protobuf Python 代码。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from grpc_tools import protoc
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_ROOT = ROOT / "src" / "wind-hub-core"
-RPC_DIR = CORE_ROOT / "wind_hub_core" / "rpc"
+SRC_ROOT = ROOT / "src"
+RPC_DIR = SRC_ROOT / "wind_hub_core" / "rpc"
 
 
 def main() -> int:
@@ -23,10 +23,10 @@ def main() -> int:
     return protoc.main(
         [
             "grpc_tools.protoc",
-            f"-I{CORE_ROOT}",
+            f"-I{SRC_ROOT}",
             f"-I{include_dir}",
-            f"--python_out={CORE_ROOT}",
-            f"--grpc_python_out={CORE_ROOT}",
+            f"--python_out={SRC_ROOT}",
+            f"--grpc_python_out={SRC_ROOT}",
             *(str(proto) for proto in protos),
         ]
     )

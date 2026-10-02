@@ -7,8 +7,8 @@ import pytest
 
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub_core.config.schema import SinkConfig
 
 

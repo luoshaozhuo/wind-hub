@@ -9,7 +9,7 @@ import pytest
 import yaml
 from httpx import AsyncClient
 
-from wind_hub.assembly import AssembledRuntime
+from wind_hub_collector.assembly import AssembledRuntime
 
 
 def _read_yaml(config_dir: Path, name: str) -> dict:

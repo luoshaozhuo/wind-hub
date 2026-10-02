@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import AppContext, clear_context, set_context
 from tests.config_helper import write_config_tree
-from wind_hub.assembly import assemble
+from wind_hub_collector.assembly import assemble
 
 
 @pytest.fixture(autouse=True)

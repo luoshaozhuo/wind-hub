@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from wind_hub.assembly import AssembledRuntime
+from wind_hub_collector.assembly import AssembledRuntime
 
 
 async def _wait_until(coro_factory, timeout: float = 15.0) -> None:

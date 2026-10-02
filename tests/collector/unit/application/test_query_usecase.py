@@ -24,11 +24,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.command_dispatcher import CommandDispatcher
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.application.runtime import Runtime
-from wind_hub.application.runtime.device import Device
-from wind_hub.application.usecase.query import QueryUseCase
+from wind_hub_collector.application.command_dispatcher import CommandDispatcher
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
@@ -37,7 +37,7 @@ from wind_hub_core.config.schema import (
     RuntimeConfig,
     TaskTarget,
 )
-from wind_hub.domain.acquisition import AcquisitionEngine
+from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import CommandError, ProtocolError
 from wind_hub_core.model.point import PointRef, PointValue

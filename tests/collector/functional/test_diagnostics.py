@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 pytestmark = pytest.mark.modbus
-from wind_hub.domain.model.errors import CommandError
+from wind_hub_collector.domain.model.errors import CommandError
 
 from tests.collector.functional.conftest import FunctionalContext
 

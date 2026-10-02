@@ -18,7 +18,7 @@ from pathlib import Path
 
 import asyncpg
 import pytest
-from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 
 from tests.collector.functional.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer

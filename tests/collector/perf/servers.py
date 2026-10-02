@@ -31,16 +31,16 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import ModbusTcpServer
 
-from wind_hub.adapter.inbound.iec104_slave import (
+from wind_hub_collector.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
     SlaveBridge,
 )
-from wind_hub.adapter.inbound.iec104_slave.handlers import (
+from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
     MAX_ASDU_PAYLOAD_BYTES,
     OBJECT_SIZE_BYTES,
 )
-from wind_hub.adapter.inbound.iec104_slave.session import IEC104SlaveSession
+from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,

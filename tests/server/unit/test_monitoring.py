@@ -1,6 +1,6 @@
 """MonitoringMetrics 计数测试。"""
 
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_collector.domain.model.point import PointValue, Quality
 from wind_hub_server.infra.monitoring import MonitoringMetrics
 
 

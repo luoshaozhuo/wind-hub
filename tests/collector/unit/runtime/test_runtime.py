@@ -30,11 +30,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.application.command_dispatcher import CommandDispatcher
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.application.runtime import Runtime
-from wind_hub.application.runtime.device import Device
-from wind_hub.application.runtime.task_instance import (
+from wind_hub_collector.application.command_dispatcher import CommandDispatcher
+from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
     task_instance_id,
@@ -56,7 +56,7 @@ from wind_hub_core.config.schema import (
     UnitConfig,
     UnitsConfig,
 )
-from wind_hub.domain.acquisition import AcquisitionEngine
+from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, TaskDiff
@@ -618,7 +618,7 @@ class TestPollingLoop:
         )
         await rt.start()
         try:
-            with caplog.at_level(logging.WARNING, logger="wind_hub.application.runtime.device"):
+            with caplog.at_level(logging.WARNING, logger="wind_hub_collector.application.runtime.device"):
                 eng.fail_next = 1
                 await rt.start_task_instance("t1:d1")
                 await _wait_for(lambda: len(eng.collect_calls) >= 3, what="loop survives failure")

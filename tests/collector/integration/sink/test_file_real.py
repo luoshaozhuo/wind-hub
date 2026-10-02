@@ -14,10 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from wind_hub.adapter.outbound.sink.file.csv import FileSink
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue
+from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
+from wind_hub_collector.config.schema import SinkConfig
+from wind_hub_collector.domain.model.errors import ConfigError, SinkError
+from wind_hub_collector.domain.model.point import PointValue
 
 
 def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue:

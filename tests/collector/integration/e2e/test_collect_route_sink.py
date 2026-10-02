@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from tests.fixtures.sinks.null_sink import NullSink
-from wind_hub.assembly import AssembledRuntime
+from wind_hub_collector.assembly import AssembledRuntime
 from wind_hub_core.model.point import PointValue
 
 from .runtime_helpers import start_task_instance

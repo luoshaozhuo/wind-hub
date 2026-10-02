@@ -15,8 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
-from wind_hub.domain.model.command import Command
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
+from wind_hub_collector.domain.model.command import Command
 
 from tests.collector.functional.conftest import functional_sink_factory
 from tests.config_helper import write_config_tree

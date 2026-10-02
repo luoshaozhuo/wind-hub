@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 pytestmark = pytest.mark.modbus
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
 
 from tests.collector.functional.conftest import (
     functional_sink_factory,
