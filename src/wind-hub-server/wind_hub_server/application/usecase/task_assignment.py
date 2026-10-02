@@ -55,3 +55,40 @@ class TaskAssignmentUseCase:
             for row in self.list_assignments()
             if row.worker_id == worker_id
         ]
+
+    def worker_ids_for_device(self, device_id: str) -> list[str]:
+        """返回实际承载指定设备采集 Task 的 Collector；无 Task 时回退默认 Worker。"""
+        devices = self._config.current_config.devices.devices
+        device = next((item for item in devices if item.device_id == device_id), None)
+        if device is None:
+            raise KeyError(device_id)
+
+        assignments = {row.task_id: row.worker_id for row in self.list_assignments()}
+        workers: set[str] = set()
+        for task in self._config.current_config.tasks.tasks:
+            if not task.enabled:
+                continue
+            matches = (
+                task.device == device_id
+                if task.device is not None
+                else task.device_group == device.device_group
+            )
+            if matches:
+                workers.add(assignments[task.task_id])
+        return sorted(workers) or [self._collectors.default_worker_id]
+
+    def worker_ids_for_sink(self, sink_name: str) -> list[str]:
+        """返回实际向指定 Sink 写入的 Collector；无 Task 引用时回退默认 Worker。"""
+        if not any(
+            sink.name == sink_name
+            for sink in self._config.current_config.system.sinks
+        ):
+            raise KeyError(sink_name)
+
+        assignments = {row.task_id: row.worker_id for row in self.list_assignments()}
+        workers = {
+            assignments[task.task_id]
+            for task in self._config.current_config.tasks.tasks
+            if task.enabled and any(target.sink == sink_name for target in task.targets)
+        }
+        return sorted(workers) or [self._collectors.default_worker_id]

@@ -20,7 +20,7 @@ from wind_hub_server.application.port.monitoring import (
     MonitoringEvent,
 )
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 
 logger = logging.getLogger(__name__)
 
@@ -184,13 +184,13 @@ class MonitoringService:
 
     def __init__(
         self,
-        collector: CollectorPort,
+        collectors: CollectorQueryPort,
         metrics: MonitoringMetrics,
         *,
         interval: float = 60.0,
         retention_days: int = 30,
     ) -> None:
-        self._collector = collector
+        self._collectors = collectors
         self._metrics = metrics
         self._runtime_status: dict[str, object] = {}
         self._devices: list[dict[str, object]] = []
@@ -225,10 +225,10 @@ class MonitoringService:
     async def refresh_now(self) -> HostSnapshot:
         """立即刷新一次 Collector 低频状态并记录 HostSnapshot。"""
         status, metrics, devices, sinks = await asyncio.gather(
-            self._collector.runtime_status(),
-            self._collector.metrics_snapshot(),
-            self._collector.list_devices(),
-            self._collector.list_sinks(),
+            self._collectors.runtime_status(),
+            self._collectors.metrics_snapshot(),
+            self._collectors.list_devices(),
+            self._collectors.list_sinks(),
         )
         self._runtime_status = dict(status)
         self._devices = [dict(item) for item in devices]

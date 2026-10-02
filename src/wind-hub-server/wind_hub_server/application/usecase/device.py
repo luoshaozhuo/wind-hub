@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config.schema import DeviceConfig
-from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
@@ -40,15 +40,15 @@ class DeviceUseCase:
 
     def __init__(
         self,
-        collector: CollectorPort,
+        collectors: CollectorQueryPort,
         config: ConfigUseCase,
     ) -> None:
-        self._collector = collector
+        self._collectors = collectors
         self._config = config
 
     async def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
         """返回配置与 Collector 当前连接状态合并后的设备快照。"""
-        runtime_rows = await self._collector.list_devices()
+        runtime_rows = await self._collectors.list_devices()
         runtime = {
             str(row.get("device_id")): row
             for row in runtime_rows
@@ -89,7 +89,7 @@ class DeviceUseCase:
         )
         if cfg is None:
             raise KeyError(device_id)
-        runtime_rows = await self._collector.list_devices()
+        runtime_rows = await self._collectors.list_devices()
         runtime = next(
             (
                 row

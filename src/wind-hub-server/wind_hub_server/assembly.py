@@ -16,6 +16,7 @@ from wind_hub_server.adapter.outbound.collector_directory import StaticCollector
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
+from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
@@ -109,18 +110,23 @@ def assemble_server(
         commander=commander_client,
         current_config=startup_config,
     )
-    worker_query = WorkerQueryUseCase(collector_client, commander_client)
     worker_registry = WorkerRegistryUseCase(
         collector_directory,
         commander_client,
         definitions=[collector_definition, commander_definition],
     )
     task_assignments = TaskAssignmentUseCase(config, collector_directory)
+    collector_aggregate = CollectorAggregateUseCase(
+        collector_directory,
+        task_assignments,
+        config,
+    )
+    worker_query = WorkerQueryUseCase(collector_aggregate, commander_client)
     worker_tasks = CollectorTaskUseCase(
         collector_directory,
         task_assignments,
     )
-    devices = DeviceUseCase(collector_client, config)
+    devices = DeviceUseCase(collector_aggregate, config)
     device_data = DeviceDataUseCase(
         config,
         commander_client,
@@ -143,7 +149,9 @@ def assemble_server(
     settings = SettingsUseCase(config, config_admin)
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(
-        collector_client,
+        collector_directory,
+        collector_aggregate,
+        task_assignments,
         config,
         config_admin,
     )
@@ -154,7 +162,7 @@ def assemble_server(
         operations,
     )
     monitoring = MonitoringService(
-        collector_client,
+        collector_aggregate,
         monitoring_metrics,
     )
     quality = QualityUseCase(

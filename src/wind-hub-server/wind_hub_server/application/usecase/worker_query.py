@@ -5,7 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
+from wind_hub_server.application.port.worker import CommanderPort
 
 
 class AcquisitionInfo(BaseModel):
@@ -36,20 +37,20 @@ class WorkerQueryUseCase:
 
     def __init__(
         self,
-        collector: CollectorPort,
+        collectors: CollectorQueryPort,
         commander: CommanderPort,
     ) -> None:
-        self._collector = collector
+        self._collectors = collectors
         self._commander = commander
 
     async def status(self) -> SystemStatus:
-        return SystemStatus.model_validate(await self._collector.runtime_status())
+        return SystemStatus.model_validate(await self._collectors.runtime_status())
 
     async def read_point(self, device_id: str, point_id: str) -> PointValue:
         return await self._commander.read_point(device_id, point_id)
 
     async def list_devices(self) -> list[dict[str, object]]:
-        return list(await self._collector.list_devices())
+        return list(await self._collectors.list_devices())
 
     async def list_sinks(self) -> list[dict[str, object]]:
-        return list(await self._collector.list_sinks())
+        return list(await self._collectors.list_sinks())

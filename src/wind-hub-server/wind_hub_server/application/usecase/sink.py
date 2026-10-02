@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
+from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
 from wind_hub_core.config.schema import SinkConfig
 
@@ -40,17 +43,21 @@ class SinkUseCase:
 
     def __init__(
         self,
-        collector: CollectorPort,
+        collectors: CollectorDirectory,
+        aggregate: CollectorQueryPort,
+        assignments: TaskAssignmentUseCase,
         config: ConfigUseCase,
         admin: ConfigAdminUseCase,
     ) -> None:
-        self._collector = collector
+        self._collectors = collectors
+        self._aggregate = aggregate
+        self._assignments = assignments
         self._config = config
         self._admin = admin
 
     async def list_sinks(self) -> list[SinkSnapshot]:
         """返回配置与 Collector 当前 Sink 运行态。"""
-        runtime_rows = await self._collector.list_sinks()
+        runtime_rows = await self._aggregate.list_sinks()
         runtime = {
             str(row.get("name")): row
             for row in runtime_rows
@@ -95,14 +102,20 @@ class SinkUseCase:
         """由 Collector 在实际运行环境验证 Sink。"""
         self._config_for(name)
         started = time.monotonic()
-        result = await self._collector.verify_sink(name)
+        worker_ids = self._assignments.worker_ids_for_sink(name)
+        results = await asyncio.gather(
+            *(self._collectors.get(worker_id).verify_sink(name) for worker_id in worker_ids)
+        )
         return SinkTestResult(
-            success=bool(result.get("success")),
+            success=all(bool(result.get("success")) for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
-            message=(
-                str(result.get("message"))
-                if result.get("message") is not None
-                else None
+            message=next(
+                (
+                    str(result.get("message"))
+                    for result in results
+                    if result.get("message")
+                ),
+                None,
             ),
         )
 
@@ -110,14 +123,23 @@ class SinkUseCase:
         """由 Collector 对当前运行 Sink 执行明确标记的测试写入。"""
         self._config_for(name)
         started = time.monotonic()
-        result = await self._collector.write_test_sink(name)
+        worker_ids = self._assignments.worker_ids_for_sink(name)
+        results = await asyncio.gather(
+            *(
+                self._collectors.get(worker_id).write_test_sink(name)
+                for worker_id in worker_ids
+            )
+        )
         return SinkTestResult(
-            success=bool(result.get("success")),
+            success=all(bool(result.get("success")) for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
-            message=(
-                str(result.get("message"))
-                if result.get("message") is not None
-                else None
+            message=next(
+                (
+                    str(result.get("message"))
+                    for result in results
+                    if result.get("message")
+                ),
+                None,
             ),
         )
 
