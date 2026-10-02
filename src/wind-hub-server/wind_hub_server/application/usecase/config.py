@@ -121,8 +121,13 @@ class ConfigUseCase:
         """加载当前 Server 管理的配置目录。"""
         return load_config(self._config_dir)
 
-    async def reload(self) -> ReloadResult:
-        """校验候选配置；双 Worker prepare 成功后再并发 activate。"""
+    async def reload(self, *, force_workers: bool = False) -> ReloadResult:
+        """校验候选配置并执行双 Worker prepare/activate。
+
+        force_workers=True 时，即使 Server 基线与磁盘候选无结构差异，也会强制
+        两个 Worker 重新 Prepare/Activate。该模式用于失败后的配置回滚，
+        防止部分 Activate 后因 Server diff 为零而跳过 Worker 收敛。
+        """
         started = time.monotonic()
         try:
             candidate = self.load_disk()
@@ -135,7 +140,7 @@ class ConfigUseCase:
             )
 
         diff = compute_diff(self._current, candidate)
-        if not diff.has_any_changes:
+        if not diff.has_any_changes and not force_workers:
             return ReloadResult(
                 success=True,
                 diff=diff,
