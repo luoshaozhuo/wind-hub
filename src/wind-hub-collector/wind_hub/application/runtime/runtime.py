@@ -539,14 +539,15 @@ class Runtime:
     # 设备状态端口实现（AcquisitionEngine → Runtime 的采集前/后钩子）
     # ------------------------------------------------------------------
 
-    async def ensure_connected(self, device_id: str) -> bool:
+    async def ensure_connected(self, device_id: str, *, force: bool = False) -> bool:
         """采集前确保设备可用，必要时按节流窗口重连（实现 ``DeviceStatePort``）。
 
         语义：
 
         - 已连接 → 立即 ``True``（零开销快路径）；
-        - 断线但未到 ``next_retry_at`` → ``False``，本次采集跳过——
+        - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
           1 Hz 轮询不会形成每秒一次的 connect 风暴；
+        - ``force=True`` 用于显式控制/诊断请求，忽略重连节流窗口并立即尝试一次；
         - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
           （失败计数清零），失败则按指数 backoff 推迟下次窗口
           （1 s → 2 s → … → 30 s 封顶）。
@@ -562,7 +563,7 @@ class Runtime:
         if device is None:
             return False
         now = self._clock()
-        if now < state.next_retry_at:
+        if not force and now < state.next_retry_at:
             return False
         try:
             await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
