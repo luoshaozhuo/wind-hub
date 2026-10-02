@@ -190,8 +190,12 @@ class ConfigUseCase:
         """返回当前已准备但尚未激活的配置版本。"""
         return self._prepared_revision
 
-    async def prepare_config(self, revision_id: str) -> ReloadResult:
-        """加载并校验候选配置，只保存候选快照，不修改 Runtime。"""
+    async def prepare_config(
+        self,
+        revision_id: str,
+        expected_config_hash: str | None = None,
+    ) -> ReloadResult:
+        """加载并校验候选配置，校验指纹后保存候选快照。"""
         started = time.monotonic()
         if not revision_id:
             return ReloadResult(
@@ -204,6 +208,14 @@ class ConfigUseCase:
         try:
             candidate = load_config(self._config_dir)
             candidate_hash = fingerprint_config_set(self._config_dir)
+            if (
+                expected_config_hash is not None
+                and candidate_hash != expected_config_hash
+            ):
+                raise ValueError(
+                    "config hash mismatch: "
+                    f"expected={expected_config_hash} actual={candidate_hash}"
+                )
         except Exception as exc:
             logger.error("Prepare aborted — config load failed: %s", exc)
             return ReloadResult(

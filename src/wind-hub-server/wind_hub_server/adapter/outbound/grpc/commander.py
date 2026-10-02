@@ -49,11 +49,20 @@ class CommanderGrpcClient(GrpcClientBase):
             )
         )
 
-    async def prepare_config(self, revision_id: str) -> dict[str, Any]:
+    async def prepare_config(
+        self,
+        revision_id: str,
+        config_hash: str,
+    ) -> dict[str, Any]:
         return from_struct(
             await self.call_struct(
                 rpc_path(PREPARE_CONFIG),
-                to_struct({"revision_id": revision_id}),
+                to_struct(
+                    {
+                        "revision_id": revision_id,
+                        "config_hash": config_hash,
+                    }
+                ),
                 timeout=30.0,
             )
         )

@@ -11,6 +11,7 @@ import time
 from uuid import uuid4
 from pathlib import Path
 
+from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import Config
 from wind_hub_core.model.reload import (
@@ -153,10 +154,11 @@ class ConfigUseCase:
             )
 
         revision_id = uuid4().hex
+        config_hash = fingerprint_config_set(self._config_dir)
 
         prepared = await asyncio.gather(
-            self._collector.prepare_config(revision_id),
-            self._commander.prepare_config(revision_id),
+            self._collector.prepare_config(revision_id, config_hash),
+            self._commander.prepare_config(revision_id, config_hash),
             return_exceptions=True,
         )
         errors: list[str] = []
@@ -174,6 +176,13 @@ class ConfigUseCase:
                 prepare_ok.append(False)
                 continue
             success = bool(result.get("success"))
+            remote_hash = str(result.get("config_hash") or "")
+            if success and remote_hash != config_hash:
+                success = False
+                errors.append(
+                    f"{name} prepare hash mismatch: "
+                    f"expected={config_hash} actual={remote_hash}"
+                )
             prepare_ok.append(success)
             if not success:
                 remote_errors = [

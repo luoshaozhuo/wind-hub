@@ -470,13 +470,19 @@ class CollectorControlService:
     ) -> struct_pb2.Struct:
         """加载并保存候选配置，不修改当前 Runtime。"""
         try:
-            revision_id = _required_string(_request_dict(request), "revision_id")
-            result = await self._runtime.config.prepare_config(revision_id)
+            data = _request_dict(request)
+            revision_id = _required_string(data, "revision_id")
+            config_hash = _required_string(data, "config_hash")
+            result = await self._runtime.config.prepare_config(
+                revision_id,
+                expected_config_hash=config_hash,
+            )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         payload = result.model_dump(mode="json")
         payload["revision_id"] = revision_id
+        payload["config_hash"] = self._runtime.config._prepared_hash
         return _struct(payload)
 
     async def activate_config(

@@ -97,11 +97,15 @@ class CollectorGrpcClient(GrpcClientBase):
             timeout=30.0,
         )
 
-    async def prepare_config(self, revision_id: str) -> dict[str, Any]:
+    async def prepare_config(
+        self,
+        revision_id: str,
+        config_hash: str,
+    ) -> dict[str, Any]:
         return await self._struct(
             CONTROL_SERVICE,
             PREPARE_CONFIG,
-            {"revision_id": revision_id},
+            {"revision_id": revision_id, "config_hash": config_hash},
             timeout=30.0,
         )
 

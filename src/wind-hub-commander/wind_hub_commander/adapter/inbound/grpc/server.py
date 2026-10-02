@@ -14,6 +14,7 @@ from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub_commander.assembly import CommanderApp
 from wind_hub_commander.config import load_commander_config
+from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.rpc import commander_io_pb2 as io_pb
 from wind_hub_core.rpc.commander_io_codec import (
@@ -115,7 +116,14 @@ class CommanderService:
         data = _request_dict(request)
         try:
             revision_id = _required_string(data, "revision_id")
+            expected_hash = _required_string(data, "config_hash")
             candidate = load_commander_config(self._app.config_dir)
+            actual_hash = fingerprint_config_set(self._app.config_dir)
+            if actual_hash != expected_hash:
+                raise ValueError(
+                    "config hash mismatch: "
+                    f"expected={expected_hash} actual={actual_hash}"
+                )
             await self._app.runtime.prepare_config(revision_id, candidate)
         except Exception as exc:
             await _abort(context, exc)
@@ -124,6 +132,7 @@ class CommanderService:
             {
                 "success": True,
                 "revision_id": revision_id,
+                "config_hash": actual_hash,
             }
         )
 

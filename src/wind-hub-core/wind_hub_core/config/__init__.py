@@ -1,6 +1,7 @@
 """Wind Hub 跨进程共享配置模型、解析与加载入口。"""
 
 from wind_hub_core.config.device_resolver import resolve_devices
+from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub_core.config.schema import (
@@ -72,4 +73,5 @@ __all__ = [
     "resolve_devices",
     "resolve_point_tables",
     "load_config",
+    "fingerprint_config_set",
 ]
