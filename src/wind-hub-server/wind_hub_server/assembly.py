@@ -100,7 +100,6 @@ def assemble_server(
     worker_tasks = CollectorTaskUseCase(collector_client)
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
-        collector.runtime,
         config,
         latest,
         trend,
