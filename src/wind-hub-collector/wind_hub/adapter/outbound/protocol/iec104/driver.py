@@ -37,13 +37,13 @@ from wind_hub.adapter.outbound.protocol.iec104.session import IEC104Session
 from wind_hub.adapter.outbound.protocol.iec104.subscriptions import (
     SubscriptionRegistry,
 )
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import CommandError, ProtocolError
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import CommandError, ProtocolError
+from wind_hub_core.model.point import PointRef, PointValue, Quality
+from wind_hub_core.model.health import HealthStatus
 from wind_hub.domain.port.outbound import (
     AcquisitionMode,
-    HealthStatus,
     ProtocolPort,
     SubscriptionHandle,
 )

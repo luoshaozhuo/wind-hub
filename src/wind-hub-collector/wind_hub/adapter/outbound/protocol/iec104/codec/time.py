@@ -6,7 +6,7 @@ import struct
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 
 @dataclass(frozen=True)

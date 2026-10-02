@@ -14,8 +14,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import CommandError
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import CommandError
 
 logger = logging.getLogger(__name__)
 

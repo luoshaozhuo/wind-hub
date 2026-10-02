@@ -17,7 +17,7 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.time import (
     encode_cp56time2a,
 )
 from wind_hub.adapter.outbound.protocol.iec104.codec.types import QualityFlag
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 # ==========================================================================
 # helpers

@@ -44,8 +44,8 @@ from wind_hub.adapter.outbound.protocol.iec104.connection import (
 )
 from wind_hub.adapter.outbound.protocol.iec104.flow import FlowController
 from wind_hub.adapter.outbound.protocol.iec104.timers import IEC104Timers
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointValue, Quality
 
 logger = logging.getLogger(__name__)
 

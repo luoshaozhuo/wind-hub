@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import struct
 
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 IOA_MAX = 0xFFFFFF  # 3 bytes max
 

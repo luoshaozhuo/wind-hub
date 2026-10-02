@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 
 from wind_hub.adapter.outbound.protocol.iec104.codec.types import UFrameType
-from wind_hub.domain.model.errors import ProtocolError
+from wind_hub_core.model.errors import ProtocolError
 
 # ---------------------------------------------------------------------------
 # 协议常量

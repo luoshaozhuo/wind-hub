@@ -12,7 +12,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.model.point import PointRef, PointValue
 
 logger = logging.getLogger(__name__)
 
