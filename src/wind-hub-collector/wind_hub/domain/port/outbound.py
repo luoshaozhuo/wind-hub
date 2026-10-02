@@ -11,13 +11,12 @@ from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from pydantic import BaseModel
-
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointRef, PointValue
 
 if TYPE_CHECKING:
-    from wind_hub.config.schema import PointConfig
+    from wind_hub_core.config.schema import PointConfig
 
 
 class AcquisitionMode(str, Enum):
@@ -53,15 +52,6 @@ class InterrogationCapable(Protocol):
         """发送一次 General Interrogation（C_IC_NA_1，QOI=20）。"""
         ...
 
-
-class HealthStatus(BaseModel):
-    """协议或 Sink 的轻量健康状态快照。"""
-
-    healthy: bool
-    """组件当前可正常工作时为 True。"""
-
-    message: str | None = None
-    """可选状态说明或错误摘要。"""
 
 
 class ProtocolPort(Protocol):

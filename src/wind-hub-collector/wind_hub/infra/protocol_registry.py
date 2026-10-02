@@ -10,10 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 if TYPE_CHECKING:
-    from wind_hub.config.schema import DeviceConfig
+    from wind_hub_core.config.schema import DeviceConfig
     from wind_hub.domain.port.outbound import ProtocolPort
 
 

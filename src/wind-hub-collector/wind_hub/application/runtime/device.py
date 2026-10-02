@@ -32,13 +32,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointRef, PointValue
+from wind_hub_core.model.health import HealthStatus
 from wind_hub.domain.port.outbound import (
     AcquisitionMode,
-    HealthStatus,
     InterrogationCapable,
     ProtocolPort,
     SubscriptionHandle,

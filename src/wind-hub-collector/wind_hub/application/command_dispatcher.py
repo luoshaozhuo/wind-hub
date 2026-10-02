@@ -24,7 +24,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 
 from wind_hub.application.runtime.device import Device
-from wind_hub.domain.model.command import Command, CommandResult
+from wind_hub_core.model.command import Command, CommandResult
 
 logger = logging.getLogger(__name__)
 

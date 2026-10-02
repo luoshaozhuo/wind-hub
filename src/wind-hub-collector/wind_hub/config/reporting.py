@@ -13,7 +13,7 @@ from typing import Any, cast
 import yaml
 
 from wind_hub.config.schema import ReportingConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 
 def load_reporting(path: str | Path) -> ReportingConfig:

@@ -45,7 +45,7 @@ from wind_hub.config.schema import (
     SinkConfig,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 from wind_hub.domain.port.outbound import ProtocolPort
 from wind_hub.infra.protocol_registry import protocol_registry
 

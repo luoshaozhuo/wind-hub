@@ -16,7 +16,7 @@ from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub.application.runtime.collector_identity import CollectorIdentity
 from wind_hub.assembly import AssembledRuntime
-from wind_hub.domain.model.command import Command
+from wind_hub_core.model.command import Command
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     DIAGNOSTIC_SERVICE,
@@ -250,7 +250,7 @@ class CollectorRuntimeService:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except Exception as exc:
-            from wind_hub.domain.model.errors import CommandError, ProtocolError
+            from wind_hub_core.model.errors import CommandError, ProtocolError
 
             if isinstance(exc, CommandError):
                 await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
@@ -482,7 +482,7 @@ class CollectorDiagnosticService:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except Exception as exc:
-            from wind_hub.domain.model.errors import CommandError
+            from wind_hub_core.model.errors import CommandError
 
             if isinstance(exc, CommandError):
                 await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
@@ -527,7 +527,7 @@ class CollectorDiagnosticService:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except Exception as exc:
-            from wind_hub.domain.model.errors import CommandError
+            from wind_hub_core.model.errors import CommandError
 
             if isinstance(exc, CommandError):
                 await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
@@ -558,7 +558,7 @@ class CollectorDiagnosticService:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except Exception as exc:
-            from wind_hub.domain.model.errors import CommandError
+            from wind_hub_core.model.errors import CommandError
 
             if isinstance(exc, CommandError):
                 await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))

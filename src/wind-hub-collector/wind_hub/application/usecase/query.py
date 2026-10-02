@@ -20,10 +20,10 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.schema import DeviceConfig
+from wind_hub_core.config.schema import DeviceConfig
 from wind_hub.domain.model.device import DeviceInfo
-from wind_hub.domain.model.errors import CommandError, ProtocolError
-from wind_hub.domain.model.point import PointRef, PointValue
+from wind_hub_core.model.errors import CommandError, ProtocolError
+from wind_hub_core.model.point import PointRef, PointValue
 
 
 class AcquisitionInfo(BaseModel):

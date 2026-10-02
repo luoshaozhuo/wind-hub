@@ -15,25 +15,27 @@ from typing import Any, cast
 
 import yaml
 
-from wind_hub.config.device_resolver import resolve_devices
-from wind_hub.config.point_table_resolver import resolve_point_tables
+from wind_hub_core.config.device_resolver import resolve_devices
+from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub.config.reporting import load_reporting
 from wind_hub.config.schema import (
     CollectionTaskConfig,
     Config,
+    ReportingConfig,
+    SystemConfig,
+    TasksConfig,
+)
+from wind_hub_core.config.schema import (
     DeviceConfig,
     DeviceInstancesConfig,
     DeviceModelsConfig,
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
-    ReportingConfig,
     ResolvedPointTables,
-    SystemConfig,
-    TasksConfig,
     UnitsConfig,
 )
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
