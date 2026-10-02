@@ -1,4 +1,4 @@
-"""兼容导入层；Modbus driver 实现已迁入 wind-hub-core。"""
+"""Modbus TCP 协议实现。"""
 
 from wind_hub_core.protocol.modbus.driver import ModbusDriver
 
