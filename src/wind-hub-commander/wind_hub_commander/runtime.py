@@ -7,7 +7,6 @@ Sink 或后台调度，只为即时 read/write/diagnostic 提供连接生命周�
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 
 from wind_hub_commander.config import CommanderConfig
@@ -52,14 +51,18 @@ class CommanderRuntime:
 
     async def stop(self) -> None:
         """并发关闭全部设备会话；单设备关闭失败不阻断其余资源释放。"""
+        items = list(self.devices.items())
         results = await asyncio.gather(
-            *(device.close() for device in self.devices.values()),
+            *(device.close() for _device_id, device in items),
             return_exceptions=True,
         )
-        for result in results:
+        for (device_id, _device), result in zip(items, results, strict=True):
             if isinstance(result, BaseException):
-                # stop 是清理边界；全部资源都已尝试关闭，不在这里隐藏后续清理。
-                continue
+                logger.warning(
+                    "Commander 关闭设备会话失败 device=%s error=%s",
+                    device_id,
+                    result,
+                )
 
     def device(self, device_id: str) -> DeviceSession:
         """按 ID 返回设备会话。"""
@@ -78,13 +81,24 @@ class CommanderRuntime:
         async with lock:
             if device.health().healthy:
                 return True
-            with contextlib.suppress(Exception):
+            try:
                 await device.close()
+            except Exception as exc:
+                logger.warning(
+                    "Commander 重连前关闭旧会话失败 device=%s error=%s",
+                    device_id,
+                    exc,
+                )
             try:
                 await asyncio.wait_for(
                     device.connect(),
                     timeout=self.config.connect_timeout,
                 )
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Commander 设备连接失败 device=%s error=%s",
+                    device_id,
+                    exc,
+                )
                 return False
             return device.health().healthy
