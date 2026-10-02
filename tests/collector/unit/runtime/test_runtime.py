@@ -838,6 +838,48 @@ class TestReconfigure:
             await rt.stop()
 
 
+    async def test_point_table_change_restarts_running_subscription_handle(self) -> None:
+        """订阅型设备点表变化时，RUNNING instance 必须注销旧订阅并重新注册。"""
+        devices = [_make_device_config("d1", protocol="ads")]
+        task = _make_task("t1", device="d1", interval=0.02)
+        points = {"d1": [_make_point("p1")]}
+        rt, protos, _, _ = _build_runtime(devices=devices, tasks=[task], points=points)
+        proto = protos["d1"]
+        proto.acquisition_mode = AcquisitionMode.SUBSCRIBE
+
+        first_subscription = MagicMock()
+        first_subscription.close = AsyncMock()
+        second_subscription = MagicMock()
+        second_subscription.close = AsyncMock()
+        proto.subscribe = AsyncMock(side_effect=[first_subscription, second_subscription])
+
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            first_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            assert proto.subscribe.await_count == 1
+
+            new_tables = {
+                "t1": ResolvedPointTable(
+                    protocol="ads",
+                    points=[_make_point("p1"), _make_point("p2")],
+                )
+            }
+            new_cfg = _full_config(devices=devices, tasks=[task], tables=new_tables)
+            diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
+
+            errors = await rt.reconfigure(new_cfg, diff)
+
+            assert errors == []
+            assert first_subscription.close.await_count == 1
+            assert proto.subscribe.await_count == 2
+            assert rt._acquisition_handles["t1:d1"] is not first_handle  # noqa: SLF001
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            assert proto.connect.await_count == 1
+        finally:
+            await rt.stop()
+
+
 # ---------------------------------------------------------------------------
 # Sink 派发与背压
 # ---------------------------------------------------------------------------
