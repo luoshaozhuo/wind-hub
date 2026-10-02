@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
-from wind_hub.config.schema import SinkConfig
+from wind_hub_core.config.schema import SinkConfig
 
 
 class SinkSnapshot(BaseModel):

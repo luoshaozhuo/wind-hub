@@ -9,8 +9,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import Config
 from wind_hub_core.model.reload import (
     ConfigDiff,
     DeviceDiff,
