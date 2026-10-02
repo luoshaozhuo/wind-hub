@@ -90,7 +90,6 @@ message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
 message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
 message TaskIdRequest { string task_id = 1; }
 message InstanceIdRequest { string instance_id = 1; }
-message TaskBatchResultMessage { uint64 total = 1; uint64 changed = 2; uint64 unchanged = 3; }
 
 message DeviceInfoMessage {
   string device_id = 1;
@@ -132,12 +131,6 @@ message ConfigDiffMessage {
   repeated string point_tables_changed = 5;
   bool units_changed = 6;
 }
-message ReloadResultMessage {
-  bool success = 1;
-  ConfigDiffMessage diff = 2;
-  repeated string errors = 3;
-  double duration_ms = 4;
-}
 message PrepareConfigRequest { string revision_id = 1; string config_hash = 2; bool force_reconfigure = 3; }
 message PrepareConfigResponse {
   bool success = 1;
@@ -177,9 +170,6 @@ service CollectorControlService {
   rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc StartTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
   rpc StopTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
-  rpc StartAssignedTasks(google.protobuf.Empty) returns (TaskBatchResultMessage);
-  rpc StopAssignedTasks(google.protobuf.Empty) returns (TaskBatchResultMessage);
-  rpc ReloadConfig(google.protobuf.Empty) returns (ReloadResultMessage);
   rpc PrepareConfig(PrepareConfigRequest) returns (PrepareConfigResponse);
   rpc ActivateConfig(ActivateConfigRequest) returns (ActivateConfigResponse);
   rpc AbortConfig(AbortConfigRequest) returns (AbortConfigResponse);

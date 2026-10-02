@@ -51,7 +51,6 @@ message ActivateConfigRequest { string revision_id = 1; }
 message ActivateConfigResponse { bool success = 1; string revision_id = 2; string active_config_hash = 3; }
 message AbortConfigRequest { string revision_id = 1; }
 message AbortConfigResponse { bool success = 1; string revision_id = 2; bool aborted = 3; }
-message ReloadConfigResponse { bool success = 1; string revision_id = 2; string active_config_hash = 3; }
 
 message VerifyDeviceRequest { string device_id = 1; double timeout = 2; }
 message DiagnosticStageMessage {
@@ -84,7 +83,6 @@ service CommanderService {
   rpc PrepareConfig(PrepareConfigRequest) returns (PrepareConfigResponse);
   rpc ActivateConfig(ActivateConfigRequest) returns (ActivateConfigResponse);
   rpc AbortConfig(AbortConfigRequest) returns (AbortConfigResponse);
-  rpc ReloadConfig(google.protobuf.Empty) returns (ReloadConfigResponse);
   rpc ReadPoint(ReadPointRequest) returns (PointValueMessage);
   rpc ReadPoints(ReadPointsRequest) returns (ReadPointsResponse);
   rpc WritePoint(WritePointRequest) returns (CommandResultMessage);

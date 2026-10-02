@@ -68,16 +68,6 @@ def config_diff_to_dict(message: pb.ConfigDiffMessage) -> dict[str, Any]:
     }
 
 
-def reload_result_to_dict(message: pb.ReloadResultMessage) -> dict[str, Any]:
-    """ReloadResultMessage → JSON 兼容字典。"""
-    return {
-        "success": message.success,
-        "diff": config_diff_to_dict(message.diff),
-        "errors": list(message.errors),
-        "duration_ms": message.duration_ms,
-    }
-
-
 def runtime_status_to_dict(message: pb.RuntimeStatusResponse) -> dict[str, Any]:
     """RuntimeStatusResponse → JSON 兼容字典。"""
     return {

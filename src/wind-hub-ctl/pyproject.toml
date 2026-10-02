@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "wind-hub-ctl"
 version = "0.1.0"
-description = "Wind Hub Collector gRPC control CLI"
+description = "Wind Hub Collector gRPC read-only diagnostic CLI"
 authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 packages = [{ include = "wind_hub_ctl" }]
 

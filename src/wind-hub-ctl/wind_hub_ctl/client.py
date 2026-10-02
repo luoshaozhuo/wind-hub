@@ -16,7 +16,6 @@ from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 from wind_hub_core.rpc.collector_codec import (
     collector_info_to_dict,
     device_info_to_dict,
-    reload_result_to_dict,
     runtime_status_to_dict,
     task_instance_to_dict,
     task_summary_to_dict,
@@ -24,20 +23,18 @@ from wind_hub_core.rpc.collector_codec import (
 
 
 class CollectorClient:
-    """单个 Collector 的异步 gRPC 控制客户端。"""
+    """单个 Collector 的异步 gRPC 只读诊断客户端。"""
 
     def __init__(self, target: str, *, timeout: float = 5.0) -> None:
         self._target = target
         self._timeout = timeout
         self._channel: grpc.aio.Channel | None = None
         self._runtime_stub: pb_grpc.CollectorRuntimeServiceStub | None = None
-        self._control_stub: pb_grpc.CollectorControlServiceStub | None = None
 
     async def __aenter__(self) -> "CollectorClient":
         """创建异步 channel 与 generated stubs。"""
         self._channel = grpc.aio.insecure_channel(self._target)
         self._runtime_stub = pb_grpc.CollectorRuntimeServiceStub(self._channel)
-        self._control_stub = pb_grpc.CollectorControlServiceStub(self._channel)
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -46,19 +43,12 @@ class CollectorClient:
             await self._channel.close()
         self._channel = None
         self._runtime_stub = None
-        self._control_stub = None
 
     def _runtime(self) -> pb_grpc.CollectorRuntimeServiceStub:
         """返回已进入生命周期的 Runtime stub。"""
         if self._runtime_stub is None:
             raise RuntimeError("CollectorClient must be used as an async context manager")
         return self._runtime_stub
-
-    def _control(self) -> pb_grpc.CollectorControlServiceStub:
-        """返回已进入生命周期的 Control stub。"""
-        if self._control_stub is None:
-            raise RuntimeError("CollectorClient must be used as an async context manager")
-        return self._control_stub
 
     async def info(self) -> dict[str, Any]:
         """查询 Collector 进程身份、配置指纹和 Runtime 状态。"""
@@ -116,66 +106,3 @@ class CollectorClient:
         )
         return task_instance_to_dict(response)
 
-    async def start_task(self, task_id: str) -> dict[str, Any]:
-        """启动指定 Task 当前展开的全部实例。"""
-        response = await self._control().StartTask(
-            pb.TaskIdRequest(task_id=task_id),
-            timeout=self._timeout,
-        )
-        return task_summary_to_dict(response)
-
-    async def stop_task(self, task_id: str) -> dict[str, Any]:
-        """停止指定 Task 当前展开的全部实例。"""
-        response = await self._control().StopTask(
-            pb.TaskIdRequest(task_id=task_id),
-            timeout=self._timeout,
-        )
-        return task_summary_to_dict(response)
-
-    async def start_task_instance(self, instance_id: str) -> dict[str, Any]:
-        """启动单个 Task Instance。"""
-        response = await self._control().StartTaskInstance(
-            pb.InstanceIdRequest(instance_id=instance_id),
-            timeout=self._timeout,
-        )
-        return task_instance_to_dict(response)
-
-    async def stop_task_instance(self, instance_id: str) -> dict[str, Any]:
-        """停止单个 Task Instance。"""
-        response = await self._control().StopTaskInstance(
-            pb.InstanceIdRequest(instance_id=instance_id),
-            timeout=self._timeout,
-        )
-        return task_instance_to_dict(response)
-
-    async def start_all(self) -> dict[str, Any]:
-        """启动当前 Collector 全部 Task Instance。"""
-        response = await self._control().StartAssignedTasks(
-            empty_pb2.Empty(),
-            timeout=self._timeout,
-        )
-        return {
-            "total": response.total,
-            "changed": response.changed,
-            "unchanged": response.unchanged,
-        }
-
-    async def stop_all(self) -> dict[str, Any]:
-        """停止当前 Collector 全部 Task Instance。"""
-        response = await self._control().StopAssignedTasks(
-            empty_pb2.Empty(),
-            timeout=self._timeout,
-        )
-        return {
-            "total": response.total,
-            "changed": response.changed,
-            "unchanged": response.unchanged,
-        }
-
-    async def reload(self) -> dict[str, Any]:
-        """触发 Collector 兼容增量热重载。"""
-        response = await self._control().ReloadConfig(
-            empty_pb2.Empty(),
-            timeout=self._timeout,
-        )
-        return reload_result_to_dict(response)

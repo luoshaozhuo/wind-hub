@@ -94,16 +94,6 @@ def _diff_to_proto(diff) -> pb.ConfigDiffMessage:
     )
 
 
-def _reload_to_proto(result) -> pb.ReloadResultMessage:
-    """把 ReloadResult 转换为 wire message。"""
-    return pb.ReloadResultMessage(
-        success=result.success,
-        diff=_diff_to_proto(result.diff),
-        errors=list(result.errors),
-        duration_ms=result.duration_ms,
-    )
-
-
 @dataclass(slots=True)
 class CollectorGrpcServer:
     """Collector gRPC Server 生命周期包装。"""
@@ -448,31 +438,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             )
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _task_instance_to_proto(item)
-
-    async def StartAssignedTasks(self, request, context) -> pb.TaskBatchResultMessage:
-        """启动当前 Collector 已分配的全部 Task Instance。"""
-        del request, context
-        result = await self._runtime.tasks.start_all_instances()
-        return pb.TaskBatchResultMessage(
-            total=result.total,
-            changed=result.changed,
-            unchanged=result.unchanged,
-        )
-
-    async def StopAssignedTasks(self, request, context) -> pb.TaskBatchResultMessage:
-        """停止当前 Collector 已分配的全部 Task Instance。"""
-        del request, context
-        result = await self._runtime.tasks.stop_all_instances()
-        return pb.TaskBatchResultMessage(
-            total=result.total,
-            changed=result.changed,
-            unchanged=result.unchanged,
-        )
-
-    async def ReloadConfig(self, request, context) -> pb.ReloadResultMessage:
-        """兼容入口：按 prepare → activate 执行一次增量热重载。"""
-        del request, context
-        return _reload_to_proto(await self._runtime.config.reload())
 
     async def PrepareConfig(
         self,

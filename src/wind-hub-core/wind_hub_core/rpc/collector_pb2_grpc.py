@@ -188,21 +188,6 @@ class CollectorControlServiceStub:
             request_serializer=collector__pb2.InstanceIdRequest.SerializeToString,
             response_deserializer=collector__pb2.TaskInstanceMessage.FromString,
         )
-        self.StartAssignedTasks = channel.unary_unary(
-            "/windhub.collector.v1.CollectorControlService/StartAssignedTasks",
-            request_serializer=empty_pb2.Empty.SerializeToString,
-            response_deserializer=collector__pb2.TaskBatchResultMessage.FromString,
-        )
-        self.StopAssignedTasks = channel.unary_unary(
-            "/windhub.collector.v1.CollectorControlService/StopAssignedTasks",
-            request_serializer=empty_pb2.Empty.SerializeToString,
-            response_deserializer=collector__pb2.TaskBatchResultMessage.FromString,
-        )
-        self.ReloadConfig = channel.unary_unary(
-            "/windhub.collector.v1.CollectorControlService/ReloadConfig",
-            request_serializer=empty_pb2.Empty.SerializeToString,
-            response_deserializer=collector__pb2.ReloadResultMessage.FromString,
-        )
         self.PrepareConfig = channel.unary_unary(
             "/windhub.collector.v1.CollectorControlService/PrepareConfig",
             request_serializer=collector__pb2.PrepareConfigRequest.SerializeToString,
@@ -231,15 +216,6 @@ class CollectorControlServiceServicer:
         raise NotImplementedError()
 
     async def StopTaskInstance(self, request, context):
-        raise NotImplementedError()
-
-    async def StartAssignedTasks(self, request, context):
-        raise NotImplementedError()
-
-    async def StopAssignedTasks(self, request, context):
-        raise NotImplementedError()
-
-    async def ReloadConfig(self, request, context):
         raise NotImplementedError()
 
     async def PrepareConfig(self, request, context):
@@ -273,21 +249,6 @@ def add_CollectorControlServiceServicer_to_server(servicer, server):
             servicer.StopTaskInstance,
             request_deserializer=collector__pb2.InstanceIdRequest.FromString,
             response_serializer=collector__pb2.TaskInstanceMessage.SerializeToString,
-        ),
-        "StartAssignedTasks": grpc.unary_unary_rpc_method_handler(
-            servicer.StartAssignedTasks,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=collector__pb2.TaskBatchResultMessage.SerializeToString,
-        ),
-        "StopAssignedTasks": grpc.unary_unary_rpc_method_handler(
-            servicer.StopAssignedTasks,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=collector__pb2.TaskBatchResultMessage.SerializeToString,
-        ),
-        "ReloadConfig": grpc.unary_unary_rpc_method_handler(
-            servicer.ReloadConfig,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=collector__pb2.ReloadResultMessage.SerializeToString,
         ),
         "PrepareConfig": grpc.unary_unary_rpc_method_handler(
             servicer.PrepareConfig,

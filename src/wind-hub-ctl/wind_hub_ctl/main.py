@@ -46,20 +46,6 @@ async def _run(args: argparse.Namespace) -> int:
             result = await client.task_instances()
         elif args.command == "task-instance":
             result = await client.task_instance(args.instance_id)
-        elif args.command == "start":
-            result = await client.start_task(args.task_id)
-        elif args.command == "stop":
-            result = await client.stop_task(args.task_id)
-        elif args.command == "start-instance":
-            result = await client.start_task_instance(args.instance_id)
-        elif args.command == "stop-instance":
-            result = await client.stop_task_instance(args.instance_id)
-        elif args.command == "start-all":
-            result = await client.start_all()
-        elif args.command == "stop-all":
-            result = await client.stop_all()
-        elif args.command == "reload":
-            result = await client.reload()
         else:
             raise RuntimeError(f"unsupported command: {args.command}")
     _print(result)
@@ -70,11 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     """构建 wind-hub-ctl 参数解析器。
 
     Returns:
-        包含 Collector endpoint、RPC 超时和全部控制子命令的解析器。
+        包含 Collector endpoint、RPC 超时和只读诊断子命令的解析器。
     """
     parser = argparse.ArgumentParser(
         prog="wind-hub-ctl",
-        description="Wind Hub Collector 采集任务与运行态控制客户端。",
+        description="Wind Hub Collector 运行态只读诊断客户端。",
     )
     parser.add_argument(
         "--target",
@@ -102,21 +88,6 @@ def build_parser() -> argparse.ArgumentParser:
     instance = sub.add_parser("task-instance", help="查询一个 Task Instance")
     instance.add_argument("instance_id")
 
-    start = sub.add_parser("start", help="按 task_id 启动一个 Task")
-    start.add_argument("task_id")
-
-    stop = sub.add_parser("stop", help="按 task_id 停止一个 Task")
-    stop.add_argument("task_id")
-
-    start_instance = sub.add_parser("start-instance", help="启动一个 Task Instance")
-    start_instance.add_argument("instance_id")
-
-    stop_instance = sub.add_parser("stop-instance", help="停止一个 Task Instance")
-    stop_instance.add_argument("instance_id")
-
-    sub.add_parser("start-all", help="启动全部已分配 Task Instance")
-    sub.add_parser("stop-all", help="停止全部已分配 Task Instance")
-    sub.add_parser("reload", help="从 Collector 本地 YAML 执行增量热重载")
 
     return parser
 

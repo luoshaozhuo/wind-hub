@@ -87,18 +87,6 @@ class CommanderGrpcClient(GrpcClientBase):
             "prepared_config_hash": response.prepared_config_hash or None,
         }
 
-    async def reload_config(self) -> dict[str, Any]:
-        """调用 Commander 兼容 ReloadConfig。"""
-        response = await self._stub.ReloadConfig(
-            empty_pb2.Empty(),
-            timeout=30.0,
-        )
-        return {
-            "success": response.success,
-            "revision_id": response.revision_id,
-            "active_config_hash": response.active_config_hash,
-        }
-
     async def prepare_config(
         self,
         revision_id: str,

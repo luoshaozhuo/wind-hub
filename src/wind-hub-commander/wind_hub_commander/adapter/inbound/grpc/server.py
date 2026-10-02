@@ -6,8 +6,6 @@ Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp �
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
@@ -208,34 +206,6 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             success=True,
             revision_id=revision_id,
             aborted=aborted,
-        )
-
-    async def ReloadConfig(self, request, context) -> pb.ReloadConfigResponse:
-        """兼容入口：本地加载后执行 prepare → activate。"""
-        del request
-        revision_id = uuid4().hex
-        try:
-            before_hash = fingerprint_config_set(self._app.config_dir)
-            candidate = load_commander_config(self._app.config_dir)
-            config_hash = fingerprint_config_set(self._app.config_dir)
-            if before_hash != config_hash:
-                raise ValueError(
-                    "config changed while reloading: "
-                    f"before={before_hash} after={config_hash}"
-                )
-            await self._app.runtime.reload(
-                candidate,
-                config_hash=config_hash,
-                revision_id=revision_id,
-            )
-            self._app.config = self._app.runtime.config
-        except Exception as exc:
-            await _abort(context, exc)
-            raise AssertionError("context.abort must terminate the RPC") from exc
-        return pb.ReloadConfigResponse(
-            success=True,
-            revision_id=revision_id,
-            active_config_hash=self._app.runtime.active_config_hash,
         )
 
     async def ReadPoint(

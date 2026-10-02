@@ -37,11 +37,6 @@ class CommanderServiceStub:
             request_serializer=commander__pb2.AbortConfigRequest.SerializeToString,
             response_deserializer=commander__pb2.AbortConfigResponse.FromString,
         )
-        self.ReloadConfig = channel.unary_unary(
-            "/windhub.commander.v1.CommanderService/ReloadConfig",
-            request_serializer=empty_pb2.Empty.SerializeToString,
-            response_deserializer=commander__pb2.ReloadConfigResponse.FromString,
-        )
         self.ReadPoint = channel.unary_unary(
             "/windhub.commander.v1.CommanderService/ReadPoint",
             request_serializer=commander__pb2.ReadPointRequest.SerializeToString,
@@ -102,9 +97,6 @@ class CommanderServiceServicer:
     async def AbortConfig(self, request, context):
         raise NotImplementedError()
 
-    async def ReloadConfig(self, request, context):
-        raise NotImplementedError()
-
     async def ReadPoint(self, request, context):
         raise NotImplementedError()
 
@@ -157,11 +149,6 @@ def add_CommanderServiceServicer_to_server(servicer, server):
             servicer.AbortConfig,
             request_deserializer=commander__pb2.AbortConfigRequest.FromString,
             response_serializer=commander__pb2.AbortConfigResponse.SerializeToString,
-        ),
-        "ReloadConfig": grpc.unary_unary_rpc_method_handler(
-            servicer.ReloadConfig,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=commander__pb2.ReloadConfigResponse.SerializeToString,
         ),
         "ReadPoint": grpc.unary_unary_rpc_method_handler(
             servicer.ReadPoint,

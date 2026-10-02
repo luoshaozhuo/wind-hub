@@ -16,7 +16,6 @@ from wind_hub_core.rpc.collector_codec import (
     collector_info_to_dict,
     device_info_to_dict,
     metrics_snapshot_to_dict,
-    reload_result_to_dict,
     runtime_status_to_dict,
     sink_info_to_dict,
     task_instance_to_dict,
@@ -144,38 +143,6 @@ class CollectorGrpcClient(GrpcClientBase):
             timeout=self.default_timeout,
         )
         return task_instance_to_dict(response)
-
-    async def start_all(self) -> dict[str, Any]:
-        """启动当前 Collector 全部 Task Instance。"""
-        response = await self._control_stub.StartAssignedTasks(
-            empty_pb2.Empty(),
-            timeout=self.default_timeout,
-        )
-        return {
-            "total": response.total,
-            "changed": response.changed,
-            "unchanged": response.unchanged,
-        }
-
-    async def stop_all(self) -> dict[str, Any]:
-        """停止当前 Collector 全部 Task Instance。"""
-        response = await self._control_stub.StopAssignedTasks(
-            empty_pb2.Empty(),
-            timeout=self.default_timeout,
-        )
-        return {
-            "total": response.total,
-            "changed": response.changed,
-            "unchanged": response.unchanged,
-        }
-
-    async def reload_config(self) -> dict[str, Any]:
-        """调用 Collector 兼容 ReloadConfig。"""
-        response = await self._control_stub.ReloadConfig(
-            empty_pb2.Empty(),
-            timeout=30.0,
-        )
-        return reload_result_to_dict(response)
 
     async def prepare_config(
         self,
