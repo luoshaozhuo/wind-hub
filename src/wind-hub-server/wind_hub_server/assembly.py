@@ -12,6 +12,7 @@ from pathlib import Path
 
 from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from wind_hub_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
@@ -50,6 +51,7 @@ class ServerRuntime:
     collector_client: CollectorGrpcClient
     commander_client: CommanderGrpcClient
     worker_registry: WorkerRegistryUseCase
+    collector_directory: StaticCollectorDirectory
 
 
 def assemble_server(
@@ -76,16 +78,17 @@ def assemble_server(
     )
 
     worker_query = WorkerQueryUseCase(collector_client, commander_client)
+    collector_directory = StaticCollectorDirectory(
+        {COLLECTOR_WORKER_ID: collector_client},
+        default_worker_id=COLLECTOR_WORKER_ID,
+    )
     worker_registry = WorkerRegistryUseCase(
         collector_client,
         commander_client,
         collector_endpoint=collector_target,
         commander_endpoint=commander_target,
     )
-    worker_tasks = CollectorTaskUseCase(
-        collector_client,
-        worker_id=COLLECTOR_WORKER_ID,
-    )
+    worker_tasks = CollectorTaskUseCase(collector_directory)
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
         config,
@@ -159,4 +162,5 @@ def assemble_server(
         collector_client=collector_client,
         commander_client=commander_client,
         worker_registry=worker_registry,
+        collector_directory=collector_directory,
     )

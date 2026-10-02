@@ -6,6 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.worker import CollectorPort
 
 
@@ -53,29 +54,31 @@ class TaskSummary(TaskDetail):
 class CollectorTaskUseCase:
     """Server 的 Task facade；所有生命周期操作发往独立 Collector。"""
 
-    def __init__(self, collector: CollectorPort, *, worker_id: str) -> None:
-        self._collector = collector
-        self._worker_id = worker_id
+    def __init__(self, collectors: CollectorDirectory) -> None:
+        self._collectors = collectors
 
     async def list_tasks(self) -> list[TaskDetail]:
-        rows = await self._collector.list_tasks()
+        worker_id, collector = self._default_collector()
+        rows = await collector.list_tasks()
         return [
-            TaskDetail.model_validate({**row, "assigned_worker_id": self._worker_id})
+            TaskDetail.model_validate({**row, "assigned_worker_id": worker_id})
             for row in rows
         ]
 
     async def list_task_summaries(self) -> list[TaskSummary]:
-        rows = await self._collector.list_tasks()
+        worker_id, collector = self._default_collector()
+        rows = await collector.list_tasks()
         return [
-            TaskSummary.model_validate({**row, "assigned_worker_id": self._worker_id})
+            TaskSummary.model_validate({**row, "assigned_worker_id": worker_id})
             for row in rows
         ]
 
     async def list_instances(self) -> list[TaskInstanceDetail]:
-        rows = await self._collector.list_task_instances()
+        worker_id, collector = self._default_collector()
+        rows = await collector.list_task_instances()
         return [
             TaskInstanceDetail.model_validate(
-                {**row, "assigned_worker_id": self._worker_id}
+                {**row, "assigned_worker_id": worker_id}
             )
             for row in rows
         ]
@@ -103,31 +106,46 @@ class CollectorTaskUseCase:
         return [row for row in await self.list_instances() if row.task_id == task_id]
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
-        data = await self._collector.start_task_instance(instance_id)
+        current = await self.get_instance(instance_id)
+        collector = self._collectors.get(current.assigned_worker_id)
+        data = await collector.start_task_instance(instance_id)
         return TaskInstanceDetail.model_validate(
-            {**data, "assigned_worker_id": self._worker_id}
+            {**data, "assigned_worker_id": current.assigned_worker_id}
         )
 
     async def stop_instance(self, instance_id: str) -> TaskInstanceDetail:
-        data = await self._collector.stop_task_instance(instance_id)
+        current = await self.get_instance(instance_id)
+        collector = self._collectors.get(current.assigned_worker_id)
+        data = await collector.stop_task_instance(instance_id)
         return TaskInstanceDetail.model_validate(
-            {**data, "assigned_worker_id": self._worker_id}
+            {**data, "assigned_worker_id": current.assigned_worker_id}
         )
 
     async def start_task(self, task_id: str) -> TaskSummary:
-        data = await self._collector.start_task(task_id)
+        current = await self.get_task_summary(task_id)
+        collector = self._collectors.get(current.assigned_worker_id)
+        data = await collector.start_task(task_id)
         return TaskSummary.model_validate(
-            {**data, "assigned_worker_id": self._worker_id}
+            {**data, "assigned_worker_id": current.assigned_worker_id}
         )
 
     async def stop_task(self, task_id: str) -> TaskSummary:
-        data = await self._collector.stop_task(task_id)
+        current = await self.get_task_summary(task_id)
+        collector = self._collectors.get(current.assigned_worker_id)
+        data = await collector.stop_task(task_id)
         return TaskSummary.model_validate(
-            {**data, "assigned_worker_id": self._worker_id}
+            {**data, "assigned_worker_id": current.assigned_worker_id}
         )
 
     async def start_all_instances(self) -> TaskBatchResult:
-        return TaskBatchResult.model_validate(await self._collector.start_all())
+        _, collector = self._default_collector()
+        return TaskBatchResult.model_validate(await collector.start_all())
 
     async def stop_all_instances(self) -> TaskBatchResult:
-        return TaskBatchResult.model_validate(await self._collector.stop_all())
+        _, collector = self._default_collector()
+        return TaskBatchResult.model_validate(await collector.stop_all())
+
+    def _default_collector(self) -> tuple[str, CollectorPort]:
+        """返回当前默认 Collector 的逻辑 ID 与出站端口。"""
+        worker_id = self._collectors.default_worker_id
+        return worker_id, self._collectors.get(worker_id)
