@@ -98,7 +98,7 @@ def assemble_server(
     )
     worker_query = WorkerQueryUseCase(collector_client, commander_client)
     worker_tasks = CollectorTaskUseCase(collector_client)
-    devices = DeviceUseCase(collector.runtime, config)
+    devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
         collector.runtime,
         config,
