@@ -135,6 +135,32 @@ class ConfigUseCase:
         """加载当前 Server 管理的配置目录。"""
         return load_config(self._config_dir)
 
+    def initialize_desired_revision(self) -> None:
+        """基于当前稳定磁盘配置建立 bootstrap desired revision。
+
+        若已有成功事务产生的 desired revision 则保持不变。初始化前重新加载并
+        校验磁盘配置，确认其与 Server current_config 无结构差异且读取期间未变化。
+        """
+        if self._desired_revision is not None:
+            return
+
+        before_hash = fingerprint_config_set(self._config_dir)
+        candidate = self.load_disk()
+        config_hash = fingerprint_config_set(self._config_dir)
+        if before_hash != config_hash:
+            raise ValueError(
+                "config changed while initializing desired revision: "
+                f"before={before_hash} after={config_hash}"
+            )
+        diff = compute_diff(self._current, candidate)
+        if diff.has_any_changes:
+            raise ValueError(
+                "current config differs from disk while initializing desired revision"
+            )
+
+        self._desired_revision = f"bootstrap-{config_hash}"
+        self._desired_config_hash = config_hash
+
     async def reload(self, *, force_workers: bool = False) -> ReloadResult:
         """串行执行双 Worker 配置事务。
 

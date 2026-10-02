@@ -95,6 +95,44 @@ async def _reload_loop(
         await reload_once(config, validator)
 
 
+async def _reconcile_loop(
+    config: ConfigUseCase,
+    *,
+    interval: float,
+) -> None:
+    """立即并周期检查 Worker 配置 revision，仅记录异常或实际收敛。"""
+    while True:
+        try:
+            outcomes = await config.reconcile_workers()
+            noteworthy = {
+                name: outcome
+                for name, outcome in outcomes.items()
+                if outcome != "already-current"
+            }
+            if noteworthy:
+                has_error = any(
+                    outcome.startswith(
+                        (
+                            "status-error:",
+                            "prepare-error:",
+                            "prepare-failed:",
+                            "prepare-hash-mismatch:",
+                            "activate-failed:",
+                            "activate-unknown:",
+                        )
+                    )
+                    for outcome in noteworthy.values()
+                )
+                log = logger.warning if has_error else logger.info
+                log("worker config reconciliation: %s", noteworthy)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("worker config reconciliation failed", exc_info=True)
+
+        await asyncio.sleep(interval)
+
+
 def _install_signal_handlers(
     shutdown_event: asyncio.Event,
     reload_event: asyncio.Event,
@@ -144,6 +182,8 @@ async def run_server(settings: ServerSettings) -> int:
             activation.diff.point_tables_changed,
         )
 
+    runtime.config.initialize_desired_revision()
+
     runtime.log_store.install()
     set_context(runtime.context)
 
@@ -154,6 +194,7 @@ async def run_server(settings: ServerSettings) -> int:
     server = build_api_server(runtime, settings)
     api_task: asyncio.Task[None] | None = None
     reload_task: asyncio.Task[None] | None = None
+    reconcile_task: asyncio.Task[None] | None = None
 
     try:
         api_task = asyncio.create_task(server.serve())
@@ -169,13 +210,28 @@ async def run_server(settings: ServerSettings) -> int:
         reload_task = asyncio.create_task(
             _reload_loop(reload_event, runtime.config, validator)
         )
+        reconcile_task = asyncio.create_task(
+            _reconcile_loop(
+                runtime.config,
+                interval=settings.reconcile_interval,
+            )
+        )
         await shutdown_event.wait()
         logger.info("收到停机信号，开始优雅停机")
     finally:
         try:
-            if reload_task is not None:
-                reload_task.cancel()
-                await asyncio.gather(reload_task, return_exceptions=True)
+            background_tasks = [
+                task
+                for task in (reload_task, reconcile_task)
+                if task is not None
+            ]
+            for task in background_tasks:
+                task.cancel()
+            if background_tasks:
+                await asyncio.gather(
+                    *background_tasks,
+                    return_exceptions=True,
+                )
 
             server.should_exit = True
             if api_task is not None:
