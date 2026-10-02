@@ -11,6 +11,7 @@ Task Instance；不会自动启动采集任务。设备或 Sink 单项启动失�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -135,8 +136,12 @@ class RuntimeLifecycle:
             for instance_id in self._runtime._instance_states:
                 self._runtime._instance_states[instance_id] = TaskInstanceState.STOPPED
 
-            for queue in self._runtime._queues.values():
-                await queue.put([])
+            # 只向真正存在 consumer 的 Sink queue 投递终止哨兵。启动失败的
+            # Sink 没有 consumer；若其 queue 已满，对该 queue 执行 put 会使
+            # 优雅停机永久阻塞。
+            for name in self._runtime._sink_tasks:
+                await self._runtime._queues[name].put([])
+
             for task in self._runtime._sink_tasks.values():
                 try:
                     await asyncio.wait_for(
@@ -145,6 +150,8 @@ class RuntimeLifecycle:
                     )
                 except TimeoutError:
                     task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
                 except asyncio.CancelledError:
                     pass
             self._runtime._sink_tasks.clear()
