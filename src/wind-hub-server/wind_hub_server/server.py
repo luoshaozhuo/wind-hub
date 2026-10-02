@@ -178,8 +178,8 @@ async def run_server(settings: ServerSettings) -> int:
     startup_config = ConfigUseCase.load_directory(settings.config_dir)
     runtime = assemble_server(
         settings.config_dir,
-        collector_targets=settings.collector_endpoints,
-        commander_target=settings.commander_target,
+        collectors=settings.collector_endpoints,
+        commander=settings.commander,
     )
     validator = ServerConfigValidator(
         settings.config_dir,

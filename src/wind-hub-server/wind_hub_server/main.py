@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import Sequence
+from pathlib import Path
 
 from wind_hub_server.server import run_server
 from wind_hub_server.settings import ServerSettings
@@ -43,16 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="uvicorn 日志级别（debug/info/warning/error/critical）",
     )
     parser.add_argument(
-        "--collector-target",
+        "--collector",
         action="append",
         default=None,
-        help=(
-            "Collector gRPC endpoint，可重复；多 Collector 使用 "
-            "'worker_id=host:port'，单 Collector 兼容直接写 host:port"
-        ),
+        help="Collector，可重复，格式 worker_id=host:port",
     )
     parser.add_argument(
-        "--commander-target",
+        "--commander",
         default="127.0.0.1:50052",
         help="Commander gRPC endpoint，默认 127.0.0.1:50052",
     )
@@ -81,14 +79,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         服务进程退出码。
     """
     args = build_parser().parse_args(argv)
-    settings = ServerSettings.from_values(
-        args.config,
+    settings = ServerSettings(
+        config_dir=Path(args.config),
         host=args.host,
         port=args.port,
         shutdown_timeout=args.shutdown_timeout,
         log_level=args.log_level,
-        collector_targets=args.collector_target,
-        commander_target=args.commander_target,
+        collectors=tuple(args.collector or ["collector=127.0.0.1:50051"]),
+        commander=args.commander,
         reconcile_interval=args.reconcile_interval,
         worker_probe_interval=args.worker_probe_interval,
     )

@@ -63,18 +63,18 @@ class ServerRuntime:
 def assemble_server(
     config_dir: str | Path,
     *,
-    collector_targets: dict[str, str] | None = None,
-    commander_target: str = "127.0.0.1:50052",
+    collectors: dict[str, str],
+    commander: str,
 ) -> ServerRuntime:
     """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
-    endpoints = dict(collector_targets or {"collector": "127.0.0.1:50051"})
+    endpoints = dict(collectors)
     if not endpoints:
-        raise ValueError("collector_targets must not be empty")
+        raise ValueError("collectors must not be empty")
     collector_clients = {
         worker_id: CollectorGrpcClient(endpoint)
         for worker_id, endpoint in endpoints.items()
     }
-    commander_client = CommanderGrpcClient(commander_target)
+    commander_client = CommanderGrpcClient(commander)
 
     latest = InMemoryLatestPointStore()
     trend = InMemoryTrendStore(max_samples_per_point=3600)
@@ -101,7 +101,7 @@ def assemble_server(
     commander_definition = WorkerDefinition(
         worker_id=COMMANDER_WORKER_ID,
         role=WorkerRole.COMMANDER,
-        endpoint=commander_target,
+        endpoint=commander,
         capabilities=[
             WorkerCapability.CONFIG,
             WorkerCapability.DEVICE_IO,
