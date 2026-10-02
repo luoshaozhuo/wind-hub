@@ -12,6 +12,8 @@ runtime:
   backpressure_policy: drop_old
   shutdown_timeout: 30.0
   connect_timeout: 10.0
+  # Runtime 启动时并发连接设备的上限
+  connect_concurrency: 32
   read_timeout: 5.0
   write_timeout: 5.0
 
