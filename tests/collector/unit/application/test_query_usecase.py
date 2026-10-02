@@ -153,6 +153,40 @@ async def test_read_point_returns_protocol_value() -> None:
     proto.read.assert_awaited_once_with([PointRef(device_id="d1", point_id="p1")])
 
 
+async def test_read_point_forces_reconnect_before_protocol_read() -> None:
+    proto = _protocol(read_values=[_value(value=7.0)])
+    runtime = _runtime(
+        devices={"d1": _device()},
+        protocols={"d1": proto},
+        points={"d1": [_point()]},
+    )
+    runtime.ensure_connected = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    usecase = QueryUseCase(runtime)
+
+    value = await usecase.read_point("d1", "p1")
+
+    assert value.value == 7.0
+    runtime.ensure_connected.assert_awaited_once_with("d1", force=True)
+    proto.read.assert_awaited_once()
+
+
+async def test_read_point_reconnect_failure_skips_protocol_read() -> None:
+    proto = _protocol(read_values=[_value(value=7.0)])
+    runtime = _runtime(
+        devices={"d1": _device()},
+        protocols={"d1": proto},
+        points={"d1": [_point()]},
+    )
+    runtime.ensure_connected = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    usecase = QueryUseCase(runtime)
+
+    with pytest.raises(ProtocolError, match="not connected"):
+        await usecase.read_point("d1", "p1")
+
+    runtime.ensure_connected.assert_awaited_once_with("d1", force=True)
+    proto.read.assert_not_awaited()
+
+
 async def test_read_point_unknown_device_raises_command_error() -> None:
     usecase = QueryUseCase(_runtime(devices={"d1": _device()}))
 
