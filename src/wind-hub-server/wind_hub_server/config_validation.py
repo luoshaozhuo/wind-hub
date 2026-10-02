@@ -16,8 +16,8 @@ from pathlib import Path
 
 import yaml
 
-import wind_hub.adapter.outbound.protocol  # noqa: F401
-from wind_hub.adapter.outbound.protocol.ads import router as ads_router
+import wind_hub_core.protocol  # noqa: F401
+from wind_hub_core.protocol.ads import router as ads_router
 from wind_hub.config.schema import Config
 from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.point import PointRef, Quality

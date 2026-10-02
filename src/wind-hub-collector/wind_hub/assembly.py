@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
-import wind_hub.adapter.outbound.protocol  # noqa: F401
+import wind_hub_core.protocol  # noqa: F401
 from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
@@ -204,7 +204,7 @@ async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
     ):
         return
 
-    from wind_hub.adapter.outbound.protocol.ads import router as ads_router
+    from wind_hub_core.protocol.ads import router as ads_router
 
     try:
         await ads_router.ensure_local_initialized(ads_cfg)
