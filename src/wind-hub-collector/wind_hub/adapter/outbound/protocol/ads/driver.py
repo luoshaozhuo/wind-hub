@@ -225,10 +225,11 @@ class ADSDriver:
         return last_exc
 
     async def _do_connect(self) -> None:
-        """创建唯一 ADS Connection，并在首连时解析 symbol 地址。
+        """创建唯一 ADS Connection，并解析当前 session 的 symbol 地址。
 
         重连前先关闭旧 Connection，避免传输失败后残留的 open 对象导致
-        同一 PLC 被重复建连。已解析的点表地址在 Driver 生命周期内复用。
+        同一 PLC 被重复建连。每次建立新 ADS session 后，所有 symbol 派生
+        地址都会失效并重新解析；纯 index-only 点继续复用配置地址。
         """
         pyads = _pyads()
         self._close_connection()
@@ -240,21 +241,32 @@ class ADSDriver:
             connection.close()
             raise ProtocolError(f"ADS: failed to open connection to {self._host}")
         self._connection = connection
+        self._invalidate_symbol_addresses()
         await self._resolve_points_once()
+
+    def _invalidate_symbol_addresses(self) -> None:
+        """新 ADS session 建立后失效所有 symbol 派生运行地址。"""
+        changed = False
+        for point_id, point in list(self._points.items()):
+            if point.symbol is None:
+                continue
+            if point.address_resolved:
+                self._points[point_id] = replace(point, address_resolved=False)
+            changed = True
+        if changed:
+            self._resolved_revision = -1
 
     async def _resolve_points_once(self) -> None:
         """解析当前点表中尚未拥有 index 地址的 symbol，并缓存结果。
 
         单个 symbol 不存在只保留为未解析点，后续读时返回 BAD；连接级异常
-        继续上抛，让现有 reconnect 机制处理。一个 mapping revision 至多
-        执行一次解析，避免每个采样周期重复查询符号信息。
+        继续上抛，让现有 reconnect 机制处理。同一 mapping revision 在同一
+        ADS session 内至多解析一次；新 session 会先失效 symbol 地址再重解析。
         """
         if self._resolved_revision == self._mapping_revision:
             return
         for point_id, point in list(self._points.items()):
-            if point.address_resolved:
-                continue
-            if point.symbol is None:
+            if point.symbol is None or point.address_resolved:
                 continue
             try:
                 symbol = await asyncio.to_thread(self._connection.get_symbol, point.symbol)
