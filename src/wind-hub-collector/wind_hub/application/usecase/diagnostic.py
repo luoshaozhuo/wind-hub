@@ -154,7 +154,7 @@ class DiagnosticUseCase:
                 protocol_ok = True
                 protocol_message = "protocol session is healthy"
             else:
-                protocol_ok = await self._runtime.ensure_connected(device_id)
+                protocol_ok = await self._runtime.ensure_connected(device_id, force=True)
                 if protocol_ok:
                     protocol_message = "protocol reconnect succeeded"
                 else:
@@ -334,7 +334,7 @@ class DiagnosticUseCase:
     ) -> list[PointVerifyResult]:
         """使用当前 Runtime Driver 批量读取原始值，并逐点形成诊断结果。"""
         device = self._device(device_id)
-        if not await self._runtime.ensure_connected(device_id):
+        if not await self._runtime.ensure_connected(device_id, force=True):
             error = "device protocol session is unavailable"
             return [
                 self._point_result(
