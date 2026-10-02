@@ -687,6 +687,11 @@ class Runtime:
         self._devices[device_id] = device
         self._device_states[device_id] = DeviceRuntimeState()
 
+        if not cfg.enabled:
+            await self._sync_task_instances()
+            logger.info("Hot-reload: device '%s' added disabled", device_id)
+            return
+
         try:
             await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
             self._device_states[device_id].mark_success(self._clock())
@@ -766,25 +771,27 @@ class Runtime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
 
-        try:
-            await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
-            self._device_states[device_id].mark_success(self._clock())
-            logger.info("Hot-reload: device '%s' reconnected", device_id)
-        except TimeoutError:
-            self._note_connect_failure(device_id, TimeoutError("connect timeout"))
-            logger.warning(
-                "connect timeout: device=%s timeout=%.1fs — connect failed after rebuild",
-                device_id,
-                self._config.connect_timeout,
-            )
-        except Exception as exc:
-            self._note_connect_failure(device_id, exc)
-            logger.warning(
-                "Hot-reload: device '%s' connect failed after rebuild",
-                device_id,
-                exc_info=True,
-            )
-
+        if new_cfg.enabled:
+            try:
+                await asyncio.wait_for(device.connect(), timeout=self._config.connect_timeout)
+                self._device_states[device_id].mark_success(self._clock())
+                logger.info("Hot-reload: device '%s' reconnected", device_id)
+            except TimeoutError:
+                self._note_connect_failure(device_id, TimeoutError("connect timeout"))
+                logger.warning(
+                    "connect timeout: device=%s timeout=%.1fs — connect failed after rebuild",
+                    device_id,
+                    self._config.connect_timeout,
+                )
+            except Exception as exc:
+                self._note_connect_failure(device_id, exc)
+                logger.warning(
+                    "Hot-reload: device '%s' connect failed after rebuild",
+                    device_id,
+                    exc_info=True,
+                )
+        else:
+            logger.info("Hot-reload: device '%s' disabled — connection skipped", device_id)
         # device_group / enabled 可能随新配置变化——重新展开采集实例。
         await self._sync_task_instances()
 
