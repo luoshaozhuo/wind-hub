@@ -14,23 +14,31 @@
 
 ### 2.1 推荐物理分类
 
-测试代码默认按职责边界组织在 `tests/` 下：
+测试代码按**组件优先、测试层次次之**组织在 `tests/` 下：
 
 ```text
-tests/unit/
-tests/integration/
-tests/e2e/
-tests/deployment/
-tests/performance/
+tests/
+├── collector/
+│   ├── unit/
+│   ├── integration/
+│   └── perf/
+├── server/
+│   ├── unit/
+│   └── integration/
+├── ctl/
+│   └── unit/
+├── tools/
+│   └── integration/
+└── fixtures/
 ```
 
 说明：
 
-1. `unit` 用于局部规则、分支、映射、错误语义和边界条件验证。
-2. `integration` 用于单个子系统内部或明确边界内的组件协作验证。
-3. `e2e` 用于从外部入口到外部可见结果的完整产品级链路验证。
-4. `deployment` 用于部署入口、配置装配、health/ready、最小部署闭环验证。
-5. `performance` 用于性能、容量、长稳、资源占用等高成本验证。
+1. 第一层目录表达组件归属，避免 Server/Collector/ctl 测试互相混杂。
+2. `unit` 用于局部规则、分支、映射、错误语义和边界条件验证。
+3. `integration` 用于组件内部或明确组件边界上的协作验证。
+4. `perf` 当前归属 Collector，用于协议采集、网络损伤、容量和资源性能验证。
+5. 共享模拟协议 Server、NullSink 等测试基础设施放在 `tests/fixtures/`。
 
 ### 2.2 物理分类边界
 
