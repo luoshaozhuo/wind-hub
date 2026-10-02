@@ -938,16 +938,29 @@ class TestCoreLifecycleHardening:
         finally:
             await rt.stop()
 
-    async def test_stop_does_not_block_on_full_queue_without_consumer(self) -> None:
+    async def test_unavailable_sink_drops_without_blocking(self) -> None:
         rt, _, sinks, _ = _build_runtime(
             devices=[],
             tasks=[],
-            backpressure="drop_new",
+            backpressure="block",
             queue_maxsize=1,
         )
         sinks["s1"].open = AsyncMock(side_effect=RuntimeError("open failed"))
         await rt.start()
         await rt.dispatch({"s1": [_value()]})
+        assert rt.sink_queue_depths()["s1"] == 0
+        assert rt.points_dropped == 1
+        await rt.stop()
+
+    async def test_stop_does_not_block_on_full_queue_without_consumer(self) -> None:
+        rt, _, sinks, _ = _build_runtime(
+            devices=[],
+            tasks=[],
+            queue_maxsize=1,
+        )
+        sinks["s1"].open = AsyncMock(side_effect=RuntimeError("open failed"))
+        await rt.start()
+        await rt._queues["s1"].put([_value()])  # noqa: SLF001
         assert rt.sink_queue_depths()["s1"] == 1
         await asyncio.wait_for(rt.stop(), timeout=0.2)
         assert rt.running is False
