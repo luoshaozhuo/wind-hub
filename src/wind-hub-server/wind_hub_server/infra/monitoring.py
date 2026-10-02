@@ -18,8 +18,8 @@ from wind_hub_server.application.port.monitoring import (
     HostSnapshot,
     MonitoringEvent,
 )
-from wind_hub.application.runtime.runtime import Runtime
 from wind_hub_core.model.point import PointValue, Quality
+from wind_hub_server.application.port.worker import CollectorPort
 
 
 class MonitoringMetrics:
@@ -104,6 +104,59 @@ class MonitoringMetrics:
                 reconnects=self._reconnects,
             )
 
+    def apply_remote(self, snapshot: dict[str, object]) -> None:
+        """用 Collector 累计指标快照覆盖本地查询视图。"""
+        counters = snapshot.get("counters")
+        if not isinstance(counters, dict):
+            counters = {}
+        with self._lock:
+            self._points_total = int(counters.get("points_total") or 0)
+            self._points_bad = int(counters.get("points_bad") or 0)
+            self._runs = int(counters.get("acquisition_runs") or 0)
+            self._failures = int(counters.get("acquisition_failures") or 0)
+            self._partial = int(counters.get("acquisition_partial") or 0)
+            self._missed = int(counters.get("missed_cycles") or 0)
+            self._overruns = int(counters.get("poll_overruns") or 0)
+            self._connect_failures = int(counters.get("connect_failures") or 0)
+            self._reconnects = int(counters.get("reconnects") or 0)
+
+            failures = snapshot.get("device_connect_failures")
+            reconnects = snapshot.get("device_reconnects")
+            self._device_connect_failures = defaultdict(
+                int,
+                {
+                    str(key): int(value)
+                    for key, value in (failures.items() if isinstance(failures, dict) else [])
+                },
+            )
+            self._device_reconnects = defaultdict(
+                int,
+                {
+                    str(key): int(value)
+                    for key, value in (reconnects.items() if isinstance(reconnects, dict) else [])
+                },
+            )
+
+            events = snapshot.get("events")
+            self._events.clear()
+            if isinstance(events, list):
+                for item in events:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_time = item.get("timestamp")
+                    try:
+                        timestamp = datetime.fromisoformat(str(raw_time))
+                    except ValueError:
+                        continue
+                    self._events.append(
+                        MonitoringEvent(
+                            timestamp=timestamp,
+                            kind=str(item.get("kind") or ""),
+                            object=str(item.get("object") or ""),
+                            message=str(item.get("message") or ""),
+                        )
+                    )
+
     def device_counts(self, device_id: str) -> tuple[int, int]:
         """返回设备 connect failure / reconnect 累计数。"""
         with self._lock:
@@ -123,62 +176,22 @@ class MonitoringMetrics:
         )
 
 
-class RuntimeMetricsTarget(Protocol):
-    """Runtime metrics 事件接收端口的结构化本地协议。"""
-
-    def acquisition_run_finished(
-        self, device_id: str, group: str, outcome: str, duration: float | None
-    ) -> None: ...
-
-    def acquisition_poll_stats(
-        self, device_id: str, group: str, jitter: float, overrun: bool, missed: int
-    ) -> None: ...
-
-    def device_connect_failed(self, device_id: str, protocol: str) -> None: ...
-
-    def device_reconnected(self, device_id: str, protocol: str) -> None: ...
-
-
-class CompositeRuntimeMetrics:
-    """把同一 Runtime 事件扇出到多个 metrics sink。"""
-
-    def __init__(self, *targets: RuntimeMetricsTarget) -> None:
-        self._targets = targets
-
-    def acquisition_run_finished(
-        self, device_id: str, group: str, outcome: str, duration: float | None
-    ) -> None:
-        for target in self._targets:
-            target.acquisition_run_finished(device_id, group, outcome, duration)
-
-    def acquisition_poll_stats(
-        self, device_id: str, group: str, jitter: float, overrun: bool, missed: int
-    ) -> None:
-        for target in self._targets:
-            target.acquisition_poll_stats(device_id, group, jitter, overrun, missed)
-
-    def device_connect_failed(self, device_id: str, protocol: str) -> None:
-        for target in self._targets:
-            target.device_connect_failed(device_id, protocol)
-
-    def device_reconnected(self, device_id: str, protocol: str) -> None:
-        for target in self._targets:
-            target.device_reconnected(device_id, protocol)
-
-
 class MonitoringService:
     """每分钟采一份 Runtime + Host 快照，最多保留 30 天。"""
 
     def __init__(
         self,
-        runtime: Runtime,
+        collector: CollectorPort,
         metrics: MonitoringMetrics,
         *,
         interval: float = 60.0,
         retention_days: int = 30,
     ) -> None:
-        self._runtime = runtime
+        self._collector = collector
         self._metrics = metrics
+        self._runtime_status: dict[str, object] = {}
+        self._devices: list[dict[str, object]] = []
+        self._sinks: list[dict[str, object]] = []
         self._interval = interval
         max_samples = max(2, int(retention_days * 86400 / interval) + 2)
         self._history: deque[HostSnapshot] = deque(maxlen=max_samples)
@@ -196,8 +209,34 @@ class MonitoringService:
         """启动后台采样；幂等。"""
         if self._task is not None and not self._task.done():
             return
-        self.capture_now()
+        await self.refresh_now()
         self._task = asyncio.create_task(self._loop())
+
+    async def refresh_now(self) -> HostSnapshot:
+        """立即刷新一次 Collector 低频状态并记录 HostSnapshot。"""
+        status, metrics, devices, sinks = await asyncio.gather(
+            self._collector.runtime_status(),
+            self._collector.metrics_snapshot(),
+            self._collector.list_devices(),
+            self._collector.list_sinks(),
+        )
+        self._runtime_status = dict(status)
+        self._devices = [dict(item) for item in devices]
+        self._sinks = [dict(item) for item in sinks]
+        self._metrics.apply_remote(dict(metrics))
+        return self.capture_now()
+
+    def runtime_status(self) -> dict[str, object]:
+        """返回最近一次 Collector Runtime 状态缓存。"""
+        return dict(self._runtime_status)
+
+    def devices_snapshot(self) -> list[dict[str, object]]:
+        """返回最近一次设备运行态缓存。"""
+        return [dict(item) for item in self._devices]
+
+    def sinks_snapshot(self) -> list[dict[str, object]]:
+        """返回最近一次 Sink 运行态缓存。"""
+        return [dict(item) for item in self._sinks]
 
     async def stop(self) -> None:
         """停止后台采样；幂等。"""
@@ -222,9 +261,9 @@ class MonitoringService:
             process_rss_gb=self._process_rss_gb(),
             disk_free_gb=disk.free / 1024**3,
             disk_total_gb=disk.total / 1024**3,
-            points_collected=self._runtime.points_collected,
-            points_routed=self._runtime.points_routed,
-            points_dropped=self._runtime.points_dropped,
+            points_collected=int(self._runtime_status.get("points_collected") or 0),
+            points_routed=int(self._runtime_status.get("points_routed") or 0),
+            points_dropped=int(self._runtime_status.get("points_dropped") or 0),
             counters=self._metrics.counters(),
         )
         self._history.append(snapshot)
@@ -240,7 +279,11 @@ class MonitoringService:
     async def _loop(self) -> None:
         while True:
             await asyncio.sleep(self._interval)
-            self.capture_now()
+            try:
+                await self.refresh_now()
+            except Exception:
+                # Collector 暂时不可达时保留最后一次成功快照，下一周期重试。
+                continue
 
     @staticmethod
     def _memory_gb() -> tuple[float | None, float | None]:
