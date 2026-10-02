@@ -51,7 +51,7 @@ class FakeConnection:
 
     def __init__(self, net_id: object, port: object, host: object) -> None:
         self.is_open = False
-        self.callbacks: dict[str, object] = {}
+        self.callbacks: dict[tuple[int, int], object] = {}
         self.del_count = 0
         FakeConnection.instances.append(self)
 
@@ -64,11 +64,21 @@ class FakeConnection:
     def close(self) -> None:
         self.is_open = False
 
+    def notification(self, plc_datatype: object) -> object:
+        def decorator(callback: object) -> object:
+            return callback
+
+        return decorator
+
     def add_device_notification(
-        self, symbol: str, attr: object, callback: object, user_handle: object = None
+        self,
+        address: tuple[int, int],
+        attr: object,
+        callback: object,
+        user_handle: object = None,
     ) -> tuple[object, object]:
-        handle: tuple[object, object] = (symbol, "handle")
-        self.callbacks[symbol] = callback
+        handle: tuple[object, object] = (address, "handle")
+        self.callbacks[address] = callback
         return (handle, user_handle)
 
     def del_device_notification(self, handle: object, user_handle: object) -> None:
@@ -83,7 +93,10 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _received(
-    points: list[ADSPoint], symbol: str, value: object, config: ADSConfig | None = None
+    points: list[ADSPoint],
+    address: tuple[int, int],
+    value: object,
+    config: ADSConfig | None = None,
 ) -> tuple[ADSSubscription, list[PointValue]]:
     received: list[PointValue] = []
 
@@ -100,7 +113,7 @@ async def _received(
     )
     await sub.subscribe(points)
     conn = sub._connections[0]  # noqa: SLF001
-    conn.callbacks[symbol](None, symbol, None, value)
+    conn.callbacks[address](None, address, None, value)
     await asyncio.sleep(0.05)  # let the loop run the drain coroutine
     return sub, received
 
@@ -118,7 +131,7 @@ class TestRegistration:
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
 
         assert len(sub._connections) == 1  # noqa: SLF001
-        assert set(sub._handles) == {"MAIN.a", "MAIN.b"}  # noqa: SLF001
+        assert set(sub._handles) == {"a", "b"}  # noqa: SLF001
         await sub.close()
 
     async def test_connection_split_at_threshold(self, patched: None) -> None:
@@ -134,7 +147,7 @@ class TestRegistration:
 
         assert len(sub._connections) == 2  # noqa: SLF001
         assert sub._loads == [2, 1]  # noqa: SLF001
-        assert set(sub._handles) == {"MAIN.a", "MAIN.b", "MAIN.c"}  # noqa: SLF001
+        assert set(sub._handles) == {"a", "b", "c"}  # noqa: SLF001
         await sub.close()
 
     async def test_subscribe_computes_set_difference(self, patched: None) -> None:
@@ -149,8 +162,8 @@ class TestRegistration:
         await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
         await sub.subscribe([_point("b", "MAIN.b"), _point("c", "MAIN.c")])
 
-        assert set(sub._handles) == {"MAIN.b", "MAIN.c"}  # noqa: SLF001
-        # only MAIN.a was unregistered
+        assert set(sub._handles) == {"b", "c"}  # noqa: SLF001
+        # only point a was unregistered
         assert sum(c.del_count for c in FakeConnection.instances) == 1
         await sub.close()
 
@@ -158,7 +171,7 @@ class TestRegistration:
 class TestDelivery:
     async def test_notification_delivers_point_value(self, patched: None) -> None:
         sub, received = await _received(
-            [_point("rotor.speed", "MAIN.rotorSpeed")], "MAIN.rotorSpeed", 1200.5
+            [_point("rotor.speed", "MAIN.rotorSpeed")], (0, 0), 1200.5
         )
 
         assert len(received) == 1
