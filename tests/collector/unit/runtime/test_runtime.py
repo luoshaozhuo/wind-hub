@@ -994,6 +994,60 @@ class TestReconfigure:
             await rt.stop()
 
 
+    async def test_subscription_restart_failure_returns_reload_error_and_retries(self) -> None:
+        """订阅重建失败不能被吞掉；下一次 reload 必须继续重试并恢复 RUNNING。"""
+        devices = [_make_device_config("d1", protocol="ads")]
+        task = _make_task("t1", device="d1", interval=0.02)
+        rt, protos, _, _ = _build_runtime(
+            devices=devices,
+            tasks=[task],
+            points={"d1": [_make_point("p1")]},
+        )
+        proto = protos["d1"]
+        proto.acquisition_mode = AcquisitionMode.SUBSCRIBE
+
+        first_subscription = MagicMock()
+        first_subscription.close = AsyncMock()
+        recovered_subscription = MagicMock()
+        recovered_subscription.close = AsyncMock()
+        proto.subscribe = AsyncMock(
+            side_effect=[
+                first_subscription,
+                RuntimeError("register failed"),
+                recovered_subscription,
+            ]
+        )
+
+        await rt.start()
+        try:
+            await rt.start_task_instance("t1:d1")
+            new_tables = {
+                "t1": ResolvedPointTable(
+                    protocol="ads",
+                    points=[_make_point("p1"), _make_point("p2")],
+                )
+            }
+            new_cfg = _full_config(devices=devices, tasks=[task], tables=new_tables)
+            diff = ConfigDiff(points_changed=True, point_tables_changed=["t1"])
+
+            errors1 = await rt.reconfigure(new_cfg, diff)
+
+            assert errors1
+            assert "tasks:" in errors1[0]
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            assert "t1:d1" in rt._restart_pending  # noqa: SLF001
+            assert proto.subscribe.await_count == 2
+
+            errors2 = await rt.reconfigure(new_cfg, diff)
+
+            assert errors2 == []
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+            assert "t1:d1" not in rt._restart_pending  # noqa: SLF001
+            assert proto.subscribe.await_count == 3
+        finally:
+            await rt.stop()
+
+
     async def test_point_table_binding_switch_restarts_running_subscription_handle(self) -> None:
         """设备切换到另一张既有点表时也必须重新注册订阅。"""
         d1 = _make_device_config("d1", protocol="ads", point_table="t1")
