@@ -118,7 +118,11 @@ def assemble(
             protocol=protocol,
         )
 
-    sinks = {sink.name: make_sink(sink) for sink in cfg.system.sinks}
+    sinks = {
+        sink.name: make_sink(sink)
+        for sink in cfg.system.sinks
+        if sink.enabled
+    }
 
     dispatcher = CommandDispatcher(
         devices,
@@ -194,16 +198,14 @@ async def start_runtime(rt: AssembledRuntime) -> None:
 
 
 async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
-    """存在 ADS 设备时执行一次进程级本机 AMS 初始化。"""
+    """配置了 system.ads 时预先执行一次进程级本机 AMS 初始化。
+
+    即使启动时没有 ADS Device 也初始化，使后续热新增 ADS Device 不需要重启
+    才能获得本机 AMS 身份。远端 PLC route 仍由现场部署/诊断流程管理。
+    """
     ads_cfg = rt.boot_config.system.ads
     if ads_cfg is None:
         return
-    if not any(
-        device.protocol == "ads"
-        for device in rt.boot_config.devices.devices
-    ):
-        return
-
     from wind_hub.adapter.outbound.protocol.ads import router as ads_router
 
     try:
