@@ -11,14 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from wind_hub.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub.adapter.outbound.sink.file.csv import FileSink
-from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub.application.port.sink import SinkPort
 from wind_hub.assembly import AssembledRuntime as CollectorRuntime
 from wind_hub.assembly import assemble as assemble_collector
-from wind_hub.config.schema import SinkConfig
-from wind_hub_core.model.errors import ConfigError
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
@@ -120,10 +114,9 @@ def assemble_server(
     settings = SettingsUseCase(config, config_admin)
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(
-        collector.runtime,
+        collector_client,
         config,
         config_admin,
-        _create_sink,
     )
     diagnostics = DiagnosticUseCase(
         commander_client,
@@ -175,13 +168,3 @@ def assemble_server(
     )
 
 
-def _create_sink(cfg: SinkConfig) -> SinkPort:
-    if cfg.type == "kafka":
-        return KafkaSink(cfg)
-    if cfg.type == "file":
-        return FileSink(cfg)
-    if cfg.type == "db":
-        return DBSink(cfg)
-    raise ConfigError(
-        f"Unknown sink type '{cfg.type}' (available: kafka, file, db)"
-    )

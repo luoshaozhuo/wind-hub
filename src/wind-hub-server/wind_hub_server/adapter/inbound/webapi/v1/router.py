@@ -574,13 +574,13 @@ async def delete_definition(kind: str, name: str) -> ConfigApplyResponse:
 
 @router.get("/sinks", response_model=list[SinkResponse], tags=["v1-sinks"])
 async def list_sinks() -> list[SinkResponse]:
-    return [SinkResponse(**row.model_dump()) for row in _sinks().list_sinks()]
+    return [SinkResponse(**row.model_dump()) for row in await _sinks().list_sinks()]
 
 
 @router.get("/sinks/{name}", response_model=SinkResponse, tags=["v1-sinks"])
 async def get_sink(name: str) -> SinkResponse:
     try:
-        row = _sinks().get_sink(name)
+        row = await _sinks().get_sink(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
     return SinkResponse(**row.model_dump())
