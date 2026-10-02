@@ -1030,27 +1030,47 @@ class Runtime:
         return config.points_for_device(device_id)
 
     async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建 sink；新实例由工厂创建。"""
-        factory = self._sink_factory
-        if factory is None and (diff.sinks.added or diff.sinks.updated):
-            raise RuntimeError("sink factory is not wired into Runtime")
-        new_sinks = {s.name: s for s in new_cfg.system.sinks}
+        """按新配置的 enabled 状态增删重建 Sink。
 
-        for name in diff.sinks.removed:
+        Runtime 只持有 enabled Sink。热重载时：
+        - enabled -> disabled：移除运行实例；
+        - disabled -> enabled：创建并启动运行实例；
+        - enabled 且配置更新：重建运行实例；
+        - disabled 且仍 disabled：不创建任何对象。
+        """
+        configured = {s.name: s for s in new_cfg.system.sinks}
+        desired = {name: cfg for name, cfg in configured.items() if cfg.enabled}
+        current = set(self._sinks)
+
+        changed = set(diff.sinks.added) | set(diff.sinks.updated) | set(diff.sinks.removed)
+        remove_names = sorted(
+            name for name in changed if name in current and name not in desired
+        )
+        add_names = sorted(
+            name for name in changed if name in desired and name not in current
+        )
+        rebuild_names = sorted(
+            name
+            for name in diff.sinks.updated
+            if name in desired and name in current
+        )
+
+        factory = self._sink_factory
+        if factory is None and (add_names or rebuild_names):
+            raise RuntimeError("sink factory is not wired into Runtime")
+
+        for name in remove_names:
             await self.remove_sink(name)
 
-        for name in diff.sinks.added:
-            cfg = new_sinks[name]
-            # 入口已守卫：有新增/更新时 factory 必然非 None
+        for name in add_names:
+            cfg = desired[name]
             assert factory is not None
-            sink = factory(cfg)
-            await self.add_sink(name, cfg, sink)
+            await self.add_sink(name, cfg, factory(cfg))
 
-        for name in diff.sinks.updated:
-            cfg = new_sinks[name]
-            assert factory is not None  # 同上——入口守卫保证
-            sink = factory(cfg)
-            await self.rebuild_sink(name, cfg, sink)
+        for name in rebuild_names:
+            cfg = desired[name]
+            assert factory is not None
+            await self.rebuild_sink(name, cfg, factory(cfg))
 
     # ------------------------------------------------------------------
     # 私有——sink 背压与消费者
