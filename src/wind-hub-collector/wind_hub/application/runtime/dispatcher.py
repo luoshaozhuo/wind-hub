@@ -34,7 +34,13 @@ class RuntimeSinkDispatcher:
             if not batch:
                 continue
             queue = self._runtime._queues.get(sink_name)
-            if queue is None:
+            if queue is None or sink_name in self._runtime._unhealthy_sinks:
+                self._runtime._points_dropped += len(batch)
+                logger.warning(
+                    "Sink '%s' unavailable — dropping batch (%d points)",
+                    sink_name,
+                    len(batch),
+                )
                 continue
             await self._handle_backpressure(queue, batch, sink_name)
 
