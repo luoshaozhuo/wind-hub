@@ -16,7 +16,6 @@ import threading
 from dataclasses import dataclass
 
 from wind_hub_server.application.operation import OperationManager
-from wind_hub.application.runtime import Runtime
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
@@ -55,9 +54,6 @@ class AppContext:
 
     tasks: CollectorTaskUseCase | None = None
     """可选采集 Task 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
-
-    runtime: Runtime | None = None
-    """可选 Runtime，供 /metrics 读取引擎快照。"""
 
     devices: DeviceUseCase | None = None
     """V1 设备查询用例；聚合静态配置与实时连接状态。"""

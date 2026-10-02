@@ -1,9 +1,8 @@
 """wind-hub-server composition root.
 
-Server-specific Admin/Web/Quality/Config objects live here.  The current
-transition keeps an embedded Collector core only as a compatibility backend;
-the ownership boundary is now explicit so it can later be replaced by gRPC
-Worker clients without putting Server concerns back into Collector assembly.
+Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
+Commander gRPC，采集 Task/运行态/Sink 状态经 Collector gRPC；Server 只持有
+配置管理、读模型、监控历史与 Web/Admin 用例。
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from wind_hub.assembly import AssembledRuntime as CollectorRuntime
-from wind_hub.assembly import assemble as assemble_collector
+from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
+from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
@@ -31,26 +30,15 @@ from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
-from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
-from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.infra.log_store import LogStore
-from wind_hub_server.infra.monitoring import (
-    CompositeRuntimeMetrics,
-    MonitoringMetrics,
-    MonitoringService,
-)
-from wind_hub_server.infra.point_store import (
-    InMemoryLatestPointStore,
-    InMemoryTrendStore,
-)
-from wind_hub_server.infra import metrics
+from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
+from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 
 
 @dataclass(slots=True)
 class ServerRuntime:
-    """Server composition result."""
+    """Server 独立对象图。"""
 
-    collector: CollectorRuntime
     context: AppContext
     config: ConfigUseCase
     monitoring: MonitoringService
@@ -65,8 +53,7 @@ def assemble_server(
     collector_target: str = "127.0.0.1:50051",
     commander_target: str = "127.0.0.1:50052",
 ) -> ServerRuntime:
-    """Build Server-owned management/read-model objects and Worker clients."""
-    collector = assemble_collector(config_dir)
+    """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
     collector_client = CollectorGrpcClient(collector_target)
     commander_client = CommanderGrpcClient(commander_target)
 
@@ -75,21 +62,13 @@ def assemble_server(
     monitoring_metrics = MonitoringMetrics()
     log_store = LogStore(capacity=2000)
 
-    collector.engine.add_observer(latest.put_batch)
-    collector.engine.add_observer(trend.append_batch)
-    collector.engine.add_observer(monitoring_metrics.observe_points)
-    collector.runtime.attach_metrics_hook(
-        CompositeRuntimeMetrics(
-            metrics.PrometheusRuntimeMetrics(),
-            monitoring_metrics,
-        )
-    )
-
+    startup_config = ConfigUseCase.load_directory(config_dir)
     config = ConfigUseCase(
         config_dir=config_dir,
-        runtime=collector.runtime,
-        current_config=collector.boot_config,
+        collector=collector_client,
+        current_config=startup_config,
     )
+
     worker_query = WorkerQueryUseCase(collector_client, commander_client)
     worker_tasks = CollectorTaskUseCase(collector_client)
     devices = DeviceUseCase(collector_client, config)
@@ -140,7 +119,6 @@ def assemble_server(
     context = AppContext(
         config=config,
         tasks=worker_tasks,
-        runtime=collector.runtime,
         query=worker_query,
         devices=devices,
         device_data=device_data,
@@ -158,7 +136,6 @@ def assemble_server(
         system_health=system_health,
     )
     return ServerRuntime(
-        collector=collector,
         context=context,
         config=config,
         monitoring=monitoring,
@@ -166,5 +143,3 @@ def assemble_server(
         collector_client=collector_client,
         commander_client=commander_client,
     )
-
-

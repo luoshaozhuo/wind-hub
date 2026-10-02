@@ -50,3 +50,6 @@ class WorkerQueryUseCase:
 
     async def list_devices(self) -> list[dict[str, object]]:
         return list(await self._collector.list_devices())
+
+    async def list_sinks(self) -> list[dict[str, object]]:
+        return list(await self._collector.list_sinks())

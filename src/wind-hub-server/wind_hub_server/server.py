@@ -12,8 +12,6 @@ import signal
 
 import uvicorn
 
-from wind_hub.assembly import start_runtime, stop_runtime
-from wind_hub.config.loader import load_config
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import clear_context, set_context
 from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
@@ -39,8 +37,8 @@ def build_api_server(
     )
     logger.info(
         "wind-hub-server API 启动中（%d 台设备，%d 个 sink）→ %s:%d",
-        runtime.collector.runtime.device_count,
-        runtime.collector.runtime.sink_count,
+        len(runtime.config.current_config.devices.devices),
+        len(runtime.config.current_config.system.sinks),
         settings.host,
         settings.port,
     )
@@ -55,7 +53,7 @@ async def reload_once(
     logger.info("收到 SIGHUP，开始热重载")
     if validator is not None:
         try:
-            candidate = load_config(config.config_dir)
+            candidate = config.load_disk()
             diff = compute_diff(config.current_config, candidate)
             summary = await validator.validate_added_devices(
                 candidate,
@@ -106,7 +104,7 @@ async def run_server(settings: ServerSettings) -> int:
     logging.basicConfig(level=logging.INFO)
 
     validator = ServerConfigValidator(settings.config_dir)
-    startup_config = load_config(settings.config_dir)
+    startup_config = ConfigUseCase.load_directory(settings.config_dir)
     validation = await validator.validate_startup(startup_config)
     logger.info(
         "startup active validation completed: devices=%d errors=%d repaired_points=%d",
@@ -132,15 +130,13 @@ async def run_server(settings: ServerSettings) -> int:
     reload_task: asyncio.Task[None] | None = None
 
     try:
-        # API listens first; device connection may take much longer.
         api_task = asyncio.create_task(server.serve())
-        await start_runtime(runtime.collector)
         await runtime.monitoring.start()
 
         logger.info(
             "wind-hub-server 已启动（%d 台设备，%d 个 sink）；API %s:%d",
-            runtime.collector.runtime.device_count,
-            runtime.collector.runtime.sink_count,
+            len(runtime.config.current_config.devices.devices),
+            len(runtime.config.current_config.system.sinks),
             settings.host,
             settings.port,
         )
@@ -160,10 +156,6 @@ async def run_server(settings: ServerSettings) -> int:
                 await api_task
 
             await runtime.monitoring.stop()
-            await stop_runtime(
-                runtime.collector,
-                timeout=settings.shutdown_timeout,
-            )
         finally:
             await asyncio.gather(
                 runtime.collector_client.close(),
