@@ -23,7 +23,9 @@ from wind_hub_core.model.reload import (
     SinkDiff,
     TaskDiff,
 )
-from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
+from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.worker import CommanderPort
+from wind_hub_server.application.worker_model import COMMANDER_WORKER_ID
 
 
 def compute_diff(old: Config, new: Config) -> ConfigDiff:
@@ -91,18 +93,25 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
 
 
 class ConfigUseCase:
-    """Server 配置成功基线与双 Worker prepare/activate 编排。"""
+    """Server 配置成功基线与多 Worker prepare/activate 编排。"""
 
     def __init__(
         self,
         config_dir: str | Path,
-        collector: CollectorPort,
+        collectors: CollectorDirectory,
         commander: CommanderPort,
         current_config: Config,
     ) -> None:
         self._config_dir = Path(config_dir)
-        self._collector = collector
+        self._collectors = collectors
         self._commander = commander
+        collector_ids = self._collectors.list_worker_ids()
+        if not collector_ids:
+            raise ValueError("at least one collector worker is required")
+        if COMMANDER_WORKER_ID in collector_ids:
+            raise ValueError(
+                f"collector worker_id '{COMMANDER_WORKER_ID}' conflicts with commander"
+            )
         self._current = current_config
         self._desired_revision: str | None = None
         self._desired_config_hash: str | None = None
@@ -193,7 +202,7 @@ class ConfigUseCase:
         )
 
     async def reload(self, *, force_workers: bool = False) -> ReloadResult:
-        """串行执行双 Worker 配置事务。"""
+        """串行执行全部已登记 Worker 的配置事务。"""
         if not self._accept_transactions:
             return self._closed_result()
         async with self._transaction_lock:
@@ -236,18 +245,22 @@ class ConfigUseCase:
             )
 
         revision_id = uuid4().hex
+        participant_ids = self._participant_ids()
         prepared = await asyncio.gather(
-            self._collector.prepare_config(
-                revision_id,
-                config_hash,
-                force_reconfigure=force_workers,
+            *(
+                self._prepare_participant(
+                    participant_id,
+                    revision_id,
+                    config_hash,
+                    force_workers=force_workers,
+                )
+                for participant_id in participant_ids
             ),
-            self._commander.prepare_config(revision_id, config_hash),
             return_exceptions=True,
         )
         errors: list[str] = []
         prepare_ok: list[bool] = []
-        for name, result in zip(("collector", "commander"), prepared, strict=True):
+        for name, result in zip(participant_ids, prepared, strict=True):
             if isinstance(result, BaseException):
                 errors.append(
                     f"{name} prepare failed: {str(result) or type(result).__name__}"
@@ -278,12 +291,14 @@ class ConfigUseCase:
             )
 
         activated = await asyncio.gather(
-            self._collector.activate_config(revision_id),
-            self._commander.activate_config(revision_id),
+            *(
+                self._activate_participant(participant_id, revision_id)
+                for participant_id in participant_ids
+            ),
             return_exceptions=True,
         )
         activate_ok: list[bool] = []
-        for name, result in zip(("collector", "commander"), activated, strict=True):
+        for name, result in zip(participant_ids, activated, strict=True):
             if isinstance(result, BaseException):
                 confirmed, confirm_error = await self._confirm_active_config(
                     name,
@@ -389,32 +404,34 @@ class ConfigUseCase:
             return errors
 
         revision_id = self._desired_revision or f"rollback-{self._applied_config_hash}"
+        participant_ids = self._participant_ids()
         outcomes = await asyncio.gather(
-            self._reconcile_worker(
-                "collector",
-                revision_id,
-                self._applied_config_hash,
-            ),
-            self._reconcile_worker(
-                "commander",
-                revision_id,
-                self._applied_config_hash,
-            ),
+            *(
+                self._reconcile_worker(
+                    participant_id,
+                    revision_id,
+                    self._applied_config_hash,
+                )
+                for participant_id in participant_ids
+            )
         )
-        for name, outcome in zip(("collector", "commander"), outcomes, strict=True):
+        for name, outcome in zip(participant_ids, outcomes, strict=True):
             if outcome not in {"reconciled", "already-current"}:
                 errors.append(f"{name} rollback failed: {outcome}")
         return errors
 
     async def _abort_prepared_revision(self, revision_id: str) -> list[str]:
-        """Prepare 整体失败后尽力撤销两端同 revision 候选状态。"""
+        """Prepare/Activate 失败后尽力撤销全部参与者同 revision 候选状态。"""
+        participant_ids = self._participant_ids()
         results = await asyncio.gather(
-            self._collector.abort_config(revision_id),
-            self._commander.abort_config(revision_id),
+            *(
+                self._abort_participant(participant_id, revision_id)
+                for participant_id in participant_ids
+            ),
             return_exceptions=True,
         )
         errors: list[str] = []
-        for name, result in zip(("collector", "commander"), results, strict=True):
+        for name, result in zip(participant_ids, results, strict=True):
             if isinstance(result, BaseException):
                 errors.append(
                     f"{name} abort failed: {str(result) or type(result).__name__}"
@@ -426,29 +443,40 @@ class ConfigUseCase:
         return errors
 
     async def reconcile_workers(self) -> dict[str, str]:
-        """按 revision + config hash 把 Worker 收敛到 desired 配置。"""
+        """按 revision + config hash 把全部 Worker 收敛到 desired 配置。"""
+        participant_ids = self._participant_ids()
         if not self._accept_transactions:
-            return {"collector": "transactions-closed", "commander": "transactions-closed"}
+            return {
+                participant_id: "transactions-closed"
+                for participant_id in participant_ids
+            }
         async with self._transaction_lock:
             if not self._accept_transactions:
-                return {"collector": "transactions-closed", "commander": "transactions-closed"}
+                return {
+                    participant_id: "transactions-closed"
+                    for participant_id in participant_ids
+                }
             revision_id = self._desired_revision
             config_hash = self._desired_config_hash
             if revision_id is None or config_hash is None:
                 return {
-                    "collector": "no-desired-revision",
-                    "commander": "no-desired-revision",
+                    participant_id: "no-desired-revision"
+                    for participant_id in participant_ids
                 }
 
             statuses = await asyncio.gather(
-                self._collector.config_status(),
-                self._commander.status(),
+                *(
+                    self._status_participant(participant_id)
+                    for participant_id in participant_ids
+                ),
                 return_exceptions=True,
             )
             outcomes: dict[str, str] = {}
-            for name, status in zip(("collector", "commander"), statuses, strict=True):
+            for name, status in zip(participant_ids, statuses, strict=True):
                 if isinstance(status, BaseException):
-                    outcomes[name] = "status-error:" + (str(status) or type(status).__name__)
+                    outcomes[name] = (
+                        "status-error:" + (str(status) or type(status).__name__)
+                    )
                     continue
                 active_revision = str(status.get("active_revision") or "")
                 active_hash = str(
@@ -474,19 +502,12 @@ class ConfigUseCase:
     ) -> str:
         """对单个偏离 Worker 执行 Prepare/Activate 并确认最终配置状态。"""
         try:
-            if worker == "collector":
-                prepared = await self._collector.prepare_config(
-                    revision_id,
-                    config_hash,
-                    force_reconfigure=True,
-                )
-            elif worker == "commander":
-                prepared = await self._commander.prepare_config(
-                    revision_id,
-                    config_hash,
-                )
-            else:
-                raise ValueError(f"unknown worker: {worker}")
+            prepared = await self._prepare_participant(
+                worker,
+                revision_id,
+                config_hash,
+                force_workers=True,
+            )
         except Exception as exc:
             return "prepare-error:" + (str(exc) or type(exc).__name__)
 
@@ -497,10 +518,7 @@ class ConfigUseCase:
             return "prepare-hash-mismatch:" + str(prepared.get("config_hash") or "")
 
         try:
-            if worker == "collector":
-                activated = await self._collector.activate_config(revision_id)
-            else:
-                activated = await self._commander.activate_config(revision_id)
+            activated = await self._activate_participant(worker, revision_id)
         except Exception as exc:
             confirmed, confirm_error = await self._confirm_active_config(
                 worker,
@@ -533,12 +551,7 @@ class ConfigUseCase:
     ) -> tuple[bool, str | None]:
         """RPC 异常后回查 active revision/hash，区分失败与结果未知。"""
         try:
-            if worker == "collector":
-                status = await self._collector.config_status()
-            elif worker == "commander":
-                status = await self._commander.status()
-            else:
-                raise ValueError(f"unknown worker: {worker}")
+            status = await self._status_participant(worker)
         except Exception as exc:
             return False, str(exc) or type(exc).__name__
 
@@ -549,6 +562,59 @@ class ConfigUseCase:
             or ""
         )
         return active_revision == revision_id and active_hash == config_hash, None
+
+    def _participant_ids(self) -> list[str]:
+        """返回稳定排序的配置事务参与者 ID。"""
+        collector_ids = self._collectors.list_worker_ids()
+        if COMMANDER_WORKER_ID in collector_ids:
+            raise ValueError(
+                f"collector worker_id '{COMMANDER_WORKER_ID}' conflicts with commander"
+            )
+        return [*collector_ids, COMMANDER_WORKER_ID]
+
+    async def _prepare_participant(
+        self,
+        worker: str,
+        revision_id: str,
+        config_hash: str,
+        *,
+        force_workers: bool,
+    ) -> dict[str, object]:
+        """Prepare 单个配置事务参与者。"""
+        if worker == COMMANDER_WORKER_ID:
+            return await self._commander.prepare_config(revision_id, config_hash)
+        collector = self._collectors.get(worker)
+        return await collector.prepare_config(
+            revision_id,
+            config_hash,
+            force_reconfigure=force_workers,
+        )
+
+    async def _activate_participant(
+        self,
+        worker: str,
+        revision_id: str,
+    ) -> dict[str, object]:
+        """Activate 单个配置事务参与者。"""
+        if worker == COMMANDER_WORKER_ID:
+            return await self._commander.activate_config(revision_id)
+        return await self._collectors.get(worker).activate_config(revision_id)
+
+    async def _abort_participant(
+        self,
+        worker: str,
+        revision_id: str,
+    ) -> dict[str, object]:
+        """Abort 单个配置事务参与者。"""
+        if worker == COMMANDER_WORKER_ID:
+            return await self._commander.abort_config(revision_id)
+        return await self._collectors.get(worker).abort_config(revision_id)
+
+    async def _status_participant(self, worker: str) -> dict[str, object]:
+        """读取单个配置事务参与者当前配置状态。"""
+        if worker == COMMANDER_WORKER_ID:
+            return await self._commander.status()
+        return await self._collectors.get(worker).config_status()
 
 
 __all__ = ["Config", "ConfigUseCase", "compute_diff"]

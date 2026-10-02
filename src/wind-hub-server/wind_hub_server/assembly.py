@@ -76,14 +76,7 @@ def assemble_server(
     log_store = LogStore(capacity=2000)
 
     startup_config = ConfigUseCase.load_directory(config_dir)
-    config = ConfigUseCase(
-        config_dir=config_dir,
-        collector=collector_client,
-        commander=commander_client,
-        current_config=startup_config,
-    )
 
-    worker_query = WorkerQueryUseCase(collector_client, commander_client)
     collector_definition = WorkerDefinition(
         worker_id=COLLECTOR_WORKER_ID,
         role=WorkerRole.COLLECTOR,
@@ -110,6 +103,13 @@ def assemble_server(
         {collector_definition.worker_id: collector_client},
         default_worker_id=collector_definition.worker_id,
     )
+    config = ConfigUseCase(
+        config_dir=config_dir,
+        collectors=collector_directory,
+        commander=commander_client,
+        current_config=startup_config,
+    )
+    worker_query = WorkerQueryUseCase(collector_client, commander_client)
     worker_registry = WorkerRegistryUseCase(
         collector_directory,
         commander_client,
