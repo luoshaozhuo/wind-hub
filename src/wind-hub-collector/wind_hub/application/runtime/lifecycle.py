@@ -153,34 +153,44 @@ class RuntimeLifecycle:
             for instance_id in self._runtime._instance_states:
                 self._runtime._instance_states[instance_id] = TaskInstanceState.STOPPED
 
-            # 只向真正存在 consumer 的 Sink queue 投递终止哨兵。启动失败的
-            # Sink 没有 consumer；若其 queue 已满，对该 queue 执行 put 会使
-            # 优雅停机永久阻塞。
-            for name, task in self._runtime._sink_tasks.items():
-                try:
-                    await asyncio.wait_for(
-                        self._runtime._queues[name].put([]),
-                        timeout=self._runtime._config.shutdown_timeout,
-                    )
-                except TimeoutError:
+            # 只向真正存在 consumer 的 Sink queue 投递终止哨兵，并对全部
+            # consumer 使用整体超时；多个卡死 Sink 不会串行累计 shutdown_timeout。
+            sentinel_tasks = {
+                name: asyncio.create_task(self._runtime._queues[name].put([]))
+                for name in self._runtime._sink_tasks
+            }
+            if sentinel_tasks:
+                done, pending = await asyncio.wait(
+                    sentinel_tasks.values(),
+                    timeout=self._runtime._config.shutdown_timeout,
+                )
+                del done
+                for name, put_task in sentinel_tasks.items():
+                    if put_task not in pending:
+                        continue
+                    put_task.cancel()
+                    self._runtime._sink_tasks[name].cancel()
                     logger.warning(
                         "Sink consumer '%s' did not accept shutdown sentinel — cancelling",
                         name,
                     )
-                    task.cancel()
+                await asyncio.gather(
+                    *sentinel_tasks.values(),
+                    return_exceptions=True,
+                )
 
-            for task in self._runtime._sink_tasks.values():
+            consumers = list(self._runtime._sink_tasks.values())
+            if consumers:
                 try:
                     await asyncio.wait_for(
-                        task,
+                        asyncio.gather(*consumers, return_exceptions=True),
                         timeout=self._runtime._config.shutdown_timeout,
                     )
                 except TimeoutError:
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-                except asyncio.CancelledError:
-                    pass
+                    for task in consumers:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*consumers, return_exceptions=True)
             self._runtime._sink_tasks.clear()
 
             for name, sink in self._runtime._sinks.items():
