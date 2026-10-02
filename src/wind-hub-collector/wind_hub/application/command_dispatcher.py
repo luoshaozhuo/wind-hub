@@ -191,6 +191,14 @@ class CommandDispatcher:
                 )
         return out
 
+    def get_cached(self, command_id: str) -> CommandResult | None:
+        """返回仍在 TTL 内的幂等结果；未命中时返回 None。
+
+        该方法只读取进程内缓存，不执行设备 I/O。控制用例可在显式重连前
+        查询它，保证重复 command_id 不因当前连接状态变化而改变结果。
+        """
+        return self._cache_lookup(command_id, time.monotonic())
+
     def clear_cache(self) -> None:
         """清空进程内幂等缓存；用于维护或测试隔离。"""
         self._cache.clear()

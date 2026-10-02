@@ -34,6 +34,7 @@ async def test_send_delegates_to_dispatcher() -> None:
     runtime.devices = {"d1": object()}
     runtime.ensure_connected = AsyncMock(return_value=True)
     expected = _result("c1")
+    dispatcher.get_cached = MagicMock(return_value=None)
     dispatcher.send = AsyncMock(return_value=expected)
 
     result = await CommandUseCase(dispatcher, runtime).send(_command())
@@ -41,6 +42,38 @@ async def test_send_delegates_to_dispatcher() -> None:
     runtime.ensure_connected.assert_awaited_once_with("d1", force=True)
     dispatcher.send.assert_awaited_once()
     assert result is expected
+
+
+async def test_send_cached_result_skips_reconnect_and_dispatch() -> None:
+    dispatcher = MagicMock(spec=CommandDispatcher)
+    runtime = MagicMock(spec=Runtime)
+    runtime.devices = {"d1": object()}
+    runtime.ensure_connected = AsyncMock(return_value=False)
+    cached = _result("c1")
+    dispatcher.get_cached = MagicMock(return_value=cached)
+    dispatcher.send = AsyncMock()
+
+    result = await CommandUseCase(dispatcher, runtime).send(_command())
+
+    assert result is cached
+    runtime.ensure_connected.assert_not_awaited()
+    dispatcher.send.assert_not_awaited()
+
+
+async def test_send_connection_failure_does_not_write() -> None:
+    dispatcher = MagicMock(spec=CommandDispatcher)
+    runtime = MagicMock(spec=Runtime)
+    runtime.devices = {"d1": object()}
+    runtime.ensure_connected = AsyncMock(return_value=False)
+    dispatcher.get_cached = MagicMock(return_value=None)
+    dispatcher.send = AsyncMock()
+
+    result = await CommandUseCase(dispatcher, runtime).send(_command())
+
+    assert result.success is False
+    assert "not connected" in (result.error or "")
+    runtime.ensure_connected.assert_awaited_once_with("d1", force=True)
+    dispatcher.send.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +88,7 @@ async def test_send_batch_delegates_to_dispatcher() -> None:
     runtime.ensure_connected = AsyncMock(return_value=True)
     cmds = [_command("c1"), _command("c2")]
     expected = [_result("c1"), _result("c2", success=False)]
+    dispatcher.get_cached = MagicMock(return_value=None)
     dispatcher.send = AsyncMock(side_effect=expected)
 
     results = await CommandUseCase(dispatcher, runtime).send_batch(cmds)
