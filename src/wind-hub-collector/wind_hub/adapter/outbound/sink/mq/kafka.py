@@ -57,9 +57,12 @@ class KafkaSink(SinkPort):
     - ``compression_type``：可选，aiokafka 压缩类型（``gzip`` / ``snappy`` / ``lz4``
       / ``zstd``），默认不压缩。
     - ``acks``：生产者确认级别（``all`` / ``0`` / ``1``），默认 ``all``。
-    - ``retries``：发送失败重试次数，默认 ``3``。
-    - ``batch_size``：生产者批大小（字节），默认 ``16384``。
+    - ``batch_size``：生产者批大小（字节），默认 ``16384``，映射到 aiokafka
+      的 ``max_batch_size``。
     - ``linger_ms``：批收集等待时长（毫秒），默认 ``0``。
+
+    发送失败重试由 aiokafka 内部按 ``retry_backoff_ms`` / ``request_timeout_ms``
+    默认策略执行——aiokafka 生产者没有重试次数参数，故不提供 ``retries`` 配置。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -70,7 +73,6 @@ class KafkaSink(SinkPort):
         self._key_field = self._validate_key_field(params.get("key_field"))
         self._compression_type = self._optional_str(params, "compression_type")
         self._acks = self._str_or_int(params.get("acks", "all"), "acks")
-        self._retries = self._positive_int(params.get("retries", 3), "retries")
         self._batch_size = self._positive_int(params.get("batch_size", 16384), "batch_size")
         self._linger_ms = self._nonnegative_int(params.get("linger_ms", 0), "linger_ms")
 
@@ -144,8 +146,7 @@ class KafkaSink(SinkPort):
             producer = AIOKafkaProducer(
                 bootstrap_servers=self._bootstrap_servers,
                 acks=self._acks,
-                retries=self._retries,
-                batch_size=self._batch_size,
+                max_batch_size=self._batch_size,
                 linger_ms=self._linger_ms,
                 compression_type=self._compression_type,
             )

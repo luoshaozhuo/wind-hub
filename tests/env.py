@@ -61,7 +61,9 @@ def ads_config_from_env() -> dict[str, str | int] | None:
     """真实 TwinCAT ADS 环境配置；任一必填项缺失返回 ``None``。
 
     必填：``WIND_HUB_TEST_ADS_HOST`` / ``WIND_HUB_TEST_ADS_NET_ID``。
-    可选：``WIND_HUB_TEST_ADS_PORT``（默认 801）、读写验证 symbol。
+    可选：``WIND_HUB_TEST_ADS_PORT``（默认 801）、读写验证 symbol、
+    本机 AMS 身份（``WIND_HUB_TEST_ADS_LOCAL_NET_ID`` /
+    ``WIND_HUB_TEST_ADS_LOCAL_IP``，用于进程级 AMS 初始化）。
     """
     host = env_or_none("WIND_HUB_TEST_ADS_HOST")
     net_id = env_or_none("WIND_HUB_TEST_ADS_NET_ID")
@@ -73,4 +75,6 @@ def ads_config_from_env() -> dict[str, str | int] | None:
         "port": int(env_or_none("WIND_HUB_TEST_ADS_PORT") or "801"),
         "read_symbol": env_or_none("WIND_HUB_TEST_ADS_READ_SYMBOL"),
         "write_symbol": env_or_none("WIND_HUB_TEST_ADS_WRITE_SYMBOL"),
+        "local_net_id": env_or_none("WIND_HUB_TEST_ADS_LOCAL_NET_ID"),
+        "local_ip": env_or_none("WIND_HUB_TEST_ADS_LOCAL_IP"),
     }

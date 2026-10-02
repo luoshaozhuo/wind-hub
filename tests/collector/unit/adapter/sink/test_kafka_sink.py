@@ -120,10 +120,6 @@ class TestConstruction:
         with pytest.raises(ConfigError, match="key_field"):
             KafkaSink(_cfg(key_field="not_a_field"))
 
-    def test_invalid_retries_raises(self) -> None:
-        with pytest.raises(ConfigError, match="retries"):
-            KafkaSink(_cfg(retries=-1))
-
     def test_invalid_batch_size_raises(self) -> None:
         with pytest.raises(ConfigError, match="batch_size"):
             KafkaSink(_cfg(batch_size=0))
@@ -135,7 +131,6 @@ class TestConstruction:
     def test_defaults_applied(self) -> None:
         sink = KafkaSink(_cfg())
         assert sink._acks == "all"
-        assert sink._retries == 3
         assert sink._batch_size == 16384
         assert sink._linger_ms == 0
         assert sink._key_field is None
@@ -153,7 +148,7 @@ class TestLifecycle:
     async def test_open_creates_producer_with_params(
         self, fake_producer: type[_FakeProducer]
     ) -> None:
-        sink = KafkaSink(_cfg(compression_type="gzip", acks=1, retries=5))
+        sink = KafkaSink(_cfg(compression_type="gzip", acks=1, batch_size=32768))
         await sink.open()
 
         assert len(_FakeProducer.instances) == 1
@@ -161,7 +156,8 @@ class TestLifecycle:
         assert producer.started is True
         assert producer.kwargs["bootstrap_servers"] == "localhost:9092"
         assert producer.kwargs["acks"] == 1
-        assert producer.kwargs["retries"] == 5
+        # aiokafka 的批大小参数名是 ``max_batch_size``。
+        assert producer.kwargs["max_batch_size"] == 32768
         assert producer.kwargs["compression_type"] == "gzip"
         await sink.close()
 

@@ -155,7 +155,8 @@ async def wait_kafka_messages(
 ) -> list[dict[str, Any]]:
     """用独立 consumer（每次随机 group、from earliest）等待 Kafka 消息。
 
-    消息体按 UTF-8 JSON 解码；``match`` 过滤解码后的 dict。consumer 与
+    消息体按 UTF-8 JSON 解码；``match`` 过滤解码后的 dict。消息 key 以
+    ``_key`` 字段附加到返回 dict（无 key 时为 None）。consumer 与
     被测 Collector 完全独立——这是系统边界验证，不是内部状态窥探。
     """
 
@@ -180,6 +181,9 @@ async def wait_kafka_messages(
                 for records in batch.values():
                     for record in records:
                         data = json.loads(record.value.decode("utf-8"))
+                        data["_key"] = (
+                            record.key.decode("utf-8") if record.key is not None else None
+                        )
                         if match is None or match(data):
                             messages.append(data)
                 if len(messages) >= min_messages:
