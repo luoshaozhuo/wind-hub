@@ -2,7 +2,7 @@
 
 import pytest
 
-from wind_hub.application.usecase.definitions import DefinitionsUseCase
+from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
 
 
 def test_definition_locations_are_explicit() -> None:
