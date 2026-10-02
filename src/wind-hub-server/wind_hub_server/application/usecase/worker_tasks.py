@@ -9,7 +9,6 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
 
@@ -196,14 +195,29 @@ class CollectorTaskUseCase:
         return rows
 
     async def start_all_instances(self) -> TaskBatchResult:
-        _, collector = self._default_collector()
-        return TaskBatchResult.model_validate(await collector.start_all())
+        """按 assignment 启动全部 Task Instance。"""
+        return await self._set_all_instances(start=True)
 
     async def stop_all_instances(self) -> TaskBatchResult:
-        _, collector = self._default_collector()
-        return TaskBatchResult.model_validate(await collector.stop_all())
+        """按 assignment 停止全部 Task Instance。"""
+        return await self._set_all_instances(start=False)
 
-    def _default_collector(self) -> tuple[str, CollectorPort]:
-        """返回当前默认 Collector 的逻辑 ID 与出站端口。"""
-        worker_id = self._collectors.default_worker_id
-        return worker_id, self._collectors.get(worker_id)
+    async def _set_all_instances(self, *, start: bool) -> TaskBatchResult:
+        """仅操作当前 assignment 覆盖的实例，并聚合批量结果。"""
+        instances = await self.list_instances()
+        target = TaskInstanceState.RUNNING if start else TaskInstanceState.STOPPED
+        changed = [row for row in instances if row.state is not target]
+
+        async def apply(row: TaskInstanceDetail) -> None:
+            collector = self._collectors.get(row.assigned_worker_id)
+            if start:
+                await collector.start_task_instance(row.instance_id)
+            else:
+                await collector.stop_task_instance(row.instance_id)
+
+        await asyncio.gather(*(apply(row) for row in changed))
+        return TaskBatchResult(
+            total=len(instances),
+            changed=len(changed),
+            unchanged=len(instances) - len(changed),
+        )
