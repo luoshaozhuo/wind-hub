@@ -15,6 +15,7 @@ import uvicorn
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import clear_context, set_context
 from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.assembly import ServerRuntime, assemble_server
 from wind_hub_server.config_validation import ServerConfigValidator
 from wind_hub_server.settings import ServerSettings
@@ -93,6 +94,27 @@ async def _reload_loop(
         await reload_event.wait()
         reload_event.clear()
         await reload_once(config, validator)
+
+
+async def _worker_probe_loop(
+    registry: WorkerRegistryUseCase,
+    *,
+    interval: float,
+) -> None:
+    """周期刷新 Worker Registry；状态变化才记录日志。"""
+    previous: dict[str, str] = {}
+    while True:
+        try:
+            records = await registry.refresh()
+            current = {record.worker_id: record.state.value for record in records}
+            if current != previous:
+                logger.info("worker registry state: %s", current)
+                previous = current
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("worker registry refresh failed", exc_info=True)
+        await asyncio.sleep(interval)
 
 
 async def _reconcile_loop(
@@ -201,10 +223,12 @@ async def run_server(settings: ServerSettings) -> int:
     api_task: asyncio.Task[None] | None = None
     reload_task: asyncio.Task[None] | None = None
     reconcile_task: asyncio.Task[None] | None = None
+    worker_probe_task: asyncio.Task[None] | None = None
 
     try:
         api_task = asyncio.create_task(server.serve())
         await runtime.monitoring.start()
+        await runtime.worker_registry.refresh()
 
         logger.info(
             "wind-hub-server 已启动（%d 台设备，%d 个 sink）；API %s:%d",
@@ -222,6 +246,12 @@ async def run_server(settings: ServerSettings) -> int:
                 interval=settings.reconcile_interval,
             )
         )
+        worker_probe_task = asyncio.create_task(
+            _worker_probe_loop(
+                runtime.worker_registry,
+                interval=settings.worker_probe_interval,
+            )
+        )
         await shutdown_event.wait()
         logger.info("收到停机信号，开始优雅停机")
         runtime.config.stop_accepting_transactions()
@@ -234,7 +264,7 @@ async def run_server(settings: ServerSettings) -> int:
         try:
             background_tasks = [
                 task
-                for task in (reload_task, reconcile_task)
+                for task in (reload_task, reconcile_task, worker_probe_task)
                 if task is not None
             ]
             for task in background_tasks:

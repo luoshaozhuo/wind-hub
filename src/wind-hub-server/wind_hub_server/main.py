@@ -52,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="127.0.0.1:50052",
         help="Commander gRPC endpoint，默认 127.0.0.1:50052",
     )
+    parser.add_argument(
+        "--worker-probe-interval",
+        type=float,
+        default=5.0,
+        help="Worker 状态探测周期（秒），默认 5",
+    )
     return parser
 
 
@@ -73,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         log_level=args.log_level,
         collector_target=args.collector_target,
         commander_target=args.commander_target,
+        worker_probe_interval=args.worker_probe_interval,
     )
     return asyncio.run(run_server(settings))
 

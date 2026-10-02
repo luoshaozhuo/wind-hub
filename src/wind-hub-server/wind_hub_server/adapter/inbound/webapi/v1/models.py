@@ -83,6 +83,22 @@ class TaskInstanceResponse(BaseModel):
     state: str
 
 
+class WorkerResponse(BaseModel):
+    """Worker Registry 状态 DTO。"""
+
+    worker_id: str
+    role: str
+    endpoint: str
+    state: str
+    last_probe_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    last_error: str | None = None
+    runtime_running: bool | None = None
+    active_revision: str | None = None
+    active_config_hash: str | None = None
+    boot_id: str | None = None
+
+
 class OverviewResponse(BaseModel):
     """Overview 核心运行快照 DTO。"""
 

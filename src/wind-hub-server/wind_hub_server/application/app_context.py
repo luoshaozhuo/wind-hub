@@ -31,6 +31,7 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
 
@@ -96,6 +97,9 @@ class AppContext:
 
     system_health: SystemHealthUseCase | None = None
     """宿主机/进程资源健康用例。"""
+
+    workers: WorkerRegistryUseCase | None = None
+    """Worker Registry 只读状态与探测用例。"""
 
 
 _context: AppContext | None = None

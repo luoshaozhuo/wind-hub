@@ -29,6 +29,7 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
@@ -45,6 +46,7 @@ class ServerRuntime:
     log_store: LogStore
     collector_client: CollectorGrpcClient
     commander_client: CommanderGrpcClient
+    worker_registry: WorkerRegistryUseCase
 
 
 def assemble_server(
@@ -71,6 +73,12 @@ def assemble_server(
     )
 
     worker_query = WorkerQueryUseCase(collector_client, commander_client)
+    worker_registry = WorkerRegistryUseCase(
+        collector_client,
+        commander_client,
+        collector_endpoint=collector_target,
+        commander_endpoint=commander_target,
+    )
     worker_tasks = CollectorTaskUseCase(collector_client)
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
@@ -135,6 +143,7 @@ def assemble_server(
         quality=quality,
         logs=logs,
         system_health=system_health,
+        workers=worker_registry,
     )
     return ServerRuntime(
         context=context,
@@ -143,4 +152,5 @@ def assemble_server(
         log_store=log_store,
         collector_client=collector_client,
         commander_client=commander_client,
+        worker_registry=worker_registry,
     )

@@ -60,6 +60,7 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     TaskResponse,
     TrendSampleResponse,
     TrendSeriesResponse,
+    WorkerResponse,
 )
 from wind_hub_server.application.operation import OperationRecord
 from wind_hub_server.application.usecase.admin_state import (
@@ -81,6 +82,7 @@ from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import HealthRange, SystemHealthUseCase
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import (
     CollectorTaskUseCase,
     TaskInstanceDetail,
@@ -187,6 +189,14 @@ def _tasks() -> CollectorTaskUseCase:
     return ctx.tasks
 
 
+def _workers() -> WorkerRegistryUseCase:
+    """返回 Worker Registry；未装配时按服务不可用处理。"""
+    ctx = get_ctx()
+    if ctx.workers is None:
+        raise APIError("SERVICE_UNAVAILABLE", "worker registry is not configured", 503)
+    return ctx.workers
+
+
 def _overview() -> OverviewUseCase:
     """返回 OverviewUseCase；未装配时按服务不可用处理。"""
     ctx = get_ctx()
@@ -233,6 +243,27 @@ async def get_overview() -> OverviewResponse:
     """返回 wind-hub-admin 总览页的一次聚合运行快照。"""
     snapshot: OverviewSnapshot = await _overview().snapshot()
     return OverviewResponse(**snapshot.model_dump())
+
+
+@router.get("/workers", response_model=list[WorkerResponse], tags=["v1-workers"])
+async def list_workers() -> list[WorkerResponse]:
+    """返回 Server 当前已登记 Worker 的最近探测状态。"""
+    rows = await _workers().list_workers()
+    return [WorkerResponse(**row.model_dump(mode="json")) for row in rows]
+
+
+@router.get(
+    "/workers/{worker_id}",
+    response_model=WorkerResponse,
+    tags=["v1-workers"],
+)
+async def get_worker(worker_id: str) -> WorkerResponse:
+    """返回指定 Worker 的最近探测状态。"""
+    try:
+        row = await _workers().get_worker(worker_id)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown worker '{worker_id}'", 404) from None
+    return WorkerResponse(**row.model_dump(mode="json"))
 
 
 @router.get("/devices", response_model=DevicePageResponse, tags=["v1-devices"])

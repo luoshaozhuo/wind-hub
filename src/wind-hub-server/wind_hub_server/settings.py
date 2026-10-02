@@ -30,6 +30,7 @@ class ServerSettings:
     collector_target: str = "127.0.0.1:50051"
     commander_target: str = "127.0.0.1:50052"
     reconcile_interval: float = 30.0
+    worker_probe_interval: float = 5.0
 
     def __post_init__(self) -> None:
         """校验仅属于进程宿主的参数，不读取文件系统。"""
@@ -47,6 +48,8 @@ class ServerSettings:
             raise ValueError("commander_target must not be empty")
         if self.reconcile_interval <= 0:
             raise ValueError("reconcile_interval must be greater than 0")
+        if self.worker_probe_interval <= 0:
+            raise ValueError("worker_probe_interval must be greater than 0")
 
     @classmethod
     def from_values(
@@ -60,6 +63,7 @@ class ServerSettings:
         collector_target: str = "127.0.0.1:50051",
         commander_target: str = "127.0.0.1:50052",
         reconcile_interval: float = 30.0,
+        worker_probe_interval: float = 5.0,
     ) -> "ServerSettings":
         """从 CLI/调用方的基础值构造设置。
 
@@ -82,4 +86,5 @@ class ServerSettings:
             collector_target=collector_target,
             commander_target=commander_target,
             reconcile_interval=reconcile_interval,
+            worker_probe_interval=worker_probe_interval,
         )
