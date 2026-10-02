@@ -6,6 +6,12 @@ from typing import Any
 
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
+from wind_hub_core.rpc import commander_io_pb2 as io_pb
+from wind_hub_core.rpc.commander_io_codec import (
+    command_result_from_proto,
+    command_to_proto,
+    point_value_from_proto,
+)
 from wind_hub_core.rpc.commander import (
     GET_STATUS,
     READ_POINT,
@@ -42,44 +48,47 @@ class CommanderGrpcClient(GrpcClientBase):
         )
 
     async def read_point(self, device_id: str, point_id: str) -> PointValue:
-        data = from_struct(
-            await self.call_struct(
-                rpc_path(READ_POINT),
-                to_struct({"device_id": device_id, "point_id": point_id}),
-            )
+        call = self._channel.unary_unary(
+            rpc_path(READ_POINT),
+            request_serializer=io_pb.ReadPointRequest.SerializeToString,
+            response_deserializer=io_pb.PointValueMessage.FromString,
         )
-        return PointValue.model_validate(data)
+        response = await call(
+            io_pb.ReadPointRequest(device_id=device_id, point_id=point_id),
+            timeout=self.default_timeout,
+        )
+        return point_value_from_proto(response)
 
     async def read_points(
         self,
         device_id: str,
         point_ids: list[str],
     ) -> list[PointValue]:
-        data = from_struct(
-            await self.call_struct(
-                rpc_path(READ_POINTS),
-                to_struct(
-                    {
-                        "device_id": device_id,
-                        "point_ids": point_ids,
-                    }
-                ),
-            )
+        call = self._channel.unary_unary(
+            rpc_path(READ_POINTS),
+            request_serializer=io_pb.ReadPointsRequest.SerializeToString,
+            response_deserializer=io_pb.ReadPointsResponse.FromString,
         )
-        return [
-            PointValue.model_validate(item)
-            for item in list(data.get("values") or [])
-        ]
+        response = await call(
+            io_pb.ReadPointsRequest(
+                device_id=device_id,
+                point_ids=point_ids,
+            ),
+            timeout=self.default_timeout,
+        )
+        return [point_value_from_proto(item) for item in response.values]
 
     async def write(self, command: Command) -> CommandResult:
-        data = from_struct(
-            await self.call_struct(
-                rpc_path(WRITE_POINT),
-                to_struct(command.model_dump(mode="json")),
-                timeout=max(self.default_timeout, command.timeout + 1.0),
-            )
+        call = self._channel.unary_unary(
+            rpc_path(WRITE_POINT),
+            request_serializer=io_pb.WritePointRequest.SerializeToString,
+            response_deserializer=io_pb.CommandResultMessage.FromString,
         )
-        return CommandResult.model_validate(data)
+        response = await call(
+            command_to_proto(command),
+            timeout=max(self.default_timeout, command.timeout + 1.0),
+        )
+        return command_result_from_proto(response)
 
     async def verify_device(
         self,

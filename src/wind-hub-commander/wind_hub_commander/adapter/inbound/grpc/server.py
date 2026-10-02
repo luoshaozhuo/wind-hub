@@ -14,8 +14,13 @@ from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub_commander.assembly import CommanderApp
 from wind_hub_commander.config import load_commander_config
-from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import CommandError
+from wind_hub_core.rpc import commander_io_pb2 as io_pb
+from wind_hub_core.rpc.commander_io_codec import (
+    command_from_proto,
+    command_result_to_proto,
+    point_value_to_proto,
+)
 from wind_hub_core.rpc.commander import (
     COMMANDER_SERVICE,
     GET_STATUS,
@@ -115,76 +120,82 @@ class CommanderService:
 
     async def read_point(
         self,
-        request: struct_pb2.Struct,
+        request: io_pb.ReadPointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> io_pb.PointValueMessage:
+        """强类型单点读取。"""
         try:
+            if not request.device_id or not request.point_id:
+                raise ValueError("device_id and point_id are required")
             value = await self._app.read.read_point(
-                _required_string(data, "device_id"),
-                _required_string(data, "point_id"),
+                request.device_id,
+                request.point_id,
             )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(value.model_dump(mode="json"))
+        return point_value_to_proto(value)
 
     async def read_points(
         self,
-        request: struct_pb2.Struct,
+        request: io_pb.ReadPointsRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> io_pb.ReadPointsResponse:
+        """强类型批量读取。"""
         try:
-            device_id = _required_string(data, "device_id")
-            point_ids = data.get("point_ids")
-            if not isinstance(point_ids, list) or not point_ids:
-                raise ValueError("'point_ids' must be a non-empty list")
+            if not request.device_id:
+                raise ValueError("device_id is required")
+            if not request.point_ids:
+                raise ValueError("point_ids must not be empty")
             values = await self._app.read.read_points(
-                device_id,
-                [str(point_id) for point_id in point_ids],
+                request.device_id,
+                list(request.point_ids),
             )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct({"values": [v.model_dump(mode="json") for v in values]})
+        response = io_pb.ReadPointsResponse()
+        response.values.extend(point_value_to_proto(value) for value in values)
+        return response
 
     async def write_point(
         self,
-        request: struct_pb2.Struct,
+        request: io_pb.WritePointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> io_pb.CommandResultMessage:
+        """强类型单点写入。"""
         try:
-            command = self._command_from_dict(data)
+            if not request.device_id or not request.point_id:
+                raise ValueError("device_id and point_id are required")
+            command = command_from_proto(request)
+            if not command.command_id:
+                command.command_id = uuid4().hex
             result = await self._app.command.send(command)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(result.model_dump(mode="json"))
+        return command_result_to_proto(result)
 
     async def write_points(
         self,
-        request: struct_pb2.Struct,
+        request: io_pb.WritePointsRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> io_pb.WritePointsResponse:
+        """强类型批量写入。"""
         try:
-            rows = data.get("commands")
-            if not isinstance(rows, list) or not rows:
-                raise ValueError("'commands' must be a non-empty list")
-            commands = [
-                self._command_from_dict(dict(row))
-                for row in rows
-                if isinstance(row, dict)
-            ]
-            if len(commands) != len(rows):
-                raise ValueError("every command must be an object")
+            if not request.commands:
+                raise ValueError("commands must not be empty")
+            commands = [command_from_proto(item) for item in request.commands]
+            for command in commands:
+                if not command.command_id:
+                    command.command_id = uuid4().hex
             results = await self._app.command.send_batch(commands)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct({"results": [r.model_dump(mode="json") for r in results]})
+        response = io_pb.WritePointsResponse()
+        response.results.extend(command_result_to_proto(result) for result in results)
+        return response
 
     async def verify_device(
         self,
@@ -252,15 +263,6 @@ class CommanderService:
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _struct(result.model_dump(mode="json"))
 
-    @staticmethod
-    def _command_from_dict(data: dict[str, Any]) -> Command:
-        return Command(
-            command_id=str(data.get("command_id") or uuid4().hex),
-            device_id=_required_string(data, "device_id"),
-            point_id=_required_string(data, "point_id"),
-            value=data.get("value"),
-            timeout=float(data.get("timeout", 5.0)),
-        )
 
 
 class CommanderGrpcServer:
@@ -278,16 +280,7 @@ class CommanderGrpcServer:
 
 
 def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
-    unary_struct = {
-        READ_POINT: service.read_point,
-        READ_POINTS: service.read_points,
-        WRITE_POINT: service.write_point,
-        WRITE_POINTS: service.write_points,
-        VERIFY_DEVICE: service.verify_device,
-        RESOLVE_POINT: service.resolve_point,
-        VERIFY_POINT: service.verify_point,
-        VERIFY_POINTS: service.verify_points,
-    }
+    """构建 Commander service handler；设备 I/O 使用强类型 Protobuf。"""
     handlers: dict[str, grpc.RpcMethodHandler] = {
         GET_STATUS: grpc.unary_unary_rpc_method_handler(
             service.get_status,
@@ -304,6 +297,32 @@ def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
             request_deserializer=empty_pb2.Empty.FromString,
             response_serializer=struct_pb2.Struct.SerializeToString,
         ),
+        READ_POINT: grpc.unary_unary_rpc_method_handler(
+            service.read_point,
+            request_deserializer=io_pb.ReadPointRequest.FromString,
+            response_serializer=io_pb.PointValueMessage.SerializeToString,
+        ),
+        READ_POINTS: grpc.unary_unary_rpc_method_handler(
+            service.read_points,
+            request_deserializer=io_pb.ReadPointsRequest.FromString,
+            response_serializer=io_pb.ReadPointsResponse.SerializeToString,
+        ),
+        WRITE_POINT: grpc.unary_unary_rpc_method_handler(
+            service.write_point,
+            request_deserializer=io_pb.WritePointRequest.FromString,
+            response_serializer=io_pb.CommandResultMessage.SerializeToString,
+        ),
+        WRITE_POINTS: grpc.unary_unary_rpc_method_handler(
+            service.write_points,
+            request_deserializer=io_pb.WritePointsRequest.FromString,
+            response_serializer=io_pb.WritePointsResponse.SerializeToString,
+        ),
+    }
+    unary_struct = {
+        VERIFY_DEVICE: service.verify_device,
+        RESOLVE_POINT: service.resolve_point,
+        VERIFY_POINT: service.verify_point,
+        VERIFY_POINTS: service.verify_points,
     }
     for method, callback in unary_struct.items():
         handlers[method] = grpc.unary_unary_rpc_method_handler(
@@ -312,7 +331,6 @@ def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
             response_serializer=struct_pb2.Struct.SerializeToString,
         )
     return grpc.method_handlers_generic_handler(COMMANDER_SERVICE, handlers)
-
 
 def build_grpc_server(
     app: CommanderApp,
