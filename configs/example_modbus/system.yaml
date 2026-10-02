@@ -16,6 +16,8 @@ runtime:
   shutdown_timeout: 30.0
   # 设备连接超时（秒）
   connect_timeout: 10.0
+  # Runtime 启动时并发连接设备的上限
+  connect_concurrency: 32
   # 单次读取超时（秒）——一次批量读的应用层外层兜底
   read_timeout: 5.0
   # 单次写入默认超时（秒）——Command.timeout <= 0 时生效
