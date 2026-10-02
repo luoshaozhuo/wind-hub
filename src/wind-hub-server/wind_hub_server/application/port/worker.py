@@ -1,0 +1,50 @@
+"""Server 到 Collector/Commander 的出站端口。"""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.point import PointValue
+
+
+class CommanderPort(Protocol):
+    """即时设备操作端口。"""
+
+    async def read_point(self, device_id: str, point_id: str) -> PointValue: ...
+
+    async def write(self, command: Command) -> CommandResult: ...
+
+    async def verify_device(self, device_id: str, timeout: float = 1.0) -> dict[str, Any]: ...
+
+    async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]: ...
+
+    async def verify_point(self, device_id: str, point_id: str) -> dict[str, Any]: ...
+
+    async def verify_points(
+        self,
+        device_id: str,
+        point_group: str | None = None,
+    ) -> dict[str, Any]: ...
+
+
+class CollectorPort(Protocol):
+    """Collector 低频运行控制与状态查询端口。"""
+
+    async def runtime_status(self) -> dict[str, Any]: ...
+
+    async def list_devices(self) -> list[dict[str, Any]]: ...
+
+    async def list_tasks(self) -> list[dict[str, Any]]: ...
+
+    async def list_task_instances(self) -> list[dict[str, Any]]: ...
+
+    async def start_task(self, task_id: str) -> dict[str, Any]: ...
+
+    async def stop_task(self, task_id: str) -> dict[str, Any]: ...
+
+    async def start_task_instance(self, instance_id: str) -> dict[str, Any]: ...
+
+    async def stop_task_instance(self, instance_id: str) -> dict[str, Any]: ...
+
+    async def reload_config(self) -> dict[str, Any]: ...
