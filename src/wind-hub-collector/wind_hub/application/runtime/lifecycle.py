@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from wind_hub.application.runtime.task_instance import TaskInstanceState
 
 if TYPE_CHECKING:
+    from wind_hub.application.runtime.device import Device
     from wind_hub.application.runtime.runtime import Runtime
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class RuntimeLifecycle:
             # 串行累加到 Collector 启动时间。
             semaphore = asyncio.Semaphore(self._runtime._config.connect_concurrency)
 
-            async def connect_device(device_id, device):  # type: ignore[no-untyped-def]
+            async def connect_device(device_id: str, device: Device) -> None:
                 if not device.enabled:
                     logger.info("Device '%s' disabled — connection skipped", device_id)
                     return
