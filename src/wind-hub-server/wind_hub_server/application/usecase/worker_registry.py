@@ -13,14 +13,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
-
-
-class WorkerRole(StrEnum):
-    """Worker 角色。"""
-
-    COLLECTOR = "collector"
-    COMMANDER = "commander"
+from wind_hub_server.application.worker_model import (
+    WorkerCapability,
+    WorkerDefinition,
+    WorkerRole,
+)
+from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.worker import CommanderPort
 
 
 class WorkerState(StrEnum):
@@ -29,22 +28,6 @@ class WorkerState(StrEnum):
     UNKNOWN = "unknown"
     ONLINE = "online"
     OFFLINE = "offline"
-
-
-class WorkerCapability(StrEnum):
-    """Server 可委托给 Worker 的控制面能力。"""
-
-    CONFIG = "config"
-    TASK_RUNTIME = "task_runtime"
-    ACQUISITION_STATUS = "acquisition_status"
-    SINK = "sink"
-    METRICS = "metrics"
-    DEVICE_IO = "device_io"
-    DIAGNOSTICS = "diagnostics"
-
-
-COLLECTOR_WORKER_ID = "collector"
-COMMANDER_WORKER_ID = "commander"
 
 
 class WorkerRecord(BaseModel):
@@ -70,39 +53,26 @@ class WorkerRegistryUseCase:
 
     def __init__(
         self,
-        collector: CollectorPort,
+        collectors: CollectorDirectory,
         commander: CommanderPort,
         *,
-        collector_endpoint: str,
-        commander_endpoint: str,
+        definitions: list[WorkerDefinition],
     ) -> None:
-        self._collector = collector
+        self._collectors = collectors
         self._commander = commander
         self._lock = asyncio.Lock()
-        self._records: dict[str, WorkerRecord] = {
-            COLLECTOR_WORKER_ID: WorkerRecord(
-                worker_id=COLLECTOR_WORKER_ID,
-                role=WorkerRole.COLLECTOR,
-                endpoint=collector_endpoint,
-                capabilities=[
-                    WorkerCapability.CONFIG,
-                    WorkerCapability.TASK_RUNTIME,
-                    WorkerCapability.ACQUISITION_STATUS,
-                    WorkerCapability.SINK,
-                    WorkerCapability.METRICS,
-                ],
-            ),
-            COMMANDER_WORKER_ID: WorkerRecord(
-                worker_id=COMMANDER_WORKER_ID,
-                role=WorkerRole.COMMANDER,
-                endpoint=commander_endpoint,
-                capabilities=[
-                    WorkerCapability.CONFIG,
-                    WorkerCapability.DEVICE_IO,
-                    WorkerCapability.DIAGNOSTICS,
-                ],
-            ),
+        self._records = {
+            definition.worker_id: WorkerRecord(
+                worker_id=definition.worker_id,
+                role=definition.role,
+                endpoint=definition.endpoint,
+                capabilities=list(definition.capabilities),
+            )
+            for definition in definitions
         }
+        self._collector_worker_id = self._worker_id_for_role(WorkerRole.COLLECTOR)
+        self._commander_worker_id = self._worker_id_for_role(WorkerRole.COMMANDER)
+        self._collectors.get(self._collector_worker_id)
 
     async def refresh(self) -> list[WorkerRecord]:
         """并发探测全部已登记 Worker，并原子更新最近状态。"""
@@ -111,8 +81,8 @@ class WorkerRegistryUseCase:
             self._probe_commander(),
         )
         async with self._lock:
-            self._records[COLLECTOR_WORKER_ID] = collector_result
-            self._records[COMMANDER_WORKER_ID] = commander_result
+            self._records[self._collector_worker_id] = collector_result
+            self._records[self._commander_worker_id] = commander_result
             return self._snapshot_unlocked()
 
     async def list_workers(self) -> list[WorkerRecord]:
@@ -131,9 +101,10 @@ class WorkerRegistryUseCase:
     async def _probe_collector(self) -> WorkerRecord:
         """读取 Collector 身份/配置状态；RPC 失败只更新 Registry 状态。"""
         now = datetime.now(UTC)
-        previous = self._records[COLLECTOR_WORKER_ID]
+        previous = self._records[self._collector_worker_id]
         try:
-            status = await self._collector.config_status()
+            collector = self._collectors.get(self._collector_worker_id)
+            status = await collector.config_status()
         except Exception as exc:
             return self._offline(previous, now, exc)
         return WorkerRecord(
@@ -155,7 +126,7 @@ class WorkerRegistryUseCase:
     async def _probe_commander(self) -> WorkerRecord:
         """读取 Commander 运行/配置状态；RPC 失败只更新 Registry 状态。"""
         now = datetime.now(UTC)
-        previous = self._records[COMMANDER_WORKER_ID]
+        previous = self._records[self._commander_worker_id]
         try:
             status = await self._commander.status()
         except Exception as exc:
@@ -196,9 +167,22 @@ class WorkerRegistryUseCase:
     def _snapshot_unlocked(self) -> list[WorkerRecord]:
         """在锁内复制 Registry 快照。"""
         return [
-            self._records[COLLECTOR_WORKER_ID].model_copy(deep=True),
-            self._records[COMMANDER_WORKER_ID].model_copy(deep=True),
+            self._records[worker_id].model_copy(deep=True)
+            for worker_id in sorted(self._records)
         ]
+
+    def _worker_id_for_role(self, role: WorkerRole) -> str:
+        """返回指定角色唯一 Worker ID。"""
+        matches = [
+            worker_id
+            for worker_id, record in self._records.items()
+            if record.role is role
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"expected exactly one {role.value} worker, got {len(matches)}"
+            )
+        return matches[0]
 
 
 def _optional_text(value: object) -> str | None:

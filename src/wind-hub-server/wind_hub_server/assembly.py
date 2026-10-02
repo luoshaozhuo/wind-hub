@@ -30,10 +30,14 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
-from wind_hub_server.application.usecase.worker_registry import (
+from wind_hub_server.application.worker_model import (
     COLLECTOR_WORKER_ID,
-    WorkerRegistryUseCase,
+    COMMANDER_WORKER_ID,
+    WorkerCapability,
+    WorkerDefinition,
+    WorkerRole,
 )
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
@@ -78,15 +82,36 @@ def assemble_server(
     )
 
     worker_query = WorkerQueryUseCase(collector_client, commander_client)
+    collector_definition = WorkerDefinition(
+        worker_id=COLLECTOR_WORKER_ID,
+        role=WorkerRole.COLLECTOR,
+        endpoint=collector_target,
+        capabilities=[
+            WorkerCapability.CONFIG,
+            WorkerCapability.TASK_RUNTIME,
+            WorkerCapability.ACQUISITION_STATUS,
+            WorkerCapability.SINK,
+            WorkerCapability.METRICS,
+        ],
+    )
+    commander_definition = WorkerDefinition(
+        worker_id=COMMANDER_WORKER_ID,
+        role=WorkerRole.COMMANDER,
+        endpoint=commander_target,
+        capabilities=[
+            WorkerCapability.CONFIG,
+            WorkerCapability.DEVICE_IO,
+            WorkerCapability.DIAGNOSTICS,
+        ],
+    )
     collector_directory = StaticCollectorDirectory(
-        {COLLECTOR_WORKER_ID: collector_client},
-        default_worker_id=COLLECTOR_WORKER_ID,
+        {collector_definition.worker_id: collector_client},
+        default_worker_id=collector_definition.worker_id,
     )
     worker_registry = WorkerRegistryUseCase(
-        collector_client,
+        collector_directory,
         commander_client,
-        collector_endpoint=collector_target,
-        commander_endpoint=commander_target,
+        definitions=[collector_definition, commander_definition],
     )
     worker_tasks = CollectorTaskUseCase(collector_directory)
     devices = DeviceUseCase(collector_client, config)
