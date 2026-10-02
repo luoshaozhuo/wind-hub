@@ -6,7 +6,7 @@
 
 保留的职责：
 
-- ``command_id`` 幂等（LRU + TTL，进程内）；
+- ``command_id`` 幂等（in-flight 去重 + LRU/TTL 结果缓存，进程内）；
 - 写超时（``Command.timeout > 0`` 优先，否则系统默认）；
 - 异常 → ``CommandResult``（协议级失败内联，不上抛）；
 - 成功/失败 metrics 回调；
@@ -71,6 +71,8 @@ class CommandDispatcher:
         self._on_command_failed = on_command_failed or (lambda: None)
         # OrderedDict 尾部保存最近访问项，用于 O(1) LRU 淘汰。
         self._cache: OrderedDict[str, tuple[CommandResult, float]] = OrderedDict()
+        # 同一 command_id 的并发请求共享一个执行 Task，避免重复写设备。
+        self._inflight: dict[str, asyncio.Task[CommandResult]] = {}
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -86,17 +88,34 @@ class CommandDispatcher:
             CommandResult。未知设备、写超时和底层异常均内联为失败结果，不向上抛。
 
         Notes:
-            相同 command_id 在 TTL 内直接返回缓存结果，且不会重复触发 metrics
-            callback；这保证单进程内重试不会重复写设备。
+            相同 command_id 在 TTL 内直接返回缓存结果；若首个请求仍在执行，
+            后续并发请求等待同一个 in-flight Task。等待方被取消不会取消真实写入。
         """
-        # 1. 先查幂等缓存，命中即返回。
         now = time.monotonic()
         cached = self._cache_lookup(cmd.command_id, now)
         if cached is not None:
             logger.debug("Command '%s' hit idempotency cache", cmd.command_id)
             return cached
 
-        # 2. 从当前 Runtime 注册表解析目标 Device。
+        task = self._inflight.get(cmd.command_id)
+        if task is None:
+            task = asyncio.create_task(self._execute(cmd))
+            self._inflight[cmd.command_id] = task
+            task.add_done_callback(
+                lambda completed, command_id=cmd.command_id: self._finish_inflight(
+                    command_id,
+                    completed,
+                )
+            )
+        else:
+            logger.debug("Command '%s' joined in-flight execution", cmd.command_id)
+
+        return await asyncio.shield(task)
+
+    async def _execute(self, cmd: Command) -> CommandResult:
+        """执行一次真实写入，并把最终结果写入幂等缓存。"""
+        now = time.monotonic()
+
         device = self._devices.get(cmd.device_id)
         if device is None:
             result = CommandResult(
@@ -108,8 +127,6 @@ class CommandDispatcher:
             self._cache_store(cmd.command_id, result, now)
             return result
 
-        # 3. 执行设备写，并应用命令级/默认超时。
-        # 优先级：Command.timeout > 0 用命令自带超时，否则用系统默认写超时。
         timeout = cmd.timeout if cmd.timeout > 0 else self._default_timeout
         try:
             results = await asyncio.wait_for(
@@ -126,7 +143,6 @@ class CommandDispatcher:
                 )
             )
         except TimeoutError:
-            # 错误语义区分操作阶段（write），不模糊成裸 "timeout"。
             logger.warning(
                 "write timeout: device=%s point=%s timeout=%.1fs",
                 cmd.device_id,
@@ -151,14 +167,21 @@ class CommandDispatcher:
                 error=str(exc),
             )
 
-        # 4. 首次执行后记录计数并写入幂等缓存。
-        # 缓存命中的提前返回不计数——首次执行时已计过，避免重复累计。
         if result.success:
             self._on_command_sent()
         else:
             self._on_command_failed()
         self._cache_store(cmd.command_id, result, now)
         return result
+
+    def _finish_inflight(
+        self,
+        command_id: str,
+        task: asyncio.Task[CommandResult],
+    ) -> None:
+        """仅移除当前 command_id 对应的已完成 Task。"""
+        if self._inflight.get(command_id) is task:
+            self._inflight.pop(command_id, None)
 
     async def send_batch(
         self,
