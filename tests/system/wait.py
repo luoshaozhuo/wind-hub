@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 from collections.abc import Awaitable, Callable
@@ -21,16 +22,17 @@ class WaitTimeout(TimeoutError):
 
 
 async def wait_until(
-    probe: Callable[[], Awaitable[T | None]],
+    probe: Callable[[], Awaitable[T | None] | T | None],
     *,
     timeout: float = 15.0,
     interval: float = 0.1,
     description: str = "condition",
 ) -> T:
-    """异步轮询直到 ``probe()`` 返回非 None 值。
+    """轮询直到 ``probe()`` 返回非 None 值（同步/异步 probe 均可）。
 
     Args:
-        probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果。
+        probe: 探测函数；返回 None 表示条件未满足，其余返回值即观测结果；
+            返回 awaitable 时先 await 再判定。
         timeout: 总超时（秒）。
         interval: 轮询间隔（秒）。
         description: 条件描述（用于超时消息）。
@@ -45,7 +47,9 @@ async def wait_until(
     last_error: BaseException | None = None
     while time.monotonic() < deadline:
         try:
-            result = await probe()
+            result = probe()
+            if inspect.isawaitable(result):
+                result = await result
         except Exception as exc:  # 探测期间依赖尚未就绪是常态，记录后继续轮询
             last_error = exc
             result = None
