@@ -83,6 +83,9 @@ class ConfigDiff(BaseModel):
     ads_changed: bool = False
     """system.ads 本机 AMS 配置变化时为 True；进程级 ADS 身份变化需要重启。"""
 
+    reporting_changed: bool = False
+    """reporting 配置变化时为 True；IEC104 reporting server 需进程重启重建。"""
+
     @property
     def has_any_changes(self) -> bool:
         """任一会影响配置快照的字段发生变化时返回 True。"""
@@ -100,6 +103,7 @@ class ConfigDiff(BaseModel):
             or self.units_changed
             or self.runtime_changed
             or self.ads_changed
+            or self.reporting_changed
         )
 
 
