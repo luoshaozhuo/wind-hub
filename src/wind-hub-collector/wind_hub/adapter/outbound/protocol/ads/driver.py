@@ -586,8 +586,8 @@ class ADSDriver:
             Exception: pyads notification 注册失败；失败时会先关闭临时订阅资源。
 
         Notes:
-            每次调用创建独立 connection pool 和回调，同一 symbol 可被不同
-            Task Instance 以不同节拍订阅，互不覆盖。
+            每次调用创建独立 connection pool 和回调。symbol 只用于首次地址
+            解析；Device Notification 按已解析 index_group/index_offset 注册。
         """
         if not self._config.subscribe_enabled:
             raise NotImplementedError(
@@ -599,6 +599,7 @@ class ADSDriver:
                 f"ADS subscription on device '{self._cfg.device_id}' requires "
                 f"interval > 0 (used as notification cycle_time), got {interval}"
             )
+        await self._resolve_points_once()
         subscription = ADSSubscription(
             config=self._config,
             device_id=self._cfg.device_id,
@@ -607,7 +608,11 @@ class ADSDriver:
             on_data=callback,
             cycle_time=interval,
         )
-        ads_points = [self._points[ref.point_id] for ref in points if ref.point_id in self._points]
+        ads_points = [
+            self._points[ref.point_id]
+            for ref in points
+            if ref.point_id in self._points and self._points[ref.point_id].address_resolved
+        ]
         try:
             await subscription.subscribe(ads_points)
         except Exception:
