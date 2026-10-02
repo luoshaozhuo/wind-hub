@@ -448,6 +448,17 @@ class TestCrossFileValidation:
             with pytest.raises(ConfigError, match="unknown sink"):
                 load_config(site)
 
+    def test_task_targets_disabled_sink_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                sinks=[{"name": "s1", "type": "file", "enabled": False}],
+                tasks=[_task()],
+            )
+            with pytest.raises(ConfigError, match="disabled sink"):
+                load_config(site)
     def test_task_references_unknown_device_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             site = _write_config_dir(
@@ -728,16 +739,16 @@ class TestADSAddressValidation:
             self._load(td, {"symbol": "MAIN.rotorSpeed"})
 
     def test_index_pair_legal(self) -> None:
-        """仅 index 成对寻址合法——但 sum 模式要求 symbol，故以 sequential 验证。"""
+        """仅 index 成对寻址合法，sum/sequential 均可使用。"""
         with tempfile.TemporaryDirectory() as td:
             self._load(
                 td,
                 {"index_group": 0x4020, "index_offset": 0x1234},
-                read_mode="sequential",
+                read_mode="sum",
             )
 
     def test_symbol_and_index_legal(self) -> None:
-        """symbol 与 index 同时配置是允许的（读写以 symbol 优先）。"""
+        """symbol 与 index 同时配置合法；运行期实际 I/O 使用 index 地址。"""
         with tempfile.TemporaryDirectory() as td:
             self._load(td, {"symbol": "MAIN.p", "index_group": 0x4020, "index_offset": 0x1234})
 
@@ -799,35 +810,13 @@ class TestADSReadMode:
             cfg = load_config(site)
             assert cfg.devices.devices[0].read_mode == "sequential"
 
-    def test_sum_point_without_symbol_rejected(self) -> None:
-        """sum 按 Symbol 批量读——绑定表的每个点都必须配置 symbol。"""
-        with tempfile.TemporaryDirectory() as td:
-            site = _write_config_dir(
-                Path(td),
-                devices=[_ads_device(read_mode="sum")],
-                point_tables=_table(
-                    [
-                        {
-                            "point_id": "p1",
-                            "point_groups": ["default"],
-                            "address": {"index_group": 0x4020, "index_offset": 0x1234},
-                            "data_type": "float32",
-                        }
-                    ]
-                ),
-            )
-            with pytest.raises(ConfigError, match="symbol"):
-                load_config(site)
-
-
 # ---------------------------------------------------------------------------
 # 点表继承后的绑定校验（作用于 Resolved Point Table）
 # ---------------------------------------------------------------------------
 
 
 class TestInheritanceAwareValidation:
-    def test_ads_sum_rejects_inherited_index_only_point(self) -> None:
-        """子表把 address 整体覆盖为 index-only 后，sum 设备绑定即报错。"""
+    def test_ads_sum_accepts_inherited_index_only_point(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             site = _write_config_dir(
                 Path(td),
@@ -854,8 +843,10 @@ class TestInheritanceAwareValidation:
                     },
                 },
             )
-            with pytest.raises(ConfigError, match="symbol"):
-                load_config(site)
+            cfg = load_config(site)
+            point = cfg.points_for_device("d1")[0]
+            assert point.address.model_extra["index_group"] == 0x4020
+            assert point.address.model_extra["index_offset"] == 0x1234
 
     def test_resolved_point_groups_visible_to_tasks(self) -> None:
         """正向对照：Task 引用继承后最终 point_groups 加载成功。"""
