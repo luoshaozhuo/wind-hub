@@ -1,9 +1,9 @@
 name: CI Release Gate
 
-# 发布门禁：全量分层测试（hardware/performance/soak 除外——它们属于
-# 独立资格通道：performance 经 scripts/run_benchmark.py 在具备
-# CAP_NET_ADMIN 的 runner 执行；hardware 经 ci-hardware.yml 手动触发；
-# soak 为长时稳定性测试，按需单独执行）。
+# Gate 3（发布门禁，对应《软件交付与CI质量门禁规范》§4）：全量分层测试
+# （hardware / performance / soak 除外——它们属于 Gate 4 独立资格通道，
+# 有正式可追踪入口：ci-hardware.yml / ci-performance.yml /
+# ci-qualification.yml，均手动触发并在环境不可用时明确记录 NOT EXECUTED）。
 # 前端：构建 + Vitest + Playwright 端到端。
 
 on:
@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
-          poetry install --no-interaction
+          poetry install --all-extras --no-interaction
       - name: Ruff
         run: ruff check src tests scripts
       - name: Mypy (strict)

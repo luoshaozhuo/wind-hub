@@ -1,7 +1,11 @@
 name: CI Fast (Commit Gate)
 
-# 提交门禁：静态检查 + 最快层测试。任何 commit 进入 main 前必须通过。
-# 目标时长 < 5 分钟；只跑无外部依赖的检查。
+# Gate 1（提交门禁，对应《软件交付与CI质量门禁规范》§2）：
+#   静态检查（ruff / mypy / import-linter）+ unit + component + contract
+#   + 前端 vitest + 前端类型检查/构建。
+# 任何 commit 进入 main 前必须通过；只跑无外部服务依赖的检查。
+# optional 协议/存储依赖（pymodbus/pyads/asyncpg/...）经 --all-extras 安装，
+# 保证干净 runner 上 collection 与测试不依赖开发机残留包。
 
 on:
   push:
@@ -12,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  static-and-unit:
+  backend-static:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,12 +30,53 @@ jobs:
         run: |
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
-          poetry install --no-interaction
+          poetry install --all-extras --no-interaction
       - name: Ruff
         run: ruff check src tests scripts
       - name: Mypy (strict)
         run: mypy src
       - name: Import contracts
         run: lint-imports
+
+  backend-fast-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip poetry
+          poetry config virtualenvs.create false
+          poetry install --all-extras --no-interaction
       - name: Unit tests
         run: python -m pytest tests/unit -q
+      - name: Component tests
+        run: python -m pytest tests/component -q
+      - name: Contract tests
+        run: python -m pytest tests/contract -q
+
+  frontend-unit-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/wind-hub-admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/wind-hub-admin/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Vitest
+        run: npm test
+      - name: Type check and build (vue-tsc + vite)
+        run: npm run build
