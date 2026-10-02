@@ -1,4 +1,4 @@
-"""Integration test — ADS device-notification subscribe against a mocked pyads connection.
+"""Component test — ADS device-notification subscribe against a mocked pyads connection.
 
 Drives the driver end-to-end: connect → subscribe (enabled via config) → the
 mock invokes the registered callback (simulating pyads' worker thread) → the
@@ -17,6 +17,9 @@ import pytest
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.point import PointRef, PointValue
 from wind_hub_core.protocol.ads.driver import ADSDriver
+
+# monkeypatch/fake 替代 pyads 外部组件——显式标注，不计入 real-service 验收。
+pytestmark = pytest.mark.mock_service
 
 _AMS_NET_ID = "192.168.0.100.1.1"
 

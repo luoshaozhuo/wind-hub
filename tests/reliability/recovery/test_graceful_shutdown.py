@@ -17,7 +17,7 @@ from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_jsonl
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"

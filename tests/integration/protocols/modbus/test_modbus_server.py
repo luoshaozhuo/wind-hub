@@ -21,6 +21,8 @@ from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.modbus.driver import ModbusDriver
 
+pytestmark = pytest.mark.real_service
+
 # Wire addresses used by the tests.
 _FLOAT_READ_ADDR = 100
 _FLOAT_WRITE_ADDR = 200

@@ -19,6 +19,10 @@ from wind_hub_core.config.schema import SinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue
 
+# 默认路径由 Docker Compose 拉起真实服务（外部实例经环境变量接管）；
+# 服务真实性显式标注，不计入 mock。
+pytestmark = [pytest.mark.docker, pytest.mark.real_service]
+
 
 def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue:
     return PointValue(

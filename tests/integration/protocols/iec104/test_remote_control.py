@@ -19,6 +19,8 @@ from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.iec104.driver import IEC104Driver
 
+pytestmark = pytest.mark.real_service
+
 # ===========================================================================
 # helpers
 # ===========================================================================

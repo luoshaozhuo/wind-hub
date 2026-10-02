@@ -22,6 +22,8 @@ from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.iec104.driver import IEC104Driver
 
+pytestmark = pytest.mark.real_service
+
 IEC104_POINTS: list[dict[str, Any]] = [
     {
         "point_id": "meas.active_power",

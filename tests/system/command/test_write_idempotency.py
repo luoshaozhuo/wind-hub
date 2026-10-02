@@ -21,7 +21,7 @@ from tests.support.process import CollectorProcess
 from wind_hub_core.rpc import commander_pb2 as pb
 from wind_hub_core.rpc import commander_pb2_grpc as pb_grpc
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表（setpoint.power @ holding 200）。
 _COMMANDER_POINTS: list[dict[str, object]] = [

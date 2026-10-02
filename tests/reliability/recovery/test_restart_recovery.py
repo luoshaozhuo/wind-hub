@@ -25,6 +25,8 @@ from tests.support.control import (
 from tests.support.process import CollectorProcess, run_ctl_async
 from tests.support.wait import read_jsonl, wait_file_rows
 
+pytestmark = pytest.mark.real_service
+
 MODBUS_TASK_ID = "modbus-telemetry"
 MODBUS_INSTANCE_ID = "modbus-telemetry:modbus-1"
 IEC104_TASK_ID = "iec104-telemetry"

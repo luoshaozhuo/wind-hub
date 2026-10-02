@@ -1,4 +1,4 @@
-"""Integration test — ADS driver against a mocked pyads connection.
+"""Component test — ADS driver against a mocked pyads connection.
 
 No real TwinCAT/ADS server is available in CI, so the mock below emulates a
 small PLC symbol table at the ``pyads.Connection`` boundary.  The driver is
@@ -18,6 +18,9 @@ from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.ads.driver import ADSDriver
+
+# monkeypatch/fake 替代 pyads 外部组件——显式标注，不计入 real-service 验收。
+pytestmark = pytest.mark.mock_service
 
 _AMS_NET_ID = "192.168.0.100.1.1"
 

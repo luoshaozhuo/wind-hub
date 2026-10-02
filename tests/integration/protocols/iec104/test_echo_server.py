@@ -18,6 +18,8 @@ import pytest
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.protocol.iec104.session import IEC104Session
 
+pytestmark = pytest.mark.real_service
+
 logger = logging.getLogger(__name__)
 
 START_CHAR = 0x68

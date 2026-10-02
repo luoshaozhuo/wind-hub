@@ -20,6 +20,8 @@ from wind_hub_core.config.schema import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
 
+pytestmark = pytest.mark.real_service
+
 
 def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue:
     return PointValue(

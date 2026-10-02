@@ -14,7 +14,7 @@ import pytest
 from tests.support.wait import read_jsonl, wait_file_rows
 from tests.system.conftest import SYSTEM_TASK_ID, FullStack
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 
 class TestAcquisitionViaRest:

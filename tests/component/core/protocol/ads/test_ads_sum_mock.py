@@ -1,4 +1,4 @@
-"""ADS 地址解析 + Sum Read 的 mock 集成测试。"""
+"""ADS 地址解析 + Sum Read 的 mock 组件测试（monkeypatch pyads 边界）。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ import pytest
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.ads.driver import ADSDriver
+
+# monkeypatch/fake 替代 pyads 外部组件——显式标注，不计入 real-service 验收。
+pytestmark = pytest.mark.mock_service
 
 _AMS_NET_ID = "192.168.0.100.1.1"
 

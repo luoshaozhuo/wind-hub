@@ -47,11 +47,22 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+# Windows 下载文件的 ADS 元数据残留
+*:Zone.Identifier
 
 # Project
 **/.state/
 **/node_modules/
 **/.vite/
+# 本地测试环境变量（模板 tests/test.env.example 入库，实例不入库）
+tests/test.env
+# soak / benchmark 等资格测试产出（由对应 CI 通道归档）
+artifacts/
+soak_report_*.md
+soak_report_*.json
+perf_report_*.md
+perf_report_*.json
+perf_latency.png
 # 前端测试输出（Playwright）
 src/wind-hub-admin/test-results/
 src/wind-hub-admin/playwright-report/

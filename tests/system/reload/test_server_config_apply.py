@@ -13,7 +13,7 @@ import yaml
 from tests.support.wait import wait_until
 from tests.system.conftest import SYSTEM_TASK_ID, FullStack
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 
 class TestConfigApplyViaRest:

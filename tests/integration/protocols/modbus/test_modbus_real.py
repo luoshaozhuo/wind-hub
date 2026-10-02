@@ -24,6 +24,8 @@ from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.modbus.driver import ModbusDriver
 
+pytestmark = pytest.mark.real_service
+
 
 def _decode_float32(registers: list[int]) -> float:
     hi, lo = registers

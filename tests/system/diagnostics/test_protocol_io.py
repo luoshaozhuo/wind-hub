@@ -10,7 +10,7 @@ import pytest
 
 from tests.system.conftest import FullStack
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 
 class TestProtocolDiagnostics:

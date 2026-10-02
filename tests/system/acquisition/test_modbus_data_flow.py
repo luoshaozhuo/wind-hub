@@ -28,6 +28,8 @@ from tests.support.wait import (
     wait_postgres_rows,
 )
 
+pytestmark = pytest.mark.real_service
+
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
 

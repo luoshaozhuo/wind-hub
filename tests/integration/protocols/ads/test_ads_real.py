@@ -29,7 +29,14 @@ if ADS is None:
         allow_module_level=True,
     )
 
-pytestmark = pytest.mark.ads
+#: 真实 TwinCAT/PLC 验收：协议、服务真实性与环境属性全部显式标注——
+#: ci-hardware.yml 经 ``-m hardware`` 选择本模块（环境未配置时整模块
+#: SKIPPED，见文件头说明）。
+pytestmark = [
+    pytest.mark.ads,
+    pytest.mark.hardware,
+    pytest.mark.real_service,
+]
 
 
 def _write_ads_config(base: Path) -> Path:

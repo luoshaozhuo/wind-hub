@@ -15,7 +15,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-TEST_ENV_FILE = Path(__file__).resolve().parent / "test.env"
+#: 测试环境文件固定为 ``tests/test.env``（本模块位于 tests/support/，
+#: 需向上一级）；模板为 ``tests/test.env.example``，文件本身不入库。
+TEST_ENV_FILE = Path(__file__).resolve().parent.parent / "test.env"
 
 _loaded = False
 

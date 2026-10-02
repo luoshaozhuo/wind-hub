@@ -8,10 +8,11 @@ marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约
   ``reliability/soak`` 额外打 ``soak``；
 - 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
   ``iec104`` / ``kafka`` / ``postgres`` / ``influxdb`` / ``file``；
-- 服务真实性（仅 integration/system/reliability 层级）：默认
-  ``real_service``（真实协议栈 over TCP、真实文件、Docker 服务、真实
-  PLC）；命中 :data:`_MOCK_SERVICE_STEMS` 或文件名含 ``mock`` 的打
-  ``mock_service``（monkeypatch / 内存 fake，不计入 real-service 验收）。
+- 服务真实性（仅 integration/system/reliability 层级）：路径/文件名
+  token 含 ``mock`` 的打 ``mock_service``（monkeypatch / 内存 fake，
+  不计入 real-service 验收）；``real_service`` **不按目录默认赋值**——
+  真实服务测试必须在文件内显式标注（模块级 ``pytestmark``），避免
+  文件放错目录即被误认证为真实服务验收。
 
 层级 marker 只靠第一层目录推断；更细的环境属性（hardware / docker /
 root / network / slow）必须在测试文件或 conftest 中显式标注。
@@ -45,15 +46,6 @@ _LEVEL_MARKERS = (
     "performance",
 )
 _PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres", "influxdb", "file")
-#: 使用 fake/monkeypatch 替代外部组件的 integration 测试（不计入 real-service 验收）。
-_MOCK_SERVICE_STEMS = frozenset(
-    {
-        "test_kafka_sink_e2e",  # AIOKafkaProducer 被内存假生产者替换
-        "test_postgres_sink_e2e",  # asyncpg 被内存假模块替换
-        "test_collect_route_sink",  # NullSink
-        "test_fault_recovery",  # NullSink
-    }
-)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -73,11 +65,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         for protocol in _PROTOCOL_MARKERS:
             if protocol in tokens:
                 item.add_marker(getattr(pytest.mark, protocol))
-        if level in {"integration", "system", "reliability"}:
-            if "mock" in tokens or item.path.stem in _MOCK_SERVICE_STEMS:
-                item.add_marker(pytest.mark.mock_service)
-            else:
-                item.add_marker(pytest.mark.real_service)
+        if level in {"integration", "system", "reliability"} and "mock" in tokens:
+            item.add_marker(pytest.mark.mock_service)
 
 
 @pytest.fixture

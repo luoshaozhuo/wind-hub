@@ -22,7 +22,7 @@ from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.process import CollectorProcess, run_ctl_async
 
-pytestmark = pytest.mark.modbus
+pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 INSTANCE_ID = "modbus-telemetry:modbus-1"
 

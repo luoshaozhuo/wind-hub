@@ -4,12 +4,13 @@
 
 .. code-block:: bash
 
-    WIND_HUB_SOAK_PROFILE=smoke_1h pytest -m soak tests/soak/test_long_running.py
+    WIND_HUB_SOAK_PROFILE=smoke_1h pytest -m soak tests/reliability/soak/test_long_running.py
     WIND_HUB_SOAK_PROFILE=prerelease_8h pytest ...   # 预发布
     WIND_HUB_SOAK_PROFILE=rc_24h pytest ...          # 发布候选
 
 ``WIND_HUB_SOAK_DURATION_S`` 可覆盖时长（用于验证 soak 路径本身，如 60s）。
-报告写入仓库根目录 ``soak_report_<profile>.md / .json``。
+报告写入 ``artifacts/soak/soak_report_<profile>.md / .json``（CI 资格通道
+ci-qualification.yml 以该目录为 artifact 归档路径）。
 
 稳定性判据：测量窗口内零背压丢弃、零重复、错过周期率 < 1%；内存增长
 有界（终点 < 起点 +20% 且 < 起点 +100MB）；asyncio 任务数不爬升（终点
@@ -27,9 +28,13 @@ import pytest
 from tests.reliability.soak.report import generate_soak_json, generate_soak_markdown
 from tests.reliability.soak.runner import PROFILES, run_soak
 
+pytestmark = pytest.mark.real_service
+
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+#: soak 报告目录：tests/reliability/soak/ → 上三级为仓库根，再入 artifacts/soak。
+#: 不入库（.gitignore 覆盖 artifacts/），由资格通道 CI 归档。
+_SOAK_REPORT_DIR = Path(__file__).resolve().parents[3] / "artifacts" / "soak"
 
 #: 长 soak 档位 → 测量时长（秒）。
 _DURATION_S = {
@@ -69,7 +74,8 @@ async def test_long_running_target_load() -> None:
         on_ready=lambda: logger.info("预热结束，进入测量窗口"),
     )
 
-    md_path = _REPO_ROOT / f"soak_report_{soak_name}.md"
+    _SOAK_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    md_path = _SOAK_REPORT_DIR / f"soak_report_{soak_name}.md"
     generate_soak_markdown(
         metrics, md_path, title=f"wind-hub Soak — {soak_name} ({profile.name})"
     )

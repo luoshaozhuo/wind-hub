@@ -27,7 +27,11 @@ from tests.reliability.soak.runner import PROFILES, run_soak
 
 logger = logging.getLogger(__name__)
 
-pytestmark = [pytest.mark.performance, pytest.mark.modbus]
+pytestmark = [
+    pytest.mark.performance,
+    pytest.mark.modbus,
+    pytest.mark.real_service,
+]
 
 # 错过周期率上限（错过 = 实际间隔 > 1.5 × 目标间隔）。
 _MAX_MISSED_RATIO = 0.02
