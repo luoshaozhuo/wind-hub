@@ -256,12 +256,18 @@ last_duration）。
   （注册为 STOPPED，首次 collect 前 status 即可见）；
 - **Task 新增/删除** → 增删对应实例（删除即取消协程并清理状态），
   不影响其它实例；
-- **Task 字段变化**（interval / targets / point_group）→ 只影响该
-  Task：运行中的实例协程下一轮读取新快照（interval/targets 原地生效），
-  不重建设备连接；
+- **Task 字段变化** → 只影响该 Task：`targets` 直接使用新快照；
+  `interval` / `point_group` 变化重建对应 acquisition handle 以重新对齐节拍/
+  订阅，不重建设备连接；
 - **device_group 成员变化**（设备改分组或 enabled 翻转）→ 按成员差
   增删实例，不重启 Runtime；
 - **点表变化** → 经 `Device.set_points` 重注入点表，不触碰实例协程
   与采集状态；
 - **连接参数变化** → 走 `rebuild_device`（关旧连接、工厂建新驱动），
   状态随删除/新建路径重置。
+- **Sink enabled/config 变化** → Runtime 只持有 enabled Sink；新 Sink 先 `open()`
+  成功再切换，失败保留旧通道；
+- **system.runtime / system.ads / reporting 变化** → 不做伪热更新，reload 明确
+  返回需要重启 Collector；
+- **部分应用失败** → 不提交新配置快照；已成功部分不回滚，下一次相同 reload
+  根据 Runtime 当前状态继续收敛未完成部分。
