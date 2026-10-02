@@ -111,9 +111,27 @@ class _Diagnostic:
                 "port": 502,
                 "ok": True,
                 "stages": [
-                    {"name": "network", "ok": True, "message": ""},
-                    {"name": "transport", "ok": True, "message": "TCP 502 reachable"},
-                    {"name": "protocol", "ok": True, "message": "protocol session is healthy"},
+                    {
+                        "name": "network",
+                        "ok": True,
+                        "code": "OK",
+                        "severity": "info",
+                        "message": "",
+                    },
+                    {
+                        "name": "transport",
+                        "ok": True,
+                        "code": "OK",
+                        "severity": "info",
+                        "message": "TCP 502 reachable",
+                    },
+                    {
+                        "name": "protocol",
+                        "ok": True,
+                        "code": "OK",
+                        "severity": "info",
+                        "message": "protocol session is healthy",
+                    },
                 ],
             }
         )
@@ -131,6 +149,9 @@ class _Diagnostic:
                 "offset": 0.0,
                 "unit": "none",
                 "readable": None,
+                "ok": True,
+                "code": "OK",
+                "severity": "info",
             }
         )
 
@@ -150,6 +171,9 @@ class _Diagnostic:
                 "raw_value": 5.0,
                 "engineering_value": 11.0,
                 "quality": "good",
+                "ok": True,
+                "code": "OK",
+                "severity": "info",
             }
         )
 
@@ -166,6 +190,7 @@ class _Diagnostic:
                 "checked": 1,
                 "passed": 1,
                 "failed": 0,
+                "ok": True,
                 "points": [],
             }
         )
@@ -243,9 +268,11 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
 
             verified_device = await client.verify_device("d1")
             assert verified_device["ok"] is True
+            assert verified_device["stages"][2]["code"] == "OK"
 
             resolved = await client.resolve_point("d1", "p1")
             assert resolved["resolved_address"]["index_group"] == 16448
+            assert resolved["code"] == "OK"
 
             verified_point = await client.verify_point("d1", "p1")
             assert verified_point["raw_value"] == 5.0
@@ -253,6 +280,7 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
 
             verified_points = await client.verify_points("d1", point_group="g")
             assert verified_points["passed"] == 1
+            assert verified_points["ok"] is True
 
             written = await client.write("d1", "p1", 10.0)
             assert written["success"] is True
