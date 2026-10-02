@@ -17,7 +17,7 @@ from wind_hub_collector.application.runtime.collector_identity import (
     build_collector_identity,
     default_collector_id,
 )
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
 
 logger = logging.getLogger(__name__)
 

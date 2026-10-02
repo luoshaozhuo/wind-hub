@@ -9,7 +9,10 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
+from wind_hub_server.application.port.worker import (
+    CollectorPlacementRejectedError,
+    CollectorPort,
+)
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import (
     TaskAssignmentUseCase,
@@ -95,7 +98,7 @@ class CollectorTaskUseCase:
         self._config = config
         self._reconciled_generation: int | None = None
 
-    async def _verified_collector(self, worker_id: str):
+    async def _verified_collector(self, worker_id: str) -> CollectorPort:
         """返回在线且身份与 placement worker_id 一致的 Collector。"""
         collector = self._collectors.get(worker_id)
         try:
@@ -153,7 +156,7 @@ class CollectorTaskUseCase:
             for worker_id in worker_ids
         }
 
-        async def fetch(worker_id: str):
+        async def fetch(worker_id: str) -> tuple[CollectorPort, list[dict[str, Any]]]:
             collector = await self._verified_collector(worker_id)
             placement = await collector.apply_task_placement(
                 worker_id,
@@ -290,7 +293,7 @@ class CollectorTaskUseCase:
             by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
 
         worker_ids = sorted(by_worker)
-        async def fetch(worker_id: str):
+        async def fetch(worker_id: str) -> list[dict[str, Any]]:
             collector = await self._verified_collector(worker_id)
             return await collector.list_task_instances()
 
@@ -443,7 +446,7 @@ class CollectorTaskUseCase:
             by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
 
         worker_ids = sorted(by_worker)
-        async def fetch(worker_id: str):
+        async def fetch(worker_id: str) -> list[dict[str, Any]]:
             collector = await self._verified_collector(worker_id)
             return await collector.list_tasks()
 

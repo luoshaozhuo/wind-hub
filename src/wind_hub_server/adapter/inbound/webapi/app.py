@@ -9,8 +9,8 @@ from fastapi import FastAPI
 
 from wind_hub_server.adapter.inbound.webapi import errors
 from wind_hub_server.adapter.inbound.webapi.context import get_context
-from wind_hub_server.adapter.inbound.webapi.v1.router import router as v1_router
 from wind_hub_server.adapter.inbound.webapi.routes import metrics
+from wind_hub_server.adapter.inbound.webapi.v1.router import router as v1_router
 
 
 @asynccontextmanager
@@ -27,7 +27,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def build_api() -> FastAPI:
     """Build the ``wind-hub`` FastAPI application.
 
-    管理 API 统一挂载在 ``/api/v1``；``/metrics`` 保留为 Prometheus 标准入口。\n    错误处理统一在 ``errors.py``。OpenAPI docs are generated automatically at\n    ``/docs``, ``/redoc``, and ``/openapi.json``.
+    管理 API 统一挂载在 ``/api/v1``；``/metrics`` 保留为 Prometheus 标准入口。
+    错误处理统一在 ``errors.py``。OpenAPI docs are generated automatically at
+    ``/docs``, ``/redoc``, and ``/openapi.json``.
     """
     app = FastAPI(
         title="wind-hub",

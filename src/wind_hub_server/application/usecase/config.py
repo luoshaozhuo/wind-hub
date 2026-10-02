@@ -24,7 +24,7 @@ from wind_hub_core.model.reload import (
     TaskDiff,
 )
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CommanderPort
+from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
 from wind_hub_server.application.worker_model import COMMANDER_WORKER_ID
 
 
@@ -90,6 +90,14 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         point_tables_changed=changed_tables,
         units_changed=old.units != new.units,
     )
+
+
+def _remote_errors(payload: dict[str, object]) -> list[str]:
+    """提取参与者响应中的 errors 字段（缺失或非列表时返回空列表）。"""
+    raw = payload.get("errors")
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw]
 
 
 class ConfigUseCase:
@@ -223,12 +231,12 @@ class ConfigUseCase:
                     f"before={before_hash} after={config_hash}"
                 )
         except Exception as exc:
-            errors = [str(exc) or type(exc).__name__]
-            errors.extend(self._restore_applied_files())
+            load_errors = [str(exc) or type(exc).__name__]
+            load_errors.extend(self._restore_applied_files())
             return ReloadResult(
                 success=False,
                 diff=ConfigDiff(),
-                errors=errors,
+                errors=load_errors,
                 duration_ms=(time.monotonic() - started) * 1000,
             )
 
@@ -277,7 +285,7 @@ class ConfigUseCase:
                 )
             prepare_ok.append(success)
             if not success:
-                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                remote_errors = _remote_errors(result)
                 errors.extend(remote_errors or [f"{name} prepare failed"])
 
         if not all(prepare_ok):
@@ -327,7 +335,7 @@ class ConfigUseCase:
                 )
             activate_ok.append(success)
             if not success:
-                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                remote_errors = _remote_errors(result)
                 errors.extend(remote_errors or [f"{name} activate failed"])
 
         success = all(activate_ok)
@@ -438,7 +446,7 @@ class ConfigUseCase:
                 )
                 continue
             if not bool(result.get("success", False)):
-                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                remote_errors = _remote_errors(result)
                 errors.extend(remote_errors or [f"{name} abort failed"])
         return errors
 
@@ -512,7 +520,7 @@ class ConfigUseCase:
             return "prepare-error:" + (str(exc) or type(exc).__name__)
 
         if not bool(prepared.get("success")):
-            errors = [str(item) for item in list(prepared.get("errors") or [])]
+            errors = _remote_errors(prepared)
             return "prepare-failed:" + ("; ".join(errors) or "unknown")
         if str(prepared.get("config_hash") or "") != config_hash:
             return "prepare-hash-mismatch:" + str(prepared.get("config_hash") or "")
@@ -540,7 +548,7 @@ class ConfigUseCase:
                 return "reconciled"
             return f"activate-hash-mismatch:{active_hash}"
 
-        errors = [str(item) for item in list(activated.get("errors") or [])]
+        errors = _remote_errors(activated)
         return "activate-failed:" + ("; ".join(errors) or "unknown")
 
     async def _confirm_active_config(
@@ -572,7 +580,7 @@ class ConfigUseCase:
             )
         return [*collector_ids, COMMANDER_WORKER_ID]
 
-    async def _collector_participant(self, worker: str):
+    async def _collector_participant(self, worker: str) -> CollectorPort:
         """返回身份与逻辑 worker_id 一致的 Collector。"""
         collector = self._collectors.get(worker)
         status = await collector.config_status()

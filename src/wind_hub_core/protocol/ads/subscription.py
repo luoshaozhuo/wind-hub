@@ -21,9 +21,9 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.ads.config import ADSConfig
 from wind_hub_core.protocol.ads.mapping import ADSPoint
-from wind_hub_core.model.point import PointValue, Quality
 
 
 def _pyads() -> Any:

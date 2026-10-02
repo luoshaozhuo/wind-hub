@@ -1,0 +1,60 @@
+"""DeviceControlUseCase 写入 + 回读闭环单元测试。"""
+
+from unittest.mock import AsyncMock
+
+from wind_hub_core.model.command import CommandResult
+from wind_hub_core.model.point import PointValue
+from wind_hub_server.application.usecase.device_control import DeviceControlUseCase
+from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
+
+
+async def test_successful_command_reads_back_and_updates_stores() -> None:
+    commander = AsyncMock()
+    commander.write.return_value = CommandResult(command_id="c1", success=True)
+    commander.read_point.return_value = PointValue(
+        device_id="d1", point_id="setpoint", value=42.0
+    )
+    latest = InMemoryLatestPointStore()
+    trend = InMemoryTrendStore()
+    usecase = DeviceControlUseCase(commander, latest, trend)
+
+    result = await usecase.send(
+        "d1", "setpoint", 42.0, command_id="c1"
+    )
+
+    assert result.success is True
+    assert result.readback == 42.0
+    assert latest.get("d1", "setpoint").value == 42.0
+    assert trend.query("d1", {"setpoint"})["setpoint"][0].value == 42.0
+
+
+async def test_failed_command_does_not_attempt_readback() -> None:
+    commander = AsyncMock()
+    commander.write.return_value = CommandResult(
+        command_id="c2", success=False, error="write rejected"
+    )
+    usecase = DeviceControlUseCase(
+        commander, InMemoryLatestPointStore(), InMemoryTrendStore()
+    )
+
+    result = await usecase.send("d1", "setpoint", 10.0, command_id="c2")
+
+    assert result.success is False
+    assert result.readback is None
+    commander.read_point.assert_not_awaited()
+
+
+async def test_readback_failure_does_not_fail_successful_write() -> None:
+    """回读异常只记入 readback_error，不推翻已成功的写入。"""
+    commander = AsyncMock()
+    commander.write.return_value = CommandResult(command_id="c3", success=True)
+    commander.read_point.side_effect = TimeoutError("readback timeout")
+    usecase = DeviceControlUseCase(
+        commander, InMemoryLatestPointStore(), InMemoryTrendStore()
+    )
+
+    result = await usecase.send("d1", "setpoint", 10.0, command_id="c3")
+
+    assert result.success is True
+    assert result.readback is None
+    assert result.readback_error == "readback timeout"

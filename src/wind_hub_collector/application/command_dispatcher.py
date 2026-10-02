@@ -1,8 +1,8 @@
 """CommandDispatcher —— 指令分发、幂等与写超时（application 层）。
 
 持有 ``Mapping[str, DeviceSession]``（与 Runtime 共享同一注册表），按
-``Command.device_id`` 定位运行时 :class:`~wind_hub_core.device.session.DeviceSession` 并委托 ``DeviceSession.write``
-完成真实写入；本类不再感知 ``ProtocolPort``。
+``Command.device_id`` 定位运行时 :class:`~wind_hub_core.device.session.DeviceSession`
+并委托 ``DeviceSession.write`` 完成真实写入；本类不再感知 ``ProtocolPort``。
 
 保留的职责：
 
@@ -101,12 +101,12 @@ class CommandDispatcher:
         if task is None:
             task = asyncio.create_task(self._execute(cmd))
             self._inflight[cmd.command_id] = task
-            task.add_done_callback(
-                lambda completed, command_id=cmd.command_id: self._finish_inflight(
-                    command_id,
-                    completed,
-                )
-            )
+            command_id = cmd.command_id
+
+            def _on_done(completed: asyncio.Task[CommandResult]) -> None:
+                self._finish_inflight(command_id, completed)
+
+            task.add_done_callback(_on_done)
         else:
             logger.debug("Command '%s' joined in-flight execution", cmd.command_id)
 

@@ -15,6 +15,8 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.iec104.codec.apci import (
     IFrame,
     SFrame,
@@ -44,8 +46,6 @@ from wind_hub_core.protocol.iec104.connection import (
 )
 from wind_hub_core.protocol.iec104.flow import FlowController
 from wind_hub_core.protocol.iec104.timers import IEC104Timers
-from wind_hub_core.model.errors import ProtocolError
-from wind_hub_core.model.point import PointValue, Quality
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,9 @@ class IEC104Session:
         self._writer: asyncio.StreamWriter | None = None
 
         # 出站 APDU 有界队列，防止断网时无限积压。
-        self._send_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=256)
+        # None 是断线哨兵：仅接收侧观测到 EOF/t1 超时时，send task 可能永远
+        # 阻塞在 queue.get()，由 _handle_disconnect 投入哨兵将其唤醒退出。
+        self._send_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=256)
 
         # TCP 收发后台 task。
         self._receive_task: asyncio.Task[object] | None = None
@@ -542,9 +544,12 @@ class IEC104Session:
         while not self._closed:
             try:
                 data = await self._send_queue.get()
+                self._send_queue.task_done()
+                if data is None:
+                    # 断线哨兵：对端已不可达，退出循环让 wait_closed() 返回。
+                    return
                 writer.write(data)
                 await writer.drain()
-                self._send_queue.task_done()
             except asyncio.CancelledError:
                 return
             except Exception:
@@ -695,12 +700,34 @@ class IEC104Session:
     # ==================================================================
 
     async def _handle_disconnect(self) -> None:
-        """处理 TCP 断线事实：切换连接状态并取消全部 IEC104 timer。"""
+        """处理 TCP 断线事实：切换连接状态、停 timer，并唤醒后台收发 task。
+
+        仅切换状态不足以让 ``wait_closed()`` 返回：EOF/t1 超时只被单侧观测
+        到时，send task 可能永远阻塞在 ``queue.get()``、receive task 可能永远
+        阻塞在 ``reader.read()``——不唤醒它们，Driver monitor 就等不到 session
+        结束，自动重连整体失效。因此这里投入断线哨兵唤醒 send task，并关闭
+        transport 使阻塞中的 read 以 EOF 返回。
+        """
         if self._state.is_connected:
             with contextlib.suppress(ValueError):
                 self._state.to_disconnected()
 
         self._timers.reset_all()
+
+        # 唤醒阻塞中的 send task（send 侧自身报错触发断线时无需自唤醒）。
+        if (
+            self._send_task is not None
+            and not self._send_task.done()
+            and self._send_task is not asyncio.current_task()
+        ):
+            with contextlib.suppress(asyncio.QueueFull):
+                self._send_queue.put_nowait(None)
+
+        # 关闭 transport：阻塞中的 reader.read 以 EOF 返回，receive task 退出。
+        # 后续 close() 对同一 writer 的二次关闭是安全的（is_closing 幂等）。
+        writer = self._writer
+        if writer is not None and not writer.is_closing():
+            writer.close()
 
     # ==================================================================
     # timer callbacks

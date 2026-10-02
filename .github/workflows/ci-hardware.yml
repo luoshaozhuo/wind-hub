@@ -1,0 +1,48 @@
+name: Hardware Qualification Gate
+
+# 硬件资格门禁（手动触发）：真实 TwinCAT PLC 上的 ADS 验收。
+# 需要 self-hosted runner 位于 PLC 可达网络，并配置 secrets：
+#   ADS_HOST / ADS_NET_ID（必填）
+#   ADS_PORT / ADS_READ_SYMBOL / ADS_WRITE_SYMBOL /
+#   ADS_LOCAL_NET_ID / ADS_LOCAL_IP（可选）
+# 未配置 secrets 时测试整体 SKIPPED 并在摘要中明确标注
+# NOT EXECUTED——绝不以 mock 结果冒充硬件验收。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ads-hardware:
+    runs-on: [self-hosted, ads-plc]
+    env:
+      WIND_HUB_TEST_ADS_HOST: ${{ secrets.ADS_HOST }}
+      WIND_HUB_TEST_ADS_NET_ID: ${{ secrets.ADS_NET_ID }}
+      WIND_HUB_TEST_ADS_PORT: ${{ secrets.ADS_PORT }}
+      WIND_HUB_TEST_ADS_READ_SYMBOL: ${{ secrets.ADS_READ_SYMBOL }}
+      WIND_HUB_TEST_ADS_WRITE_SYMBOL: ${{ secrets.ADS_WRITE_SYMBOL }}
+      WIND_HUB_TEST_ADS_LOCAL_NET_ID: ${{ secrets.ADS_LOCAL_NET_ID }}
+      WIND_HUB_TEST_ADS_LOCAL_IP: ${{ secrets.ADS_LOCAL_IP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Guard — hardware environment configured
+        run: |
+          if [ -z "$WIND_HUB_TEST_ADS_HOST" ] || [ -z "$WIND_HUB_TEST_ADS_NET_ID" ]; then
+            echo "NOT EXECUTED — hardware environment unavailable (ADS_HOST/ADS_NET_ID secrets unset)" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 78
+          fi
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip poetry
+          poetry config virtualenvs.create false
+          poetry install --no-interaction
+      - name: ADS hardware tests
+        run: python -m pytest tests/integration/protocols/ads -q -m "hardware"

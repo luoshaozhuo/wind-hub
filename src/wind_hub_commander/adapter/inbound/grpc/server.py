@@ -6,9 +6,12 @@ Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp �
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
+from wind_hub_commander.application.diagnostic import DeviceVerifyResult, PointVerifyResult
 from wind_hub_commander.assembly import CommanderApp
 from wind_hub_commander.config import load_commander_config
 from wind_hub_core.config.fingerprint import fingerprint_config_set
@@ -49,7 +52,7 @@ def _address_fields(data: dict[str, object] | None) -> list[pb.AddressField]:
     ]
 
 
-def _device_verify_to_proto(result) -> pb.DeviceVerifyResponse:
+def _device_verify_to_proto(result: DeviceVerifyResult) -> pb.DeviceVerifyResponse:
     """把 Commander 设备诊断结果转换为 wire message。"""
     response = pb.DeviceVerifyResponse(
         device_id=result.device_id,
@@ -71,7 +74,7 @@ def _device_verify_to_proto(result) -> pb.DeviceVerifyResponse:
     return response
 
 
-def _point_verify_to_proto(result) -> pb.PointVerifyResponse:
+def _point_verify_to_proto(result: PointVerifyResult) -> pb.PointVerifyResponse:
     """把 Commander 点诊断结果转换为 wire message。"""
     response = pb.PointVerifyResponse(
         device_id=result.device_id,
@@ -104,7 +107,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
     def __init__(self, app: CommanderApp) -> None:
         self._app = app
 
-    async def GetStatus(self, request, context) -> pb.CommanderStatusResponse:
+    async def GetStatus(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.CommanderStatusResponse:
         """返回 Commander 运行与配置状态。"""
         del request, context
         healthy = sum(
@@ -120,7 +125,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             prepared_config_hash=self._app.runtime.prepared_config_hash or "",
         )
 
-    async def ListDevices(self, request, context) -> pb.ListDevicesResponse:
+    async def ListDevices(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.ListDevicesResponse:
         """列出 Commander 当前设备会话。"""
         del request, context
         response = pb.ListDevicesResponse()

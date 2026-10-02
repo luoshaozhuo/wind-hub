@@ -9,8 +9,9 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import OrderedDict
-from wind_hub_core.model.command import Command, CommandResult
+
 from wind_hub_commander.runtime import CommanderRuntime
+from wind_hub_core.model.command import Command, CommandResult
 
 
 class CommandDispatcher:
@@ -46,12 +47,12 @@ class CommandDispatcher:
         if task is None:
             task = asyncio.create_task(self._execute(command))
             self._inflight[command.command_id] = task
-            task.add_done_callback(
-                lambda completed, command_id=command.command_id: self._finish(
-                    command_id,
-                    completed,
-                )
-            )
+            command_id = command.command_id
+
+            def _on_done(completed: asyncio.Task[CommandResult]) -> None:
+                self._finish(command_id, completed)
+
+            task.add_done_callback(_on_done)
         return await asyncio.shield(task)
 
     async def send_batch(self, commands: list[Command]) -> list[CommandResult]:

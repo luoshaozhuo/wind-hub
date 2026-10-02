@@ -24,14 +24,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
 
-from wind_hub_core.protocol.ads.config import ADSConfig, from_device_config
-from wind_hub_core.protocol.ads.mapping import ADSPoint, parse_point
-from wind_hub_core.protocol.ads.subscription import ADSSubscription
 from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import ConfigError, ProtocolError
-from wind_hub_core.model.point import PointRef, PointValue, Quality
 from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointRef, PointValue, Quality
+from wind_hub_core.protocol.ads.config import ADSConfig, from_device_config
+from wind_hub_core.protocol.ads.mapping import ADSPoint, parse_point
+from wind_hub_core.protocol.ads.subscription import ADSSubscription
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
     ProtocolPort,
@@ -595,6 +595,7 @@ class ADSDriver:
         Raises:
             NotImplementedError: 设备未启用 subscribe_enabled。
             ConfigError: interval 未提供或不大于 0。
+            ProtocolError: 驱动未连接（symbol 地址解析需要活动 session）。
             Exception: pyads notification 注册失败；失败时会先关闭临时订阅资源。
 
         Notes:
@@ -611,6 +612,10 @@ class ADSDriver:
                 f"ADS subscription on device '{self._cfg.device_id}' requires "
                 f"interval > 0 (used as notification cycle_time), got {interval}"
             )
+        if not self._connected or self._connection is None:
+            # symbol 地址解析依赖活动 session；与 read 的未连接守卫保持一致，
+            # 不以 AttributeError 形式泄漏内部状态。
+            raise ProtocolError("ADS: cannot subscribe — driver is not connected")
         await self._resolve_points_once()
         subscription = ADSSubscription(
             config=self._config,

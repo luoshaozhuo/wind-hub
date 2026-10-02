@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
+from wind_hub_collector.application.usecase.task import TaskInstanceDetail, TaskSummary
 from wind_hub_collector.assembly import AssembledRuntime
 from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.reload import ConfigDiff
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 
@@ -30,7 +33,7 @@ async def _abort_invalid(context: grpc.aio.ServicerContext, message: str) -> Non
     await context.abort(grpc.StatusCode.INVALID_ARGUMENT, message)
 
 
-def _task_summary_to_proto(item) -> pb.TaskSummaryMessage:
+def _task_summary_to_proto(item: TaskSummary) -> pb.TaskSummaryMessage:
     """把 TaskSummary 转换为 wire message。"""
     message = pb.TaskSummaryMessage(
         task_id=item.task_id,
@@ -52,7 +55,7 @@ def _task_summary_to_proto(item) -> pb.TaskSummaryMessage:
     return message
 
 
-def _task_instance_to_proto(item) -> pb.TaskInstanceMessage:
+def _task_instance_to_proto(item: TaskInstanceDetail) -> pb.TaskInstanceMessage:
     """把 TaskInstanceDetail 转换为 wire message。"""
     message = pb.TaskInstanceMessage(
         instance_id=item.instance_id,
@@ -67,7 +70,7 @@ def _task_instance_to_proto(item) -> pb.TaskInstanceMessage:
     return message
 
 
-def _diff_to_proto(diff) -> pb.ConfigDiffMessage:
+def _diff_to_proto(diff: ConfigDiff) -> pb.ConfigDiffMessage:
     """把结构化 ConfigDiff 转换为 wire message。"""
     return pb.ConfigDiffMessage(
         devices=pb.DeviceDiffMessage(
@@ -121,7 +124,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         self._runtime = runtime
         self._identity = identity
 
-    async def GetCollectorInfo(self, request, context) -> pb.CollectorInfoResponse:
+    async def GetCollectorInfo(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.CollectorInfoResponse:
         """返回 Collector 身份、配置指纹与 Runtime 运行事实。"""
         del request, context
         return pb.CollectorInfoResponse(
@@ -138,7 +143,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             runtime_running=self._runtime.runtime.running,
         )
 
-    async def GetRuntimeStatus(self, request, context) -> pb.RuntimeStatusResponse:
+    async def GetRuntimeStatus(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.RuntimeStatusResponse:
         """返回 Runtime 聚合状态快照。"""
         del request, context
         status = await self._runtime.query.status()
@@ -169,7 +176,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             response.acquisitions.append(row)
         return response
 
-    async def GetMetricsSnapshot(self, request, context) -> pb.MetricsSnapshotResponse:
+    async def GetMetricsSnapshot(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.MetricsSnapshotResponse:
         """返回 Collector 本地采集质量累计计数与近期事件。"""
         del request, context
         snapshot = self._runtime.metrics_state.snapshot()
@@ -205,7 +214,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             response.events.append(row)
         return response
 
-    async def ListTasks(self, request, context) -> pb.ListTasksResponse:
+    async def ListTasks(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.ListTasksResponse:
         """列出 Task Definition 与聚合运行状态。"""
         del request, context
         items = await self._runtime.tasks.list_task_summaries()
@@ -233,8 +244,8 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
 
     async def ListTaskInstances(
         self,
-        request,
-        context,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
     ) -> pb.ListTaskInstancesResponse:
         """列出当前展开的全部 Task Instance。"""
         del request, context
@@ -264,7 +275,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _task_instance_to_proto(item)
 
-    async def ListDevices(self, request, context) -> pb.ListDevicesResponse:
+    async def ListDevices(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.ListDevicesResponse:
         """列出当前 Runtime 注册设备及连接状态。"""
         del request, context
         devices = await self._runtime.query.list_devices()
@@ -282,7 +295,9 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             response.items.append(row)
         return response
 
-    async def ListSinks(self, request, context) -> pb.ListSinksResponse:
+    async def ListSinks(
+        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
+    ) -> pb.ListSinksResponse:
         """列出当前 Runtime Sink 健康状态与队列深度。"""
         del request, context
         health = self._runtime.runtime.health()
@@ -450,7 +465,9 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
         """启动一个 Task 当前展开的全部实例。"""
-        return await self._set_task(request, context, start=True)
+        return await self._set_task(
+            request, context, start=True, placement_generation=int(request.placement_generation)
+        )
 
     async def StopTask(
         self,
@@ -458,14 +475,17 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
         """停止一个 Task 当前展开的全部实例。"""
-        return await self._set_task(request, context, start=False)
+        return await self._set_task(request, context, start=False, placement_generation=0)
 
     async def _set_task(
         self,
-        request: pb.TaskIdRequest,
+        # TaskStartRequest / TaskIdRequest 都携带 task_id；proto 消息
+        # 之间无继承关系，故参数取两者的联合。
+        request: pb.TaskStartRequest | pb.TaskIdRequest,
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
+        placement_generation: int,
     ) -> pb.TaskSummaryMessage:
         """执行单个 Task 启停并统一错误映射。"""
         try:
@@ -473,7 +493,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             if start:
                 await self._require_start_authority(
                     task_id,
-                    int(request.placement_generation),
+                    placement_generation,
                     context,
                 )
             operation = (
@@ -496,7 +516,9 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
         """启动单个 Task Instance。"""
-        return await self._set_task_instance(request, context, start=True)
+        return await self._set_task_instance(
+            request, context, start=True, placement_generation=int(request.placement_generation)
+        )
 
     async def StopTaskInstance(
         self,
@@ -504,14 +526,17 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
         """停止单个 Task Instance。"""
-        return await self._set_task_instance(request, context, start=False)
+        return await self._set_task_instance(request, context, start=False, placement_generation=0)
 
     async def _set_task_instance(
         self,
-        request: pb.InstanceIdRequest,
+        # TaskInstanceStartRequest / InstanceIdRequest 都携带 instance_id；
+        # proto 消息之间无继承关系，故参数取两者的联合。
+        request: pb.TaskInstanceStartRequest | pb.InstanceIdRequest,
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
+        placement_generation: int,
     ) -> pb.TaskInstanceMessage:
         """执行单个 Task Instance 启停并统一错误映射。"""
         try:
@@ -520,7 +545,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
                 current = await self._runtime.tasks.get_instance(instance_id)
                 await self._require_start_authority(
                     current.task_id,
-                    int(request.placement_generation),
+                    placement_generation,
                     context,
                 )
                 item = await self._runtime.tasks.start_instance(instance_id)

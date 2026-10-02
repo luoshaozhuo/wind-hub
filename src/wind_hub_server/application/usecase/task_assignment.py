@@ -189,7 +189,7 @@ class TaskAssignmentUseCase:
         return max(
             worker_ids,
             key=lambda worker_id: sha256(
-                f"{task_id}\0{worker_id}".encode("utf-8")
+                f"{task_id}\0{worker_id}".encode()
             ).digest(),
         )
 

@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 
 from wind_hub_server.application.usecase.config import Config, ConfigUseCase, compute_diff
 
-
 CONFIG_FILES = (
     "system.yaml",
     "units.yaml",
@@ -168,11 +167,10 @@ class ConfigAdminUseCase:
                 for name, content in files.items():
                     self._atomic_write(self._path(name), content)
                 result = await self._config.reload()
+                errors = list(result.errors)
             except Exception as exc:
                 result = None
                 errors = [str(exc) or type(exc).__name__]
-            else:
-                errors = list(result.errors)
             if result is None or not result.success:
                 self._replace_bytes(previous)
                 rollback = await self._config.reload(force_workers=True)
@@ -276,7 +274,8 @@ class ConfigAdminUseCase:
     def _record_revision(self, *, source: str, comment: str) -> int:
         """保存当前完整 Applied 快照并更新 index.json。"""
         rows = self._read_index()
-        revision = max((int(row["revision"]) for row in rows), default=0) + 1
+        revisions = [v for row in rows if isinstance((v := row["revision"]), int)]
+        revision = max(revisions, default=0) + 1
         self._history.mkdir(parents=True, exist_ok=True)
         target = self._history / f"{revision:06d}"
         target.mkdir(parents=False, exist_ok=False)

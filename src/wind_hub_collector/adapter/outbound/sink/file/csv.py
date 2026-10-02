@@ -9,7 +9,7 @@
 flush。
 
 所有文件级参数从 ``SinkConfig.params`` 读取并在**构造时**校验；写文件失败
-（磁盘满、权限不足等）抛 :class:`~wind_hub_collector.domain.model.errors.SinkError`，
+（磁盘满、权限不足等）抛 :class:`~wind_hub_core.model.errors.SinkError`，
 连续失败达到阈值后 ``health()`` 报告 unhealthy。压缩失败仅记录日志，不影响
 采集主流程。
 """
@@ -34,10 +34,9 @@ from wind_hub_collector.adapter.outbound.sink.file.compression import (
 from wind_hub_collector.adapter.outbound.sink.file.rotation import build_rotation
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub_collector.domain.model.errors import SinkError
-from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointValue
 
 logger = logging.getLogger(__name__)
 

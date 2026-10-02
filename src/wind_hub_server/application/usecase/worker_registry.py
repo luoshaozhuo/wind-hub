@@ -13,13 +13,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.worker_model import (
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,
 )
-from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CommanderPort
 
 
 class WorkerState(StrEnum):

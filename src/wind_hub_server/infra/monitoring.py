@@ -10,19 +10,26 @@ import shutil
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
 
+from wind_hub_core.model.point import PointValue, Quality
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.port.monitoring import (
     CounterSnapshot,
     HostSnapshot,
     MonitoringEvent,
 )
-from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
 
 logger = logging.getLogger(__name__)
+
+
+
+
+def _int_counter(payload: dict[str, object], name: str) -> int:
+    '''从 runtime_status 读取整型计数（缺失或非 int 按 0 计）。'''
+    value = payload.get(name)
+    return value if isinstance(value, int) else 0
 
 
 class MonitoringMetrics:
@@ -271,9 +278,9 @@ class MonitoringService:
             process_rss_gb=self._process_rss_gb(),
             disk_free_gb=disk.free / 1024**3,
             disk_total_gb=disk.total / 1024**3,
-            points_collected=int(self._runtime_status.get("points_collected") or 0),
-            points_routed=int(self._runtime_status.get("points_routed") or 0),
-            points_dropped=int(self._runtime_status.get("points_dropped") or 0),
+            points_collected=_int_counter(self._runtime_status, "points_collected"),
+            points_routed=_int_counter(self._runtime_status, "points_routed"),
+            points_dropped=_int_counter(self._runtime_status, "points_dropped"),
             counters=self._metrics.counters(),
         )
         self._history.append(snapshot)

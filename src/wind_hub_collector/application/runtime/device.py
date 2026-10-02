@@ -13,9 +13,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
+from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue
-from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
     InterrogationCapable,

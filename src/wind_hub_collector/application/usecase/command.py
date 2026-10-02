@@ -39,13 +39,14 @@ class CommandUseCase:
         cached = self._dispatcher.get_cached(cmd.command_id)
         if cached is not None:
             return cached
-        if cmd.device_id in self._runtime.devices:
-            if not await self._runtime.ensure_connected(cmd.device_id, force=True):
-                return CommandResult(
-                    command_id=cmd.command_id,
-                    success=False,
-                    error=f"device '{cmd.device_id}' is not connected",
-                )
+        if cmd.device_id in self._runtime.devices and not await self._runtime.ensure_connected(
+            cmd.device_id, force=True
+        ):
+            return CommandResult(
+                command_id=cmd.command_id,
+                success=False,
+                error=f"device '{cmd.device_id}' is not connected",
+            )
         return await self._dispatcher.send(cmd)
 
     async def send_batch(self, cmds: list[Command]) -> list[CommandResult]:

@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from wind_hub_collector.application.runtime.device import Device
 from wind_hub_collector.application.runtime.runtime import Runtime
 from wind_hub_core.config.schema import PointConfig
 from wind_hub_core.model.errors import CommandError
@@ -256,7 +257,7 @@ class DiagnosticUseCase:
             points=rows,
         )
 
-    def _device(self, device_id: str):
+    def _device(self, device_id: str) -> Device:
         device = self._runtime.devices.get(device_id)
         if device is None:
             raise CommandError(f"unknown device '{device_id}'", "")
@@ -399,7 +400,7 @@ class DiagnosticUseCase:
                         resolved_address,
                         readable=raw_value is not None,
                         raw_value=raw_value,
-                        quality=(Quality.GOOD.value if raw_value is not None else Quality.BAD.value),
+                        quality=Quality.GOOD.value if raw_value is not None else Quality.BAD.value,
                         source="ads",
                         error=None if raw_value is not None else "point value is null",
                     )

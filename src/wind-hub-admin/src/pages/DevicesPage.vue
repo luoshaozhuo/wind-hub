@@ -20,7 +20,6 @@ import {
   readDevicePoint,
   readPointValue,
   sendDeviceCommand,
-  sleep,
   verifyAllDevices,
   verifyDevice as serviceVerifyDevice,
   pointTrendSeries,

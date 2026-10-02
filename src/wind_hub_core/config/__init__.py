@@ -32,8 +32,8 @@ from wind_hub_core.config.schema import (
     SinkConfig,
     SiteConfig,
     SystemConfig,
-    TaskTarget,
     TasksConfig,
+    TaskTarget,
     UnitConfig,
     UnitsConfig,
 )

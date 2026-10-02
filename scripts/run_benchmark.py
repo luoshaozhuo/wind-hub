@@ -21,19 +21,19 @@ import logging
 import sys
 from pathlib import Path
 
-# 让 `tests.collector.perf` / `tests.fixtures` 在 pytest 之外也可导入（仓库根入路径）。
+# 让 `tests.performance` / `tests.fixtures` 在 pytest 之外也可导入（仓库根入路径）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tests.collector.perf.collector import PerfMetrics  # noqa: E402
-from tests.collector.perf.reporter import (  # noqa: E402
+from tests.performance.collector import PerfMetrics  # noqa: E402
+from tests.performance.reporter import (  # noqa: E402
     aggregate_runs,
     generate_json_report,
     generate_markdown_report,
     render_latency_curve,
 )
-from tests.collector.perf.runner import DEFAULT_PORTS, run_benchmark  # noqa: E402
-from tests.collector.perf.scenarios import CORE_SCENARIOS, QUICK_SCENARIOS  # noqa: E402
-from tests.collector.perf.veth import VethManager  # noqa: E402
+from tests.performance.runner import DEFAULT_PORTS, run_benchmark  # noqa: E402
+from tests.performance.scenarios import CORE_SCENARIOS, QUICK_SCENARIOS  # noqa: E402
+from tests.performance.veth import VethManager  # noqa: E402
 
 logger = logging.getLogger("run_benchmark")
 

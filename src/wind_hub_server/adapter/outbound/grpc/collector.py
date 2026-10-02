@@ -6,7 +6,7 @@ Protobuf 转换为 Server 应用层既有 Python DTO/dict 边界。
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import grpc
 from google.protobuf import empty_pb2
@@ -24,6 +24,24 @@ from wind_hub_core.rpc.collector_codec import (
 )
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
 from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
+
+
+def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
+    """把 placement 相关的 gRPC 拒绝映射为端口层语义错误，其余原样抛出。
+
+    Collector 对 placement 栅栏违例返回 FAILED_PRECONDITION（未下发快照、
+    generation 不一致）或 PERMISSION_DENIED（任务不在快照内）——这两类
+    对 Server 意味着「placement 不再安全」，必须由用例层重建栅栏；
+    其他错误码（UNAVAILABLE 等）按普通 RPC 故障向上传播。
+    """
+    if exc.code() in (
+        grpc.StatusCode.FAILED_PRECONDITION,
+        grpc.StatusCode.PERMISSION_DENIED,
+    ):
+        return CollectorPlacementRejectedError(exc.details() or exc.code().name)
+    # grpcio 无类型 stub，AioRpcError 注解解析为 Any；
+    # 运行时 AioRpcError 是 Exception 子类，这里显式收窄。
+    return cast(Exception, exc)
 
 
 class CollectorGrpcClient(GrpcClientBase):
@@ -114,12 +132,52 @@ class CollectorGrpcClient(GrpcClientBase):
         )
         return [task_instance_to_dict(item) for item in response.items]
 
-    async def start_task(self, task_id: str) -> dict[str, Any]:
-        """启动指定 Task 的全部实例。"""
-        response = await self._control_stub.StartTask(
-            pb.TaskIdRequest(task_id=task_id),
-            timeout=self.default_timeout,
-        )
+    async def apply_task_placement(
+        self,
+        worker_id: str,
+        generation: int,
+        task_ids: list[str],
+    ) -> dict[str, Any]:
+        """向 Collector 下发当前 placement 快照（Start 的前置栅栏）。
+
+        Raises:
+            CollectorPlacementRejectedError: Collector 拒绝快照
+                （worker_id 不匹配或栅栏内部状态错误）。
+        """
+        try:
+            response = await self._control_stub.ApplyTaskPlacement(
+                pb.TaskPlacementSnapshotRequest(
+                    worker_id=worker_id,
+                    generation=generation,
+                    task_ids=task_ids,
+                ),
+                timeout=self.default_timeout,
+            )
+        except grpc.aio.AioRpcError as exc:
+            raise _placement_error(exc) from exc
+        return {
+            "success": response.success,
+            "generation": response.generation,
+            "task_count": response.task_count,
+        }
+
+    async def start_task(self, task_id: str, placement_generation: int) -> dict[str, Any]:
+        """启动指定 Task 的全部实例（受 placement 栅栏保护）。
+
+        Raises:
+            CollectorPlacementRejectedError: 未先下发 placement 快照或
+                generation 与 Collector 当前栅栏不一致。
+        """
+        try:
+            response = await self._control_stub.StartTask(
+                pb.TaskStartRequest(
+                    task_id=task_id,
+                    placement_generation=placement_generation,
+                ),
+                timeout=self.default_timeout,
+            )
+        except grpc.aio.AioRpcError as exc:
+            raise _placement_error(exc) from exc
         return task_summary_to_dict(response)
 
     async def stop_task(self, task_id: str) -> dict[str, Any]:
@@ -130,12 +188,27 @@ class CollectorGrpcClient(GrpcClientBase):
         )
         return task_summary_to_dict(response)
 
-    async def start_task_instance(self, instance_id: str) -> dict[str, Any]:
-        """启动单个 Task Instance。"""
-        response = await self._control_stub.StartTaskInstance(
-            pb.InstanceIdRequest(instance_id=instance_id),
-            timeout=self.default_timeout,
-        )
+    async def start_task_instance(
+        self,
+        instance_id: str,
+        placement_generation: int,
+    ) -> dict[str, Any]:
+        """启动单个 Task Instance（受 placement 栅栏保护）。
+
+        Raises:
+            CollectorPlacementRejectedError: 未先下发 placement 快照或
+                generation 与 Collector 当前栅栏不一致。
+        """
+        try:
+            response = await self._control_stub.StartTaskInstance(
+                pb.TaskInstanceStartRequest(
+                    instance_id=instance_id,
+                    placement_generation=placement_generation,
+                ),
+                timeout=self.default_timeout,
+            )
+        except grpc.aio.AioRpcError as exc:
+            raise _placement_error(exc) from exc
         return task_instance_to_dict(response)
 
     async def stop_task_instance(self, instance_id: str) -> dict[str, Any]:

@@ -10,11 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from wind_hub_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
-from wind_hub_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -32,14 +33,14 @@ from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.application.worker_model import (
     COMMANDER_WORKER_ID,
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,
 )
-from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
-from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
 from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
@@ -109,7 +110,9 @@ def assemble_server(
             WorkerCapability.DIAGNOSTICS,
         ],
     )
-    collector_directory = StaticCollectorDirectory(collector_clients)
+    # Directory 面向端口协议；collector_clients 保留具体类型以便 close() 生命周期管理。
+    collector_ports: dict[str, CollectorPort] = dict(collector_clients)
+    collector_directory = StaticCollectorDirectory(collector_ports)
     config = ConfigUseCase(
         config_dir=config_dir,
         collectors=collector_directory,

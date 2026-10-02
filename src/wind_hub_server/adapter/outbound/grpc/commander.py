@@ -6,6 +6,7 @@ Server 应用层既有 Python DTO/dict 边界转换。
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from google.protobuf import empty_pb2
@@ -23,7 +24,7 @@ from wind_hub_core.rpc.commander_io_codec import (
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
 
 
-def _address_dict(items) -> dict[str, Any]:
+def _address_dict(items: Iterable[pb.AddressField]) -> dict[str, Any]:
     """把 AddressField 列表恢复为普通地址字典。"""
     return {item.key: decode_scalar(item.value) for item in items}
 

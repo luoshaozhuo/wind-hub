@@ -12,11 +12,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from uuid import uuid4
 from pathlib import Path
+from uuid import uuid4
 
-from wind_hub_collector.application.runtime.collector_identity import fingerprint_config_set
 from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import Config
 from wind_hub_core.model.reload import (

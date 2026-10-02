@@ -7,14 +7,18 @@ from pathlib import Path
 import grpc_tools
 from grpc_tools import protoc
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 RPC_DIR = SRC_ROOT / "wind_hub_core" / "rpc"
 
 
 def main() -> int:
-    """从共享 proto 源重新生成 Commander/Collector pb2 与 gRPC stub。"""
+    """从共享 proto 源重新生成 Commander/Collector pb2、gRPC stub 与 mypy stub。
+
+    ``--mypy_out`` / ``--mypy_grpc_out`` 由 mypy-protobuf 提供（dev 依赖），
+    生成配套的 ``*_pb2.pyi`` / ``*_pb2_grpc.pyi``——mypy strict 对 RPC
+    边界做类型检查依赖这些 stub。
+    """
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
     protos = (
         RPC_DIR / "commander.proto",
@@ -27,6 +31,8 @@ def main() -> int:
             f"-I{include_dir}",
             f"--python_out={SRC_ROOT}",
             f"--grpc_python_out={SRC_ROOT}",
+            f"--mypy_out={SRC_ROOT}",
+            f"--mypy_grpc_out={SRC_ROOT}",
             *(str(proto) for proto in protos),
         ]
     )

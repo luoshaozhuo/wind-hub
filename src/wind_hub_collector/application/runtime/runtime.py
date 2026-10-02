@@ -14,8 +14,8 @@
 
 持有：``dict[str, Device]``（设备的唯一权威——配置、点表、协议实例都
 聚合在 ``Device`` 内）、:class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
-（PointValue 数据流处理）、:class:`~wind_hub_collector.application.command_dispatcher.CommandDispatcher`
-（命令分发）。
+（PointValue 数据流处理）、
+:class:`~wind_hub_collector.application.command_dispatcher.CommandDispatcher`（命令分发）。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
 （ConfigUseCase）、采集时序（acquisition handle）。
@@ -46,17 +46,18 @@ from wind_hub_collector.application.runtime.task_instance import (
     TaskInstanceState,
     task_instance_id,
 )
+from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
+    DeviceConfig,
+    PointConfig,
     RuntimeConfig,
     SinkConfig,
 )
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
-from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
+from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
-from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 logger = logging.getLogger(__name__)
@@ -472,9 +473,8 @@ class Runtime:
 
         for iid, instance in desired.items():
             old = self._task_instances.get(iid)
-            is_new = old is None
             self._task_instances[iid] = instance
-            if is_new:
+            if old is None:
                 self._instance_states[iid] = TaskInstanceState.STOPPED
                 logger.info("Task instance '%s' registered (stopped)", iid)
             else:

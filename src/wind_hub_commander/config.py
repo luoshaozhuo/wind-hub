@@ -19,9 +19,9 @@ from wind_hub_core.config.schema import (
     DeviceInstancesConfig,
     DeviceModelsConfig,
     DevicesConfig,
+    PointConfig,
     PointTablesConfig,
     ResolvedPointTables,
-    PointConfig,
 )
 from wind_hub_core.model.errors import ConfigError
 

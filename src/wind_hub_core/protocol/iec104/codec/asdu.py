@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.protocol.iec104.codec.info_objects import (
     decode_c_ci_na_1,
     decode_c_dc_na_1,
@@ -47,7 +48,6 @@ from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     TypeID,
 )
-from wind_hub_core.model.errors import ProtocolError
 
 # ==========================================================================
 # TypeID codec 分发表

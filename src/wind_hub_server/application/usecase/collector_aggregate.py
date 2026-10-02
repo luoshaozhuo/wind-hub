@@ -38,7 +38,10 @@ class CollectorAggregateUseCase:
                 f"reported={reported_id or '<empty>'}"
             )
         operation = getattr(collector, method)
-        return await operation()
+        # method 名由调用方限定为 CollectorPort 的只读查询方法；
+        # 返回值在此显式收窄，避免 Any 穿透到上层聚合逻辑。
+        result: dict[str, Any] | list[dict[str, Any]] = await operation()
+        return result
 
     async def runtime_status(self) -> dict[str, Any]:
         worker_ids = self._collectors.list_worker_ids()
@@ -55,6 +58,11 @@ class CollectorAggregateUseCase:
                 unavailable_workers.append(worker_id)
                 running = False
                 continue
+            if not isinstance(status, dict):
+                raise TypeError(
+                    f"unexpected runtime_status payload from worker '{worker_id}': "
+                    f"{type(status).__name__}"
+                )
             assigned = set(self._assignments.task_ids_for_worker(worker_id))
             running = running and bool(status.get("running"))
             points_collected += int(status.get("points_collected") or 0)
@@ -94,10 +102,15 @@ class CollectorAggregateUseCase:
             if isinstance(result, BaseException):
                 by_worker[worker_id] = {}
                 continue
-            rows = list(result)
+            if not isinstance(result, list):
+                raise TypeError(
+                    f"unexpected list_devices payload from worker '{worker_id}': "
+                    f"{type(result).__name__}"
+                )
+            device_rows = [row for row in result if isinstance(row, dict)]
             by_worker[worker_id] = {
                 str(row.get("device_id")): row
-                for row in rows
+                for row in device_rows
                 if row.get("device_id") is not None
             }
         rows: list[dict[str, Any]] = []
@@ -148,10 +161,15 @@ class CollectorAggregateUseCase:
             if isinstance(result, BaseException):
                 by_worker[worker_id] = {}
                 continue
-            rows = list(result)
+            if not isinstance(result, list):
+                raise TypeError(
+                    f"unexpected list_sinks payload from worker '{worker_id}': "
+                    f"{type(result).__name__}"
+                )
+            sink_rows = [row for row in result if isinstance(row, dict)]
             by_worker[worker_id] = {
                 str(row.get("name")): row
-                for row in rows
+                for row in sink_rows
                 if row.get("name") is not None
             }
         rows: list[dict[str, Any]] = []
@@ -211,6 +229,11 @@ class CollectorAggregateUseCase:
         for worker_id, snapshot in zip(worker_ids, snapshots, strict=True):
             if isinstance(snapshot, BaseException):
                 continue
+            if not isinstance(snapshot, dict):
+                raise TypeError(
+                    f"unexpected metrics_snapshot payload from worker '{worker_id}': "
+                    f"{type(snapshot).__name__}"
+                )
             raw_counters = snapshot.get("counters")
             if isinstance(raw_counters, dict):
                 for name in counter_names:

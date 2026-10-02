@@ -1,0 +1,37 @@
+name: CI Fast (Commit Gate)
+
+# 提交门禁：静态检查 + 最快层测试。任何 commit 进入 main 前必须通过。
+# 目标时长 < 5 分钟；只跑无外部依赖的检查。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip poetry
+          poetry config virtualenvs.create false
+          poetry install --no-interaction
+      - name: Ruff
+        run: ruff check src tests scripts
+      - name: Mypy (strict)
+        run: mypy src
+      - name: Import contracts
+        run: lint-imports
+      - name: Unit tests
+        run: python -m pytest tests/unit -q

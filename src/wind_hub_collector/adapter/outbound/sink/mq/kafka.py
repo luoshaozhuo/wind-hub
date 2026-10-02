@@ -9,7 +9,7 @@
 参数在**构造时**校验（缺 ``bootstrap_servers`` / ``topic`` 抛
 :class:`~wind_hub_core.model.errors.ConfigError`）；运行时状态由
 ``asyncio.Lock`` 保护，仅在调度器所属同一事件循环内被调用；投递失败抛
-:class:`~wind_hub_collector.domain.model.errors.SinkError`，连续失败达到阈值后
+:class:`~wind_hub_core.model.errors.SinkError`，连续失败达到阈值后
 ``health()`` 报告 unhealthy（决策 6/8，复用 FileSink 模式）。
 
 注意 ``send()`` 入队即返回，broker ack 异步完成：每次 ``send`` 返回的
@@ -33,10 +33,9 @@ from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub_collector.domain.model.errors import SinkError
-from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointValue
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +57,12 @@ class KafkaSink(SinkPort):
     - ``compression_type``：可选，aiokafka 压缩类型（``gzip`` / ``snappy`` / ``lz4``
       / ``zstd``），默认不压缩。
     - ``acks``：生产者确认级别（``all`` / ``0`` / ``1``），默认 ``all``。
-    - ``retries``：发送失败重试次数，默认 ``3``。
     - ``batch_size``：生产者批大小（字节），默认 ``16384``。
     - ``linger_ms``：批收集等待时长（毫秒），默认 ``0``。
+
+    Notes:
+        aiokafka 0.14 移除了 producer ``retries`` 参数（重投由客户端内部
+        按 ``retry_backoff_ms`` 持续进行），本 sink 不再暴露重试次数配置。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -71,7 +73,6 @@ class KafkaSink(SinkPort):
         self._key_field = self._validate_key_field(params.get("key_field"))
         self._compression_type = self._optional_str(params, "compression_type")
         self._acks = self._str_or_int(params.get("acks", "all"), "acks")
-        self._retries = self._positive_int(params.get("retries", 3), "retries")
         self._batch_size = self._positive_int(params.get("batch_size", 16384), "batch_size")
         self._linger_ms = self._nonnegative_int(params.get("linger_ms", 0), "linger_ms")
 
@@ -145,8 +146,7 @@ class KafkaSink(SinkPort):
             producer = AIOKafkaProducer(
                 bootstrap_servers=self._bootstrap_servers,
                 acks=self._acks,
-                retries=self._retries,
-                batch_size=self._batch_size,
+                max_batch_size=self._batch_size,
                 linger_ms=self._linger_ms,
                 compression_type=self._compression_type,
             )

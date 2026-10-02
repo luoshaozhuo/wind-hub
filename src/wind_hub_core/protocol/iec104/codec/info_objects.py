@@ -10,6 +10,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
+from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.protocol.iec104.codec.ioa import decode_ioa, encode_ioa
 from wind_hub_core.protocol.iec104.codec.time import (
     CP56Time2a,
@@ -17,7 +18,6 @@ from wind_hub_core.protocol.iec104.codec.time import (
     encode_cp56time2a,
 )
 from wind_hub_core.protocol.iec104.codec.types import QualityFlag
-from wind_hub_core.model.errors import ProtocolError
 
 # ==========================================================================
 # helpers

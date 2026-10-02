@@ -10,9 +10,9 @@ import os
 import socket
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 from wind_hub_core.config.fingerprint import fingerprint_config_set
-from uuid import uuid4
 
 
 @dataclass(frozen=True, slots=True)

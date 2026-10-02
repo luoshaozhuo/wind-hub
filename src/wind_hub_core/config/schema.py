@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ConfigError
 
+
 def _validate_ams_net_id(net_id: str) -> str:
     """校验六段十进制 AMS Net ID。
 

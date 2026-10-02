@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from wind_hub_commander.runtime import CommanderRuntime
 from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.ads import ADSProbe
@@ -289,7 +290,7 @@ class DiagnosticUseCase:
             points=rows,
         )
 
-    def _device(self, device_id: str):
+    def _device(self, device_id: str) -> DeviceSession:
         try:
             return self._runtime.device(device_id)
         except KeyError as exc:
@@ -432,7 +433,7 @@ class DiagnosticUseCase:
                         resolved_address,
                         readable=raw_value is not None,
                         raw_value=raw_value,
-                        quality=(Quality.GOOD.value if raw_value is not None else Quality.BAD.value),
+                        quality=Quality.GOOD.value if raw_value is not None else Quality.BAD.value,
                         source="ads",
                         error=None if raw_value is not None else "point value is null",
                     )

@@ -9,8 +9,16 @@
 
 参数在**构造时**校验（缺 ``dsn`` / ``table`` 抛
 :class:`~wind_hub_core.model.errors.ConfigError`）；运行时状态由
-``asyncio.Lock`` 保护；写入失败抛 :class:`~wind_hub_collector.domain.model.errors.SinkError`，
+``asyncio.Lock`` 保护；写入失败抛 :class:`~wind_hub_core.model.errors.SinkError`，
 连续失败达到阈值后 ``health()`` 报告 unhealthy（决策 6/8，复用 FileSink 模式）。
+
+超时：asyncpg 默认不给查询设超时——数据库进程消失（容器 stop、网络
+黑洞）时，在途写会挂在半开 TCP 连接上直到内核重传耗尽（分钟级），
+消费者卡死、无失败计数、健康状态保持绿色，形成静默停摆。因此
+``write`` 整体包在 ``asyncio.wait_for`` 里，超时上限由 ``write_timeout``
+参数控制（默认 5s，见 :data:`_DEFAULT_WRITE_TIMEOUT`）；超时按失败
+计数并抛 ``SinkError``，被取消的 executemany 所在连接由 asyncpg 池
+自行丢弃重建。
 """
 
 from __future__ import annotations
@@ -29,15 +37,18 @@ import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_core.config.schema import SinkConfig
-from wind_hub_collector.domain.model.errors import SinkError
-from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointValue
 
 logger = logging.getLogger(__name__)
 
 # 连续写入失败达到该次数后，sink 标记为 unhealthy（决策 8，复用 FileSink 阈值）。
 _MAX_CONSECUTIVE_FAILURES = 5
+
+# 单次 write 调用的整体超时上限（秒）：挂起的在途写在此时间内必然
+# 转为失败计数，保证故障检测延迟有界（阈值 × (超时 + 批次间隔)）。
+_DEFAULT_WRITE_TIMEOUT = 5.0
 
 # 默认表结构（决策 5）；``value`` 用 JSONB 兼容任意标量/结构化值。
 _DEFAULT_SCHEMA: dict[str, str] = {
@@ -70,6 +81,9 @@ class DBSink(SinkPort):
       仅影响 ``CREATE TABLE``，``INSERT`` 固定写六个标准列。
     - ``pool_min_size`` / ``pool_max_size``：连接池最小/最大连接数，
       默认 ``1`` / ``10``，要求均为正整数且 min <= max（决策 5）。
+    - ``write_timeout``：单次 ``write`` 调用的整体超时秒数，默认 ``5.0``，
+      必须为正数——超时按一次写入失败计数（防止在途写挂在半开连接上
+      导致消费者停摆且健康状态失真）。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -87,6 +101,14 @@ class DBSink(SinkPort):
                 f"DBSink 'pool_min_size' ({self._pool_min_size}) must be <= "
                 f"'pool_max_size' ({self._pool_max_size})"
             )
+        write_timeout = params.get("write_timeout", _DEFAULT_WRITE_TIMEOUT)
+        if isinstance(write_timeout, bool) or not isinstance(write_timeout, int | float):
+            raise ConfigError(
+                f"DBSink 'write_timeout' must be a positive number, got {write_timeout!r}"
+            )
+        if write_timeout <= 0:
+            raise ConfigError(f"DBSink 'write_timeout' must be > 0, got {write_timeout}")
+        self._write_timeout = float(write_timeout)
 
         # 运行时状态 —— 由 `asyncio.Lock` 保护；连接池在 open 后创建。
         self._pool: Any = None
@@ -190,8 +212,19 @@ class DBSink(SinkPort):
             try:
                 rows = [self._row(pv) for pv in batch]
                 sql = self._insert_sql()
-                for i in range(0, len(rows), self._batch_size):
-                    await self._pool.executemany(sql, rows[i : i + self._batch_size])
+                # 整体限时：在途写挂在半开连接上时（对端进程消失、网络
+                # 黑洞）也必须在 write_timeout 内转为失败——否则消费者
+                # 无限阻塞、无失败计数，health() 保持绿色形成静默停摆。
+                async def _write_rows() -> None:
+                    for i in range(0, len(rows), self._batch_size):
+                        await self._pool.executemany(sql, rows[i : i + self._batch_size])
+
+                await asyncio.wait_for(_write_rows(), timeout=self._write_timeout)
+            except TimeoutError as exc:
+                self._record_failure(f"write timed out after {self._write_timeout}s")
+                raise SinkError(
+                    f"DBSink write timed out after {self._write_timeout}s"
+                ) from exc
             except Exception as exc:
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"DBSink write failed: {exc}") from exc

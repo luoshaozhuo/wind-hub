@@ -133,13 +133,13 @@ class ServerConfigValidator:
                 if mismatch:
                     table_repairs: dict[str, AddressResolution] = {}
                     for point in table.points:
-                        resolved = canonical.get(point.point_id)
-                        if resolved is None:
+                        resolution = canonical.get(point.point_id)
+                        if resolution is None:
                             continue
                         extra = point.address.model_extra or {}
                         if (
-                            extra.get("index_group") == resolved.index_group
-                            and extra.get("index_offset") == resolved.index_offset
+                            extra.get("index_group") == resolution.index_group
+                            and extra.get("index_offset") == resolution.index_offset
                         ):
                             continue
                         logger.warning(
@@ -152,13 +152,13 @@ class ServerConfigValidator:
                             point.point_id,
                             extra.get("index_group"),
                             extra.get("index_offset"),
-                            resolved.index_group,
-                            resolved.index_offset,
+                            resolution.index_group,
+                            resolution.index_offset,
                             representative_id,
                             safe_to_repair,
                         )
                         if safe_to_repair:
-                            table_repairs[point.point_id] = resolved
+                            table_repairs[point.point_id] = resolution
 
                     if table_repairs:
                         repairs[table_name] = table_repairs

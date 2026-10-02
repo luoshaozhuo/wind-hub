@@ -21,18 +21,16 @@ from wind_hub_core.config.reporting import load_reporting
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
-    ReportingConfig,
-    SystemConfig,
-    TasksConfig,
-)
-from wind_hub_core.config.schema import (
     DeviceConfig,
     DeviceInstancesConfig,
     DeviceModelsConfig,
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
+    ReportingConfig,
     ResolvedPointTables,
+    SystemConfig,
+    TasksConfig,
     UnitsConfig,
 )
 from wind_hub_core.model.errors import ConfigError

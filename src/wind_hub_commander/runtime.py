@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import AsyncIterator
 
 from wind_hub_commander.config import CommanderConfig
 from wind_hub_core.device.session import DeviceSession
@@ -133,14 +133,14 @@ class CommanderRuntime:
         candidate = self._build_generation(config)
         async with self._reload_lock:
             if self._stopping:
-                self._schedule_retirement(candidate, reason="prepare-during-stop")
+                await self._close_candidate(candidate, reason="prepare-during-stop")
                 raise RuntimeError("Commander is stopping")
             previous = self._prepared_generation
             self._prepared_generation = candidate
             self._prepared_revision = revision_id
             self._prepared_config_hash = config_hash
             if previous is not None:
-                self._schedule_retirement(previous, reason="replace-prepared")
+                await self._close_candidate(previous, reason="replace-prepared")
 
     async def activate_config(self, revision_id: str) -> None:
         """原子激活 prepared generation，并异步回收旧 generation。
@@ -188,7 +188,7 @@ class CommanderRuntime:
             self._prepared_config_hash = None
             self._prepared_generation = None
             if generation is not None:
-                self._schedule_retirement(generation, reason="abort-prepared")
+                await self._close_candidate(generation, reason="abort-prepared")
         return generation is not None
 
     async def reload(
@@ -253,6 +253,20 @@ class CommanderRuntime:
         )
         self._retirement_tasks.add(task)
         task.add_done_callback(self._retirement_tasks.discard)
+
+    async def _close_candidate(
+        self,
+        generation: _Generation,
+        *,
+        reason: str,
+    ) -> None:
+        """同步关闭从未服务过操作的候选 generation。
+
+        prepared generation 从未进入 active（``active_operations`` 恒为 0，
+        无需排空），同步关闭使 prepare 拒绝 / abort / 候选替换路径的资源
+        回收是确定性的，不遗留依赖事件循环存活的后台任务。
+        """
+        await self._close_generation(generation, reason=reason)
 
     async def _retire_generation(
         self,

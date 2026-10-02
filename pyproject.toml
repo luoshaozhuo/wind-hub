@@ -47,9 +47,17 @@ all = [
 
 [tool.poetry.group.dev.dependencies]
 grpcio-tools = "^1.75"
+# scripts/generate_rpc.py 经 --mypy_out/--mypy_grpc_out 生成 pb2 类型 stub。
+mypy-protobuf = "^5.0"
+# REST 系统/契约测试的真实 HTTP 客户端（Server 为 FastAPI 服务）。
+httpx = "^0.28"
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 mypy = "^1.0"
+# mypy strict 所需的第三方类型 stub（grpcio 无可用 stub 包，由 pyproject
+# overrides 显式按动态类型处理）。
+types-protobuf = "^7.0"
+types-PyYAML = "^6.0"
 ruff = "^0.8"
 import-linter = "^2.0"
 
@@ -62,29 +70,89 @@ wind-hub-commander = "wind_hub_commander.main:main"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# protobuf 生成的 *_pb2*.py 及其 mypy-protobuf 生成的 .pyi stub
+# 不属于手写源码，不做风格约束。
+extend-exclude = ["*_pb2.py", "*_pb2_grpc.py", "*_pb2.pyi", "*_pb2_grpc.pyi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-# ``typer.Option``/``typer.Argument`` default values are the idiomatic way to
-# declare CLI parameters; B008 must not flag them as mutable-call-in-default.
-extend-immutable-calls = ["typer.Argument", "typer.Option"]
+# ``typer.Option``/``typer.Argument`` 与 ``fastapi.Query``/``Path``/``Body``/``Depends``
+# 默认值是声明 CLI/HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
+extend-immutable-calls = [
+    "typer.Argument",
+    "typer.Option",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Depends",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # IEC104 测试类名刻意对应协议类型 ID（如 M_SP_NA_1 / C_SC_NA_1），
 # 不是常规 CapWords 命名，N801 在此处无意义。
-"tests/collector/unit/adapter/iec104/test_info_objects.py" = ["N801"]
+"tests/unit/core/protocol/iec104/test_info_objects.py" = ["N801"]
+# gRPC servicer 方法名由 proto service 定义强制（如 StartTask），
+# 框架按方法名分发，无法改为 snake_case。
+"src/wind_hub_collector/adapter/inbound/grpc/server.py" = ["N802"]
+"src/wind_hub_commander/adapter/inbound/grpc/server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
 python_version = "3.11"
+# protobuf 生成的 *_pb2*.py 不是手写源码；类型信息由配套的
+# .pyi stub（mypy-protobuf 生成）提供，生成文件本身不做严格检查。
+exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
+
+# grpcio 未附带 py.typed，且当前环境无法安装 grpcio-stubs；
+# 将 grpc 视为动态类型模块（Any），边界类型安全由 pb2 .pyi stub 保证。
+[[tool.mypy.overrides]]
+module = ["grpc", "grpc.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+# mypy-protobuf 生成的 .pyi stub 自带 generator 兼容的 ignore/overload
+# 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
+[[tool.mypy.overrides]]
+module = [
+    "wind_hub_core.rpc.collector_pb2",
+    "wind_hub_core.rpc.collector_pb2_grpc",
+    "wind_hub_core.rpc.commander_pb2",
+    "wind_hub_core.rpc.commander_pb2_grpc",
+]
+disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "perf: 性能压测（需 root + tc netem；不加入默认收集，经 scripts/run_benchmark.py 触发）",
+    # 层级 marker（由 tests/conftest.py 按第一层目录自动打标）
+    "unit: 单函数/单类逻辑，无网络、无真实外部依赖",
+    "component: 单进程/单模块内多组件协作（允许 fake/mock 外部依赖）",
+    "contract: 模块间稳定契约（RPC/config/API schema 与语义）",
+    "integration: 两个以上真实组件协作（真实协议服务/文件/Docker 服务）",
+    "system: 完整或接近完整系统的外部可观察行为",
+    "reliability: 故障检测、重试、恢复与资源释放",
+    "soak: 长时间稳定性（负载、资源、漂移）",
+    "performance: 性能压测（需 root + tc netem；不加入默认收集，经 scripts/run_benchmark.py 触发）",
+    # 协议与外部服务 marker
+    "modbus: Modbus 协议相关",
+    "ads: ADS 协议相关",
+    "iec104: IEC104 协议相关",
+    "kafka: 需要真实 Kafka",
+    "postgres: 需要真实 PostgreSQL",
+    "influxdb: 需要真实 InfluxDB",
+    "file: 文件 sink 相关",
+    # 服务真实性与环境 marker
+    "real_service: 使用真实外部组件（真实协议栈/文件/Docker 服务）",
+    "mock_service: 使用 fake/monkeypatch 替代外部组件（不计入 real-service 验收）",
+    "hardware: 需要真实硬件（如 TwinCAT PLC）",
+    "docker: 需要 Docker",
+    "network: 需要额外网络配置（如 veth/netem）",
+    "root: 需要 root 权限",
+    "slow: 慢速测试",
+    "fast: 快速测试（默认集合）",
 ]
 
 [tool.importlinter]

@@ -91,5 +91,11 @@ def _merge_endpoint(
             f"Device '{device_id}': endpoint has no 'port' and the model provides "
             "no 'connection_defaults.port'"
         )
+    # connection_defaults 是原始 YAML 值；端口只接受 int 或数字字符串。
+    if not isinstance(port, int | str):
+        raise ConfigError(
+            f"Device '{device_id}': endpoint port must be an int or numeric string, "
+            f"got {type(port).__name__}"
+        )
     extensions = {**defaults, **endpoint.extensions}
     return Endpoint(host=endpoint.host, port=int(port), extensions=extensions)

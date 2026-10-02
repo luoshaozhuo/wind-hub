@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import wind_hub_core.protocol  # noqa: F401 — 触发内置 Driver 注册
-
 from wind_hub_commander.application import CommandUseCase, DiagnosticUseCase, ReadUseCase
 from wind_hub_commander.config import CommanderConfig, load_commander_config
 from wind_hub_commander.dispatcher import CommandDispatcher

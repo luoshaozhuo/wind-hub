@@ -44,13 +44,14 @@ async def metrics_endpoint() -> Response:
                 for row in devices
             ]
         )
-        metrics.update_sink_queue_depths(
-            {
-                str(row.get("name") or ""): int(row.get("queue_depth") or 0)
-                for row in sinks
-                if row.get("name") is not None
-            }
-        )
+        queue_depths: dict[str, int] = {}
+        for row in sinks:
+            sink_name = row.get("name")
+            depth = row.get("queue_depth")
+            if sink_name is None or not isinstance(depth, int):
+                continue
+            queue_depths[str(sink_name)] = depth
+        metrics.update_sink_queue_depths(queue_depths)
         body = metrics.render()
     except Exception as exc:
         raise APIError(

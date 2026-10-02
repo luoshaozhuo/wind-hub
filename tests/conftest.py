@@ -3,15 +3,18 @@
 marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约定打标，
 避免为既有测试机械逐文件加 ``pytestmark``：
 
-- 层级：路径含 ``unit`` / ``functional`` / ``integration`` / ``system`` /
-  ``recovery`` / ``soak`` 即打对应 marker；``perf`` 只打非 unit 路径下的
-  perf 测试（``tests/collector/unit/perf`` 是 perf 框架自身的 unit 测试）；
-- 协议：路径或文件名 token 命中 ``modbus`` / ``ads`` / ``iec104`` /
-  ``kafka`` / ``postgres``；
-- 服务真实性（仅 integration/system/recovery 层级）：默认 ``real_service``
-  （真实协议栈 over TCP、真实文件、Docker 服务、真实 PLC）；命中
-  :data:`_MOCK_SERVICE_STEMS` 或文件名含 ``mock`` 的打 ``mock_service``
-  （monkeypatch / 内存 fake，不计入 real-service 验收）。
+- 层级：第一层目录即层级（``unit`` / ``component`` / ``contract`` /
+  ``integration`` / ``system`` / ``reliability`` / ``performance``）；
+  ``reliability/soak`` 额外打 ``soak``；
+- 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
+  ``iec104`` / ``kafka`` / ``postgres`` / ``influxdb`` / ``file``；
+- 服务真实性（仅 integration/system/reliability 层级）：默认
+  ``real_service``（真实协议栈 over TCP、真实文件、Docker 服务、真实
+  PLC）；命中 :data:`_MOCK_SERVICE_STEMS` 或文件名含 ``mock`` 的打
+  ``mock_service``（monkeypatch / 内存 fake，不计入 real-service 验收）。
+
+层级 marker 只靠第一层目录推断；更细的环境属性（hardware / docker /
+root / network / slow）必须在测试文件或 conftest 中显式标注。
 """
 
 from __future__ import annotations
@@ -21,18 +24,27 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.config.schema import SinkConfig
-from wind_hub_collector.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.model.errors import ConfigError
 
 FIXTURE_CONFIGS = Path(__file__).resolve().parent / "fixtures" / "configs"
 _TESTS_ROOT = Path(__file__).resolve().parent
 
-_LEVEL_MARKERS = ("unit", "functional", "integration", "system", "recovery", "soak")
-_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres")
+_LEVEL_MARKERS = (
+    "unit",
+    "component",
+    "contract",
+    "integration",
+    "system",
+    "reliability",
+    "performance",
+)
+_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres", "influxdb", "file")
 #: 使用 fake/monkeypatch 替代外部组件的 integration 测试（不计入 real-service 验收）。
 _MOCK_SERVICE_STEMS = frozenset(
     {
@@ -52,16 +64,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         except ValueError:
             continue
         part_set = set(parts)
-        for level in _LEVEL_MARKERS:
-            if level in part_set:
-                item.add_marker(getattr(pytest.mark, level))
-        if "perf" in part_set and "unit" not in part_set:
-            item.add_marker(pytest.mark.perf)
+        level = parts[0] if parts else ""
+        if level in _LEVEL_MARKERS:
+            item.add_marker(getattr(pytest.mark, level))
+        if level == "reliability" and "soak" in part_set:
+            item.add_marker(pytest.mark.soak)
         tokens = set(item.path.stem.split("_")) | part_set
         for protocol in _PROTOCOL_MARKERS:
             if protocol in tokens:
                 item.add_marker(getattr(pytest.mark, protocol))
-        if part_set & {"integration", "system", "recovery"}:
+        if level in {"integration", "system", "reliability"}:
             if "mock" in tokens or item.path.stem in _MOCK_SERVICE_STEMS:
                 item.add_marker(pytest.mark.mock_service)
             else:
@@ -138,8 +150,8 @@ def kafka_service(request: pytest.FixtureRequest) -> str:
 
     ``WIND_HUB_TEST_KAFKA`` 指向外部实例时直接使用且不管理其生命周期。
     """
-    from tests.env import kafka_bootstrap_from_env
     from tests.fixtures.services import compose
+    from tests.support.env import kafka_bootstrap_from_env
 
     external = kafka_bootstrap_from_env()
     if external is not None:
@@ -155,8 +167,8 @@ def postgres_service(request: pytest.FixtureRequest) -> str:
 
     ``WIND_HUB_TEST_POSTGRES_DSN`` 指向外部实例时直接使用且不管理其生命周期。
     """
-    from tests.env import postgres_dsn_from_env
     from tests.fixtures.services import compose
+    from tests.support.env import postgres_dsn_from_env
 
     external = postgres_dsn_from_env()
     if external is not None:

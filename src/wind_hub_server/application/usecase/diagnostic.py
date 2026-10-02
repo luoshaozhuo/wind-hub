@@ -186,17 +186,17 @@ class DiagnosticUseCase:
                 )
             self._operations.update_progress(operation_id, completed=index)
 
-        result: dict[str, object] = {"points": rows, "failed": failures}
+        summary: dict[str, object] = {"points": rows, "failed": failures}
         if failures == 0:
-            self._operations.succeed(operation_id, result)
+            self._operations.succeed(operation_id, summary)
         elif failures < len(point_ids):
-            self._operations.complete_partial(operation_id, result)
+            self._operations.complete_partial(operation_id, summary)
         else:
             self._operations.fail(
                 operation_id,
                 code="POINT_TABLE_VERIFY_FAILED",
                 message="all point reads failed",
-                details=result,
+                details=summary,
             )
 
     async def _scan_worker(

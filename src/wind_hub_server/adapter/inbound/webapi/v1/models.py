@@ -509,7 +509,7 @@ class AdminDevicesRequest(BaseModel):
     items: list[AdminDeviceItemRequest]
 
     @model_validator(mode="after")
-    def _unique_device_ids(self) -> "AdminDevicesRequest":
+    def _unique_device_ids(self) -> AdminDevicesRequest:
         _ensure_unique((item.device_id for item in self.items), "device_id")
         return self
 
@@ -528,7 +528,7 @@ class AdminTasksRequest(BaseModel):
     items: list[AdminTaskItemRequest]
 
     @model_validator(mode="after")
-    def _validate_tasks(self) -> "AdminTasksRequest":
+    def _validate_tasks(self) -> AdminTasksRequest:
         _ensure_unique((item.task_id for item in self.items), "task_id")
         for item in self.items:
             if (item.device is None) == (item.device_group is None):
@@ -549,7 +549,7 @@ class AdminSinksRequest(BaseModel):
     items: list[AdminSinkItemRequest]
 
     @model_validator(mode="after")
-    def _unique_sink_names(self) -> "AdminSinksRequest":
+    def _unique_sink_names(self) -> AdminSinksRequest:
         _ensure_unique((item.name for item in self.items), "sink name")
         return self
 
@@ -582,7 +582,7 @@ class AdminStateRequest(BaseModel):
     definitions: AdminDefinitionsRequest
 
     @model_validator(mode="after")
-    def _validate_state(self) -> "AdminStateRequest":
+    def _validate_state(self) -> AdminStateRequest:
         AdminDevicesRequest(items=self.devices)
         AdminTasksRequest(items=self.tasks)
         AdminSinksRequest(items=self.sinks)

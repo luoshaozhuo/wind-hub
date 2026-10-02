@@ -13,7 +13,7 @@ from wind_hub_server.application.port.log_store import LogEntry
 class _BufferHandler(logging.Handler):
     """把标准 logging 记录投递到 LogStore。"""
 
-    def __init__(self, store: "LogStore") -> None:
+    def __init__(self, store: LogStore) -> None:
         super().__init__()
         self._store = store
 

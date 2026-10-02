@@ -9,8 +9,8 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from wind_hub_core.protocol.iec104.codec.types import UFrameType
 from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.protocol.iec104.codec.types import UFrameType
 
 # ---------------------------------------------------------------------------
 # 协议常量

@@ -7,10 +7,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
 from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_core.model.point import PointValue, Quality
 
 
 class DeviceDataItem(BaseModel):
@@ -153,7 +154,7 @@ class DeviceDataUseCase:
             for point_id in requested
         ]
 
-    def _points_or_raise(self, device_id: str):
+    def _points_or_raise(self, device_id: str) -> list[PointConfig]:
         """从当前配置快照返回设备绑定的 resolved 点表。"""
         cfg = self._config.current_config
         device = next(

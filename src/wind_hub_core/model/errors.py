@@ -1,7 +1,8 @@
 """Wind Hub 跨进程共享的稳定异常体系。
 
-本模块只定义配置、协议、命令和通用操作错误。具体进程专属外部系统错误
-（例如 Collector SinkError）由对应组件定义，避免 Core 反向吸收运行时职责。
+本模块定义配置、协议、命令、Sink 和通用操作错误。Sink 失败经 RPC 与
+HTTP API 构成跨进程错误契约（SINK_ERROR），故 SinkError 与其它共享异常
+一样定义在 Core，由 Collector Sink 适配器抛出、Server Web API 映射。
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ class CommandError(WindHubError):
     def __init__(self, message: str, command_id: str) -> None:
         super().__init__(message)
         self.command_id = command_id
+
+
+class SinkError(WindHubError):
+    """Sink 打开、写入、flush 或外部连接失败。"""
 
 
 class OperationTimeoutError(WindHubError):

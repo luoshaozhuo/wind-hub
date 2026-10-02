@@ -110,7 +110,8 @@ class SystemHealthUseCase:
         memory_pct = (
             current.memory_used_gb / current.memory_total_gb * 100
             if current.memory_used_gb is not None
-            and current.memory_total_gb not in (None, 0)
+            and current.memory_total_gb is not None
+            and current.memory_total_gb != 0
             else None
         )
         cpu = current.cpu_host_pct

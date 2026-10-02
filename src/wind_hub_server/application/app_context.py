@@ -20,12 +20,12 @@ from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
-from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_server.application.usecase.device import DeviceUseCase
 from wind_hub_server.application.usecase.device_control import DeviceControlUseCase
 from wind_hub_server.application.usecase.device_data import DeviceDataUseCase
-from wind_hub_server.application.usecase.overview import OverviewUseCase
+from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_server.application.usecase.logs import LogsUseCase
+from wind_hub_server.application.usecase.overview import OverviewUseCase
 from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase

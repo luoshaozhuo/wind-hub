@@ -18,6 +18,11 @@ import grpc
 from wind_hub_ctl.client import CollectorClient
 
 
+def _print(payload: Any) -> None:
+    """把 RPC 结果以 JSON 写入 stdout（CLI 的唯一输出通道）。"""
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 async def _run(args: argparse.Namespace) -> int:
     """执行一次 CLI 子命令。
 

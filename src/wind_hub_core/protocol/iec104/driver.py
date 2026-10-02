@@ -16,6 +16,11 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import CommandError, ProtocolError
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.model.point import PointRef, PointValue, Quality
 from wind_hub_core.protocol.iec104.codec.asdu import ASDU
 from wind_hub_core.protocol.iec104.codec.info_objects import (
     DoubleCommand,
@@ -37,11 +42,6 @@ from wind_hub_core.protocol.iec104.session import IEC104Session
 from wind_hub_core.protocol.iec104.subscriptions import (
     SubscriptionRegistry,
 )
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
-from wind_hub_core.model.command import Command, CommandResult
-from wind_hub_core.model.errors import CommandError, ProtocolError
-from wind_hub_core.model.point import PointRef, PointValue, Quality
-from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
     ProtocolPort,
@@ -153,7 +153,8 @@ class IEC104Driver:
 
         for p in points:
             try:
-                # IEC104 PointAddress 的 ioa 来自协议扩展字段；schema 若改为判别联合类型，应移除此抑制。
+                # IEC104 PointAddress 的 ioa 来自协议扩展字段；
+                # schema 若改为判别联合类型，应移除此抑制。
                 ioa = int(p.address.ioa)  # type: ignore[attr-defined]
             except (AttributeError, ValueError):
                 logger.warning(
@@ -454,7 +455,7 @@ class IEC104Driver:
 
         # bool 或 bool data_type → C_SC_NA_1。
         # bool 是 int 子类，必须优先判断。
-        
+
         if isinstance(val, bool) or data_type == "bool":
             return ASDU(
                 type_id=TypeID.C_SC_NA_1,

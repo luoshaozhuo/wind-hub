@@ -31,7 +31,7 @@ class CollectorClient:
         self._channel: grpc.aio.Channel | None = None
         self._runtime_stub: pb_grpc.CollectorRuntimeServiceStub | None = None
 
-    async def __aenter__(self) -> "CollectorClient":
+    async def __aenter__(self) -> CollectorClient:
         """创建异步 channel 与 generated stubs。"""
         self._channel = grpc.aio.insecure_channel(self._target)
         self._runtime_stub = pb_grpc.CollectorRuntimeServiceStub(self._channel)

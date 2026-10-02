@@ -18,6 +18,19 @@ from wind_hub_server.application.port.monitoring import (
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.infra.monitoring import MonitoringService
 
+
+def _list_field(payload: dict[str, object], name: str) -> list[object]:
+    """读取快照 dict 中的列表字段（缺失或非列表按空列表处理）。"""
+    value = payload.get(name)
+    return list(value) if isinstance(value, list) else []
+
+
+def _int_field(payload: dict[str, object], name: str) -> int:
+    """读取快照 dict 中的整型字段（缺失或非 int 按 0 处理）。"""
+    value = payload.get(name)
+    return value if isinstance(value, int) else 0
+
+
 QualityWindow = Literal["1h", "24h", "7d"]
 
 
@@ -279,7 +292,7 @@ class QualityUseCase:
     def _acquisition_channels(self) -> list[QualityChannel]:
         devices = self._monitoring.devices_snapshot()
         status = self._monitoring.runtime_status()
-        acquisitions = list(status.get("acquisitions") or [])
+        acquisitions = _list_field(status, "acquisitions")
         rows: list[QualityChannel] = []
 
         for device in sorted(
@@ -342,11 +355,7 @@ class QualityUseCase:
                 or cfg.params.get("path")
                 or "configured"
             )
-            queue_depth = (
-                int(current.get("queue_depth") or 0)
-                if current is not None
-                else 0
-            )
+            queue_depth = _int_field(current, "queue_depth") if current is not None else 0
             issue = (
                 str(current.get("message"))
                 if current is not None and current.get("message")
@@ -370,9 +379,9 @@ class QualityUseCase:
     def _issues(self) -> list[QualityIssue]:
         issues: list[QualityIssue] = []
         status = self._monitoring.runtime_status()
-        acquisitions = list(status.get("acquisitions") or [])
+        acquisitions = _list_field(status, "acquisitions")
 
-        for worker_id in list(status.get("unavailable_workers") or []):
+        for worker_id in _list_field(status, "unavailable_workers"):
             issues.append(
                 QualityIssue(
                     level="Fault",
