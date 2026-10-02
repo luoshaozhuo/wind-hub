@@ -828,6 +828,7 @@ class Runtime:
         )
         self._sinks[sink_name] = sink
         self._queues[sink_name] = queue
+        self._unhealthy_sinks.discard(sink_name)
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
         if self._running:
@@ -885,6 +886,7 @@ class Runtime:
 
         old_sink = self._sinks.get(sink_name)
         self._sinks[sink_name] = new_sink
+        self._unhealthy_sinks.discard(sink_name)
 
         if old_sink is not None:
             try:
