@@ -83,7 +83,7 @@ class SystemStatus(BaseModel):
     """累计路由点数——成功进入 sink 队列的点值总数。"""
 
     points_dropped: int = 0
-    """累计丢弃点数——背压策略丢弃的点值总数。"""
+    """累计未交付点数——背压丢弃或目标 Sink 不可用的点值总数。"""
 
     acquisitions: list[AcquisitionInfo] = []
     """各采集实例的业务执行状态（按 Task Instance 粒度）。"""
