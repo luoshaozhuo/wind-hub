@@ -32,6 +32,7 @@ from wind_hub.adapter.inbound.iec104_slave import (
 from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
+from wind_hub.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
@@ -80,6 +81,7 @@ class AssembledRuntime:
     query: QueryUseCase
     diagnostic: DiagnosticUseCase
     config: ConfigUseCase
+    metrics_state: CollectorMetricsState
     iec104_slave: IEC104SlaveServer | None = None
 
 
@@ -124,9 +126,11 @@ def assemble(
         default_timeout=cfg.system.runtime.write_timeout,
     )
 
+    metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(
         read_timeout=cfg.system.runtime.read_timeout,
     )
+    engine.add_observer(metrics_state.observe_points)
 
     runtime = Runtime(
         devices=devices,
@@ -137,6 +141,7 @@ def assemble(
         tasks={task.task_id: task for task in cfg.tasks.tasks},
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
+        metrics_hook=metrics_state,
     )
 
     tasks = TaskUseCase(runtime)
@@ -164,6 +169,7 @@ def assemble(
         query=query,
         diagnostic=diagnostic,
         config=config,
+        metrics_state=metrics_state,
         iec104_slave=iec104_slave,
     )
 

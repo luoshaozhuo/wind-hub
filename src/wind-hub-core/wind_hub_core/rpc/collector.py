@@ -14,6 +14,7 @@ DIAGNOSTIC_SERVICE = "windhub.collector.v1.CollectorDiagnosticService"
 
 GET_COLLECTOR_INFO = "GetCollectorInfo"
 GET_RUNTIME_STATUS = "GetRuntimeStatus"
+GET_METRICS_SNAPSHOT = "GetMetricsSnapshot"
 LIST_TASKS = "ListTasks"
 GET_TASK = "GetTask"
 LIST_TASK_INSTANCES = "ListTaskInstances"

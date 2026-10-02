@@ -22,6 +22,7 @@ from wind_hub_core.rpc.collector import (
     DIAGNOSTIC_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
+    GET_METRICS_SNAPSHOT,
     GET_TASK,
     GET_TASK_INSTANCE,
     LIST_DEVICES,
@@ -147,6 +148,15 @@ class CollectorRuntimeService:
         del request, context
         status = await self._runtime.query.status()
         return _struct(status.model_dump(mode="json"))
+
+    async def get_metrics_snapshot(
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """返回 Collector 本地采集质量累计计数与近期事件。"""
+        del request, context
+        return _struct(self._runtime.metrics_state.snapshot())
 
     async def list_tasks(
         self,
@@ -662,6 +672,11 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
             ),
             GET_RUNTIME_STATUS: grpc.unary_unary_rpc_method_handler(
                 service.get_runtime_status,
+                request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            GET_METRICS_SNAPSHOT: grpc.unary_unary_rpc_method_handler(
+                service.get_metrics_snapshot,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),

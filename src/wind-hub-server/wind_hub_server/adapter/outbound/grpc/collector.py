@@ -9,6 +9,7 @@ from google.protobuf import empty_pb2
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     GET_RUNTIME_STATUS,
+    GET_METRICS_SNAPSHOT,
     LIST_DEVICES,
     LIST_SINKS,
     LIST_TASKS,
@@ -37,6 +38,9 @@ class CollectorGrpcClient(GrpcClientBase):
 
     async def runtime_status(self) -> dict[str, Any]:
         return await self._empty(RUNTIME_SERVICE, GET_RUNTIME_STATUS)
+
+    async def metrics_snapshot(self) -> dict[str, Any]:
+        return await self._empty(RUNTIME_SERVICE, GET_METRICS_SNAPSHOT)
 
     async def list_devices(self) -> list[dict[str, Any]]:
         data = await self._empty(RUNTIME_SERVICE, LIST_DEVICES)
