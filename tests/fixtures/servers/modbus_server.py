@@ -20,9 +20,13 @@ from pymodbus.datastore import (
     ModbusSequentialDataBlock,
     ModbusServerContext,
 )
+from pymodbus.pdu import ModbusPDU
 from pymodbus.server import ModbusTcpServer
 
 MODBUS_PORT = 15020
+
+#: 写类功能码（FC5 写线圈 / FC6 写单寄存器 / FC15 写多线圈 / FC16 写多寄存器）。
+_WRITE_FUNCTION_CODES = frozenset({5, 6, 15, 16})
 
 _ADDR_ROTOR_SPEED = 100
 _ADDR_GEN_POWER = 102
@@ -72,10 +76,31 @@ class ModbusMockServer:
         self._holding = holding
         self._inputs = inputs
         self._server: ModbusTcpServer | None = None
+        self._write_count = 0
 
     @property
     def port(self) -> int:
         return self._port
+
+    @property
+    def write_count(self) -> int:
+        """从站累计收到的写请求 PDU 数（跨 start/stop 保留，测试自行 reset）。
+
+        通过 pymodbus ``trace_pdu`` 钩子在 **Server 侧** 统计，与被测驱动
+        无任何共享状态——用于命令幂等验证（同一 command_id 的并发/重复
+        写只允许一次真正到达从站）。
+        """
+        return self._write_count
+
+    def reset_write_count(self) -> None:
+        """清零写请求计数。"""
+        self._write_count = 0
+
+    def _trace_pdu(self, sending: bool, pdu: ModbusPDU) -> ModbusPDU:
+        """pymodbus trace 钩子：仅统计收到的写请求，不修改报文。"""
+        if not sending and pdu.function_code in _WRITE_FUNCTION_CODES:
+            self._write_count += 1
+        return pdu
 
     async def start(self) -> None:
         """启动从站（后台 serve，非阻塞）。"""
@@ -89,7 +114,11 @@ class ModbusMockServer:
         )
         # single=False：按 unit id 分派（1 / 2 各自独立数据块）。
         context = ModbusServerContext({1: unit1, 2: unit2}, single=False)
-        self._server = ModbusTcpServer(context, address=("127.0.0.1", self._port))
+        self._server = ModbusTcpServer(
+            context,
+            address=("127.0.0.1", self._port),
+            trace_pdu=self._trace_pdu,
+        )
         await self._server.serve_forever(background=True)
 
     async def stop(self) -> None:

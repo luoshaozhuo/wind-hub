@@ -69,7 +69,7 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
 
     async def _probe() -> str | None:
         import grpc
-        from google.protobuf import empty_pb2
+        from google.protobuf import empty_pb2, json_format, struct_pb2
 
         from wind_hub_core.rpc.collector import (
             GET_RUNTIME_STATUS,
@@ -79,13 +79,17 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
 
         channel = grpc.aio.insecure_channel(target)
         try:
-            call = channel.unary_unary(rpc_path(RUNTIME_SERVICE, GET_RUNTIME_STATUS))
+            call = channel.unary_unary(
+                rpc_path(RUNTIME_SERVICE, GET_RUNTIME_STATUS),
+                request_serializer=empty_pb2.Empty.SerializeToString,
+                response_deserializer=struct_pb2.Struct.FromString,
+            )
             response = await call(
                 empty_pb2.Empty(),
                 timeout=2.0,
             )
             # Struct 响应能解码即认为控制面就绪。
-            return response.decode("utf-8", errors="replace")
+            return json_format.MessageToJson(response)
         finally:
             await channel.close()
 

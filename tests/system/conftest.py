@@ -16,8 +16,24 @@ from pathlib import Path
 
 import pytest
 
-from tests.system.process import CollectorProcess, start_collector
+from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.system.process import CollectorProcess, free_port, start_collector
 from tests.system.wait import wait_grpc_ready
+
+
+@pytest.fixture
+async def modbus_server() -> AsyncIterator[ModbusMockServer]:
+    """独立空闲端口的真实 Modbus 从站（覆盖根 conftest 的固定端口版本）。
+
+    System 测试的 Collector 是独立 subprocess，配置必须引用实际端口；
+    每测试一个空闲端口，避免与并行的其他套件争用固定端口。
+    """
+    server = ModbusMockServer(port=free_port())
+    await server.start()
+    try:
+        yield server
+    finally:
+        await server.stop()
 
 
 @pytest.fixture

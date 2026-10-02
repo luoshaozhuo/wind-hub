@@ -16,6 +16,7 @@ SIGTERM 路径一致）；``kill_tree`` 用于测试失败后的强制清理。
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import socket
@@ -94,6 +95,16 @@ def run_ctl(
         stdout=completed.stdout,
         stderr=completed.stderr,
     )
+
+
+async def run_ctl_async(*args: str, **kwargs: float | str) -> CtlResult:
+    """:func:`run_ctl` 的异步包装——在独立线程执行阻塞 subprocess 调用。
+
+    测试进程的事件循环同时承载协议 fixture server；同步调用会阻塞循环，
+    导致 Collector 的读写请求在 ctl 执行期间全部超时。异步测试一律用本
+    包装，不用裸 ``run_ctl``。
+    """
+    return await asyncio.to_thread(run_ctl, *args, **kwargs)
 
 
 @dataclass
