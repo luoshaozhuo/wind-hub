@@ -283,6 +283,84 @@ def _instance_coroutine_tasks() -> list[asyncio.Task]:
 
 
 # ---------------------------------------------------------------------------
+# 连接状态与显式强制重连
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureConnected:
+    async def test_force_checks_driver_health_before_fast_path(self) -> None:
+        """Runtime 显示 connected 但 Driver unhealthy 时，force=True 必须重连。"""
+        rt, protos, _, _ = _build_runtime(
+            devices=[_make_device_config("d1")],
+            tasks=[],
+        )
+        await rt.start()
+        try:
+            proto = protos["d1"]
+            assert rt.device_state("d1") is not None
+            assert rt.device_state("d1").connected is True
+
+            proto.connect.reset_mock()
+            proto.health.return_value = HealthStatus(
+                healthy=False,
+                message="driver disconnected",
+            )
+
+            assert await rt.ensure_connected("d1", force=True) is True
+
+            proto.health.assert_called_once()
+            proto.connect.assert_awaited_once()
+            assert rt.device_state("d1").connected is True
+        finally:
+            await rt.stop()
+
+    async def test_force_healthy_driver_keeps_zero_io_fast_path(self) -> None:
+        """Runtime 与 Driver 都健康时，force=True 不重复 connect。"""
+        rt, protos, _, _ = _build_runtime(
+            devices=[_make_device_config("d1")],
+            tasks=[],
+        )
+        await rt.start()
+        try:
+            proto = protos["d1"]
+            proto.connect.reset_mock()
+            proto.health.return_value = HealthStatus(healthy=True)
+
+            assert await rt.ensure_connected("d1", force=True) is True
+
+            proto.health.assert_called_once()
+            proto.connect.assert_not_awaited()
+        finally:
+            await rt.stop()
+
+    async def test_force_unhealthy_driver_connect_failure_marks_disconnected(self) -> None:
+        """强制重连失败必须把 Runtime 状态同步为 disconnected。"""
+        rt, protos, _, _ = _build_runtime(
+            devices=[_make_device_config("d1")],
+            tasks=[],
+        )
+        await rt.start()
+        try:
+            proto = protos["d1"]
+            proto.connect.reset_mock()
+            proto.health.return_value = HealthStatus(
+                healthy=False,
+                message="driver disconnected",
+            )
+            proto.connect.side_effect = OSError("connection refused")
+
+            assert await rt.ensure_connected("d1", force=True) is False
+
+            proto.connect.assert_awaited_once()
+            state = rt.device_state("d1")
+            assert state is not None
+            assert state.connected is False
+            assert "connection refused" in (state.last_error or "")
+        finally:
+            await rt.stop()
+
+
+# ---------------------------------------------------------------------------
 # Task 展开
 # ---------------------------------------------------------------------------
 
