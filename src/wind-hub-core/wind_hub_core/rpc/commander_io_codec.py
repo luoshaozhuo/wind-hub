@@ -7,7 +7,7 @@ from typing import Any
 
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_core.rpc import commander_io_pb2 as pb
+from wind_hub_core.rpc import commander_pb2 as pb
 
 
 def encode_scalar(value: Any) -> pb.ScalarValue:

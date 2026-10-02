@@ -43,6 +43,7 @@ all = [
 ]
 
 [tool.poetry.group.dev.dependencies]
+grpcio-tools = "^1.75"
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 mypy = "^1.0"

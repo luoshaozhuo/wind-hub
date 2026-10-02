@@ -1,64 +1,32 @@
 """Commander gRPC Server。
 
-提供即时 read/write 与设备诊断 RPC。业务行为委托 CommanderApp 用例，
-本模块只负责 wire 参数解析、错误映射和 gRPC 生命周期。
+本适配器实现由 commander.proto 生成的 CommanderService Servicer。
+Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp 用例。
 """
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import uuid4
 
 import grpc
-from google.protobuf import empty_pb2, json_format, struct_pb2
+from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub_commander.assembly import CommanderApp
 from wind_hub_commander.config import load_commander_config
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.model.errors import CommandError
-from wind_hub_core.rpc import commander_io_pb2 as io_pb
+from wind_hub_core.rpc import commander_pb2 as pb
+from wind_hub_core.rpc import commander_pb2_grpc as pb_grpc
 from wind_hub_core.rpc.commander_io_codec import (
     command_from_proto,
     command_result_to_proto,
+    encode_scalar,
     point_value_to_proto,
 )
-from wind_hub_core.rpc.commander import (
-    COMMANDER_SERVICE,
-    GET_STATUS,
-    LIST_DEVICES,
-    ACTIVATE_CONFIG,
-    ABORT_CONFIG,
-    PREPARE_CONFIG,
-    READ_POINT,
-    READ_POINTS,
-    RELOAD_CONFIG,
-    RESOLVE_POINT,
-    VERIFY_DEVICE,
-    VERIFY_POINT,
-    VERIFY_POINTS,
-    WRITE_POINT,
-    WRITE_POINTS,
-)
-
-
-def _request_dict(request: struct_pb2.Struct) -> dict[str, Any]:
-    return dict(json_format.MessageToDict(request, preserving_proto_field_name=True))
-
-
-def _struct(data: dict[str, Any]) -> struct_pb2.Struct:
-    message = struct_pb2.Struct()
-    message.update(data)
-    return message
-
-
-def _required_string(data: dict[str, Any], key: str) -> str:
-    value = data.get(key)
-    if value is None or not str(value):
-        raise ValueError(f"missing required field '{key}'")
-    return str(value)
 
 
 async def _abort(context: grpc.aio.ServicerContext, exc: Exception) -> None:
+    """把应用异常映射为稳定 gRPC status。"""
     if isinstance(exc, CommandError | KeyError):
         await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
     if isinstance(exc, ValueError):
@@ -66,60 +34,120 @@ async def _abort(context: grpc.aio.ServicerContext, exc: Exception) -> None:
     await context.abort(grpc.StatusCode.INTERNAL, str(exc) or type(exc).__name__)
 
 
-class CommanderService:
-    """Commander gRPC 应用服务。"""
+def _required(value: str, field: str) -> str:
+    """校验 protobuf 必填字符串。"""
+    if not value:
+        raise ValueError(f"missing required field '{field}'")
+    return value
+
+
+def _address_fields(data: dict[str, object] | None) -> list[pb.AddressField]:
+    """把协议地址字典转换为稳定有序的 AddressField 列表。"""
+    if not data:
+        return []
+    return [
+        pb.AddressField(key=key, value=encode_scalar(value))
+        for key, value in sorted(data.items())
+    ]
+
+
+def _device_verify_to_proto(result) -> pb.DeviceVerifyResponse:
+    """把 Commander 设备诊断结果转换为 wire message。"""
+    response = pb.DeviceVerifyResponse(
+        device_id=result.device_id,
+        protocol=result.protocol,
+        host=result.host,
+        port=result.port,
+        ok=result.ok,
+    )
+    response.stages.extend(
+        pb.DiagnosticStageMessage(
+            name=stage.name,
+            ok=stage.ok,
+            code=stage.code.value,
+            severity=stage.severity.value,
+            message=stage.message,
+        )
+        for stage in result.stages
+    )
+    return response
+
+
+def _point_verify_to_proto(result) -> pb.PointVerifyResponse:
+    """把 Commander 点诊断结果转换为 wire message。"""
+    response = pb.PointVerifyResponse(
+        device_id=result.device_id,
+        point_id=result.point_id,
+        variable_name=result.variable_name or "",
+        protocol=result.protocol,
+        configured_address=_address_fields(result.configured_address),
+        resolved_address=_address_fields(result.resolved_address),
+        data_type=result.data_type,
+        scale=result.scale,
+        offset=result.offset,
+        unit=result.unit,
+        ok=result.ok,
+        code=result.code.value,
+        severity=result.severity.value,
+        raw_value=encode_scalar(result.raw_value),
+        engineering_value=encode_scalar(result.engineering_value),
+        quality=result.quality or "",
+        source=result.source or "",
+        error=result.error or "",
+    )
+    if result.readable is not None:
+        response.readable.CopyFrom(wrappers_pb2.BoolValue(value=result.readable))
+    return response
+
+
+class CommanderService(pb_grpc.CommanderServiceServicer):
+    """Commander 强类型 gRPC 应用服务。"""
 
     def __init__(self, app: CommanderApp) -> None:
         self._app = app
 
-    async def get_status(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    async def GetStatus(self, request, context) -> pb.CommanderStatusResponse:
+        """返回 Commander 运行与配置状态。"""
         del request, context
-        healthy = sum(1 for device in self._app.runtime.devices.values() if device.health().healthy)
-        return _struct(
-            {
-                "running": True,
-                "device_count": len(self._app.runtime.devices),
-                "healthy_devices": healthy,
-                "active_revision": self._app.runtime.active_revision,
-                "active_config_hash": self._app.runtime.active_config_hash,
-                "prepared_revision": self._app.runtime.prepared_revision,
-                "prepared_config_hash": self._app.runtime.prepared_config_hash,
-            }
+        healthy = sum(
+            1 for device in self._app.runtime.devices.values() if device.health().healthy
+        )
+        return pb.CommanderStatusResponse(
+            running=True,
+            device_count=len(self._app.runtime.devices),
+            healthy_devices=healthy,
+            active_revision=self._app.runtime.active_revision,
+            active_config_hash=self._app.runtime.active_config_hash,
+            prepared_revision=self._app.runtime.prepared_revision or "",
+            prepared_config_hash=self._app.runtime.prepared_config_hash or "",
         )
 
-    async def list_devices(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    async def ListDevices(self, request, context) -> pb.ListDevicesResponse:
+        """列出 Commander 当前设备会话。"""
         del request, context
-        rows = [
-            {
-                "device_id": device.device_id,
-                "protocol": device.config.protocol,
-                "host": device.config.endpoint.host,
-                "port": device.config.endpoint.port,
-                "enabled": device.enabled,
-                "healthy": device.health().healthy,
-            }
+        response = pb.ListDevicesResponse()
+        response.devices.extend(
+            pb.DeviceSummary(
+                device_id=device.device_id,
+                protocol=device.config.protocol,
+                host=device.config.endpoint.host,
+                port=device.config.endpoint.port,
+                enabled=device.enabled,
+                healthy=device.health().healthy,
+            )
             for device in self._app.runtime.devices.values()
-        ]
-        return _struct({"devices": rows})
+        )
+        return response
 
-    async def prepare_config(
+    async def PrepareConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.PrepareConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """加载本地候选配置并构造 prepared generation，不切换当前运行配置。"""
-        data = _request_dict(request)
+    ) -> pb.PrepareConfigResponse:
+        """加载候选配置并构造 prepared generation。"""
         try:
-            revision_id = _required_string(data, "revision_id")
-            expected_hash = _required_string(data, "config_hash")
+            revision_id = _required(request.revision_id, "revision_id")
+            expected_hash = _required(request.config_hash, "config_hash")
             before_hash = fingerprint_config_set(self._app.config_dir)
             candidate = load_commander_config(self._app.config_dir)
             actual_hash = fingerprint_config_set(self._app.config_dir)
@@ -137,23 +165,20 @@ class CommanderService:
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(
-            {
-                "success": True,
-                "revision_id": revision_id,
-                "config_hash": actual_hash,
-            }
+        return pb.PrepareConfigResponse(
+            success=True,
+            revision_id=revision_id,
+            config_hash=actual_hash,
         )
 
-    async def activate_config(
+    async def ActivateConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.ActivateConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    ) -> pb.ActivateConfigResponse:
         """激活指定 prepared revision。"""
-        data = _request_dict(request)
         try:
-            revision_id = _required_string(data, "revision_id")
+            revision_id = _required(request.revision_id, "revision_id")
             try:
                 await self._app.runtime.activate_config(revision_id)
             finally:
@@ -161,40 +186,32 @@ class CommanderService:
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(
-            {
-                "success": True,
-                "revision_id": revision_id,
-                "active_config_hash": self._app.runtime.active_config_hash,
-            }
+        return pb.ActivateConfigResponse(
+            success=True,
+            revision_id=revision_id,
+            active_config_hash=self._app.runtime.active_config_hash,
         )
 
-    async def abort_config(
+    async def AbortConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.AbortConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """幂等撤销指定 prepared revision，不修改 active generation。"""
+    ) -> pb.AbortConfigResponse:
+        """幂等撤销指定 prepared revision。"""
         try:
-            revision_id = _required_string(_request_dict(request), "revision_id")
+            revision_id = _required(request.revision_id, "revision_id")
             aborted = await self._app.runtime.abort_config(revision_id)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(
-            {
-                "success": True,
-                "revision_id": revision_id,
-                "aborted": aborted,
-            }
+        return pb.AbortConfigResponse(
+            success=True,
+            revision_id=revision_id,
+            aborted=aborted,
         )
 
-    async def reload_config(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """兼容入口：本地加载后按 prepare → activate 完成切换。"""
+    async def ReloadConfig(self, request, context) -> pb.ReloadConfigResponse:
+        """兼容入口：本地加载后执行 prepare → activate。"""
         del request
         revision_id = uuid4().hex
         try:
@@ -215,62 +232,55 @@ class CommanderService:
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(
-            {
-                "success": True,
-                "revision_id": revision_id,
-            }
+        return pb.ReloadConfigResponse(
+            success=True,
+            revision_id=revision_id,
+            active_config_hash=self._app.runtime.active_config_hash,
         )
 
-    async def read_point(
+    async def ReadPoint(
         self,
-        request: io_pb.ReadPointRequest,
+        request: pb.ReadPointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> io_pb.PointValueMessage:
+    ) -> pb.PointValueMessage:
         """强类型单点读取。"""
         try:
-            if not request.device_id or not request.point_id:
-                raise ValueError("device_id and point_id are required")
             value = await self._app.read.read_point(
-                request.device_id,
-                request.point_id,
+                _required(request.device_id, "device_id"),
+                _required(request.point_id, "point_id"),
             )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
         return point_value_to_proto(value)
 
-    async def read_points(
+    async def ReadPoints(
         self,
-        request: io_pb.ReadPointsRequest,
+        request: pb.ReadPointsRequest,
         context: grpc.aio.ServicerContext,
-    ) -> io_pb.ReadPointsResponse:
+    ) -> pb.ReadPointsResponse:
         """强类型批量读取。"""
         try:
-            if not request.device_id:
-                raise ValueError("device_id is required")
+            device_id = _required(request.device_id, "device_id")
             if not request.point_ids:
                 raise ValueError("point_ids must not be empty")
-            values = await self._app.read.read_points(
-                request.device_id,
-                list(request.point_ids),
-            )
+            values = await self._app.read.read_points(device_id, list(request.point_ids))
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        response = io_pb.ReadPointsResponse()
+        response = pb.ReadPointsResponse()
         response.values.extend(point_value_to_proto(value) for value in values)
         return response
 
-    async def write_point(
+    async def WritePoint(
         self,
-        request: io_pb.WritePointRequest,
+        request: pb.WritePointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> io_pb.CommandResultMessage:
+    ) -> pb.CommandResultMessage:
         """强类型单点写入。"""
         try:
-            if not request.device_id or not request.point_id:
-                raise ValueError("device_id and point_id are required")
+            _required(request.device_id, "device_id")
+            _required(request.point_id, "point_id")
             command = command_from_proto(request)
             if not command.command_id:
                 command.command_id = uuid4().hex
@@ -280,11 +290,11 @@ class CommanderService:
             raise AssertionError("context.abort must terminate the RPC") from exc
         return command_result_to_proto(result)
 
-    async def write_points(
+    async def WritePoints(
         self,
-        request: io_pb.WritePointsRequest,
+        request: pb.WritePointsRequest,
         context: grpc.aio.ServicerContext,
-    ) -> io_pb.WritePointsResponse:
+    ) -> pb.WritePointsResponse:
         """强类型批量写入。"""
         try:
             if not request.commands:
@@ -297,76 +307,86 @@ class CommanderService:
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        response = io_pb.WritePointsResponse()
+        response = pb.WritePointsResponse()
         response.results.extend(command_result_to_proto(result) for result in results)
         return response
 
-    async def verify_device(
+    async def VerifyDevice(
         self,
-        request: struct_pb2.Struct,
+        request: pb.VerifyDeviceRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> pb.DeviceVerifyResponse:
+        """执行设备分层链路诊断。"""
         try:
             result = await self._app.diagnostic.verify_device(
-                _required_string(data, "device_id"),
-                timeout=float(data.get("timeout", 1.0)),
+                _required(request.device_id, "device_id"),
+                timeout=request.timeout or 1.0,
             )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(result.model_dump(mode="json"))
+        return _device_verify_to_proto(result)
 
-    async def resolve_point(
+    async def ResolvePoint(
         self,
-        request: struct_pb2.Struct,
+        request: pb.PointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        return await self._point_diagnostic(request, context, "resolve")
+    ) -> pb.PointVerifyResponse:
+        """解析单点协议地址。"""
+        return await self._point_diagnostic(request, context, resolve=True)
 
-    async def verify_point(
+    async def VerifyPoint(
         self,
-        request: struct_pb2.Struct,
+        request: pb.PointRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        return await self._point_diagnostic(request, context, "verify")
+    ) -> pb.PointVerifyResponse:
+        """执行单点在线读取验证。"""
+        return await self._point_diagnostic(request, context, resolve=False)
 
-    async def verify_points(
+    async def VerifyPoints(
         self,
-        request: struct_pb2.Struct,
+        request: pb.VerifyPointsRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+    ) -> pb.PointsVerifyResponse:
+        """批量验证设备点表或指定 point_group。"""
         try:
-            group = data.get("point_group")
             result = await self._app.diagnostic.verify_points(
-                _required_string(data, "device_id"),
-                point_group=str(group) if group not in (None, "") else None,
+                _required(request.device_id, "device_id"),
+                point_group=request.point_group or None,
             )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(result.model_dump(mode="json"))
+        response = pb.PointsVerifyResponse(
+            device_id=result.device_id,
+            point_group=result.point_group or "",
+            checked=result.checked,
+            passed=result.passed,
+            failed=result.failed,
+            ok=result.ok,
+        )
+        response.points.extend(_point_verify_to_proto(item) for item in result.points)
+        return response
 
     async def _point_diagnostic(
         self,
-        request: struct_pb2.Struct,
+        request: pb.PointRequest,
         context: grpc.aio.ServicerContext,
-        mode: str,
-    ) -> struct_pb2.Struct:
-        data = _request_dict(request)
+        *,
+        resolve: bool,
+    ) -> pb.PointVerifyResponse:
+        """执行单点 resolve/verify，并统一异常映射。"""
         try:
-            device_id = _required_string(data, "device_id")
-            point_id = _required_string(data, "point_id")
-            if mode == "resolve":
+            device_id = _required(request.device_id, "device_id")
+            point_id = _required(request.point_id, "point_id")
+            if resolve:
                 result = await self._app.diagnostic.resolve_point(device_id, point_id)
             else:
                 result = await self._app.diagnostic.verify_point(device_id, point_id)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(result.model_dump(mode="json"))
-
+        return _point_verify_to_proto(result)
 
 
 class CommanderGrpcServer:
@@ -377,79 +397,13 @@ class CommanderGrpcServer:
         self.endpoint = endpoint
 
     async def start(self) -> None:
+        """开始监听 Commander gRPC endpoint。"""
         await self._server.start()
 
     async def stop(self, grace: float = 5.0) -> None:
+        """停止接收新 RPC，并给在途请求有限宽限期。"""
         await self._server.stop(grace)
 
-
-def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
-    """构建 Commander service handler；设备 I/O 使用强类型 Protobuf。"""
-    handlers: dict[str, grpc.RpcMethodHandler] = {
-        GET_STATUS: grpc.unary_unary_rpc_method_handler(
-            service.get_status,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
-            service.list_devices,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
-            service.reload_config,
-            request_deserializer=empty_pb2.Empty.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        PREPARE_CONFIG: grpc.unary_unary_rpc_method_handler(
-            service.prepare_config,
-            request_deserializer=struct_pb2.Struct.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
-            service.activate_config,
-            request_deserializer=struct_pb2.Struct.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        ABORT_CONFIG: grpc.unary_unary_rpc_method_handler(
-            service.abort_config,
-            request_deserializer=struct_pb2.Struct.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        ),
-        READ_POINT: grpc.unary_unary_rpc_method_handler(
-            service.read_point,
-            request_deserializer=io_pb.ReadPointRequest.FromString,
-            response_serializer=io_pb.PointValueMessage.SerializeToString,
-        ),
-        READ_POINTS: grpc.unary_unary_rpc_method_handler(
-            service.read_points,
-            request_deserializer=io_pb.ReadPointsRequest.FromString,
-            response_serializer=io_pb.ReadPointsResponse.SerializeToString,
-        ),
-        WRITE_POINT: grpc.unary_unary_rpc_method_handler(
-            service.write_point,
-            request_deserializer=io_pb.WritePointRequest.FromString,
-            response_serializer=io_pb.CommandResultMessage.SerializeToString,
-        ),
-        WRITE_POINTS: grpc.unary_unary_rpc_method_handler(
-            service.write_points,
-            request_deserializer=io_pb.WritePointsRequest.FromString,
-            response_serializer=io_pb.WritePointsResponse.SerializeToString,
-        ),
-    }
-    unary_struct = {
-        VERIFY_DEVICE: service.verify_device,
-        RESOLVE_POINT: service.resolve_point,
-        VERIFY_POINT: service.verify_point,
-        VERIFY_POINTS: service.verify_points,
-    }
-    for method, callback in unary_struct.items():
-        handlers[method] = grpc.unary_unary_rpc_method_handler(
-            callback,
-            request_deserializer=struct_pb2.Struct.FromString,
-            response_serializer=struct_pb2.Struct.SerializeToString,
-        )
-    return grpc.method_handlers_generic_handler(COMMANDER_SERVICE, handlers)
 
 def build_grpc_server(
     app: CommanderApp,
@@ -459,7 +413,7 @@ def build_grpc_server(
 ) -> CommanderGrpcServer:
     """构建 Commander gRPC Server，但不开始监听。"""
     server = grpc.aio.server()
-    server.add_generic_rpc_handlers((_handlers(CommanderService(app)),))
+    pb_grpc.add_CommanderServiceServicer_to_server(CommanderService(app), server)
     requested = f"{host}:{port}"
     bound = server.add_insecure_port(requested)
     if bound == 0:

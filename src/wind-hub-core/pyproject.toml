@@ -9,6 +9,8 @@ packages = [{ include = "wind_hub_core" }]
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
+grpcio = "^1.75"
+protobuf = "^6.32"
 pyads = { version = "^3.4", optional = true }
 pymodbus = { version = "^3.6", optional = true }
 
