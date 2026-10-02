@@ -215,6 +215,9 @@ class DiagnosticUseCase:
     ) -> PointVerifyResult:
         """实际读取单点并返回 raw/engineering value 与地址信息。"""
         point = self._point(device_id, point_id)
+        device = self._device(device_id)
+        if device.config.protocol == "ads":
+            return (await self._verify_ads_points(device_id, [point]))[0]
         resolved, errors = await self._resolve_addresses(device_id, [point])
         rows = await self._verify_read(device_id, [point], resolved, errors)
         return rows[0]
@@ -237,8 +240,11 @@ class DiagnosticUseCase:
                 f"unknown or empty point group '{device_id}/{point_group}'",
                 "",
             )
-        resolved, errors = await self._resolve_addresses(device_id, points)
-        rows = await self._verify_read(device_id, points, resolved, errors)
+        if device.config.protocol == "ads":
+            rows = await self._verify_ads_points(device_id, points)
+        else:
+            resolved, errors = await self._resolve_addresses(device_id, points)
+            rows = await self._verify_read(device_id, points, resolved, errors)
         passed = sum(1 for row in rows if row.ok)
         return PointsVerifyResult(
             device_id=device_id,
@@ -324,6 +330,95 @@ class DiagnosticUseCase:
         finally:
             await probe.close()
         return resolved_rows, errors
+
+    async def _verify_ads_points(
+        self,
+        device_id: str,
+        points: list[PointConfig],
+    ) -> list[PointVerifyResult]:
+        """在同一 ADSProbe session 内完成 symbol resolve 与 index read。"""
+        device = self._device(device_id)
+        target = DeviceProbeTarget(
+            device_id=device_id,
+            host=device.config.endpoint.host,
+            options=dict(device.config.endpoint.extensions),
+        )
+        probe = ADSProbe(target)
+        rows: list[PointVerifyResult] = []
+        try:
+            await probe.connect()
+            for point in points:
+                spec = PointProbeSpec(
+                    point_id=point.point_id,
+                    data_type=point.data_type,
+                    address=point.address.model_dump(
+                        mode="python",
+                        exclude_none=True,
+                    ),
+                )
+                try:
+                    resolved_map = await probe.resolve_points([spec])
+                    item = resolved_map[point.point_id]
+                    resolved_address = {
+                        "symbol": item.symbol,
+                        "index_group": item.index_group,
+                        "index_offset": item.index_offset,
+                        "size": item.size,
+                        "protocol_type": item.protocol_type,
+                    }
+                except Exception as exc:
+                    rows.append(
+                        self._point_result(
+                            device_id,
+                            point,
+                            None,
+                            readable=False,
+                            error=str(exc) or type(exc).__name__,
+                        )
+                    )
+                    continue
+
+                try:
+                    raw_value = await probe.read_value(spec, item)
+                except Exception as exc:
+                    rows.append(
+                        self._point_result(
+                            device_id,
+                            point,
+                            resolved_address,
+                            readable=False,
+                            error=str(exc) or type(exc).__name__,
+                        )
+                    )
+                    continue
+
+                rows.append(
+                    self._point_result(
+                        device_id,
+                        point,
+                        resolved_address,
+                        readable=raw_value is not None,
+                        raw_value=raw_value,
+                        quality=(Quality.GOOD.value if raw_value is not None else Quality.BAD.value),
+                        source="ads",
+                        error=None if raw_value is not None else "point value is null",
+                    )
+                )
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            return [
+                self._point_result(
+                    device_id,
+                    point,
+                    None,
+                    readable=False,
+                    error=error,
+                )
+                for point in points
+            ]
+        finally:
+            await probe.close()
+        return rows
 
     async def _verify_read(
         self,

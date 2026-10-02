@@ -57,7 +57,7 @@ from wind_hub.config.schema import (
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
 from wind_hub.domain.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, ProtocolPort
 
 logger = logging.getLogger(__name__)
 
@@ -437,7 +437,11 @@ class Runtime:
                 exc_info=True,
             )
 
-    async def _sync_task_instances(self) -> None:
+    async def _sync_task_instances(
+        self,
+        *,
+        restart_subscription_devices: set[str] | None = None,
+    ) -> None:
         """把 Task Instance 注册表同步为「当前 Task 定义 × 当前设备」的展开
         结果。
 
@@ -450,6 +454,7 @@ class Runtime:
         本方法幂等，设备增删/重建/轻量更新与 Task diff 应用后都会调用。
         """
         desired = self._desired_instances()
+        restart_subscription_devices = restart_subscription_devices or set()
 
         for iid in set(self._task_instances) - set(desired):
             await self._close_acquisition_handle(iid)
@@ -468,9 +473,13 @@ class Runtime:
             elif (
                 old is not None
                 and self._instance_states[iid] is TaskInstanceState.RUNNING
-                and (old.interval != instance.interval or old.point_group != instance.point_group)
+                and (
+                    old.interval != instance.interval
+                    or old.point_group != instance.point_group
+                    or instance.device_id in restart_subscription_devices
+                )
             ):
-                # 节拍或选点变化：重建采集句柄，保持 RUNNING 状态。
+                # 节拍、选点或订阅地址变化：重建采集句柄，保持 RUNNING 状态。
                 self._instance_states[iid] = TaskInstanceState.STOPPED
                 await self._close_acquisition_handle(iid)
                 try:
@@ -937,6 +946,23 @@ class Runtime:
         """
         errors: list[str] = []
 
+        # 在设备配置被就地更新前记录“point_table 绑定发生变化”的订阅设备。
+        # 这类变化即使两张表内容本身都未修改，也必须重新注册 notification。
+        restart_subscription_devices: set[str] = set()
+        new_devices = {d.device_id: d for d in new_config.devices.devices}
+        for did in diff.devices.updated:
+            old_device = self._devices.get(did)
+            new_device = new_devices.get(did)
+            if (
+                old_device is not None
+                and new_device is not None
+                and old_device.config.point_table != new_device.point_table
+                and _changed_fields(old_device.config, new_device)
+                <= _LIGHTWEIGHT_DEVICE_FIELDS
+                and old_device.acquisition_mode is AcquisitionMode.SUBSCRIBE
+            ):
+                restart_subscription_devices.add(did)
+
         try:
             await self._apply_device_diff(diff, new_config)
         except Exception as exc:
@@ -961,9 +987,20 @@ class Runtime:
         # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
         # 改变展开结果（device_group 成员、enabled 翻转），统一在此收尾同步
         # ——实例增删只影响对应实例，不触碰任何 Protocol 连接。
+        if diff.point_tables_changed:
+            changed_tables = set(diff.point_tables_changed)
+            for did, device in self._devices.items():
+                if (
+                    device.config.point_table in changed_tables
+                    and device.acquisition_mode is AcquisitionMode.SUBSCRIBE
+                ):
+                    restart_subscription_devices.add(did)
+
         try:
             self._task_defs = {t.task_id: t for t in new_config.tasks.tasks}
-            await self._sync_task_instances()
+            await self._sync_task_instances(
+                restart_subscription_devices=restart_subscription_devices
+            )
         except Exception as exc:
             logger.error("Task instance sync failed: %s", exc, exc_info=True)
             errors.append(f"tasks: {exc}")
