@@ -11,12 +11,14 @@ Task Instance；不会自动启动采集任务。设备或 Sink 单项启动失�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
 from wind_hub.application.runtime.task_instance import TaskInstanceState
 
 if TYPE_CHECKING:
+    from wind_hub.application.runtime.device import Device
     from wind_hub.application.runtime.runtime import Runtime
 
 logger = logging.getLogger(__name__)
@@ -59,41 +61,56 @@ class RuntimeLifecycle:
             self._runtime._running = True
             self._runtime._started = False
 
-            # 点映射已在装配期（组合根 / add_device / rebuild_device）注入
-            # 到各 Device 的协议实例，这里只做连接。
-            for device_id, device in self._runtime._devices.items():
-                try:
-                    await asyncio.wait_for(
-                        device.connect(),
-                        timeout=self._runtime._config.connect_timeout,
-                    )
-                    self._runtime._state_for(device_id).mark_success(self._runtime._clock())
-                    logger.info("Device '%s' connected", device_id)
-                except TimeoutError:
-                    self._runtime._note_connect_failure(
-                        device_id,
-                        TimeoutError("connect timeout"),
-                    )
-                    logger.warning(
-                        "connect timeout: device=%s timeout=%.1fs — skipped",
-                        device_id,
-                        self._runtime._config.connect_timeout,
-                    )
-                except Exception as exc:
-                    self._runtime._note_connect_failure(device_id, exc)
-                    if _is_connection_level(exc):
-                        logger.warning(
-                            "Device '%s' failed to connect — skipped: %s",
-                            device_id,
-                            exc,
-                        )
-                    else:
-                        logger.warning(
-                            "Device '%s' failed to connect — skipped",
-                            device_id,
-                            exc_info=True,
-                        )
+            # 点映射已在装配期注入。设备连接按配置限流并发执行；单设备失败
+            # 仍独立记账，不阻断其余设备，也不会把 N 台离线设备的 connect_timeout
+            # 串行累加到 Collector 启动时间。
+            semaphore = asyncio.Semaphore(self._runtime._config.connect_concurrency)
 
+            async def connect_device(device_id: str, device: Device) -> None:
+                if not device.enabled:
+                    logger.info("Device '%s' disabled — connection skipped", device_id)
+                    return
+                async with semaphore:
+                    try:
+                        await asyncio.wait_for(
+                            device.connect(),
+                            timeout=self._runtime._config.connect_timeout,
+                        )
+                        self._runtime._state_for(device_id).mark_success(
+                            self._runtime._clock()
+                        )
+                        logger.info("Device '%s' connected", device_id)
+                    except TimeoutError:
+                        self._runtime._note_connect_failure(
+                            device_id,
+                            TimeoutError("connect timeout"),
+                        )
+                        logger.warning(
+                            "connect timeout: device=%s timeout=%.1fs — skipped",
+                            device_id,
+                            self._runtime._config.connect_timeout,
+                        )
+                    except Exception as exc:
+                        self._runtime._note_connect_failure(device_id, exc)
+                        if _is_connection_level(exc):
+                            logger.warning(
+                                "Device '%s' failed to connect — skipped: %s",
+                                device_id,
+                                exc,
+                            )
+                        else:
+                            logger.warning(
+                                "Device '%s' failed to connect — skipped",
+                                device_id,
+                                exc_info=True,
+                            )
+
+            await asyncio.gather(
+                *(
+                    connect_device(device_id, device)
+                    for device_id, device in self._runtime._devices.items()
+                )
+            )
             for name, sink in self._runtime._sinks.items():
                 try:
                     await sink.open()
@@ -135,8 +152,22 @@ class RuntimeLifecycle:
             for instance_id in self._runtime._instance_states:
                 self._runtime._instance_states[instance_id] = TaskInstanceState.STOPPED
 
-            for queue in self._runtime._queues.values():
-                await queue.put([])
+            # 只向真正存在 consumer 的 Sink queue 投递终止哨兵。启动失败的
+            # Sink 没有 consumer；若其 queue 已满，对该 queue 执行 put 会使
+            # 优雅停机永久阻塞。
+            for name, task in self._runtime._sink_tasks.items():
+                try:
+                    await asyncio.wait_for(
+                        self._runtime._queues[name].put([]),
+                        timeout=self._runtime._config.shutdown_timeout,
+                    )
+                except TimeoutError:
+                    logger.warning(
+                        "Sink consumer '%s' did not accept shutdown sentinel — cancelling",
+                        name,
+                    )
+                    task.cancel()
+
             for task in self._runtime._sink_tasks.values():
                 try:
                     await asyncio.wait_for(
@@ -145,6 +176,8 @@ class RuntimeLifecycle:
                     )
                 except TimeoutError:
                     task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
                 except asyncio.CancelledError:
                     pass
             self._runtime._sink_tasks.clear()
