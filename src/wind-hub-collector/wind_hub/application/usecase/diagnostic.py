@@ -12,9 +12,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.schema import PointConfig
-from wind_hub.domain.model.errors import CommandError
-from wind_hub.domain.model.point import PointRef, Quality
+from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.model.errors import CommandError
+from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.ads import ADSProbe
 from wind_hub_core.validation.models import (
     DeviceProbeTarget,

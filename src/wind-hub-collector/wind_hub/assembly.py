@@ -40,10 +40,10 @@ from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
 from wind_hub.config.schema import (
     Config,
-    DeviceConfig,
     ReportingConfig,
     SinkConfig,
 )
+from wind_hub_core.config.schema import DeviceConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.port import ProtocolPort

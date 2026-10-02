@@ -49,11 +49,10 @@ from wind_hub.application.runtime.task_instance import (
 from wind_hub.config.schema import (
     CollectionTaskConfig,
     Config,
-    DeviceConfig,
-    PointConfig,
     RuntimeConfig,
     SinkConfig,
 )
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
 from wind_hub_core.model.point import PointValue
 from wind_hub.domain.model.reload import ConfigDiff

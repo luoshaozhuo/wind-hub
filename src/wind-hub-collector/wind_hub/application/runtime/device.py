@@ -1,27 +1,8 @@
-"""Device —— 运行时设备的唯一聚合对象。
+"""Collector 设备采集生命周期。
 
-架构位置：application/runtime。``Device`` 把一台设备运行所需的全部要素
-聚合为单一权威（source of truth）：
-
-- :class:`~wind_hub.config.schema.DeviceConfig`——静态配置快照；
-- 解析后的点表（``list[PointConfig]``）——热重载可经 :meth:`set_points`
-  就地更新；
-- :class:`~wind_hub.domain.port.outbound.ProtocolPort`——协议运行实例。
-
-Runtime 只持有 ``dict[str, Device]``，不再平行维护
-``DeviceConfig`` / ``ProtocolPort`` / ``points_by_device`` 三套索引。
-
-持续采集经 :meth:`Device.start_acquisition` 启动，返回
-:class:`AcquisitionHandle`；协议采集机制（主动轮询 / 订阅推送）由
-``ProtocolPort.acquisition_mode`` 决定，Task 与 Runtime 均不判断协议名：
-
-- ``POLL``——本模块的 :class:`PollingAcquisitionHandle` 以 monotonic
-  fixed-rate 调度调用方注入的 ``acquire`` 回调（读取与处理由
-  AcquisitionEngine 完成）；
-- ``SUBSCRIBE``——委托 ``ProtocolPort.subscribe``，数据到达即经
-  ``on_data`` 回调交给 AcquisitionEngine；若协议实现
-  :class:`~wind_hub.domain.port.outbound.InterrogationCapable`
-  （IEC104 master），订阅建立后自动触发一次 General Interrogation。
+本模块只在 wind-hub-core DeviceSession 之上增加持续采集能力：fixed-rate polling、
+协议订阅、总召触发以及采集句柄生命周期。连接、点表、工程值换算、即时读写和
+health 均由 DeviceSession 提供。
 """
 
 from __future__ import annotations
@@ -33,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.model.point import PointRef, PointValue
+from wind_hub_core.model.point import PointValue
 from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.protocol.port import (
     AcquisitionMode,

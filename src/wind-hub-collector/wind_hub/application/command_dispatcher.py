@@ -1,7 +1,7 @@
 """CommandDispatcher —— 指令分发、幂等与写超时（application 层）。
 
-持有 ``dict[str, Device]``（与 Runtime 共享同一注册表），按
-``Command.device_id`` 定位运行时 :class:`Device` 并委托 ``Device.write``
+持有 ``Mapping[str, DeviceSession]``（与 Runtime 共享同一注册表），按
+``Command.device_id`` 定位运行时 :class:`~wind_hub_core.device.session.DeviceSession` 并委托 ``DeviceSession.write``
 完成真实写入；本类不再感知 ``ProtocolPort``。
 
 保留的职责：
@@ -12,7 +12,7 @@
 - 成功/失败 metrics 回调；
 - ``send_batch`` 并发下发。
 
-``Command`` / ``CommandResult`` 领域模型仍在 ``domain.model.command``。
+``Command`` / ``CommandResult`` 来自 wind-hub-core 公共领域模型。
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
-from wind_hub.application.runtime.device import Device
+from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.command import Command, CommandResult
 
 logger = logging.getLogger(__name__)
@@ -33,9 +33,9 @@ class CommandDispatcher:
     """设备写指令分发器。
 
     职责：
-    - 按 device_id 路由到 Runtime 当前 Device；
+    - 按 device_id 路由到 当前 DeviceSession；
     - 以 command_id 提供进程内 LRU+TTL 幂等；
-    - 对 Device.write 应用单命令超时；
+    - 对 DeviceSession.write 应用单命令超时；
     - 把协议/设备异常收敛为 CommandResult；
     - 通过注入 callback 上报成功/失败计数。
 
@@ -52,7 +52,7 @@ class CommandDispatcher:
 
     def __init__(
         self,
-        devices: dict[str, Device],
+        devices: Mapping[str, DeviceSession],
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
         default_timeout: float = 5.0,
@@ -139,7 +139,7 @@ class CommandDispatcher:
                 else CommandResult(
                     command_id=cmd.command_id,
                     success=False,
-                    error="Device.write returned empty list",
+                    error="DeviceSession.write returned empty list",
                 )
             )
         except TimeoutError:
