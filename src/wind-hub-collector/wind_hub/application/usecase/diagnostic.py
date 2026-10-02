@@ -16,7 +16,12 @@ from wind_hub.config.schema import PointConfig
 from wind_hub.domain.model.errors import CommandError
 from wind_hub.domain.model.point import PointRef, Quality
 from wind_hub_core.protocol.ads import ADSProbe
-from wind_hub_core.validation.models import DeviceProbeTarget, PointProbeSpec
+from wind_hub_core.validation.models import (
+    DeviceProbeTarget,
+    PointProbeSpec,
+    ValidationCode,
+    ValidationSeverity,
+)
 from wind_hub_core.validation.network import ping_host, tcp_port_open
 
 
@@ -25,6 +30,8 @@ class DiagnosticStage(BaseModel):
 
     name: str
     ok: bool
+    code: ValidationCode
+    severity: ValidationSeverity
     message: str = ""
 
 
@@ -53,6 +60,9 @@ class PointVerifyResult(BaseModel):
     offset: float
     unit: str
     readable: bool | None = None
+    ok: bool = False
+    code: ValidationCode = ValidationCode.OK
+    severity: ValidationSeverity = ValidationSeverity.INFO
     raw_value: Any = None
     engineering_value: Any = None
     quality: str | None = None
@@ -68,6 +78,7 @@ class PointsVerifyResult(BaseModel):
     checked: int
     passed: int
     failed: int
+    ok: bool
     points: list[PointVerifyResult]
 
 
@@ -107,11 +118,27 @@ class DiagnosticUseCase:
             DiagnosticStage(
                 name="network",
                 ok=ping_ok,
+                code=(ValidationCode.OK if ping_ok else ValidationCode.PING_FAILED),
+                severity=(
+                    ValidationSeverity.INFO
+                    if ping_ok
+                    else ValidationSeverity.WARNING
+                ),
                 message="" if ping_ok else "ICMP ping failed or is blocked",
             ),
             DiagnosticStage(
                 name="transport",
                 ok=port_ok,
+                code=(
+                    ValidationCode.OK
+                    if port_ok
+                    else ValidationCode.TCP_PORT_UNREACHABLE
+                ),
+                severity=(
+                    ValidationSeverity.INFO
+                    if port_ok
+                    else ValidationSeverity.ERROR
+                ),
                 message=(
                     f"TCP {cfg.endpoint.port} reachable"
                     if port_ok
@@ -143,6 +170,16 @@ class DiagnosticUseCase:
             DiagnosticStage(
                 name="protocol",
                 ok=protocol_ok,
+                code=(
+                    ValidationCode.OK
+                    if protocol_ok
+                    else ValidationCode.PROTOCOL_CONNECT_FAILED
+                ),
+                severity=(
+                    ValidationSeverity.INFO
+                    if protocol_ok
+                    else ValidationSeverity.ERROR
+                ),
                 message=protocol_message,
             )
         )
@@ -202,13 +239,14 @@ class DiagnosticUseCase:
             )
         resolved, errors = await self._resolve_addresses(device_id, points)
         rows = await self._verify_read(device_id, points, resolved, errors)
-        passed = sum(1 for row in rows if row.readable)
+        passed = sum(1 for row in rows if row.ok)
         return PointsVerifyResult(
             device_id=device_id,
             point_group=point_group,
             checked=len(rows),
             passed=passed,
             failed=len(rows) - passed,
+            ok=passed == len(rows),
             points=rows,
         )
 
@@ -384,6 +422,31 @@ class DiagnosticUseCase:
             )
         return rows
 
+
+    @staticmethod
+    def _ads_mapping_mismatch(
+        point: PointConfig,
+        resolved_address: dict[str, Any] | None,
+    ) -> bool:
+        """判断 ADS 配置 index 地址是否与 symbol 实际解析地址不一致。"""
+        if resolved_address is None:
+            return False
+        extra = point.address.model_extra or {}
+        configured_group = extra.get("index_group")
+        configured_offset = extra.get("index_offset")
+        if configured_group is None or configured_offset is None:
+            return False
+        resolved_group = resolved_address.get("index_group")
+        resolved_offset = resolved_address.get("index_offset")
+        return (
+            resolved_group is not None
+            and resolved_offset is not None
+            and (
+                int(configured_group) != int(resolved_group)
+                or int(configured_offset) != int(resolved_offset)
+            )
+        )
+
     def _point_result(
         self,
         device_id: str,
@@ -403,6 +466,31 @@ class DiagnosticUseCase:
         ):
             engineering = raw_value * point.scale + point.offset
         device = self._device(device_id)
+
+        code = ValidationCode.OK
+        severity = ValidationSeverity.INFO
+        ok = error is None and (readable is None or readable)
+        if error is not None:
+            code = (
+                ValidationCode.POINT_RESOLVE_FAILED
+                if resolved_address is None
+                else ValidationCode.POINT_READ_FAILED
+            )
+            severity = ValidationSeverity.ERROR
+            ok = False
+        elif (
+            device.config.protocol == "ads"
+            and self._ads_mapping_mismatch(point, resolved_address)
+        ):
+            code = ValidationCode.POINT_MAPPING_MISMATCH
+            severity = ValidationSeverity.WARNING
+            ok = False
+            error = "configured ADS index address differs from PLC symbol resolution"
+        elif readable is False:
+            code = ValidationCode.POINT_READ_FAILED
+            severity = ValidationSeverity.ERROR
+            ok = False
+
         return PointVerifyResult(
             device_id=device_id,
             point_id=point.point_id,
@@ -418,6 +506,9 @@ class DiagnosticUseCase:
             offset=point.offset,
             unit=point.unit,
             readable=readable,
+            ok=ok,
+            code=code,
+            severity=severity,
             raw_value=raw_value,
             engineering_value=engineering,
             quality=quality,
