@@ -1,13 +1,7 @@
-"""Modbus point mapping — parse point addresses and group reads.
+"""Modbus 点地址解析与批量读取分组。
 
-A Modbus point address is a :class:`~wind_hub.config.schema.PointAddress`
-whose ``extra`` fields carry::
-
-    register_type: "coil" | "discrete_input" | "holding" | "input"
-    address:      0-based register/coil offset
-    count:        (optional) number of coils/registers — derived from
-                  ``data_type`` when omitted
-    word_order:   (optional) "big_endian" | "little_endian" (default)
+PointConfig.address 的动态字段定义 register_type、0-based address、可选 count
+和 word_order。本模块只做纯配置转换与分组，不执行网络 I/O。
 """
 
 from __future__ import annotations
@@ -17,7 +11,7 @@ from dataclasses import dataclass
 from wind_hub.config.schema import PointAddress, PointConfig
 from wind_hub.domain.model.errors import ConfigError
 
-# Canonical register-type names plus accepted aliases.
+# register_type 的规范名称及兼容别名。
 _REGISTER_TYPE_ALIASES: dict[str, str] = {
     "coil": "coil",
     "discrete_input": "discrete_input",
@@ -30,7 +24,7 @@ _REGISTER_TYPE_ALIASES: dict[str, str] = {
 
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 
-# Number of 16-bit registers occupied by each data type (for holding/input).
+# holding/input 点不同数据类型占用的 16-bit register 数。
 _REGISTER_COUNTS: dict[str, int] = {
     "bool": 1,
     "int8": 1,
@@ -48,39 +42,41 @@ _REGISTER_COUNTS: dict[str, int] = {
 
 @dataclass(frozen=True)
 class ModbusPoint:
-    """A single Modbus point with its resolved address and type."""
+    """单个 Modbus 点的规范化地址与数据类型描述。"""
 
     point_id: str
     register_type: str
-    """One of ``"coil"``, ``"discrete_input"``, ``"holding"``, ``"input"``."""
+    """规范化 register_type：coil、discrete_input、holding 或 input。"""
 
     address: int
-    """0-based coil/register offset."""
+    """0-based coil/register 地址。"""
 
     count: int
-    """Number of coils (bit types) or 16-bit registers (word types)."""
+    """读取该点所需的 coil 数或 16-bit register 数。"""
 
     data_type: str
-    """Declared point data type (e.g. ``"float32"``)."""
+    """点表声明的数据类型。"""
 
     word_order: str = "little_endian"
-    """Multi-register word order: ``"big_endian"`` or ``"little_endian"``.
+    """多寄存器 word order。
 
-    ``big_endian``: 低地址寄存器 = 高 16 位；
-    ``little_endian``: 低地址寄存器 = 低 16 位。"""
+    big_endian：低地址寄存器保存高 16 位；
+    little_endian：低地址寄存器保存低 16 位。
+    """
 
 
 def _extra(address: PointAddress, key: str) -> object:
-    """Read an extra field from a :class:`PointAddress` (``None`` if absent)."""
+    """读取 PointAddress 动态协议字段；不存在时返回 None。"""
     return (address.model_extra or {}).get(key)
 
 
 def _as_int(value: object, what: str) -> int:
-    """Coerce an extra field to ``int``, rejecting non-integer values.
+    """把动态协议字段收敛为 int。
 
-    ``bool`` is rejected explicitly: a coil/register offset is never
-    truth-valued, and ``bool`` is a subclass of ``int`` that would otherwise
-    slip through ``isinstance`` checks.
+    bool 虽是 int 子类，但地址/count 不允许布尔语义，因此显式拒绝。
+
+    Raises:
+        ConfigError: 输入不是严格整数。
     """
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError(f"{what}: must be an integer, got {type(value).__name__}")
@@ -104,7 +100,7 @@ def _normalize_register_type(raw: object) -> str:
 
 def _count_for_data_type(register_type: str, data_type: str) -> int:
     if register_type in ("coil", "discrete_input"):
-        # Bit-addressable: one point occupies one coil regardless of data type.
+        # bit-addressable 点固定占一个 coil，与 data_type 无关。
         return 1
     count = _REGISTER_COUNTS.get(data_type)
     if count is None:
@@ -116,15 +112,17 @@ def _count_for_data_type(register_type: str, data_type: str) -> int:
 
 
 def parse_point(point: PointConfig, default_word_order: str = "little_endian") -> ModbusPoint:
-    """Resolve a :class:`~wind_hub.config.schema.PointConfig` to a :class:`ModbusPoint`.
+    """把 PointConfig 转换为 ModbusPoint。
 
-    The ``register_type`` may be given in the ``address`` extra field, or via
-    the ``type`` field of the address model.  ``count`` defaults to the
-    register/coil size implied by ``data_type``.
+    Args:
+        point: 点表定义。
+        default_word_order: 设备级默认 word order。
+
+    Returns:
+        规范化后的 ModbusPoint。
 
     Raises:
-        ConfigError: On a missing/invalid ``register_type``, missing/negative
-            ``address``, non-positive ``count``, or an invalid ``word_order``.
+        ConfigError: register_type/address/count/word_order 非法，或数据类型不支持。
     """
     address = point.address
     register_type = _normalize_register_type(
@@ -170,20 +168,19 @@ def group_consecutive_reads(
     max_gap: int = 8,
     max_registers_per_request: int = 125,
 ) -> list[list[ModbusPoint]]:
-    """Group points into runs that can be read by single Modbus requests.
+    """把点位分组成可由单个 Modbus 请求覆盖的连续区间。
 
-    Points of different ``register_type`` cannot share a request (each maps to
-    a distinct Modbus function code), so they are partitioned first.  Within a
-    type, points are sorted by address and merged whenever the gap between
-    consecutive points (in address units) is at most ``max_gap``.
+    Args:
+        points: 已解析 ModbusPoint 列表。
+        max_gap: 相邻点允许合并的最大地址间隙。
+        max_registers_per_request: 单请求允许覆盖的最大地址跨度，默认 125。
 
-    A group's total span — ``max(address + count) - min(address)``, i.e. the
-    quantity the driver puts on the wire, including intra-group holes — must
-    not exceed ``max_registers_per_request`` (125 is the Modbus protocol
-    limit for register reads; step23: previously unbounded, so large
-    contiguous point tables produced requests the server rejected).  Groups
-    are closed at the last point that still fits, so the split always lands
-    on a point boundary.
+    Returns:
+        按 register_type 隔离、按地址排序后的读取分组。
+
+    Notes:
+        不同 register_type 对应不同 function code，不能合并。分组跨度包含组内空洞，
+        并严格限制在协议请求上限内。
     """
     if not points:
         return []

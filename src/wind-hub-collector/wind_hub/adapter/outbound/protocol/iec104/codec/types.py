@@ -1,4 +1,4 @@
-"""IEC 60870-5-104 type identifiers and enumerations."""
+"""IEC 60870-5-104 TypeID、COT、U-frame 与品质位枚举。"""
 
 from __future__ import annotations
 
@@ -6,26 +6,26 @@ from enum import IntEnum, IntFlag
 
 
 class TypeID(IntEnum):
-    """IEC 60870-5-104 ASDU type identifiers.
+    """本项目使用的 IEC104 ASDU TypeID。
 
-    Only the types relevant to wind-farm applications are included.
+    只枚举风电场采集、总召和遥控当前实际使用的类型。
     """
 
-    # --- monitor-direction: single-point information -----------------------
+    # 监视方向：单点信息
     M_SP_NA_1 = 1
     """单点信息 (Single-point information)"""
 
     M_SP_TB_1 = 30
     """单点信息 带 CP56Time2a 时标"""
 
-    # --- monitor-direction: double-point information -----------------------
+    # 监视方向：双点信息
     M_DP_NA_1 = 3
     """双点信息 (Double-point information)"""
 
     M_DP_TB_1 = 31
     """双点信息 带 CP56Time2a 时标"""
 
-    # --- monitor-direction: measured values --------------------------------
+    # 监视方向：测量值
     M_ME_NA_1 = 9
     """归一化测量值 (Measured value, normalized value)"""
 
@@ -41,7 +41,7 @@ class TypeID(IntEnum):
     M_ME_TF_1 = 36
     """短浮点测量值 带 CP56Time2a 时标"""
 
-    # --- control-direction: commands ---------------------------------------
+    # 控制方向：遥控/设点
     C_SC_NA_1 = 45
     """单点遥控 (Single command)"""
 
@@ -51,7 +51,7 @@ class TypeID(IntEnum):
     C_SE_NC_1 = 50
     """短浮点设点 (Set-point command, short floating-point)"""
 
-    # --- control-direction: interrogation ----------------------------------
+    # 控制方向：召唤
     C_IC_NA_1 = 100
     """站总召 / 组总召 (Interrogation command)"""
 
@@ -60,12 +60,9 @@ class TypeID(IntEnum):
 
 
 class CauseOfTransmission(IntEnum):
-    """IEC 60870-5-104 cause of transmission (传送原因).
+    """IEC104 Cause Of Transmission（传送原因）。
 
-    Only commonly used causes are enumerated.  The low 6 bits of the
-    COT byte carry the cause value; bit 6 (value 64) indicates a
-    test-mode flag and bit 7 (value 128) indicates a negative
-    acknowledgement.
+    COT byte 低 6 bit 为原因值；bit6 为 test，bit7 为 negative acknowledgement。
     """
 
     PERIODIC = 1
@@ -115,16 +112,9 @@ class CauseOfTransmission(IntEnum):
 
 
 class UFrameType(IntEnum):
-    """IEC 60870-5-104 U-frame (unnumbered control) function codes.
+    """IEC104 U-frame 控制功能码。
 
-    Encoded in the low 8 bits of the control field::
-
-        STARTDT_ACT : 0000 0111 (0x07)
-        STARTDT_CON : 0000 1011 (0x0B)
-        STOPDT_ACT  : 0001 0011 (0x13)
-        STOPDT_CON  : 0010 0011 (0x23)
-        TESTFR_ACT  : 0100 0011 (0x43)
-        TESTFR_CON  : 1000 0011 (0x83)
+    数值直接对应控制域低 8 bit 的标准编码。
     """
 
     STARTDT_ACT = 0x07
@@ -147,18 +137,9 @@ class UFrameType(IntEnum):
 
 
 class QualityFlag(IntFlag):
-    """IEC 60870-5-104 quality descriptor (品质描述词) — 1 byte.
+    """IEC104 一字节品质描述词。
 
-    Bit layout::
-
-        bit 7   reserved (0)
-        bit 6   reserved (0)
-        bit 5   reserved (0)
-        bit 4   IV — invalid (无效)
-        bit 3   NT — not topical (非当前值)
-        bit 2   SB — substituted (取代)
-        bit 1   BL — blocked (闭锁)
-        bit 0   OV — overflow (溢出)
+    bit4~bit0 分别表示 IV、NT、SB、BL、OV；高 3 bit 保留。
     """
 
     OV = 0x01

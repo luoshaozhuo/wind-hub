@@ -1,17 +1,12 @@
-"""ASDU-level request handling for the IEC104 slave proxy.
+"""IEC104 从站代理的 ASDU 请求处理器。
 
-Two inbound request families are handled:
+支持两类入站请求：
+- C_IC_NA_1 站总召：ACT_CON → 按 TypeID 分组的数据 ASDU → ACT_TERM；
+- C_SC_NA_1/C_DC_NA_1/C_SE_NC_1 遥控：IOA 映射到设备点位，经 SlaveBridge
+  转交 CommandDispatcher，成功返回 ACT_CON+ACT_TERM，失败返回 negative ACT_CON。
 
-* **general interrogation** (``C_IC_NA_1`` activation) — acknowledged with
-  ``ACT_CON``, answered with the full snapshot in data batches (grouped by
-  ASDU type, since a single ASDU carries one type; each batch bounded by
-  the 253-byte APDU limit, with ``batch_size`` as a soft object-count cap),
-  then closed with ``ACT_TERM``;
-* **remote control commands** (``C_SC_NA_1`` / ``C_DC_NA_1`` / ``C_SE_NC_1``
-  activation) — resolved IOA → point, forwarded through the bridge to the
-  :class:`~wind_hub.application.command_dispatcher.CommandDispatcher`,
-  and answered ``ACT_CON`` + ``ACT_TERM`` on success or a
-  single negative ``ACT_CON`` on failure.
+单 ASDU 严格受 253-byte APDU 上限约束，batch_size 只是对象数量软上限。
+本模块不持有 TCP socket；发送能力由 SlaveSession Protocol 注入。
 """
 
 from __future__ import annotations
@@ -62,13 +57,16 @@ OBJECT_SIZE_BYTES: dict[str, int] = {
 
 
 class SlaveSession(Protocol):
-    """The slice of :class:`IEC104SlaveSession` handlers depend on."""
+    """Handler 所需的最小 session 发送接口。
+
+    使用 Protocol 避免请求处理逻辑依赖具体 TCP session 实现。
+    """
 
     async def send_asdu(self, asdu: ASDU, negative: bool = False) -> None: ...
 
 
 def _quality_flag(q: Quality) -> QualityFlag:
-    """Map an engine :class:`Quality` onto an IEC104 :class:`QualityFlag`."""
+    """把 Wind Hub Quality 映射为 IEC104 QualityFlag。"""
     if q == Quality.BAD:
         return QualityFlag.IV
     if q == Quality.UNCERTAIN:
@@ -77,10 +75,18 @@ def _quality_flag(q: Quality) -> QualityFlag:
 
 
 def _build_monitor_object(data_type: str, ioa: int, pv: PointValue) -> Any:
-    """Build the monitor-direction info object for *pv* under *data_type*.
+    """按 reporting TypeID 构造监视方向 information object。
 
-    The value is coerced to the field type the ASDU type expects; the
-    reporting point's ``data_type`` is already validated against a whitelist.
+    Args:
+        data_type: reporting 配置中的 IEC104 TypeID 名称。
+        ioa: 目标 IOA。
+        pv: 最新 PointValue。
+
+    Returns:
+        与 TypeID 对应的强类型 information object。
+
+    Raises:
+        ProtocolError: data_type 不在已验证白名单。
     """
     q = _quality_flag(pv.quality)
     if data_type == "M_SP_NA_1":
@@ -114,7 +120,7 @@ def _build_monitor_object(data_type: str, ioa: int, pv: PointValue) -> Any:
             quality=q,
             timestamp=from_datetime(pv.timestamp),
         )
-    # Unreachable — data_type is whitelisted by ReportingConfig validation.
+    # ReportingConfig 已做白名单校验；到达这里说明配置验证边界被绕过。
     raise ProtocolError(f"Unsupported reporting data_type '{data_type}'")
 
 
@@ -123,14 +129,15 @@ def _chunk_by_apdu_limit(
     data_type: str,
     batch_size: int,
 ) -> Iterator[list[tuple[int, PointValue]]]:
-    """Split one type group into chunks that fit a single APDU.
+    """按 APDU 硬上限和 batch_size 软上限切分同 TypeID 数据。
 
-    The hard bound is the 253-byte APDU limit: accumulated object bytes
-    must stay within :data:`MAX_ASDU_PAYLOAD_BYTES`.  ``batch_size``
-    survives as a soft object-count cap so small-object types (e.g.
-    M_SP_NA_1 at 4B, 61 per APDU) cannot explode the ASDU count.  Every
-    whitelisted type is far smaller than the payload bound, so a chunk
-    always holds at least one object.
+    Args:
+        items: 同一 TypeID 的 (ioa, PointValue) 列表。
+        data_type: TypeID 名称，用于获取单对象 wire 大小。
+        batch_size: 单批对象数量软上限。
+
+    Yields:
+        每个都能装入单个 APDU 的对象批次。
     """
     object_bytes = OBJECT_SIZE_BYTES[data_type]
     chunk: list[tuple[int, PointValue]] = []
@@ -146,7 +153,11 @@ def _chunk_by_apdu_limit(
 
 
 class IEC104SlaveHandlers:
-    """Request handlers shared by every slave session (stateless over snapshot)."""
+    """所有从站 session 共享的请求处理器。
+
+    Handler 不保存每连接状态；数据来自共享 DataSnapshot，命令通过 SlaveBridge
+    转发，因此可被多个 session 复用。
+    """
 
     def __init__(
         self,
@@ -165,14 +176,16 @@ class IEC104SlaveHandlers:
         self._batch_size = batch_size
 
     async def handle_interrogation(self, asdu: ASDU, session: SlaveSession) -> None:
-        """Answer a general interrogation: ``ACT_CON`` → data → ``ACT_TERM``.
+        """响应站总召：ACT_CON → 数据 → ACT_TERM。
 
-        The snapshot is grouped by ASDU type (an ASDU carries a single type),
-        then each group is chunked by :func:`_chunk_by_apdu_limit` — the
-        253-byte APDU limit is the hard bound, ``batch_size`` the soft
-        object-count cap.
+        Args:
+            asdu: 主站总召 ASDU；当前统一按站总召返回完整 snapshot。
+            session: 用于发送响应的连接接口。
+
+        Notes:
+            snapshot 先按 TypeID 分组，再按 APDU wire 大小切批。
         """
-        del asdu  # QOI is ignored — every interrogation serves the full snapshot.
+        del asdu  # 当前代理只实现站总召语义，统一返回完整 snapshot。
 
         await self._send_interrogation_confirmation(session, CauseOfTransmission.ACTIVATION_CON)
 
@@ -201,10 +214,15 @@ class IEC104SlaveHandlers:
         )
 
     async def handle_command(self, asdu: ASDU, session: SlaveSession) -> None:
-        """Forward each command object to the CommandDispatcher and echo the outcome.
+        """转发遥控并根据执行结果返回协议确认。
 
-        Success → positive ``ACT_CON`` + ``ACT_TERM``; failure (unknown IOA or
-        a non-successful dispatch) → a single negative ``ACT_CON``.
+        Args:
+            asdu: 遥控激活 ASDU。
+            session: 用于发送确认的连接接口。
+
+        Notes:
+            未知 IOA 或 CommandResult.success=False 返回 negative ACT_CON；
+            成功返回 positive ACT_CON 后再返回 ACT_TERM。
         """
         for obj in asdu.objects:
             ioa = getattr(obj, "ioa", None)
@@ -242,7 +260,7 @@ class IEC104SlaveHandlers:
                 await self._send_command_confirmation(asdu, [obj], session, ok=False)
 
     # ------------------------------------------------------------------
-    # helpers
+    # 响应辅助函数
     # ------------------------------------------------------------------
 
     async def _send_interrogation_confirmation(
@@ -264,7 +282,14 @@ class IEC104SlaveHandlers:
         session: SlaveSession,
         ok: bool,
     ) -> None:
-        """Emit a positive or negative single confirmation for *objects*."""
+        """发送单个正向或否定 ACT_CON。
+
+        Args:
+            asdu: 原始请求 ASDU，用于复用 TypeID。
+            objects: 需要回显的 information object。
+            session: 发送接口。
+            ok: True 为正向确认，False 设置 P/N 否定位。
+        """
         await session.send_asdu(
             ASDU(
                 type_id=asdu.type_id,

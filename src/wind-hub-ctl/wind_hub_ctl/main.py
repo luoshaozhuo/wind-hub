@@ -1,4 +1,9 @@
-"""wind-hub-ctl 命令行入口。"""
+"""wind-hub-ctl 命令行入口。
+
+本模块只负责参数解析、调用 CollectorClient 和输出 JSON，不读取 Collector
+配置，也不直接访问设备。所有业务错误通过 gRPC 状态返回；CLI 将 RPC 错误
+写入 stderr，并用非零退出码表示失败。
+"""
 
 from __future__ import annotations
 
@@ -14,7 +19,14 @@ from wind_hub_ctl.client import CollectorClient
 
 
 def _json_value(raw: str) -> Any:
-    """把 CLI 值按 JSON 标量解析；解析失败时保留字符串。"""
+    """把 CLI 文本解析为 JSON 标量；非 JSON 文本保持字符串。
+
+    Args:
+        raw: 命令行传入的原始字符串。
+
+    Returns:
+        JSON 标量或原始字符串。Any 仅用于 CLI 动态输入边界。
+    """
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -22,10 +34,23 @@ def _json_value(raw: str) -> Any:
 
 
 def _print(data: dict[str, Any]) -> None:
+    """以稳定、可读的 JSON 格式输出 RPC 结果。"""
     print(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 async def _run(args: argparse.Namespace) -> int:
+    """执行一次 CLI 子命令。
+
+    Args:
+        args: argparse 已解析的命令行参数。
+
+    Returns:
+        成功时返回进程退出码 0。
+
+    Raises:
+        RuntimeError: 收到解析器未声明的子命令。正常 CLI 路径不会触发。
+        grpc.aio.AioRpcError: Collector 不可达、RPC 超时或服务端返回错误状态。
+    """
     async with CollectorClient(args.target, timeout=args.rpc_timeout) as client:
         if args.command == "info":
             result = await client.info()
@@ -71,7 +96,11 @@ async def _run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """构建 wind-hub-ctl 参数解析器。"""
+    """构建 wind-hub-ctl 参数解析器。
+
+    Returns:
+        包含 Collector endpoint、RPC 超时和全部控制子命令的解析器。
+    """
     parser = argparse.ArgumentParser(
         prog="wind-hub-ctl",
         description="Wind Hub Collector gRPC 控制客户端。",
@@ -139,7 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """同步 CLI 入口。"""
+    """执行 wind-hub-ctl。
+
+    Returns:
+        0 表示命令成功；2 表示 gRPC 调用失败；130 表示用户中断。
+    """
     args = build_parser().parse_args()
     try:
         return asyncio.run(_run(args))

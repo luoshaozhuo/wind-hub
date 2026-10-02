@@ -1,15 +1,11 @@
-"""IEC104 slave session — one TCP connection's frame loop.
+"""单条 IEC104 主站 TCP 连接的从站 session。
 
-Reads APDU frames from the master, answers the STARTDT/TESTFR/STOPDT
-unnumbered handshake, and dispatches decoded I-frames to the shared
-:class:`IEC104SlaveHandlers`.  Outbound ``send_asdu`` wraps an ASDU in an
-I-frame and tracks this session's send sequence number (N(S)); the receive
-sequence number (N(R)) piggy-backs an acknowledgement of the master's last
-I-frame.
+session 持续读取 APDU，处理 STARTDT/TESTFR/STOPDT U-frame 握手，并把已解码
+I-frame ASDU 交给共享 IEC104SlaveHandlers。send_asdu 负责用当前 N(S)/N(R)
+封装 I-frame，其中 N(R) 同时确认主站最近收到的 I-frame。
 
-Flow control is minimal but interoperable: the slave acknowledges the master
-in the N(R) of its own I-frames and answers U-frames directly, matching the
-behaviour our own IEC104 *master* driver expects of a slave.
+该实现只提供当前代理所需的最小流控语义，不负责跨 session 状态共享；每条连接
+独立维护序号和 STARTDT 状态。
 """
 
 from __future__ import annotations
@@ -38,14 +34,21 @@ logger = logging.getLogger(__name__)
 START_CHAR = 0x68
 MAX_SEQ = 0x7FFF
 
-# Control-direction TypeIDs that map to remote-control commands.
+# 可映射为远程控制 Command 的控制方向 TypeID。
 _COMMAND_TYPE_IDS: frozenset[TypeID] = frozenset(
     {TypeID.C_SC_NA_1, TypeID.C_DC_NA_1, TypeID.C_SE_NC_1}
 )
 
 
 class IEC104SlaveSession:
-    """A single IEC104 slave TCP session, bound to one ``(reader, writer)``."""
+    """绑定单个 reader/writer 的 IEC104 从站 TCP session。
+
+    Args:
+        reader: 当前 TCP 连接的 StreamReader。
+        writer: 当前 TCP 连接的 StreamWriter。
+        handlers: 共享的请求处理器。
+        common_address: 从站公共地址。
+    """
 
     def __init__(
         self,
@@ -64,7 +67,10 @@ class IEC104SlaveSession:
         self._started = False
 
     async def run(self) -> None:
-        """Run the session until the peer disconnects or the socket errors."""
+        """运行帧循环，直到对端断开或读取失败。
+
+        socket 解码/处理异常向上抛给 Server，由 Server 记录并统一释放 writer。
+        """
         while True:
             frame_bytes = await self._read_frame()
             if frame_bytes is None:
@@ -74,7 +80,7 @@ class IEC104SlaveSession:
             if isinstance(frame, UFrame):
                 await self._handle_u_frame(frame)
             elif isinstance(frame, SFrame):
-                # Supervisory ack — nothing to do beyond noting the peer's N(R).
+                # S-frame 不携带业务数据，只更新对端确认序号。
                 self._recv_seq = (frame.recv_seq + 1) & MAX_SEQ
             elif isinstance(frame, IFrame):
                 self._recv_seq = (frame.send_seq + 1) & MAX_SEQ
@@ -84,10 +90,14 @@ class IEC104SlaveSession:
                 await self._dispatch(asdu)
 
     async def send_asdu(self, asdu: ASDU, negative: bool = False) -> None:
-        """Encode and send *asdu* in an I-frame.
+        """把 ASDU 封装为 I-frame 并发送。
 
-        A ``negative=True`` confirmation sets the cause-of-transmission
-        P/N bit (bit 7) — the IEC104 "negative acknowledgement" marker.
+        Args:
+            asdu: 待发送的 ASDU。
+            negative: True 时设置 COT 的 P/N 位，表示否定确认。
+
+        Side Effects:
+            递增本 session 的 N(S)，并通过 writer 写入 socket。
         """
         raw = encode_asdu(asdu)
         if negative:
@@ -97,11 +107,15 @@ class IEC104SlaveSession:
         await self._write(encode_i_frame(seq, self._recv_seq, raw))
 
     # ------------------------------------------------------------------
-    # internals
+    # 内部实现
     # ------------------------------------------------------------------
 
     async def _read_frame(self) -> bytes | None:
-        """Read one complete APDU frame, or ``None`` on EOF / bad start byte."""
+        """读取一个完整 APDU。
+
+        Returns:
+            完整 APDU 字节；EOF、起始字符非法或半帧结束时返回 None。
+        """
         try:
             header = await self._reader.readexactly(2)
         except asyncio.IncompleteReadError:
@@ -126,8 +140,7 @@ class IEC104SlaveSession:
             await self._write(encode_u_frame(UFrameType.STOPDT_CON))
         elif frame.frame_type == UFrameType.TESTFR_ACT:
             await self._write(encode_u_frame(UFrameType.TESTFR_CON))
-        # STARTDT_CON / STOPDT_CON / TESTFR_CON originate from a slave and
-        # are unexpected here — ignored.
+        # 这些 *_CON 通常由从站发出；本 session 作为从站收到时不参与状态推进，直接忽略。
 
     async def _dispatch(self, asdu: ASDU) -> None:
         if asdu.type_id == TypeID.C_IC_NA_1 and asdu.cause == CauseOfTransmission.ACTIVATION:

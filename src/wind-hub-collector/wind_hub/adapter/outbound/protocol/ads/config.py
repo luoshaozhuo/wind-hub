@@ -1,9 +1,7 @@
-"""ADS connection parameters.
+"""ADS 连接参数模型与 DeviceConfig 转换。
 
-``ADSConfig`` is derived from a :class:`~wind_hub.config.schema.DeviceConfig`
-by :func:`from_device_config`.  The target IP address is taken from
-``endpoint.host`` and is not part of this dataclass (it is read directly by the
-driver).
+目标 IP 来自 DeviceConfig.endpoint.host，因此不重复存入 ADSConfig。该模块只
+负责参数解析和校验，不建立 ADS connection，也不设置进程级本机 AMS Net ID。
 """
 
 from __future__ import annotations
@@ -16,54 +14,61 @@ from wind_hub.domain.model.errors import ConfigError
 
 @dataclass(frozen=True)
 class ADSConfig:
-    """ADS (Automation Device Specification) connection parameters."""
+    """ADS 设备连接与读取参数。
+
+    这些字段只描述单设备目标端；本机 AMS Net ID 属于进程级 system 配置。
+    """
 
     target_net_id: str
-    """Target PLC AMS Net ID (dotted-numeric, e.g. ``"192.168.151.40.1.1"``).
-    Empty when unspecified — the driver lets pyads auto-detect the Net ID from
-    the IP address.  The local AMS Net ID is process-level (``system.yaml``
-    ``ads.local_ams_net_id``), not per-device."""
+    """目标 PLC AMS Net ID。
+
+    未配置时为空，由 driver/pyads 根据连接上下文处理；本机 AMS Net ID 不属于
+    单设备配置。
+    """
 
     target_port: int = 801
-    """Target AMS port (TwinCAT 2 default 801; TwinCAT 3 uses 851)."""
+    """目标 AMS port；TwinCAT 2 默认 801，TwinCAT 3 默认 851。"""
 
     timeout: float = 5.0
-    """Operation timeout in seconds."""
+    """单次 ADS 操作超时，单位秒。"""
 
     reconnect_max_retries: int = 5
-    """Maximum consecutive reconnect attempts before entering FAILED state."""
+    """首次连接阶段允许的连续重试次数。"""
 
     reconnect_backoff_max: float = 30.0
-    """Upper bound (seconds) for exponential reconnect backoff."""
+    """指数退避等待时间上限，单位秒。"""
 
     twincat_version: str = "2"
-    """TwinCAT runtime version: ``'2'`` or ``'3'``.  Drives the default
-    ``target_port`` (801 / 851) when no explicit port is given.  Defaults
-    to TwinCAT 2 (port 801) for compatibility with older wind-farm PLCs."""
+    """TwinCAT runtime 版本，仅允许 2 或 3。
+
+    未显式配置 target_port 时，该字段决定默认 AMS port；默认 2 以兼容现场老机组。
+    """
 
     read_mode: str = "sum"
-    """Batch-read strategy: ``'sum'`` (single Sum command) or
-    ``'sequential'`` (per-point Read, concurrency-limited)."""
+    """批量读取策略：sum 使用 ADS Sum Read；sequential 逐点读取并限制并发。"""
 
     max_subs_per_sum: int = 500
-    """Maximum sub-commands packed into one ADS Sum read; larger point
-    sets are split into multiple Sum commands."""
+    """单次 ADS Sum Read 允许的最大子命令数，超过时分块。"""
 
     max_concurrent_reads: int = 16
-    """Concurrency limit (semaphore) for ``'sequential'`` reads."""
+    """sequential 模式并发读取上限。"""
 
     subscribe_enabled: bool = False
-    """Whether device-notification subscription is enabled."""
+    """是否启用 ADS notification 订阅采集。"""
 
     max_delay: float = 0.06
-    """Maximum notification delay in seconds."""
+    """notification 最大允许延迟，单位秒。"""
 
     max_notifications_per_connection: int = 550
-    """Notification-handle budget per subscription connection."""
+    """单条订阅 connection 允许的 notification handle 上限。"""
 
 
 def _is_valid_ams_net_id(net_id: str) -> bool:
-    """Return True for a dotted-numeric 6-octet AMS Net ID (``a.b.c.d.e.f``)."""
+    """校验六段十进制 AMS Net ID 格式。
+
+    Returns:
+        格式为 a.b.c.d.e.f 且每段在 0~255 时返回 True。
+    """
     parts = net_id.split(".")
     if len(parts) != 6:
         return False
@@ -71,14 +76,16 @@ def _is_valid_ams_net_id(net_id: str) -> bool:
 
 
 def from_device_config(cfg: DeviceConfig) -> ADSConfig:
-    """Build a :class:`ADSConfig` from *cfg*.
+    """从 DeviceConfig 构造并校验 ADSConfig。
 
-    ``target_net_id`` is validated only when non-empty, so a driver can be
-    instantiated (e.g. for a health check) without a full AMS configuration.
-    A malformed Net ID raises :class:`ConfigError`.
+    Args:
+        cfg: 已通过基础 schema 校验的设备配置。
+
+    Returns:
+        解析后的 ADSConfig。
 
     Raises:
-        ConfigError: On a malformed ``target_net_id``.
+        ConfigError: target_net_id 或 twincat_version 非法。
     """
     ext = cfg.endpoint.extensions
 
@@ -95,8 +102,7 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
             f"ADS device '{cfg.device_id}': twincat_version must be '2' or '3', "
             f"got '{twincat_version}'"
         )
-    # TwinCAT 3 uses AMS port 851 by default, TwinCAT 2 uses 801; an explicit
-    # ``target_port`` / ``ams_port`` still takes precedence.
+    # 显式 target_port/ams_port 优先；否则按 TwinCAT 版本选择 801 或 851。
     default_port = 851 if twincat_version == "3" else 801
 
     return ADSConfig(

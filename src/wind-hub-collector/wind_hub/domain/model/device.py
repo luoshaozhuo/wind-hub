@@ -1,4 +1,4 @@
-"""Domain model — device and endpoint definitions."""
+"""设备端点与只读运行状态领域模型。"""
 
 from __future__ import annotations
 
@@ -9,38 +9,39 @@ from pydantic import BaseModel, Field
 
 
 class Endpoint(BaseModel):
-    """Connection endpoint for a device."""
+    """设备连接端点。
+
+    extensions 保存协议特有参数；Any 仅对应协议动态配置边界，具体 Driver 会将其
+    收敛为强类型协议配置。
+    """
 
     host: str
-    """IP address or hostname of the device."""
+    """设备 IP 或主机名。"""
 
     port: int
-    """TCP port for the protocol connection."""
+    """协议连接端口。"""
 
     extensions: dict[str, Any] = Field(default_factory=dict)
-    """Protocol-specific parameters (e.g. IEC104 ``common_addr``,
-    Modbus ``unit_id``, ADS ``target_net_id``)."""
+    """协议扩展参数，例如 common_addr、unit_id、target_net_id。"""
 
 
 class DeviceInfo(BaseModel):
-    """Runtime status snapshot of a device — returned by query operations."""
+    """查询接口返回的设备运行状态快照。"""
 
     device_id: str
-    """Device identifier."""
+    """设备稳定标识。"""
 
     protocol: str
-    """Protocol driver in use."""
+    """当前使用的协议 Driver 名称。"""
 
     connected: bool
-    """``True`` if the protocol adapter reports a healthy connection."""
+    """协议 adapter health() 为 healthy 时为 True。"""
 
     last_seen: datetime | None = None
-    """UTC timestamp of the last successful read, or ``None`` if the
-    device has never been read."""
+    """最近一次成功读取时间；尚未追踪时为 None。"""
 
     consecutive_failures: int = 0
-    """Consecutive connect failures backing the reconnect backoff
-    (0 when the device is healthy)."""
+    """连续连接失败次数；设备恢复后归零。"""
 
     last_error: str | None = None
-    """Short description of the most recent failure, if any."""
+    """最近一次失败的简要描述。"""

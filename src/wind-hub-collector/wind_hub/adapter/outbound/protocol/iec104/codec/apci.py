@@ -1,6 +1,7 @@
-"""IEC 60870-5-104 APCI (Application Protocol Control Information) codec.
+"""IEC 60870-5-104 APCI 编码与解码。
 
-Handles I-frame, S-frame, and U-frame encode/decode.
+支持 I-frame、S-frame、U-frame。该模块只做字节转换和结构校验，不维护连接
+序号状态；序号有效范围为 15 bit，结构或序号非法时抛 ProtocolError。
 """
 
 from __future__ import annotations
@@ -12,43 +13,42 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.types import UFrameType
 from wind_hub.domain.model.errors import ProtocolError
 
 # ---------------------------------------------------------------------------
-# constants
+# 协议常量
 # ---------------------------------------------------------------------------
 
 START_CHAR = 0x68
-"""IEC 60870-5-104 start character — always 0x68."""
+"""IEC104 固定起始字符 0x68。"""
 
 MAX_SEQ = 0x7FFF
-"""Maximum sequence number (15 bits)."""
+"""15-bit 序号最大值。"""
 
 # ---------------------------------------------------------------------------
-# frame dataclasses
+# APDU frame 数据模型
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class IFrame:
-    """I-frame — information transfer frame.
+    """I-frame 信息传输帧。
 
-    Carries an ASDU payload with send/recv sequence numbers for
-    flow-control and acknowledgement.
+    携带 ASDU，同时通过 N(S)/N(R) 完成发送序号和接收确认。
     """
 
     send_seq: int
-    """N(S) — send sequence number (0–32767)."""
+    """N(S) 发送序号，范围 0~32767。"""
 
     recv_seq: int
-    """N(R) — receive sequence number (0–32767)."""
+    """N(R) 接收确认序号，范围 0~32767。"""
 
     asdu: bytes
-    """Raw ASDU payload bytes."""
+    """原始 ASDU payload。"""
 
 
 @dataclass(frozen=True)
 class SFrame:
-    """S-frame — supervisory / acknowledgement-only frame.
+    """S-frame 监督确认帧。
 
-    Contains only a receive sequence number N(R); no ASDU payload.
+    只携带 N(R)，不包含 ASDU。
     """
 
     recv_seq: int
@@ -57,37 +57,35 @@ class SFrame:
 
 @dataclass(frozen=True)
 class UFrame:
-    """U-frame — unnumbered control frame.
+    """U-frame 无编号控制帧。
 
-    Carries STARTDT / STOPDT / TESTFR commands without sequence numbers.
+    用于 STARTDT、STOPDT、TESTFR 等链路控制，不携带序号。
     """
 
     frame_type: UFrameType
-    """U-frame function code."""
+    """U-frame 功能码。"""
 
 
-# APDUFrame is the sum-type for all three frame kinds.
+# APDUFrame 是三种 frame 的联合类型。
 APDUFrame = IFrame | SFrame | UFrame
 
 
 # ---------------------------------------------------------------------------
-# decode
+# 解码
 # ---------------------------------------------------------------------------
 
 
 def decode_apdu(data: bytes) -> APDUFrame:
-    """Decode a complete APDU from *data*.
+    """从完整字节序列解码一个 APDU。
 
-    Wire format::
+    Args:
+        data: 从 0x68 起始字符开始的完整 APDU 字节。
 
-        0x68 | len | ctrl[0:4] | [asdu ...]
-
-    where *len* = 4 (ctrl bytes) + len(asdu).
-
-    Returns one of ``IFrame``, ``SFrame``, or ``UFrame``.
+    Returns:
+        IFrame、SFrame 或 UFrame。
 
     Raises:
-        ProtocolError: On structural errors.
+        ProtocolError: 起始字符、长度、控制域或 U-frame 功能码非法。
     """
     if len(data) < 2:
         raise ProtocolError(f"APDU decode: need at least 2 bytes, got {len(data)}")
@@ -106,12 +104,12 @@ def decode_apdu(data: bytes) -> APDUFrame:
     if apdu_len < 4:
         raise ProtocolError(f"APDU decode: apdu_len={apdu_len} too small (min 4 for ctrl)")
 
-    # Control field bytes (4 bytes at offset 2)
+    # offset=2 起的 4 字节控制域。
     ctrl = data[2:6]
 
-    # Determine frame type from control field bit 0
+    # 根据控制域低位判断 frame 类型。
     if (ctrl[0] & 0x01) == 0:
-        # I-frame — bit 0 = 0
+        # I-frame：bit0=0。
         send_seq_raw = struct.unpack_from("<H", ctrl, 0)[0]
         recv_seq_raw = struct.unpack_from("<H", ctrl, 2)[0]
         send_seq = (send_seq_raw >> 1) & MAX_SEQ
@@ -120,13 +118,13 @@ def decode_apdu(data: bytes) -> APDUFrame:
         return IFrame(send_seq=send_seq, recv_seq=recv_seq, asdu=asdu)
 
     elif (ctrl[0] & 0x03) == 0x01:
-        # S-frame — bit 0 = 1, bit 1 = 0
+        # S-frame：bit0=1、bit1=0。
         recv_seq_raw = struct.unpack_from("<H", ctrl, 2)[0]
         recv_seq = (recv_seq_raw >> 1) & MAX_SEQ
         return SFrame(recv_seq=recv_seq)
 
     elif (ctrl[0] & 0x03) == 0x03:
-        # U-frame — bit 0 = 1, bit 1 = 1
+        # U-frame：bit0=1、bit1=1。
         func_code = ctrl[0]
         try:
             frame_type = UFrameType(func_code)
@@ -139,40 +137,40 @@ def decode_apdu(data: bytes) -> APDUFrame:
 
 
 # ---------------------------------------------------------------------------
-# encode helpers
+# 编码辅助函数
 # ---------------------------------------------------------------------------
 
 
 def _validate_seq(n: int, label: str) -> None:
-    """Raise ProtocolError if sequence number is out of range."""
+    """校验 15-bit 序号范围；越界时抛 ProtocolError。"""
     if not (0 <= n <= MAX_SEQ):
         raise ProtocolError(f"{label} {n} out of range [0, {MAX_SEQ}]")
 
 
 def _build_apdu(body: bytes) -> bytes:
-    """Build a complete APDU: 0x68 | len | body (ctrl[4] + asdu)."""
+    """按 0x68 | len | body 组装完整 APDU。"""
     length = len(body)
     return bytes([START_CHAR, length]) + body
 
 
 def encode_i_frame(send_seq: int, recv_seq: int, asdu: bytes) -> bytes:
-    """Encode an I-frame.
+    """编码 I-frame。
 
     Args:
-        send_seq: N(S), 15-bit send sequence number.
-        recv_seq: N(R), 15-bit receive sequence number.
-        asdu: Raw ASDU bytes.
+        send_seq: N(S) 发送序号。
+        recv_seq: N(R) 接收确认序号。
+        asdu: 原始 ASDU 字节。
 
     Returns:
-        Complete APDU bytes (including 0x68 header).
+        含 APCI 头的完整 APDU。
 
     Raises:
-        ProtocolError: If sequence numbers are out of range.
+        ProtocolError: 任一序号越界。
     """
     _validate_seq(send_seq, "send_seq")
     _validate_seq(recv_seq, "recv_seq")
 
-    # Control field (4 bytes):
+    # I-frame 4 字节控制域：
     #   bytes 0-1: send_seq << 1  (bit 0 = 0 for I-frame)
     #   bytes 2-3: recv_seq << 1
     ctrl = struct.pack("<HH", (send_seq << 1) & 0xFFFF, (recv_seq << 1) & 0xFFFF)
@@ -180,20 +178,20 @@ def encode_i_frame(send_seq: int, recv_seq: int, asdu: bytes) -> bytes:
 
 
 def encode_s_frame(recv_seq: int) -> bytes:
-    """Encode an S-frame (acknowledgement only).
+    """编码仅确认用途的 S-frame。
 
     Args:
-        recv_seq: N(R), 15-bit receive sequence number.
+        recv_seq: N(R) 接收确认序号。
 
     Returns:
-        Complete APDU bytes (always 2 + 4 = 6 bytes).
+        固定 6 字节 APDU。
 
     Raises:
-        ProtocolError: If sequence number is out of range.
+        ProtocolError: 序号越界。
     """
     _validate_seq(recv_seq, "recv_seq")
 
-    # S-frame control field (4 bytes):
+    # S-frame 4 字节控制域：
     #   bytes 0-1: 0x0001 (S-frame marker: bit 0 = 1, bit 1 = 0)
     #   bytes 2-3: recv_seq << 1
     ctrl = struct.pack("<H", 0x0001)  # bits 0-1 = 01
@@ -202,29 +200,29 @@ def encode_s_frame(recv_seq: int) -> bytes:
 
 
 def encode_u_frame(frame_type: UFrameType) -> bytes:
-    """Encode a U-frame.
+    """编码 U-frame。
 
     Args:
-        frame_type: One of the ``UFrameType`` enum values.
+        frame_type: UFrameType 功能码。
 
     Returns:
-        Complete APDU bytes (always 2 + 4 = 6 bytes).
-
-    Raises:
-        ProtocolError: If *frame_type* is not a valid ``UFrameType``.
+        固定 6 字节 APDU。
     """
     ctrl = bytes([frame_type.value, 0x00, 0x00, 0x00])
     return _build_apdu(ctrl)
 
 
 def encode_apdu(frame: APDUFrame) -> bytes:
-    """Encode any of I/S/U frame to an APDU.
+    """把 I/S/U frame 统一编码为 APDU。
 
     Args:
-        frame: An ``IFrame``, ``SFrame``, or ``UFrame``.
+        frame: IFrame、SFrame 或 UFrame。
 
     Returns:
-        Complete APDU bytes.
+        完整 APDU 字节。
+
+    Raises:
+        ProtocolError: 传入未知 frame 类型。
     """
     if isinstance(frame, UFrame):
         return encode_u_frame(frame.frame_type)

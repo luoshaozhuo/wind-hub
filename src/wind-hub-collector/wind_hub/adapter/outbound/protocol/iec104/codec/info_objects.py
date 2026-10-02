@@ -1,4 +1,9 @@
-"""IEC 60870-5-104 information object codecs — one encode/decode pair per TypeID."""
+"""IEC104 information object 数据模型与 TypeID codec。
+
+每个 decode_* 函数从指定 offset 解析一个 information object，并返回
+(object, new_offset)；encode_* 执行逆向编码。该模块只做字节转换，不执行网络
+I/O，也不维护 session 状态。缓冲区不足或字段非法时统一抛 ProtocolError。
+"""
 
 from __future__ import annotations
 
@@ -20,10 +25,17 @@ from wind_hub.domain.model.errors import ProtocolError
 
 
 def _decode_quality(data: bytes, off: int) -> tuple[QualityFlag, int]:
-    """Decode 1-byte QDS field.
+    """解码一字节 QDS。
+
+    Args:
+        data: 原始字节缓冲区。
+        off: QDS 起始偏移。
 
     Returns:
-        ``(QualityFlag, new_offset)``.
+        (QualityFlag, new_offset)。
+
+    Raises:
+        ProtocolError: 剩余字节不足。
     """
     if off >= len(data):
         raise ProtocolError(f"QDS decode: need 1 byte at offset {off}, " f"got {len(data) - off}")
@@ -31,12 +43,16 @@ def _decode_quality(data: bytes, off: int) -> tuple[QualityFlag, int]:
 
 
 def _encode_quality(q: QualityFlag) -> bytes:
-    """Encode QDS as 1 byte."""
+    """把 QualityFlag 编码为一字节 QDS。"""
     return bytes([q.value & 0x1F])  # only low 5 bits
 
 
 def _check_len(data: bytes, offset: int, need: int, label: str) -> None:
-    """Raise ProtocolError if not enough bytes remain."""
+    """检查缓冲区剩余长度。
+
+    Raises:
+        ProtocolError: 从 offset 起不足 need 字节。
+    """
     if len(data) - offset < need:
         raise ProtocolError(
             f"{label} decode: need {need} bytes at offset {offset}, " f"got {len(data) - offset}"
@@ -44,7 +60,7 @@ def _check_len(data: bytes, offset: int, need: int, label: str) -> None:
 
 
 # ==========================================================================
-# M_SP_NA_1 — Single-point information (TypeID=1)
+# M_SP_NA_1：单点信息（TypeID=1）
 # ==========================================================================
 
 
@@ -58,7 +74,18 @@ class SinglePoint:
 
 
 def decode_m_sp_na_1(data: bytes, offset: int) -> tuple[SinglePoint, int]:
-    """Decode M_SP_NA_1: IOA(3) + SIQ(1) = 4 bytes."""
+    """解码 M_SP_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (SinglePoint, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "M_SP_NA_1")
     ioa, off = decode_ioa(data, offset)
     siq = data[off]
@@ -68,13 +95,20 @@ def decode_m_sp_na_1(data: bytes, offset: int) -> tuple[SinglePoint, int]:
 
 
 def encode_m_sp_na_1(obj: SinglePoint) -> bytes:
-    """Encode M_SP_NA_1."""
+    """编码 M_SP_NA_1 information object。
+
+    Args:
+        obj: 待编码的 SinglePoint。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     siq = ((obj.quality.value & 0x1E) << 3) | (0x01 if obj.value else 0x00)
     return encode_ioa(obj.ioa) + bytes([siq])
 
 
 # ==========================================================================
-# M_DP_NA_1 — Double-point information (TypeID=3)
+# M_DP_NA_1：双点信息（TypeID=3）
 # ==========================================================================
 
 
@@ -88,7 +122,18 @@ class DoublePoint:
 
 
 def decode_m_dp_na_1(data: bytes, offset: int) -> tuple[DoublePoint, int]:
-    """Decode M_DP_NA_1: IOA(3) + DIQ(1) = 4 bytes."""
+    """解码 M_DP_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (DoublePoint, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "M_DP_NA_1")
     ioa, off = decode_ioa(data, offset)
     diq = data[off]
@@ -98,13 +143,20 @@ def decode_m_dp_na_1(data: bytes, offset: int) -> tuple[DoublePoint, int]:
 
 
 def encode_m_dp_na_1(obj: DoublePoint) -> bytes:
-    """Encode M_DP_NA_1."""
+    """编码 M_DP_NA_1 information object。
+
+    Args:
+        obj: 待编码的 DoublePoint。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     diq = ((obj.quality.value & 0x1E) << 3) | (obj.value & 0x03)
     return encode_ioa(obj.ioa) + bytes([diq])
 
 
 # ==========================================================================
-# M_ME_NA_1 — Normalized measured value (TypeID=9)
+# M_ME_NA_1：归一化测量值（TypeID=9）
 # ==========================================================================
 
 
@@ -121,21 +173,32 @@ _NORM_SCALE = float(0x7FFF)
 
 
 def _norm_to_int16(value: float) -> int:
-    """Convert normalized float to int16."""
+    """把归一化浮点值钳位并转换为 int16。"""
     clamped = max(-1.0, min(1.0, value))
     raw = int(clamped * _NORM_SCALE)
     return max(-32768, min(32767, raw))
 
 
 def _norm_from_int16(raw: int) -> float:
-    """Convert int16 to normalized float."""
+    """把 int16 还原为归一化浮点值。"""
     if raw == -32768:
         return -1.0  # -32768 represents -1.0 exactly
     return raw / _NORM_SCALE
 
 
 def decode_m_me_na_1(data: bytes, offset: int) -> tuple[MeasuredValueNormalized, int]:
-    """Decode M_ME_NA_1: IOA(3) + 归一化值(2) + QDS(1) = 6 bytes."""
+    """解码 M_ME_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (MeasuredValueNormalized, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 6, "M_ME_NA_1")
     ioa, off = decode_ioa(data, offset)
     raw = struct.unpack_from("<h", data, off)[0]
@@ -149,13 +212,20 @@ def decode_m_me_na_1(data: bytes, offset: int) -> tuple[MeasuredValueNormalized,
 
 
 def encode_m_me_na_1(obj: MeasuredValueNormalized) -> bytes:
-    """Encode M_ME_NA_1."""
+    """编码 M_ME_NA_1 information object。
+
+    Args:
+        obj: 待编码的 MeasuredValueNormalized。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     raw = _norm_to_int16(obj.value)
     return encode_ioa(obj.ioa) + struct.pack("<h", raw) + _encode_quality(obj.quality)
 
 
 # ==========================================================================
-# M_ME_NB_1 — Scaled measured value (TypeID=11)
+# M_ME_NB_1：标度化测量值（TypeID=11）
 # ==========================================================================
 
 
@@ -169,7 +239,18 @@ class MeasuredValueScaled:
 
 
 def decode_m_me_nb_1(data: bytes, offset: int) -> tuple[MeasuredValueScaled, int]:
-    """Decode M_ME_NB_1: IOA(3) + 标度化值(2) + QDS(1) = 6 bytes."""
+    """解码 M_ME_NB_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (MeasuredValueScaled, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 6, "M_ME_NB_1")
     ioa, off = decode_ioa(data, offset)
     raw = struct.unpack_from("<h", data, off)[0]
@@ -179,12 +260,19 @@ def decode_m_me_nb_1(data: bytes, offset: int) -> tuple[MeasuredValueScaled, int
 
 
 def encode_m_me_nb_1(obj: MeasuredValueScaled) -> bytes:
-    """Encode M_ME_NB_1."""
+    """编码 M_ME_NB_1 information object。
+
+    Args:
+        obj: 待编码的 MeasuredValueScaled。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     return encode_ioa(obj.ioa) + struct.pack("<h", obj.value) + _encode_quality(obj.quality)
 
 
 # ==========================================================================
-# M_ME_NC_1 — Short floating-point measured value (TypeID=13)
+# M_ME_NC_1：短浮点测量值（TypeID=13）
 # ==========================================================================
 
 
@@ -198,7 +286,18 @@ class MeasuredValueShort:
 
 
 def decode_m_me_nc_1(data: bytes, offset: int) -> tuple[MeasuredValueShort, int]:
-    """Decode M_ME_NC_1: IOA(3) + 短浮点(4) + QDS(1) = 8 bytes."""
+    """解码 M_ME_NC_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (MeasuredValueShort, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 8, "M_ME_NC_1")
     ioa, off = decode_ioa(data, offset)
     value = struct.unpack_from("<f", data, off)[0]
@@ -208,12 +307,19 @@ def decode_m_me_nc_1(data: bytes, offset: int) -> tuple[MeasuredValueShort, int]
 
 
 def encode_m_me_nc_1(obj: MeasuredValueShort) -> bytes:
-    """Encode M_ME_NC_1."""
+    """编码 M_ME_NC_1 information object。
+
+    Args:
+        obj: 待编码的 MeasuredValueShort。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     return encode_ioa(obj.ioa) + struct.pack("<f", obj.value) + _encode_quality(obj.quality)
 
 
 # ==========================================================================
-# M_SP_TB_1 — Single-point with CP56Time2a (TypeID=30)
+# M_SP_TB_1：带 CP56Time2a 的单点信息（TypeID=30）
 # ==========================================================================
 
 
@@ -228,7 +334,18 @@ class SinglePointWithTime:
 
 
 def decode_m_sp_tb_1(data: bytes, offset: int) -> tuple[SinglePointWithTime, int]:
-    """Decode M_SP_TB_1: IOA(3) + SIQ(1) + CP56Time2a(7) = 11 bytes."""
+    """解码 M_SP_TB_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (SinglePointWithTime, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 11, "M_SP_TB_1")
     ioa, off = decode_ioa(data, offset)
     siq = data[off]
@@ -245,7 +362,14 @@ def decode_m_sp_tb_1(data: bytes, offset: int) -> tuple[SinglePointWithTime, int
 
 
 def encode_m_sp_tb_1(obj: SinglePointWithTime) -> bytes:
-    """Encode M_SP_TB_1."""
+    """编码 M_SP_TB_1 information object。
+
+    Args:
+        obj: 待编码的 SinglePointWithTime。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     siq = ((obj.quality.value & 0x1E) << 3) | (0x01 if obj.value else 0x00)
     ts = obj.timestamp or CP56Time2a(
         milliseconds=0,
@@ -259,7 +383,7 @@ def encode_m_sp_tb_1(obj: SinglePointWithTime) -> bytes:
 
 
 # ==========================================================================
-# M_DP_TB_1 — Double-point with CP56Time2a (TypeID=31)
+# M_DP_TB_1：带 CP56Time2a 的双点信息（TypeID=31）
 # ==========================================================================
 
 
@@ -274,7 +398,18 @@ class DoublePointWithTime:
 
 
 def decode_m_dp_tb_1(data: bytes, offset: int) -> tuple[DoublePointWithTime, int]:
-    """Decode M_DP_TB_1: IOA(3) + DIQ(1) + CP56Time2a(7) = 11 bytes."""
+    """解码 M_DP_TB_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (DoublePointWithTime, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 11, "M_DP_TB_1")
     ioa, off = decode_ioa(data, offset)
     diq = data[off]
@@ -291,7 +426,14 @@ def decode_m_dp_tb_1(data: bytes, offset: int) -> tuple[DoublePointWithTime, int
 
 
 def encode_m_dp_tb_1(obj: DoublePointWithTime) -> bytes:
-    """Encode M_DP_TB_1."""
+    """编码 M_DP_TB_1 information object。
+
+    Args:
+        obj: 待编码的 DoublePointWithTime。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     diq = ((obj.quality.value & 0x1E) << 3) | (obj.value & 0x03)
     ts = obj.timestamp or CP56Time2a(
         milliseconds=0,
@@ -305,7 +447,7 @@ def encode_m_dp_tb_1(obj: DoublePointWithTime) -> bytes:
 
 
 # ==========================================================================
-# M_ME_TD_1 — Normalized measured value with CP56Time2a (TypeID=34)
+# M_ME_TD_1：带 CP56Time2a 的归一化测量值（TypeID=34）
 # ==========================================================================
 
 
@@ -320,7 +462,18 @@ class MeasuredValueNormalizedWithTime:
 
 
 def decode_m_me_td_1(data: bytes, offset: int) -> tuple[MeasuredValueNormalizedWithTime, int]:
-    """Decode M_ME_TD_1: IOA(3) + 值(2) + QDS(1) + CP56Time2a(7) = 13 bytes."""
+    """解码 M_ME_TD_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (MeasuredValueNormalizedWithTime, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 13, "M_ME_TD_1")
     ioa, off = decode_ioa(data, offset)
     raw = struct.unpack_from("<h", data, off)[0]
@@ -336,7 +489,14 @@ def decode_m_me_td_1(data: bytes, offset: int) -> tuple[MeasuredValueNormalizedW
 
 
 def encode_m_me_td_1(obj: MeasuredValueNormalizedWithTime) -> bytes:
-    """Encode M_ME_TD_1."""
+    """编码 M_ME_TD_1 information object。
+
+    Args:
+        obj: 待编码的 MeasuredValueNormalizedWithTime。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     raw = _norm_to_int16(obj.value)
     ts = obj.timestamp or CP56Time2a(
         milliseconds=0,
@@ -355,7 +515,7 @@ def encode_m_me_td_1(obj: MeasuredValueNormalizedWithTime) -> bytes:
 
 
 # ==========================================================================
-# M_ME_TF_1 — Short floating-point measured value with CP56Time2a (TypeID=36)
+# M_ME_TF_1：带 CP56Time2a 的短浮点测量值（TypeID=36）
 # ==========================================================================
 
 
@@ -370,7 +530,18 @@ class MeasuredValueShortWithTime:
 
 
 def decode_m_me_tf_1(data: bytes, offset: int) -> tuple[MeasuredValueShortWithTime, int]:
-    """Decode M_ME_TF_1: IOA(3) + 值(4) + QDS(1) + CP56Time2a(7) = 15 bytes."""
+    """解码 M_ME_TF_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (MeasuredValueShortWithTime, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 15, "M_ME_TF_1")
     ioa, off = decode_ioa(data, offset)
     value = struct.unpack_from("<f", data, off)[0]
@@ -386,7 +557,14 @@ def decode_m_me_tf_1(data: bytes, offset: int) -> tuple[MeasuredValueShortWithTi
 
 
 def encode_m_me_tf_1(obj: MeasuredValueShortWithTime) -> bytes:
-    """Encode M_ME_TF_1."""
+    """编码 M_ME_TF_1 information object。
+
+    Args:
+        obj: 待编码的 MeasuredValueShortWithTime。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     ts = obj.timestamp or CP56Time2a(
         milliseconds=0,
         minutes=0,
@@ -404,7 +582,7 @@ def encode_m_me_tf_1(obj: MeasuredValueShortWithTime) -> bytes:
 
 
 # ==========================================================================
-# C_SC_NA_1 — Single command (TypeID=45)
+# C_SC_NA_1：单点遥控（TypeID=45）
 # ==========================================================================
 
 
@@ -418,7 +596,18 @@ class SingleCommand:
 
 
 def decode_c_sc_na_1(data: bytes, offset: int) -> tuple[SingleCommand, int]:
-    """Decode C_SC_NA_1: IOA(3) + SCO(1) = 4 bytes."""
+    """解码 C_SC_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (SingleCommand, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "C_SC_NA_1")
     ioa, off = decode_ioa(data, offset)
     sco = data[off]
@@ -428,7 +617,14 @@ def decode_c_sc_na_1(data: bytes, offset: int) -> tuple[SingleCommand, int]:
 
 
 def encode_c_sc_na_1(obj: SingleCommand) -> bytes:
-    """Encode C_SC_NA_1."""
+    """编码 C_SC_NA_1 information object。
+
+    Args:
+        obj: 待编码的 SingleCommand。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     sco = 0x00
     if obj.value:
         sco |= 0x01
@@ -438,7 +634,7 @@ def encode_c_sc_na_1(obj: SingleCommand) -> bytes:
 
 
 # ==========================================================================
-# C_DC_NA_1 — Double command (TypeID=46)
+# C_DC_NA_1：双点遥控（TypeID=46）
 # ==========================================================================
 
 
@@ -452,7 +648,18 @@ class DoubleCommand:
 
 
 def decode_c_dc_na_1(data: bytes, offset: int) -> tuple[DoubleCommand, int]:
-    """Decode C_DC_NA_1: IOA(3) + DCO(1) = 4 bytes."""
+    """解码 C_DC_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (DoubleCommand, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "C_DC_NA_1")
     ioa, off = decode_ioa(data, offset)
     dco = data[off]
@@ -462,7 +669,14 @@ def decode_c_dc_na_1(data: bytes, offset: int) -> tuple[DoubleCommand, int]:
 
 
 def encode_c_dc_na_1(obj: DoubleCommand) -> bytes:
-    """Encode C_DC_NA_1."""
+    """编码 C_DC_NA_1 information object。
+
+    Args:
+        obj: 待编码的 DoubleCommand。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     dco = obj.value & 0x03
     if obj.select:
         dco |= 0x80
@@ -484,7 +698,18 @@ class SetpointCommandShort:
 
 
 def decode_c_se_nc_1(data: bytes, offset: int) -> tuple[SetpointCommandShort, int]:
-    """Decode C_SE_NC_1: IOA(3) + 值(4) + QOS(1) = 8 bytes."""
+    """解码 C_SE_NC_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (SetpointCommandShort, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 8, "C_SE_NC_1")
     ioa, off = decode_ioa(data, offset)
     value = struct.unpack_from("<f", data, off)[0]
@@ -495,7 +720,14 @@ def decode_c_se_nc_1(data: bytes, offset: int) -> tuple[SetpointCommandShort, in
 
 
 def encode_c_se_nc_1(obj: SetpointCommandShort) -> bytes:
-    """Encode C_SE_NC_1."""
+    """编码 C_SE_NC_1 information object。
+
+    Args:
+        obj: 待编码的 SetpointCommandShort。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     qos = 0x80 if obj.select else 0x00
     return encode_ioa(obj.ioa) + struct.pack("<f", obj.value) + bytes([qos])
 
@@ -504,13 +736,17 @@ def decode_c_se_nc_1_response(
     data: bytes,
     offset: int,
 ) -> tuple[SetpointCommandShort, int]:
-    """Decode a C_SE_NC_1 activation confirmation: IOA(3) + QOS(1) = 4 bytes.
+    """解码 C_SE_NC_1 激活确认/终止的短格式响应。
 
-    Unlike the activation command (8 bytes), the confirmation/termination
-    echoes only the IOA and QOS (qualifier of setpoint command) — the value
-    is omitted.  The command decoder ``decode_c_se_nc_1`` cannot be used here
-    because it requires the 4-byte value field.  ``value`` is reported as
-    ``0.0`` since the confirmation carries none.
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (SetpointCommandShort, new_offset)。确认帧不携带设点值，因此 value 仅为占位。
+
+    Raises:
+        ProtocolError: 缓冲区不足。
     """
     _check_len(data, offset, 4, "C_SE_NC_1 con")
     ioa, off = decode_ioa(data, offset)
@@ -520,7 +756,7 @@ def decode_c_se_nc_1_response(
 
 
 # ==========================================================================
-# C_IC_NA_1 — Interrogation command (TypeID=100)
+# C_IC_NA_1：总召命令（TypeID=100）
 # ==========================================================================
 
 
@@ -532,20 +768,38 @@ class InterrogationCommand:
 
 
 def decode_c_ic_na_1(data: bytes, offset: int) -> tuple[InterrogationCommand, int]:
-    """Decode C_IC_NA_1: IOA(3) + QOI(1) = 4 bytes."""
+    """解码 C_IC_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (InterrogationCommand, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "C_IC_NA_1")
     ioa, off = decode_ioa(data, offset)
-    # QOI: 20=station, 21-36=group 1-16; we just skip it
+    # QOI=20 表示站总召，21~36 表示组召；当前只需要跳过该字段。
     return InterrogationCommand(ioa=ioa), off + 1
 
 
 def encode_c_ic_na_1(obj: InterrogationCommand) -> bytes:
-    """Encode C_IC_NA_1."""
+    """编码 C_IC_NA_1 information object。
+
+    Args:
+        obj: 待编码的 InterrogationCommand。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
     return encode_ioa(obj.ioa) + b"\x14"  # QOI = 20 (station interrogation)
 
 
 # ==========================================================================
-# C_CI_NA_1 — Counter interrogation command (TypeID=103)
+# C_CI_NA_1：电能总召命令（TypeID=103）
 # ==========================================================================
 
 
@@ -557,12 +811,30 @@ class CounterInterrogationCommand:
 
 
 def decode_c_ci_na_1(data: bytes, offset: int) -> tuple[CounterInterrogationCommand, int]:
-    """Decode C_CI_NA_1: IOA(3) + QCC(1) = 4 bytes."""
+    """解码 C_CI_NA_1 information object。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: information object 起始偏移。
+
+    Returns:
+        (CounterInterrogationCommand, new_offset)。
+
+    Raises:
+        ProtocolError: 缓冲区不足或字段编码非法。
+    """
     _check_len(data, offset, 4, "C_CI_NA_1")
     ioa, off = decode_ioa(data, offset)
     return CounterInterrogationCommand(ioa=ioa), off + 1
 
 
 def encode_c_ci_na_1(obj: CounterInterrogationCommand) -> bytes:
-    """Encode C_CI_NA_1."""
-    return encode_ioa(obj.ioa) + b"\x05"  # QCC = 5 (general counter request)
+    """编码 C_CI_NA_1 information object。
+
+    Args:
+        obj: 待编码的 CounterInterrogationCommand。
+
+    Returns:
+        对应 information object 的 wire bytes。
+    """
+    return encode_ioa(obj.ioa) + b"\x05"  # QCC=5：general counter request。

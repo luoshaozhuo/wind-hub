@@ -1,18 +1,16 @@
-"""ADS (Automation Device Specification) protocol driver over pyads.
+"""基于 pyads 的 ADS ProtocolPort 实现。
 
-Implements :class:`~wind_hub.domain.port.outbound.ProtocolPort` for the ADS
-protocol.  Points may be addressed by ``index_group`` + ``index_offset`` or by
-PLC symbol name (see :mod:`wind_hub.adapter.outbound.protocol.ads.mapping`).
+点表可配置 PLC symbol 或 index_group/index_offset。symbol-only 点不会在周期
+采集时查询符号：Driver 在建立连接后解析一次 symbol 并缓存 index 地址；后续
+read/write 均按 index_group/index_offset 执行。
 
-Batch reads dispatch on ``read_mode``: ``'sum'`` packs many points into a single
-ADS Sum command via symbol addressing (``read_list_by_name``), while
-``'sequential'`` issues one per-point ``Read`` with a concurrency limit.
-Device-notification subscription (push mode) is supported through
-:mod:`wind_hub.adapter.outbound.protocol.ads.subscription` when
-``subscribe.enabled`` is set.
+read_mode=sum 使用地址型 ADS Sum Read，并按 max_subs_per_sum 分块；
+sequential 逐点读取并受 max_concurrent_reads 限制。pyads 为同步 API，所有阻塞
+调用都通过 asyncio.to_thread 离开事件循环。
 
-pyads exposes a *synchronous* API, so every blocking call is offloaded to a
-worker thread via :func:`asyncio.to_thread` to avoid stalling the event loop.
+Driver 由单个 asyncio event loop 持有，内部 Lock 串行化 read/write。传输级
+失败触发后台重连；单点 symbol-not-found 可降级为 BAD 点，不伪装为连接成功。
+pyads 未提供完整类型标注，第三方对象只在本适配边界内使用 Any。
 """
 
 from __future__ import annotations
@@ -47,11 +45,13 @@ _RECONNECT_BACKOFF_MULTIPLIER = 2.0
 
 
 def _pyads() -> Any:
-    """Return the ``pyads`` module, importing it lazily.
+    """延迟导入 pyads，并隔离未类型化第三方边界。
 
-    pyads ships no ``py.typed`` marker, so it is untyped; importing it here
-    (rather than at module top) also keeps the base package importable without
-    the optional ``ads`` extra.
+    Returns:
+        pyads 模块对象；因第三方缺少完整类型标注，此处使用 Any。
+
+    Raises:
+        ImportError: 实际使用 ADS 但环境未安装 ads extra。
     """
     import pyads  # type: ignore[import-untyped]
 
@@ -59,7 +59,7 @@ def _pyads() -> Any:
 
 
 def _plc_datatype(ads_name: str) -> Any:
-    """Return the pyads ``PLCTYPE_*`` class for an ADS type name."""
+    """返回 ADS 类型名对应的 pyads PLCTYPE；第三方 ctypes 类型以 Any 隔离。"""
     pyads = _pyads()
     return getattr(pyads, f"PLCTYPE_{ads_name}")
 
@@ -85,10 +85,14 @@ def _is_point_level_ads_error(exc: BaseException) -> bool:
 
 
 class ADSDriver:
-    """ADS protocol driver.
+    """单设备 ADS 协议驱动。
 
-    Not thread-safe; a single asyncio event loop owns each instance.  An
-    internal :class:`asyncio.Lock` serialises ``read``/``write`` calls.
+    Args:
+        cfg: 已解析的设备配置。
+
+    Notes:
+        实例不保证线程安全；一个 asyncio event loop 独占实例，read/write 由
+        内部 Lock 串行化。subscription 使用独立 pyads connection pool。
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
@@ -107,8 +111,8 @@ class ADSDriver:
         self._reconnect_event = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
 
-        # pyads Connection, created lazily on connect (untyped on purpose so the
-        # third-party type never leaks into this module's API).
+        # pyads Connection 在 connect 时创建；Any 仅隔离第三方未类型化对象，
+        # 不进入 ProtocolPort 公开接口。
         self._connection: Any = None
 
         # 活跃的 device-notification 订阅——每次 subscribe 调用创建一个
@@ -117,7 +121,7 @@ class ADSDriver:
         self._subscriptions: set[ADSSubscription] = set()
 
     # ------------------------------------------------------------------
-    # point mapping
+    # 点表映射
     # ------------------------------------------------------------------
 
     def set_points_mapping(self, points: list[PointConfig]) -> None:
@@ -133,15 +137,17 @@ class ADSDriver:
         self._mapping_revision += 1
 
     # ------------------------------------------------------------------
-    # ProtocolPort — connect / close
+    # ProtocolPort：连接生命周期
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Open the ADS connection, retrying with exponential backoff.
+        """建立 ADS 连接，并按指数退避执行首次重试。
 
-        首轮 retry budget 耗尽仍失败时：启动后台 monitor 持续重连（覆盖
-        「PLC 比 wind-hub 晚启动/断电恢复」场景），随后仍向调用方抛出
-        :class:`ProtocolError`——Runtime 如实记录连接失败，后台恢复并行进行。
+        首轮 retry budget 用尽仍失败时启动后台 monitor 持续重连，同时向调用方
+        抛出 ProtocolError，使 Runtime 如实记录初始连接失败。
+
+        Raises:
+            ProtocolError: 首轮连接预算耗尽仍未连接。
         """
         async with self._lock:
             if self._connected:
@@ -158,7 +164,10 @@ class ADSDriver:
                 ) from last_exc
 
     async def close(self) -> None:
-        """Close the connection and stop the reconnect monitor."""
+        """关闭 ADS 连接、后台重连任务和全部 notification 订阅。
+
+        重复调用安全；订阅关闭异常被隔离，避免阻断其余资源释放。
+        """
         async with self._lock:
             self._shutdown = True
             self._reconnect_event.set()
@@ -176,11 +185,10 @@ class ADSDriver:
             self._failed = False
 
     async def _connect_with_retry(self) -> Exception | None:
-        """Attempt connection with exponential backoff.
+        """执行一次有限预算的指数退避连接。
 
         Returns:
-            ``None`` on success, or the last exception once the retry budget is
-            exhausted (after which ``self._failed`` is set).
+            成功返回 None；预算耗尽返回最后一个异常，并把 driver 标记为 failed。
         """
         backoff = _RECONNECT_BACKOFF_BASE
         last_exc: Exception | None = None
@@ -315,16 +323,20 @@ class ADSDriver:
                     self._reconnect_event.set()
 
     def _signal_disconnect(self) -> None:
-        """Mark the connection as dropped and request a background reconnect."""
+        """标记连接已断开，并唤醒后台重连循环。"""
         self._connected = False
         self._reconnect_event.set()
 
     # ------------------------------------------------------------------
-    # ProtocolPort — read
+    # ProtocolPort：读取
     # ------------------------------------------------------------------
 
     async def read(self, points: list[PointRef]) -> list[PointValue]:
-        """Read points using the configured batch strategy (Sum vs sequential)."""
+        """按配置的 Sum/sequential 策略批量读取点位。
+
+        传输级异常会转换为 ProtocolError 并触发后台重连；单点可识别错误可返回
+        Quality.BAD，不中断同批其他点。
+        """
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("ADS: cannot read — driver is not connected")
@@ -480,7 +492,7 @@ class ADSDriver:
 
     @staticmethod
     def _bad_value(ref: PointRef) -> PointValue:
-        """A ``BAD`` value for an unknown or failed point."""
+        """为未知点或单点读取失败构造 Quality.BAD 的 PointValue。"""
         return PointValue(
             device_id=ref.device_id,
             point_id=ref.point_id,
@@ -490,11 +502,14 @@ class ADSDriver:
         )
 
     # ------------------------------------------------------------------
-    # ProtocolPort — write
+    # ProtocolPort：写入
     # ------------------------------------------------------------------
 
     async def write(self, cmds: list[Command]) -> list[CommandResult]:
-        """Batch-write commands; one :class:`CommandResult` per command."""
+        """批量写入命令，并按输入顺序返回 CommandResult。
+
+        未连接或传输失败抛 ProtocolError；未知点/未解析地址作为单命令失败返回。
+        """
         async with self._lock:
             if not cmds:
                 return []
@@ -536,7 +551,7 @@ class ADSDriver:
         return CommandResult(command_id=cmd.command_id, success=False, error=error)
 
     # ------------------------------------------------------------------
-    # ProtocolPort — subscribe / health
+    # ProtocolPort：订阅与健康状态
     # ------------------------------------------------------------------
 
     @property
@@ -553,18 +568,24 @@ class ADSDriver:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """Subscribe to spontaneous device-notification updates.
+        """建立 ADS device-notification 订阅。
 
-        Requires ``subscribe_enabled`` in the device config; otherwise raises
-        :class:`NotImplementedError`.  Unknown points (not in the point table)
-        are skipped.
+        Args:
+            points: 需要订阅的点引用。
+            callback: 每个推送点值的异步回调。
+            interval: notification cycle_time，来自 Task.interval，必须大于 0。
 
-        每次调用创建一个**独立**订阅（独立连接池、独立 ``cycle_time``、
-        独立回调）——同一 symbol 可被多个 TaskInstance 以不同节拍订阅，
-        互不覆盖；关闭返回的句柄只注销本次订阅。
+        Returns:
+            只管理本次订阅生命周期的 SubscriptionHandle。
 
-        ``interval`` 即 notification 的 ``cycle_time``（秒，来自
-        Task.interval），必填且 > 0。
+        Raises:
+            NotImplementedError: 设备未启用 subscribe_enabled。
+            ConfigError: interval 未提供或不大于 0。
+            Exception: pyads notification 注册失败；失败时会先关闭临时订阅资源。
+
+        Notes:
+            每次调用创建独立 connection pool 和回调，同一 symbol 可被不同
+            Task Instance 以不同节拍订阅，互不覆盖。
         """
         if not self._config.subscribe_enabled:
             raise NotImplementedError(
@@ -594,7 +615,7 @@ class ADSDriver:
         return _ADSSubscriptionHandle(self, subscription)
 
     def health(self) -> HealthStatus:
-        """Return cached connection health."""
+        """返回缓存的连接健康状态；不执行实时网络 I/O。"""
         if self._failed:
             return HealthStatus(healthy=False, message="degraded: reconnecting in background")
         if not self._connected:
@@ -615,7 +636,7 @@ class _ADSSubscriptionHandle:
 
 
 # ---------------------------------------------------------------------------
-# self-registration
+# 协议自注册
 # ---------------------------------------------------------------------------
 
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402

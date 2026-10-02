@@ -30,20 +30,24 @@ logger = logging.getLogger(__name__)
 
 
 class CommandDispatcher:
-    """Command-dispatch engine.
+    """设备写指令分发器。
 
-    Responsibilities:
-      - Route a ``Command`` to the correct runtime ``Device``.
-      - Idempotency: same ``command_id`` executes only once.
-      - Timeout: wrap ``Device.write`` in ``asyncio.wait_for``.
+    职责：
+    - 按 device_id 路由到 Runtime 当前 Device；
+    - 以 command_id 提供进程内 LRU+TTL 幂等；
+    - 对 Device.write 应用单命令超时；
+    - 把协议/设备异常收敛为 CommandResult；
+    - 通过注入 callback 上报成功/失败计数。
 
-    Non-responsibilities:
-      - Protocol implementation (delegated to the device's ``ProtocolPort``).
-      - Permission checks / audit (delegated to the use cases above).
+    不负责权限、审计、跨进程幂等或协议实现。跨进程幂等应由更高层控制面保证。
 
-    The idempotency cache combines LRU eviction with TTL expiry and
-    lives entirely in-process.  Cross-process idempotency belongs to a
-    higher layer (e.g. the SCADA master station).
+    Args:
+        devices: 与 Runtime 共享的设备注册表。
+        idempotency_cache_size: 幂等缓存最大条目数。
+        idempotency_ttl: 幂等结果保留时长，单位秒。
+        default_timeout: Command 未提供正超时时使用的默认写超时。
+        on_command_sent: 首次成功执行后的回调。
+        on_command_failed: 首次失败执行后的回调。
     """
 
     def __init__(
@@ -65,30 +69,34 @@ class CommandDispatcher:
         # application 不得依赖 infra，故不在此直接 import metrics。
         self._on_command_sent = on_command_sent or (lambda: None)
         self._on_command_failed = on_command_failed or (lambda: None)
-        # OrderedDict gives us LRU: most-recently-accessed item at the end.
+        # OrderedDict 尾部保存最近访问项，用于 O(1) LRU 淘汰。
         self._cache: OrderedDict[str, tuple[CommandResult, float]] = OrderedDict()
 
     # ------------------------------------------------------------------
-    # public API
+    # 公共接口
     # ------------------------------------------------------------------
 
     async def send(self, cmd: Command) -> CommandResult:
-        """Send a single command.
+        """执行单条写指令。
 
-        1. Check idempotency cache — return cached result if present
-           (cache hits are *not* re-counted in the sent/failed metrics).
-        2. Look up the target ``Device`` — fail if unknown.
-        3. Wrap ``Device.write([cmd])`` with ``asyncio.wait_for``.
-        4. Fire the sent/failed callback, cache the result, and return it.
+        Args:
+            cmd: 待执行 Command。
+
+        Returns:
+            CommandResult。未知设备、写超时和底层异常均内联为失败结果，不向上抛。
+
+        Notes:
+            相同 command_id 在 TTL 内直接返回缓存结果，且不会重复触发 metrics
+            callback；这保证单进程内重试不会重复写设备。
         """
-        # --- step 1: idempotency check ----------------------------------
+        # 1. 先查幂等缓存，命中即返回。
         now = time.monotonic()
         cached = self._cache_lookup(cmd.command_id, now)
         if cached is not None:
             logger.debug("Command '%s' hit idempotency cache", cmd.command_id)
             return cached
 
-        # --- step 2: resolve target device ------------------------------
+        # 2. 从当前 Runtime 注册表解析目标 Device。
         device = self._devices.get(cmd.device_id)
         if device is None:
             result = CommandResult(
@@ -100,7 +108,7 @@ class CommandDispatcher:
             self._cache_store(cmd.command_id, result, now)
             return result
 
-        # --- step 3: write with timeout ----------------------------------
+        # 3. 执行设备写，并应用命令级/默认超时。
         # 优先级：Command.timeout > 0 用命令自带超时，否则用系统默认写超时。
         timeout = cmd.timeout if cmd.timeout > 0 else self._default_timeout
         try:
@@ -143,7 +151,7 @@ class CommandDispatcher:
                 error=str(exc),
             )
 
-        # --- step 4: metrics, cache & return -----------------------------
+        # 4. 首次执行后记录计数并写入幂等缓存。
         # 缓存命中的提前返回不计数——首次执行时已计过，避免重复累计。
         if result.success:
             self._on_command_sent()
@@ -156,10 +164,14 @@ class CommandDispatcher:
         self,
         cmds: list[Command],
     ) -> list[CommandResult]:
-        """Send multiple commands concurrently.
+        """并发执行多条命令。
 
-        Each command is processed independently (including idempotency
-        checks).  Result list order matches *cmds* order.
+        Args:
+            cmds: 输入命令列表。
+
+        Returns:
+            与输入顺序一致的 CommandResult 列表。单命令异常被收敛为对应失败结果，
+            不取消同批其他命令。
         """
         results: list[CommandResult | BaseException] = await asyncio.gather(
             *[self.send(c) for c in cmds],
@@ -180,29 +192,26 @@ class CommandDispatcher:
         return out
 
     def clear_cache(self) -> None:
-        """Clear the idempotency cache (for tests / maintenance)."""
+        """清空进程内幂等缓存；用于维护或测试隔离。"""
         self._cache.clear()
 
     @property
     def cache_size(self) -> int:
-        """Current number of entries in the idempotency cache."""
+        """返回当前幂等缓存条目数。"""
         return len(self._cache)
 
     # ------------------------------------------------------------------
-    # cache helpers (LRU + TTL)
+    # 幂等缓存辅助函数（LRU + TTL）
     # ------------------------------------------------------------------
 
     def _cache_expire(self, now: float) -> None:
-        """Remove all entries whose TTL has elapsed."""
+        """删除 TTL 已过期的缓存条目。"""
         expired = [k for k, (_result, ts) in self._cache.items() if now - ts > self._cache_ttl]
         for k in expired:
             del self._cache[k]
 
     def _cache_lookup(self, key: str, now: float) -> CommandResult | None:
-        """Return cached result if present and not expired, else None.
-
-        Also promotes the entry to most-recently-used (OrderedDict end).
-        """
+        """查询有效缓存并提升为 MRU；不存在或过期时返回 None。"""
         self._cache_expire(now)
         entry = self._cache.get(key)
         if entry is None:
@@ -211,14 +220,14 @@ class CommandDispatcher:
         if now - ts > self._cache_ttl:
             del self._cache[key]
             return None
-        # Promote to MRU
+        # 命中后提升为最近使用。
         self._cache.move_to_end(key)
         return _result
 
     def _cache_store(self, key: str, result: CommandResult, now: float) -> None:
-        """Store a result in the cache, evicting LRU if over capacity."""
-        # If key already exists, remove first (it'll be re-added at MRU end)
+        """写入结果；容量不足时先淘汰最久未使用条目。"""
+        # 同 key 先删除再写入尾部，确保 MRU 顺序正确。
         self._cache.pop(key, None)
         while len(self._cache) >= self._cache_max:
-            self._cache.popitem(last=False)  # evict LRU
+            self._cache.popitem(last=False)  # 淘汰 LRU。
         self._cache[key] = (result, now)

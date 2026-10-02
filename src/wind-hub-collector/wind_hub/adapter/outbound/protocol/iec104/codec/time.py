@@ -1,4 +1,4 @@
-"""IEC 60870-5-104 CP56Time2a codec — 7-byte timestamp."""
+"""IEC 60870-5-104 CP56Time2a 7 字节时标 codec。"""
 
 from __future__ import annotations
 
@@ -11,50 +11,47 @@ from wind_hub.domain.model.errors import ProtocolError
 
 @dataclass(frozen=True)
 class CP56Time2a:
-    """IEC 60870-5-104 seven-octet binary time.
+    """IEC104 七字节时标。
 
-    Byte layout of CP56Time2a::
-
-        byte 0-1:  milliseconds (0–59999, little-endian)
-        byte 2:    minutes (bits 0–5), bit 7 = IV (invalid)
-        byte 3:    hours (bits 0–4), bit 7 = SU (summer time)
-        byte 4:    day-of-month (bits 0–4), day-of-week (bits 5–7, 1=Monday)
-        byte 5:    month (bits 0–3)
-        byte 6:    year (bits 0–6, 0-99 → 2000–2099)
-
-    All timestamps in this project are interpreted as **UTC**.
+    本项目统一按 UTC 解释和生成 CP56Time2a，不在 codec 内执行本地时区转换。
     """
 
     milliseconds: int
-    """Milliseconds (0–59999)."""
+    """毫秒计数，范围 0~59999，包含秒。"""
 
     minutes: int
-    """Minutes (0–59)."""
+    """分钟，范围 0~59。"""
 
     hours: int
-    """Hours (0–23)."""
+    """小时，范围 0~23。"""
 
     day: int
-    """Day of month (1–31)."""
+    """月内日，范围 1~31。"""
 
     month: int
-    """Month (1–12)."""
+    """月份，范围 1~12。"""
 
     year: int
-    """Year (2000–2099).  Stored on wire as 0–99."""
+    """年份 2000~2099，wire 上保存为 0~99。"""
 
     invalid: bool = False
-    """IV bit — invalid timestamp."""
+    """IV 位：时标无效。"""
 
     summer_time: bool = False
-    """SU bit — summer/daylight-saving time indicator."""
+    """SU 位：夏令时标志。"""
 
 
 def encode_cp56time2a(ts: CP56Time2a) -> bytes:
-    """Encode a CP56Time2a to 7 bytes.
+    """把 CP56Time2a 编码为 7 字节。
+
+    Args:
+        ts: 已拆分字段的 CP56Time2a。
+
+    Returns:
+        7 字节 wire 编码。
 
     Raises:
-        ProtocolError: On out-of-range field values.
+        ProtocolError: 任一字段越界。
     """
     if not (0 <= ts.milliseconds <= 59999):
         raise ProtocolError(f"milliseconds {ts.milliseconds} out of range [0, 59999]")
@@ -77,7 +74,7 @@ def encode_cp56time2a(ts: CP56Time2a) -> bytes:
     if ts.summer_time:
         hour_byte |= 0x80  # bit 7 = SU
     day_byte = ts.day & 0x1F  # bits 0-4
-    # day-of-week: 1=Monday; compute from date (optional — 0 if unknown)
+    # 星期编码 1=Monday；日期无法构造时写 0。
     try:
         dow = datetime(ts.year, ts.month, ts.day, tzinfo=UTC).isoweekday()
     except ValueError:
@@ -90,13 +87,17 @@ def encode_cp56time2a(ts: CP56Time2a) -> bytes:
 
 
 def decode_cp56time2a(data: bytes, offset: int = 0) -> tuple[CP56Time2a, int]:
-    """Decode a CP56Time2a from *data* at *offset*.
+    """从指定 offset 解码 CP56Time2a。
+
+    Args:
+        data: 原始字节缓冲区。
+        offset: 时标起始偏移。
 
     Returns:
-        ``(CP56Time2a, new_offset)`` tuple.
+        (CP56Time2a, new_offset)。
 
     Raises:
-        ProtocolError: If fewer than 7 bytes remain.
+        ProtocolError: 剩余字节不足 7 个。
     """
     if len(data) - offset < 7:
         raise ProtocolError(
@@ -123,14 +124,20 @@ def decode_cp56time2a(data: bytes, offset: int = 0) -> tuple[CP56Time2a, int]:
 
 
 def from_datetime(dt: datetime) -> CP56Time2a:
-    """Convert a Python ``datetime`` (must be tz-aware UTC) to ``CP56Time2a``.
+    """把 datetime 转换为 UTC CP56Time2a。
 
-    The sub-second part is converted to milliseconds (0–59999).
+    无时区 datetime 按 UTC 解释；有时区值先转换为 UTC。
+
+    Args:
+        dt: Python datetime。
+
+    Returns:
+        CP56Time2a。
     """
     dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
     total_ms = int(dt.microsecond / 1000) + (dt.second * 1000)
-    # Clamp to 59999
+    # CP56Time2a 毫秒字段最大为 59999。
     total_ms = min(total_ms, 59999)
 
     return CP56Time2a(
@@ -146,9 +153,13 @@ def from_datetime(dt: datetime) -> CP56Time2a:
 
 
 def to_datetime(ts: CP56Time2a) -> datetime:
-    """Convert a ``CP56Time2a`` to a Python ``datetime`` (UTC).
+    """把 CP56Time2a 转换为 UTC datetime。
 
-    The ``milliseconds`` field is split into seconds and microseconds.
+    Args:
+        ts: CP56Time2a。
+
+    Returns:
+        tzinfo=UTC 的 datetime。
     """
     sec = ts.milliseconds // 1000
     us = (ts.milliseconds % 1000) * 1000

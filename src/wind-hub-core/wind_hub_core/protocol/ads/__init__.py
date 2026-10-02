@@ -1,4 +1,4 @@
-"""ADS 主动验证探测器。"""
+"""ADS 短生命周期主动验证适配器。"""
 
 from .probe import ADSProbe
 

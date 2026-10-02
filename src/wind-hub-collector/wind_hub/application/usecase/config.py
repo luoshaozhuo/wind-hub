@@ -29,21 +29,20 @@ logger = logging.getLogger(__name__)
 
 
 def compute_diff(old: Config, new: Config) -> ConfigDiff:
-    """Compute the difference between two Config snapshots.
+    """计算两个 Config 快照的结构化差异。
 
-    Comparison rules:
+    Args:
+        old: 当前已提交配置。
+        new: 新加载并通过 schema 校验的配置。
 
-    - **Devices**: keyed by ``device_id``.  A device is "updated" when
-      any field of its ``DeviceConfig`` differs (deep equality via
-      ``model_dump()``).
-    - **Sinks**: keyed by ``sink.name``, same logic.
-    - **Tasks**: keyed by ``task_id``, same logic.
-    - **Point tables**: keyed by table name — 新增/删除/内容变化的表名进入
-      ``point_tables_changed``；任意表变化同时置 ``points_changed=True``。
+    Returns:
+        ConfigDiff。Device/Sink/Task 按稳定 ID 比较；point table 按表名和完整模型
+        比较；units 只标记元数据变化。
 
-    This is pure logic — no IO, no side-effects.
+    Notes:
+        纯函数，不执行 I/O，也不修改 Runtime。
     """
-    # -- devices -----------------------------------------------------------
+    # Device diff。
     old_dev_ids = {d.device_id: d for d in old.devices.devices}
     new_dev_ids = {d.device_id: d for d in new.devices.devices}
 
@@ -65,7 +64,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     devices.updated = sorted(updated)
     devices.unchanged = sorted(unchanged)
 
-    # -- sinks -------------------------------------------------------------
+    # Sink diff。
     old_sinks = {s.name: s for s in old.system.sinks}
     new_sinks = {s.name: s for s in new.system.sinks}
 
@@ -87,7 +86,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     sinks.updated = sorted(sink_updated)
     sinks.unchanged = sorted(sink_unchanged)
 
-    # -- tasks ---------------------------------------------------------------
+    # Task Definition diff。
     old_tasks = {t.task_id: t for t in old.tasks.tasks}
     new_tasks = {t.task_id: t for t in new.tasks.tasks}
 
@@ -109,7 +108,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     tasks.updated = sorted(task_updated)
     tasks.unchanged = sorted(task_unchanged)
 
-    # -- point tables ----------------------------------------------------------
+    # Point table diff。
     old_tables = old.point_tables.tables
     new_tables = new.point_tables.tables
     table_names = set(old_tables) | set(new_tables)
@@ -165,7 +164,7 @@ class ConfigUseCase:
 
     @property
     def current_config(self) -> Config:
-        """The currently active configuration."""
+        """返回当前已提交、作为下次 diff 基线的配置快照。"""
         return self._current
 
     @property
@@ -174,14 +173,19 @@ class ConfigUseCase:
         return self._config_hash
 
     async def reload(self) -> ReloadResult:
-        """Run a full hot-reload cycle.
+        """执行一次增量热重载。
 
-        Returns a ``ReloadResult`` describing what changed and whether
-        the operation succeeded.
+        Returns:
+            ReloadResult，包含 diff、错误列表和耗时。
+
+        Notes:
+            新 YAML 加载失败时不触碰 Runtime。Runtime.reconfigure 允许部分应用；
+            因此其返回错误时 success=False，但新配置仍作为后续 diff 基线提交，
+            不伪造事务回滚语义。
         """
         t0 = time.monotonic()
 
-        # 1. Load new config — bail early on failure
+        # 1. 先加载并完成 schema 校验；失败时不应用任何运行时变化。
         try:
             new_cfg = load_config(self._config_dir)
         except Exception as exc:
@@ -193,7 +197,7 @@ class ConfigUseCase:
                 duration_ms=(time.monotonic() - t0) * 1000,
             )
 
-        # 2. Compute diff
+        # 2. 计算纯结构 diff。
         diff = compute_diff(self._current, new_cfg)
         if not diff.has_any_changes:
             self._config_hash = fingerprint_config_set(self._config_dir)
@@ -208,7 +212,7 @@ class ConfigUseCase:
         #    重注入的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
         errors = await self._runtime.reconfigure(new_cfg, diff)
 
-        # 4. Commit new config
+        # 4. 提交新快照与指纹，作为下一次 reload 基线。
         self._current = new_cfg
         self._config_hash = fingerprint_config_set(self._config_dir)
 

@@ -1,16 +1,11 @@
-"""ADS point mapping — parse point addresses and map data types.
+"""ADS 点地址与数据类型映射。
 
-An ADS point address is a :class:`~wind_hub.config.schema.PointAddress` whose
-``extra`` fields carry::
+PointConfig.address 的动态字段承载 symbol、index_group、index_offset、ADS 类型
+覆盖和可选 size。本模块只做纯配置转换，不访问 PLC。
 
-    index_group:  symbol group (e.g. 0x4020)
-    index_offset: byte offset within the group
-    data_type:    (optional) ADS type name override (e.g. "REAL", "BOOL")
-    size:         (optional) explicit byte size (e.g. for fixed-length strings)
-
-When ``data_type`` is omitted, ``ADSPoint.data_type`` is derived from the
-point's :data:`~wind_hub.config.schema.PointConfig.data_type` via
-:func:`map_data_type`.
+symbol-only 点在这里保持“地址未解析”状态；真正的 index_group/index_offset
+由 ADSDriver 建连后解析一次。address.model_extra 使用 Any 是 Pydantic 动态协议
+字段边界，转换完成后会收敛为 ADSPoint 的强类型字段。
 """
 
 from __future__ import annotations
@@ -21,7 +16,7 @@ from typing import Any
 from wind_hub.config.schema import PointConfig
 from wind_hub.domain.model.errors import ConfigError
 
-# wind-hub data_type (keys are the uppercased source values) → ADS type name.
+# Wind Hub data_type 到 ADS 类型名的规范映射；输入统一转大写后查表。
 _WINDHUB_TO_ADS: dict[str, str] = {
     "BOOL": "BOOL",
     "INT8": "SINT",
@@ -36,7 +31,7 @@ _WINDHUB_TO_ADS: dict[str, str] = {
     "STRING": "STRING",
 }
 
-# ADS type name → byte size.  ``0`` denotes variable length (strings).
+# ADS 类型到固定字节数；0 表示 STRING 等变长类型。
 _ADS_TYPE_SIZES: dict[str, int] = {
     "BOOL": 1,
     "SINT": 1,
@@ -53,16 +48,19 @@ _ADS_TYPE_SIZES: dict[str, int] = {
 
 @dataclass(frozen=True)
 class ADSPoint:
-    """A single ADS point with its resolved address and type."""
+    """单个 ADS 点的运行时地址描述。
+
+    index_group/index_offset 仅在 address_resolved=True 时可用于读写。
+    """
 
     point_id: str
     index_group: int
     index_offset: int
     data_type: str
-    """ADS type name: ``"BOOL"``/``"SINT"``/``"INT"``/``"REAL"``/``"STRING"`` …"""
+    """ADS 基础类型名，例如 BOOL、INT、REAL、STRING。"""
 
     size: int
-    """Byte size (``0`` = variable length, e.g. a null-terminated string)."""
+    """固定字节数；0 表示变长类型。"""
 
     symbol: str | None = None
     """PLC symbol name，仅用于地址解析与诊断；运行时读写使用 index 地址。"""
@@ -72,9 +70,16 @@ class ADSPoint:
 
 
 def map_data_type(data_type: str) -> tuple[int, str]:
-    """Map a wind-hub ``data_type`` to ``(size_bytes, ads_type_name)``.
+    """把 Wind Hub data_type 映射为 ADS 字节数和类型名。
 
-    A string has no fixed size, so its size is reported as ``0``.
+    Args:
+        data_type: 点表数据类型。
+
+    Returns:
+        (size_bytes, ads_type_name)。
+
+    Raises:
+        ConfigError: 不支持该数据类型。
     """
     ads_name = _WINDHUB_TO_ADS.get(data_type.upper())
     if ads_name is None:
@@ -83,7 +88,11 @@ def map_data_type(data_type: str) -> tuple[int, str]:
 
 
 def _normalize_ads_type(raw: object) -> str:
-    """Normalise an ADS type name, accepting wind-hub names as aliases."""
+    """规范化 ADS 类型名，并接受 Wind Hub 类型名作为别名。
+
+    Raises:
+        ConfigError: 类型名不受支持。
+    """
     name = str(raw).strip().upper()
     if name in _WINDHUB_TO_ADS:
         name = _WINDHUB_TO_ADS[name]
@@ -95,15 +104,17 @@ def _normalize_ads_type(raw: object) -> str:
 
 
 def parse_point(point: PointConfig) -> ADSPoint:
-    """Resolve a :class:`~wind_hub.config.schema.PointConfig` to an :class:`ADSPoint`.
+    """把 PointConfig 转换为 ADSPoint。
 
-    The ADS type may be given explicitly via the address ``data_type`` extra
-    field (or the ``type`` field); otherwise it is mapped from the point's
-    ``data_type``.  An explicit ``size`` overrides the type's default size.
+    Args:
+        point: 点表定义。
+
+    Returns:
+        已规范化类型和地址信息的 ADSPoint。symbol-only 点返回
+        address_resolved=False，等待 driver 建连后解析。
 
     Raises:
-        ConfigError: On a missing ``index_group``/``index_offset``, or an
-            unsupported data type.
+        ConfigError: symbol/index 地址不完整、数据类型不支持或 size 非法。
     """
     address = point.address
     extra = address.model_extra or {}
@@ -114,7 +125,7 @@ def parse_point(point: PointConfig) -> ADSPoint:
     index_group = extra.get("index_group")
     index_offset = extra.get("index_offset")
     # 运行时安全网（配置加载阶段已做同样校验）：index 两字段必须成对；
-    # symbol 与 index 同时存在时保留两者，实际读写以 symbol 优先。
+    # symbol 与 index 可同时保留；运行时读写始终使用已解析的 index 地址。
     if (index_group is None) != (index_offset is None):
         raise ConfigError(
             f"ADS point '{point.point_id}': 'index_group' and 'index_offset' "
@@ -126,7 +137,8 @@ def parse_point(point: PointConfig) -> ADSPoint:
             f"'index_group'/'index_offset' in address"
         )
     address_resolved = index_group is not None and index_offset is not None
-    # Symbol-only 配置在 Driver 建连后解析一次；0/0 只是未解析占位，不参与读写。
+    # symbol-only 点在 Driver 建连后解析一次；0/0 仅满足临时结构字段，不参与读写。
+    # Any 来自 Pydantic extra 的动态 YAML 边界，int() 会在返回 ADSPoint 前收敛类型。
     ig: Any = index_group if index_group is not None else 0
     io: Any = index_offset if index_offset is not None else 0
 

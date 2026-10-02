@@ -1,9 +1,7 @@
-"""Modbus connection parameters.
+"""Modbus 连接参数模型与 DeviceConfig 转换。
 
-``ModbusConfig`` is derived from a :class:`~wind_hub.config.schema.DeviceConfig`
-by :func:`from_device_config`.  Only TCP transport is supported; RTU is
-recognised for validation but the driver raises ``NotImplementedError`` when
-asked to use it (no ``pyserial`` dependency is pulled in).
+当前只实现 Modbus TCP。RTU 作为合法配置值保留用于显式报错，但不会拉入
+pyserial 依赖。该模块只负责参数解析和校验，不建立 socket。
 """
 
 from __future__ import annotations
@@ -16,38 +14,38 @@ from wind_hub.domain.model.errors import ConfigError
 
 @dataclass(frozen=True)
 class ModbusConfig:
-    """Modbus connection parameters.
+    """单设备 Modbus 连接参数。
 
-    All fields are immutable; :func:`from_device_config` is the single
-    construction point and performs validation.
+    所有字段不可变；from_device_config 是统一构造入口并负责校验。
     """
 
     host: str
-    """Hostname or IP address of the Modbus server."""
+    """Modbus Server 的主机名或 IP。"""
 
     port: int = 502
-    """TCP port (default Modbus TCP port 502)."""
+    """TCP 端口，默认 502。"""
 
     unit_id: int = 1
-    """Modbus unit/slave identifier (0-255)."""
+    """Modbus unit/slave ID，范围 0~255。"""
 
     mode: str = "tcp"
-    """Transport mode: ``"tcp"`` or ``"rtu"`` (only ``"tcp"`` implemented)."""
+    """传输模式 tcp 或 rtu；当前仅实现 tcp。"""
 
     timeout: float = 5.0
-    """Transaction timeout in seconds."""
+    """单次 Modbus transaction 超时，单位秒。"""
 
     reconnect_max_retries: int = 5
-    """Maximum consecutive reconnect attempts before entering FAILED state."""
+    """首次连接阶段允许的连续重试次数。"""
 
     reconnect_backoff_max: float = 30.0
-    """Upper bound (seconds) for exponential reconnect backoff."""
+    """指数退避等待时间上限，单位秒。"""
 
     word_order: str = "little_endian"
-    """Default multi-register word order: ``"big_endian"`` or ``"little_endian"``.
+    """多寄存器数据的默认 word order。
 
-    ``big_endian``: 低地址寄存器 = 高 16 位；
-    ``little_endian``: 低地址寄存器 = 低 16 位。"""
+    big_endian：低地址寄存器保存高 16 位；
+    little_endian：低地址寄存器保存低 16 位。
+    """
 
 
 _VALID_MODES = frozenset({"tcp", "rtu"})
@@ -55,11 +53,16 @@ _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 
 
 def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
-    """Build and validate a :class:`ModbusConfig` from *cfg*.
+    """从 DeviceConfig 构造并校验 ModbusConfig。
+
+    Args:
+        cfg: 已通过基础 schema 校验的设备配置。
+
+    Returns:
+        解析后的 ModbusConfig。
 
     Raises:
-        ConfigError: On an invalid ``mode``, out-of-range ``unit_id``,
-            non-positive ``timeout``, or invalid ``word_order``.
+        ConfigError: mode、unit_id、timeout 或 word_order 非法。
     """
     ext = cfg.endpoint.extensions
 

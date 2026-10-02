@@ -1,4 +1,4 @@
-"""Modbus protocol adapter."""
+"""Modbus 设备协议适配器。"""
 
 from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver
 

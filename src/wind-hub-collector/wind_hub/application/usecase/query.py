@@ -40,13 +40,13 @@ class AcquisitionInfo(BaseModel):
     """来源 Task Definition。"""
 
     device_id: str
-    """Device identifier."""
+    """设备稳定标识。"""
 
     point_group: str
-    """Point group name."""
+    """采集 point_group。"""
 
     running: bool = False
-    """``True`` while a collect run is in flight."""
+    """一次 collect 正在执行时为 True。"""
 
     consecutive_failures: int = 0
     """连续失败次数（partial 不算失败）。"""
@@ -59,22 +59,22 @@ class AcquisitionInfo(BaseModel):
 
 
 class SystemStatus(BaseModel):
-    """Runtime status snapshot returned by :meth:`QueryUseCase.status`."""
+    """QueryUseCase.status 返回的 Runtime 聚合状态快照。"""
 
     running: bool
-    """``True`` when the engine loop is active."""
+    """Runtime 已启动时为 True。"""
 
     device_count: int
-    """Number of configured devices."""
+    """当前 Runtime 设备数。"""
 
     sink_count: int
-    """Number of configured sinks."""
+    """当前 Runtime Sink 数。"""
 
     devices_connected: int = 0
-    """Number of devices currently reporting a healthy connection."""
+    """当前 health() 为 healthy 的设备数。"""
 
     sinks_healthy: int = 0
-    """Number of sinks currently reporting healthy."""
+    """当前 health() 为 healthy 的 Sink 数。"""
 
     points_collected: int = 0
     """累计采集点数（调度器单调计数，进程重启归零）。"""
@@ -103,6 +103,13 @@ class QueryUseCase:
     async def read_point(self, device_id: str, point_id: str) -> PointValue:
         """实时读取单个点，绕过采集缓存直接走协议驱动。
 
+        Args:
+            device_id: 设备稳定标识。
+            point_id: 点表 point_id。
+
+        Returns:
+            协议驱动返回的 PointValue。
+
         Raises:
             CommandError: 设备或点未知。
             ProtocolError: 协议驱动读失败（设备不可达等）。
@@ -120,7 +127,11 @@ class QueryUseCase:
         return values[0]
 
     async def list_devices(self) -> list[DeviceInfo]:
-        """返回所有配置设备的运行时状态（按当前注册表）。"""
+        """返回当前注册表中全部设备运行状态。
+
+        Returns:
+            DeviceInfo 列表；热重载后立即反映当前 Runtime。
+        """
         return [
             self._device_info(device_id, device.config)
             for device_id, device in self._runtime.devices.items()
@@ -128,6 +139,12 @@ class QueryUseCase:
 
     async def get_device_info(self, device_id: str) -> DeviceInfo:
         """返回单设备运行时状态。
+
+        Args:
+            device_id: 设备稳定标识。
+
+        Returns:
+            DeviceInfo。
 
         Raises:
             CommandError: 设备未知。
@@ -138,7 +155,7 @@ class QueryUseCase:
         return self._device_info(device_id, device.config)
 
     async def status(self) -> SystemStatus:
-        """返回系统运行时快照。
+        """返回 Runtime 聚合状态快照。
 
         从 Runtime 聚合：
         - ``running``：运行时就绪标志。

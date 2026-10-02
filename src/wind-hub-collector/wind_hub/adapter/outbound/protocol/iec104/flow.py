@@ -1,16 +1,21 @@
-"""IEC 60870-5-104 flow control: 15-bit sequence numbers and k/w windows."""
+"""IEC104 15-bit 序号与 k/w 窗口流控。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-MAX_SEQ = 0x7FFF  # 32767 — 15-bit sequence space
+MAX_SEQ = 0x7FFF  # 15-bit 序号空间最大值。
 
 
 def _seq_diff(later: int, earlier: int) -> int:
-    """Count of sequence numbers from *earlier* up to (but not including) *later*.
+    """计算 15-bit 环形序号距离。
 
-    Handles 15-bit wraparound modulo 32768.
+    Args:
+        later: 较新的序号。
+        earlier: 较旧的序号。
+
+    Returns:
+        modulo 32768 的前向距离。
     """
     return (later - earlier) & MAX_SEQ
 
@@ -22,47 +27,39 @@ def _seq_diff(later: int, earlier: int) -> int:
 
 @dataclass
 class SequenceNumbers:
-    """I-frame 15-bit send/receive sequence counters with wraparound.
-
-    Used by exactly one session — the send side increments ``send_seq``
-    and the receive side increments ``recv_seq``.
-    """
+    """单 session 的 I-frame N(S)/N(R) 15-bit 环形计数器。"""
 
     _send_seq: int = field(default=0, init=False)
     _recv_seq: int = field(default=0, init=False)
 
     @property
     def send_seq(self) -> int:
-        """Next send sequence number N(S) to use."""
+        """下一个可用 N(S)。"""
         return self._send_seq
 
     @property
     def recv_seq(self) -> int:
-        """Next expected receive sequence number N(R)."""
+        """下一帧期望的 N(R)。"""
         return self._recv_seq
 
     def next_send(self) -> int:
-        """Return the current send sequence number and advance it (mod 32768)."""
+        """返回当前 N(S)，随后按 modulo 32768 递增。"""
         current = self._send_seq
         self._send_seq = (current + 1) & MAX_SEQ
         return current
 
     def next_recv(self) -> int:
-        """Return the current receive sequence number and advance it (mod 32768)."""
+        """返回当前 N(R)，随后按 modulo 32768 递增。"""
         current = self._recv_seq
         self._recv_seq = (current + 1) & MAX_SEQ
         return current
 
     def checkpoint(self) -> tuple[int, int]:
-        """Return (send_seq, recv_seq) snapshot."""
+        """返回当前 (N(S), N(R)) 快照。"""
         return (self._send_seq, self._recv_seq)
 
     def recv_seq_for_ack(self) -> int:
-        """The N(R) value to put in outbound I/S-frames.
-
-        This is the sequence number of the *next* I-frame we expect to
-        receive — i.e. ``recv_seq`` itself.
-        """
+        """返回出站 I/S-frame 应携带的 N(R)，即下一帧期望接收序号。"""
         return self._recv_seq
 
 
@@ -73,90 +70,81 @@ class SequenceNumbers:
 
 @dataclass
 class FlowController:
-    """Enforces IEC104 k/w flow-control windows.
+    """IEC104 k/w 窗口控制器。
 
-    - **k** (send window): maximum number of unacknowledged I-frames we
-      may send before waiting for an acknowledgement from the peer.
-    - **w** (receive window): maximum number of I-frames we may receive
-      before we **must** send an S-frame acknowledgement.
+    k 限制未确认的出站 I-frame 数；w 限制未确认的入站 I-frame 数。
+    本对象只维护计数，不负责实际等待、发送 S-frame 或 timer 调度。
     """
 
     k: int = 12
-    """Send window size — maximum unacked outbound I-frames."""
+    """发送窗口 k。"""
 
     w: int = 8
-    """Receive window size — maximum inbound I-frames before S-frame ack."""
+    """接收窗口 w。"""
 
     _seq: SequenceNumbers = field(default_factory=SequenceNumbers, init=False)
     _acked_up_to: int = field(default=0, init=False)
-    """The send sequence number the peer has acknowledged (N(R) from
-    latest S-frame or I-frame)."""
+    """对端最近确认到的发送序号。"""
 
     _unacked_recv_count: int = field(default=0, init=False)
-    """Number of received I-frames we haven't acknowledged yet."""
+    """尚未向对端确认的入站 I-frame 数。"""
 
     # ------------------------------------------------------------------
-    # send flow control
+    # 发送方向流控
     # ------------------------------------------------------------------
 
     @property
     def can_send(self) -> bool:
-        """``True`` when the send window is not full (unacked < k)."""
+        """发送窗口尚未满时为 True。"""
         return _seq_diff(self._seq.send_seq, self._acked_up_to) < self.k
 
     @property
     def outstanding(self) -> int:
-        """Number of sent but not-yet-acknowledged I-frames."""
+        """返回尚未确认的出站 I-frame 数。"""
         return _seq_diff(self._seq.send_seq, self._acked_up_to)
 
     def next_send_seq(self) -> int:
-        """Return the next N(S) to use and advance the counter.
-
-        Call this **before** building an I-frame so the sequence number
-        is correct.
-        """
+        """原子获取并递增下一个 N(S)。"""
         return self._seq.next_send()
 
     def on_sent(self) -> None:
-        """Call after an I-frame has been sent — advances the sequence.
+        """兼容旧调用的发送后递增接口。
 
-        .. deprecated::
-            Use :meth:`next_send_seq` instead — it returns the sequence
-            number atomically.
+        Notes:
+            已废弃；新代码应使用 next_send_seq，避免取值与递增分离。
         """
         self._seq.next_send()
 
     def on_ack(self, recv_seq: int) -> None:
-        """Process a peer acknowledgement — an N(R) in an S-frame or I-frame.
+        """处理对端携带的 N(R) 确认。
 
-        All outbound I-frames with ``N(S) < recv_seq`` are now considered
-        acknowledged.
+        Args:
+            recv_seq: 对端确认的下一期待序号；此前所有出站 I-frame 均视为已确认。
         """
         self._acked_up_to = recv_seq & MAX_SEQ
 
     def ack_is_outstanding(self) -> bool:
-        """``True`` when we have sent I-frames that haven't been acked."""
+        """存在未确认出站 I-frame 时为 True。"""
         return _seq_diff(self._seq.send_seq, self._acked_up_to) > 0
 
     # ------------------------------------------------------------------
-    # receive flow control
+    # 接收方向流控
     # ------------------------------------------------------------------
 
     @property
     def needs_ack(self) -> bool:
-        """``True`` when we've received >= *w* unacknowledged I-frames
-        and must send an S-frame soon."""
+        """未确认入站 I-frame 数达到 w 时为 True，调用方应尽快发送 S-frame。"""
         return self._unacked_recv_count >= self.w
 
     def on_received(self) -> None:
-        """Call after a valid I-frame has been received."""
+        """收到合法 I-frame 后推进 N(R) 并累计待确认数。"""
         self._seq.next_recv()
         self._unacked_recv_count += 1
 
     def on_ack_sent(self) -> None:
-        """Call after sending an S-frame to reset the receive-counter."""
+        """发送确认后清零入站待确认计数。"""
         self._unacked_recv_count = 0
 
     def recv_seq_for_ack(self) -> int:
-        """The N(R) value to put in an outbound S-frame or I-frame."""
+        """返回出站 S/I-frame 应携带的 N(R)。"""
         return self._seq.recv_seq_for_ack()

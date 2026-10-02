@@ -1,13 +1,13 @@
-"""Modbus protocol driver (TCP over pymodbus).
+"""基于 pymodbus 的 Modbus TCP ProtocolPort 实现。
 
-Implements :class:`~wind_hub.domain.port.outbound.ProtocolPort` for the Modbus
-TCP protocol.  Points are addressed by ``register_type`` + ``address`` (see
-:mod:`wind_hub.adapter.outbound.protocol.modbus.mapping`); reads of consecutive
-addresses are merged into a single request.
+点位按 register_type + address 寻址，相邻地址在读取前合并为单个 Modbus 请求。
+Modbus 为请求/响应协议，因此 acquisition_mode 固定为 POLL，subscribe 明确不支持。
 
-Modbus is a pure request/response protocol, so :meth:`subscribe` raises
-``NotImplementedError``.  Only TCP transport is implemented; ``rtu`` mode raises
-``NotImplementedError`` (no ``pyserial`` dependency is pulled in).
+pymodbus client 在 connect 时延迟导入和实例化，使未安装 modbus extra 的基础环境
+仍可导入 Collector。client 类型只在适配器内部以 Any 隔离，不进入公开接口。
+
+Driver 由单个 asyncio event loop 持有，内部 Lock 串行化 read/write；传输异常
+统一包装为 ProtocolError，并触发指数退避后台重连。
 """
 
 from __future__ import annotations
@@ -38,20 +38,17 @@ from wind_hub.domain.port.outbound import (
 
 logger = logging.getLogger(__name__)
 
-# Exponential-backoff reconnect parameters (shared with reconnect_max_retries /
-# reconnect_backoff_max from ModbusConfig).
+# 指数退避参数；上限与重试预算由 ModbusConfig 提供。
 _RECONNECT_BACKOFF_BASE = 1.0
 _RECONNECT_BACKOFF_MULTIPLIER = 2.0
 
-# Bit-addressed types (one coil/bit per point) vs word-addressed (16-bit
-# registers).  ``input`` is a word type even though it is read-only.
+# bit-addressed 与 word-addressed 点使用不同解码路径；input 虽只读但属于 word 类型。
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 
-# read-only register types (coil + holding are writable).
+# 只读 register_type；coil 与 holding 允许写。
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 
-# ``struct`` format per multi-register data type; ``None`` marks single-register
-# types handled directly on the register word.
+# 多寄存器数据类型的 struct 格式；单寄存器类型走直接转换路径。
 _MULTI_REGISTER_FMT: dict[str, str] = {
     "int32": ">i",
     "uint32": ">I",
@@ -63,7 +60,10 @@ _MULTI_REGISTER_FMT: dict[str, str] = {
 
 
 def _decode_registers(registers: list[int], data_type: str, word_order: str) -> Any:
-    """Decode contiguous 16-bit register words into a Python value."""
+    """把连续 16-bit register 解码为点值。
+
+    Any 仅表示点表允许的多种标量结果类型。
+    """
     if data_type == "bool":
         return bool(registers[0] & 0x01)
     if data_type == "int8":
@@ -78,7 +78,7 @@ def _decode_registers(registers: list[int], data_type: str, word_order: str) -> 
     fmt = _MULTI_REGISTER_FMT[data_type]
     words = list(registers)
     if word_order == "little_endian":
-        # Lowest-address register holds the least-significant word.
+        # little_endian word order 下，低地址 register 保存低有效字。
         words = list(reversed(words))
     raw = b"".join(struct.pack(">H", w) for w in words)
     return struct.unpack(fmt, raw)[0]
@@ -90,7 +90,10 @@ _DECODE_FAILED: Any = object()
 
 
 def _encode_registers(value: Any, data_type: str, word_order: str) -> list[int]:
-    """Encode a Python value into 16-bit register words."""
+    """把命令值编码为 16-bit register 列表。
+
+    Any 仅对应 Command.value 的动态标量边界；实际编码由 data_type 约束。
+    """
     if data_type == "bool":
         return [1 if value else 0]
     if data_type == "int8":
@@ -111,11 +114,14 @@ def _encode_registers(value: Any, data_type: str, word_order: str) -> list[int]:
 
 
 class ModbusDriver:
-    """Modbus TCP protocol driver.
+    """单设备 Modbus TCP 协议驱动。
 
-    Not thread-safe; a single asyncio event loop owns each instance.  An
-    internal :class:`asyncio.Lock` serialises ``read``/``write`` calls so they
-    never interleave on the underlying client.
+    Args:
+        cfg: 已解析的设备配置。
+
+    Notes:
+        实例不保证线程安全；一个 asyncio event loop 独占实例，内部 Lock 保证
+        read/write 不会在同一 pymodbus client 上交错执行。
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
@@ -131,20 +137,25 @@ class ModbusDriver:
         self._reconnect_event = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
 
-        # pymodbus client is imported/instantiated lazily so importing the base
-        # package does not require the optional ``modbus`` extra.  Kept as
-        # ``Any`` so the third-party type never leaks into this module's API.
+        # pymodbus client 在 connect 时延迟导入；Any 仅隔离第三方未类型化对象，
+        # 不进入 ProtocolPort 公开接口。
         self._client: Any = None
 
     # ------------------------------------------------------------------
-    # point mapping
+    # 点表映射
     # ------------------------------------------------------------------
 
     def set_points_mapping(self, points: list[PointConfig]) -> None:
-        """Resolve a point table to :class:`ModbusPoint` entries.
+        """注入并解析设备点表。
 
-        Duplicate ``point_id`` entries: the last one wins.  Points that fail to
-        parse raise :class:`ConfigError` immediately (fail fast at startup).
+        Args:
+            points: 当前设备使用的 PointConfig 列表。
+
+        Raises:
+            ConfigError: 任一点地址或类型配置非法。
+
+        Notes:
+            重复 point_id 以后出现者覆盖前者；配置错误在启动/重载阶段快速失败。
         """
         mapping: dict[str, ModbusPoint] = {}
         for point in points:
@@ -153,11 +164,16 @@ class ModbusDriver:
         self._points = mapping
 
     # ------------------------------------------------------------------
-    # ProtocolPort — connect / close
+    # ProtocolPort：连接生命周期
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Connect to the Modbus server, retrying with exponential backoff."""
+        """建立 Modbus TCP 连接，并按指数退避执行首次重试。
+
+        Raises:
+            NotImplementedError: 配置为 RTU。
+            ProtocolError: 首轮连接预算耗尽仍未连接。
+        """
         if self._config.mode == "rtu":
             raise NotImplementedError(
                 "Modbus RTU is not supported (no pyserial dependency); use mode='tcp'"
@@ -175,7 +191,7 @@ class ModbusDriver:
             self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     async def close(self) -> None:
-        """Tear down the connection and stop the reconnect monitor."""
+        """关闭 Modbus client 和后台重连任务；重复调用安全。"""
         async with self._lock:
             self._shutdown = True
             self._reconnect_event.set()
@@ -189,11 +205,10 @@ class ModbusDriver:
             self._failed = False
 
     async def _connect_with_retry(self) -> Exception | None:
-        """Attempt connection with exponential backoff.
+        """执行一次有限预算的指数退避连接。
 
         Returns:
-            ``None`` on success, or the last exception once the retry budget is
-            exhausted (after which ``self._failed`` is set).
+            成功返回 None；预算耗尽返回最后异常并标记 failed。
         """
         backoff = _RECONNECT_BACKOFF_BASE
         last_exc: Exception | None = None
@@ -232,7 +247,12 @@ class ModbusDriver:
         return last_exc
 
     async def _do_connect(self) -> None:
-        """Instantiate and connect the pymodbus client (lazy third-party import)."""
+        """延迟导入 pymodbus，创建并连接 AsyncModbusTcpClient。
+
+        Raises:
+            ImportError: 实际使用 Modbus 但环境未安装 modbus extra。
+            ProtocolError: TCP client 返回连接失败。
+        """
         from pymodbus.client import AsyncModbusTcpClient
 
         client = AsyncModbusTcpClient(
@@ -255,7 +275,7 @@ class ModbusDriver:
                 client.close()
 
     async def _monitor_loop(self) -> None:
-        """Reconnect in the background after a transport failure is signalled."""
+        """断线后在后台按重试策略恢复连接；预算耗尽后停止监视。"""
         while not self._shutdown:
             await self._reconnect_event.wait()
             self._reconnect_event.clear()
@@ -265,21 +285,25 @@ class ModbusDriver:
                 continue
             last_exc = await self._connect_with_retry()
             if last_exc is not None:
-                # FAILED state — stop monitoring until an explicit connect().
+                # 重试预算耗尽进入 failed；等待显式 connect() 才重新开始。
                 logger.error("Modbus: reconnection retries exhausted: %s", last_exc)
                 return
 
     def _signal_disconnect(self) -> None:
-        """Mark the connection as dropped and request a background reconnect."""
+        """标记连接断开，并唤醒后台重连循环。"""
         self._connected = False
         self._reconnect_event.set()
 
     # ------------------------------------------------------------------
-    # ProtocolPort — read
+    # ProtocolPort：读取
     # ------------------------------------------------------------------
 
     async def read(self, points: list[PointRef]) -> list[PointValue]:
-        """Batch-read points, merging consecutive addresses into single requests."""
+        """批量读取点位，并把相邻地址合并为较少的 Modbus 请求。
+
+        传输异常统一转换为 ProtocolError 并触发重连；单点解码失败返回
+        Quality.BAD，不使同组其他点失败。
+        """
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("Modbus: cannot read — driver is not connected")
@@ -288,9 +312,7 @@ class ModbusDriver:
             except ProtocolError:
                 raise
             except Exception as exc:
-                # Any other exception here is a transport/connection failure
-                # (pymodbus raises its own exception types, which must not leak
-                # through the port boundary).  Wrap and schedule reconnection.
+                # pymodbus 第三方异常不越过 ProtocolPort；统一包装并触发重连。
                 self._signal_disconnect()
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
@@ -379,11 +401,14 @@ class ModbusDriver:
         return values
 
     # ------------------------------------------------------------------
-    # ProtocolPort — write
+    # ProtocolPort：写入
     # ------------------------------------------------------------------
 
     async def write(self, cmds: list[Command]) -> list[CommandResult]:
-        """Batch-write commands; one :class:`CommandResult` per command."""
+        """批量写入命令，并按输入顺序返回 CommandResult。
+
+        只读点和未知点作为单命令失败返回；连接/传输失败抛 ProtocolError。
+        """
         async with self._lock:
             if not cmds:
                 return []
@@ -442,7 +467,7 @@ class ModbusDriver:
         return CommandResult(command_id=cmd.command_id, success=False, error=error)
 
     # ------------------------------------------------------------------
-    # ProtocolPort — subscribe / health
+    # ProtocolPort：订阅与健康状态
     # ------------------------------------------------------------------
 
     @property
@@ -457,13 +482,17 @@ class ModbusDriver:
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """Modbus is request/response-only — subscription is not supported."""
+        """Modbus 为请求/响应协议，不支持订阅推送。
+
+        Raises:
+            NotImplementedError: 始终抛出，调用方应使用 polling。
+        """
         raise NotImplementedError(
             "Modbus does not support subscription (request/response protocol)"
         )
 
     def health(self) -> HealthStatus:
-        """Return cached connection health."""
+        """返回缓存的连接健康状态；不执行实时网络 I/O。"""
         if self._failed:
             return HealthStatus(healthy=False, message="FAILED: reconnection retries exhausted")
         if not self._connected:
@@ -472,7 +501,7 @@ class ModbusDriver:
 
 
 # ---------------------------------------------------------------------------
-# self-registration
+# 协议自注册
 # ---------------------------------------------------------------------------
 
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402

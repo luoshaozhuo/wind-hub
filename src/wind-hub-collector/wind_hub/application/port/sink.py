@@ -13,51 +13,48 @@ from wind_hub.domain.port.outbound import HealthStatus
 
 
 class SinkPort(Protocol):
-    """Output extension point.
+    """点值批量交付的 outbound port。
 
-    Implementations persist or forward batches of ``PointValue``
-    to external systems: Kafka topics, files, databases, etc.
+    实现可以是文件、Kafka、数据库等外部介质。Sink 只接收 Runtime 已路由好的
+    PointValue，不感知 Task Definition、设备协议或控制面。
     """
 
     async def open(self) -> None:
-        """Initialise the sink (open files, connect to broker, …).
+        """初始化外部 Sink 资源。
 
         Raises:
-            SinkError: On initialisation failure.
+            SinkError: 文件、连接或外部资源初始化失败。
         """
         ...
 
     async def close(self) -> None:
-        """Finalise the sink (flush buffers, close connections).
+        """释放 Sink 资源。
 
-        Must be safe to call even if already closed.
+        必须支持幂等调用；实现应在关闭前处理自己的缓存和连接。
         """
         ...
 
     async def write(self, batch: list[PointValue]) -> None:
-        """Write a batch of point values.
-
-        The batch contains only data that a collection task assigned to this
-        sink — the sink does not need to know about task dispatch.
+        """写入一批 PointValue。
 
         Args:
-            batch: Point values to persist/forward.
+            batch: Runtime 已决定路由到该 Sink 的点值。
 
         Raises:
-            SinkError: On write failure.
+            SinkError: 本批交付失败。
         """
         ...
 
     async def flush(self) -> None:
-        """Force-flush buffered data to the underlying medium.
+        """强制把实现内部缓冲提交到底层介质。
 
-        Used during graceful shutdown to ensure no data loss.
+        优雅停机阶段会调用该方法，以尽量降低已进入 Sink 的数据丢失风险。
 
         Raises:
-            SinkError: On flush failure.
+            SinkError: flush 失败。
         """
         ...
 
     def health(self) -> HealthStatus:
-        """Return sink health status — synchronous, returns cached state."""
+        """返回缓存的 Sink 健康状态；不得在该同步接口中执行阻塞 I/O。"""
         ...

@@ -1,21 +1,10 @@
-"""IEC 60870-5-104 protocol session.
+"""单个 IEC104 从站 TCP 连接的协议 session。
 
-Orchestrates a single TCP connection to an IEC104 slave: handshake,
-station interrogation, keep-alive, and data forwarding.
+Session 负责 TCP 建连、STARTDT、站总召、APDU 收发、k/w 流控和 t1/t2/t3 timer。
+start 后创建独立 receive/send task；close 按 timer → task → socket 顺序释放资源。
 
-Architecture
-------------
-
-The session spawns two background tasks once the TCP connection is
-established:
-
-* ``_receive_loop`` — reads raw bytes from the socket, parses APDU
-  frames, and dispatches I/S/U frames to the appropriate handler.
-* ``_send_loop`` — drains an ``asyncio.Queue`` of outbound APDU bytes
-  and writes them to the socket.
-
-Timer callbacks (t1/t2/t3) are installed on :class:`IEC104Timers` and
-fired asynchronously by background timer tasks.
+Session 维护当前连接的 IOA 最新值缓存，并可把解码后的 ASDU 同步转交 Driver。
+它不负责业务 Task 调度、重连策略或跨设备状态；重连由 IEC104Driver 管理。
 """
 
 from __future__ import annotations
@@ -62,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 START_CHAR = 0x68
 
-# TypeIDs that carry measurement values (for cache population).
+# 会写入 IOA 最新值缓存的监视方向 TypeID。
 _MEASUREMENT_TYPE_IDS: frozenset[TypeID] = frozenset(
     {
         TypeID.M_SP_NA_1,
@@ -79,7 +68,7 @@ _MEASUREMENT_TYPE_IDS: frozenset[TypeID] = frozenset(
 
 
 def _extract_value(obj: object) -> object:
-    """Extract the measurement value from an info object."""
+    """从 information object 提取测量值；未知结构返回 None。"""
     for attr in ("value", "measured_value", "normalized_value"):
         val = getattr(obj, attr, None)
         if val is not None:
@@ -88,7 +77,7 @@ def _extract_value(obj: object) -> object:
 
 
 def _extract_quality(obj: object) -> Quality:
-    """Extract quality info from an info object — maps QualityFlag → Quality."""
+    """把 IEC104 QualityFlag 映射为 Wind Hub Quality。"""
     q = getattr(obj, "quality", None)
     if q is None or not isinstance(q, QualityFlag):
         return Quality.GOOD
@@ -102,14 +91,17 @@ def _extract_quality(obj: object) -> Quality:
 
 
 class IEC104Session:
-    """A single IEC 60870-5-104 TCP session.
+    """单个 IEC104 TCP session。
 
-    Holds the TCP connection, state machine, flow controller, and
-    timers for one slave.
-
-    **Lifecycle**::
-
-        create → start() → [running with bg tasks] → close()
+    Args:
+        host: 从站 IP/主机名。
+        port: TCP 端口。
+        common_addr: 公共地址。
+        k: 发送窗口。
+        w: 接收确认窗口。
+        t1: 发送确认超时秒数。
+        t2: 延迟确认超时秒数。
+        t3: 空闲保活超时秒数。
     """
 
     def __init__(
@@ -130,71 +122,71 @@ class IEC104Session:
         self._t2 = t2
         self._t3 = t3
 
-        # Core machinery.
+        # 状态机、流控和 timer。
         self._state = ConnectionStateMachine()
         self._flow = FlowController(k=k, w=w)
         self._timers = IEC104Timers(t1=t1, t2=t2, t3=t3)
 
-        # TCP IO — set during start().
+        # TCP reader/writer 在 start() 成功后设置。
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
-        # Outbound queue (raw APDU bytes).
+        # 出站 APDU 有界队列，防止断网时无限积压。
         self._send_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=256)
 
-        # Background tasks.
+        # TCP 收发后台 task。
         self._receive_task: asyncio.Task[object] | None = None
         self._send_task: asyncio.Task[object] | None = None
 
-        # Interrogation tracking.
+        # 站总召完成事件。
         self._interrogation_done: asyncio.Event = asyncio.Event()
         self._interrogation_done.set()  # starts as "done"
 
-        # Point-value cache: IOA → PointValue.
+        # IOA 到最新 PointValue 的 session 内缓存。
         self._point_cache: dict[int, PointValue] = {}
-        # IOA → point_id mapping (set externally by the driver).
+        # IOA 到 point_id 的映射，由 Driver 注入。
         self._ioa_to_point_id: dict[int, str] = {}
-        # point_id → IOA reverse map.
+        # point_id 到 IOA 的反向映射。
         self._point_id_to_ioa: dict[str, int] = {}
 
-        # Optional callback for value updates (reserved for step 7b-3).
+        # 可选点值更新 callback。
         self._on_value_update: Callable[[PointValue], None] | None = None
 
-        # ASDU forwarding callback — set by the driver.
+        # ASDU 转发 callback，由 Driver 注入。
         self._on_asdu: Callable[[ASDU], None] | None = None
 
-        # STARTDT handshake synchronization.
+        # STARTDT handshake 同步事件。
         self._startdt_event: asyncio.Event | None = None
 
-        # Shutdown sentinel.
+        # 关闭标志，阻止后台循环继续工作。
         self._closed = False
 
     # ==================================================================
-    # properties
+    # 状态查询
     # ==================================================================
 
     @property
     def state(self) -> ConnectionState:
-        """Current connection state."""
+        """返回当前连接状态。"""
         return self._state.state
 
     @property
     def is_started(self) -> bool:
-        """``True`` when data transfer is active."""
+        """STARTDT 已完成、允许数据传输时为 True。"""
         return self._state.is_started
 
     @property
     def interrogation_complete(self) -> bool:
-        """``True`` when station interrogation has finished."""
+        """站总召已结束时为 True。"""
         return self._interrogation_done.is_set()
 
     @property
     def point_cache(self) -> dict[int, PointValue]:
-        """Snapshot of the IOA → PointValue cache (a copy)."""
+        """返回 IOA 最新值缓存副本，避免调用方修改内部状态。"""
         return dict(self._point_cache)
 
     # ==================================================================
-    # point mapping
+    # 点映射与回调
     # ==================================================================
 
     def set_points_mapping(
@@ -202,7 +194,7 @@ class IEC104Session:
         ioa_to_point_id: dict[int, str],
         point_id_to_ioa: dict[str, int],
     ) -> None:
-        """Install the IOA ↔ point_id lookup tables."""
+        """注入 IOA/point_id 双向映射，并复制输入避免外部修改。"""
         self._ioa_to_point_id = dict(ioa_to_point_id)
         self._point_id_to_ioa = dict(point_id_to_ioa)
 
@@ -210,30 +202,31 @@ class IEC104Session:
         self,
         callback: Callable[[PointValue], None] | None,
     ) -> None:
-        """Set optional callback for value updates."""
+        """设置可选的点值更新 callback。"""
         self._on_value_update = callback
 
     def set_on_asdu(
         self,
         callback: Callable[[ASDU], None] | None,
     ) -> None:
-        """Set optional callback for ASDU forwarding.
+        """设置解码后 ASDU 的同步转发 callback。
 
-        When set, every decoded ASDU (after session-internal processing)
-        is passed to *callback*.  The driver uses this to dispatch
-        spontaneous updates, interrogation data, and remote-control
-        responses to subscribers.
+        Driver 使用它处理自发数据、总召数据和遥控响应。callback 在 receive loop
+        内同步执行，因此不应阻塞。
         """
         self._on_asdu = callback
 
     def send_asdu(self, asdu: ASDU) -> None:
-        """Enqueue *asdu* as an I-frame for immediate delivery.
+        """把 ASDU 封装为 I-frame 并加入发送队列。
 
-        The session wraps the ASDU in an I-frame with the correct
-        sequence numbers and enqueues it for the send loop.
+        Args:
+            asdu: 待发送 ASDU。
 
         Raises:
-            ProtocolError: If the session is not started.
+            ProtocolError: session 尚未完成 STARTDT。
+
+        Side Effects:
+            原子占用一个 N(S)，并启动/重启 t1。
         """
         if not self._state.is_started:
             raise ProtocolError(
@@ -257,23 +250,25 @@ class IEC104Session:
         )
 
     def get_ioa(self, point_id: str) -> int | None:
-        """Look up the IOA for a point_id, or ``None``."""
+        """按 point_id 查询 IOA；未知点返回 None。"""
         return self._point_id_to_ioa.get(point_id)
 
     def get_point_id(self, ioa: int) -> str | None:
-        """Look up the point_id for an IOA, or ``None``."""
+        """按 IOA 查询 point_id；未知地址返回 None。"""
         return self._ioa_to_point_id.get(ioa)
 
     # ==================================================================
-    # start / close
+    # 启动与关闭
     # ==================================================================
 
     async def start(self) -> None:
-        """Open TCP connection, perform STARTDT handshake, and launch
-        station interrogation.
+        """建立 TCP、完成 STARTDT，并执行启动站总召。
 
         Raises:
-            ProtocolError: On connection or handshake failure.
+            ProtocolError: session 已关闭、TCP 建连失败或 STARTDT handshake 失败。
+
+        Side Effects:
+            创建 receive/send 后台 task，并安装 t1/t2/t3 callback。
         """
         if self._closed:
             raise ProtocolError("Session is closed — create a new one.")
@@ -297,47 +292,51 @@ class IEC104Session:
         self._state.to_tcp_connected()
         logger.debug("IEC104: TCP connected to %s:%d", self._host, self._port)
 
-        # Start background tasks.
+        # TCP 建立后再启动收发 task。
         self._receive_task = asyncio.ensure_future(self._receive_loop())
         self._send_task = asyncio.ensure_future(self._send_loop())
 
-        # Install timer callbacks.
+        # timer callback 绑定当前 session。
         self._timers.on_t1_timeout = self._on_t1_timeout
         self._timers.on_t2_timeout = self._on_t2_timeout
         self._timers.on_t3_timeout = self._on_t3_timeout
 
-        # STARTDT handshake.
+        # 执行 STARTDT handshake。
         await self._startdt_handshake()
 
-        # Station interrogation.
+        # STARTDT 后执行站总召。
         await self._station_interrogation()
 
     async def close(self) -> None:
-        """Gracefully close the session — STOPDT, cancel tasks, close socket."""
+        """优雅关闭 session。
+
+        若仍 STARTED，尽力发送 STOPDT；随后停止 timer、取消收发 task 并关闭
+        socket。重复调用安全，清理阶段的非关键关闭异常被隔离。
+        """
         if self._closed:
             return
         self._closed = True
 
         logger.info("IEC104: closing session to %s:%d", self._host, self._port)
 
-        # Try to send STOPDT if still started.
+        # STARTED 状态下尽力发送 STOPDT，不因关闭阶段失败阻断清理。
         if self._state.is_started:
             with contextlib.suppress(ValueError):
                 self._state.to_stopped()
             with contextlib.suppress(Exception):
                 self._enqueue_frame_nowait(encode_u_frame(UFrameType.STOPDT_ACT))
 
-        # Cancel all timers.
+        # 先停止 timer，避免清理期间再触发 callback。
         await self._timers.stop_all()
 
-        # Cancel background tasks.
+        # 再取消收发 task。
         for task in (self._receive_task, self._send_task):
             if task is not None and not task.done():
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
 
-        # Close TCP.
+        # 最后关闭 TCP writer。
         if self._writer is not None:
             self._writer.close()
             with contextlib.suppress(Exception):
@@ -350,24 +349,21 @@ class IEC104Session:
         logger.info("IEC104: session closed for %s:%d", self._host, self._port)
 
     async def wait_closed(self) -> None:
-        """Wait until the receive and send tasks have finished.
+        """等待 receive/send task 退出。
 
-        Does **not** swallow ``CancelledError`` — if the awaiting task
-        (e.g. the driver monitor loop) is cancelled, the cancellation
-        propagates so the caller can shut down promptly.  Swallowing it
-        here would leave the caller blocked waiting on a still-running
-        background task.
+        CancelledError 不在这里吞掉：Driver monitor 被取消时必须立即向上传播，
+        否则可能继续等待仍运行的后台 task，导致停机卡住。
         """
         for task in (self._receive_task, self._send_task):
             if task is not None and not task.done():
                 await task
 
     # ==================================================================
-    # enqueue
+    # 出站队列
     # ==================================================================
 
     def _enqueue_frame_nowait(self, data: bytes) -> None:
-        """Enqueue raw APDU bytes for sending (non-blocking)."""
+        """非阻塞加入出站 APDU；队列满时记录并丢弃该帧。"""
         try:
             self._send_queue.put_nowait(data)
         except asyncio.QueueFull:
@@ -377,7 +373,7 @@ class IEC104Session:
             )
 
     async def _enqueue_frame(self, data: bytes) -> None:
-        """Enqueue raw APDU bytes for sending (may block)."""
+        """等待队列空间后加入出站 APDU。"""
         await self._send_queue.put(data)
 
     # ==================================================================
@@ -385,7 +381,11 @@ class IEC104Session:
     # ==================================================================
 
     async def _startdt_handshake(self) -> None:
-        """Send STARTDT act and wait for STARTDT con."""
+        """发送 STARTDT_ACT 并等待 STARTDT_CON。
+
+        Raises:
+            ProtocolError: t1 时间内未收到确认。
+        """
         self._state.to_startdt_pending()
         logger.debug("IEC104: sending STARTDT act to %s", self._host)
 
@@ -405,18 +405,21 @@ class IEC104Session:
         logger.info("IEC104: STARTDT handshake complete for %s", self._host)
 
     # ==================================================================
-    # station interrogation
+    # 站总召
     # ==================================================================
 
     async def _station_interrogation(self) -> None:
-        """Send C_IC_NA_1 (QOI=20) and wait for ACT_TERM."""
+        """发送 C_IC_NA_1（QOI=20）并等待 ACT_TERM。
+
+        总召超时只记录 warning 并结束启动总召等待，不主动关闭已建立的 session。
+        """
         self._interrogation_done.clear()
 
         gi_asdu = ASDU(
             type_id=TypeID.C_IC_NA_1,
             cause=CauseOfTransmission.ACTIVATION,
             common_address=self._common_addr,
-            objects=[InterrogationCommand(ioa=0)],  # QOI=20 hardcoded in encoder
+            objects=[InterrogationCommand(ioa=0)],  # encoder 固定使用 QOI=20（站总召）。
         )
 
         logger.info("IEC104: sending station interrogation to %s", self._host)
@@ -430,7 +433,7 @@ class IEC104Session:
         )
         self._timers.start_t1()
 
-        # Wait for interrogation to complete (ACT_TERM received).
+        # 等待总召 ACT_TERM；给完整总召留出 2*t1。
         try:
             await asyncio.wait_for(
                 self._interrogation_done.wait(),
@@ -450,18 +453,22 @@ class IEC104Session:
         )
 
     # ==================================================================
-    # background loops
+    # 后台收发循环
     # ==================================================================
 
     async def _receive_loop(self) -> None:
-        """Continuously read APDU frames from the TCP socket and dispatch."""
+        """持续从 TCP 读取完整 APDU 并分派。
+
+        EOF 会触发断线处理；ProtocolError 记录后继续下一帧，未知 Exception 记录
+        但不静默吞掉。任务取消时立即退出。
+        """
         buffer = bytearray()
         reader = self._reader
         assert reader is not None
 
         while not self._closed:
             try:
-                # Read at least 2 bytes (start + length).
+                # 先读取 start+length 两字节头。
                 while len(buffer) < 2:
                     chunk = await reader.read(2 - len(buffer))
                     if not chunk:
@@ -499,7 +506,7 @@ class IEC104Session:
                 frame_bytes = bytes(buffer[:total_len])
                 del buffer[:total_len]
 
-                # Reset t3 (data received).
+                # 收到任何数据都重置 t3 空闲 timer。
                 self._timers.cancel_t3()
                 self._timers.start_t3()
 
@@ -525,7 +532,10 @@ class IEC104Session:
                 )
 
     async def _send_loop(self) -> None:
-        """Continuously drain the send queue and write to TCP."""
+        """持续排空发送队列并写入 TCP。
+
+        writer 错误会触发断线处理并退出；CancelledError 用于正常停机。
+        """
         writer = self._writer
         assert writer is not None
 
@@ -546,22 +556,22 @@ class IEC104Session:
                 return
 
     # ==================================================================
-    # frame handlers
+    # frame 处理
     # ==================================================================
 
     async def _handle_i_frame(self, frame: IFrame) -> None:
-        """Process an incoming I-frame."""
+        """处理入站 I-frame：更新流控、确认状态并解码 ASDU。"""
         self._flow.on_received()
 
-        # Process peer's acknowledgement (N(R) in frame).
+        # 先处理对端 I-frame 携带的 N(R) 确认。
         self._flow.on_ack(frame.recv_seq)
         if not self._flow.ack_is_outstanding():
             self._timers.cancel_t1()
 
-        # Start / restart t2 (ack delay).
+        # 收到 I-frame 后启动/重启 t2 延迟确认。
         self._timers.start_t2()
 
-        # If we've reached w unacked receives, send S-frame now.
+        # 达到 w 时立即发 S-frame，不再等待 t2。
         if self._flow.needs_ack:
             await self._send_s_ack()
 

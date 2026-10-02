@@ -1,4 +1,9 @@
-"""IEC 60870-5-104 ASDU (Application Service Data Unit) codec."""
+"""IEC 60870-5-104 ASDU 编码与解码。
+
+本模块通过 TypeID dispatch table 选择 information object codec。objects 使用
+list[Any] 是因为 ASDU 在 wire 层可承载多种强类型 information object；Any 只
+存在于该协议联合边界，进入具体 codec 后会收敛为对应 dataclass。
+"""
 
 from __future__ import annotations
 
@@ -45,22 +50,22 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
 from wind_hub.domain.model.errors import ProtocolError
 
 # ==========================================================================
-# type-dispatch tables
+# TypeID codec 分发表
 # ==========================================================================
 
 _CODEC_REGISTRY: dict[TypeID, tuple[Callable[..., Any], Callable[..., bytes]]] = {
-    # monitor direction — without time tag
+    # 监视方向：无时标
     TypeID.M_SP_NA_1: (decode_m_sp_na_1, encode_m_sp_na_1),
     TypeID.M_DP_NA_1: (decode_m_dp_na_1, encode_m_dp_na_1),
     TypeID.M_ME_NA_1: (decode_m_me_na_1, encode_m_me_na_1),
     TypeID.M_ME_NB_1: (decode_m_me_nb_1, encode_m_me_nb_1),
     TypeID.M_ME_NC_1: (decode_m_me_nc_1, encode_m_me_nc_1),
-    # monitor direction — with CP56Time2a
+    # 监视方向：带 CP56Time2a
     TypeID.M_SP_TB_1: (decode_m_sp_tb_1, encode_m_sp_tb_1),
     TypeID.M_DP_TB_1: (decode_m_dp_tb_1, encode_m_dp_tb_1),
     TypeID.M_ME_TD_1: (decode_m_me_td_1, encode_m_me_td_1),
     TypeID.M_ME_TF_1: (decode_m_me_tf_1, encode_m_me_tf_1),
-    # control direction
+    # 控制方向
     TypeID.C_SC_NA_1: (decode_c_sc_na_1, encode_c_sc_na_1),
     TypeID.C_DC_NA_1: (decode_c_dc_na_1, encode_c_dc_na_1),
     TypeID.C_SE_NC_1: (decode_c_se_nc_1, encode_c_se_nc_1),
@@ -68,8 +73,7 @@ _CODEC_REGISTRY: dict[TypeID, tuple[Callable[..., Any], Callable[..., bytes]]] =
     TypeID.C_CI_NA_1: (decode_c_ci_na_1, encode_c_ci_na_1),
 }
 
-# Dict mapping TypeID to info-object size for SQ=1 (continuous address) mode.
-# When SQ=1, each info object after the first shares the same size.
+# SQ=1 连续地址模式下，各 TypeID 的单个 information object 固定长度。
 _INFO_OBJECT_SIZES: dict[TypeID, int] = {
     TypeID.M_SP_NA_1: 4,
     TypeID.M_SP_TB_1: 11,
@@ -89,61 +93,64 @@ _INFO_OBJECT_SIZES: dict[TypeID, int] = {
 
 
 # ==========================================================================
-# ASDU model
+# ASDU 数据模型
 # ==========================================================================
 
 
 @dataclass(frozen=True)
 class ASDU:
-    """IEC 60870-5-104 Application Service Data Unit.
+    """IEC104 Application Service Data Unit。
 
-    Byte layout (after APCI header)::
-
-        byte 0:    TypeID
-        byte 1:    VSQ (SQ bit 7, count bits 0–6)
-        byte 2:    COT
-        byte 3:    OA (originator address, usually 0)
-        byte 4–5:  CA (common address, little-endian)
-        byte 6+:   information objects
+    Attributes:
+        type_id: ASDU TypeID。
+        cause: 传送原因 COT。
+        common_address: 公共地址/站地址。
+        objects: information object 列表；具体类型由 type_id 决定。
+        is_sequence: VSQ 的 SQ 位，True 表示连续地址模式。
+        originator_address: OA，通常为 0。
     """
 
     type_id: TypeID
-    """ASDU type identifier."""
+    """ASDU TypeID。"""
 
     cause: CauseOfTransmission
-    """Cause of transmission."""
+    """传送原因 COT。"""
 
     common_address: int
-    """Common address / station address (0–65535)."""
+    """公共地址/站地址，范围 0~65535。"""
 
     objects: list[Any] = field(default_factory=list)
-    """Information objects.  Type depends on ``type_id``."""
+    """information object 列表；元素类型由 type_id 决定。"""
 
     is_sequence: bool = False
-    """SQ bit — ``True`` means continuous (sequential) addressing."""
+    """VSQ 的 SQ 位；True 表示连续地址模式。"""
 
     originator_address: int = 0
-    """Originator address (OA, usually 0)."""
+    """Originator Address，通常为 0。"""
 
     @property
     def count(self) -> int:
-        """Number of information objects."""
+        """返回 information object 数量。"""
         return len(self.objects)
 
 
 # ==========================================================================
-# decode
+# 解码
 # ==========================================================================
 
 
 def decode_asdu(data: bytes, offset: int = 0) -> tuple[ASDU, int]:
-    """Decode an ASDU from *data* at *offset*.
+    """从指定 offset 解码一个 ASDU。
+
+    Args:
+        data: 包含 ASDU 的字节缓冲区。
+        offset: ASDU 起始偏移。
 
     Returns:
-        ``(ASDU, new_offset)`` tuple.
+        (ASDU, new_offset)。
 
     Raises:
-        ProtocolError: On unknown TypeID, insufficient data, or decode error.
+        ProtocolError: Header 不完整、TypeID/COT 未知、codec 缺失或 object 数据不足。
     """
     if len(data) - offset < 6:
         raise ProtocolError(
@@ -158,30 +165,28 @@ def decode_asdu(data: bytes, offset: int = 0) -> tuple[ASDU, int]:
     ca = struct.unpack_from("<H", data, offset + 4)[0]
     off = offset + 6
 
-    # Parse TypeID
+    # 解析 TypeID。
     try:
         type_id = TypeID(type_id_raw)
     except ValueError:
         raise ProtocolError(f"Unknown TypeID {type_id_raw:#04x} at offset {offset}") from None
 
-    # Parse VSQ
+    # 解析 VSQ。
     count = vsq & 0x7F
     is_sequence = bool(vsq & 0x80)
 
-    # Parse COT
+    # 解析 COT。
     try:
         cause = CauseOfTransmission(cot_raw & 0x3F)
     except ValueError:
         raise ProtocolError(f"Unknown COT {cot_raw & 0x3F:#04x} at offset {offset + 2}") from None
 
-    # Look up codec
+    # 根据 TypeID 选择 codec。
     codec_pair = _CODEC_REGISTRY.get(type_id)
     if codec_pair is None:
         raise ProtocolError(f"No codec registered for TypeID {type_id.name} ({type_id_raw})")
-    # C_SE_NC_1 activation confirmations/terminations (COT=7/10) echo only
-    # IOA + QOS (4 bytes); the activation command (COT=6) carries the value
-    # (8 bytes).  The default decoder assumes the command layout, so select
-    # a dedicated confirmation decoder when the COT indicates a response.
+    # C_SE_NC_1 的激活确认/终止只回显 IOA+QOS，不携带设点值；
+    # 响应 COT 必须使用专用短格式 decoder。
     if type_id == TypeID.C_SE_NC_1 and cause in (
         CauseOfTransmission.ACTIVATION_CON,
         CauseOfTransmission.ACTIVATION_TERMINATION,
@@ -193,7 +198,7 @@ def decode_asdu(data: bytes, offset: int = 0) -> tuple[ASDU, int]:
     else:
         decoder = cast(Callable[[bytes, int], tuple[Any, int]], codec_pair[0])
 
-    # Decode information objects
+    # 解码 information object。
     objects: list[Any] = []
     if is_sequence and count > 0:
         elem_size = _INFO_OBJECT_SIZES.get(type_id)
@@ -223,15 +228,21 @@ def decode_asdu(data: bytes, offset: int = 0) -> tuple[ASDU, int]:
 
 
 # ==========================================================================
-# encode
+# 编码
 # ==========================================================================
 
 
 def encode_asdu(asdu: ASDU) -> bytes:
-    """Encode an ASDU to bytes.
+    """把 ASDU 编码为 wire bytes。
+
+    Args:
+        asdu: 待编码 ASDU。
+
+    Returns:
+        不含 APCI 头的 ASDU 字节。
 
     Raises:
-        ProtocolError: On unknown TypeID or missing codec.
+        ProtocolError: TypeID 未注册 codec。
     """
     codec_pair = _CODEC_REGISTRY.get(asdu.type_id)
     if codec_pair is None:
@@ -239,7 +250,7 @@ def encode_asdu(asdu: ASDU) -> bytes:
 
     encoder = cast(Callable[[Any], bytes], codec_pair[1])
 
-    # Build header
+    # 组装 ASDU header。
     header = bytearray()
     header.append(asdu.type_id.value)  # TypeID
 
@@ -252,7 +263,7 @@ def encode_asdu(asdu: ASDU) -> bytes:
     header.append(asdu.originator_address & 0xFF)  # OA
     header.extend(struct.pack("<H", asdu.common_address))  # CA
 
-    # Encode information objects
+    # 编码 information object。
     body = bytearray()
     for obj in asdu.objects:
         body.extend(encoder(obj))

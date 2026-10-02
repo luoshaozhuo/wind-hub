@@ -1,4 +1,12 @@
-"""Configuration loader — YAML reading, per-model validation, cross-file checks."""
+"""Collector YAML 配置加载与跨文件一致性校验。
+
+加载器负责把一个自包含配置目录转换为 resolved Config，并在 Runtime 装配前完成
+schema、引用关系、协议地址和 Task 组合约束校验。它不创建 Device/Protocol/Sink，
+也不执行网络 I/O。
+
+YAML 原始值使用 dict[str, Any] 是安全反序列化后的动态输入边界；进入各 Pydantic
+schema 后收敛为强类型配置对象。
+"""
 
 from __future__ import annotations
 
@@ -29,10 +37,16 @@ from wind_hub.domain.model.errors import ConfigError
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
-    """Read and parse a single YAML file.
+    """安全读取单个 YAML 文件。
+
+    Args:
+        path: YAML 文件路径。
+
+    Returns:
+        YAML 根映射。Any 仅存在于 schema 校验前的动态配置边界。
 
     Raises:
-        ConfigError: If the file is missing or contains invalid YAML.
+        ConfigError: 文件缺失、为空或 YAML 语法非法。
     """
     if not path.is_file():
         raise ConfigError(f"Configuration file not found: {path}")
@@ -47,7 +61,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_system(path: Path) -> SystemConfig:
-    """Load and validate ``system.yaml``."""
+    """加载并校验 system.yaml。"""
     raw = _read_yaml(path)
     try:
         return SystemConfig(**raw)
@@ -56,7 +70,7 @@ def load_system(path: Path) -> SystemConfig:
 
 
 def load_units(path: Path) -> UnitsConfig:
-    """Load and validate ``units.yaml``（单位定义集）。"""
+    """加载并校验 units.yaml 单位定义集。"""
     raw = _read_yaml(path)
     try:
         return UnitsConfig(**raw)
@@ -65,7 +79,7 @@ def load_units(path: Path) -> UnitsConfig:
 
 
 def load_device_models(path: Path) -> DeviceModelsConfig:
-    """Load and validate ``device_models.yaml``（设备类型 + 设备型号）。"""
+    """加载并校验 device_models.yaml。"""
     raw = _read_yaml(path)
     try:
         return DeviceModelsConfig(**raw)
@@ -74,7 +88,7 @@ def load_device_models(path: Path) -> DeviceModelsConfig:
 
 
 def load_devices(path: Path) -> DeviceInstancesConfig:
-    """Load and validate ``devices.yaml``（现场设备实例）。"""
+    """加载并校验 devices.yaml 现场设备实例。"""
     raw = _read_yaml(path)
     try:
         return DeviceInstancesConfig(**raw)
@@ -83,7 +97,7 @@ def load_devices(path: Path) -> DeviceInstancesConfig:
 
 
 def load_points(path: Path) -> PointTablesConfig:
-    """Load and validate ``points.yaml``（根键 ``point_tables``）。"""
+    """加载并校验 points.yaml，并读取 point_tables 根键。"""
     raw = _read_yaml(path)
     try:
         return PointTablesConfig(tables=raw.get("point_tables") or {})
@@ -92,7 +106,7 @@ def load_points(path: Path) -> PointTablesConfig:
 
 
 def load_tasks(path: Path) -> TasksConfig:
-    """Load and validate ``tasks.yaml``。"""
+    """加载并校验 tasks.yaml。"""
     raw = _read_yaml(path)
     try:
         return TasksConfig(**raw)
@@ -101,57 +115,24 @@ def load_tasks(path: Path) -> TasksConfig:
 
 
 def load_config(config_dir: str | Path) -> Config:
-    """Load all configuration files from a single self-contained config
-    directory, validate each, run cross-file consistency checks, and return
-    an aggregate ``Config``.
-
-    配置目录是完全独立、自包含的完整配置集，包含：
-
-    - ``system.yaml`` — 运行时参数、Sink、接口（含 site 现场身份）；
-    - ``units.yaml`` — 单位定义集（``PointConfig.unit`` 引用的 unit ID）；
-    - ``device_models.yaml`` — 设备类型 + 设备型号；
-    - ``points.yaml`` — 命名点表（含 protocol）；
-    - ``devices.yaml`` — 现场设备实例；
-    - ``tasks.yaml`` — 周期采集 Task；
-    - ``reporting.yaml`` — IEC104 slave proxy（可选；缺失或 ``reporting``
-      列表为空均表示不启用代理）。
+    """加载一个自包含配置目录并返回 resolved Config。
 
     加载顺序：
+    1. system.yaml、units.yaml、device_models.yaml；
+    2. points.yaml 并展开点表继承；
+    3. devices.yaml 与型号默认值合并为运行时 DeviceConfig；
+    4. tasks.yaml；
+    5. 可选 reporting.yaml；
+    6. 执行跨文件引用、协议地址、point_group、Sink target 等一致性校验。
 
-    1. ``system.yaml``；
-    2. ``units.yaml``；
-    3. ``device_models.yaml``；
-    4. ``points.yaml`` → 点表继承展开（extends / remove_points /
-       override，含 protocol 继承规则，见 ``point_table_resolver``）；
-    5. ``devices.yaml`` → ``device_resolver.resolve_devices``——实例 +
-       型号合并为 resolved 运行时 ``DeviceConfig``；
-    6. ``tasks.yaml``；
-    7. ``reporting.yaml``（可选）；
-    8. 跨文件校验（见下）；
-    9. 聚合为 ``Config``。
+    Args:
+        config_dir: 完整现场配置目录。
 
-    Cross-file checks（全部作用于 resolved 模型）:
-
-        - 型号引用的 ``point_table`` 必须存在，且型号的 ``protocol`` 必须
-          与绑定点表的 ``protocol`` 一致；
-        - 每个 resolved 点的 ``unit`` 必须是 ``units.yaml`` 中定义的
-          unit ID；
-        - 点地址按其点表 ``protocol`` 校验——ADS 地址形式合法（symbol
-          单独合法；index_group 与 index_offset 必须成对；三者不得全
-          空），Modbus 必须有合法 register_type 与非负 address，
-          IEC104 必须有合法 ioa；
-        - 设备（resolved）绑定点表必须存在；ADS ``sum`` 设备绑定表的
-          全部点位必须配置 ``symbol``；
-        - Task 的 ``device`` 必须存在；``device_group`` 至少匹配一台 enabled
-          设备；
-        - Task 的 ``point_group`` 必须在其命中的每台 enabled 设备绑定点表
-          中存在；
-        - Task 的 ``targets`` 必须引用已定义的 sink；
-        - 任何 Task 不得命中 ADS ``read_mode='sequential'`` 的设备（该模式
-          只允许请求驱动的单次读取，不参与周期采集）。
+    Returns:
+        Runtime 可直接消费的 resolved Config。
 
     Raises:
-        ConfigError: On any validation or consistency failure.
+        ConfigError: 任一文件、schema、引用关系或协议组合非法。
     """
     base = Path(config_dir)
 
@@ -166,7 +147,7 @@ def load_config(config_dir: str | Path) -> Config:
     devices = resolve_devices(load_devices(base / "devices.yaml"), device_models)
     tasks = load_tasks(base / "tasks.yaml")
 
-    # Optional IEC104 slave proxy config — absent means no proxy.
+    # reporting.yaml 可选；不存在即不启用 IEC104 slave proxy。
     reporting: ReportingConfig | None = None
     reporting_path = base / "reporting.yaml"
     if reporting_path.is_file():

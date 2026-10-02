@@ -1,8 +1,8 @@
-"""IEC104 subscription registry.
+"""IEC104 自发数据订阅注册表。
 
-Manages subscribe callbacks for spontaneous updates and interrogation
-data.  Callbacks are dispatched in independent asyncio tasks so they
-never block the receive loop.
+支持全局订阅和按 IOA 订阅。每个 callback 通过独立 asyncio task 调用，避免慢
+callback 阻塞协议接收循环；callback 异常只记录日志，不反向破坏 session。
+每次 subscribe 返回独立 handle，关闭 handle 只注销本调用方。
 """
 
 from __future__ import annotations
@@ -44,21 +44,9 @@ class IEC104Subscription:
 
 
 class SubscriptionRegistry:
-    """Manages point-value callbacks.
+    """管理 PointValue callback 注册。
 
-    Two levels of subscription:
-
-    * **Global** — :meth:`subscribe` with an empty *points* list
-      registers a callback that receives **every** ``PointValue``.
-    * **Per-IOA** — each IOA can have zero or more callbacks.
-
-    Every callback is wrapped in its own ``asyncio.ensure_future``
-    when dispatched, so a slow or crashing callback cannot delay or
-    poison the receive loop.
-
-    Each :meth:`subscribe` call returns an independent
-    :class:`IEC104Subscription` handle——多个调用方（多个 TaskInstance）
-    可订阅同一 IOA 而互不影响，关闭句柄只注销自己的回调。
+    空 points 表示全局订阅；非空 points 经 ioa_resolver 转为按 IOA 注册。
     """
 
     def __init__(self) -> None:
@@ -66,7 +54,7 @@ class SubscriptionRegistry:
         self._ioa: dict[int, list[Callable[[PointValue], Awaitable[None]]]] = {}
 
     # ==================================================================
-    # subscribe
+    # 订阅注册
     # ==================================================================
 
     def subscribe(
@@ -75,17 +63,15 @@ class SubscriptionRegistry:
         callback: Callable[[PointValue], Awaitable[None]],
         ioa_resolver: Callable[[PointRef], int | None],
     ) -> IEC104Subscription:
-        """Register a subscription and return its independent handle.
+        """注册订阅并返回独立句柄。
 
         Args:
-            points:
-                Points to subscribe to.  An empty list creates a
-                **global** subscription that receives every value.
-            callback:
-                Async callable invoked with each ``PointValue``.
-            ioa_resolver:
-                Callable that maps a ``PointRef`` to an IOA (int)
-                or ``None`` if the point is unknown.
+            points: 订阅点；空列表表示接收全部 PointValue。
+            callback: 点值异步回调。
+            ioa_resolver: PointRef 到 IOA 的解析函数；未知点返回 None。
+
+        Returns:
+            只管理本次回调注册的 IEC104Subscription。
         """
         if not points:
             self._global.append(callback)
@@ -117,7 +103,7 @@ class SubscriptionRegistry:
         callback: Callable[[PointValue], Awaitable[None]],
         ioas: list[int] | None,
     ) -> None:
-        """Remove one callback registration (global or per-IOA)."""
+        """移除一个全局或按 IOA 的 callback 注册。"""
         if ioas is None:
             with contextlib.suppress(ValueError):
                 self._global.remove(callback)
@@ -132,29 +118,31 @@ class SubscriptionRegistry:
                 del self._ioa[ioa]
 
     def clear(self) -> None:
-        """Remove every subscription (driver shutdown path)."""
+        """清空全部订阅；用于 Driver 整体关闭。"""
         self._global.clear()
         self._ioa.clear()
 
     # ==================================================================
-    # dispatch
+    # 数据分发
     # ==================================================================
 
     async def dispatch(self, pv: PointValue, ioa: int) -> None:
-        """Distribute *pv* to all matching subscribers.
+        """把 PointValue 分发给全部匹配订阅者。
 
-        - Global subscribers are called first.
-        - IOA-specific subscribers are called second.
-        - Each callback runs in its own task — slow callbacks do not
-          delay other callbacks.
-        - Callback exceptions are logged but never re-raised.
+        Args:
+            pv: 待分发点值。
+            ioa: 点对应 IOA。
+
+        Notes:
+            每个 callback 独立创建 task；异常由 _invoke_callback 捕获并记录，
+            不传播到协议接收循环。
         """
         callbacks: list[Callable[[PointValue], Awaitable[None]]] = []
 
-        # Global callbacks.
+        # 先加入全局 callback。
         callbacks.extend(self._global)
 
-        # IOA-specific callbacks.
+        # 再加入当前 IOA 的 callback。
         callbacks.extend(self._ioa.get(ioa, []))
 
         if not callbacks:
@@ -169,7 +157,10 @@ class SubscriptionRegistry:
         pv: PointValue,
         ioa: int,
     ) -> None:
-        """Invoke one callback and log failures."""
+        """调用单个 callback，并隔离其异常。
+
+        捕获 Exception 是为了保护协议接收循环；失败已记录完整堆栈。
+        """
         try:
             await cb(pv)
         except Exception:
@@ -180,20 +171,20 @@ class SubscriptionRegistry:
             )
 
     # ==================================================================
-    # stats
+    # 统计
     # ==================================================================
 
     @property
     def global_count(self) -> int:
-        """Number of global subscribers."""
+        """返回全局订阅 callback 数。"""
         return len(self._global)
 
     @property
     def ioa_count(self) -> int:
-        """Total number of IOA-specific subscriber entries."""
+        """返回按 IOA 注册的 callback 总数。"""
         return sum(len(v) for v in self._ioa.values())
 
     @property
     def unique_ioa_count(self) -> int:
-        """Number of distinct IOAs with at least one subscriber."""
+        """返回至少有一个订阅者的 IOA 数。"""
         return len(self._ioa)

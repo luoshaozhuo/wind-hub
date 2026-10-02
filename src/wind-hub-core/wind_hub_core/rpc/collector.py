@@ -1,7 +1,11 @@
-"""Collector gRPC v1 稳定方法名。
+"""Collector gRPC v1 的共享 wire contract。
 
-这里只保存 wire-level service/method 名称，避免 wind-hub-ctl 与 Collector
-各自硬编码。消息目前仍使用 google.protobuf.Empty / Struct。
+本模块只保存稳定的 service/method 名称和 RPC path 构造规则，避免
+wind-hub-ctl 与 wind-hub-collector 各自硬编码。它不包含 gRPC server/client
+实现，也不引入 Collector Runtime。
+
+当前 v1 消息仍使用 google.protobuf.Empty / Struct；动态消息结构属于过渡契约，
+后续可在保持方法名稳定的前提下逐步替换为生成的强类型消息。
 """
 
 RUNTIME_SERVICE = "windhub.collector.v1.CollectorRuntimeService"
@@ -27,5 +31,13 @@ RELOAD_CONFIG = "ReloadConfig"
 
 
 def rpc_path(service: str, method: str) -> str:
-    """构造 gRPC fully-qualified method path。"""
+    """构造 gRPC fully-qualified method path。
+
+    Args:
+        service: 完整 service 名称。
+        method: method 名称。
+
+    Returns:
+        形如 /package.Service/Method 的 gRPC 方法路径。
+    """
     return f"/{service}/{method}"

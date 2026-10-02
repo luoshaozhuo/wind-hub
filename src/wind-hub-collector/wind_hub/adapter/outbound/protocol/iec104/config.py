@@ -1,6 +1,7 @@
-"""IEC 60870-5-104 driver configuration.
+"""IEC 60870-5-104 Driver 配置模型。
 
-Parsed from :class:`~wind_hub.config.schema.DeviceConfig` extensions.
+参数来自 DeviceConfig.endpoint/extensions；本模块只做配置转换，不建立 TCP
+连接，也不启动 t1/t2/t3 timer。
 """
 
 from __future__ import annotations
@@ -12,56 +13,47 @@ from wind_hub.config.schema import DeviceConfig
 
 @dataclass(frozen=True)
 class IEC104Config:
-    """Typed configuration for the IEC104 protocol driver.
-
-    All values are extracted from ``DeviceConfig.endpoint.extensions``
-    with sensible defaults defined by IEC 60870-5-104.
-    """
+    """IEC104 单设备连接与流控参数。"""
 
     host: str
-    """IP address or hostname of the IEC104 slave."""
+    """IEC104 从站 IP 或主机名。"""
 
     port: int
-    """TCP port (default 2404)."""
+    """TCP 端口，通常为 2404。"""
 
     common_addr: int
-    """Common address / station address (CASDU, 1–65535)."""
+    """公共地址 CASDU。"""
 
     k: int
-    """Maximum number of unacknowledged I-frames we may send before
-    waiting for the peer to acknowledge (default 12)."""
+    """发送窗口 k：允许未确认的最大 I-frame 数。"""
 
     w: int
-    """Maximum number of I-frames we may receive before sending an
-    S-frame acknowledgement (default 8)."""
+    """接收窗口 w：达到该数量时必须发送 S-frame 确认。"""
 
     t0: float
-    """Connection-establishment timeout in seconds (default 30)."""
+    """连接建立超时 t0，单位秒。"""
 
     t1: float
-    """Send / confirm timeout in seconds (default 15).
-    When we send an I-frame, the peer must acknowledge within t1;
-    otherwise the connection is considered broken."""
+    """发送/确认超时 t1；I-frame 在该时间内未确认则认为连接异常。"""
 
     t2: float
-    """Ack delay timeout in seconds (default 10).
-    After receiving an I-frame we must send an S-frame within t2 if
-    the *w* threshold hasn't been reached sooner."""
+    """延迟确认超时 t2；未提前达到 w 时，到期发送 S-frame。"""
 
     t3: float
-    """Idle / keep-alive timeout in seconds (default 20).
-    If no data is received for t3 seconds, a TESTFR act is sent."""
+    """空闲保活超时 t3；到期触发 TESTFR。"""
 
     max_reconnect_retries: int = 5
-    """Maximum number of consecutive reconnect attempts before giving
-    up and transitioning to FAILED state."""
+    """连接失败后的最大连续重试次数。"""
 
     @classmethod
     def from_device_config(cls, cfg: DeviceConfig) -> IEC104Config:
-        """Build an ``IEC104Config`` from a ``DeviceConfig``.
+        """从 DeviceConfig 构造 IEC104Config。
 
-        Protocol-specific parameters are read from
-        ``cfg.endpoint.extensions``, falling back to IEC104 defaults.
+        Args:
+            cfg: 已解析的设备配置。
+
+        Returns:
+            使用 endpoint/extensions 和协议默认值构造的 IEC104Config。
         """
         extensions = cfg.endpoint.extensions
 

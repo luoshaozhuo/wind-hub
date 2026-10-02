@@ -1,4 +1,12 @@
-"""Lifecycle orchestration for Runtime."""
+"""Runtime 启动与优雅停机编排。
+
+启动阶段只连接设备、打开 Sink、创建 Sink consumer，并展开默认 STOPPED 的
+Task Instance；不会自动启动采集任务。设备或 Sink 单项启动失败被隔离，使其他
+可用组件仍能运行。
+
+停机阶段先关闭采集句柄，再结束 Sink consumer、flush/close Sink，最后关闭设备。
+各组件关闭失败记录后继续，以最大化整体资源释放。
+"""
 
 from __future__ import annotations
 
@@ -15,7 +23,14 @@ logger = logging.getLogger(__name__)
 
 
 def _is_connection_level(exc: BaseException) -> bool:
-    """Determine whether the exception represents a transient connection problem."""
+    """判断异常链是否属于常见连接级失败。
+
+    Args:
+        exc: 捕获到的异常。
+
+    Returns:
+        异常或其 cause 为 TimeoutError/ConnectionRefusedError/OSError 时返回 True。
+    """
     current: BaseException | None = exc
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
@@ -27,13 +42,17 @@ def _is_connection_level(exc: BaseException) -> bool:
 
 
 class RuntimeLifecycle:
-    """Lifecycle orchestration for the runtime startup and shutdown phases."""
+    """持有 Runtime 的启动/停机编排逻辑，避免 Runtime 主类继续膨胀。"""
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
 
     async def start(self) -> None:
-        """Start the runtime and bootstrap all runtime dependencies."""
+        """启动 Runtime 基础资源。
+
+        单设备/单 Sink 失败只记录状态并继续，避免一个现场端点阻断整进程。
+        Task Instance 仅注册为 STOPPED，必须由控制面显式启动采集。
+        """
         async with self._runtime._lifecycle_lock:
             if self._runtime._running:
                 return
@@ -96,7 +115,11 @@ class RuntimeLifecycle:
             self._runtime._started = True
 
     async def stop(self) -> None:
-        """Shut down the runtime gracefully."""
+        """按依赖逆序优雅停止 Runtime。
+
+        采集句柄先停，随后终止 Sink consumer 并 flush/close，最后关闭设备连接。
+        单资源清理异常被记录但不阻断其他资源释放。
+        """
         async with self._runtime._lifecycle_lock:
             if not self._runtime._running:
                 return
@@ -104,7 +127,7 @@ class RuntimeLifecycle:
             self._runtime._started = False
 
             # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
-            # orphan task / orphan subscription。
+            # 避免遗留后台 task 或订阅。
             for instance_id in list(self._runtime._acquisition_handles):
                 await self._runtime._close_acquisition_handle(instance_id)
             # 停机后实例定义保留，统一标记 STOPPED——重启后需显式 start，

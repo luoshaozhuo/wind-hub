@@ -1,9 +1,11 @@
-"""IEC104 slave proxy TCP server.
+"""IEC104 从站代理 TCP Server。
 
-Owns the listening socket and a set of live per-connection
-:class:`IEC104SlaveSession` tasks.  :meth:`start` / :meth:`stop` are
-idempotent; every connection shares the single :class:`DataSnapshot` via the
-handlers, so one dispatch master's interrogation sees all collected values.
+本模块拥有监听 socket 和每条主站连接对应的 IEC104SlaveSession task。start
+与 stop 均幂等；所有 session 通过 handlers 共享同一份 DataSnapshot，因此
+任一调度主站的总召都读取 Collector 已采集的同一组最新值。
+
+Server 不主动访问现场设备，也不保存历史数据。stop 会停止监听、取消全部活动
+session，并等待资源释放。
 """
 
 from __future__ import annotations
@@ -20,7 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 class IEC104SlaveServer:
-    """An IEC104 slave (server) listening for dispatch-master connections."""
+    """监听调度主站连接的 IEC104 从站代理。
+
+    Args:
+        host: 监听地址。
+        port: 监听端口；0 表示由操作系统分配临时端口。
+        handlers: 共享的 IEC104 请求处理器。
+        common_address: 从站公共地址。
+    """
 
     def __init__(
         self,
@@ -38,11 +47,17 @@ class IEC104SlaveServer:
         self._sessions: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
-    # lifecycle
+    # 生命周期
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start listening (idempotent — a running server is a no-op)."""
+        """开始监听。
+
+        重复调用幂等；已经监听时直接返回。
+
+        Raises:
+            OSError: socket 绑定或监听失败。
+        """
         if self._server is not None:
             return
         self._server = await asyncio.start_server(
@@ -58,7 +73,10 @@ class IEC104SlaveServer:
         )
 
     async def stop(self) -> None:
-        """Stop listening and cancel every live session (idempotent)."""
+        """停止监听并取消全部活动 session。
+
+        重复调用幂等。session 取消和 socket 关闭阶段的次要异常不会阻断整体停机。
+        """
         if self._server is None:
             return
         self._server.close()
@@ -72,30 +90,30 @@ class IEC104SlaveServer:
         logger.info("IEC104 slave proxy stopped")
 
     # ------------------------------------------------------------------
-    # status
+    # 状态查询
     # ------------------------------------------------------------------
 
     @property
     def session_count(self) -> int:
-        """Number of currently live slave sessions."""
+        """返回当前活动 session 数量。"""
         return len(self._sessions)
 
     @property
     def port(self) -> int:
-        """The bound listen port (resolves ``port=0`` to the actual port)."""
+        """返回实际监听端口；配置 port=0 时返回操作系统分配端口。"""
         if self._server is not None:
             sock = self._server.sockets[0]
             return int(sock.getsockname()[1])
         return self._port
 
     def health(self) -> HealthStatus:
-        """Report proxy health — healthy while listening."""
+        """返回从站代理健康状态；正在监听即视为 healthy。"""
         if self._server is None:
             return HealthStatus(healthy=False, message="not started")
         return HealthStatus(healthy=True, message=f"{self.session_count} session(s)")
 
     # ------------------------------------------------------------------
-    # connection handling
+    # 连接处理
     # ------------------------------------------------------------------
 
     async def _on_client_connected(

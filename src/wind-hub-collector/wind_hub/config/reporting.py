@@ -1,12 +1,8 @@
-"""IEC104 slave proxy reporting config loader.
+"""可选 IEC104 slave proxy reporting.yaml 加载器。
 
-Loads the optional ``reporting.yaml`` file: the mapping between the
-engine's ``(device_id, point_id)`` identities and IEC104 information-object
-addresses (IOA) plus the monitor-direction ASDU type used to report each
-point to a dispatch master.
-
-The report config is optional — a deployment without ``reporting.yaml``
-simply has no slave proxy (``Config.reporting`` is ``None``).
+reporting 配置把 Collector 的 (device_id, point_id) 映射为调度侧 IOA 和监视方向
+TypeID。文件不存在时由上层视为“不启用 slave proxy”；本模块只负责存在文件的
+安全 YAML 解析和 ReportingConfig schema 校验。
 """
 
 from __future__ import annotations
@@ -21,11 +17,16 @@ from wind_hub.domain.model.errors import ConfigError
 
 
 def load_reporting(path: str | Path) -> ReportingConfig:
-    """Load and validate ``reporting.yaml``.
+    """加载并校验 reporting.yaml。
+
+    Args:
+        path: reporting.yaml 路径。
+
+    Returns:
+        ReportingConfig。
 
     Raises:
-        ConfigError: If the file is missing, contains invalid YAML, or
-            fails :class:`ReportingConfig` validation.
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
     """
     p = Path(path)
     if not p.is_file():

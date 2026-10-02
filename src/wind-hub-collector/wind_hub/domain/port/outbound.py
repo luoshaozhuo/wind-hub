@@ -58,75 +58,67 @@ class HealthStatus(BaseModel):
     """协议或 Sink 的轻量健康状态快照。"""
 
     healthy: bool
-    """``True`` when the component is operating normally."""
+    """组件当前可正常工作时为 True。"""
 
     message: str | None = None
-    """Optional human-readable status detail (e.g. error description)."""
+    """可选状态说明或错误摘要。"""
 
 
 class ProtocolPort(Protocol):
-    """Protocol extension point.
+    """设备协议扩展点。
 
-    Implementations handle the wire protocol for a specific device
-    family: ADS, Modbus, IEC104, etc.
+    具体 Driver 负责 ADS、Modbus、IEC104 等 wire protocol；Runtime/Device 只依赖
+    本接口，不直接依赖第三方协议库。
     """
 
     def set_points_mapping(self, points: list[PointConfig]) -> None:
-        """Inject the device's point table; the driver builds an
-        ``address ↔ point_id`` mapping for later reads/writes.
-
-        Pure in-memory and synchronous — no network I/O.  A driver
-        that has no notion of a point table may implement this as a
-        no-op.
+        """注入设备完整点表并建立内部寻址映射。
 
         Args:
-            points: The full point table for this device, from config.
+            points: 当前设备 resolved PointConfig 列表。
+
+        Notes:
+            该操作同步且只修改内存，不执行网络 I/O；无点表概念的 Driver 可 no-op。
         """
         ...
 
     async def connect(self) -> None:
-        """Establish the underlying transport connection(s).
+        """建立底层协议连接。
 
         Raises:
-            ProtocolError: On connection failure.
+            ProtocolError: 连接或协议握手失败。
         """
         ...
 
     async def close(self) -> None:
-        """Tear down the transport connection(s).
-
-        Must be safe to call even if already closed.
-        """
+        """释放协议连接和其独占后台资源；必须支持幂等调用。"""
         ...
 
     async def read(self, points: list[PointRef]) -> list[PointValue]:
-        """Batch-read multiple points.
+        """批量读取点位。
 
         Args:
-            points: Points to read.
+            points: 待读取 PointRef。
 
         Returns:
-            One ``PointValue`` per input ``PointRef``, in the same order.
+            与输入顺序一致的 PointValue 列表。
 
         Raises:
-            ProtocolError: If any read fails.
+            ProtocolError: 连接/传输级读取失败。
         """
         ...
 
     async def write(self, cmds: list[Command]) -> list[CommandResult]:
-        """Batch-write multiple commands.
-
-        Every input ``Command`` yields one ``CommandResult`` at the
-        corresponding list index.
+        """批量写入命令。
 
         Args:
-            cmds: Commands to execute.
+            cmds: 待执行 Command。
 
         Returns:
-            One ``CommandResult`` per command, in input order.
+            与输入顺序一致的 CommandResult 列表。
 
         Raises:
-            ProtocolError: On transport-level failure.
+            ProtocolError: 连接或传输级失败。
         """
         ...
 
@@ -146,31 +138,24 @@ class ProtocolPort(Protocol):
         *,
         interval: float | None = None,
     ) -> SubscriptionHandle:
-        """Subscribe to spontaneous updates for the given points.
+        """订阅指定点的推送更新。
 
-        Each call creates an **independent** subscription: multiple callers
-        may subscribe the same point with different intervals/callbacks
-        without interfering with each other.  Closing the returned handle
-        unregisters exactly this subscription.
+        每次调用创建独立订阅；多个 Task Instance 可以订阅同一点而互不覆盖。
 
         Args:
-            points: Points to subscribe to.
-            callback: Async callable invoked with each ``PointValue``.
-            interval: Requested device-side cycle time in seconds
-                (e.g. ADS ``NotificationAttrib.cycle_time``); ignored by
-                protocols whose data timing is decided by the remote end
-                (IEC104 spontaneous/periodic).
+            points: 订阅点列表。
+            callback: 每个 PointValue 的异步回调。
+            interval: 可选设备侧周期，例如 ADS notification cycle_time；IEC104
+                等由远端决定时序的协议可忽略。
+
+        Returns:
+            仅管理本次订阅的 SubscriptionHandle。
 
         Raises:
-            NotImplementedError: If the protocol does not support
-                subscription (e.g. drivers without subscription support).
+            NotImplementedError: Driver 不支持订阅。
         """
         ...
 
     def health(self) -> HealthStatus:
-        """Return connection health status — synchronous by design.
-
-        Callers poll this cheaply; the implementation returns cached
-        state rather than probing the wire.
-        """
+        """返回缓存的连接健康状态；该同步接口不得主动探测 wire。"""
         ...

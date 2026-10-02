@@ -1,6 +1,8 @@
-"""IEC 60870-5-104 codec — APCI / ASDU / information-object encode and decode.
+"""IEC 60870-5-104 纯 codec 层。
 
-Pure data transformation layer — no network IO, no asyncio, no state machine.
+这里只负责 APCI、ASDU、information object、IOA 和 CP56Time2a 的编码/解码；
+不执行网络 I/O、不创建 asyncio task，也不维护连接状态机。协议结构错误统一
+转换为 ProtocolError。
 """
 
 from wind_hub.adapter.outbound.protocol.iec104.codec.apci import (
@@ -93,7 +95,7 @@ __all__ = [
     "decode_cp56time2a",
     "from_datetime",
     "to_datetime",
-    # info object models
+    # information object 数据模型
     "SinglePoint",
     "SinglePointWithTime",
     "DoublePoint",
@@ -108,7 +110,7 @@ __all__ = [
     "SetpointCommandShort",
     "InterrogationCommand",
     "CounterInterrogationCommand",
-    # info object codecs
+    # information object codec
     "decode_m_sp_na_1",
     "encode_m_sp_na_1",
     "decode_m_sp_tb_1",

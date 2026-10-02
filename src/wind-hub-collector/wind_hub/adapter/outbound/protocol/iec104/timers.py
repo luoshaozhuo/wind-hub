@@ -1,8 +1,10 @@
-"""IEC 60870-5-104 timers.
+"""IEC104 t1/t2/t3 timer 管理器。
 
-Manages the three IEC104 timers (t1, t2, t3) using background
-asyncio tasks.  Each timer has an associated async callback that
-fires when the timer expires.
+每个 timer 由独立 asyncio.Task 实现，到期后调用 session 注入的异步 callback。
+重启同名 timer 会先取消旧 task，保证每类 timer 同时最多一个 runner。
+
+t1：发送/确认超时；t2：延迟确认；t3：空闲保活。callback 异常记录后吞掉，
+因为 timer task 不应因上层处理失败产生未检索异常。
 """
 
 from __future__ import annotations
@@ -14,23 +16,17 @@ from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
-# Sentinel to stop timer tasks cleanly.
+# 保留的内部哨兵；不进入协议接口。
 _STOP = object()
 
 
 class IEC104Timers:
-    """IEC 60870-5-104 timer manager.
+    """管理 IEC104 t1/t2/t3 的后台 task 生命周期。
 
-    Timers t1, t2, t3 are each backed by an ``asyncio.Task`` that
-    sleeps for the configured duration and then invokes a callback.
-
-    - **t1**: started when we send an I-frame; if it expires the
-      peer has not acknowledged within the timeout → connection failure.
-    - **t2**: started when we receive an I-frame; if it expires we send
-      an S-frame acknowledgement (unless we already sent one).
-    - **t3**: keep-alive; started when the connection enters STARTED.
-      On expiry we send TESTFR act.  If no reply within t1 the
-      connection is considered dead.
+    Args:
+        t1: 发送确认超时秒数。
+        t2: 延迟确认超时秒数。
+        t3: 空闲保活超时秒数。
     """
 
     def __init__(
@@ -43,27 +39,27 @@ class IEC104Timers:
         self._t2 = t2
         self._t3 = t3
 
-        # Callbacks — set after construction by the session.
+        # callback 由 session 构造后注入。
         self.on_t1_timeout: Callable[[], Awaitable[None]] | None = None
         self.on_t2_timeout: Callable[[], Awaitable[None]] | None = None
         self.on_t3_timeout: Callable[[], Awaitable[None]] | None = None
 
-        # Background tasks.
+        # 每个 timer 对应一个后台 task。
         self._t1_task: asyncio.Task[object] | None = None
         self._t2_task: asyncio.Task[object] | None = None
         self._t3_task: asyncio.Task[object] | None = None
 
-        # Guards — only one timer-runner per timer at a time.
+        # active 标志用于保证每类 timer 只有一个 runner。
         self._t1_active = False
         self._t2_active = False
         self._t3_active = False
 
     # ==================================================================
-    # public API
+    # 公共接口
     # ==================================================================
 
     def start_t1(self) -> None:
-        """(Re)start the t1 send-confirm timer."""
+        """重启 t1 发送确认 timer；已有 task 会先取消。"""
         self._start_timer(
             name="t1",
             delay=self._t1,
@@ -73,11 +69,11 @@ class IEC104Timers:
         )
 
     def cancel_t1(self) -> None:
-        """Cancel t1 — called when an ack arrives."""
+        """收到有效确认后取消 t1。"""
         self._cancel_timer("t1", "_t1_task")
 
     def start_t2(self) -> None:
-        """(Re)start the t2 ack-delay timer."""
+        """重启 t2 延迟确认 timer。"""
         self._start_timer(
             name="t2",
             delay=self._t2,
@@ -87,11 +83,11 @@ class IEC104Timers:
         )
 
     def cancel_t2(self) -> None:
-        """Cancel t2 — called when an S-frame is sent."""
+        """发送确认后取消 t2。"""
         self._cancel_timer("t2", "_t2_task")
 
     def start_t3(self) -> None:
-        """(Re)start the t3 keep-alive timer."""
+        """重启 t3 空闲保活 timer。"""
         self._start_timer(
             name="t3",
             delay=self._t3,
@@ -101,11 +97,11 @@ class IEC104Timers:
         )
 
     def cancel_t3(self) -> None:
-        """Cancel t3."""
+        """取消 t3。"""
         self._cancel_timer("t3", "_t3_task")
 
     async def stop_all(self) -> None:
-        """Cancel all running timers.  Idempotent."""
+        """取消并等待全部 timer task 退出；重复调用安全。"""
         for attr in ("_t1_task", "_t2_task", "_t3_task"):
             task: asyncio.Task[object] | None = getattr(self, attr, None)
             if task is not None and not task.done():
@@ -114,13 +110,13 @@ class IEC104Timers:
                     await task
 
     def reset_all(self) -> None:
-        """Cancel all timers without waiting (synchronous)."""
+        """同步发出全部 timer 的取消请求，不等待 task 退出。"""
         self._cancel_timer("t1", "_t1_task")
         self._cancel_timer("t2", "_t2_task")
         self._cancel_timer("t3", "_t3_task")
 
     # ==================================================================
-    # internals
+    # 内部实现
     # ==================================================================
 
     def _start_timer(
@@ -131,7 +127,7 @@ class IEC104Timers:
         active_attr: str,
         callback_attr: str,
     ) -> None:
-        # Cancel existing task first.
+        # 同名 timer 重启前必须先取消旧 task。
         self._cancel_timer(name, task_attr)
 
         task = asyncio.ensure_future(self._timer_runner(name, delay, active_attr, callback_attr))
@@ -157,7 +153,7 @@ class IEC104Timers:
         finally:
             setattr(self, active_attr, False)
 
-        # Timer fired — invoke the callback.
+        # timer 到期后调用注入 callback。
         cb: Callable[[], Awaitable[None]] | None = getattr(self, callback_attr, None)
         if cb is not None:
             try:

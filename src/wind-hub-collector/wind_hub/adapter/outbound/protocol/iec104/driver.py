@@ -1,7 +1,12 @@
-"""IEC 60870-5-104 protocol driver.
+"""IEC 60870-5-104 ProtocolPort 实现。
 
-Full ProtocolPort implementation: connect, close, read, write, subscribe,
-spontaneous-update forwarding, and remote control.
+Driver 负责单设备 IEC104 session 生命周期、总召缓存读取、自发数据订阅、遥控
+命令及断线重连。具体 APDU/ASDU 编解码、k/w 流控和 t1/t2/t3 timer 由
+IEC104Session 及 codec 子模块负责。
+
+read() 读取 session 已维护的最新值缓存，不为每次调用重新发总召；write() 将
+领域 Command 转换为遥控 ASDU，并等待 ACT_CON/ACT_TERM 或超时。重连过程中保留
+订阅注册，整体 close 才清空订阅。
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from wind_hub.domain.port.outbound import (
 
 logger = logging.getLogger(__name__)
 
-# Exponential backoff parameters.
+# 后台重连的指数退避参数。
 _RECONNECT_BACKOFF_BASE = 1.0
 _RECONNECT_BACKOFF_CAP = 30.0
 _RECONNECT_BACKOFF_MULTIPLIER = 2.0
@@ -64,7 +69,7 @@ def _is_timeout_related(exc: BaseException) -> bool:
     return "timed out" in str(exc)
 
 
-# TypeIDs for remote-control commands.
+# 当前支持的遥控 TypeID。
 _CONTROL_TYPE_IDS: frozenset[TypeID] = frozenset(
     {
         TypeID.C_SC_NA_1,
@@ -75,7 +80,7 @@ _CONTROL_TYPE_IDS: frozenset[TypeID] = frozenset(
 
 
 def _extract_value(obj: object) -> object:
-    """Extract the measurement value from an info object."""
+    """从 information object 提取测量值；未知结构返回 None。"""
     for attr in ("value", "measured_value", "normalized_value"):
         val = getattr(obj, attr, None)
         if val is not None:
@@ -84,7 +89,7 @@ def _extract_value(obj: object) -> object:
 
 
 def _extract_quality(obj: object) -> Quality:
-    """Extract quality info — maps QualityFlag → Quality."""
+    """把 IEC104 QualityFlag 映射为 Wind Hub Quality。"""
     q = getattr(obj, "quality", None)
     if q is None or not isinstance(q, QualityFlag):
         return Quality.GOOD
@@ -98,9 +103,14 @@ def _extract_quality(obj: object) -> Quality:
 
 
 class IEC104Driver:
-    """IEC 60870-5-104 protocol driver.
+    """单设备 IEC104 协议驱动。
 
-    Implements :class:`~wind_hub.domain.port.outbound.ProtocolPort`.
+    Args:
+        cfg: 已解析的设备配置。
+
+    Notes:
+        Driver 由单个 asyncio event loop 持有。session 自己管理 TCP 收发 task；
+        Driver monitor 负责 session 结束后的有限次重连。
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
@@ -111,26 +121,33 @@ class IEC104Driver:
         self._monitor_task: asyncio.Task[object] | None = None
         self._shutdown = False
 
-        # Point mapping.
+        # IOA/point_id 双向映射。
         self._ioa_to_point_id: dict[int, str] = {}
         self._point_id_to_ioa: dict[str, int] = {}
-        # Point data types (point_id → data_type) for control ASDU selection.
+        # point_id 到 data_type，用于选择遥控 ASDU 类型。
         self._point_data_types: dict[str, str] = {}
 
-        # Subscriptions.
+        # 自发数据订阅注册表。
         self._subscriptions = SubscriptionRegistry()
 
-        # Remote control.
+        # 遥控在途命令注册表。
         self._pending_commands = PendingCommandRegistry()
 
         self._failed = False
 
     # ==================================================================
-    # point mapping
+    # 点表映射
     # ==================================================================
 
     def set_points_mapping(self, points: list[PointConfig]) -> None:
-        """Build the IOA ↔ point_id lookup tables."""
+        """构建设备 IOA/point_id 双向映射。
+
+        Args:
+            points: 当前设备点表。
+
+        Notes:
+            缺失或非法 IOA 的点会记录 warning 并跳过；重复 IOA 后者覆盖前者。
+        """
         ioa_to_point_id: dict[int, str] = {}
         point_id_to_ioa: dict[str, int] = {}
 
@@ -156,7 +173,7 @@ class IEC104Driver:
 
         self._ioa_to_point_id = ioa_to_point_id
         self._point_id_to_ioa = point_id_to_ioa
-        # Also store data types for each point.
+        # 同时保存数据类型，用于遥控编码决策。
         self._point_data_types = {p.point_id: p.data_type for p in points}
         logger.info(
             "IEC104: mapped %d points for device %s",
@@ -165,15 +182,21 @@ class IEC104Driver:
         )
 
     def _resolve_ioa(self, ref: PointRef) -> int | None:
-        """Resolve a PointRef to an IOA."""
+        """把 PointRef 解析为 IOA；未知点返回 None。"""
         return self._point_id_to_ioa.get(ref.point_id)
 
     # ==================================================================
-    # ProtocolPort — connect / close
+    # ProtocolPort：连接生命周期
     # ==================================================================
 
     async def connect(self) -> None:
-        """Establish the IEC104 connection."""
+        """建立 IEC104 session 并启动后台 monitor。
+
+        已有 session 时幂等返回；Driver 已进入 FAILED 时拒绝自动重新连接。
+
+        Raises:
+            ProtocolError: STARTDT/TCP 建连失败，或 Driver 已处于 FAILED。
+        """
         async with self._lock:
             if self._session is not None:
                 logger.warning("IEC104: connect() called but already connected")
@@ -197,7 +220,7 @@ class IEC104Driver:
                 self._ioa_to_point_id,
                 self._point_id_to_ioa,
             )
-            # Install ASDU forwarding callback.
+            # session 解码后的 ASDU 同步转交 Driver。
             session.set_on_asdu(self._on_asdu_received)
 
             try:
@@ -210,17 +233,16 @@ class IEC104Driver:
             self._monitor_task = asyncio.ensure_future(self._monitor_loop())
 
     async def close(self) -> None:
-        """Tear down the IEC104 connection."""
+        """关闭 IEC104 session、monitor、在途命令和订阅。
+
+        资源释放顺序很重要：先关闭 session，使其 receive/send task 退出，再取消
+        monitor。若先取消 monitor，wait_closed 可能只中断一个 await 而遗留发送 task。
+        """
         async with self._lock:
             self._shutdown = True
 
-            # Close the session *before* tearing down the monitor loop.  The
-            # monitor awaits `session.wait_closed()`, which awaits the receive
-            # and send tasks in sequence; cancelling the monitor first would
-            # only interrupt the first of those awaits, leaving it blocked on
-            # the still-running send task (see wait_closed).  Closing the
-            # session cancels both tasks, so wait_closed returns and the
-            # monitor observes `_shutdown` and exits.
+            # 必须先 close session 再停止 monitor；session close 会取消收发 task，
+            # 使 monitor 的 wait_closed 能正常返回并观察 _shutdown。
             if self._session is not None:
                 await self._session.close()
                 self._session = None
@@ -231,7 +253,7 @@ class IEC104Driver:
                     await self._monitor_task
             self._monitor_task = None
 
-            # Fail any pending commands.
+            # 连接关闭后所有在途遥控都必须明确失败完成。
             self._fail_all_pending("connection closed")
 
             # 注销全部订阅（重连不清——只有整体 close 才清理注册表）。
@@ -240,8 +262,12 @@ class IEC104Driver:
             self._failed = False
 
     def _fail_all_pending(self, reason: str) -> None:
-        """Resolve all pending commands as failed."""
-        # We need to collect keys first since remove mutates the dict.
+        """把全部在途遥控完成为失败并从 Registry 移除。
+
+        Args:
+            reason: 写入 CommandResult.error 的失败原因。
+        """
+        # remove 会修改注册表，因此先复制 IOA key。
         ioas = list(self._pending_commands._pending.keys())
         for ioa in ioas:
             pending = self._pending_commands.get(ioa)
@@ -256,11 +282,21 @@ class IEC104Driver:
             self._pending_commands.remove(ioa)
 
     # ==================================================================
-    # ProtocolPort — read
+    # ProtocolPort：读取
     # ==================================================================
 
     async def read(self, points: list[PointRef]) -> list[PointValue]:
-        """Batch-read points from the cached measurement table."""
+        """从当前 session 最新值缓存批量读取点。
+
+        Args:
+            points: 待读取 PointRef。
+
+        Returns:
+            与输入顺序一致的 PointValue；未知/尚无缓存的点返回 Quality.BAD。
+
+        Raises:
+            ProtocolError: session 未连接或未 STARTED。
+        """
         session = self._session
         if session is None or not session.is_started:
             raise ProtocolError("IEC104: cannot read — driver is not connected")
@@ -296,19 +332,20 @@ class IEC104Driver:
         return results
 
     # ==================================================================
-    # ProtocolPort — write
+    # ProtocolPort：写入
     # ==================================================================
 
     async def write(self, cmds: list[Command]) -> list[CommandResult]:
-        """Execute remote-control commands.
+        """并发执行 IEC104 遥控命令。
 
-        Supports:
-        - Single-point control (C_SC_NA_1)
-        - Double-point control (C_DC_NA_1)
-        - Set-point command (C_SE_NC_1)
+        Args:
+            cmds: 待执行领域 Command。
 
-        All commands are executed concurrently; failure of one does not
-        affect others.
+        Returns:
+            与输入顺序一致的 CommandResult；单条命令失败不会取消其他命令。
+
+        Raises:
+            ProtocolError: session 未连接或未 STARTED。
         """
         if not cmds:
             return []
@@ -317,7 +354,7 @@ class IEC104Driver:
         if session is None or not session.is_started:
             raise ProtocolError("IEC104: cannot write — driver is not connected")
 
-        # Launch all writes concurrently.
+        # 单命令相互独立，可并发等待各自协议确认。
         tasks = [self._execute_one_command(cmd, session) for cmd in cmds]
         return await asyncio.gather(*tasks)
 
@@ -326,9 +363,14 @@ class IEC104Driver:
         cmd: Command,
         session: IEC104Session,
     ) -> CommandResult:
-        """Execute a single remote-control command."""
+        """执行单条遥控的完整协议生命周期。
+
+        解析 IOA → 构造 ASDU → 注册 PendingCommand → 发送 → 等待确认。协议拒绝、
+        IOA 冲突、超时和其他异常都收敛为 CommandResult.success=False，避免单命令
+        失败中断批量调用。
+        """
         try:
-            # 1. Resolve point_id → IOA.
+            # 1. point_id → IOA。
             ioa = self._point_id_to_ioa.get(cmd.point_id)
             if ioa is None:
                 return CommandResult(
@@ -337,10 +379,10 @@ class IEC104Driver:
                     error=f"unknown point '{cmd.point_id}'",
                 )
 
-            # 2. Build and validate the control ASDU.
+            # 2. 根据值和点类型构造遥控 ASDU。
             asdu = self._build_control_asdu(cmd, ioa)
 
-            # 3. Register pending command.
+            # 3. 注册在途命令，确保同 IOA 不并发。
             future: asyncio.Future[CommandResult] = asyncio.Future()
             timeout = self._cfg.t1 * 2
             pending = PendingCommand(
@@ -359,7 +401,7 @@ class IEC104Driver:
                     error=str(exc),
                 )
 
-            # 4. Send the ASDU.
+            # 4. 发送 ASDU；发送失败立即清理 PendingCommand。
             try:
                 session.send_asdu(asdu)
             except ProtocolError:
@@ -372,7 +414,7 @@ class IEC104Driver:
                     error="session not started",
                 )
 
-            # 5. Wait for the future.
+            # 5. 等待 ACT_CON/ACT_TERM 完成 Future，超时后清理。
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
             except TimeoutError:
@@ -393,26 +435,25 @@ class IEC104Driver:
             )
 
     def _build_control_asdu(self, cmd: Command, ioa: int) -> ASDU:
-        """Build the control ASDU based on value type and point data_type.
+        """根据 Command.value 与点 data_type 构造遥控 ASDU。
 
-        Dispatch logic:
+        Args:
+            cmd: 原始领域 Command。
+            ioa: 已解析目标 IOA。
 
-        * ``bool`` value or ``data_type == "bool"`` → C_SC_NA_1 (single-point)
-        * ``float`` value or ``float*`` data_type → C_SE_NC_1 (set-point)
-        * ``int`` value 0 or 1 → C_SC_NA_1 (single-point)
-        * ``int`` value 2, or 1 when data_type is int/uint → C_DC_NA_1 (double-point)
-        * ``int`` any other value → C_SE_NC_1 (set-point)
+        Returns:
+            C_SC_NA_1、C_DC_NA_1 或 C_SE_NC_1 ASDU。
 
-        Value 1 is ambiguous (single-point True *or* double-point OFF).
-        We use *data_type* to disambiguate: ``"bool"`` → single,
-        anything else (int/uint types) → double.
+        Notes:
+            Python bool 是 int 子类，因此 bool 判定必须先于 int。数值 1 在单点和
+            双点语义间存在歧义，使用点表 data_type 辅助判定。
         """
         val = cmd.value
         data_type = self._point_data_types.get(cmd.point_id, "")
 
-        # ── bool / bool data_type → single-point ────────────────────
-        # isinstance(val, bool) must precede isinstance(val, int)
-        # because bool is an int subclass.
+        # bool 或 bool data_type → C_SC_NA_1。
+        # bool 是 int 子类，必须优先判断。
+        
         if isinstance(val, bool) or data_type == "bool":
             return ASDU(
                 type_id=TypeID.C_SC_NA_1,
@@ -421,7 +462,7 @@ class IEC104Driver:
                 objects=[SingleCommand(ioa=ioa, value=bool(val), select=False)],
             )
 
-        # ── float / float data_type → set-point ─────────────────────
+        # float 或 float data_type → C_SE_NC_1。
         if isinstance(val, float) or data_type in ("float32", "float64"):
             return ASDU(
                 type_id=TypeID.C_SE_NC_1,
@@ -430,10 +471,10 @@ class IEC104Driver:
                 objects=[SetpointCommandShort(ioa=ioa, value=float(val), select=False)],
             )
 
-        # ── int → decide by value + data_type hint ──────────────────
+        # int 根据数值和 data_type 选择单点/双点/设点。
         if isinstance(val, int):
-            # val == 1 is ambiguous.  data_type disambiguates:
-            #   "bool" or empty → single-point; others → double-point.
+            # value=1 有歧义，使用 data_type 判定：
+            # bool/空类型走单点，其余 int/uint 类型走双点。
             if val == 2 or (val == 1 and data_type not in ("", "bool")):
                 return ASDU(
                     type_id=TypeID.C_DC_NA_1,
@@ -527,17 +568,17 @@ class IEC104Driver:
         )
 
     # ==================================================================
-    # ASDU dispatch (called by session)
+    # Session 回调的 ASDU 分发
     # ==================================================================
 
     def _on_asdu_received(self, asdu: ASDU) -> None:
-        """Dispatch an incoming ASDU based on COT.
+        """按 TypeID/COT 分发 session 收到的 ASDU。
 
-        Called synchronously from the session's receive loop — the
-        session has already updated its cache for measurement data.
+        callback 在 session receive loop 中同步执行，因此这里只做轻量状态更新；
+        subscriber 分发会另起 task。异常被记录并隔离，避免 callback 破坏接收循环。
         """
         try:
-            # --- Remote-control responses ---
+            # 遥控响应。
             if asdu.type_id in _CONTROL_TYPE_IDS:
                 if asdu.cause == CauseOfTransmission.ACTIVATION_CON:
                     self._on_activation_con(asdu)
@@ -545,7 +586,7 @@ class IEC104Driver:
                     self._on_activation_term(asdu)
                 return
 
-            # --- Measurement data → subscribers ---
+            # 监视数据 → subscriber。
             if asdu.cause in (
                 CauseOfTransmission.SPONTANEOUS,
                 CauseOfTransmission.INTERROGATED_BY_STATION,
@@ -560,7 +601,7 @@ class IEC104Driver:
             logger.exception("IEC104: error in _on_asdu_received")
 
     def _dispatch_point_values(self, asdu: ASDU) -> None:
-        """Convert ASDU info objects to PointValue and dispatch to subscribers."""
+        """把监视方向 information object 转为 PointValue，并异步分发给订阅者。"""
         for obj in asdu.objects:
             ioa: int = getattr(obj, "ioa", 0)
             point_id = self._ioa_to_point_id.get(ioa)
@@ -577,54 +618,38 @@ class IEC104Driver:
                 source="iec104",
             )
 
-            # Dispatch via subscription registry.
+            # 通过 SubscriptionRegistry 异步分发，避免阻塞 receive loop。
             asyncio.ensure_future(self._subscriptions.dispatch(pv, ioa))
 
     def _on_activation_con(self, asdu: ASDU) -> None:
-        """Handle remote-control activation confirmation."""
-        # COT byte bit 7 = P/N (negative flag).
-        # The codec already stores cause in low 6 bits.  We need the raw
-        # byte to check P/N.  But our model only stores the cause enum.
-        # The P/N bit is signalled by bit 7 of the raw COT byte.
-        # Since the CauseOfTransmission only uses bits 0-5, we need to
-        # check the raw ASDU COT byte.  But we don't have it here.
-        #
-        # Convention: in IEC104, the response to an activation command
-        # uses COT=ACTIVATION_CON with P/N=0 for positive or P/N=1 for
-        # negative.  The info-object carries the same IOA.
-        #
-        # For negative confirmation, the slave sends COT with bit 7 set.
-        # Our codec strips bit 7 when decoding the cause, so we can't
-        # distinguish positive/negative from the cause enum alone.
-        #
-        # Workaround: check the info objects — some slaves set the
-        # SCO/DCO/QOS to a known error state on negative confirmation.
-        # But the standard-reliable way is to check the raw COT byte.
-        #
-        # For now we assume the ASDU cause-only field is what we have.
-        # A negative confirmation would have to be signalled differently.
-        # In practice, many slaves never send negative confirmations
-        # for execute-only commands, so we default to positive.
+        """处理遥控 ACT_CON。
+
+        当前 ASDU 模型只保留 COT 低 6 bit，未保留 P/N 原始位，因此这里无法可靠
+        判定 negative confirmation，暂按正向确认处理；这是明确的协议模型限制。
+        """
+        # codec 当前未保存 COT 的 P/N 位，无法在这里可靠区分正/负确认；
+        # 在 wire model 增加原始 COT 标志前，暂按 positive 处理。
         for obj in asdu.objects:
             ioa: int = getattr(obj, "ioa", 0)
-            # Check for negative confirmation: if the command object has
-            # value=False and the original command value was True, this
-            # could indicate rejection.  But this is unreliable.
-            # Default: positive confirmation.
+            # 当前模型缺少 P/N 位，只能按 positive confirmation 处理。
             self._pending_commands.on_activation_con(ioa, negative=False)
 
     def _on_activation_term(self, asdu: ASDU) -> None:
-        """Handle remote-control activation termination."""
+        """处理遥控 ACT_TERM，并完成匹配 PendingCommand。"""
         for obj in asdu.objects:
             ioa: int = getattr(obj, "ioa", 0)
             self._pending_commands.on_activation_term(ioa)
 
     # ==================================================================
-    # reconnect / monitor
+    # 重连与 monitor
     # ==================================================================
 
     async def _monitor_loop(self) -> None:
-        """Watch for disconnection and reconnect with exponential backoff."""
+        """监视 session 结束并按指数退避重连。
+
+        连接丢失会先失败完成所有在途命令，但保留 SubscriptionRegistry；重连成功后
+        新 session 重新绑定点映射与 ASDU callback。超过重试上限进入 FAILED。
+        """
         retries = 0
         backoff = _RECONNECT_BACKOFF_BASE
 
@@ -724,7 +749,7 @@ class IEC104Driver:
 
 
 # ---------------------------------------------------------------------------
-# self-registration
+# 协议自注册
 # ---------------------------------------------------------------------------
 
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402

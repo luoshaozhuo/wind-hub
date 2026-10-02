@@ -1,4 +1,9 @@
-"""Protocol driver registry — global singleton for driver lookup by name."""
+"""协议 Driver 注册表。
+
+各协议模块导入时通过 register_protocol 自注册 factory；组合根仅按
+DeviceConfig.protocol 名称创建 ProtocolPort，不直接依赖具体 Driver 类。
+注册表不创建连接，也不持有 Driver 实例。
+"""
 
 from __future__ import annotations
 
@@ -13,12 +18,7 @@ if TYPE_CHECKING:
 
 
 class ProtocolRegistry:
-    """Protocol driver registry.
-
-    Drivers self-register at module import time via the
-    :func:`register_protocol` decorator.  ``main.py`` creates driver
-    instances by name through :meth:`create`.
-    """
+    """协议名到 ProtocolPort factory 的进程内注册表。"""
 
     def __init__(self) -> None:
         self._factories: dict[str, Callable[[DeviceConfig], ProtocolPort]] = {}
@@ -28,32 +28,31 @@ class ProtocolRegistry:
         name: str,
         factory: Callable[[DeviceConfig], ProtocolPort],
     ) -> None:
-        """Register a driver factory.
+        """注册协议 Driver factory。
 
         Args:
-            name: Protocol name (must match ``DeviceConfig.protocol``).
-            factory: Callable that receives a ``DeviceConfig`` and
-                returns a ``ProtocolPort`` instance.
+            name: 与 DeviceConfig.protocol 一致的协议名。
+            factory: 接收 DeviceConfig 并返回 ProtocolPort 的工厂。
 
         Raises:
-            ConfigError: If *name* is already registered.
+            ConfigError: 同名协议已注册。
         """
         if name in self._factories:
             raise ConfigError(f"Protocol driver '{name}' is already registered")
         self._factories[name] = factory
 
     def create(self, name: str, cfg: DeviceConfig) -> ProtocolPort:
-        """Instantiate a protocol driver by name.
+        """按协议名创建 Driver。
 
         Args:
-            name: Protocol name.
-            cfg: Device configuration for the new driver.
+            name: 协议名。
+            cfg: 目标设备配置。
 
         Returns:
-            A ``ProtocolPort`` instance.
+            新建 ProtocolPort 实例。
 
         Raises:
-            ConfigError: If *name* is not registered.
+            ConfigError: 协议未注册。
         """
         factory = self._factories.get(name)
         if factory is None:
@@ -64,16 +63,16 @@ class ProtocolRegistry:
         return factory(cfg)
 
     def names(self) -> list[str]:
-        """Return all registered driver names."""
+        """返回已注册协议名，按字典序排列。"""
         return sorted(self._factories)
 
     def is_registered(self, name: str) -> bool:
-        """Return ``True`` when *name* has a registered factory."""
+        """判断协议名是否已注册 factory。"""
         return name in self._factories
 
 
 # ---------------------------------------------------------------------------
-# global singleton
+# 进程级注册表实例
 # ---------------------------------------------------------------------------
 
 protocol_registry = ProtocolRegistry()
@@ -85,13 +84,13 @@ def register_protocol(
     [Callable[[DeviceConfig], ProtocolPort]],
     Callable[[DeviceConfig], ProtocolPort],
 ]:
-    """Decorator that auto-registers a protocol driver factory.
+    """创建协议自注册 decorator。
 
-    Usage (module bottom)::
+    Args:
+        name: 协议名。
 
-        @register_protocol("myproto")
-        def _create_myproto(cfg: DeviceConfig) -> ProtocolPort:
-            return MyProtoDriver(cfg)
+    Returns:
+        保持原 factory 不变、同时将其注册到全局 registry 的 decorator。
     """
 
     def _decorator(

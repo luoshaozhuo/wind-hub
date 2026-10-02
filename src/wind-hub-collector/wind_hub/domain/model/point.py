@@ -1,4 +1,4 @@
-"""Domain model — measurement point definitions."""
+"""点引用、点值和统一数据质量领域模型。"""
 
 from __future__ import annotations
 
@@ -10,56 +10,48 @@ from pydantic import BaseModel, Field
 
 
 class Quality(str, Enum):
-    """Data quality indicator for a point value."""
+    """PointValue 的统一数据质量。"""
 
     GOOD = "good"
-    """Measurement is within normal quality bounds."""
+    """数据有效。"""
     BAD = "bad"
-    """Measurement is unreliable or hardware reports a fault."""
+    """数据不可用或协议/设备明确报告异常。"""
     UNCERTAIN = "uncertain"
-    """Quality cannot be determined — treat as suspect."""
+    """数据可用性存在不确定性，应谨慎使用。"""
 
 
 class PointRef(BaseModel):
-    """Identifies a specific point on a device, without a value.
-
-    Used to request a read or subscribe to a point; the value is
-    filled in by a ProtocolPort implementation.
-    """
+    """不含值的设备点引用，用于 read/subscribe 请求。"""
 
     device_id: str
-    """Unique identifier of the device (e.g. 'turbine-01')."""
+    """设备稳定标识。"""
 
     point_id: str
-    """Unique identifier of the measurement point within the device
-    (e.g. 'rotor.speed', 'gen.power')."""
+    """设备点表内的 point_id。"""
 
 
 class PointValue(BaseModel):
-    """A single collected measurement — the universal currency of the system.
+    """系统内统一流转的单个点值。
 
-    Every protocol adapter produces PointValue instances; the ``Device``
-    layer applies per-point engineering-value normalization (scale/offset),
-    and sinks persist or forward them.  This model carries *what* was
-    measured (*value*), *where* it came from (*device_id* / *point_id*),
-    *how good* it is (*quality*), and *when* it was captured (*timestamp*).
+    ProtocolPort 产生 PointValue，Device 层应用 scale/offset，Runtime 再路由到
+    Sink。value 使用 Any 是因为点表允许 float/int/bool/str 等多种标量；具体类型
+    始终由 PointConfig.data_type 约束。
     """
 
     device_id: str
-    """Device that produced this measurement."""
+    """产生该点值的设备标识。"""
 
     point_id: str
-    """Point identifier within the device."""
+    """设备点表内的 point_id。"""
 
     value: Any
-    """The measurement itself.  Type is determined by the point table
-    (float, int, bool, str, …)."""
+    """点值本身；实际类型由点表 data_type 决定。"""
 
     quality: Quality = Quality.GOOD
-    """Data quality of this measurement."""
+    """点值质量。"""
 
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    """UTC timestamp when this value was collected or generated."""
+    """采集或生成时间，UTC。"""
 
     source: str | None = None
-    """Protocol name that produced this value (e.g. 'ads', 'modbus')."""
+    """产生该值的协议来源，例如 ads、modbus。"""

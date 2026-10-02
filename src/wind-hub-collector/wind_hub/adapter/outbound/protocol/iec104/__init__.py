@@ -1,4 +1,4 @@
-"""IEC 60870-5-104 protocol adapter."""
+"""IEC 60870-5-104 设备协议适配器及其公开 codec 类型。"""
 
 from wind_hub.adapter.outbound.protocol.iec104.codec import (  # noqa: F401
     ASDU,

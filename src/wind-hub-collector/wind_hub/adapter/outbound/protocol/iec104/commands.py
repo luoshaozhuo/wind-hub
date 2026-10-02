@@ -1,7 +1,10 @@
-"""IEC104 remote-control command tracking.
+"""IEC104 遥控命令的在途状态跟踪。
 
-Manages the lifecycle of pending control requests — activation,
-confirmation, termination, and timeout.
+本模块维护 ACT → ACT_CON → ACT_TERM 的命令生命周期，并把协议确认结果解析为
+CommandResult。每个 IOA 同一时刻只允许一个在途命令，避免响应无法关联。
+
+超时调度由上层 Driver 负责；Registry 只负责注册、确认、终止和移除，不创建
+网络连接，也不发送 ASDU。
 """
 
 from __future__ import annotations
@@ -19,35 +22,32 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PendingCommand:
-    """A remote-control request awaiting a response from the slave.
+    """等待从站响应的单条遥控请求状态。
 
-    Lifecycle::
-
-        create ─► send ACT ─► receive ACT_CON ─► receive ACT_TERM ─► complete
-                       │              │
-                       └── timeout ◄──┴── negative confirmation
+    生命周期为：发送 ACT → 收到 ACT_CON → 收到 ACT_TERM → 完成；
+    否定 ACT_CON 或上层超时会提前结束。
     """
 
     command: Command
-    """The originating command."""
+    """原始领域 Command。"""
 
     ioa: int
-    """Information object address."""
+    """目标 Information Object Address。"""
 
     future: asyncio.Future[CommandResult]
-    """Resolved when the command completes (success, failure, or timeout)."""
+    """命令成功、失败或超时时由上层完成的 Future。"""
 
     created_at: float = field(default_factory=time.monotonic)
-    """``time.monotonic()`` of when this pending was registered."""
+    """注册时的 monotonic 时间，用于超时语义。"""
 
     timeout: float = 30.0
-    """Maximum wait time in seconds for the full lifecycle."""
+    """完整遥控生命周期允许的最大等待时间，单位秒。"""
 
     activation_confirmed: bool = False
-    """``True`` once ACT_CON (COT=7, P/N=0) has been received."""
+    """收到正向 ACT_CON 后为 True。"""
 
     negative_confirmation: bool = False
-    """``True`` if ACT_CON arrived with P/N=1 (negative)."""
+    """ACT_CON 的 P/N 位表示否定确认时为 True。"""
 
     def _build_result(self, success: bool, error: str | None = None) -> CommandResult:
         return CommandResult(
@@ -58,24 +58,27 @@ class PendingCommand:
 
 
 class PendingCommandRegistry:
-    """Tracks in-flight remote-control requests.
+    """按 IOA 管理在途遥控请求。
 
-    Enforces the constraint that at most one request targets a given
-    IOA at any time.
+    同一 IOA 同时最多允许一个 PendingCommand；这是响应能够稳定关联到原始
+    Command 的前提。
     """
 
     def __init__(self) -> None:
         self._pending: dict[int, PendingCommand] = {}
 
     # ==================================================================
-    # registration
+    # 注册
     # ==================================================================
 
     def register(self, pending: PendingCommand) -> None:
-        """Register *pending* and fail if the IOA is already in use.
+        """注册一个在途命令。
+
+        Args:
+            pending: 待注册 PendingCommand。
 
         Raises:
-            CommandError: If *ioa* already has an active pending command.
+            CommandError: 同一 IOA 已存在未完成命令。
         """
         if pending.ioa in self._pending:
             existing = self._pending[pending.ioa]
@@ -92,7 +95,7 @@ class PendingCommandRegistry:
         )
 
     # ==================================================================
-    # lifecycle callbacks
+    # 协议生命周期回调
     # ==================================================================
 
     def on_activation_con(
@@ -100,16 +103,18 @@ class PendingCommandRegistry:
         ioa: int,
         negative: bool,
     ) -> PendingCommand | None:
-        """Handle an ACT_CON response.
+        """处理 ACT_CON。
 
         Args:
-            ioa: Information object address from the response.
-            negative: ``True`` if the P/N bit indicates a negative
-                confirmation.
+            ioa: 响应中的 IOA。
+            negative: P/N 位是否表示否定确认。
 
         Returns:
-            The matching ``PendingCommand``, or ``None`` if no
-            pending command targets *ioa*.
+            匹配的 PendingCommand；不存在匹配项时返回 None。
+
+        Notes:
+            否定确认会立即完成 Future 为失败；正向确认只标记
+            activation_confirmed，仍等待 ACT_TERM。
         """
         pending = self._pending.get(ioa)
         if pending is None:
@@ -126,7 +131,7 @@ class PendingCommandRegistry:
                 ioa,
                 pending.command.command_id,
             )
-            # Resolve the future immediately on negative confirmation.
+            # 否定确认已明确失败，无需继续等待 ACT_TERM。
             if not pending.future.done():
                 pending.future.set_result(
                     pending._build_result(
@@ -145,14 +150,16 @@ class PendingCommandRegistry:
         return pending
 
     def on_activation_term(self, ioa: int) -> PendingCommand | None:
-        """Handle an ACT_TERM response.
+        """处理 ACT_TERM 并完成命令生命周期。
 
-        Removes the pending command from the registry and resolves the
-        future as successful (provided it hasn't already been resolved
-        by a negative confirmation).
+        Args:
+            ioa: 响应中的 IOA。
 
         Returns:
-            The removed ``PendingCommand``, or ``None``.
+            被移除的 PendingCommand；不存在匹配项时返回 None。
+
+        Notes:
+            Future 尚未被否定确认完成时，将其置为成功。
         """
         pending = self._pending.pop(ioa, None)
         if pending is None:
@@ -173,17 +180,17 @@ class PendingCommandRegistry:
         return pending
 
     # ==================================================================
-    # cleanup
+    # 清理
     # ==================================================================
 
     def remove(self, ioa: int) -> None:
-        """Remove a pending command (e.g. on timeout or error)."""
+        """移除指定 IOA 的在途命令；用于超时或发送失败清理。"""
         self._pending.pop(ioa, None)
 
     def get(self, ioa: int) -> PendingCommand | None:
-        """Return the pending command for *ioa*, or ``None``."""
+        """返回指定 IOA 的在途命令；不存在时返回 None。"""
         return self._pending.get(ioa)
 
     def has_pending(self, ioa: int) -> bool:
-        """``True`` if *ioa* has an active pending command."""
+        """判断指定 IOA 是否存在在途命令。"""
         return ioa in self._pending

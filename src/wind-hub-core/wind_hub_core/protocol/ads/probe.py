@@ -1,8 +1,15 @@
-"""ADS 地址解析与可读性探测。
+"""ADS 地址解析与可读性主动探测。
 
-按变量名逐个调用 pyads get_symbol 获取 index_group/index_offset。pyads 当前
-公开 API 没有“多个 name 一次返回全部地址”的 Connection 方法，因此一次
-validation session 内只解析一次并缓存，不把 symbol lookup 放进周期采集。
+本模块属于 wind-hub-core 的协议验证边界，供 Server/Collector 在短生命周期
+validation session 中复用。它不参与周期采集、不维护长期 PLC 会话，也不修改
+配置文件。
+
+pyads 仅在实际使用 ADS 探测时延迟导入，因此未安装 ADS extra 的环境仍可导入
+wind-hub-core。pyads 没有稳定类型标注，第三方对象在本模块内部以 Any 隔离，
+不会进入公开验证模型。
+
+变量名解析通过 Connection.get_symbol 逐点执行，并在单个 ADSProbe 实例内缓存
+index_group/index_offset；验证读取始终使用解析后的 index 地址。
 """
 
 from __future__ import annotations
@@ -32,14 +39,32 @@ _TYPE_MAP = {
 
 
 def _pyads() -> Any:
-    """延迟导入 pyads，保持无 ADS 依赖环境仍可导入 core。"""
+    """延迟导入 pyads，并把未类型化第三方模块限制在适配边界内。
+
+    Returns:
+        pyads 模块对象。由于 pyads 未提供完整类型信息，此处使用 Any。
+
+    Raises:
+        ImportError: 运行 ADS 探测但环境未安装 pyads。
+    """
     import pyads  # type: ignore[import-untyped]
 
     return pyads
 
 
 def _plc_type(data_type: str) -> Any:
-    """将 Wind Hub 基础类型映射为 pyads PLCTYPE。"""
+    """把 Wind Hub 基础类型映射为 pyads PLCTYPE。
+
+    Args:
+        data_type: 点表声明的数据类型。
+
+    Returns:
+        pyads 对应的 ctypes PLC 类型；第三方类型边界以 Any 表达。
+
+    Raises:
+        ValueError: data_type 没有 ADS 类型映射。
+        ImportError: 环境未安装 pyads。
+    """
     ads_name = _TYPE_MAP.get(data_type.lower())
     if ads_name is None:
         raise ValueError(f"unsupported ADS data_type: {data_type}")
@@ -47,24 +72,42 @@ def _plc_type(data_type: str) -> Any:
 
 
 class ADSProbe:
-    """短生命周期 ADS 验证 session。
+    """短生命周期 ADS 主动验证会话。
 
-    connect/close 幂等；同一实例不会在连接仍有效时重复连接远端 PLC。
+    Args:
+        target: 待验证 PLC 的连接快照。
+
+    Notes:
+        connect 和 close 均幂等；同一实例不会在连接有效时重复创建远端 ADS
+        connection。解析缓存只在实例生命周期内有效，不作为采集运行时缓存。
     """
 
     def __init__(self, target: DeviceProbeTarget) -> None:
         self._target = target
+        # pyads Connection 无稳定类型声明，仅在本适配边界内部持有。
         self._connection: Any = None
         self._connected = False
         self._resolved: dict[str, AddressResolution] = {}
 
     @property
     def connected(self) -> bool:
-        """当前 session 是否已连接。"""
+        """当前验证会话是否已建立 ADS 连接。"""
         return self._connected
 
     async def connect(self) -> None:
-        """建立 ADS 连接；已连接时直接返回。"""
+        """建立 ADS 连接；已连接时直接返回。
+
+        Side Effects:
+            创建一个 pyads Connection，并设置连接超时。
+
+        Raises:
+            ImportError: 环境未安装 pyads。
+            ConnectionError: connection.open 返回后连接仍未处于 open 状态。
+            Exception: pyads 建连阶段的其他异常原样传播。
+
+        Notes:
+            建连失败时会先关闭临时 connection，避免残留本地 ADS 资源。
+        """
         if self._connected:
             return
         pyads = _pyads()
@@ -85,13 +128,14 @@ class ADSProbe:
                     f"ADS connection is not open: {self._target.device_id}"
                 )
         except Exception:
+            # connection 可能已经占用本地 ADS 资源；失败路径必须显式释放后再抛出。
             await asyncio.to_thread(connection.close)
             raise
         self._connection = connection
         self._connected = True
 
     async def close(self) -> None:
-        """关闭 ADS session。"""
+        """关闭 ADS 验证会话并释放 connection；重复调用安全。"""
         connection, self._connection = self._connection, None
         self._connected = False
         if connection is not None:
@@ -101,7 +145,21 @@ class ADSProbe:
         self,
         points: list[PointProbeSpec],
     ) -> dict[str, AddressResolution]:
-        """逐 symbol 解析 index 地址，并在本 session 内缓存。"""
+        """解析点位 ADS 地址，并在当前会话内缓存结果。
+
+        Args:
+            points: 待解析的点探测定义。含 symbol 时从 PLC 查询；仅含
+                index_group/index_offset 时直接使用配置地址。
+
+        Returns:
+            以 point_id 为键的地址解析结果。
+
+        Raises:
+            ConnectionError: 当前 ADSProbe 尚未连接。
+            ValueError: 点既没有 symbol，也没有完整 index 地址，或 PLC 返回
+                非法 index_group/index_offset。
+            Exception: pyads get_symbol 的协议异常原样传播。
+        """
         if not self._connected:
             raise ConnectionError("ADS probe is not connected")
 
@@ -160,7 +218,22 @@ class ADSProbe:
         points: list[PointProbeSpec],
         resolutions: dict[str, AddressResolution],
     ) -> set[str]:
-        """按解析后的 index 地址逐点验证可读性。"""
+        """按解析后的 index 地址验证点位可读性。
+
+        Args:
+            points: 待验证点定义。
+            resolutions: 对应 point_id 的地址解析结果。
+
+        Returns:
+            成功完成一次 ADS read 的 point_id 集合。
+
+        Raises:
+            ConnectionError: 当前 ADSProbe 尚未连接。
+
+        Notes:
+            单点读取失败不会终止整批验证；失败点不进入返回集合，由上层生成
+            POINT_READ_FAILED 等分层验证结果。
+        """
         if not self._connected:
             raise ConnectionError("ADS probe is not connected")
 
@@ -181,6 +254,7 @@ class ADSProbe:
                     _plc_type(point.data_type),
                 )
             except Exception:
+                # 主动验证需要收集全部点的结果；单点协议失败由上层统一分类。
                 continue
             readable.add(point.point_id)
         return readable
