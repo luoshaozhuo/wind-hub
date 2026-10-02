@@ -6,8 +6,8 @@
 Protocol / Device / Sink -> AcquisitionEngine -> Runtime
                            -> TaskUseCase / CommandUseCase / QueryUseCase / ConfigUseCase
 
-Admin、Overview、Quality、Diagnostics、Web API、长期日志与 System Health
-均不属于 Collector 组合根；运行时配置 reload 属于 Collector 核心控制面。
+Admin、Overview、Quality、Web API、长期日志与 System Health 不属于 Collector
+组合根；按需 Diagnostics 与运行时配置 reload 属于 Collector 核心控制面。
 """
 
 from __future__ import annotations
