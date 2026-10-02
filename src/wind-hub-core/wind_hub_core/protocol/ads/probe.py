@@ -214,6 +214,38 @@ class ADSProbe:
             result[point.point_id] = resolved
         return result
 
+    async def read_value(
+        self,
+        point: PointProbeSpec,
+        resolution: AddressResolution,
+    ) -> object:
+        """按指定解析地址读取一个 ADS 原始值。
+
+        Args:
+            point: 点定义，用于确定 PLC 数据类型。
+            resolution: 当前 probe session 内解析得到的 index 地址。
+
+        Returns:
+            PLC 原始值。
+
+        Raises:
+            ConnectionError: 当前 probe 尚未连接。
+            ValueError: resolution 缺少完整 index 地址。
+            Exception: pyads read 异常原样传播。
+        """
+        if not self._connected:
+            raise ConnectionError("ADS probe is not connected")
+        if resolution.index_group is None or resolution.index_offset is None:
+            raise ValueError(
+                f"ADS point '{point.point_id}' has no resolved index address"
+            )
+        return await asyncio.to_thread(
+            self._connection.read,
+            resolution.index_group,
+            resolution.index_offset,
+            _plc_type(point.data_type),
+        )
+
     async def verify_read(
         self,
         points: list[PointProbeSpec],
