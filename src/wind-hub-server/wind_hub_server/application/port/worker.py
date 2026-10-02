@@ -11,6 +11,8 @@ from wind_hub_core.model.point import PointValue
 class CommanderPort(Protocol):
     """即时设备操作端口。"""
 
+    async def status(self) -> dict[str, Any]: ...
+
     async def reload_config(self) -> dict[str, Any]: ...
 
     async def prepare_config(self, revision_id: str, config_hash: str) -> dict[str, Any]: ...
@@ -42,6 +44,8 @@ class CommanderPort(Protocol):
 
 class CollectorPort(Protocol):
     """Collector 低频运行控制与状态查询端口。"""
+
+    async def config_status(self) -> dict[str, Any]: ...
 
     async def runtime_status(self) -> dict[str, Any]: ...
 

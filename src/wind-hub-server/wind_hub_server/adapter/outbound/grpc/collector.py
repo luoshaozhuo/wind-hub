@@ -6,6 +6,7 @@ from typing import Any
 
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
+    GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
     GET_METRICS_SNAPSHOT,
     LIST_DEVICES,
@@ -35,6 +36,9 @@ from wind_hub_server.adapter.outbound.grpc.common import (
 
 class CollectorGrpcClient(GrpcClientBase):
     """通过 gRPC 查询和控制独立 Collector。"""
+
+    async def config_status(self) -> dict[str, Any]:
+        return await self._empty(RUNTIME_SERVICE, GET_COLLECTOR_INFO)
 
     async def runtime_status(self) -> dict[str, Any]:
         return await self._empty(RUNTIME_SERVICE, GET_RUNTIME_STATUS)

@@ -219,11 +219,24 @@ class ConfigUseCase:
             strict=True,
         ):
             if isinstance(result, BaseException):
-                errors.append(
-                    f"{name} activate failed: {str(result) or type(result).__name__}"
+                confirmed, confirm_error = await self._confirm_active_revision(
+                    name,
+                    revision_id,
                 )
-                activate_ok.append(False)
+                activate_ok.append(confirmed)
+                if not confirmed:
+                    detail = str(result) or type(result).__name__
+                    if confirm_error is None:
+                        errors.append(
+                            f"{name} activate failed after RPC error: {detail}"
+                        )
+                    else:
+                        errors.append(
+                            f"{name} activate outcome unknown after RPC error: "
+                            f"{detail}; status check failed: {confirm_error}"
+                        )
                 continue
+
             success = bool(result.get("success"))
             activate_ok.append(success)
             if not success:
@@ -244,6 +257,25 @@ class ConfigUseCase:
             errors=errors,
             duration_ms=(time.monotonic() - started) * 1000,
         )
+
+    async def _confirm_active_revision(
+        self,
+        worker: str,
+        revision_id: str,
+    ) -> tuple[bool, str | None]:
+        """RPC 异常后回查 Worker active_revision，区分失败与结果未知。"""
+        try:
+            if worker == "collector":
+                status = await self._collector.config_status()
+            elif worker == "commander":
+                status = await self._commander.status()
+            else:
+                raise ValueError(f"unknown worker: {worker}")
+        except Exception as exc:
+            return False, str(exc) or type(exc).__name__
+
+        active_revision = str(status.get("active_revision") or "")
+        return active_revision == revision_id, None
 
 
 __all__ = ["Config", "ConfigUseCase", "compute_diff"]
