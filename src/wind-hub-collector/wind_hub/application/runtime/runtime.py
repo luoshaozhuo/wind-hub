@@ -394,6 +394,7 @@ class Runtime:
         )
         self._acquisition_handles[instance_id] = handle
         self._instance_states[instance_id] = TaskInstanceState.RUNNING
+        self._restart_pending.discard(instance_id)
 
     async def stop_task_instance(self, instance_id: str) -> None:
         """停止单个 Task Instance 的持续采集（关闭采集句柄）。
