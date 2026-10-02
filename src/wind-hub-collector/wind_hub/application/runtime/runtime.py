@@ -874,20 +874,23 @@ class Runtime:
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
     async def rebuild_sink(self, sink_name: str, new_cfg: SinkConfig, new_sink: SinkPort) -> None:
-        """重建 sink——停旧消费者、换入新实例、启动新消费者。
+        """重建 sink——先打开新实例，成功后再切换旧实例。
 
-        既有队列保留，避免在途数据丢失。
+        既有队列保留，避免在途数据丢失。新 sink 打开失败时旧 sink 与消费者
+        完全保持不变，使 reload 可以安全重试。
 
         Raises:
             Exception: 新 sink 的 ``open()`` 失败原样上抛。
         """
+        await new_sink.open()
+
         task = self._sink_tasks.pop(sink_name, None)
         if task is not None:
             task.cancel()
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
 
-        old_sink = self._sinks.pop(sink_name, None)
+        old_sink = self._sinks.get(sink_name)
         if old_sink is not None:
             try:
                 await old_sink.flush()
@@ -907,7 +910,7 @@ class Runtime:
                 )
 
         self._sinks[sink_name] = new_sink
-        await new_sink.open()
+        self._unhealthy_sinks.discard(sink_name)
         logger.info("Hot-reload: sink '%s' re-opened", sink_name)
 
         if self._running:
