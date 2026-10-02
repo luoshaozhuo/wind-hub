@@ -29,7 +29,10 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
-from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.worker_registry import (
+    COLLECTOR_WORKER_ID,
+    WorkerRegistryUseCase,
+)
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
@@ -79,7 +82,10 @@ def assemble_server(
         collector_endpoint=collector_target,
         commander_endpoint=commander_target,
     )
-    worker_tasks = CollectorTaskUseCase(collector_client)
+    worker_tasks = CollectorTaskUseCase(
+        collector_client,
+        worker_id=COLLECTOR_WORKER_ID,
+    )
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
         config,

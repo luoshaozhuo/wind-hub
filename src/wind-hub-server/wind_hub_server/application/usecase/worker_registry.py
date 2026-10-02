@@ -31,12 +31,30 @@ class WorkerState(StrEnum):
     OFFLINE = "offline"
 
 
+class WorkerCapability(StrEnum):
+    """Server 可委托给 Worker 的控制面能力。"""
+
+    CONFIG = "config"
+    TASK_RUNTIME = "task_runtime"
+    ACQUISITION_STATUS = "acquisition_status"
+    SINK = "sink"
+    METRICS = "metrics"
+    DEVICE_IO = "device_io"
+    DIAGNOSTICS = "diagnostics"
+
+
+COLLECTOR_WORKER_ID = "collector"
+COMMANDER_WORKER_ID = "commander"
+
+
 class WorkerRecord(BaseModel):
     """单个 Worker 的控制面状态快照。"""
 
     worker_id: str
     role: WorkerRole
     endpoint: str
+    capabilities: list[WorkerCapability]
+    reported_id: str | None = None
     state: WorkerState = WorkerState.UNKNOWN
     last_probe_at: datetime | None = None
     last_seen_at: datetime | None = None
@@ -62,15 +80,27 @@ class WorkerRegistryUseCase:
         self._commander = commander
         self._lock = asyncio.Lock()
         self._records: dict[str, WorkerRecord] = {
-            "collector": WorkerRecord(
-                worker_id="collector",
+            COLLECTOR_WORKER_ID: WorkerRecord(
+                worker_id=COLLECTOR_WORKER_ID,
                 role=WorkerRole.COLLECTOR,
                 endpoint=collector_endpoint,
+                capabilities=[
+                    WorkerCapability.CONFIG,
+                    WorkerCapability.TASK_RUNTIME,
+                    WorkerCapability.ACQUISITION_STATUS,
+                    WorkerCapability.SINK,
+                    WorkerCapability.METRICS,
+                ],
             ),
-            "commander": WorkerRecord(
-                worker_id="commander",
+            COMMANDER_WORKER_ID: WorkerRecord(
+                worker_id=COMMANDER_WORKER_ID,
                 role=WorkerRole.COMMANDER,
                 endpoint=commander_endpoint,
+                capabilities=[
+                    WorkerCapability.CONFIG,
+                    WorkerCapability.DEVICE_IO,
+                    WorkerCapability.DIAGNOSTICS,
+                ],
             ),
         }
 
@@ -81,8 +111,8 @@ class WorkerRegistryUseCase:
             self._probe_commander(),
         )
         async with self._lock:
-            self._records["collector"] = collector_result
-            self._records["commander"] = commander_result
+            self._records[COLLECTOR_WORKER_ID] = collector_result
+            self._records[COMMANDER_WORKER_ID] = commander_result
             return self._snapshot_unlocked()
 
     async def list_workers(self) -> list[WorkerRecord]:
@@ -101,7 +131,7 @@ class WorkerRegistryUseCase:
     async def _probe_collector(self) -> WorkerRecord:
         """读取 Collector 身份/配置状态；RPC 失败只更新 Registry 状态。"""
         now = datetime.now(UTC)
-        previous = self._records["collector"]
+        previous = self._records[COLLECTOR_WORKER_ID]
         try:
             status = await self._collector.config_status()
         except Exception as exc:
@@ -110,6 +140,8 @@ class WorkerRegistryUseCase:
             worker_id=previous.worker_id,
             role=previous.role,
             endpoint=previous.endpoint,
+            capabilities=list(previous.capabilities),
+            reported_id=_optional_text(status.get("collector_id")),
             state=WorkerState.ONLINE,
             last_probe_at=now,
             last_seen_at=now,
@@ -123,7 +155,7 @@ class WorkerRegistryUseCase:
     async def _probe_commander(self) -> WorkerRecord:
         """读取 Commander 运行/配置状态；RPC 失败只更新 Registry 状态。"""
         now = datetime.now(UTC)
-        previous = self._records["commander"]
+        previous = self._records[COMMANDER_WORKER_ID]
         try:
             status = await self._commander.status()
         except Exception as exc:
@@ -132,6 +164,8 @@ class WorkerRegistryUseCase:
             worker_id=previous.worker_id,
             role=previous.role,
             endpoint=previous.endpoint,
+            capabilities=list(previous.capabilities),
+            reported_id=previous.reported_id,
             state=WorkerState.ONLINE,
             last_probe_at=now,
             last_seen_at=now,
@@ -162,8 +196,8 @@ class WorkerRegistryUseCase:
     def _snapshot_unlocked(self) -> list[WorkerRecord]:
         """在锁内复制 Registry 快照。"""
         return [
-            self._records["collector"].model_copy(deep=True),
-            self._records["commander"].model_copy(deep=True),
+            self._records[COLLECTOR_WORKER_ID].model_copy(deep=True),
+            self._records[COMMANDER_WORKER_ID].model_copy(deep=True),
         ]
 
 

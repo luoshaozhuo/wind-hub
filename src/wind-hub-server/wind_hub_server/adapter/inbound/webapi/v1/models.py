@@ -51,6 +51,7 @@ class TaskResponse(BaseModel):
     """Task Definition 与实例聚合运行状态 DTO。"""
 
     task_id: str
+    assigned_worker_id: str
     device: str | None = None
     device_group: str | None = None
     point_group: str
@@ -75,6 +76,7 @@ class TaskInstanceResponse(BaseModel):
     """指定 Task 展开的实例 DTO。"""
 
     instance_id: str
+    assigned_worker_id: str
     task_id: str
     device_id: str
     point_group: str
@@ -89,6 +91,8 @@ class WorkerResponse(BaseModel):
     worker_id: str
     role: str
     endpoint: str
+    capabilities: list[str]
+    reported_id: str | None = None
     state: str
     last_probe_at: datetime | None = None
     last_seen_at: datetime | None = None
