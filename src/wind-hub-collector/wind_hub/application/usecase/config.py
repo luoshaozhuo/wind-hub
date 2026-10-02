@@ -190,6 +190,11 @@ class ConfigUseCase:
         """返回当前已准备但尚未激活的配置版本。"""
         return self._prepared_revision
 
+    @property
+    def prepared_hash(self) -> str | None:
+        """返回当前已准备配置的指纹。"""
+        return self._prepared_hash
+
     async def prepare_config(
         self,
         revision_id: str,
@@ -206,8 +211,14 @@ class ConfigUseCase:
             )
 
         try:
+            before_hash = fingerprint_config_set(self._config_dir)
             candidate = load_config(self._config_dir)
             candidate_hash = fingerprint_config_set(self._config_dir)
+            if before_hash != candidate_hash:
+                raise ValueError(
+                    "config changed while preparing: "
+                    f"before={before_hash} after={candidate_hash}"
+                )
             if (
                 expected_config_hash is not None
                 and candidate_hash != expected_config_hash

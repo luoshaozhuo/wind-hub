@@ -117,8 +117,14 @@ class CommanderService:
         try:
             revision_id = _required_string(data, "revision_id")
             expected_hash = _required_string(data, "config_hash")
+            before_hash = fingerprint_config_set(self._app.config_dir)
             candidate = load_commander_config(self._app.config_dir)
             actual_hash = fingerprint_config_set(self._app.config_dir)
+            if before_hash != actual_hash:
+                raise ValueError(
+                    "config changed while preparing: "
+                    f"before={before_hash} after={actual_hash}"
+                )
             if actual_hash != expected_hash:
                 raise ValueError(
                     "config hash mismatch: "

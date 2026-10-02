@@ -136,7 +136,14 @@ class ConfigUseCase:
         """在配置事务锁内执行一次完整 prepare/activate。"""
         started = time.monotonic()
         try:
+            before_hash = fingerprint_config_set(self._config_dir)
             candidate = self.load_disk()
+            config_hash = fingerprint_config_set(self._config_dir)
+            if before_hash != config_hash:
+                raise ValueError(
+                    "config changed while loading candidate: "
+                    f"before={before_hash} after={config_hash}"
+                )
         except Exception as exc:
             return ReloadResult(
                 success=False,
@@ -154,7 +161,6 @@ class ConfigUseCase:
             )
 
         revision_id = uuid4().hex
-        config_hash = fingerprint_config_set(self._config_dir)
 
         prepared = await asyncio.gather(
             self._collector.prepare_config(revision_id, config_hash),

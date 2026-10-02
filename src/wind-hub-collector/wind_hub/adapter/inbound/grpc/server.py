@@ -482,7 +482,7 @@ class CollectorControlService:
             raise AssertionError("context.abort must terminate the RPC") from exc
         payload = result.model_dump(mode="json")
         payload["revision_id"] = revision_id
-        payload["config_hash"] = self._runtime.config._prepared_hash
+        payload["config_hash"] = self._runtime.config.prepared_hash
         return _struct(payload)
 
     async def activate_config(
