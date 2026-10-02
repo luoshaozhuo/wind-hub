@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.ads.config import from_device_config
+from wind_hub_core.protocol.ads.config import from_device_config
 from wind_hub_core.config.schema import DeviceConfig, Endpoint
 from wind_hub_core.model.errors import ConfigError
 

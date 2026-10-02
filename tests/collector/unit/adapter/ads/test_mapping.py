@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.ads.mapping import (
+from wind_hub_core.protocol.ads.mapping import (
     ADSPoint,
     map_data_type,
     parse_point,

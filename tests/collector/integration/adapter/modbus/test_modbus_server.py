@@ -16,7 +16,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.modbus.driver import ModbusDriver
+from wind_hub_core.protocol.modbus.driver import ModbusDriver
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointRef, Quality

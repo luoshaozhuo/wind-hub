@@ -1,5 +1,0 @@
-"""兼容导入层；Modbus driver 实现已迁入 wind-hub-core。"""
-
-from wind_hub_core.protocol.modbus.driver import ModbusDriver
-
-__all__ = ["ModbusDriver"]

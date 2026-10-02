@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.modbus.mapping import (
+from wind_hub_core.protocol.modbus.mapping import (
     ModbusPoint,
     group_consecutive_reads,
     parse_point,

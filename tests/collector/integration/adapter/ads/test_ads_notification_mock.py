@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pyads  # noqa: F401 — real module, only ``Connection`` is patched
 import pytest
 
-from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
+from wind_hub_core.protocol.ads.driver import ADSDriver
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.point import PointRef, PointValue
 

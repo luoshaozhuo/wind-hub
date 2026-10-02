@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
+from wind_hub_core.protocol.ads.driver import ADSDriver
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ConfigError, ProtocolError
@@ -564,7 +564,7 @@ class TestSubscribe:
 
 import logging  # noqa: E402
 
-import wind_hub.adapter.outbound.protocol.ads.driver as ads_driver_module  # noqa: E402
+import wind_hub_core.protocol.ads.driver as ads_driver_module  # noqa: E402
 
 
 class TestReconnectLogging:

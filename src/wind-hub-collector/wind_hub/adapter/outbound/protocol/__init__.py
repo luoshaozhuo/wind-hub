@@ -1,5 +1,8 @@
-"""兼容导入层；设备协议 Driver 的唯一实现位于 wind-hub-core。"""
+"""Collector 旧 outbound protocol 包。
 
-from wind_hub_core.protocol import ADSDriver, IEC104Driver, ModbusDriver
+IEC104 兼容入口将在后续协议收敛阶段移除；ADS 与 Modbus 已直接使用 wind-hub-core。
+"""
 
-__all__ = ["ADSDriver", "IEC104Driver", "ModbusDriver"]
+from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
+
+__all__ = ["IEC104Driver"]

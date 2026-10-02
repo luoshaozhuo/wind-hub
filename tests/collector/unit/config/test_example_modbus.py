@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.modbus.mapping import parse_point
+from wind_hub_core.protocol.modbus.mapping import parse_point
 from wind_hub_core.config.loader import load_config
 
 SITE_DIR = Path(__file__).resolve().parents[3] / "configs" / "example_modbus"

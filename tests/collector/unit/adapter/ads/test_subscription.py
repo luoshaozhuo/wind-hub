@@ -13,9 +13,9 @@ from datetime import datetime
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig
-from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint
-from wind_hub.adapter.outbound.protocol.ads.subscription import ADSSubscription
+from wind_hub_core.protocol.ads.config import ADSConfig
+from wind_hub_core.protocol.ads.mapping import ADSPoint
+from wind_hub_core.protocol.ads.subscription import ADSSubscription
 from wind_hub_core.model.point import PointValue
 
 
