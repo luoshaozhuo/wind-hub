@@ -18,10 +18,11 @@
 # - Modbus: `type` + `address`，如 type: holding_register / address: 30001
 #   （type 取值 coil / discrete_input / holding / input 及其别名；
 #    address 为 0-based 寄存器/线圈偏移）
-# - ADS（Symbol 优先）：
-#     symbol: MAIN.rotorSpeed               # 推荐：仅 Symbol 寻址
-#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset 成对
-#     index_offset: 0x1234                  #   出现（只写一个是配置错误）
+# - ADS（运行期统一使用 index 地址）：
+#     symbol: MAIN.rotorSpeed               # 可用于地址解析与展示
+#     index_group: 0x4020                   # 可直接配置，必须与 index_offset 成对
+#     index_offset: 0x1234                  # 出现（只写一个是配置错误）
+#   symbol 与 index 可同时配置；正式 read/write/sum/notification 均使用 index 地址。
 #   read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位配置 symbol。
 # - IEC104: `type` + `ioa`，如 type: measured_value / ioa: 1001
 
