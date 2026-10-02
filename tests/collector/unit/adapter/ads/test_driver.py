@@ -31,8 +31,8 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
 def _make_point_config(
     point_id: str,
     data_type: str = "float32",
-    index_group: int = 0x4020,
-    index_offset: int = 0,
+    index_group: int | None = 0x4020,
+    index_offset: int | None = 0,
     **extra: object,
 ) -> PointConfig:
     return PointConfig(
