@@ -1,12 +1,13 @@
 [tool.poetry]
 name = "wind-hub-core"
 version = "0.1.0"
-description = "Wind Hub shared RPC and validation contracts"
+description = "Wind Hub shared domain, configuration, protocol and validation core"
 authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 packages = [{ include = "wind_hub_core" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+pydantic = "^2.0"
 pyads = { version = "^3.4", optional = true }
 
 [tool.poetry.extras]

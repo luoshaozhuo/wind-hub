@@ -23,7 +23,7 @@ from typing import Any
 
 from wind_hub.adapter.outbound.protocol.ads.config import ADSConfig
 from wind_hub.adapter.outbound.protocol.ads.mapping import ADSPoint
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.point import PointValue, Quality
 
 
 def _pyads() -> Any:

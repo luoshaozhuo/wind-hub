@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from wind_hub.config.schema import PointAddress, PointConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import PointAddress, PointConfig
+from wind_hub_core.model.errors import ConfigError
 
 # register_type 的规范名称及兼容别名。
 _REGISTER_TYPE_ALIASES: dict[str, str] = {

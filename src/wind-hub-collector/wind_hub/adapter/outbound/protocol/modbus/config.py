@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from wind_hub.config.schema import DeviceConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_core.model.errors import ConfigError
 
 
 @dataclass(frozen=True)

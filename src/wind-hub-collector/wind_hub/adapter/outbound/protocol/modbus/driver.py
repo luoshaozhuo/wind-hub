@@ -25,13 +25,13 @@ from wind_hub.adapter.outbound.protocol.modbus.mapping import (
     group_consecutive_reads,
     parse_point,
 )
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.errors import CommandError, ProtocolError
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.errors import CommandError, ProtocolError
+from wind_hub_core.model.point import PointRef, PointValue, Quality
+from wind_hub_core.model.health import HealthStatus
 from wind_hub.domain.port.outbound import (
     AcquisitionMode,
-    HealthStatus,
     ProtocolPort,
     SubscriptionHandle,
 )
