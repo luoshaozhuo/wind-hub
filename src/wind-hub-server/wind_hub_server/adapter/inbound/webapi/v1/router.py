@@ -81,10 +81,10 @@ from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import HealthRange, SystemHealthUseCase
-from wind_hub.application.usecase.task import (
+from wind_hub_server.application.usecase.worker_tasks import (
+    CollectorTaskUseCase,
     TaskInstanceDetail,
     TaskSummary,
-    TaskUseCase,
 )
 
 T = TypeVar("T")
@@ -179,7 +179,7 @@ def _system_health() -> SystemHealthUseCase:
     return ctx.system_health
 
 
-def _tasks() -> TaskUseCase:
+def _tasks() -> CollectorTaskUseCase:
     """返回 TaskUseCase；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.tasks is None:
@@ -721,7 +721,7 @@ async def diagnostic_protocol_write(
 async def get_quality(
     window: QualityWindow = Query("24h"),
 ) -> QualityResponse:
-    snapshot = _quality().snapshot(window)
+    snapshot = await _quality().snapshot(window)
     return QualityResponse(**snapshot.model_dump())
 
 

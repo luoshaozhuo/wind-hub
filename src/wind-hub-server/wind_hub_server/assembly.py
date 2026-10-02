@@ -126,11 +126,10 @@ def assemble_server(
         operations,
     )
     monitoring = MonitoringService(
-        collector.runtime,
+        collector_client,
         monitoring_metrics,
     )
     quality = QualityUseCase(
-        collector.runtime,
         config,
         monitoring_metrics,
         monitoring,
