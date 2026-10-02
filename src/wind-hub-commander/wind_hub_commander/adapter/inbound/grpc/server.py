@@ -122,10 +122,10 @@ class CommanderService:
             point_ids = data.get("point_ids")
             if not isinstance(point_ids, list) or not point_ids:
                 raise ValueError("'point_ids' must be a non-empty list")
-            values = [
-                await self._app.read.read_point(device_id, str(point_id))
-                for point_id in point_ids
-            ]
+            values = await self._app.read.read_points(
+                device_id,
+                [str(point_id) for point_id in point_ids],
+            )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc

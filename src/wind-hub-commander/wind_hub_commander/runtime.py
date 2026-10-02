@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 
 from wind_hub_commander.config import CommanderConfig
 from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.protocol import protocol_registry
+
+logger = logging.getLogger(__name__)
 
 
 class CommanderRuntime:
@@ -39,7 +42,13 @@ class CommanderRuntime:
             return
         from wind_hub_core.protocol.ads import router as ads_router
 
-        await ads_router.ensure_local_initialized(self.config.ads)
+        try:
+            await ads_router.ensure_local_initialized(self.config.ads)
+        except Exception:
+            logger.warning(
+                "Commander ADS 本机初始化失败；ADS 操作将保持不可用，其他协议继续服务",
+                exc_info=True,
+            )
 
     async def stop(self) -> None:
         """并发关闭全部设备会话；单设备关闭失败不阻断其余资源释放。"""

@@ -8,6 +8,7 @@ license = "MIT"
 packages = [
     { include = "wind_hub", from = "src/wind-hub-collector" },
     { include = "wind_hub_server", from = "src/wind-hub-server" },
+    { include = "wind_hub_commander", from = "src/wind-hub-commander" },
     { include = "wind_hub_core", from = "src/wind-hub-core" },
     { include = "wind_hub_ctl", from = "src/wind-hub-ctl" },
 ]
@@ -52,6 +53,7 @@ import-linter = "^2.0"
 wind-hub-collector = "wind_hub.main:main"
 wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
+wind-hub-commander = "wind_hub_commander.main:main"
 
 [tool.ruff]
 line-length = 100

@@ -21,6 +21,7 @@ from wind_hub_core.config.schema import (
     DevicesConfig,
     PointTablesConfig,
     ResolvedPointTables,
+    PointConfig,
 )
 from wind_hub_core.model.errors import ConfigError
 
@@ -35,7 +36,7 @@ class CommanderConfig:
     connect_timeout: float = 10.0
     write_timeout: float = 5.0
 
-    def points_for_device(self, device_id: str):
+    def points_for_device(self, device_id: str) -> list[PointConfig]:
         """返回设备绑定点表的浅拷贝。"""
         device = next(d for d in self.devices.devices if d.device_id == device_id)
         return list(self.point_tables.tables[device.point_table].points)
