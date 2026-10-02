@@ -141,7 +141,7 @@ def assemble(
     )
 
     tasks = TaskUseCase(runtime)
-    command = CommandUseCase(dispatcher)
+    command = CommandUseCase(dispatcher, runtime)
     query = QueryUseCase(runtime)
     diagnostic = DiagnosticUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
