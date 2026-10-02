@@ -8,6 +8,7 @@ CommandDispatcher 保证（见其 docstring）。
 from __future__ import annotations
 
 from wind_hub.application.command_dispatcher import CommandDispatcher
+from wind_hub.application.runtime.runtime import Runtime
 from wind_hub.domain.model.command import Command, CommandResult
 
 
@@ -20,8 +21,9 @@ class CommandUseCase:
     而非抛异常。
     """
 
-    def __init__(self, dispatcher: CommandDispatcher) -> None:
+    def __init__(self, dispatcher: CommandDispatcher, runtime: Runtime) -> None:
         self._dispatcher = dispatcher
+        self._runtime = runtime
 
     async def send(self, cmd: Command) -> CommandResult:
         """下发单条指令并等待执行结果。
@@ -32,6 +34,12 @@ class CommandUseCase:
         Returns:
             CommandResult；协议失败、未知设备和超时均由 Dispatcher 收敛为失败结果。
         """
+        if not await self._runtime.ensure_connected(cmd.device_id, force=True):
+            return CommandResult(
+                command_id=cmd.command_id,
+                success=False,
+                error=f"device '{cmd.device_id}' is not connected",
+            )
         return await self._dispatcher.send(cmd)
 
     async def send_batch(self, cmds: list[Command]) -> list[CommandResult]:
@@ -43,4 +51,4 @@ class CommandUseCase:
         Returns:
             与输入顺序一致的 CommandResult 列表；单条失败不取消同批其他命令。
         """
-        return await self._dispatcher.send_batch(cmds)
+        return [result for result in await __import__("asyncio").gather(*(self.send(cmd) for cmd in cmds))]
