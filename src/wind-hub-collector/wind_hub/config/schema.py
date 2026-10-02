@@ -42,6 +42,9 @@ class RuntimeConfig(BaseModel):
     connect_timeout: float = 10.0
     """单设备连接超时，单位秒。"""
 
+    connect_concurrency: int = 32
+    """Runtime 启动时并发连接设备的上限；避免大量离线设备串行放大启动耗时。"""
+
     read_timeout: float = 5.0
     """单次批量读的应用层兜底超时，单位秒；协议 Driver 内部仍保留底层超时。"""
 
@@ -56,6 +59,8 @@ class RuntimeConfig(BaseModel):
                 f"Invalid backpressure_policy '{self.backpressure_policy}'; "
                 f"must be one of {sorted(allowed)}"
             )
+        if self.connect_concurrency <= 0:
+            raise ConfigError("connect_concurrency must be > 0")
         return self
 
 
