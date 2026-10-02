@@ -140,7 +140,7 @@ class TestParsePoint:
         assert ap.data_type == "REAL"
 
     def test_symbol_with_index_pair_is_valid(self) -> None:
-        """symbol 与 index 同时存在合法；两者都保留（读写时 symbol 优先）。"""
+        """symbol 与 index 同时存在合法；运行期读写使用 index 地址。"""
         ap = parse_point(_point("s", "float32", symbol="MAIN.speed"))
         assert ap.symbol == "MAIN.speed"
         assert ap.index_group == 0x4020
