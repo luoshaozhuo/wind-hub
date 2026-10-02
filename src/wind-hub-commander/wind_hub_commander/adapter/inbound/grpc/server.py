@@ -25,6 +25,8 @@ from wind_hub_core.rpc.commander import (
     COMMANDER_SERVICE,
     GET_STATUS,
     LIST_DEVICES,
+    ACTIVATE_CONFIG,
+    PREPARE_CONFIG,
     READ_POINT,
     READ_POINTS,
     RELOAD_CONFIG,
@@ -80,6 +82,8 @@ class CommanderService:
                 "running": True,
                 "device_count": len(self._app.runtime.devices),
                 "healthy_devices": healthy,
+                "active_revision": self._app.runtime.active_revision,
+                "prepared_revision": self._app.runtime.prepared_revision,
             }
         )
 
@@ -102,21 +106,72 @@ class CommanderService:
         ]
         return _struct({"devices": rows})
 
+    async def prepare_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """加载本地候选配置并构造 prepared generation，不切换当前运行配置。"""
+        data = _request_dict(request)
+        try:
+            revision_id = _required_string(data, "revision_id")
+            candidate = load_commander_config(self._app.config_dir)
+            await self._app.runtime.prepare_config(revision_id, candidate)
+        except Exception as exc:
+            await _abort(context, exc)
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(
+            {
+                "success": True,
+                "revision_id": revision_id,
+            }
+        )
+
+    async def activate_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """激活指定 prepared revision。"""
+        data = _request_dict(request)
+        try:
+            revision_id = _required_string(data, "revision_id")
+            await self._app.runtime.activate_config(revision_id)
+            self._app.config = self._app.runtime.config
+        except Exception as exc:
+            await _abort(context, exc)
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(
+            {
+                "success": True,
+                "revision_id": revision_id,
+            }
+        )
+
     async def reload_config(
         self,
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """从 Commander 本地配置目录加载并切换设备会话。"""
+        """兼容入口：本地加载后按 prepare → activate 完成切换。"""
         del request
+        revision_id = uuid4().hex
         try:
             candidate = load_commander_config(self._app.config_dir)
-            await self._app.runtime.reload(candidate)
-            self._app.config = candidate
+            await self._app.runtime.reload(
+                candidate,
+                revision_id=revision_id,
+            )
+            self._app.config = self._app.runtime.config
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct({"success": True})
+        return _struct(
+            {
+                "success": True,
+                "revision_id": revision_id,
+            }
+        )
 
     async def read_point(
         self,
@@ -295,6 +350,16 @@ def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
         RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
             service.reload_config,
             request_deserializer=empty_pb2.Empty.FromString,
+            response_serializer=struct_pb2.Struct.SerializeToString,
+        ),
+        PREPARE_CONFIG: grpc.unary_unary_rpc_method_handler(
+            service.prepare_config,
+            request_deserializer=struct_pb2.Struct.FromString,
+            response_serializer=struct_pb2.Struct.SerializeToString,
+        ),
+        ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
+            service.activate_config,
+            request_deserializer=struct_pb2.Struct.FromString,
             response_serializer=struct_pb2.Struct.SerializeToString,
         ),
         READ_POINT: grpc.unary_unary_rpc_method_handler(

@@ -45,6 +45,9 @@ class CommanderRuntime:
             default=None,
         )
         self._current = self._build_generation(config)
+        self._active_revision = "startup"
+        self._prepared_revision: str | None = None
+        self._prepared_generation: _Generation | None = None
         # 保持原有 devices 映射对象引用稳定，供状态查询等只读代码使用。
         self.devices: dict[str, DeviceSession] = {}
         self.devices.update(self._current.devices)
@@ -53,6 +56,16 @@ class CommanderRuntime:
     def config(self) -> CommanderConfig:
         """返回当前激活配置。"""
         return self._current.config
+
+    @property
+    def active_revision(self) -> str:
+        """返回当前激活配置版本标识。"""
+        return self._active_revision
+
+    @property
+    def prepared_revision(self) -> str | None:
+        """返回当前已准备但尚未激活的配置版本。"""
+        return self._prepared_revision
 
     def _build_generation(self, config: CommanderConfig) -> _Generation:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
@@ -97,19 +110,57 @@ class CommanderRuntime:
         """返回当前操作固定的 generation，否则返回最新 generation。"""
         return self._operation_generation.get() or self._current
 
-    async def reload(self, config: CommanderConfig) -> None:
-        """原子切换新 generation，并在旧操作排空后关闭旧会话。"""
-        new_generation = self._build_generation(config)
-
+    async def prepare_config(
+        self,
+        revision_id: str,
+        config: CommanderConfig,
+    ) -> None:
+        """构造并保存候选 generation，不影响当前运行配置。"""
+        if not revision_id:
+            raise ValueError("revision_id must not be empty")
+        candidate = self._build_generation(config)
         async with self._reload_lock:
+            previous = self._prepared_generation
+            self._prepared_generation = candidate
+            self._prepared_revision = revision_id
+
+        if previous is not None:
+            await previous.drained.wait()
+            await self._close_generation(previous, reason="replace-prepared")
+
+    async def activate_config(self, revision_id: str) -> None:
+        """激活已准备的 generation，并排空后关闭旧 generation。"""
+        async with self._reload_lock:
+            if self._prepared_revision != revision_id:
+                raise ValueError(
+                    f"prepared revision mismatch: expected={self._prepared_revision!r} "
+                    f"requested={revision_id!r}"
+                )
+            if self._prepared_generation is None:
+                raise ValueError("no prepared configuration")
+
             old_generation = self._current
+            new_generation = self._prepared_generation
             self._current = new_generation
+            self._active_revision = revision_id
+            self._prepared_revision = None
+            self._prepared_generation = None
             self.devices.clear()
             self.devices.update(new_generation.devices)
 
         await self.start()
         await old_generation.drained.wait()
-        await self._close_generation(old_generation, reason="reload")
+        await self._close_generation(old_generation, reason="activate")
+
+    async def reload(
+        self,
+        config: CommanderConfig,
+        *,
+        revision_id: str = "legacy-reload",
+    ) -> None:
+        """兼容旧调用：按 prepare → activate 完成一次配置切换。"""
+        await self.prepare_config(revision_id, config)
+        await self.activate_config(revision_id)
 
     async def start(self) -> None:
         """初始化当前 generation 的进程级协议资源，不主动连接所有设备。"""
