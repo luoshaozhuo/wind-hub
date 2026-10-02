@@ -982,44 +982,41 @@ class Runtime:
             )
 
     async def _apply_device_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建设备；新增/重建的协议实例由工厂创建。
+        """按目标配置收敛 Device，使部分失败后的同一 diff 可以安全重试。
 
-        仅 ``point_table`` / ``device_group`` 变化的设备走轻量路径——就地
-        更新配置、按需重注入点映射，不重建 Protocol 连接。
+        判断以 Runtime 当前 Device 状态为准，而不是假设 diff 中的 added/updated
+        尚未执行：已经成功应用到目标配置的设备直接跳过；缺失或不一致的设备
+        再执行 add/rebuild。这样 ConfigUseCase 可以在部分失败时保留旧快照，
+        下一次 reload 重试相同 diff 而不会重复泄漏连接。
         """
-        new_devices = {d.device_id: d for d in new_cfg.devices.devices}
-
-        lightweight: set[str] = set()
-        for did in diff.devices.updated:
-            old_device = self._devices.get(did)
-            if old_device is not None and _changed_fields(old_device.config, new_devices[did]) <= (
-                _LIGHTWEIGHT_DEVICE_FIELDS
-            ):
-                lightweight.add(did)
-
+        desired = {d.device_id: d for d in new_cfg.devices.devices}
         factory = self._protocol_factory
-        if factory is None and (diff.devices.added or set(diff.devices.updated) - lightweight):
-            raise RuntimeError("protocol factory is not wired into Runtime")
 
         for did in diff.devices.removed:
-            await self.remove_device(did)
+            if did in self._devices:
+                await self.remove_device(did)
 
-        for did in diff.devices.added:
-            cfg = new_devices[did]
-            # 入口已守卫：有新增/非轻量更新时 factory 必然非 None
-            assert factory is not None
-            protocol = factory(cfg)
-            await self.add_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
-
-        for did in diff.devices.updated:
-            cfg = new_devices[did]
-            if did in lightweight:
-                self._apply_lightweight_device_update(did, cfg, new_cfg)
+        changed_ids = list(diff.devices.added) + list(diff.devices.updated)
+        for did in changed_ids:
+            cfg = desired[did]
+            current = self._devices.get(did)
+            if current is not None and current.config == cfg:
                 continue
-            assert factory is not None  # 同上——入口守卫保证
-            protocol = factory(cfg)
-            await self.rebuild_device(did, cfg, protocol, self._points_for_device(new_cfg, did))
 
+            if current is not None:
+                changed_fields = _changed_fields(current.config, cfg)
+                if changed_fields <= _LIGHTWEIGHT_DEVICE_FIELDS:
+                    self._apply_lightweight_device_update(did, cfg, new_cfg)
+                    continue
+
+            if factory is None:
+                raise RuntimeError("protocol factory is not wired into Runtime")
+            protocol = factory(cfg)
+            points = self._points_for_device(new_cfg, did)
+            if current is None:
+                await self.add_device(did, cfg, protocol, points)
+            else:
+                await self.rebuild_device(did, cfg, protocol, points)
     def _apply_lightweight_device_update(
         self, device_id: str, new_dev: DeviceConfig, new_cfg: Config
     ) -> None:
@@ -1031,10 +1028,12 @@ class Runtime:
         """
         device = self._devices[device_id]
         old_dev = device.config
-        device.config = new_dev
 
+        # 先更新可能失败的点映射，成功后再提交配置；失败时 Runtime 仍保持
+        # 旧配置事实，使下一次同 diff 重试能够正确识别未完成状态。
         if new_dev.point_table != old_dev.point_table:
             device.set_points(self._points_for_device(new_cfg, device_id))
+        device.config = new_dev
 
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
