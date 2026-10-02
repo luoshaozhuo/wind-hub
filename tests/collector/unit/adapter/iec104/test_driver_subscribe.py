@@ -6,26 +6,26 @@ import asyncio
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.asdu import ASDU
-from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+from wind_hub_core.protocol.iec104.codec.asdu import ASDU
+from wind_hub_core.protocol.iec104.codec.info_objects import (
     InterrogationCommand,
     MeasuredValueShort,
     SinglePoint,
     encode_c_ic_na_1,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
+from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     QualityFlag,
     TypeID,
 )
-from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
-from wind_hub.adapter.outbound.protocol.iec104.subscriptions import (
+from wind_hub_core.protocol.iec104.driver import IEC104Driver
+from wind_hub_core.protocol.iec104.subscriptions import (
     SubscriptionRegistry,
 )
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import AcquisitionMode
+from wind_hub_core.protocol.port import AcquisitionMode
 
 # ---------------------------------------------------------------------------
 # helpers

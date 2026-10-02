@@ -11,21 +11,21 @@ import asyncio
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.apci import SFrame
-from wind_hub.adapter.outbound.protocol.iec104.codec.asdu import ASDU
-from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+from wind_hub_core.protocol.iec104.codec.apci import SFrame
+from wind_hub_core.protocol.iec104.codec.asdu import ASDU
+from wind_hub_core.protocol.iec104.codec.info_objects import (
     DoublePoint,
     MeasuredValueShort,
     SinglePoint,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
+from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     QualityFlag,
     TypeID,
     UFrameType,
 )
-from wind_hub.adapter.outbound.protocol.iec104.connection import ConnectionState
-from wind_hub.adapter.outbound.protocol.iec104.session import (
+from wind_hub_core.protocol.iec104.connection import ConnectionState
+from wind_hub_core.protocol.iec104.session import (
     IEC104Session,
     _extract_quality,
     _extract_value,
@@ -377,14 +377,14 @@ class TestUFrameHandler:
         """Receiving STARTDT_CON should set the startdt_event."""
         session._startdt_event = asyncio.Event()
 
-        from wind_hub.adapter.outbound.protocol.iec104.codec.apci import UFrame
+        from wind_hub_core.protocol.iec104.codec.apci import UFrame
 
         await session._handle_u_frame(UFrame(frame_type=UFrameType.STARTDT_CON))
         assert session._startdt_event.is_set()
 
     async def test_testfr_act_replies_with_con(self, session: IEC104Session) -> None:
         """Receiving TESTFR_ACT should enqueue TESTFR_CON."""
-        from wind_hub.adapter.outbound.protocol.iec104.codec.apci import UFrame
+        from wind_hub_core.protocol.iec104.codec.apci import UFrame
 
         await session._handle_u_frame(UFrame(frame_type=UFrameType.TESTFR_ACT))
         # TESTFR_CON should be enqueued.
@@ -392,7 +392,7 @@ class TestUFrameHandler:
 
     async def test_stopdt_act_replies_with_con(self, session: IEC104Session) -> None:
         """Receiving STOPDT_ACT should enqueue STOPDT_CON."""
-        from wind_hub.adapter.outbound.protocol.iec104.codec.apci import UFrame
+        from wind_hub_core.protocol.iec104.codec.apci import UFrame
 
         await session._handle_u_frame(UFrame(frame_type=UFrameType.STOPDT_ACT))
         assert session._send_queue.qsize() >= 1
@@ -406,7 +406,7 @@ class TestUFrameHandler:
 class TestIFrameHandler:
     async def test_i_frame_advances_recv_seq(self, session: IEC104Session) -> None:
         """Receiving an I-frame should advance the receive sequence."""
-        from wind_hub.adapter.outbound.protocol.iec104.codec.apci import IFrame
+        from wind_hub_core.protocol.iec104.codec.apci import IFrame
 
         assert session._flow.recv_seq_for_ack() == 0
         await session._handle_i_frame(

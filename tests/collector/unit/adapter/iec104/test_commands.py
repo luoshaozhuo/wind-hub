@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.commands import (
+from wind_hub_core.protocol.iec104.commands import (
     PendingCommand,
     PendingCommandRegistry,
 )

@@ -41,7 +41,7 @@ from wind_hub.adapter.inbound.iec104_slave.handlers import (
     OBJECT_SIZE_BYTES,
 )
 from wind_hub.adapter.inbound.iec104_slave.session import IEC104SlaveSession
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     MeasuredValueShort,

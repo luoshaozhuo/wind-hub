@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
+from wind_hub_core.protocol.iec104.driver import IEC104Driver
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.point import PointRef, PointValue
 
@@ -204,7 +204,7 @@ class TestHealth:
 
 class TestSelfRegistration:
     def test_factory_creates_driver(self) -> None:
-        from wind_hub.adapter.outbound.protocol.iec104.driver import (
+        from wind_hub_core.protocol.iec104.driver import (
             _create_iec104,
         )
 
@@ -222,8 +222,8 @@ class TestSelfRegistration:
 
 import logging  # noqa: E402
 
-import wind_hub.adapter.outbound.protocol.iec104.driver as iec104_driver_module  # noqa: E402
-from wind_hub.adapter.outbound.protocol.iec104.driver import _is_timeout_related  # noqa: E402
+import wind_hub_core.protocol.iec104.driver as iec104_driver_module  # noqa: E402
+from wind_hub_core.protocol.iec104.driver import _is_timeout_related  # noqa: E402
 from wind_hub_core.model.errors import ProtocolError  # noqa: E402
 
 

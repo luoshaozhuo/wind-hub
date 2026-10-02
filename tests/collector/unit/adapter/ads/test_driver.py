@@ -13,7 +13,7 @@ from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, Po
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ConfigError, ProtocolError
 from wind_hub_core.model.point import PointRef, Quality
-from wind_hub.domain.port.outbound import AcquisitionMode
+from wind_hub_core.protocol.port import AcquisitionMode
 
 
 def _make_device_config(**extensions: object) -> DeviceConfig:

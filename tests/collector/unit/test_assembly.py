@@ -12,7 +12,7 @@ from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub_core.config.schema import RuntimeConfig, SinkConfig
 from wind_hub_core.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.model.health import HealthStatus
 
 
 def _write_minimal_config(base: Path) -> Path:

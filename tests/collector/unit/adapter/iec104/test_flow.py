@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.flow import (
+from wind_hub_core.protocol.iec104.flow import (
     MAX_SEQ,
     FlowController,
     SequenceNumbers,

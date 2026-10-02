@@ -9,7 +9,7 @@ import pytest
 from wind_hub.application.runtime.device import Device
 from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
-from wind_hub.domain.port.outbound import ProtocolPort
+from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.validation.models import AddressResolution
 
 

@@ -28,7 +28,8 @@ from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, Po
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, SubscriptionHandle
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.protocol.port import AcquisitionMode, SubscriptionHandle
 
 pytestmark = pytest.mark.asyncio
 

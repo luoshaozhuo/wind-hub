@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
+from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     QualityFlag,
     TypeID,

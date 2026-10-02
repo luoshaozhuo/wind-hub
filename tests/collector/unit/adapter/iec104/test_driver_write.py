@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+from wind_hub_core.protocol.iec104.codec.info_objects import (
     DoubleCommand,
     SetpointCommandShort,
     SingleCommand,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
+from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     TypeID,
 )
-from wind_hub.adapter.outbound.protocol.iec104.driver import IEC104Driver
+from wind_hub_core.protocol.iec104.driver import IEC104Driver
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ProtocolError

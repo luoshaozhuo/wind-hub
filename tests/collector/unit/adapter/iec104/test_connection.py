@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.connection import (
+from wind_hub_core.protocol.iec104.connection import (
     ConnectionState,
     ConnectionStateMachine,
 )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.apci import (
+from wind_hub_core.protocol.iec104.codec.apci import (
     IFrame,
     SFrame,
     UFrame,
@@ -14,7 +14,7 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.apci import (
     encode_s_frame,
     encode_u_frame,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import UFrameType
+from wind_hub_core.protocol.iec104.codec.types import UFrameType
 from wind_hub_core.model.errors import ProtocolError
 
 # ==========================================================================

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.time import (
+from wind_hub_core.protocol.iec104.codec.time import (
     CP56Time2a,
     decode_cp56time2a,
     encode_cp56time2a,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+from wind_hub_core.protocol.iec104.codec.info_objects import (
     CounterInterrogationCommand,
     DoubleCommand,
     DoublePoint,
@@ -46,8 +46,8 @@ from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
     encode_m_sp_na_1,
     encode_m_sp_tb_1,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.time import CP56Time2a
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import QualityFlag
+from wind_hub_core.protocol.iec104.codec.time import CP56Time2a
+from wind_hub_core.protocol.iec104.codec.types import QualityFlag
 
 # Shared timestamp for tests with time
 _TS = CP56Time2a(milliseconds=0, minutes=0, hours=0, day=1, month=1, year=2000)

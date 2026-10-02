@@ -23,7 +23,7 @@ from wind_hub.adapter.inbound.iec104_slave import (
     build_ioa_mapping,
     build_reverse_mapping,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     IFrame,

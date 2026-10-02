@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub.adapter.outbound.protocol.iec104.codec.asdu import ASDU, decode_asdu, encode_asdu
-from wind_hub.adapter.outbound.protocol.iec104.codec.info_objects import (
+from wind_hub_core.protocol.iec104.codec.asdu import ASDU, decode_asdu, encode_asdu
+from wind_hub_core.protocol.iec104.codec.info_objects import (
     MeasuredValueShort,
     SinglePoint,
 )
-from wind_hub.adapter.outbound.protocol.iec104.codec.types import (
+from wind_hub_core.protocol.iec104.codec.types import (
     CauseOfTransmission,
     TypeID,
 )
