@@ -952,6 +952,21 @@ class TestCoreLifecycleHardening:
         await asyncio.wait_for(rt.stop(), timeout=0.2)
         assert rt.running is False
 
+    async def test_sink_health_recovers_after_restart(self) -> None:
+        rt, _, sinks, _ = _build_runtime(devices=[], tasks=[])
+        sink = sinks["s1"]
+        sink.open = AsyncMock(side_effect=[RuntimeError("open failed"), None])
+
+        await rt.start()
+        assert "s1" in rt._unhealthy_sinks  # noqa: SLF001
+        await rt.stop()
+
+        await rt.start()
+        try:
+            assert "s1" not in rt._unhealthy_sinks  # noqa: SLF001
+            assert "s1" in rt._sink_tasks  # noqa: SLF001
+        finally:
+            await rt.stop()
     async def test_rebuild_sink_open_failure_keeps_old_sink(self) -> None:
         rt, _, sinks, _ = _build_runtime(devices=[], tasks=[])
         await rt.start()
