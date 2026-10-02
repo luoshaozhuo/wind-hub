@@ -53,6 +53,7 @@ def _pyads() -> Any:
     Raises:
         ImportError: 实际使用 ADS 但环境未安装 ads extra。
     """
+    # pyads 尚未提供可供 mypy 使用的完整类型声明；待上游发布稳定 typing 后移除抑制。
     import pyads  # type: ignore[import-untyped]
 
     return pyads
@@ -436,6 +437,7 @@ class ADSDriver:
         pyads Connection 没有公开的按地址列表方法，因此适配器在第三方库
         边界内调用 pyads.pyads_ex.adsSumReadBytes；高层不会接触该内部 API。
         """
+        # pyads.pyads_ex 同样缺少稳定类型声明；上游补齐 typing 后应移除本抑制。
         from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
 
         return bytes(
@@ -639,6 +641,7 @@ class _ADSSubscriptionHandle:
 # 协议自注册
 # ---------------------------------------------------------------------------
 
+# 注册必须发生在 Driver 类定义完成后；若注册机制改为组合根显式注入，可移除 E402 抑制。
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 

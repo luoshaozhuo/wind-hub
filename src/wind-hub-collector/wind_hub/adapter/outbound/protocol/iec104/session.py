@@ -575,7 +575,7 @@ class IEC104Session:
         if self._flow.needs_ack:
             await self._send_s_ack()
 
-        # Decode and process the ASDU.
+        # 解码并处理本帧携带的 ASDU。
         try:
             asdu, _ = decode_asdu(frame.asdu)
         except ProtocolError:
@@ -588,13 +588,13 @@ class IEC104Session:
         await self._process_asdu(asdu)
 
     async def _handle_s_frame(self, frame: SFrame) -> None:
-        """Process an incoming S-frame (acknowledgement)."""
+        """处理入站 S-frame 确认，并推进发送侧确认窗口。"""
         self._flow.on_ack(frame.recv_seq)
         if not self._flow.ack_is_outstanding():
             self._timers.cancel_t1()
 
     async def _handle_u_frame(self, frame: UFrame) -> None:
-        """Process an incoming U-frame."""
+        """处理入站 U-frame，并完成 STARTDT/STOPDT/TESTFR 控制握手。"""
         if frame.frame_type == UFrameType.STARTDT_CON:
             logger.debug("IEC104: received STARTDT con from %s", self._host)
             if self._startdt_event is not None:
@@ -623,12 +623,12 @@ class IEC104Session:
     # ==================================================================
 
     async def _process_asdu(self, asdu: ASDU) -> None:
-        """Route an incoming ASDU based on its TypeID and COT."""
+        """按 TypeID 与 COT 处理入站 ASDU，并转发给 Driver 回调。"""
         # --- Interrogation lifecycle (session-internal) ---
         if asdu.type_id == TypeID.C_IC_NA_1:
             if asdu.cause == CauseOfTransmission.ACTIVATION_CON:
                 logger.debug("IEC104: interrogation activation confirmed")
-                # Still forward to driver.
+                # 总召生命周期帧仍需转发给 Driver，供上层完成命令/订阅语义。
                 if self._on_asdu is not None:
                     self._on_asdu(asdu)
                 return
@@ -643,16 +643,16 @@ class IEC104Session:
         if asdu.cause == CauseOfTransmission.INTERROGATED_BY_STATION:
             await self._cache_objects(asdu)
 
-        # --- Other measurement data (spontaneous, periodic, etc.) ---
+        # 其他测量数据（自发、周期等）同样进入点缓存。
         if asdu.type_id in _MEASUREMENT_TYPE_IDS:
             await self._cache_objects(asdu)
 
-        # --- Forward to driver for subscriber dispatch ---
+        # 最后统一转发给 Driver，由 Driver 完成订阅者分发。
         if self._on_asdu is not None:
             self._on_asdu(asdu)
 
     async def _cache_objects(self, asdu: ASDU) -> None:
-        """Decode info objects from *asdu* and update the point cache."""
+        """解析 ASDU information object，并更新按 IOA 维护的点缓存。"""
         for obj in asdu.objects:
             ioa: int = getattr(obj, "ioa", 0)
             point_id = self._ioa_to_point_id.get(ioa)
@@ -684,7 +684,7 @@ class IEC104Session:
     # ==================================================================
 
     async def _send_s_ack(self) -> None:
-        """Send an S-frame acknowledgement."""
+        """发送 S-frame 确认，并清除当前接收侧待确认计数。"""
         s_frame = encode_s_frame(self._flow.recv_seq_for_ack())
         self._enqueue_frame_nowait(s_frame)
         self._flow.on_ack_sent()
@@ -695,7 +695,7 @@ class IEC104Session:
     # ==================================================================
 
     async def _handle_disconnect(self) -> None:
-        """Called when the TCP connection is lost."""
+        """处理 TCP 断线事实：切换连接状态并取消全部 IEC104 timer。"""
         if self._state.is_connected:
             with contextlib.suppress(ValueError):
                 self._state.to_disconnected()
@@ -707,7 +707,7 @@ class IEC104Session:
     # ==================================================================
 
     async def _on_t1_timeout(self) -> None:
-        """t1 expired — peer did not ack. Close connection."""
+        """处理 t1 超时：对端未在期限内确认，按断线语义处理。"""
         logger.warning(
             "IEC104: t1 timeout (%ss) for %s — closing connection",
             self._t1,
@@ -716,12 +716,12 @@ class IEC104Session:
         await self._handle_disconnect()
 
     async def _on_t2_timeout(self) -> None:
-        """t2 expired — send S-frame ack."""
+        """处理 t2 超时：发送延迟的 S-frame 确认。"""
         logger.debug("IEC104: t2 timeout — sending S-frame ack to %s", self._host)
         await self._send_s_ack()
 
     async def _on_t3_timeout(self) -> None:
-        """t3 expired — no data received, send TESTFR act."""
+        """处理 t3 空闲超时：发送 TESTFR_ACT 并启动 t1 等待确认。"""
         logger.debug("IEC104: t3 timeout — sending TESTFR to %s", self._host)
         self._enqueue_frame_nowait(encode_u_frame(UFrameType.TESTFR_ACT))
         self._timers.start_t1()

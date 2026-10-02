@@ -504,6 +504,7 @@ class ModbusDriver:
 # 协议自注册
 # ---------------------------------------------------------------------------
 
+# 注册必须发生在 Driver 类定义完成后；若注册机制改为组合根显式注入，可移除 E402 抑制。
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 

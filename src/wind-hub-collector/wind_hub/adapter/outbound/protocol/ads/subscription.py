@@ -28,6 +28,7 @@ from wind_hub.domain.model.point import PointValue, Quality
 
 def _pyads() -> Any:
     """延迟导入 pyads；Any 仅用于未类型化第三方边界。"""
+    # pyads 尚未提供稳定类型声明；待上游 typing 可用后移除抑制。
     import pyads  # type: ignore[import-untyped]
 
     return pyads

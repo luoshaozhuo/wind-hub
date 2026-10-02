@@ -153,6 +153,7 @@ class IEC104Driver:
 
         for p in points:
             try:
+                # IEC104 PointAddress 的 ioa 来自协议扩展字段；schema 若改为判别联合类型，应移除此抑制。
                 ioa = int(p.address.ioa)  # type: ignore[attr-defined]
             except (AttributeError, ValueError):
                 logger.warning(
@@ -752,6 +753,7 @@ class IEC104Driver:
 # 协议自注册
 # ---------------------------------------------------------------------------
 
+# 注册必须发生在 Driver 类定义完成后；若注册机制改为组合根显式注入，可移除 E402 抑制。
 from wind_hub.infra.protocol_registry import register_protocol  # noqa: E402
 
 
