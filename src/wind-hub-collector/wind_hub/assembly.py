@@ -4,10 +4,10 @@
 需要的对象图：
 
 Protocol / Device / Sink -> AcquisitionEngine -> Runtime
-                           -> TaskUseCase / CommandUseCase / QueryUseCase
+                           -> TaskUseCase / CommandUseCase / QueryUseCase / ConfigUseCase
 
-Admin、Overview、Quality、Diagnostics、Web API、配置管理、长期日志与
-System Health 均不属于 Collector 组合根。
+Admin、Overview、Quality、Diagnostics、Web API、长期日志与 System Health
+均不属于 Collector 组合根；运行时配置 reload 属于 Collector 核心控制面。
 """
 
 from __future__ import annotations
@@ -28,13 +28,11 @@ from wind_hub.adapter.inbound.iec104_slave import (
     build_ioa_mapping,
     build_reverse_mapping,
 )
-from wind_hub.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub.adapter.outbound.sink.file.csv import FileSink
-from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
 from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
+from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
@@ -64,6 +62,7 @@ class AssembledRuntime:
     tasks: TaskUseCase
     command: CommandUseCase
     query: QueryUseCase
+    config: ConfigUseCase
     iec104_slave: IEC104SlaveServer | None = None
 
 
@@ -111,6 +110,7 @@ def assemble(
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
+    config = ConfigUseCase(config_dir, runtime, cfg)
 
     iec104_slave: IEC104SlaveServer | None = None
     if cfg.reporting is not None and cfg.reporting.reporting:
@@ -129,6 +129,7 @@ def assemble(
         tasks=tasks,
         command=command,
         query=query,
+        config=config,
         iec104_slave=iec104_slave,
     )
 
@@ -225,12 +226,22 @@ def _build_iec104_slave(
 
 
 def _create_sink(cfg: SinkConfig) -> SinkPort:
-    """按配置创建 Collector Sink。"""
-    if cfg.type == "kafka":
-        return KafkaSink(cfg)
+    """按配置类型懒加载并创建 Collector Sink。
+
+    可选 Sink 依赖只在配置实际使用该类型时导入，File-only 部署无需安装
+    aiokafka/asyncpg。
+    """
     if cfg.type == "file":
+        from wind_hub.adapter.outbound.sink.file.csv import FileSink
+
         return FileSink(cfg)
+    if cfg.type == "kafka":
+        from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
+
+        return KafkaSink(cfg)
     if cfg.type == "db":
+        from wind_hub.adapter.outbound.sink.db.postgres import DBSink
+
         return DBSink(cfg)
     raise ConfigError(
         f"Unknown sink type '{cfg.type}' (available: kafka, file, db)"

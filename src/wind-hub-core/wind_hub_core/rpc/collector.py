@@ -9,16 +9,21 @@ CONTROL_SERVICE = "windhub.collector.v1.CollectorControlService"
 
 GET_COLLECTOR_INFO = "GetCollectorInfo"
 GET_RUNTIME_STATUS = "GetRuntimeStatus"
+LIST_TASKS = "ListTasks"
+GET_TASK = "GetTask"
 LIST_TASK_INSTANCES = "ListTaskInstances"
 GET_TASK_INSTANCE = "GetTaskInstance"
 LIST_DEVICES = "ListDevices"
 READ_POINT = "ReadPoint"
 
+START_TASK = "StartTask"
+STOP_TASK = "StopTask"
 START_TASK_INSTANCE = "StartTaskInstance"
 STOP_TASK_INSTANCE = "StopTaskInstance"
 START_ASSIGNED_TASKS = "StartAssignedTasks"
 STOP_ASSIGNED_TASKS = "StopAssignedTasks"
 WRITE_POINT = "WritePoint"
+RELOAD_CONFIG = "ReloadConfig"
 
 
 def rpc_path(service: str, method: str) -> str:

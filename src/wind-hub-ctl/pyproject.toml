@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "wind-hub-ctl"
+version = "0.1.0"
+description = "Wind Hub Collector gRPC control CLI"
+authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
+packages = [{ include = "wind_hub_ctl" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+grpcio = "^1.75"
+protobuf = "^6.32"
+wind-hub-core = { path = "../wind-hub-core", develop = false }
+
+[tool.poetry.scripts]
+wind-hub-ctl = "wind_hub_ctl.main:main"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"

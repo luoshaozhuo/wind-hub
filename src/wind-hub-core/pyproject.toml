@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "wind-hub-core"
+version = "0.1.0"
+description = "Wind Hub shared RPC and validation contracts"
+authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
+packages = [{ include = "wind_hub_core" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyads = { version = "^3.4", optional = true }
+
+[tool.poetry.extras]
+ads = ["pyads"]
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
+from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub.config.schema import RuntimeConfig, SinkConfig
@@ -94,6 +95,7 @@ def test_assemble_builds_minimal_collector_graph() -> None:
         assert isinstance(assembled, AssembledRuntime)
         assert isinstance(assembled.runtime, Runtime)
         assert isinstance(assembled.tasks, TaskUseCase)
+        assert isinstance(assembled.config, ConfigUseCase)
         assert assembled.runtime.engine is assembled.engine
         assert assembled.runtime.dispatcher is assembled.dispatcher
         assert assembled.dispatcher._devices is assembled.runtime.devices  # noqa: SLF001
@@ -117,12 +119,12 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "tasks",
             "command",
             "query",
+            "config",
             "iec104_slave",
         }
         assert set(assembled.__dataclass_fields__) == expected
 
         removed = {
-            "config",
             "devices",
             "device_data",
             "device_control",

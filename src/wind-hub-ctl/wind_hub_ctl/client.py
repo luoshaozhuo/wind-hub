@@ -14,14 +14,19 @@ from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
+    GET_TASK,
     GET_TASK_INSTANCE,
     LIST_DEVICES,
+    LIST_TASKS,
     LIST_TASK_INSTANCES,
     READ_POINT,
+    RELOAD_CONFIG,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
+    START_TASK,
     START_TASK_INSTANCE,
     STOP_ASSIGNED_TASKS,
+    STOP_TASK,
     STOP_TASK_INSTANCE,
     WRITE_POINT,
     rpc_path,
@@ -112,23 +117,47 @@ class CollectorClient:
         )
 
     async def tasks(self) -> dict[str, Any]:
+        return await self._call_empty(RUNTIME_SERVICE, LIST_TASKS)
+
+    async def task(self, task_id: str) -> dict[str, Any]:
+        return await self._call_struct(
+            RUNTIME_SERVICE,
+            GET_TASK,
+            {"task_id": task_id},
+        )
+
+    async def task_instances(self) -> dict[str, Any]:
         return await self._call_empty(RUNTIME_SERVICE, LIST_TASK_INSTANCES)
 
-    async def task(self, instance_id: str) -> dict[str, Any]:
+    async def task_instance(self, instance_id: str) -> dict[str, Any]:
         return await self._call_struct(
             RUNTIME_SERVICE,
             GET_TASK_INSTANCE,
             {"instance_id": instance_id},
         )
 
-    async def start_task(self, instance_id: str) -> dict[str, Any]:
+    async def start_task(self, task_id: str) -> dict[str, Any]:
+        return await self._call_struct(
+            CONTROL_SERVICE,
+            START_TASK,
+            {"task_id": task_id},
+        )
+
+    async def stop_task(self, task_id: str) -> dict[str, Any]:
+        return await self._call_struct(
+            CONTROL_SERVICE,
+            STOP_TASK,
+            {"task_id": task_id},
+        )
+
+    async def start_task_instance(self, instance_id: str) -> dict[str, Any]:
         return await self._call_struct(
             CONTROL_SERVICE,
             START_TASK_INSTANCE,
             {"instance_id": instance_id},
         )
 
-    async def stop_task(self, instance_id: str) -> dict[str, Any]:
+    async def stop_task_instance(self, instance_id: str) -> dict[str, Any]:
         return await self._call_struct(
             CONTROL_SERVICE,
             STOP_TASK_INSTANCE,
@@ -140,6 +169,9 @@ class CollectorClient:
 
     async def stop_all(self) -> dict[str, Any]:
         return await self._call_empty(CONTROL_SERVICE, STOP_ASSIGNED_TASKS)
+
+    async def reload(self) -> dict[str, Any]:
+        return await self._call_empty(CONTROL_SERVICE, RELOAD_CONFIG)
 
     async def write(
         self,

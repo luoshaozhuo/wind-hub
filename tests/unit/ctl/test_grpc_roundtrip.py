@@ -45,6 +45,18 @@ class _Query:
 
 
 class _Tasks:
+    async def list_task_summaries(self) -> list[_Payload]:
+        return [_Payload({"task_id": "t1", "runtime_state": "running"})]
+
+    async def get_task_summary(self, task_id: str) -> _Payload:
+        return _Payload({"task_id": task_id, "runtime_state": "running"})
+
+    async def start_task(self, task_id: str) -> _Payload:
+        return _Payload({"task_id": task_id, "runtime_state": "running"})
+
+    async def stop_task(self, task_id: str) -> _Payload:
+        return _Payload({"task_id": task_id, "runtime_state": "stopped"})
+
     async def list_instances(self) -> list[_Payload]:
         return [_Payload({"instance_id": "t1:d1", "state": "running"})]
 
@@ -64,6 +76,20 @@ class _Tasks:
         return _Payload({"success": True, "operation": "stop_all"})
 
 
+class _Config:
+    config_hash = "hash-current"
+
+    async def reload(self) -> _Payload:
+        return _Payload(
+            {
+                "success": True,
+                "diff": {},
+                "errors": [],
+                "duration_ms": 1.0,
+            }
+        )
+
+
 class _Command:
     async def send(self, command: Any) -> _Payload:
         return _Payload(
@@ -80,6 +106,7 @@ class _AssembledRuntime:
     query = _Query()
     tasks = _Tasks()
     command = _Command()
+    config = _Config()
 
 
 @pytest.mark.asyncio
@@ -101,6 +128,8 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
             info = await client.info()
             assert info["collector_id"] == "collector-test"
             assert info["runtime_running"] is True
+            assert info["config_hash"] == "hash-current"
+            assert info["boot_config_hash"] == "hash-test"
 
             status = await client.status()
             assert status["device_count"] == 1
@@ -112,16 +141,34 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
             assert value["value"] == 12.5
 
             tasks = await client.tasks()
-            assert tasks["items"][0]["instance_id"] == "t1:d1"
+            assert tasks["items"][0]["task_id"] == "t1"
 
-            stopped = await client.stop_task("t1:d1")
+            task = await client.task("t1")
+            assert task["task_id"] == "t1"
+
+            stopped_task = await client.stop_task("t1")
+            assert stopped_task["runtime_state"] == "stopped"
+
+            started_task = await client.start_task("t1")
+            assert started_task["runtime_state"] == "running"
+
+            instances = await client.task_instances()
+            assert instances["items"][0]["instance_id"] == "t1:d1"
+
+            instance = await client.task_instance("t1:d1")
+            assert instance["instance_id"] == "t1:d1"
+
+            stopped = await client.stop_task_instance("t1:d1")
             assert stopped["state"] == "stopped"
 
-            started = await client.start_task("t1:d1")
+            started = await client.start_task_instance("t1:d1")
             assert started["state"] == "running"
 
             assert (await client.stop_all())["success"] is True
             assert (await client.start_all())["success"] is True
+
+            reloaded = await client.reload()
+            assert reloaded["success"] is True
 
             written = await client.write("d1", "p1", 10.0)
             assert written["success"] is True

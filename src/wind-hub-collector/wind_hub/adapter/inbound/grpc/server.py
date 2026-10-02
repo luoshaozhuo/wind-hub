@@ -21,14 +21,19 @@ from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
+    GET_TASK,
     GET_TASK_INSTANCE,
     LIST_DEVICES,
+    LIST_TASKS,
     LIST_TASK_INSTANCES,
     READ_POINT,
+    RELOAD_CONFIG,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
+    START_TASK,
     START_TASK_INSTANCE,
     STOP_ASSIGNED_TASKS,
+    STOP_TASK,
     STOP_TASK_INSTANCE,
     WRITE_POINT,
 )
@@ -101,7 +106,8 @@ class CollectorRuntimeService:
                 "component": "wind-hub-collector",
                 "collector_id": self._identity.collector_id,
                 "boot_id": self._identity.boot_id,
-                "config_hash": self._identity.config_hash,
+                "config_hash": self._runtime.config.config_hash,
+                "boot_config_hash": self._identity.config_hash,
                 "config_revision": self._identity.config_revision,
                 "runtime_running": self._runtime.runtime.running,
             }
@@ -115,6 +121,33 @@ class CollectorRuntimeService:
         del request, context
         status = await self._runtime.query.status()
         return _struct(status.model_dump(mode="json"))
+
+    async def list_tasks(
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """列出 Task Definition 与聚合运行状态。"""
+        del request, context
+        items = await self._runtime.tasks.list_task_summaries()
+        return _struct({"items": [item.model_dump(mode="json") for item in items]})
+
+    async def get_task(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """按稳定 task_id 查询 Task 聚合状态。"""
+        try:
+            task_id = _required_string(_request_dict(request), "task_id")
+            item = await self._runtime.tasks.get_task_summary(task_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(item.model_dump(mode="json"))
 
     async def list_task_instances(
         self,
@@ -196,6 +229,39 @@ class CollectorControlService:
     def __init__(self, runtime: AssembledRuntime) -> None:
         self._runtime = runtime
 
+    async def start_task(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        return await self._set_task(request, context, start=True)
+
+    async def stop_task(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        return await self._set_task(request, context, start=False)
+
+    async def _set_task(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+        *,
+        start: bool,
+    ) -> struct_pb2.Struct:
+        try:
+            task_id = _required_string(_request_dict(request), "task_id")
+            operation = self._runtime.tasks.start_task if start else self._runtime.tasks.stop_task
+            item = await operation(task_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(item.model_dump(mode="json"))
+
     async def start_task_instance(
         self,
         request: struct_pb2.Struct,
@@ -251,6 +317,16 @@ class CollectorControlService:
         result = await self._runtime.tasks.stop_all_instances()
         return _struct(result.model_dump(mode="json"))
 
+    async def reload_config(
+        self,
+        request: empty_pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """从 Collector 本地配置目录执行一次增量热重载。"""
+        del request, context
+        result = await self._runtime.config.reload()
+        return _struct(result.model_dump(mode="json"))
+
     async def write_point(
         self,
         request: struct_pb2.Struct,
@@ -293,6 +369,16 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
+            LIST_TASKS: grpc.unary_unary_rpc_method_handler(
+                service.list_tasks,
+                request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            GET_TASK: grpc.unary_unary_rpc_method_handler(
+                service.get_task,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
             LIST_TASK_INSTANCES: grpc.unary_unary_rpc_method_handler(
                 service.list_task_instances,
                 request_deserializer=empty_pb2.Empty.FromString,
@@ -322,6 +408,16 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
     return grpc.method_handlers_generic_handler(
         CONTROL_SERVICE,
         {
+            START_TASK: grpc.unary_unary_rpc_method_handler(
+                service.start_task,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            STOP_TASK: grpc.unary_unary_rpc_method_handler(
+                service.stop_task,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
             START_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
                 service.start_task_instance,
                 request_deserializer=struct_pb2.Struct.FromString,
@@ -339,6 +435,11 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
             ),
             STOP_ASSIGNED_TASKS: grpc.unary_unary_rpc_method_handler(
                 service.stop_assigned_tasks,
+                request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
+                service.reload_config,
                 request_deserializer=empty_pb2.Empty.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),

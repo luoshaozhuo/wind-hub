@@ -5,6 +5,7 @@ Server 侧配置管理、Overview、Quality、Diagnostics 等不从这里聚合�
 """
 
 from wind_hub.application.usecase.command import CommandUseCase
+from wind_hub.application.usecase.config import ConfigUseCase, compute_diff
 from wind_hub.application.usecase.query import (
     AcquisitionInfo,
     QueryUseCase,
@@ -21,6 +22,7 @@ from wind_hub.application.usecase.task import (
 __all__ = [
     "AcquisitionInfo",
     "CommandUseCase",
+    "ConfigUseCase",
     "QueryUseCase",
     "SystemStatus",
     "TaskBatchResult",
@@ -28,4 +30,5 @@ __all__ = [
     "TaskInstanceDetail",
     "TaskSummary",
     "TaskUseCase",
+    "compute_diff",
 ]

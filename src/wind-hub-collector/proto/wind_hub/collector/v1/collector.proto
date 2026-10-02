@@ -11,6 +11,8 @@ import "google/protobuf/struct.proto";
 service CollectorRuntimeService {
   rpc GetCollectorInfo(google.protobuf.Empty) returns (google.protobuf.Struct);
   rpc GetRuntimeStatus(google.protobuf.Empty) returns (google.protobuf.Struct);
+  rpc ListTasks(google.protobuf.Empty) returns (google.protobuf.Struct);
+  rpc GetTask(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc ListTaskInstances(google.protobuf.Empty) returns (google.protobuf.Struct);
   rpc GetTaskInstance(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc ListDevices(google.protobuf.Empty) returns (google.protobuf.Struct);
@@ -18,9 +20,12 @@ service CollectorRuntimeService {
 }
 
 service CollectorControlService {
+  rpc StartTask(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc StopTask(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc StartTaskInstance(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc StopTaskInstance(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc StartAssignedTasks(google.protobuf.Empty) returns (google.protobuf.Struct);
   rpc StopAssignedTasks(google.protobuf.Empty) returns (google.protobuf.Struct);
   rpc WritePoint(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc ReloadConfig(google.protobuf.Empty) returns (google.protobuf.Struct);
 }

@@ -38,15 +38,25 @@ async def _run(args: argparse.Namespace) -> int:
         elif args.command == "tasks":
             result = await client.tasks()
         elif args.command == "task":
-            result = await client.task(args.instance_id)
+            result = await client.task(args.task_id)
+        elif args.command == "task-instances":
+            result = await client.task_instances()
+        elif args.command == "task-instance":
+            result = await client.task_instance(args.instance_id)
         elif args.command == "start":
-            result = await client.start_task(args.instance_id)
+            result = await client.start_task(args.task_id)
         elif args.command == "stop":
-            result = await client.stop_task(args.instance_id)
+            result = await client.stop_task(args.task_id)
+        elif args.command == "start-instance":
+            result = await client.start_task_instance(args.instance_id)
+        elif args.command == "stop-instance":
+            result = await client.stop_task_instance(args.instance_id)
         elif args.command == "start-all":
             result = await client.start_all()
         elif args.command == "stop-all":
             result = await client.stop_all()
+        elif args.command == "reload":
+            result = await client.reload()
         elif args.command == "write":
             result = await client.write(
                 args.device_id,
@@ -87,19 +97,30 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("device_id")
     read.add_argument("point_id")
 
-    sub.add_parser("tasks", help="列出 Task Instance")
+    sub.add_parser("tasks", help="列出 Task Definition 与聚合状态")
 
-    task = sub.add_parser("task", help="查询一个 Task Instance")
-    task.add_argument("instance_id")
+    task = sub.add_parser("task", help="按 task_id 查询一个 Task")
+    task.add_argument("task_id")
 
-    start = sub.add_parser("start", help="启动一个 Task Instance")
-    start.add_argument("instance_id")
+    sub.add_parser("task-instances", help="列出全部 Task Instance")
+    instance = sub.add_parser("task-instance", help="查询一个 Task Instance")
+    instance.add_argument("instance_id")
 
-    stop = sub.add_parser("stop", help="停止一个 Task Instance")
-    stop.add_argument("instance_id")
+    start = sub.add_parser("start", help="按 task_id 启动一个 Task")
+    start.add_argument("task_id")
+
+    stop = sub.add_parser("stop", help="按 task_id 停止一个 Task")
+    stop.add_argument("task_id")
+
+    start_instance = sub.add_parser("start-instance", help="启动一个 Task Instance")
+    start_instance.add_argument("instance_id")
+
+    stop_instance = sub.add_parser("stop-instance", help="停止一个 Task Instance")
+    stop_instance.add_argument("instance_id")
 
     sub.add_parser("start-all", help="启动全部已分配 Task Instance")
     sub.add_parser("stop-all", help="停止全部已分配 Task Instance")
+    sub.add_parser("reload", help="从 Collector 本地 YAML 执行增量热重载")
 
     write = sub.add_parser("write", help="向设备点位写值")
     write.add_argument("device_id")

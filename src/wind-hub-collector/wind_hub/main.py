@@ -17,20 +17,44 @@ from wind_hub.application.runtime.collector_identity import (
     build_collector_identity,
     default_collector_id,
 )
-from wind_hub.assembly import assemble, start_runtime, stop_runtime
+from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 
 logger = logging.getLogger(__name__)
 
 
-def _install_signal_handlers(shutdown_event: asyncio.Event) -> None:
+def _install_signal_handlers(
+    shutdown_event: asyncio.Event,
+    reload_event: asyncio.Event,
+) -> None:
     """将 SIGINT/SIGTERM 映射为 Collector 优雅停机事件。
 
     Args:
         shutdown_event: 进程停机事件。
+        reload_event: 配置热重载事件。
     """
     loop = asyncio.get_running_loop()
-    loop.add_signal_handler(signal.SIGINT, shutdown_event.set)
-    loop.add_signal_handler(signal.SIGTERM, shutdown_event.set)
+    try:
+        loop.add_signal_handler(signal.SIGINT, shutdown_event.set)
+        loop.add_signal_handler(signal.SIGTERM, shutdown_event.set)
+        if hasattr(signal, "SIGHUP"):
+            loop.add_signal_handler(signal.SIGHUP, reload_event.set)
+    except NotImplementedError:
+        logger.warning("当前事件循环不支持 add_signal_handler；请通过控制面停止/重载")
+
+
+async def _reload_loop(
+    reload_event: asyncio.Event,
+    runtime: AssembledRuntime,
+) -> None:
+    """消费 SIGHUP 并调用 Collector 自身的 ConfigUseCase。"""
+    while True:
+        await reload_event.wait()
+        reload_event.clear()
+        result = await runtime.config.reload()
+        if result.success:
+            logger.info("Collector 配置热重载成功")
+        else:
+            logger.warning("Collector 配置热重载失败: %s", result.errors)
 
 
 async def run_collector(
@@ -71,12 +95,15 @@ async def run_collector(
         port=grpc_port,
     )
     shutdown_event = asyncio.Event()
-    _install_signal_handlers(shutdown_event)
+    reload_event = asyncio.Event()
+    _install_signal_handlers(shutdown_event, reload_event)
+    reload_task: asyncio.Task[None] | None = None
 
     try:
         await grpc_server.start()
         logger.info("Collector gRPC 控制面已监听 %s", grpc_server.endpoint)
         await start_runtime(runtime)
+        reload_task = asyncio.create_task(_reload_loop(reload_event, runtime))
         logger.info(
             (
                 "wind-hub-collector 已启动 "
@@ -92,6 +119,12 @@ async def run_collector(
         await shutdown_event.wait()
         logger.info("收到停机信号，开始优雅停机")
     finally:
+        if reload_task is not None:
+            reload_task.cancel()
+            try:
+                await reload_task
+            except asyncio.CancelledError:
+                pass
         try:
             await grpc_server.stop()
         finally:
