@@ -161,7 +161,6 @@ class DiagnosticUseCase:
         point_id: str,
     ) -> PointVerifyResult:
         """解析点位协议地址；ADS 会实际查询 symbol 信息但不读取点值。"""
-        device = self._device(device_id)
         point = self._point(device_id, point_id)
         resolved, errors = await self._resolve_addresses(device_id, [point])
         return self._point_result(
@@ -178,7 +177,6 @@ class DiagnosticUseCase:
         point_id: str,
     ) -> PointVerifyResult:
         """实际读取单点并返回 raw/engineering value 与地址信息。"""
-        device = self._device(device_id)
         point = self._point(device_id, point_id)
         resolved, errors = await self._resolve_addresses(device_id, [point])
         rows = await self._verify_read(device_id, [point], resolved, errors)
@@ -318,6 +316,17 @@ class DiagnosticUseCase:
             PointRef(device_id=device_id, point_id=point.point_id)
             for point in readable_points
         ]
+        if not refs:
+            return [
+                self._point_result(
+                    device_id,
+                    point,
+                    resolved.get(point.point_id),
+                    readable=False,
+                    error=address_errors.get(point.point_id),
+                )
+                for point in points
+            ]
         try:
             values = await device.protocol.read(refs)
         except Exception as exc:
@@ -381,7 +390,7 @@ class DiagnosticUseCase:
         point: PointConfig,
         resolved_address: dict[str, Any] | None,
         *,
-        readable: bool,
+        readable: bool | None,
         raw_value: Any = None,
         quality: str | None = None,
         source: str | None = None,
