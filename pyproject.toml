@@ -156,7 +156,54 @@ markers = [
 ]
 
 [tool.importlinter]
-root_package = "wind_hub_collector"
+root_packages = [
+    "wind_hub_core",
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+]
+
+# ---- 跨包边界（现行正式架构的固化，见各包文件头职责说明）----
+# 依赖方向：collector / commander / server / ctl → core；core 无出向依赖。
+# 进程间协作一律经 core.rpc 生成的 gRPC 契约，禁止直接 import 对端进程包。
+
+[[tool.importlinter.contracts]]
+name = "core 不得依赖任何进程包"
+type = "forbidden"
+source_modules = ["wind_hub_core"]
+forbidden_modules = [
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+]
+
+[[tool.importlinter.contracts]]
+name = "collector 不得依赖 commander / server / ctl"
+type = "forbidden"
+source_modules = ["wind_hub_collector"]
+forbidden_modules = ["wind_hub_commander", "wind_hub_server", "wind_hub_ctl"]
+
+[[tool.importlinter.contracts]]
+name = "commander 不得依赖 collector / server / ctl"
+type = "forbidden"
+source_modules = ["wind_hub_commander"]
+forbidden_modules = ["wind_hub_collector", "wind_hub_server", "wind_hub_ctl"]
+
+[[tool.importlinter.contracts]]
+name = "server 不得依赖 collector / commander / ctl"
+type = "forbidden"
+source_modules = ["wind_hub_server"]
+forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_ctl"]
+
+[[tool.importlinter.contracts]]
+name = "ctl 不得依赖 collector / commander / server"
+type = "forbidden"
+source_modules = ["wind_hub_ctl"]
+forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_server"]
+
+# ---- collector 内部分层 ----
 
 [[tool.importlinter.contracts]]
 name = "Domain 不得依赖 Adapter 和 Infra"
