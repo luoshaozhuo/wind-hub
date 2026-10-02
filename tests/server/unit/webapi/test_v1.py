@@ -19,7 +19,7 @@ from wind_hub_server.application.usecase.device_control import DeviceCommandResu
 from wind_hub_server.application.usecase.device_data import DeviceDataItem, TrendSeries
 from wind_hub.domain.model.point import PointValue, Quality
 from wind_hub_server.application.usecase.overview import OverviewSnapshot
-from wind_hub.application.usecase.task import TaskSummary
+from wind_hub_server.application.usecase.worker_tasks import TaskSummary
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +40,8 @@ def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:
     """构造 V1 Task 聚合快照。"""
     return TaskSummary(
         task_id=task_id,
+        assigned_worker_id="collector-a",
+        placement_state="assigned",
         device="d1",
         point_group="fast",
         interval=1.0,
@@ -60,6 +62,8 @@ def test_v1_overview_returns_aggregate_snapshot() -> None:
         site_id="farm-a",
         site_name="Farm A",
         runtime_running=True,
+        runtime_state="running",
+        workers_unavailable=[],
         device_count=48,
         devices_connected=47,
         devices_offline=1,

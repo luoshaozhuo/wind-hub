@@ -116,7 +116,13 @@ class QualityUseCase:
             for event in self._metrics.events_since(since)
         ]
         issues = self._issues()
-        stale = sum(1 for issue in issues if issue.dimension == "Continuity")
+        stale = sum(
+            1
+            for issue in issues
+            if issue.dimension == "Continuity" and issue.kind == "Task"
+        )
+        worker_faults = sum(1 for issue in issues if issue.kind == "Worker")
+        continuity_faults = stale + worker_faults
         dropped = delta["points_dropped"]
         bad = delta["points_bad"]
         missed = delta["missed_cycles"]
@@ -134,8 +140,8 @@ class QualityUseCase:
             QualityDimension(
                 key="continuity",
                 dimension="Continuity",
-                status="Fault" if stale else "Normal",
-                metric=f"{stale} stale task(s)",
+                status="Fault" if continuity_faults else "Normal",
+                metric=f"{stale} stale task(s), {worker_faults} worker fault(s)",
                 detail=f"{failures} failed collect(s) in window",
             ),
             QualityDimension(
@@ -365,6 +371,17 @@ class QualityUseCase:
         issues: list[QualityIssue] = []
         status = self._monitoring.runtime_status()
         acquisitions = list(status.get("acquisitions") or [])
+
+        for worker_id in list(status.get("unavailable_workers") or []):
+            issues.append(
+                QualityIssue(
+                    level="Fault",
+                    object=str(worker_id),
+                    kind="Worker",
+                    dimension="Continuity",
+                    issue="Collector unavailable or identity invalid",
+                )
+            )
 
         for item in acquisitions:
             if not isinstance(item, dict):

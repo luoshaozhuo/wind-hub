@@ -88,6 +88,7 @@ from wind_hub_server.application.usecase.worker_tasks import (
     CollectorTaskUseCase,
     TaskInstanceDetail,
     TaskSummary,
+    TaskWorkerUnavailableError,
 )
 
 T = TypeVar("T")
@@ -351,6 +352,8 @@ async def start_task(task_id: str) -> TaskResponse:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     except TaskPlacementError as exc:
         raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
+    except TaskWorkerUnavailableError as exc:
+        raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     except ValueError as exc:
         raise APIError("TASK_DISABLED", str(exc), 409) from exc
     return _task_response(row)
@@ -365,6 +368,8 @@ async def stop_task(task_id: str) -> TaskResponse:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     except TaskPlacementError as exc:
         raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
+    except TaskWorkerUnavailableError as exc:
+        raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     return _task_response(row)
 
 

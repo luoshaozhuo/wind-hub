@@ -572,6 +572,18 @@ class ConfigUseCase:
             )
         return [*collector_ids, COMMANDER_WORKER_ID]
 
+    async def _collector_participant(self, worker: str):
+        """返回身份与逻辑 worker_id 一致的 Collector。"""
+        collector = self._collectors.get(worker)
+        status = await collector.config_status()
+        reported_id = str(status.get("collector_id") or "")
+        if reported_id != worker:
+            raise RuntimeError(
+                f"collector identity mismatch: expected={worker} "
+                f"reported={reported_id or '<empty>'}"
+            )
+        return collector
+
     async def _prepare_participant(
         self,
         worker: str,
@@ -583,7 +595,7 @@ class ConfigUseCase:
         """Prepare 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.prepare_config(revision_id, config_hash)
-        collector = self._collectors.get(worker)
+        collector = await self._collector_participant(worker)
         return await collector.prepare_config(
             revision_id,
             config_hash,
@@ -598,7 +610,8 @@ class ConfigUseCase:
         """Activate 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.activate_config(revision_id)
-        return await self._collectors.get(worker).activate_config(revision_id)
+        collector = await self._collector_participant(worker)
+        return await collector.activate_config(revision_id)
 
     async def _abort_participant(
         self,
@@ -608,13 +621,15 @@ class ConfigUseCase:
         """Abort 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.abort_config(revision_id)
-        return await self._collectors.get(worker).abort_config(revision_id)
+        collector = await self._collector_participant(worker)
+        return await collector.abort_config(revision_id)
 
     async def _status_participant(self, worker: str) -> dict[str, object]:
         """读取单个配置事务参与者当前配置状态。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.status()
-        return await self._collectors.get(worker).config_status()
+        collector = await self._collector_participant(worker)
+        return await collector.config_status()
 
 
 __all__ = ["Config", "ConfigUseCase", "compute_diff"]

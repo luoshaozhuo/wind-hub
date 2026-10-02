@@ -28,6 +28,7 @@ class WorkerState(StrEnum):
     UNKNOWN = "unknown"
     ONLINE = "online"
     OFFLINE = "offline"
+    INVALID_IDENTITY = "invalid_identity"
 
 
 class WorkerRecord(BaseModel):
@@ -119,12 +120,32 @@ class WorkerRegistryUseCase:
             status = await collector.config_status()
         except Exception as exc:
             return self._offline(previous, now, exc)
+        reported_id = _optional_text(status.get("collector_id"))
+        if reported_id != worker_id:
+            return WorkerRecord(
+                worker_id=previous.worker_id,
+                role=previous.role,
+                endpoint=previous.endpoint,
+                capabilities=list(previous.capabilities),
+                reported_id=reported_id,
+                state=WorkerState.INVALID_IDENTITY,
+                last_probe_at=now,
+                last_seen_at=previous.last_seen_at,
+                last_error=(
+                    f"collector identity mismatch: expected={worker_id} "
+                    f"reported={reported_id or '<empty>'}"
+                ),
+                runtime_running=None,
+                active_revision=_optional_text(status.get("active_revision")),
+                active_config_hash=_optional_text(status.get("active_config_hash")),
+                boot_id=_optional_text(status.get("boot_id")),
+            )
         return WorkerRecord(
             worker_id=previous.worker_id,
             role=previous.role,
             endpoint=previous.endpoint,
             capabilities=list(previous.capabilities),
-            reported_id=_optional_text(status.get("collector_id")),
+            reported_id=reported_id,
             state=WorkerState.ONLINE,
             last_probe_at=now,
             last_seen_at=now,

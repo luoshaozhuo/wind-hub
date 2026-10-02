@@ -19,6 +19,8 @@ class OverviewSnapshot(BaseModel):
     site_id: str | None = None
     site_name: str | None = None
     runtime_running: bool
+    runtime_state: str
+    workers_unavailable: list[str]
     device_count: int
     devices_connected: int
     devices_offline: int
@@ -52,6 +54,14 @@ class OverviewUseCase:
             site_id=site.site_id if site is not None else None,
             site_name=site.name if site is not None else None,
             runtime_running=status.running,
+            runtime_state=(
+                "degraded"
+                if status.degraded
+                else "running"
+                if status.running
+                else "stopped"
+            ),
+            workers_unavailable=list(status.unavailable_workers),
             device_count=status.device_count,
             devices_connected=status.devices_connected,
             devices_offline=max(0, status.device_count - status.devices_connected),

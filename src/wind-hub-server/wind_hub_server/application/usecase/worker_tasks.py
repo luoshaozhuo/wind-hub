@@ -12,8 +12,13 @@ from wind_hub_server.application.port.collector_directory import CollectorDirect
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import (
     TaskAssignmentUseCase,
+    TaskPlacementError,
     TaskPlacementState,
 )
+
+
+class TaskWorkerUnavailableError(RuntimeError):
+    """Task 所属 Collector 当前不可用或身份非法。"""
 
 
 class TaskInstanceState(str, Enum):
@@ -71,6 +76,23 @@ class CollectorTaskUseCase:
         self._assignments = assignments
         self._config = config
 
+    async def _verified_collector(self, worker_id: str):
+        """返回在线且身份与 placement worker_id 一致的 Collector。"""
+        collector = self._collectors.get(worker_id)
+        try:
+            status = await collector.config_status()
+        except Exception as exc:
+            raise TaskWorkerUnavailableError(
+                f"collector '{worker_id}' is unavailable"
+            ) from exc
+        reported_id = str(status.get("collector_id") or "")
+        if reported_id != worker_id:
+            raise TaskWorkerUnavailableError(
+                f"collector identity mismatch: expected={worker_id} "
+                f"reported={reported_id or '<empty>'}"
+            )
+        return collector
+
     async def list_tasks(self) -> list[TaskDetail]:
         """返回全部 Task Definition，包括未分配 Task。"""
         return [
@@ -115,14 +137,18 @@ class CollectorTaskUseCase:
             by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
 
         worker_ids = sorted(by_worker)
+        async def fetch(worker_id: str):
+            collector = await self._verified_collector(worker_id)
+            return await collector.list_task_instances()
+
         results = await asyncio.gather(
-            *(
-                self._collectors.get(worker_id).list_task_instances()
-                for worker_id in worker_ids
-            )
+            *(fetch(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
         )
         rows: list[TaskInstanceDetail] = []
         for worker_id, worker_rows in zip(worker_ids, results, strict=True):
+            if isinstance(worker_rows, BaseException):
+                continue
             assigned_task_ids = by_worker[worker_id]
             rows.extend(
                 TaskInstanceDetail.model_validate(
@@ -156,7 +182,11 @@ class CollectorTaskUseCase:
         if assignment.worker_id is None:
             return self._fallback_summary(cfg, None)
 
-        rows = await self._collectors.get(assignment.worker_id).list_tasks()
+        try:
+            collector = await self._verified_collector(assignment.worker_id)
+            rows = await collector.list_tasks()
+        except TaskWorkerUnavailableError:
+            return self._fallback_summary(cfg, assignment.worker_id)
         for row in rows:
             if str(row.get("task_id") or "") == task_id:
                 return TaskSummary.model_validate(
@@ -173,7 +203,11 @@ class CollectorTaskUseCase:
         assignment = self._assignments.assignment_for_task(task_id)
         if assignment.worker_id is None:
             return []
-        rows = await self._collectors.get(assignment.worker_id).list_task_instances()
+        try:
+            collector = await self._verified_collector(assignment.worker_id)
+            rows = await collector.list_task_instances()
+        except TaskWorkerUnavailableError:
+            return []
         return [
             TaskInstanceDetail.model_validate(
                 {**row, "assigned_worker_id": assignment.worker_id}
@@ -184,7 +218,7 @@ class CollectorTaskUseCase:
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
         current = await self.get_instance(instance_id)
-        collector = self._collectors.get(current.assigned_worker_id)
+        collector = await self._verified_collector(current.assigned_worker_id)
         data = await collector.start_task_instance(instance_id)
         return TaskInstanceDetail.model_validate(
             {**data, "assigned_worker_id": current.assigned_worker_id}
@@ -192,7 +226,7 @@ class CollectorTaskUseCase:
 
     async def stop_instance(self, instance_id: str) -> TaskInstanceDetail:
         current = await self.get_instance(instance_id)
-        collector = self._collectors.get(current.assigned_worker_id)
+        collector = await self._verified_collector(current.assigned_worker_id)
         data = await collector.stop_task_instance(instance_id)
         return TaskInstanceDetail.model_validate(
             {**data, "assigned_worker_id": current.assigned_worker_id}
@@ -200,7 +234,7 @@ class CollectorTaskUseCase:
 
     async def start_task(self, task_id: str) -> TaskSummary:
         worker_id = self._assignments.worker_for_task(task_id)
-        collector = self._collectors.get(worker_id)
+        collector = await self._verified_collector(worker_id)
         data = await collector.start_task(task_id)
         return TaskSummary.model_validate(
             {
@@ -212,7 +246,7 @@ class CollectorTaskUseCase:
 
     async def stop_task(self, task_id: str) -> TaskSummary:
         worker_id = self._assignments.worker_for_task(task_id)
-        collector = self._collectors.get(worker_id)
+        collector = await self._verified_collector(worker_id)
         data = await collector.stop_task(task_id)
         return TaskSummary.model_validate(
             {
@@ -237,14 +271,18 @@ class CollectorTaskUseCase:
             by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
 
         worker_ids = sorted(by_worker)
+        async def fetch(worker_id: str):
+            collector = await self._verified_collector(worker_id)
+            return await collector.list_tasks()
+
         results = await asyncio.gather(
-            *(
-                self._collectors.get(worker_id).list_tasks()
-                for worker_id in worker_ids
-            )
+            *(fetch(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
         )
         rows: list[tuple[str, dict[str, Any]]] = []
         for worker_id, worker_rows in zip(worker_ids, results, strict=True):
+            if isinstance(worker_rows, BaseException):
+                continue
             assigned_task_ids = by_worker[worker_id]
             rows.extend(
                 (worker_id, row)
@@ -295,7 +333,7 @@ class CollectorTaskUseCase:
         changed = [row for row in instances if row.state is not target]
 
         async def apply(row: TaskInstanceDetail) -> None:
-            collector = self._collectors.get(row.assigned_worker_id)
+            collector = await self._verified_collector(row.assigned_worker_id)
             if start:
                 await collector.start_task_instance(row.instance_id)
             else:

@@ -30,6 +30,8 @@ class SystemStatus(BaseModel):
     points_routed: int = 0
     points_dropped: int = 0
     acquisitions: list[AcquisitionInfo] = Field(default_factory=list)
+    degraded: bool = False
+    unavailable_workers: list[str] = Field(default_factory=list)
 
 
 class WorkerQueryUseCase:

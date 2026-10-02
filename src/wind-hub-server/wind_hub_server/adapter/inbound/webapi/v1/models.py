@@ -110,6 +110,8 @@ class OverviewResponse(BaseModel):
     site_id: str | None = None
     site_name: str | None = None
     runtime_running: bool
+    runtime_state: str
+    workers_unavailable: list[str] = Field(default_factory=list)
     device_count: int
     devices_connected: int
     devices_offline: int
