@@ -162,6 +162,58 @@ class TestConnect:
             await driver.close()
 
 
+    async def test_reconnect_re_resolves_symbol_address_for_new_session(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """新 ADS session 必须重新解析 symbol，不能继续使用上一 session 地址。"""
+
+        class _SessionAddressConnection(FakeConnection):
+            created = 0
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                super().__init__(*args, **kwargs)
+                type(self).created += 1
+                self.session_no = type(self).created
+
+            def get_symbol(self, symbol: str) -> object:
+                offset = 100 if self.session_no == 1 else 200
+                return SimpleNamespace(
+                    index_group=0x4020,
+                    index_offset=offset,
+                    plc_type=ctypes.c_float,
+                    symbol_type="REAL",
+                )
+
+        monkeypatch.setattr("pyads.Connection", _SessionAddressConnection)
+
+        driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
+        driver.set_points_mapping(
+            [_make_point_config("speed", "float32", symbol="MAIN.speed")]
+        )
+
+        await driver.connect()
+        first = driver._connection
+        first.values[(0x4020, 100)] = 1.0
+        first.values[(0x4020, 200)] = 2.0
+        first_values = await driver.read(
+            [PointRef(device_id="test-dev", point_id="speed")]
+        )
+        assert first_values[0].value == 1.0
+
+        await driver.close()
+        await driver.connect()
+        second = driver._connection
+        second.values[(0x4020, 100)] = 1.0
+        second.values[(0x4020, 200)] = 2.0
+        second_values = await driver.read(
+            [PointRef(device_id="test-dev", point_id="speed")]
+        )
+        await driver.close()
+
+        assert second_values[0].value == 2.0
+        assert second.index_read_calls == 1
+
+
 # ---------------------------------------------------------------------------
 # read
 # ---------------------------------------------------------------------------
