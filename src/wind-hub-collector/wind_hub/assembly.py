@@ -6,8 +6,8 @@
 Protocol / Device / Sink -> AcquisitionEngine -> Runtime
                            -> TaskUseCase / CommandUseCase / QueryUseCase / ConfigUseCase
 
-Admin、Overview、Quality、Diagnostics、Web API、长期日志与 System Health
-均不属于 Collector 组合根；运行时配置 reload 属于 Collector 核心控制面。
+Admin、Overview、Quality、Web API、长期日志与 System Health 不属于 Collector
+组合根；按需 Diagnostics 与运行时配置 reload 属于 Collector 核心控制面。
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.config.loader import load_config
@@ -64,6 +65,7 @@ class AssembledRuntime:
         tasks: Task / Task Instance 控制用例。
         command: 写指令用例。
         query: 只读查询用例。
+        diagnostic: 按需现场诊断用例。
         config: 本地 YAML 增量热重载用例。
         iec104_slave: 可选 IEC104 reporting 从站代理。
     """
@@ -76,6 +78,7 @@ class AssembledRuntime:
     tasks: TaskUseCase
     command: CommandUseCase
     query: QueryUseCase
+    diagnostic: DiagnosticUseCase
     config: ConfigUseCase
     iec104_slave: IEC104SlaveServer | None = None
 
@@ -140,6 +143,7 @@ def assemble(
     tasks = TaskUseCase(runtime)
     command = CommandUseCase(dispatcher)
     query = QueryUseCase(runtime)
+    diagnostic = DiagnosticUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
 
     iec104_slave: IEC104SlaveServer | None = None
@@ -159,6 +163,7 @@ def assemble(
         tasks=tasks,
         command=command,
         query=query,
+        diagnostic=diagnostic,
         config=config,
         iec104_slave=iec104_slave,
     )

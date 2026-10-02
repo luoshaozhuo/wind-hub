@@ -19,6 +19,7 @@ from wind_hub.assembly import AssembledRuntime
 from wind_hub.domain.model.command import Command
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
+    DIAGNOSTIC_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
     GET_TASK,
@@ -27,7 +28,11 @@ from wind_hub_core.rpc.collector import (
     LIST_TASKS,
     LIST_TASK_INSTANCES,
     READ_POINT,
+    RESOLVE_POINT,
     RELOAD_CONFIG,
+    VERIFY_DEVICE,
+    VERIFY_POINT,
+    VERIFY_POINTS,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK,
@@ -450,6 +455,117 @@ class CollectorControlService:
         return _struct(result.model_dump(mode="json"))
 
 
+
+class CollectorDiagnosticService:
+    """Collector 按需现场诊断服务。"""
+
+    def __init__(self, runtime: AssembledRuntime) -> None:
+        self._runtime = runtime
+
+    async def verify_device(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """验证设备网络、TCP 与协议会话。"""
+        data = _request_dict(request)
+        try:
+            device_id = _required_string(data, "device_id")
+            timeout = float(data.get("timeout", 1.0))
+            if timeout <= 0:
+                raise ValueError("timeout must be > 0")
+            result = await self._runtime.diagnostic.verify_device(
+                device_id,
+                timeout=timeout,
+            )
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except Exception as exc:
+            from wind_hub.domain.model.errors import CommandError
+
+            if isinstance(exc, CommandError):
+                await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+                raise AssertionError("context.abort must terminate the RPC") from exc
+            raise
+        return _struct(result.model_dump(mode="json"))
+
+    async def resolve_point(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """解析点位协议地址；ADS 返回实际 index_group/index_offset。"""
+        return await self._point_operation(request, context, resolve_only=True)
+
+    async def verify_point(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """实际读取单点并返回 raw 与工程值。"""
+        return await self._point_operation(request, context, resolve_only=False)
+
+    async def _point_operation(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+        *,
+        resolve_only: bool,
+    ) -> struct_pb2.Struct:
+        data = _request_dict(request)
+        try:
+            device_id = _required_string(data, "device_id")
+            point_id = _required_string(data, "point_id")
+            operation = (
+                self._runtime.diagnostic.resolve_point
+                if resolve_only
+                else self._runtime.diagnostic.verify_point
+            )
+            result = await operation(device_id, point_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except Exception as exc:
+            from wind_hub.domain.model.errors import CommandError
+
+            if isinstance(exc, CommandError):
+                await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+                raise AssertionError("context.abort must terminate the RPC") from exc
+            raise
+        return _struct(result.model_dump(mode="json"))
+
+    async def verify_points(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """验证整个设备点表或指定 point_group。"""
+        data = _request_dict(request)
+        try:
+            device_id = _required_string(data, "device_id")
+            point_group_value = data.get("point_group")
+            point_group = (
+                str(point_group_value)
+                if point_group_value is not None and str(point_group_value)
+                else None
+            )
+            result = await self._runtime.diagnostic.verify_points(
+                device_id,
+                point_group=point_group,
+            )
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except Exception as exc:
+            from wind_hub.domain.model.errors import CommandError
+
+            if isinstance(exc, CommandError):
+                await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+                raise AssertionError("context.abort must terminate the RPC") from exc
+            raise
+        return _struct(result.model_dump(mode="json"))
+
 def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandler:
     """构建 Runtime service generic handler。"""
     return grpc.method_handlers_generic_handler(
@@ -548,6 +664,35 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
     )
 
 
+
+def _diagnostic_handlers(service: CollectorDiagnosticService) -> grpc.GenericRpcHandler:
+    """构建 Diagnostic service generic handler。"""
+    return grpc.method_handlers_generic_handler(
+        DIAGNOSTIC_SERVICE,
+        {
+            VERIFY_DEVICE: grpc.unary_unary_rpc_method_handler(
+                service.verify_device,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            RESOLVE_POINT: grpc.unary_unary_rpc_method_handler(
+                service.resolve_point,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            VERIFY_POINT: grpc.unary_unary_rpc_method_handler(
+                service.verify_point,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            VERIFY_POINTS: grpc.unary_unary_rpc_method_handler(
+                service.verify_points,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+        },
+    )
+
 def build_grpc_server(
     runtime: AssembledRuntime,
     identity: CollectorIdentity,
@@ -569,10 +714,12 @@ def build_grpc_server(
     server = grpc.aio.server()
     runtime_service = CollectorRuntimeService(runtime, identity)
     control_service = CollectorControlService(runtime)
+    diagnostic_service = CollectorDiagnosticService(runtime)
     server.add_generic_rpc_handlers(
         (
             _runtime_handlers(runtime_service),
             _control_handlers(control_service),
+            _diagnostic_handlers(diagnostic_service),
         )
     )
     requested_endpoint = f"{host}:{port}"

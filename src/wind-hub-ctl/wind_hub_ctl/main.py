@@ -82,6 +82,20 @@ async def _run(args: argparse.Namespace) -> int:
             result = await client.stop_all()
         elif args.command == "reload":
             result = await client.reload()
+        elif args.command == "verify-device":
+            result = await client.verify_device(
+                args.device_id,
+                timeout=args.probe_timeout,
+            )
+        elif args.command == "resolve-point":
+            result = await client.resolve_point(args.device_id, args.point_id)
+        elif args.command == "verify-point":
+            result = await client.verify_point(args.device_id, args.point_id)
+        elif args.command == "verify-points":
+            result = await client.verify_points(
+                args.device_id,
+                point_group=args.group,
+            )
         elif args.command == "write":
             result = await client.write(
                 args.device_id,
@@ -150,6 +164,31 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("start-all", help="启动全部已分配 Task Instance")
     sub.add_parser("stop-all", help="停止全部已分配 Task Instance")
     sub.add_parser("reload", help="从 Collector 本地 YAML 执行增量热重载")
+
+    verify_device = sub.add_parser("verify-device", help="验证设备通信链路")
+    verify_device.add_argument("device_id")
+    verify_device.add_argument(
+        "--probe-timeout",
+        type=float,
+        default=1.0,
+        help="ICMP/TCP 单阶段探测超时（秒）",
+    )
+
+    resolve_point = sub.add_parser("resolve-point", help="解析点位协议地址")
+    resolve_point.add_argument("device_id")
+    resolve_point.add_argument("point_id")
+
+    verify_point = sub.add_parser("verify-point", help="实际读取并校验单个点位")
+    verify_point.add_argument("device_id")
+    verify_point.add_argument("point_id")
+
+    verify_points = sub.add_parser("verify-points", help="批量校验设备点表或 point group")
+    verify_points.add_argument("device_id")
+    verify_points.add_argument(
+        "--group",
+        default=None,
+        help="仅校验指定 point_group；省略时校验整个设备点表",
+    )
 
     write = sub.add_parser("write", help="向设备点位写值")
     write.add_argument("device_id")
