@@ -10,6 +10,7 @@ wind-hub-ctl 与 wind-hub-collector 各自硬编码。它不包含 gRPC server/c
 
 RUNTIME_SERVICE = "windhub.collector.v1.CollectorRuntimeService"
 CONTROL_SERVICE = "windhub.collector.v1.CollectorControlService"
+DIAGNOSTIC_SERVICE = "windhub.collector.v1.CollectorDiagnosticService"
 
 GET_COLLECTOR_INFO = "GetCollectorInfo"
 GET_RUNTIME_STATUS = "GetRuntimeStatus"
@@ -28,6 +29,11 @@ START_ASSIGNED_TASKS = "StartAssignedTasks"
 STOP_ASSIGNED_TASKS = "StopAssignedTasks"
 WRITE_POINT = "WritePoint"
 RELOAD_CONFIG = "ReloadConfig"
+
+VERIFY_DEVICE = "VerifyDevice"
+RESOLVE_POINT = "ResolvePoint"
+VERIFY_POINT = "VerifyPoint"
+VERIFY_POINTS = "VerifyPoints"
 
 
 def rpc_path(service: str, method: str) -> str:
