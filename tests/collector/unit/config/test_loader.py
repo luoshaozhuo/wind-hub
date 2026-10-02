@@ -148,6 +148,27 @@ class TestLoadConfig:
             assert cfg.points_for_device("d1")[0].point_id == "p1"
             assert cfg.tasks.tasks[0].task_id == "task1"
 
+    def test_ads_sum_accepts_index_only_points(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_ads_device(read_mode="sum")],
+                point_tables=_table(
+                    [
+                        {
+                            "point_id": "p1",
+                            "point_groups": ["default"],
+                            "address": {"index_group": 16448, "index_offset": 100},
+                            "data_type": "float32",
+                        }
+                    ]
+                ),
+                tasks=[_task()],
+            )
+            cfg = load_config(site)
+            point = cfg.points_for_device("d1")[0]
+            assert point.address.model_extra["index_group"] == 16448
+            assert point.address.model_extra["index_offset"] == 100
     def test_config_without_tasks_is_valid(self) -> None:
         """tasks.yaml 为空 tasks 列表：合法，只是不做周期采集。"""
         with tempfile.TemporaryDirectory() as td:
@@ -448,6 +469,17 @@ class TestCrossFileValidation:
             with pytest.raises(ConfigError, match="unknown sink"):
                 load_config(site)
 
+    def test_task_targets_disabled_sink_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                sinks=[{"name": "s1", "type": "file", "enabled": False}],
+                tasks=[_task()],
+            )
+            with pytest.raises(ConfigError, match="disabled sink"):
+                load_config(site)
     def test_task_references_unknown_device_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             site = _write_config_dir(
