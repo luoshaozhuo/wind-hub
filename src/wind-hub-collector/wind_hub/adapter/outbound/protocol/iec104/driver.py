@@ -193,18 +193,21 @@ class IEC104Driver:
     async def connect(self) -> None:
         """建立 IEC104 session 并启动后台 monitor。
 
-        已有 session 时幂等返回；Driver 已进入 FAILED 时拒绝自动重新连接。
+        已有 session 时幂等返回。内部 monitor 正在重连时拒绝并行建连；monitor
+        已耗尽重试或首次连接失败后，后续显式 connect() 可以启动新一轮
+        连接尝试，供 Runtime 的重连节流机制恢复设备。
 
         Raises:
-            ProtocolError: STARTDT/TCP 建连失败，或 Driver 已处于 FAILED。
+            ProtocolError: monitor 正在重连，或本轮 STARTDT/TCP 建连失败。
         """
         async with self._lock:
             if self._session is not None:
-                logger.warning("IEC104: connect() called but already connected")
                 return
-            if self._failed:
-                raise ProtocolError("IEC104: driver is in FAILED state — manual reset required")
+            if self._monitor_task is not None and not self._monitor_task.done():
+                raise ProtocolError("IEC104: reconnect already in progress")
 
+            # FAILED 只表示上一轮重试已耗尽，不是永久锁死状态。
+            self._failed = False
             self._shutdown = False
 
             session = IEC104Session(
@@ -221,12 +224,14 @@ class IEC104Driver:
                 self._ioa_to_point_id,
                 self._point_id_to_ioa,
             )
-            # session 解码后的 ASDU 同步转交 Driver。
             session.set_on_asdu(self._on_asdu_received)
 
             try:
                 await session.start()
-            except ProtocolError:
+            except Exception:
+                # STARTDT/GI 失败时 session 可能已经持有 socket/task/timer。
+                with contextlib.suppress(Exception):
+                    await session.close()
                 self._failed = True
                 raise
 
@@ -698,26 +703,26 @@ class IEC104Driver:
                 backoff,
             )
 
+            new_session = IEC104Session(
+                host=self._cfg.host,
+                port=self._cfg.port,
+                common_addr=self._cfg.common_addr,
+                k=self._cfg.k,
+                w=self._cfg.w,
+                t1=self._cfg.t1,
+                t2=self._cfg.t2,
+                t3=self._cfg.t3,
+            )
+            new_session.set_points_mapping(
+                self._ioa_to_point_id,
+                self._point_id_to_ioa,
+            )
+            new_session.set_on_asdu(self._on_asdu_received)
             try:
-                new_session = IEC104Session(
-                    host=self._cfg.host,
-                    port=self._cfg.port,
-                    common_addr=self._cfg.common_addr,
-                    k=self._cfg.k,
-                    w=self._cfg.w,
-                    t1=self._cfg.t1,
-                    t2=self._cfg.t2,
-                    t3=self._cfg.t3,
-                )
-                new_session.set_points_mapping(
-                    self._ioa_to_point_id,
-                    self._point_id_to_ioa,
-                )
-                new_session.set_on_asdu(self._on_asdu_received)
                 await new_session.start()
             except TimeoutError:
-                # 连接/握手超时是对端不可达的日常表现：降级为简洁 warning，
-                # 不打堆栈（决策 2）；其他协议错误仍保留完整堆栈便于排查。
+                with contextlib.suppress(Exception):
+                    await new_session.close()
                 logger.warning(
                     "IEC104: reconnect timed out for %s:%d",
                     self._cfg.host,
@@ -725,6 +730,8 @@ class IEC104Driver:
                 )
                 continue
             except ProtocolError as exc:
+                with contextlib.suppress(Exception):
+                    await new_session.close()
                 if _is_timeout_related(exc):
                     logger.warning(
                         "IEC104: reconnect timed out for %s:%d",
@@ -738,7 +745,15 @@ class IEC104Driver:
                         self._cfg.port,
                     )
                 continue
-
+            except Exception:
+                with contextlib.suppress(Exception):
+                    await new_session.close()
+                logger.exception(
+                    "IEC104: unexpected reconnect failure for %s:%d",
+                    self._cfg.host,
+                    self._cfg.port,
+                )
+                continue
             self._session = new_session
             retries = 0
             backoff = _RECONNECT_BACKOFF_BASE
