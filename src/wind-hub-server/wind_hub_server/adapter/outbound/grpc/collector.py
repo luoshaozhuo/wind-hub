@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import grpc
 from google.protobuf import empty_pb2
 
 from wind_hub_core.rpc import collector_pb2 as pb
@@ -22,6 +23,7 @@ from wind_hub_core.rpc.collector_codec import (
     task_summary_to_dict,
 )
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
+from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
 
 
 class CollectorGrpcClient(GrpcClientBase):

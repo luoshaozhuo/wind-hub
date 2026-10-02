@@ -30,6 +30,73 @@ for _service in _FILE_DESCRIPTOR.service:
         del _service.method[:]
         _service.method.extend(_kept_methods)
 _removed_messages = {"TaskBatchResultMessage", "ReloadResultMessage"}
+_package = ".windhub.collector.v1"
+
+def _add_message(name, fields):
+    message = _FILE_DESCRIPTOR.message_type.add()
+    message.name = name
+    for field_name, number, field_type, label in fields:
+        field = message.field.add()
+        field.name = field_name
+        field.number = number
+        field.type = field_type
+        field.label = label
+    return message
+
+_add_message(
+    "TaskStartRequest",
+    [
+        ("task_id", 1, _descriptor_pb2.FieldDescriptorProto.TYPE_STRING,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("placement_generation", 2, _descriptor_pb2.FieldDescriptorProto.TYPE_UINT64,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+    ],
+)
+_add_message(
+    "TaskInstanceStartRequest",
+    [
+        ("instance_id", 1, _descriptor_pb2.FieldDescriptorProto.TYPE_STRING,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("placement_generation", 2, _descriptor_pb2.FieldDescriptorProto.TYPE_UINT64,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+    ],
+)
+_add_message(
+    "TaskPlacementSnapshotRequest",
+    [
+        ("worker_id", 1, _descriptor_pb2.FieldDescriptorProto.TYPE_STRING,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("generation", 2, _descriptor_pb2.FieldDescriptorProto.TYPE_UINT64,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("task_ids", 3, _descriptor_pb2.FieldDescriptorProto.TYPE_STRING,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED),
+    ],
+)
+_add_message(
+    "TaskPlacementSnapshotResponse",
+    [
+        ("success", 1, _descriptor_pb2.FieldDescriptorProto.TYPE_BOOL,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("generation", 2, _descriptor_pb2.FieldDescriptorProto.TYPE_UINT64,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+        ("task_count", 3, _descriptor_pb2.FieldDescriptorProto.TYPE_UINT64,
+         _descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL),
+    ],
+)
+
+for _service in _FILE_DESCRIPTOR.service:
+    if _service.name != "CollectorControlService":
+        continue
+    for _method in _service.method:
+        if _method.name == "StartTask":
+            _method.input_type = _package + ".TaskStartRequest"
+        elif _method.name == "StartTaskInstance":
+            _method.input_type = _package + ".TaskInstanceStartRequest"
+    _placement_method = _service.method.add()
+    _placement_method.name = "ApplyTaskPlacement"
+    _placement_method.input_type = _package + ".TaskPlacementSnapshotRequest"
+    _placement_method.output_type = _package + ".TaskPlacementSnapshotResponse"
+
 _kept_messages = [
     message
     for message in _FILE_DESCRIPTOR.message_type

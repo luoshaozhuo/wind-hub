@@ -168,9 +168,14 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
 
 class CollectorControlServiceStub:
     def __init__(self, channel):
+        self.ApplyTaskPlacement = channel.unary_unary(
+            "/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement",
+            request_serializer=collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
+            response_deserializer=collector__pb2.TaskPlacementSnapshotResponse.FromString,
+        )
         self.StartTask = channel.unary_unary(
             "/windhub.collector.v1.CollectorControlService/StartTask",
-            request_serializer=collector__pb2.TaskIdRequest.SerializeToString,
+            request_serializer=collector__pb2.TaskStartRequest.SerializeToString,
             response_deserializer=collector__pb2.TaskSummaryMessage.FromString,
         )
         self.StopTask = channel.unary_unary(
@@ -180,7 +185,7 @@ class CollectorControlServiceStub:
         )
         self.StartTaskInstance = channel.unary_unary(
             "/windhub.collector.v1.CollectorControlService/StartTaskInstance",
-            request_serializer=collector__pb2.InstanceIdRequest.SerializeToString,
+            request_serializer=collector__pb2.TaskInstanceStartRequest.SerializeToString,
             response_deserializer=collector__pb2.TaskInstanceMessage.FromString,
         )
         self.StopTaskInstance = channel.unary_unary(
@@ -206,6 +211,9 @@ class CollectorControlServiceStub:
 
 
 class CollectorControlServiceServicer:
+    async def ApplyTaskPlacement(self, request, context):
+        raise NotImplementedError()
+
     async def StartTask(self, request, context):
         raise NotImplementedError()
 
@@ -230,9 +238,14 @@ class CollectorControlServiceServicer:
 
 def add_CollectorControlServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+        "ApplyTaskPlacement": grpc.unary_unary_rpc_method_handler(
+            servicer.ApplyTaskPlacement,
+            request_deserializer=collector__pb2.TaskPlacementSnapshotRequest.FromString,
+            response_serializer=collector__pb2.TaskPlacementSnapshotResponse.SerializeToString,
+        ),
         "StartTask": grpc.unary_unary_rpc_method_handler(
             servicer.StartTask,
-            request_deserializer=collector__pb2.TaskIdRequest.FromString,
+            request_deserializer=collector__pb2.TaskStartRequest.FromString,
             response_serializer=collector__pb2.TaskSummaryMessage.SerializeToString,
         ),
         "StopTask": grpc.unary_unary_rpc_method_handler(
@@ -242,7 +255,7 @@ def add_CollectorControlServiceServicer_to_server(servicer, server):
         ),
         "StartTaskInstance": grpc.unary_unary_rpc_method_handler(
             servicer.StartTaskInstance,
-            request_deserializer=collector__pb2.InstanceIdRequest.FromString,
+            request_deserializer=collector__pb2.TaskInstanceStartRequest.FromString,
             response_serializer=collector__pb2.TaskInstanceMessage.SerializeToString,
         ),
         "StopTaskInstance": grpc.unary_unary_rpc_method_handler(

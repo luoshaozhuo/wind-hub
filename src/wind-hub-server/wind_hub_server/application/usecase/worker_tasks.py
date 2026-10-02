@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import (
     TaskAssignmentUseCase,
@@ -142,8 +143,35 @@ class CollectorTaskUseCase:
         )
         worker_ids = self._collectors.list_worker_ids()
 
+        assigned_by_worker: dict[str, list[str]] = {
+            worker_id: sorted(
+                task_id
+                for task_id, assignment in assignments.items()
+                if assignment.state is TaskPlacementState.ASSIGNED
+                and assignment.worker_id == worker_id
+            )
+            for worker_id in worker_ids
+        }
+
         async def fetch(worker_id: str):
             collector = await self._verified_collector(worker_id)
+            placement = await collector.apply_task_placement(
+                worker_id,
+                generation,
+                assigned_by_worker[worker_id],
+            )
+            if not bool(placement.get("success")):
+                raise RuntimeError("collector rejected task placement")
+            if int(placement.get("generation") or 0) != generation:
+                raise RuntimeError(
+                    "collector placement generation acknowledgment mismatch"
+                )
+            if int(placement.get("task_count") or 0) != len(
+                assigned_by_worker[worker_id]
+            ):
+                raise RuntimeError(
+                    "collector placement task-count acknowledgment mismatch"
+                )
             return collector, await collector.list_task_instances()
 
         results = await asyncio.gather(
@@ -347,7 +375,14 @@ class CollectorTaskUseCase:
         self._require_safe_start()
         current = await self.get_instance(instance_id)
         collector = await self._verified_collector(current.assigned_worker_id)
-        data = await collector.start_task_instance(instance_id)
+        try:
+            data = await collector.start_task_instance(
+                instance_id,
+                self._assignments.generation,
+            )
+        except CollectorPlacementRejectedError as exc:
+            self._reconciled_generation = None
+            raise TaskPlacementUnsafeError(str(exc)) from exc
         return TaskInstanceDetail.model_validate(
             {**data, "assigned_worker_id": current.assigned_worker_id}
         )
@@ -364,7 +399,14 @@ class CollectorTaskUseCase:
         self._require_safe_start()
         worker_id = self._assignments.worker_for_task(task_id)
         collector = await self._verified_collector(worker_id)
-        data = await collector.start_task(task_id)
+        try:
+            data = await collector.start_task(
+                task_id,
+                self._assignments.generation,
+            )
+        except CollectorPlacementRejectedError as exc:
+            self._reconciled_generation = None
+            raise TaskPlacementUnsafeError(str(exc)) from exc
         return TaskSummary.model_validate(
             {
                 **data,
@@ -471,7 +513,14 @@ class CollectorTaskUseCase:
         async def apply(row: TaskInstanceDetail) -> None:
             collector = await self._verified_collector(row.assigned_worker_id)
             if start:
-                await collector.start_task_instance(row.instance_id)
+                try:
+                    await collector.start_task_instance(
+                        row.instance_id,
+                        self._assignments.generation,
+                    )
+                except CollectorPlacementRejectedError as exc:
+                    self._reconciled_generation = None
+                    raise TaskPlacementUnsafeError(str(exc)) from exc
             else:
                 await collector.stop_task_instance(row.instance_id)
 

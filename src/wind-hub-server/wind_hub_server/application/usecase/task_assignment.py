@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
-_STATE_VERSION = 1
+_STATE_VERSION = 2
 
 
 class TaskPlacementState(StrEnum):
@@ -56,6 +56,7 @@ class TaskAssignmentUseCase:
         self._generation = 0
         if self._state_path.exists():
             self._load()
+            self._sync_worker_set()
             self.sync()
         else:
             self._initialize()
@@ -79,6 +80,7 @@ class TaskAssignmentUseCase:
             task.task_id: self._select_worker(task.task_id, worker_ids)
             for task in self._config.current_config.tasks.tasks
         }
+        self._persisted_workers = tuple(sorted(worker_ids))
         self._generation = 1
 
     def _load(self) -> None:
@@ -107,14 +109,31 @@ class TaskAssignmentUseCase:
                     f"invalid worker_id for task '{task_id}' in placement state"
                 )
             loaded[task_id] = worker_id
+        generation = raw.get("generation")
+        if not isinstance(generation, int) or generation < 1:
+            raise ValueError(
+                f"invalid placement generation: {self._state_path}"
+            )
+        workers = raw.get("workers")
+        if (
+            not isinstance(workers, list)
+            or any(not isinstance(worker_id, str) or not worker_id for worker_id in workers)
+            or len(set(workers)) != len(workers)
+        ):
+            raise ValueError(
+                f"invalid placement worker set: {self._state_path}"
+            )
         self._placements = loaded
-        self._generation = 1
+        self._generation = generation
+        self._persisted_workers = tuple(sorted(workers))
 
     def _persist(self) -> None:
         """原子写入 placement 状态文件。"""
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": _STATE_VERSION,
+            "generation": self._generation,
+            "workers": list(self._persisted_workers),
             "placements": dict(sorted(self._placements.items())),
         }
         temp_path = self._state_path.with_name(
@@ -132,8 +151,17 @@ class TaskAssignmentUseCase:
         self._generation += 1
         self._persist()
 
+    def _sync_worker_set(self) -> None:
+        """Worker 拓扑变化时递增 placement generation，但不迁移已有 Owner。"""
+        current = tuple(sorted(self._collectors.list_worker_ids()))
+        if current == self._persisted_workers:
+            return
+        self._persisted_workers = current
+        self._changed()
+
     def sync(self) -> None:
-        """与当前成功配置同步 Task 集合，不迁移已有 Task。"""
+        """与当前成功配置和 Worker 集合同步，不迁移已有 Task。"""
+        self._sync_worker_set()
         task_ids = {
             task.task_id
             for task in self._config.current_config.tasks.tasks

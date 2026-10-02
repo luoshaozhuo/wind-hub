@@ -35,9 +35,26 @@ class _Collector:
         self.worker_id = worker_id
         self.instances = [dict(row) for row in instances]
         self.stopped: list[str] = []
+        self.applied_generation = 0
+        self.assigned_task_ids: list[str] = []
 
     async def config_status(self) -> dict[str, object]:
         return {"collector_id": self.worker_id}
+
+    async def apply_task_placement(
+        self,
+        worker_id: str,
+        generation: int,
+        task_ids: list[str],
+    ) -> dict[str, object]:
+        assert worker_id == self.worker_id
+        self.applied_generation = generation
+        self.assigned_task_ids = list(task_ids)
+        return {
+            "success": True,
+            "generation": generation,
+            "task_count": len(task_ids),
+        }
 
     async def list_task_instances(self) -> list[dict[str, object]]:
         return [dict(row) for row in self.instances]
@@ -72,6 +89,7 @@ def test_removed_owner_stays_orphaned_after_restart(tmp_path) -> None:
     )
     first = TaskAssignmentUseCase(config, first_directory)
     original = first.assignment_for_task("task-a")
+    original_generation = first.generation
     assert original.worker_id is not None
 
     remaining = {
@@ -84,6 +102,7 @@ def test_removed_owner_stays_orphaned_after_restart(tmp_path) -> None:
 
     assert restored.worker_id == original.worker_id
     assert restored.state is TaskPlacementState.ORPHANED
+    assert restarted.generation > original_generation
     with pytest.raises(TaskPlacementError, match="orphaned"):
         restarted.worker_for_task("task-a")
 
@@ -116,7 +135,7 @@ async def test_reconcile_stops_wrong_running_instance_and_opens_start_gate(
     tasks = CollectorTaskUseCase(directory, assignments, config)
     assert tasks.placement_safe is False
     with pytest.raises(TaskPlacementUnsafeError):
-        assert tasks.placement_safe is True
+        tasks._require_safe_start()
 
     result = await tasks.reconcile_placement()
 
@@ -124,4 +143,6 @@ async def test_reconcile_stops_wrong_running_instance_and_opens_start_gate(
     assert result.wrong_running_instances == 1
     assert result.stopped_instances == 1
     assert collectors[wrong_worker].stopped == ["task-a:d1"]
-    tasks._require_safe_start()
+    assert collectors[owner].applied_generation == assignments.generation
+    assert collectors[owner].assigned_task_ids == ["task-a"]
+    assert tasks.placement_safe is True

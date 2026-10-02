@@ -90,6 +90,24 @@ message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
 message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
 message TaskIdRequest { string task_id = 1; }
 message InstanceIdRequest { string instance_id = 1; }
+message TaskStartRequest {
+  string task_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskInstanceStartRequest {
+  string instance_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskPlacementSnapshotRequest {
+  string worker_id = 1;
+  uint64 generation = 2;
+  repeated string task_ids = 3;
+}
+message TaskPlacementSnapshotResponse {
+  bool success = 1;
+  uint64 generation = 2;
+  uint64 task_count = 3;
+}
 
 message DeviceInfoMessage {
   string device_id = 1;
@@ -166,9 +184,10 @@ service CollectorRuntimeService {
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
 }
 service CollectorControlService {
-  rpc StartTask(TaskIdRequest) returns (TaskSummaryMessage);
+  rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
+  rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);
   rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
-  rpc StartTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
+  rpc StartTaskInstance(TaskInstanceStartRequest) returns (TaskInstanceMessage);
   rpc StopTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
   rpc PrepareConfig(PrepareConfigRequest) returns (PrepareConfigResponse);
   rpc ActivateConfig(ActivateConfigRequest) returns (ActivateConfigResponse);

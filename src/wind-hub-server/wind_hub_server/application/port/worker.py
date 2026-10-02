@@ -8,6 +8,10 @@ from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
 
 
+class CollectorPlacementRejectedError(RuntimeError):
+    """Collector 拒绝 placement snapshot 或受 placement 保护的 Start。"""
+
+
 class CommanderPort(Protocol):
     """即时设备操作端口。"""
 

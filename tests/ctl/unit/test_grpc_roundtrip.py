@@ -5,11 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import grpc
 import pytest
 
 from wind_hub.adapter.inbound.grpc.server import build_grpc_server
 from wind_hub.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_ctl.client import CollectorClient
+from wind_hub_core.rpc import collector_pb2 as pb
+from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 
 
 @dataclass
@@ -30,6 +33,9 @@ class _RuntimeCore:
 
     def sink_queue_depths(self) -> dict[str, int]:
         return {}
+
+    def task_definitions(self) -> dict[str, object]:
+        return {"t1": object()}
 
 
 class _Query:
@@ -101,6 +107,9 @@ class _Tasks:
                 "failed_instances": 0,
             }
         )
+
+    async def start_task(self, task_id: str) -> _Payload:
+        return await self.get_task_summary(task_id)
 
     async def list_instances(self) -> list[_Payload]:
         return [
@@ -204,4 +213,53 @@ async def test_ctl_collector_read_only_grpc_roundtrip() -> None:
             instance = await client.task_instance("t1:d1")
             assert instance["instance_id"] == "t1:d1"
     finally:
+        await server.stop(grace=0)
+
+
+@pytest.mark.asyncio
+async def test_collector_start_requires_current_task_placement() -> None:
+    identity = CollectorIdentity(
+        collector_id="collector-test",
+        boot_id="boot-test",
+        config_hash="hash-test",
+    )
+    server = build_grpc_server(
+        _AssembledRuntime(),  # type: ignore[arg-type]
+        identity,
+        host="127.0.0.1",
+        port=0,
+    )
+    await server.start()
+    channel = grpc.aio.insecure_channel(server.endpoint)
+    stub = pb_grpc.CollectorControlServiceStub(channel)
+    try:
+        with pytest.raises(grpc.aio.AioRpcError) as missing:
+            await stub.StartTask(
+                pb.TaskStartRequest(task_id="t1", placement_generation=1)
+            )
+        assert missing.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+
+        applied = await stub.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(
+                worker_id="collector-test",
+                generation=1,
+                task_ids=["t1"],
+            )
+        )
+        assert applied.success is True
+        assert applied.generation == 1
+        assert applied.task_count == 1
+
+        started = await stub.StartTask(
+            pb.TaskStartRequest(task_id="t1", placement_generation=1)
+        )
+        assert started.task_id == "t1"
+
+        with pytest.raises(grpc.aio.AioRpcError) as denied:
+            await stub.StartTask(
+                pb.TaskStartRequest(task_id="other", placement_generation=1)
+            )
+        assert denied.value.code() is grpc.StatusCode.PERMISSION_DENIED
+    finally:
+        await channel.close()
         await server.stop(grace=0)
