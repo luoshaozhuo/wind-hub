@@ -115,7 +115,11 @@ async def run_server(settings: ServerSettings) -> int:
         validation.repaired_points,
     )
 
-    runtime = assemble_server(settings.config_dir)
+    runtime = assemble_server(
+        settings.config_dir,
+        collector_target=settings.collector_target,
+        commander_target=settings.commander_target,
+    )
     runtime.log_store.install()
     set_context(runtime.context)
 
@@ -161,6 +165,11 @@ async def run_server(settings: ServerSettings) -> int:
                 timeout=settings.shutdown_timeout,
             )
         finally:
+            await asyncio.gather(
+                runtime.collector_client.close(),
+                runtime.commander_client.close(),
+                return_exceptions=True,
+            )
             clear_context()
             runtime.log_store.uninstall()
 

@@ -35,6 +35,8 @@ from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
+from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
+from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import (
     CompositeRuntimeMetrics,
@@ -57,11 +59,20 @@ class ServerRuntime:
     config: ConfigUseCase
     monitoring: MonitoringService
     log_store: LogStore
+    collector_client: CollectorGrpcClient
+    commander_client: CommanderGrpcClient
 
 
-def assemble_server(config_dir: str | Path) -> ServerRuntime:
-    """Build Server-owned management/read-model objects around Collector core."""
+def assemble_server(
+    config_dir: str | Path,
+    *,
+    collector_target: str = "127.0.0.1:50051",
+    commander_target: str = "127.0.0.1:50052",
+) -> ServerRuntime:
+    """Build Server-owned management/read-model objects and Worker clients."""
     collector = assemble_collector(config_dir)
+    collector_client = CollectorGrpcClient(collector_target)
+    commander_client = CommanderGrpcClient(commander_target)
 
     latest = InMemoryLatestPointStore()
     trend = InMemoryTrendStore(max_samples_per_point=3600)
@@ -91,8 +102,7 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
         trend,
     )
     device_control = DeviceControlUseCase(
-        collector.command,
-        collector.query,
+        commander_client,
         latest,
         trend,
     )
@@ -113,9 +123,9 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
         _create_sink,
     )
     diagnostics = DiagnosticUseCase(
-        collector.runtime,
-        collector.query,
+        commander_client,
         device_control,
+        config,
         operations,
     )
     monitoring = MonitoringService(
@@ -158,6 +168,8 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
         config=config,
         monitoring=monitoring,
         log_store=log_store,
+        collector_client=collector_client,
+        commander_client=commander_client,
     )
 
 
