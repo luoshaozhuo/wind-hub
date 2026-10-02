@@ -1,1 +1,1 @@
-"""Database sink adapter。"""\n
+"""数据库 Sink 适配器。"""

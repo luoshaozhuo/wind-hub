@@ -1,4 +1,4 @@
-"""Health aggregation for Runtime."""
+"""Runtime 的设备与 Sink 健康状态聚合。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class RuntimeHealth:
-    """Aggregate device and sink health for the runtime."""
+    """把 Device.health 与 Sink.health 聚合为统一 HealthStatus 映射。"""
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime

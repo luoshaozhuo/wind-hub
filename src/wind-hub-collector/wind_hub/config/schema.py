@@ -1,4 +1,12 @@
-"""Pydantic configuration models — system, devices, points, tasks, and top-level Config."""
+"""Wind Hub Collector 的 Pydantic 配置 schema。
+
+本模块定义 system.yaml、units.yaml、device_models.yaml、devices.yaml、
+points.yaml、tasks.yaml 和 reporting.yaml 的结构、字段约束与局部校验。
+
+协议扩展地址、Sink params、endpoint extensions 等使用动态映射，是 YAML 外部输入
+边界；Loader 和具体 adapter 会在后续阶段把这些字段收敛为协议/实现特有的强类型
+配置。这里不执行网络 I/O，也不创建 Runtime 资源。
+"""
 
 from __future__ import annotations
 
@@ -15,34 +23,30 @@ from wind_hub.domain.model.errors import ConfigError
 
 
 class RuntimeConfig(BaseModel):
-    """Engine runtime parameters (queueing, back-pressure, timeouts)."""
+    """Runtime 队列、背压和超时参数。"""
 
     model_config = ConfigDict(extra="forbid")
 
     queue_maxsize: int = 1000
-    """Capacity of each Sink's internal queue.  When full, the
-    runtime applies back-pressure."""
+    """每个 Sink queue 的容量；满时按 backpressure_policy 处理。"""
 
     backpressure_policy: str = "drop_old"
-    """Behaviour when a Sink queue is full:
-    ``'drop_old'`` — discard oldest data to make room (default);
-    ``'drop_new'`` — discard new data, keep queue unchanged;
-    ``'block'`` — block the collecting task instance until space frees up."""
+    """Sink queue 满时的背压策略。
+
+    drop_new 丢弃新批次；drop_old 淘汰旧批次；block 阻塞采集直到队列有空间。
+    """
 
     shutdown_timeout: float = 30.0
-    """Maximum wait time in seconds during graceful shutdown for
-    in-flight operations to complete."""
+    """优雅停机等待在途操作完成的最大时间，单位秒。"""
 
     connect_timeout: float = 10.0
-    """Per-device connection timeout in seconds."""
+    """单设备连接超时，单位秒。"""
 
     read_timeout: float = 5.0
-    """Per-read timeout in seconds — 应用层对一次批量读的外层兜底
-    （协议驱动内部的底层超时仍各自保留，两层职责见 docs/architecture.md）。"""
+    """单次批量读的应用层兜底超时，单位秒；协议 Driver 内部仍保留底层超时。"""
 
     write_timeout: float = 5.0
-    """Per-write default timeout in seconds — 命令未自带 ``timeout``
-    （``Command.timeout <= 0``）时 CommandDispatcher 使用的默认写超时。"""
+    """默认写超时，单位秒；Command.timeout <= 0 时由 CommandDispatcher 使用。"""
 
     @model_validator(mode="after")
     def _validate_backpressure(self) -> RuntimeConfig:
@@ -56,26 +60,25 @@ class RuntimeConfig(BaseModel):
 
 
 class SinkConfig(BaseModel):
-    """Definition of a single data sink."""
+    """单个数据 Sink 定义。"""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    """Unique sink name, referenced by collection task targets."""
+    """Sink 唯一名称，由 TaskTarget.sink 引用。"""
 
     type: str
-    """Sink driver type: ``'kafka'``, ``'file'``, or ``'db'``."""
+    """Sink 类型：kafka、file 或 db。"""
 
     enabled: bool = True
-    """Whether this sink is active."""
+    """是否启用该 Sink。"""
 
     params: dict[str, Any] = Field(default_factory=dict)
-    """Driver-specific parameters (broker address, file path, DSN, …).
-    Validated by the adapter at creation time, not here."""
+    """Sink 实现特有参数；动态字段由对应 adapter 创建时校验。"""
 
 
 class ApiConfig(BaseModel):
-    """REST API server settings."""
+    """兼容保留的 HTTP Server 设置；Collector 独立进程不消费该字段。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -85,7 +88,7 @@ class ApiConfig(BaseModel):
 
 
 class CliConfig(BaseModel):
-    """CLI settings."""
+    """兼容保留的 CLI 设置；wind-hub-ctl 不从该配置读取连接目标。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -93,7 +96,7 @@ class CliConfig(BaseModel):
 
 
 class InterfaceConfig(BaseModel):
-    """Inbound adapter settings."""
+    """兼容保留的入站适配器设置。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -102,7 +105,17 @@ class InterfaceConfig(BaseModel):
 
 
 def _validate_ams_net_id(net_id: str) -> str:
-    """Validate a dotted-numeric 6-octet AMS Net ID (``a.b.c.d.e.f``)."""
+    """校验六段十进制 AMS Net ID。
+
+    Args:
+        net_id: 待校验 AMS Net ID。
+
+    Returns:
+        格式和每段范围都合法时返回原值。
+
+    Raises:
+        ValueError: 格式非法。
+    """
     parts = net_id.split(".")
     if len(parts) != 6 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
         raise ConfigError(
@@ -156,7 +169,7 @@ class SiteConfig(BaseModel):
 
 
 class SystemConfig(BaseModel):
-    """Top-level system configuration (``system.yaml``)."""
+    """system.yaml 顶层配置。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -198,7 +211,7 @@ class UnitConfig(BaseModel):
 
 
 class UnitsConfig(BaseModel):
-    """Top-level units configuration（``units.yaml``）。
+    """units.yaml 顶层单位定义。
 
     unit ID 唯一性由 dict 键自然保证；ID 非空在此校验。
     """
@@ -285,7 +298,7 @@ class DeviceModelConfig(BaseModel):
 
 
 class DeviceModelsConfig(BaseModel):
-    """Top-level device models configuration (``device_models.yaml``)。"""
+    """device_models.yaml 顶层设备类型与型号定义。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -409,7 +422,7 @@ class DeviceConfig(BaseModel):
 
 
 class DevicesConfig(BaseModel):
-    """Top-level devices configuration (``devices.yaml``)."""
+    """devices.yaml 顶层现场设备实例定义。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -468,31 +481,23 @@ NUMERIC_DATA_TYPES = frozenset(
 
 
 class PointAddress(BaseModel):
-    """Protocol-specific point address.
+    """协议特有点地址。
 
-    Because address structures differ wildly across protocols (ADS
-    uses index_group + index_offset; Modbus uses register type +
-    address; IEC104 uses IOA + ASDU type), this model accepts
-    arbitrary extra fields.  The protocol adapter interprets them at
-    ``connect`` time.
+    允许 extra 字段，因为 ADS、Modbus、IEC104 的地址结构不同；这些动态字段由
+    Loader 和协议 adapter 按 point table protocol 解释和校验。
     """
 
     model_config = ConfigDict(extra="allow")
 
     type: str | None = None
-    """Optional data-type override (e.g. ``'real32'`` for ADS,
-    ``'holding_register'`` for Modbus)."""
+    """可选协议数据类型覆盖字段。"""
 
 
 class PointConfig(BaseModel):
-    """Definition of a single measurement point.
+    """单个设备无关点定义。
 
-    点是**设备无关**的：不携带 ``device_id``，设备通过绑定点表获得点集
-    （见 :class:`DeviceConfig.point_table`）。三个标识各司其职、不得混用：
-
-    - ``point_id`` — 系统内部稳定 ID（如 ``p001``），与具体设备无关；
-    - ``variable_name`` — 业务变量名（如 ``rotor_speed``），仅供展示与诊断；
-    - ``address.symbol`` — PLC Symbol（协议寻址，见 address extra 字段）。
+    point_id 是系统稳定 ID；variable_name 用于业务展示/诊断；address 保存协议
+    寻址字段。设备通过 point_table 绑定获得点集。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -733,7 +738,7 @@ class CollectionTaskConfig(BaseModel):
 
 
 class TasksConfig(BaseModel):
-    """Top-level tasks configuration (``tasks.yaml``)."""
+    """tasks.yaml 顶层 Task Definition 集。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -768,26 +773,24 @@ ALLOWED_REPORTING_DATA_TYPES = frozenset(
 
 
 class ReportingPoint(BaseModel):
-    """One point exposed to the dispatch master via the IEC104 slave proxy.
+    """通过 IEC104 slave proxy 暴露给调度主站的单个点。
 
-    Maps a ``(device_id, point_id)`` pair — the engine's internal identity
-    of a collected point — to an IEC104 information-object address (IOA)
-    and the monitor-direction ASDU type used to report its value.
+    把 Collector 内部 (device_id, point_id) 映射为 IOA 和监视方向 TypeID。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     device_id: str
-    """Device identifier, matching ``points.yaml``."""
+    """设备标识。"""
 
     point_id: str
-    """Point identifier, matching ``points.yaml``."""
+    """设备点表内 point_id。"""
 
     ioa: int
-    """Information-object address (0 .. 0xFFFFFF)."""
+    """Information Object Address，范围 0~0xFFFFFF。"""
 
     data_type: str
-    """Monitor-direction ASDU type, e.g. ``'M_ME_NC_1'``."""
+    """监视方向 ASDU TypeID，例如 M_ME_NC_1。"""
 
     @model_validator(mode="after")
     def _validate_reporting_point(self) -> ReportingPoint:
@@ -806,27 +809,24 @@ class ReportingPoint(BaseModel):
 
 
 class ReportingConfig(BaseModel):
-    """Top-level IEC104 slave proxy configuration (``reporting.yaml``)."""
+    """reporting.yaml 顶层 IEC104 slave proxy 配置。"""
 
     model_config = ConfigDict(extra="forbid")
 
     reporting: list[ReportingPoint] = Field(default_factory=list)
-    """Points to expose, in an arbitrary stable order."""
+    """需要向调度主站暴露的点列表。"""
 
     batch_size: int = 50
-    """Soft cap on information objects per interrogation data batch.  The
-    hard bound is the 253-byte APDU limit, enforced by the slave handlers
-    per ASDU type; this cap only keeps small-object types from emitting an
-    excessive number of objects in a single ASDU."""
+    """总召数据单批 information object 数量软上限；253-byte APDU 是硬上限。"""
 
     common_address: int = 1
-    """IEC104 common address (station address, 0 .. 65535)."""
+    """IEC104 公共地址/站地址。"""
 
     host: str = "127.0.0.1"
-    """Listen host for the slave proxy TCP server."""
+    """slave proxy TCP 监听地址。"""
 
     port: int = 12404
-    """Listen port for the slave proxy TCP server."""
+    """slave proxy TCP 监听端口。"""
 
     @model_validator(mode="after")
     def _validate_reporting(self) -> ReportingConfig:
@@ -852,15 +852,14 @@ class ReportingConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# top-level aggregate
+# 顶层聚合配置
 # ---------------------------------------------------------------------------
 
 
 class Config(BaseModel):
-    """Fully-loaded wind-hub configuration.
+    """完成加载、继承展开和跨文件校验后的 Collector 配置快照。
 
-    This is the single configuration object passed to the engine and
-    all adapters at startup.
+    组合根和 Runtime 只消费本对象，不再读取原始 YAML。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -880,7 +879,7 @@ class Config(BaseModel):
     tasks: TasksConfig
     """周期采集 Task 定义集——没有 Task 就不进行周期采集。"""
     reporting: ReportingConfig | None = None
-    """Optional IEC104 slave proxy config; ``None`` disables the proxy."""
+    """可选 IEC104 slave proxy 配置；None 表示不启用。"""
 
     def points_for_device(self, device_id: str) -> list[PointConfig]:
         """解析设备绑定点表的点集。

@@ -202,7 +202,7 @@ class Runtime:
         # （本类实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self)
 
-        # Per-sink bounded queues
+        # 每个 Sink 使用独立有界 queue，容量来自 RuntimeConfig。
         self._queues: dict[str, asyncio.Queue[list[PointValue]]] = {
             name: asyncio.Queue(maxsize=config.queue_maxsize) for name in sinks
         }
@@ -215,8 +215,7 @@ class Runtime:
         self._running = False
         self._started = False
 
-        # Sinks whose ``open()`` raised during ``start()`` — they are skipped
-        # and surfaced as unhealthy by :meth:`health`.
+        # start() 阶段 open 失败的 Sink 不启动 consumer，并由 health() 持续暴露为 unhealthy。
         self._unhealthy_sinks: set[str] = set()
 
         # 运行期统计：派发/丢弃在 Sink 派发侧计数；
@@ -232,10 +231,13 @@ class Runtime:
         self,
         metrics_hook: RuntimeMetricsPort | None,
     ) -> None:
-        """Attach or replace the optional runtime metrics observer.
+        """注入或替换可选 RuntimeMetricsPort。
 
-        This is a composition seam for external hosts such as wind-hub-server;
-        it does not change acquisition/control behavior.
+        Args:
+            metrics_hook: 外部宿主提供的指标 observer；None 表示关闭事件指标。
+
+        Notes:
+            这是组合边界，不改变采集、控制或队列行为。
         """
         self._metrics = metrics_hook
 

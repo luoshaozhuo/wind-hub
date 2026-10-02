@@ -1,1 +1,1 @@
-"""Message queue sink adapter。"""\n
+"""消息队列 Sink 适配器。"""

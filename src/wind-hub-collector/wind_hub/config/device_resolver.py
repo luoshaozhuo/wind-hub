@@ -1,17 +1,8 @@
-"""Device resolver — DeviceInstance + DeviceModel → resolved DeviceConfig。
+"""设备实例与设备型号的 resolved 配置合并。
 
-与 :mod:`wind_hub.config.point_table_resolver` 同级：Loader 阶段把
-``devices.yaml`` 的现场设备实例与 ``device_models.yaml`` 的型号
-定义合并为完整的运行时 :class:`DeviceConfig`，Runtime / Device / Task /
-Driver 不再回查原始 DeviceModel。
-
-职责边界：
-
-1. 检查实例引用的 ``model`` 存在（``device_type`` 存在性已在
-   :class:`DeviceModelsConfig` 解析时校验）；
-2. 合并 ``connection_defaults`` 与实例 ``endpoint``（实例优先）；
-3. 生成最终完整 :class:`DevicesConfig`；
-4. 不承担 PointTable / Task 的跨文件校验（由 loader 统一执行）。
+把 DeviceInstanceConfig 与 DeviceModelConfig 合并成 Runtime 直接消费的
+DeviceConfig；实例 endpoint/extensions 覆盖型号 connection_defaults。本模块
+只做纯配置转换，不创建协议 Driver 或网络连接。
 """
 
 from __future__ import annotations

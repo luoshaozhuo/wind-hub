@@ -1,1 +1,1 @@
-"""File sink adapter。"""\n
+"""文件 Sink 适配器及文件生命周期辅助能力。"""
