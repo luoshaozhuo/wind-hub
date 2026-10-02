@@ -27,6 +27,7 @@ from wind_hub_core.rpc.commander import (
     GET_STATUS,
     LIST_DEVICES,
     ACTIVATE_CONFIG,
+    ABORT_CONFIG,
     PREPARE_CONFIG,
     READ_POINT,
     READ_POINTS,
@@ -84,7 +85,9 @@ class CommanderService:
                 "device_count": len(self._app.runtime.devices),
                 "healthy_devices": healthy,
                 "active_revision": self._app.runtime.active_revision,
+                "active_config_hash": self._app.runtime.active_config_hash,
                 "prepared_revision": self._app.runtime.prepared_revision,
+                "prepared_config_hash": self._app.runtime.prepared_config_hash,
             }
         )
 
@@ -130,7 +133,7 @@ class CommanderService:
                     "config hash mismatch: "
                     f"expected={expected_hash} actual={actual_hash}"
                 )
-            await self._app.runtime.prepare_config(revision_id, candidate)
+            await self._app.runtime.prepare_config(revision_id, candidate, actual_hash)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -151,8 +154,10 @@ class CommanderService:
         data = _request_dict(request)
         try:
             revision_id = _required_string(data, "revision_id")
-            await self._app.runtime.activate_config(revision_id)
-            self._app.config = self._app.runtime.config
+            try:
+                await self._app.runtime.activate_config(revision_id)
+            finally:
+                self._app.config = self._app.runtime.config
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -160,6 +165,27 @@ class CommanderService:
             {
                 "success": True,
                 "revision_id": revision_id,
+                "active_config_hash": self._app.runtime.active_config_hash,
+            }
+        )
+
+    async def abort_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """幂等撤销指定 prepared revision，不修改 active generation。"""
+        try:
+            revision_id = _required_string(_request_dict(request), "revision_id")
+            aborted = await self._app.runtime.abort_config(revision_id)
+        except Exception as exc:
+            await _abort(context, exc)
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(
+            {
+                "success": True,
+                "revision_id": revision_id,
+                "aborted": aborted,
             }
         )
 
@@ -172,9 +198,17 @@ class CommanderService:
         del request
         revision_id = uuid4().hex
         try:
+            before_hash = fingerprint_config_set(self._app.config_dir)
             candidate = load_commander_config(self._app.config_dir)
+            config_hash = fingerprint_config_set(self._app.config_dir)
+            if before_hash != config_hash:
+                raise ValueError(
+                    "config changed while reloading: "
+                    f"before={before_hash} after={config_hash}"
+                )
             await self._app.runtime.reload(
                 candidate,
+                config_hash=config_hash,
                 revision_id=revision_id,
             )
             self._app.config = self._app.runtime.config
@@ -374,6 +408,11 @@ def _handlers(service: CommanderService) -> grpc.GenericRpcHandler:
         ),
         ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
             service.activate_config,
+            request_deserializer=struct_pb2.Struct.FromString,
+            response_serializer=struct_pb2.Struct.SerializeToString,
+        ),
+        ABORT_CONFIG: grpc.unary_unary_rpc_method_handler(
+            service.abort_config,
             request_deserializer=struct_pb2.Struct.FromString,
             response_serializer=struct_pb2.Struct.SerializeToString,
         ),

@@ -15,6 +15,7 @@ from wind_hub_commander.application import CommandUseCase, DiagnosticUseCase, Re
 from wind_hub_commander.config import CommanderConfig, load_commander_config
 from wind_hub_commander.dispatcher import CommandDispatcher
 from wind_hub_commander.runtime import CommanderRuntime
+from wind_hub_core.config.fingerprint import fingerprint_config_set
 
 
 @dataclass(slots=True)
@@ -32,8 +33,16 @@ class CommanderApp:
 
 def assemble_commander(config_dir: str | Path) -> CommanderApp:
     """从现场配置目录装配 Commander，不执行网络 I/O。"""
-    config = load_commander_config(config_dir)
-    runtime = CommanderRuntime(config)
+    config_path = Path(config_dir)
+    before_hash = fingerprint_config_set(config_path)
+    config = load_commander_config(config_path)
+    config_hash = fingerprint_config_set(config_path)
+    if before_hash != config_hash:
+        raise ValueError(
+            "config changed while assembling Commander: "
+            f"before={before_hash} after={config_hash}"
+        )
+    runtime = CommanderRuntime(config, config_hash=config_hash)
     dispatcher = CommandDispatcher(
         runtime,
         default_timeout=config.write_timeout,

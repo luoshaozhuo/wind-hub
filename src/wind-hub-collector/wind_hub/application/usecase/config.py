@@ -313,6 +313,17 @@ class ConfigUseCase:
             duration_ms=(time.monotonic() - started) * 1000,
         )
 
+    async def abort_config(self, revision_id: str) -> bool:
+        """幂等清理指定 prepared revision，不修改当前 Runtime。"""
+        async with self._reload_lock:
+            if self._prepared_revision != revision_id:
+                return False
+            self._prepared_revision = None
+            self._prepared_config = None
+            self._prepared_diff = None
+            self._prepared_hash = None
+            return True
+
     async def reload(self) -> ReloadResult:
         """兼容旧调用：按 prepare → activate 完成一次增量热重载。"""
         revision_id = uuid4().hex

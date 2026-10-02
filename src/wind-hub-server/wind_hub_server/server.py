@@ -100,31 +100,37 @@ async def _reconcile_loop(
     *,
     interval: float,
 ) -> None:
-    """立即并周期检查 Worker 配置 revision，仅记录异常或实际收敛。"""
+    """周期检查 Worker revision/hash，仅在结果状态变化时记录日志。"""
+    previous_noteworthy: dict[str, str] = {}
     while True:
         try:
             outcomes = await config.reconcile_workers()
             noteworthy = {
                 name: outcome
                 for name, outcome in outcomes.items()
-                if outcome != "already-current"
+                if outcome not in {"already-current", "transactions-closed"}
             }
-            if noteworthy:
-                has_error = any(
-                    outcome.startswith(
-                        (
-                            "status-error:",
-                            "prepare-error:",
-                            "prepare-failed:",
-                            "prepare-hash-mismatch:",
-                            "activate-failed:",
-                            "activate-unknown:",
+            if noteworthy != previous_noteworthy:
+                if noteworthy:
+                    has_error = any(
+                        outcome.startswith(
+                            (
+                                "status-error:",
+                                "prepare-error:",
+                                "prepare-failed:",
+                                "prepare-hash-mismatch:",
+                                "activate-failed:",
+                                "activate-unknown:",
+                                "activate-hash-mismatch:",
+                            )
                         )
+                        for outcome in noteworthy.values()
                     )
-                    for outcome in noteworthy.values()
-                )
-                log = logger.warning if has_error else logger.info
-                log("worker config reconciliation: %s", noteworthy)
+                    log = logger.warning if has_error else logger.info
+                    log("worker config reconciliation: %s", noteworthy)
+                elif previous_noteworthy:
+                    logger.info("worker config reconciliation recovered")
+                previous_noteworthy = noteworthy
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -218,6 +224,12 @@ async def run_server(settings: ServerSettings) -> int:
         )
         await shutdown_event.wait()
         logger.info("收到停机信号，开始优雅停机")
+        runtime.config.stop_accepting_transactions()
+        transaction_idle = await runtime.config.wait_for_transactions(timeout=30.0)
+        if not transaction_idle:
+            logger.warning(
+                "配置事务在 30 秒停机宽限期内未结束，将继续执行进程级停机"
+            )
     finally:
         try:
             background_tasks = [

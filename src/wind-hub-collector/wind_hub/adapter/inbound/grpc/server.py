@@ -29,6 +29,7 @@ from wind_hub_core.rpc.collector import (
     RELOAD_CONFIG,
     PREPARE_CONFIG,
     ACTIVATE_CONFIG,
+    ABORT_CONFIG,
     VERIFY_SINK,
     WRITE_TEST_SINK,
     RUNTIME_SERVICE,
@@ -122,6 +123,8 @@ class CollectorRuntimeService:
                 "collector_id": self._identity.collector_id,
                 "boot_id": self._identity.boot_id,
                 "config_hash": self._runtime.config.config_hash,
+                "active_config_hash": self._runtime.config.config_hash,
+                "prepared_config_hash": self._runtime.config.prepared_hash,
                 "boot_config_hash": self._identity.config_hash,
                 "config_revision": self._identity.config_revision,
                 "active_revision": self._runtime.config.active_revision,
@@ -500,7 +503,28 @@ class CollectorControlService:
             raise AssertionError("context.abort must terminate the RPC") from exc
         payload = result.model_dump(mode="json")
         payload["revision_id"] = revision_id
+        payload["active_config_hash"] = self._runtime.config.config_hash
         return _struct(payload)
+
+    async def abort_config(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """幂等撤销指定 prepared revision，不修改当前 Runtime。"""
+        try:
+            revision_id = _required_string(_request_dict(request), "revision_id")
+            aborted = await self._runtime.config.abort_config(revision_id)
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return _struct(
+            {
+                "success": True,
+                "revision_id": revision_id,
+                "aborted": aborted,
+            }
+        )
 
     async def reload_config(
         self,
@@ -625,6 +649,11 @@ def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandle
             ),
             ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
                 service.activate_config,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            ABORT_CONFIG: grpc.unary_unary_rpc_method_handler(
+                service.abort_config,
                 request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),

@@ -16,6 +16,7 @@ from wind_hub_core.rpc.collector import (
     RELOAD_CONFIG,
     PREPARE_CONFIG,
     ACTIVATE_CONFIG,
+    ABORT_CONFIG,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK,
@@ -123,6 +124,15 @@ class CollectorGrpcClient(GrpcClientBase):
         return await self._struct(
             CONTROL_SERVICE,
             ACTIVATE_CONFIG,
+            {"revision_id": revision_id},
+            timeout=30.0,
+        )
+
+    async def abort_config(self, revision_id: str) -> dict[str, Any]:
+        """撤销 Collector 指定 prepared revision。"""
+        return await self._struct(
+            CONTROL_SERVICE,
+            ABORT_CONFIG,
             {"revision_id": revision_id},
             timeout=30.0,
         )

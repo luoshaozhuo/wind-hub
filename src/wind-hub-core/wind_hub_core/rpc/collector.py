@@ -32,6 +32,7 @@ STOP_ASSIGNED_TASKS = "StopAssignedTasks"
 RELOAD_CONFIG = "ReloadConfig"
 PREPARE_CONFIG = "PrepareConfig"
 ACTIVATE_CONFIG = "ActivateConfig"
+ABORT_CONFIG = "AbortConfig"
 
 
 

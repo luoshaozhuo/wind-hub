@@ -1,8 +1,8 @@
 """Commander 设备会话运行时。
 
 Runtime 持有按 generation 管理的 DeviceSession 注册表。read/write/diagnostic
-进入时固定当前 generation；reload 原子切换新 generation，并等待旧 generation
-在途操作自然结束后再关闭旧会话。
+进入时固定当前 generation；配置激活只做原子 generation 切换，旧 generation
+由后台 retirement task 等待排空并关闭，RPC deadline 不再影响资源回收。
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class _Generation:
 class CommanderRuntime:
     """Commander 设备会话注册表与 generation 生命周期管理器。"""
 
-    def __init__(self, config: CommanderConfig) -> None:
+    def __init__(self, config: CommanderConfig, *, config_hash: str) -> None:
         self._reload_lock = asyncio.Lock()
         self._operation_generation: ContextVar[_Generation | None] = ContextVar(
             "commander_operation_generation",
@@ -46,9 +46,12 @@ class CommanderRuntime:
         )
         self._current = self._build_generation(config)
         self._active_revision = "startup"
+        self._active_config_hash = config_hash
         self._prepared_revision: str | None = None
+        self._prepared_config_hash: str | None = None
         self._prepared_generation: _Generation | None = None
-        # 保持原有 devices 映射对象引用稳定，供状态查询等只读代码使用。
+        self._retirement_tasks: set[asyncio.Task[None]] = set()
+        self._stopping = False
         self.devices: dict[str, DeviceSession] = {}
         self.devices.update(self._current.devices)
 
@@ -63,9 +66,19 @@ class CommanderRuntime:
         return self._active_revision
 
     @property
+    def active_config_hash(self) -> str:
+        """返回当前激活 generation 对应的配置指纹。"""
+        return self._active_config_hash
+
+    @property
     def prepared_revision(self) -> str | None:
         """返回当前已准备但尚未激活的配置版本。"""
         return self._prepared_revision
+
+    @property
+    def prepared_config_hash(self) -> str | None:
+        """返回当前 prepared generation 对应的配置指纹。"""
+        return self._prepared_config_hash
 
     def _build_generation(self, config: CommanderConfig) -> _Generation:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
@@ -79,11 +92,7 @@ class CommanderRuntime:
                 protocol=protocol,
             )
             locks[device_config.device_id] = asyncio.Lock()
-        return _Generation(
-            config=config,
-            devices=devices,
-            connect_locks=locks,
-        )
+        return _Generation(config=config, devices=devices, connect_locks=locks)
 
     @asynccontextmanager
     async def operation(self) -> AsyncIterator[None]:
@@ -114,52 +123,83 @@ class CommanderRuntime:
         self,
         revision_id: str,
         config: CommanderConfig,
+        config_hash: str,
     ) -> None:
         """构造并保存候选 generation，不影响当前运行配置。"""
         if not revision_id:
             raise ValueError("revision_id must not be empty")
+        if not config_hash:
+            raise ValueError("config_hash must not be empty")
         candidate = self._build_generation(config)
         async with self._reload_lock:
+            if self._stopping:
+                self._schedule_retirement(candidate, reason="prepare-during-stop")
+                raise RuntimeError("Commander is stopping")
             previous = self._prepared_generation
             self._prepared_generation = candidate
             self._prepared_revision = revision_id
-
-        if previous is not None:
-            await previous.drained.wait()
-            await self._close_generation(previous, reason="replace-prepared")
+            self._prepared_config_hash = config_hash
+            if previous is not None:
+                self._schedule_retirement(previous, reason="replace-prepared")
 
     async def activate_config(self, revision_id: str) -> None:
-        """激活已准备的 generation，并排空后关闭旧 generation。"""
+        """原子激活 prepared generation，并异步回收旧 generation。
+
+        返回即表示 active generation、revision 与 config hash 已完成切换；旧会话
+        的排空与关闭不属于 Activate RPC 的完成条件。
+        """
         async with self._reload_lock:
+            if self._stopping:
+                raise RuntimeError("Commander is stopping")
             if self._prepared_revision != revision_id:
                 raise ValueError(
                     f"prepared revision mismatch: expected={self._prepared_revision!r} "
                     f"requested={revision_id!r}"
                 )
-            if self._prepared_generation is None:
+            if self._prepared_generation is None or self._prepared_config_hash is None:
                 raise ValueError("no prepared configuration")
 
             old_generation = self._current
             new_generation = self._prepared_generation
             self._current = new_generation
             self._active_revision = revision_id
+            self._active_config_hash = self._prepared_config_hash
             self._prepared_revision = None
+            self._prepared_config_hash = None
             self._prepared_generation = None
             self.devices.clear()
             self.devices.update(new_generation.devices)
+            self._schedule_retirement(old_generation, reason="activate")
 
-        await self.start()
-        await old_generation.drained.wait()
-        await self._close_generation(old_generation, reason="activate")
+        await asyncio.shield(self.start())
+
+    async def abort_config(self, revision_id: str) -> bool:
+        """幂等撤销指定 prepared revision，不修改当前 active generation。
+
+        Returns:
+            实际找到并撤销对应候选 generation 时返回 True；revision 不匹配或
+            当前没有候选配置时返回 False。
+        """
+        async with self._reload_lock:
+            if self._prepared_revision != revision_id:
+                return False
+            generation = self._prepared_generation
+            self._prepared_revision = None
+            self._prepared_config_hash = None
+            self._prepared_generation = None
+            if generation is not None:
+                self._schedule_retirement(generation, reason="abort-prepared")
+        return generation is not None
 
     async def reload(
         self,
         config: CommanderConfig,
         *,
+        config_hash: str,
         revision_id: str = "legacy-reload",
     ) -> None:
         """兼容旧调用：按 prepare → activate 完成一次配置切换。"""
-        await self.prepare_config(revision_id, config)
+        await self.prepare_config(revision_id, config, config_hash)
         await self.activate_config(revision_id)
 
     async def start(self) -> None:
@@ -183,10 +223,46 @@ class CommanderRuntime:
             )
 
     async def stop(self) -> None:
-        """等待当前在途操作完成，再关闭当前 generation。"""
-        generation = self._current
+        """停止 generation 变更并回收 active/prepared/retired 全部会话。"""
+        async with self._reload_lock:
+            self._stopping = True
+            current = self._current
+            prepared = self._prepared_generation
+            self._prepared_revision = None
+            self._prepared_config_hash = None
+            self._prepared_generation = None
+
+        if prepared is not None:
+            self._schedule_retirement(prepared, reason="stop-prepared")
+        self._schedule_retirement(current, reason="stop-active")
+
+        tasks = list(self._retirement_tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _schedule_retirement(
+        self,
+        generation: _Generation,
+        *,
+        reason: str,
+    ) -> None:
+        """把 generation 清理注册为进程级后台任务，并持有到任务结束。"""
+        task = asyncio.create_task(
+            self._retire_generation(generation, reason=reason),
+            name=f"commander-retire-{reason}",
+        )
+        self._retirement_tasks.add(task)
+        task.add_done_callback(self._retirement_tasks.discard)
+
+    async def _retire_generation(
+        self,
+        generation: _Generation,
+        *,
+        reason: str,
+    ) -> None:
+        """等待 generation 在途操作排空后关闭全部设备会话。"""
         await generation.drained.wait()
-        await self._close_generation(generation, reason="stop")
+        await self._close_generation(generation, reason=reason)
 
     async def _close_generation(
         self,

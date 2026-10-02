@@ -1,15 +1,16 @@
 """Server 配置编排。
 
-Server 负责配置文件加载、校验、diff 与成功基线；Collector 只执行 reload。
-本模块不依赖 Collector Runtime，只通过 CollectorPort 通知独立 Collector。
+Server 负责配置文件加载、校验、diff 与成功基线；Collector/Commander 只执行
+Server 指定 revision/hash 的 Prepare/Activate/Abort。配置事务在进程内串行，
+停机时可关闭新事务入口并等待当前事务完成。
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from uuid import uuid4
 from pathlib import Path
+from uuid import uuid4
 
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
@@ -36,8 +37,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     devices.updated = sorted(
         device_id
         for device_id in old_ids & new_ids
-        if old_devices[device_id].model_dump()
-        != new_devices[device_id].model_dump()
+        if old_devices[device_id].model_dump() != new_devices[device_id].model_dump()
     )
     devices.unchanged = sorted((old_ids & new_ids) - set(devices.updated))
 
@@ -79,7 +79,6 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         or name not in new_tables
         or old_tables[name].model_dump() != new_tables[name].model_dump()
     )
-
     return ConfigDiff(
         devices=devices,
         sinks=sinks,
@@ -107,13 +106,16 @@ class ConfigUseCase:
         self._desired_revision: str | None = None
         self._desired_config_hash: str | None = None
         self._transaction_lock = asyncio.Lock()
+        self._accept_transactions = True
 
     @property
     def config_dir(self) -> Path:
+        """返回 Server 管理的配置目录。"""
         return self._config_dir
 
     @property
     def current_config(self) -> Config:
+        """返回最近一次成功提交的 Server 配置基线。"""
         return self._current
 
     @property
@@ -136,14 +138,9 @@ class ConfigUseCase:
         return load_config(self._config_dir)
 
     def initialize_desired_revision(self) -> None:
-        """基于当前稳定磁盘配置建立 bootstrap desired revision。
-
-        若已有成功事务产生的 desired revision 则保持不变。初始化前重新加载并
-        校验磁盘配置，确认其与 Server current_config 无结构差异且读取期间未变化。
-        """
+        """基于当前稳定磁盘配置建立 bootstrap desired revision。"""
         if self._desired_revision is not None:
             return
-
         before_hash = fingerprint_config_set(self._config_dir)
         candidate = self.load_disk()
         config_hash = fingerprint_config_set(self._config_dir)
@@ -152,22 +149,53 @@ class ConfigUseCase:
                 "config changed while initializing desired revision: "
                 f"before={before_hash} after={config_hash}"
             )
-        diff = compute_diff(self._current, candidate)
-        if diff.has_any_changes:
+        if compute_diff(self._current, candidate).has_any_changes:
             raise ValueError(
                 "current config differs from disk while initializing desired revision"
             )
-
         self._desired_revision = f"bootstrap-{config_hash}"
         self._desired_config_hash = config_hash
 
-    async def reload(self, *, force_workers: bool = False) -> ReloadResult:
-        """串行执行双 Worker 配置事务。
+    def stop_accepting_transactions(self) -> None:
+        """关闭新配置事务入口；已持锁事务继续运行到自然结束。"""
+        self._accept_transactions = False
 
-        所有入口（Web Apply、SIGHUP、回滚、恢复）最终都进入本方法，因此同一
-        Server 进程内任一时刻只允许一个 revision 处于 prepare/activate 阶段。
+    async def wait_for_transactions(self, timeout: float) -> bool:
+        """等待当前配置事务释放全局锁。
+
+        Args:
+            timeout: 最大等待秒数。
+
+        Returns:
+            在超时前进入并离开事务锁返回 True，否则返回 False。
         """
+        self.stop_accepting_transactions()
+        try:
+            await asyncio.wait_for(self._wait_for_transaction_lock(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
+    async def _wait_for_transaction_lock(self) -> None:
+        """等待事务锁空闲；不执行任何配置动作。"""
         async with self._transaction_lock:
+            return
+
+    def _closed_result(self) -> ReloadResult:
+        """构造停机阶段拒绝新配置事务的稳定结果。"""
+        return ReloadResult(
+            success=False,
+            diff=ConfigDiff(),
+            errors=["config transactions are shutting down"],
+        )
+
+    async def reload(self, *, force_workers: bool = False) -> ReloadResult:
+        """串行执行双 Worker 配置事务。"""
+        if not self._accept_transactions:
+            return self._closed_result()
+        async with self._transaction_lock:
+            if not self._accept_transactions:
+                return self._closed_result()
             return await self._reload_locked(force_workers=force_workers)
 
     async def _reload_locked(self, *, force_workers: bool) -> ReloadResult:
@@ -199,7 +227,6 @@ class ConfigUseCase:
             )
 
         revision_id = uuid4().hex
-
         prepared = await asyncio.gather(
             self._collector.prepare_config(
                 revision_id,
@@ -211,12 +238,7 @@ class ConfigUseCase:
         )
         errors: list[str] = []
         prepare_ok: list[bool] = []
-
-        for name, result in zip(
-            ("collector", "commander"),
-            prepared,
-            strict=True,
-        ):
+        for name, result in zip(("collector", "commander"), prepared, strict=True):
             if isinstance(result, BaseException):
                 errors.append(
                     f"{name} prepare failed: {str(result) or type(result).__name__}"
@@ -233,14 +255,11 @@ class ConfigUseCase:
                 )
             prepare_ok.append(success)
             if not success:
-                remote_errors = [
-                    str(item) for item in list(result.get("errors") or [])
-                ]
-                errors.extend(
-                    remote_errors or [f"{name} prepare failed"]
-                )
+                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                errors.extend(remote_errors or [f"{name} prepare failed"])
 
         if not all(prepare_ok):
+            errors.extend(await self._abort_prepared_revision(revision_id))
             return ReloadResult(
                 success=False,
                 diff=diff,
@@ -254,24 +273,18 @@ class ConfigUseCase:
             return_exceptions=True,
         )
         activate_ok: list[bool] = []
-
-        for name, result in zip(
-            ("collector", "commander"),
-            activated,
-            strict=True,
-        ):
+        for name, result in zip(("collector", "commander"), activated, strict=True):
             if isinstance(result, BaseException):
-                confirmed, confirm_error = await self._confirm_active_revision(
+                confirmed, confirm_error = await self._confirm_active_config(
                     name,
                     revision_id,
+                    config_hash,
                 )
                 activate_ok.append(confirmed)
                 if not confirmed:
                     detail = str(result) or type(result).__name__
                     if confirm_error is None:
-                        errors.append(
-                            f"{name} activate failed after RPC error: {detail}"
-                        )
+                        errors.append(f"{name} activate failed after RPC error: {detail}")
                     else:
                         errors.append(
                             f"{name} activate outcome unknown after RPC error: "
@@ -280,21 +293,25 @@ class ConfigUseCase:
                 continue
 
             success = bool(result.get("success"))
+            remote_hash = str(result.get("active_config_hash") or "")
+            if success and remote_hash and remote_hash != config_hash:
+                success = False
+                errors.append(
+                    f"{name} activate hash mismatch: "
+                    f"expected={config_hash} actual={remote_hash}"
+                )
             activate_ok.append(success)
             if not success:
-                remote_errors = [
-                    str(item) for item in list(result.get("errors") or [])
-                ]
-                errors.extend(
-                    remote_errors or [f"{name} activate failed"]
-                )
+                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                errors.extend(remote_errors or [f"{name} activate failed"])
 
         success = all(activate_ok)
         if success:
             self._current = candidate
             self._desired_revision = revision_id
             self._desired_config_hash = config_hash
-
+        else:
+            errors.extend(await self._abort_prepared_revision(revision_id))
         return ReloadResult(
             success=success,
             diff=diff,
@@ -302,14 +319,32 @@ class ConfigUseCase:
             duration_ms=(time.monotonic() - started) * 1000,
         )
 
-    async def reconcile_workers(self) -> dict[str, str]:
-        """把 active_revision 偏离 desired_revision 的 Worker 收敛到目标版本。
+    async def _abort_prepared_revision(self, revision_id: str) -> list[str]:
+        """Prepare 整体失败后尽力撤销两端同 revision 候选状态。"""
+        results = await asyncio.gather(
+            self._collector.abort_config(revision_id),
+            self._commander.abort_config(revision_id),
+            return_exceptions=True,
+        )
+        errors: list[str] = []
+        for name, result in zip(("collector", "commander"), results, strict=True):
+            if isinstance(result, BaseException):
+                errors.append(
+                    f"{name} abort failed: {str(result) or type(result).__name__}"
+                )
+                continue
+            if not bool(result.get("success", False)):
+                remote_errors = [str(item) for item in list(result.get("errors") or [])]
+                errors.extend(remote_errors or [f"{name} abort failed"])
+        return errors
 
-        本方法只处理已有 desired revision；不会自行生成新配置版本。若本地磁盘
-        已偏离 desired_config_hash，Worker Prepare 会因 hash 不一致而拒绝，
-        从而避免把未正式 Apply 的文件内容误激活。
-        """
+    async def reconcile_workers(self) -> dict[str, str]:
+        """按 revision + config hash 把 Worker 收敛到 desired 配置。"""
+        if not self._accept_transactions:
+            return {"collector": "transactions-closed", "commander": "transactions-closed"}
         async with self._transaction_lock:
+            if not self._accept_transactions:
+                return {"collector": "transactions-closed", "commander": "transactions-closed"}
             revision_id = self._desired_revision
             config_hash = self._desired_config_hash
             if revision_id is None or config_hash is None:
@@ -324,30 +359,24 @@ class ConfigUseCase:
                 return_exceptions=True,
             )
             outcomes: dict[str, str] = {}
-
-            for name, status in zip(
-                ("collector", "commander"),
-                statuses,
-                strict=True,
-            ):
+            for name, status in zip(("collector", "commander"), statuses, strict=True):
                 if isinstance(status, BaseException):
-                    outcomes[name] = (
-                        "status-error:"
-                        + (str(status) or type(status).__name__)
-                    )
+                    outcomes[name] = "status-error:" + (str(status) or type(status).__name__)
                     continue
-
                 active_revision = str(status.get("active_revision") or "")
-                if active_revision == revision_id:
+                active_hash = str(
+                    status.get("active_config_hash")
+                    or status.get("config_hash")
+                    or ""
+                )
+                if active_revision == revision_id and active_hash == config_hash:
                     outcomes[name] = "already-current"
                     continue
-
                 outcomes[name] = await self._reconcile_worker(
                     name,
                     revision_id,
                     config_hash,
                 )
-
             return outcomes
 
     async def _reconcile_worker(
@@ -356,7 +385,7 @@ class ConfigUseCase:
         revision_id: str,
         config_hash: str,
     ) -> str:
-        """对单个偏离 Worker 执行 Prepare/Activate 并确认最终 revision。"""
+        """对单个偏离 Worker 执行 Prepare/Activate 并确认最终配置状态。"""
         try:
             if worker == "collector":
                 prepared = await self._collector.prepare_config(
@@ -378,10 +407,7 @@ class ConfigUseCase:
             errors = [str(item) for item in list(prepared.get("errors") or [])]
             return "prepare-failed:" + ("; ".join(errors) or "unknown")
         if str(prepared.get("config_hash") or "") != config_hash:
-            return (
-                "prepare-hash-mismatch:"
-                f"{prepared.get('config_hash')!s}"
-            )
+            return "prepare-hash-mismatch:" + str(prepared.get("config_hash") or "")
 
         try:
             if worker == "collector":
@@ -389,32 +415,36 @@ class ConfigUseCase:
             else:
                 activated = await self._commander.activate_config(revision_id)
         except Exception as exc:
-            confirmed, confirm_error = await self._confirm_active_revision(
+            confirmed, confirm_error = await self._confirm_active_config(
                 worker,
                 revision_id,
+                config_hash,
             )
             if confirmed:
                 return "reconciled"
             if confirm_error is not None:
                 return (
                     "activate-unknown:"
-                    f"{str(exc) or type(exc).__name__}; "
-                    f"status={confirm_error}"
+                    f"{str(exc) or type(exc).__name__}; status={confirm_error}"
                 )
             return "activate-failed:" + (str(exc) or type(exc).__name__)
 
         if bool(activated.get("success")):
-            return "reconciled"
+            active_hash = str(activated.get("active_config_hash") or "")
+            if not active_hash or active_hash == config_hash:
+                return "reconciled"
+            return f"activate-hash-mismatch:{active_hash}"
 
         errors = [str(item) for item in list(activated.get("errors") or [])]
         return "activate-failed:" + ("; ".join(errors) or "unknown")
 
-    async def _confirm_active_revision(
+    async def _confirm_active_config(
         self,
         worker: str,
         revision_id: str,
+        config_hash: str,
     ) -> tuple[bool, str | None]:
-        """RPC 异常后回查 Worker active_revision，区分失败与结果未知。"""
+        """RPC 异常后回查 active revision/hash，区分失败与结果未知。"""
         try:
             if worker == "collector":
                 status = await self._collector.config_status()
@@ -426,7 +456,12 @@ class ConfigUseCase:
             return False, str(exc) or type(exc).__name__
 
         active_revision = str(status.get("active_revision") or "")
-        return active_revision == revision_id, None
+        active_hash = str(
+            status.get("active_config_hash")
+            or status.get("config_hash")
+            or ""
+        )
+        return active_revision == revision_id and active_hash == config_hash, None
 
 
 __all__ = ["Config", "ConfigUseCase", "compute_diff"]
