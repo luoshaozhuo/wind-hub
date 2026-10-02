@@ -123,6 +123,87 @@ async def test_send_idempotent_returns_cached_result() -> None:
     assert dispatcher.cache_size == 1
 
 
+@pytest.mark.asyncio
+async def test_concurrent_same_command_id_writes_device_once() -> None:
+    """并发相同 command_id 只能执行一次真实设备写入。"""
+    calls = 0
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _write(cmds: list[Command]) -> list[CommandResult]:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await release.wait()
+        return [CommandResult(command_id=cmds[0].command_id, success=True)]
+
+    device = _make_device("dev-1", _make_proto())
+    device._protocol.write = _write  # noqa: SLF001
+    dispatcher = CommandDispatcher(devices={"dev-1": device})
+    cmd = _make_cmd()
+
+    requests = [asyncio.create_task(dispatcher.send(cmd)) for _ in range(100)]
+    await entered.wait()
+    await asyncio.sleep(0)
+    assert calls == 1
+
+    release.set()
+    results = await asyncio.gather(*requests)
+
+    assert calls == 1
+    assert all(result == results[0] for result in results)
+    assert results[0].success is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_command_id_shares_failure_result() -> None:
+    """并发相同 command_id 的协议失败只执行一次并共享失败结果。"""
+    calls = 0
+
+    async def _write(cmds: list[Command]) -> list[CommandResult]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        raise RuntimeError("simulated protocol error")
+
+    device = _make_device("dev-1", _make_proto())
+    device._protocol.write = _write  # noqa: SLF001
+    dispatcher = CommandDispatcher(devices={"dev-1": device})
+    cmd = _make_cmd()
+
+    results = await asyncio.gather(*(dispatcher.send(cmd) for _ in range(20)))
+
+    assert calls == 1
+    assert all(result == results[0] for result in results)
+    assert results[0].success is False
+    assert "simulated protocol error" in (results[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_command_id_shares_timeout_result() -> None:
+    """并发相同 command_id 的写超时只产生一次真实执行。"""
+    calls = 0
+
+    async def _write(cmds: list[Command]) -> list[CommandResult]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(1.0)
+        return [CommandResult(command_id=cmds[0].command_id, success=True)]
+
+    device = _make_device("dev-1", _make_proto())
+    device._protocol.write = _write  # noqa: SLF001
+    dispatcher = CommandDispatcher(devices={"dev-1": device})
+    cmd = _make_cmd(timeout=0.02)
+
+    results = await asyncio.gather(*(dispatcher.send(cmd) for _ in range(20)))
+
+    assert calls == 1
+    assert all(result == results[0] for result in results)
+    assert results[0].success is False
+    assert results[0].error is not None
+    assert results[0].error.startswith("write timeout")
+
+
 # ---------------------------------------------------------------------------
 # send — unknown device
 # ---------------------------------------------------------------------------
