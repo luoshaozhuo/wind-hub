@@ -1,7 +1,7 @@
 """wind-hub-ctl 的 Collector gRPC 客户端。
 
 本模块位于控制面客户端边界，只负责把 CLI 请求转换为 Collector gRPC 调用；
-不读取现场 YAML、不创建 Runtime、不直接访问 PLC，也不参与任务调度。
+不读取现场 YAML、不创建 Runtime、不直接访问 PLC。
 
 当前 v1 wire contract 使用 google.protobuf.Struct，因此响应在反序列化后以
 dict[str, Any] 表达。这里的 Any 仅用于 Protobuf 动态 JSON 边界，不向
@@ -20,7 +20,6 @@ from google.protobuf import empty_pb2, json_format, struct_pb2
 
 from wind_hub_core.rpc.collector import (
     CONTROL_SERVICE,
-    DIAGNOSTIC_SERVICE,
     GET_COLLECTOR_INFO,
     GET_RUNTIME_STATUS,
     GET_TASK,
@@ -28,12 +27,7 @@ from wind_hub_core.rpc.collector import (
     LIST_DEVICES,
     LIST_TASKS,
     LIST_TASK_INSTANCES,
-    READ_POINT,
-    RESOLVE_POINT,
     RELOAD_CONFIG,
-    VERIFY_DEVICE,
-    VERIFY_POINT,
-    VERIFY_POINTS,
     RUNTIME_SERVICE,
     START_ASSIGNED_TASKS,
     START_TASK,
@@ -41,7 +35,6 @@ from wind_hub_core.rpc.collector import (
     STOP_ASSIGNED_TASKS,
     STOP_TASK,
     STOP_TASK_INSTANCE,
-    WRITE_POINT,
     rpc_path,
 )
 
@@ -174,22 +167,6 @@ class CollectorClient:
         """
         return await self._call_empty(RUNTIME_SERVICE, LIST_DEVICES)
 
-    async def read(self, device_id: str, point_id: str) -> dict[str, Any]:
-        """即时读取单个设备点位，绕过周期采集缓存。
-
-        Args:
-            device_id: Runtime 中的设备标识。
-            point_id: 设备点表中的点标识。
-
-        Returns:
-            Collector 返回的 PointValue JSON 字典。
-        """
-        return await self._call_struct(
-            RUNTIME_SERVICE,
-            READ_POINT,
-            {"device_id": device_id, "point_id": point_id},
-        )
-
     async def tasks(self) -> dict[str, Any]:
         """列出 Task Definition 及其聚合运行状态。
 
@@ -319,83 +296,3 @@ class CollectorClient:
             ReloadResult 的动态 JSON 字典，包含成功状态、diff 和错误列表。
         """
         return await self._call_empty(CONTROL_SERVICE, RELOAD_CONFIG)
-
-
-    async def verify_device(
-        self,
-        device_id: str,
-        *,
-        timeout: float = 1.0,
-    ) -> dict[str, Any]:
-        """验证设备网络、TCP 与协议会话。"""
-        return await self._call_struct(
-            DIAGNOSTIC_SERVICE,
-            VERIFY_DEVICE,
-            {"device_id": device_id, "timeout": timeout},
-        )
-
-    async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]:
-        """解析点位协议地址；ADS 返回实际 index_group/index_offset。"""
-        return await self._call_struct(
-            DIAGNOSTIC_SERVICE,
-            RESOLVE_POINT,
-            {"device_id": device_id, "point_id": point_id},
-        )
-
-    async def verify_point(self, device_id: str, point_id: str) -> dict[str, Any]:
-        """实际读取单点并返回 raw/engineering value。"""
-        return await self._call_struct(
-            DIAGNOSTIC_SERVICE,
-            VERIFY_POINT,
-            {"device_id": device_id, "point_id": point_id},
-        )
-
-    async def verify_points(
-        self,
-        device_id: str,
-        *,
-        point_group: str | None = None,
-    ) -> dict[str, Any]:
-        """验证整个设备点表或指定 point_group。"""
-        payload: dict[str, Any] = {"device_id": device_id}
-        if point_group is not None:
-            payload["point_group"] = point_group
-        return await self._call_struct(
-            DIAGNOSTIC_SERVICE,
-            VERIFY_POINTS,
-            payload,
-        )
-
-    async def write(
-        self,
-        device_id: str,
-        point_id: str,
-        value: Any,
-        *,
-        timeout: float = 5.0,
-    ) -> dict[str, Any]:
-        """向单个设备点位下发写指令。
-
-        Args:
-            device_id: 目标设备标识。
-            point_id: 目标点标识。
-            value: CLI 解析后的 JSON 标量或字符串；实际类型由点表约束。
-            timeout: 设备写操作超时，单位秒。
-
-        Returns:
-            CommandResult 的 JSON 字典。
-
-        Notes:
-            value 使用 Any 是 CLI/Protobuf 动态输入边界；Collector 内部仍由
-            点表和协议驱动负责类型约束。
-        """
-        return await self._call_struct(
-            CONTROL_SERVICE,
-            WRITE_POINT,
-            {
-                "device_id": device_id,
-                "point_id": point_id,
-                "value": value,
-                "timeout": timeout,
-            },
-        )
