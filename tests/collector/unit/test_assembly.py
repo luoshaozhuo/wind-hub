@@ -8,6 +8,7 @@ from pathlib import Path
 from tests.config_helper import write_config_tree
 from wind_hub.application.runtime import Runtime
 from wind_hub.application.usecase.config import ConfigUseCase
+from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.task import TaskUseCase
 from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub.config.schema import RuntimeConfig, SinkConfig
@@ -96,6 +97,7 @@ def test_assemble_builds_minimal_collector_graph() -> None:
         assert isinstance(assembled.runtime, Runtime)
         assert isinstance(assembled.tasks, TaskUseCase)
         assert isinstance(assembled.config, ConfigUseCase)
+        assert isinstance(assembled.diagnostic, DiagnosticUseCase)
         assert assembled.runtime.engine is assembled.engine
         assert assembled.runtime.dispatcher is assembled.dispatcher
         assert assembled.dispatcher._devices is assembled.runtime.devices  # noqa: SLF001
@@ -119,6 +121,7 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "tasks",
             "command",
             "query",
+            "diagnostic",
             "config",
             "iec104_slave",
         }
@@ -135,7 +138,6 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "settings",
             "definitions",
             "sink_ops",
-            "diagnostics",
             "monitoring",
             "monitoring_metrics",
             "log_store",
