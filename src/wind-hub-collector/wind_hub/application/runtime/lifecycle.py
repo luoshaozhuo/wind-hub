@@ -114,6 +114,7 @@ class RuntimeLifecycle:
             for name, sink in self._runtime._sinks.items():
                 try:
                     await sink.open()
+                    self._runtime._unhealthy_sinks.discard(name)
                     logger.info("Sink '%s' opened", name)
                 except Exception:
                     logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
