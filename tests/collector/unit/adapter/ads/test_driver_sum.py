@@ -1,16 +1,12 @@
-"""Unit tests for ADS Sum batching and sequential read dispatch.
-
-Covers the ``read_mode`` dispatch: symbol-addressed Sum reads (batching by
-``max_subs_per_sum``, per-symbol failure → ``BAD``, overall failure →
-``ProtocolError``) and the ``NotImplementedError`` guard for index/offset
-addressing under Sum mode.
-
-``pyads.Connection`` is replaced by :class:`FakeConnection`; no real ADS server
-is involved.
-"""
+"""ADS 地址型 Sum Read 与 sequential 分派单元测试。"""
 
 from __future__ import annotations
 
+import ctypes
+import struct
+from types import SimpleNamespace
+
+import pyads
 import pytest
 
 from wind_hub.adapter.outbound.protocol.ads.driver import ADSDriver
@@ -33,34 +29,41 @@ def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceC
     )
 
 
-def _make_symbol_point(point_id: str, symbol: str, data_type: str = "float32") -> PointConfig:
+def _make_symbol_point(point_id: str, symbol: str) -> PointConfig:
     return PointConfig(
         point_groups=["default"],
         point_id=point_id,
         address=PointAddress(symbol=symbol),
-        data_type=data_type,
+        data_type="float32",
     )
 
 
-def _make_index_point(point_id: str) -> PointConfig:
+def _make_index_point(point_id: str, offset: int = 0) -> PointConfig:
     return PointConfig(
         point_groups=["default"],
         point_id=point_id,
-        address=PointAddress(index_group=0x4020, index_offset=0),
+        address=PointAddress(index_group=0x4020, index_offset=offset),
         data_type="float32",
     )
 
 
 class FakeConnection:
-    """Synchronous stand-in for ``pyads.Connection`` with a symbol table."""
+    """最小 pyads.Connection 替身，只提供 symbol 解析与 sequential read。"""
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        self.is_open = True
-        self.symbol_values: dict[str, object] = {}
-        self.read_list_calls: list[list[str]] = []
+        self.is_open = False
+        self.values: dict[tuple[int, int], object] = {}
+        self.symbols = {
+            "MAIN.rotorSpeed": (0x4020, 100),
+            "MAIN.genPower": (0x4020, 104),
+            "MAIN.a": (0x4020, 108),
+            "MAIN.b": (0x4020, 112),
+            "MAIN.c": (0x4020, 116),
+            "MAIN.ok": (0x4020, 120),
+        }
 
     def set_timeout(self, ms: int) -> None:
-        pass
+        del ms
 
     def open(self) -> None:
         self.is_open = True
@@ -68,12 +71,20 @@ class FakeConnection:
     def close(self) -> None:
         self.is_open = False
 
-    def read_list_by_name(self, names: list[str]) -> dict[str, object]:
-        self.read_list_calls.append(list(names))
-        return {n: self.symbol_values[n] for n in names if n in self.symbol_values}
+    def get_symbol(self, symbol: str) -> object:
+        if symbol == "MAIN.broken":
+            raise pyads.ADSError(1808, "symbol not found")
+        index_group, index_offset = self.symbols[symbol]
+        return SimpleNamespace(
+            index_group=index_group,
+            index_offset=index_offset,
+            plc_type=ctypes.c_float,
+            symbol_type="REAL",
+        )
 
     def read(self, index_group: int, index_offset: int, plc_datatype: object) -> object:
-        return None
+        del plc_datatype
+        return self.values.get((index_group, index_offset))
 
 
 @pytest.fixture
@@ -81,8 +92,17 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pyads.Connection", FakeConnection)
 
 
+def _sum_payload(values: list[float], errors: list[int] | None = None) -> bytes:
+    errors = errors or [0] * len(values)
+    return b"".join(struct.pack("<I", error) for error in errors) + b"".join(
+        struct.pack("<f", value) for value in values
+    )
+
+
 class TestReadSum:
-    async def test_read_sum_reads_symbols(self, patched: None) -> None:
+    async def test_read_sum_resolves_symbols_then_reads_addresses(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         driver = ADSDriver(_make_device_config())
         driver.set_points_mapping(
             [
@@ -90,24 +110,29 @@ class TestReadSum:
                 _make_symbol_point("gen.power", "MAIN.genPower"),
             ]
         )
-        driver._connection = FakeConnection()
-        driver._connected = True
-        driver._connection.symbol_values = {
-            "MAIN.rotorSpeed": 1200.5,
-            "MAIN.genPower": 800.0,
-        }
+        await driver.connect()
+        seen: list[list[tuple[int, int, int]]] = []
 
+        def _sum(addresses: list[tuple[int, int, int]]) -> bytes:
+            seen.append(addresses)
+            return _sum_payload([1200.5, 800.0])
+
+        monkeypatch.setattr(driver, "_sum_read_bytes", _sum)
         values = await driver.read(
             [
                 PointRef(device_id="test-dev", point_id="rotor.speed"),
                 PointRef(device_id="test-dev", point_id="gen.power"),
             ]
         )
+        await driver.close()
 
-        assert [v.value for v in values] == [1200.5, 800.0]
+        assert [v.value for v in values] == pytest.approx([1200.5, 800.0])
+        assert seen == [[(0x4020, 100, 4), (0x4020, 104, 4)]]
         assert all(v.quality == Quality.GOOD for v in values)
 
-    async def test_read_sum_batches_by_max_subs_per_sum(self, patched: None) -> None:
+    async def test_read_sum_batches_by_max_subs_per_sum(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         driver = ADSDriver(_make_device_config(max_subs_per_sum=2))
         driver.set_points_mapping(
             [
@@ -116,10 +141,14 @@ class TestReadSum:
                 _make_symbol_point("c", "MAIN.c"),
             ]
         )
-        driver._connection = FakeConnection()
-        driver._connected = True
-        driver._connection.symbol_values = {"MAIN.a": 1, "MAIN.b": 2, "MAIN.c": 3}
+        await driver.connect()
+        seen: list[list[tuple[int, int, int]]] = []
 
+        def _sum(addresses: list[tuple[int, int, int]]) -> bytes:
+            seen.append(addresses)
+            return _sum_payload([float(i + 1) for i in range(len(addresses))])
+
+        monkeypatch.setattr(driver, "_sum_read_bytes", _sum)
         await driver.read(
             [
                 PointRef(device_id="test-dev", point_id="a"),
@@ -127,11 +156,13 @@ class TestReadSum:
                 PointRef(device_id="test-dev", point_id="c"),
             ]
         )
+        await driver.close()
 
-        # 3 points, batch cap 2 → two Sum commands of size 2 and 1.
-        assert driver._connection.read_list_calls == [["MAIN.a", "MAIN.b"], ["MAIN.c"]]
+        assert [len(batch) for batch in seen] == [2, 1]
 
-    async def test_read_sum_missing_symbol_is_bad(self, patched: None) -> None:
+    async def test_read_sum_unresolved_symbol_is_bad(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         driver = ADSDriver(_make_device_config())
         driver.set_points_mapping(
             [
@@ -139,9 +170,8 @@ class TestReadSum:
                 _make_symbol_point("broken", "MAIN.broken"),
             ]
         )
-        driver._connection = FakeConnection()
-        driver._connected = True
-        driver._connection.symbol_values = {"MAIN.ok": 7.5}  # MAIN.broken absent
+        await driver.connect()
+        monkeypatch.setattr(driver, "_sum_read_bytes", lambda addresses: _sum_payload([7.5]))
 
         values = await driver.read(
             [
@@ -149,55 +179,82 @@ class TestReadSum:
                 PointRef(device_id="test-dev", point_id="broken"),
             ]
         )
+        await driver.close()
+
+        assert values[0].value == pytest.approx(7.5)
+        assert values[0].quality == Quality.GOOD
+        assert values[1].value is None
+        assert values[1].quality == Quality.BAD
+
+    async def test_read_sum_index_only_point_uses_configured_address(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        driver = ADSDriver(_make_device_config())
+        driver.set_points_mapping([_make_index_point("speed", 16)])
+        await driver.connect()
+        seen: list[list[tuple[int, int, int]]] = []
+
+        def _sum(addresses: list[tuple[int, int, int]]) -> bytes:
+            seen.append(addresses)
+            return _sum_payload([12.0])
+
+        monkeypatch.setattr(driver, "_sum_read_bytes", _sum)
+        values = await driver.read([PointRef(device_id="test-dev", point_id="speed")])
+        await driver.close()
+
+        assert values[0].value == pytest.approx(12.0)
+        assert seen == [[(0x4020, 16, 4)]]
+
+    async def test_read_sum_subcommand_error_marks_only_point_bad(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        driver = ADSDriver(_make_device_config())
+        driver.set_points_mapping([_make_index_point("a", 0), _make_index_point("b", 4)])
+        await driver.connect()
+        monkeypatch.setattr(
+            driver,
+            "_sum_read_bytes",
+            lambda addresses: _sum_payload([1.0, 2.0], errors=[0, 1808]),
+        )
+
+        values = await driver.read(
+            [
+                PointRef(device_id="test-dev", point_id="a"),
+                PointRef(device_id="test-dev", point_id="b"),
+            ]
+        )
+        await driver.close()
 
         assert values[0].quality == Quality.GOOD
-        assert values[0].value == 7.5
         assert values[1].quality == Quality.BAD
-        assert values[1].value is None
-
-    async def test_read_sum_unknown_point_is_bad(self, patched: None) -> None:
-        driver = ADSDriver(_make_device_config())
-        driver._connection = FakeConnection()
-        driver._connected = True
-
-        values = await driver.read([PointRef(device_id="test-dev", point_id="nope")])
-
-        assert values[0].quality == Quality.BAD
-
-    async def test_read_sum_index_address_raises_not_implemented(self, patched: None) -> None:
-        driver = ADSDriver(_make_device_config())  # read_mode default "sum"
-        driver.set_points_mapping([_make_index_point("speed")])
-        driver._connection = FakeConnection()
-        driver._connected = True
-
-        with pytest.raises(NotImplementedError, match="symbol"):
-            await driver.read([PointRef(device_id="test-dev", point_id="speed")])
 
     async def test_read_sum_overall_failure_raises_protocol_error(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         driver = ADSDriver(_make_device_config())
-        driver.set_points_mapping([_make_symbol_point("a", "MAIN.a")])
-        driver._connection = FakeConnection()
-        driver._connected = True
+        driver.set_points_mapping([_make_index_point("a")])
+        await driver.connect()
 
-        def _boom(names: list[str]) -> dict[str, object]:
+        def _boom(addresses: list[tuple[int, int, int]]) -> bytes:
+            del addresses
             raise RuntimeError("service not supported")
 
-        monkeypatch.setattr(driver._connection, "read_list_by_name", _boom)
+        monkeypatch.setattr(driver, "_sum_read_bytes", _boom)
 
-        with pytest.raises(ProtocolError, match="Sum read failed"):
+        with pytest.raises(ProtocolError, match="ADS read failed"):
             await driver.read([PointRef(device_id="test-dev", point_id="a")])
+        await driver.close()
 
 
 class TestReadSequential:
     async def test_read_sequential_uses_index_read(self, patched: None) -> None:
         driver = ADSDriver(_make_device_config(read_mode="sequential"))
         driver.set_points_mapping([_make_index_point("speed")])
-        driver._connection = FakeConnection()
-        driver._connected = True
+        await driver.connect()
+        driver._connection.values[(0x4020, 0)] = 3.0
 
-        # read() -> read(index_group, index_offset, plctype) → None from the fake.
         values = await driver.read([PointRef(device_id="test-dev", point_id="speed")])
+        await driver.close()
 
+        assert values[0].value == pytest.approx(3.0)
         assert values[0].quality == Quality.GOOD
