@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,6 +52,12 @@ class FakeConnection:
         self.is_open = False
         self.values: dict[tuple[int, int], object] = {}
         self.symbol_values: dict[str, object] = {}
+        self.symbol_addresses: dict[str, tuple[int, int]] = {
+            "MAIN.speed": (0x4020, 100),
+            "MAIN.temp": (0x4020, 104),
+            "MAIN.setpoint": (0x4020, 108),
+            "MAIN.missing": (0x4020, 112),
+        }
         self.index_read_calls = 0
         self.index_write_calls = 0
         self.timeout_ms: int | None = None
@@ -69,10 +77,19 @@ class FakeConnection:
         self.index_read_calls += 1
         return self.values.get((index_group, index_offset))
 
-    def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+    def get_symbol(self, symbol: str) -> object:
         if not self.is_open:
             raise RuntimeError("connection is closed")
-        return self.symbol_values.get(symbol)
+        index_group, index_offset = self.symbol_addresses.get(symbol, (0x4020, 0))
+        return SimpleNamespace(
+            index_group=index_group,
+            index_offset=index_offset,
+            plc_type=ctypes.c_float,
+            symbol_type="REAL",
+        )
+
+    def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+        raise AssertionError("production ADS reads must not use read_by_name")
 
     def write(
         self, index_group: int, index_offset: int, value: object, plc_datatype: object
@@ -83,9 +100,7 @@ class FakeConnection:
         self.values[(index_group, index_offset)] = value
 
     def write_by_name(self, symbol: str, value: object, plc_datatype: object) -> None:
-        if not self.is_open:
-            raise RuntimeError("connection is closed")
-        self.symbol_values[symbol] = value
+        raise AssertionError("production ADS writes must not use write_by_name")
 
     def add_device_notification(
         self, symbol: str, attr: object, callback: object, user_handle: object = None
@@ -194,23 +209,23 @@ class TestRead:
         with pytest.raises(ProtocolError, match="not connected"):
             await driver.read([PointRef(device_id="test-dev", point_id="p")])
 
-    async def test_sequential_read_prefers_symbol(
+    async def test_sequential_read_resolves_symbol_then_uses_index(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """symbol+index 同时存在时，sequential 读用 read_by_name（symbol 优先）。"""
+        """symbol+旧 index 同时存在时，以 PLC symbol 实际解析地址执行 index read。"""
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping([_make_point_config("speed", "float32", symbol="MAIN.speed")])
         await driver.connect()
         conn = driver._connection
-        conn.symbol_values["MAIN.speed"] = 1200.5
-        conn.values[(0x4020, 0)] = -1.0  # 若误走 index 读会拿到该值
+        conn.values[(0x4020, 100)] = 1200.5
+        conn.values[(0x4020, 0)] = -1.0
 
         values = await driver.read([PointRef(device_id="test-dev", point_id="speed")])
         await driver.close()
 
         assert values[0].value == 1200.5
         assert values[0].quality == Quality.GOOD
-        assert conn.index_read_calls == 0  # 未走 index 读
+        assert conn.index_read_calls == 1
 
     async def test_sequential_read_uses_index_without_symbol(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
@@ -262,10 +277,10 @@ class TestRead:
         import pyads
 
         class _SymbolErrorConnection(FakeConnection):
-            def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+            def get_symbol(self, symbol: str) -> object:
                 if symbol == "MAIN.missing":
                     raise pyads.ADSError(1808, "symbol not found")
-                return super().read_by_name(symbol, plc_datatype)
+                return super().get_symbol(symbol)
 
         monkeypatch.setattr("pyads.Connection", _SymbolErrorConnection)
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
@@ -278,8 +293,8 @@ class TestRead:
         )
         await driver.connect()
         conn = driver._connection
-        conn.symbol_values["MAIN.speed"] = 1200.5
-        conn.symbol_values["MAIN.temp"] = 65.0
+        conn.values[(0x4020, 100)] = 1200.5
+        conn.values[(0x4020, 104)] = 65.0
 
         values = await driver.read(
             [
@@ -307,7 +322,7 @@ class TestRead:
         import pyads
 
         class _TimeoutConnection(FakeConnection):
-            def read_by_name(self, symbol: str, plc_datatype: object) -> object:
+            def get_symbol(self, symbol: str) -> object:
                 raise pyads.ADSError(1861, "timeout elapsed")
 
         monkeypatch.setattr("pyads.Connection", _TimeoutConnection)
@@ -366,10 +381,10 @@ class TestWrite:
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         assert await driver.write([]) == []
 
-    async def test_write_prefers_symbol(
+    async def test_write_resolves_symbol_then_uses_index(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """symbol 存在时写入调 write_by_name，不调 index write。"""
+        """symbol 存在时先解析 PLC 地址，正式写入仍使用 index/offset。"""
         driver = ADSDriver(_make_device_config(target_net_id="1.1.1.1.1.1"))
         driver.set_points_mapping(
             [_make_point_config("setpoint", "float32", symbol="MAIN.setpoint")]
@@ -383,8 +398,8 @@ class TestWrite:
         await driver.close()
 
         assert results[0].success is True
-        assert conn.symbol_values["MAIN.setpoint"] == 88.0
-        assert conn.index_write_calls == 0  # 未走 index 写
+        assert conn.values[(0x4020, 108)] == 88.0
+        assert conn.index_write_calls == 1
 
     async def test_write_uses_index_without_symbol(
         self, patched: None, monkeypatch: pytest.MonkeyPatch
