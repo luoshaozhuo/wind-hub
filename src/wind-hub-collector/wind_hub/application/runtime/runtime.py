@@ -806,17 +806,20 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def add_sink(self, sink_name: str, cfg: SinkConfig, sink: SinkPort) -> None:
-        """运行时新增 sink——打开、建队列、启动消费者。
+        """运行时新增 sink——先打开成功，再安装到 Runtime。
 
         Raises:
-            Exception: ``sink.open()`` 失败原样上抛（热重载编排方据此记录
-                错误并保留旧状态）。
+            Exception: ``sink.open()`` 失败原样上抛；失败时 Runtime 注册表与队列
+                保持不变，不留下半装配 Sink。
         """
-        self._sinks[sink_name] = sink
-        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._config.queue_maxsize)
-        self._queues[sink_name] = queue
-
+        del cfg
         await sink.open()
+
+        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(
+            maxsize=self._config.queue_maxsize
+        )
+        self._sinks[sink_name] = sink
+        self._queues[sink_name] = queue
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
         if self._running:
@@ -855,20 +858,26 @@ class Runtime:
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
     async def rebuild_sink(self, sink_name: str, new_cfg: SinkConfig, new_sink: SinkPort) -> None:
-        """重建 sink——停旧消费者、换入新实例、启动新消费者。
+        """重建 sink——先确认新实例可打开，再替换旧实例。
 
-        既有队列保留，避免在途数据丢失。
+        既有队列保留，避免在途数据丢失。若新实例 ``open()`` 失败，旧 Sink、
+        旧 consumer 和队列完全不动，热重载调用方可安全报告失败。
 
         Raises:
             Exception: 新 sink 的 ``open()`` 失败原样上抛。
         """
+        del new_cfg
+        await new_sink.open()
+
         task = self._sink_tasks.pop(sink_name, None)
         if task is not None:
             task.cancel()
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                 await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
 
-        old_sink = self._sinks.pop(sink_name, None)
+        old_sink = self._sinks.get(sink_name)
+        self._sinks[sink_name] = new_sink
+
         if old_sink is not None:
             try:
                 await old_sink.flush()
@@ -887,8 +896,6 @@ class Runtime:
                     exc_info=True,
                 )
 
-        self._sinks[sink_name] = new_sink
-        await new_sink.open()
         logger.info("Hot-reload: sink '%s' re-opened", sink_name)
 
         if self._running:
