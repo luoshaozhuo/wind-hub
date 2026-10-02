@@ -29,6 +29,7 @@ from wind_hub.config.schema import (
     PointTablesConfig,
     ReportingConfig,
     ResolvedPointTables,
+    SinkConfig,
     SystemConfig,
     TasksConfig,
     UnitsConfig,
@@ -219,9 +220,9 @@ def load_config(config_dir: str | Path) -> Config:
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
 
-    sink_names = {s.name for s in system.sinks}
+    sinks = {s.name: s for s in system.sinks}
     for task in tasks.tasks:
-        _validate_task_targets(task, devices, point_tables, sink_names)
+        _validate_task_targets(task, devices, point_tables, sinks)
 
     return Config(
         system=system,
@@ -286,23 +287,28 @@ def _validate_task_targets(
     task: CollectionTaskConfig,
     devices: DevicesConfig,
     point_tables: ResolvedPointTables,
-    sink_names: set[str],
+    sinks: dict[str, SinkConfig],
 ) -> None:
     """校验单个采集 Task 的跨文件引用。
 
     - ``device`` 必须存在；``device_group`` 至少匹配一台 enabled 设备；
     - 命中的 enabled 设备必须全部支持周期采集（ADS ``sequential`` 报错）；
     - ``point_group`` 必须在每台命中 enabled 设备的绑定点表中存在；
-    - 每个 target sink 必须已定义。
+    - 每个 target sink 必须已定义且 enabled。
 
     Raises:
         ConfigError: 任一引用缺失或组合非法。
     """
     for target in task.targets:
-        if target.sink not in sink_names:
+        sink = sinks.get(target.sink)
+        if sink is None:
             raise ConfigError(
                 f"Task '{task.task_id}' targets unknown sink "
-                f"'{target.sink}' (available: {sorted(sink_names)})"
+                f"'{target.sink}' (available: {sorted(sinks)})"
+            )
+        if not sink.enabled:
+            raise ConfigError(
+                f"Task '{task.task_id}' targets disabled sink '{target.sink}'"
             )
 
     if task.device is not None:
@@ -368,7 +374,8 @@ def _validate_device_binding(
     """校验单台设备的点表绑定与 read_mode 组合约束。
 
     点地址形式已在 ``_validate_table_addresses`` 按点表 protocol 统一
-    校验；此处只保留设备级约束（ADS ``sum`` 的全 symbol 要求）。
+    校验；ADS symbol 会在连接后解析为 index_group/index_offset，显式 index
+    地址则直接进入运行时，两种形式均支持 sum/sequential。
 
     Raises:
         ConfigError: 点表缺失或 read_mode 组合非法。
@@ -380,25 +387,14 @@ def _validate_device_binding(
             f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
         )
 
-    if device.protocol == "ads" and device.read_mode == "sum":
-        for p in table.points:
-            # sum 模式按 symbol 批量读，绑定表必须全部 symbol 寻址
-            symbol = (p.address.model_extra or {}).get("symbol")
-            if symbol is None:
-                raise ConfigError(
-                    f"ADS point '{p.point_id}' (device '{device.device_id}'): "
-                    f"read_mode='sum' requires 'symbol' on every point of "
-                    f"table '{device.point_table}'"
-                )
-
 
 def _validate_ads_address(table: str, point: PointConfig) -> None:
     """校验 ADS 点位地址形式。
 
     合法形式：
-      1. 仅 ``symbol``——Symbol 寻址（推荐）；
-      2. ``index_group`` + ``index_offset`` 成对——兼容寻址；
-      3. 两者同时存在——允许，实际读写以 symbol 优先。
+      1. 仅 ``symbol``——连接后解析为 index_group/index_offset；
+      2. ``index_group`` + ``index_offset`` 成对——直接使用；
+      3. 两者同时存在——允许；运行期实际 I/O 始终使用 index 地址。
 
     Raises:
         ConfigError: index 字段不成对，或三者全空。
