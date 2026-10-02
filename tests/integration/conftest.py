@@ -7,8 +7,6 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
@@ -17,9 +15,7 @@ from wind_hub.assembly import AssembledRuntime, assemble, start_runtime, stop_ru
 from wind_hub.config.schema import SinkConfig
 from wind_hub.domain.model.errors import ConfigError
 
-from .runtime_helpers import clear_runtime_context, set_runtime_context
-
-FIXTURE_CONFIGS = Path(__file__).resolve().parents[2] / "fixtures" / "configs"
+FIXTURE_CONFIGS = Path(__file__).resolve().parents[1] / "fixtures" / "configs"
 
 
 @pytest.fixture
@@ -85,20 +81,3 @@ async def runtime(
         yield rt
     finally:
         await stop_runtime(rt)
-
-
-@pytest.fixture
-async def api_client(runtime: AssembledRuntime):
-    """在**同一事件循环**内以 ASGITransport 驱动 FastAPI 应用。
-
-    与 :class:`fastapi.testclient.TestClient` 不同，这里不另起线程/事件循环，
-    避免协议驱动（asyncio.Lock、pymodbus 连接都绑定在 runtime 所在循环）在
-    跨循环调用 ``read`` / ``write`` 时崩溃。
-    """
-    from wind_hub_server.adapter.inbound.webapi.app import build_api
-
-    set_runtime_context(runtime)
-    transport = ASGITransport(app=build_api())
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-    clear_runtime_context()
