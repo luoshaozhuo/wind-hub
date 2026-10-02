@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 
 class DataSnapshot:

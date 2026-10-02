@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub.application.command_dispatcher import CommandDispatcher
-from wind_hub.domain.model.command import Command, CommandResult
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.point import PointValue
 
 
 class SlaveBridge:

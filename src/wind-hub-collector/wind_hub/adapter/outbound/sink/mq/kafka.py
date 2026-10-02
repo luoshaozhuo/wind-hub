@@ -33,9 +33,10 @@ from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub.domain.model.errors import SinkError
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.health import HealthStatus
 
 logger = logging.getLogger(__name__)
 

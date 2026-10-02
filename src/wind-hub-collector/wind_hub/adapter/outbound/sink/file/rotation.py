@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol
 
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_core.model.errors import ConfigError
 
 _BYTES_PER_MB = 1024 * 1024
 _SECONDS_PER_HOUR = 3600.0
