@@ -292,7 +292,7 @@ class FileSink(SinkPort):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._current_size = self._path.stat().st_size if self._path.exists() else 0
         # 文件句柄在此后整个 sink 生命周期内保持打开（追加 + 显式 flush/close），
-        # 不在 with 块内，故此处豁免 SIM115。
+        # 不在 with 块内，故此处豁免 SIM115；若生命周期改为单次上下文打开/关闭，删除抑制。
         self._file = open(self._path, "ab")  # noqa: SIM115
         if self._format == "csv" and self._write_header and self._current_size == 0:
             header = (",".join(_CSV_HEADER) + "\n").encode("utf-8")

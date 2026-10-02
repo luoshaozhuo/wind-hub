@@ -28,7 +28,7 @@ from typing import Any
 # aiokafka 0.14 未随包发布 py.typed / 类型桩，mypy 会把该模块标记为
 # `import-untyped`；此处按可选额外依赖的标准做法显式抑制，避免泄漏 aiokafka
 # 类型到对外接口（``self._producer`` 内部按 ``Any`` 处理，公开签名只出现
-# PointValue / HealthStatus / SinkError）。
+# PointValue / HealthStatus / SinkError）。待 aiokafka 发布稳定 py.typed/类型桩后移除该抑制。
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort
@@ -294,7 +294,6 @@ class KafkaSink(SinkPort):
                 failures += 1
                 self._record_failure(f"broker ack failed: {exc}")
         self._pending_futures = remaining
-        if failures:
         return failures
 
     # -- 内部：健康跟踪 ---------------------------------------------------

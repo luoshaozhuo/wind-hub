@@ -39,6 +39,12 @@ def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
     每张表独立解析并缓存——多张子表共享同一父表时父表只解析一次。
     解析顺序：父表结果 → ``remove_points`` → 本表 points override/append。
 
+    Args:
+        raw: points.yaml 解析出的 Raw 点表集合。
+
+    Returns:
+        完成继承展开与完整点校验的 ResolvedPointTables。
+
     Raises:
         ConfigError: 父表不存在、继承环、protocol 规则违反（基础表缺失 /
             子表与父表不一致）、``remove_points`` 引用未知点、或

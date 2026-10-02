@@ -76,11 +76,19 @@ class CollectorGrpcServer:
     endpoint: str
 
     async def start(self) -> None:
-        """开始监听。"""
+        """开始监听 gRPC endpoint。
+
+        Raises:
+            Exception: gRPC Server 启动失败时原样传播，由 Collector 进程入口处理。
+        """
         await self.server.start()
 
     async def stop(self, grace: float = 5.0) -> None:
-        """停止接收请求并等待正在执行的 RPC。"""
+        """停止接收新请求并等待正在执行的 RPC。
+
+        Args:
+            grace: 已进入处理阶段 RPC 的最大宽限时间，单位秒。
+        """
         await self.server.stop(grace)
 
 
@@ -100,6 +108,11 @@ class CollectorRuntimeService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """返回 Collector 身份、配置指纹与 Runtime 运行事实。
+
+        Returns:
+            Protobuf Struct 形式的 Collector 基本信息。
+        """
         del request, context
         return _struct(
             {
@@ -118,6 +131,11 @@ class CollectorRuntimeService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """返回 Runtime 聚合状态快照。
+
+        Returns:
+            Protobuf Struct 形式的 Runtime 状态。
+        """
         del request, context
         status = await self._runtime.query.status()
         return _struct(status.model_dump(mode="json"))
@@ -127,7 +145,11 @@ class CollectorRuntimeService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """列出 Task Definition 与聚合运行状态。"""
+        """列出 Task Definition 与聚合运行状态。
+
+        Returns:
+            包含 TaskSummary 列表的 Protobuf Struct。
+        """
         del request, context
         items = await self._runtime.tasks.list_task_summaries()
         return _struct({"items": [item.model_dump(mode="json") for item in items]})
@@ -137,7 +159,14 @@ class CollectorRuntimeService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """按稳定 task_id 查询 Task 聚合状态。"""
+        """按稳定 task_id 查询 Task 聚合状态。
+
+        Returns:
+            TaskSummary 的 Protobuf Struct 表示。
+
+        Raises:
+            grpc.RpcError: task_id 非法或 Task 不存在时通过 context.abort 终止 RPC。
+        """
         try:
             task_id = _required_string(_request_dict(request), "task_id")
             item = await self._runtime.tasks.get_task_summary(task_id)
@@ -154,6 +183,11 @@ class CollectorRuntimeService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """列出当前展开的全部 Task Instance。
+
+        Returns:
+            包含 Task Instance 列表的 Protobuf Struct。
+        """
         del request, context
         instances = await self._runtime.tasks.list_instances()
         return _struct(
@@ -170,6 +204,14 @@ class CollectorRuntimeService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """按 instance_id 查询单个 Task Instance。
+
+        Returns:
+            Task Instance 状态的 Protobuf Struct。
+
+        Raises:
+            grpc.RpcError: 参数非法或实例不存在时通过 context.abort 终止 RPC。
+        """
         try:
             instance_id = _required_string(_request_dict(request), "instance_id")
             item = await self._runtime.tasks.get_instance(instance_id)
@@ -186,7 +228,14 @@ class CollectorRuntimeService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """即时读取单个设备点位。"""
+        """即时读取单个设备点位。
+
+        Returns:
+            PointValue 的 Protobuf Struct 表示。
+
+        Raises:
+            grpc.RpcError: 参数非法、设备/点不存在或协议不可用时终止 RPC。
+        """
         data = _request_dict(request)
         try:
             device_id = _required_string(data, "device_id")
@@ -211,6 +260,11 @@ class CollectorRuntimeService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """列出当前 Runtime 注册设备及连接状态。
+
+        Returns:
+            包含设备列表的 Protobuf Struct。
+        """
         del request, context
         devices = await self._runtime.query.list_devices()
         return _struct(
@@ -234,6 +288,11 @@ class CollectorControlService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """启动一个 Task 当前展开的全部实例。
+
+        Returns:
+            启动后的 Task 聚合状态。
+        """
         return await self._set_task(request, context, start=True)
 
     async def stop_task(
@@ -241,6 +300,11 @@ class CollectorControlService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """停止一个 Task 当前展开的全部实例。
+
+        Returns:
+            停止后的 Task 聚合状态。
+        """
         return await self._set_task(request, context, start=False)
 
     async def _set_task(
@@ -267,6 +331,11 @@ class CollectorControlService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """启动单个 Task Instance。
+
+        Returns:
+            启动后的 Task Instance 状态。
+        """
         return await self._set_task_instance(request, context, start=True)
 
     async def stop_task_instance(
@@ -274,6 +343,11 @@ class CollectorControlService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """停止单个 Task Instance。
+
+        Returns:
+            停止后的 Task Instance 状态。
+        """
         return await self._set_task_instance(request, context, start=False)
 
     async def _set_task_instance(
@@ -304,6 +378,11 @@ class CollectorControlService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """启动当前 Collector 已分配的全部 Task Instance。
+
+        Returns:
+            批量启动结果。
+        """
         del request, context
         result = await self._runtime.tasks.start_all_instances()
         return _struct(result.model_dump(mode="json"))
@@ -313,6 +392,11 @@ class CollectorControlService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """停止当前 Collector 已分配的全部 Task Instance。
+
+        Returns:
+            批量停止结果。
+        """
         del request, context
         result = await self._runtime.tasks.stop_all_instances()
         return _struct(result.model_dump(mode="json"))
@@ -322,7 +406,11 @@ class CollectorControlService:
         request: empty_pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
-        """从 Collector 本地配置目录执行一次增量热重载。"""
+        """从 Collector 本地配置目录执行一次增量热重载。
+
+        Returns:
+            ReloadResult 的 Protobuf Struct 表示。
+        """
         del request, context
         result = await self._runtime.config.reload()
         return _struct(result.model_dump(mode="json"))
@@ -332,6 +420,14 @@ class CollectorControlService:
         request: struct_pb2.Struct,
         context: grpc.aio.ServicerContext,
     ) -> struct_pb2.Struct:
+        """解析动态请求并下发单点写指令。
+
+        Returns:
+            CommandResult 的 Protobuf Struct 表示。
+
+        Raises:
+            grpc.RpcError: 必填字段缺失时通过 context.abort 终止 RPC。
+        """
         data = _request_dict(request)
         try:
             device_id = _required_string(data, "device_id")

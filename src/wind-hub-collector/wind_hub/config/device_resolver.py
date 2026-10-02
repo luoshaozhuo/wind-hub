@@ -28,6 +28,13 @@ def resolve_devices(
 
     ``device_id`` 唯一性已在 :class:`DeviceInstancesConfig` 解析时校验。
 
+    Args:
+        instances: 现场设备实例配置。
+        device_models: 设备类型/型号定义集。
+
+    Returns:
+        Runtime 可直接消费的 resolved DevicesConfig。
+
     Raises:
         ConfigError: 实例引用未知型号，或端点合并后缺少 ``port``。
     """

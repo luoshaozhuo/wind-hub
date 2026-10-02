@@ -24,7 +24,7 @@ from typing import Any
 # asyncpg 0.31 未随包发布 py.typed / 类型桩，mypy 会把该模块标记为
 # `import-untyped`；此处按可选额外依赖的标准做法显式抑制，避免泄漏 asyncpg
 # 类型到对外接口（``self._pool`` 内部按 ``Any`` 处理，公开签名只出现
-# PointValue / HealthStatus / SinkError）。
+# PointValue / HealthStatus / SinkError）。待 asyncpg 发布稳定 py.typed/类型桩后移除该抑制。
 import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort

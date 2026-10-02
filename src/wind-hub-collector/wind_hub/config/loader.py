@@ -61,7 +61,17 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_system(path: Path) -> SystemConfig:
-    """加载并校验 system.yaml。"""
+    """加载并校验 system.yaml。
+
+    Args:
+        path: system.yaml 文件路径。
+
+    Returns:
+        校验完成的 SystemConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return SystemConfig(**raw)
@@ -70,7 +80,17 @@ def load_system(path: Path) -> SystemConfig:
 
 
 def load_units(path: Path) -> UnitsConfig:
-    """加载并校验 units.yaml 单位定义集。"""
+    """加载并校验 units.yaml 单位定义集。
+
+    Args:
+        path: units.yaml 文件路径。
+
+    Returns:
+        校验完成的 UnitsConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return UnitsConfig(**raw)
@@ -79,7 +99,17 @@ def load_units(path: Path) -> UnitsConfig:
 
 
 def load_device_models(path: Path) -> DeviceModelsConfig:
-    """加载并校验 device_models.yaml。"""
+    """加载并校验 device_models.yaml。
+
+    Args:
+        path: device_models.yaml 文件路径。
+
+    Returns:
+        校验完成的 DeviceModelsConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return DeviceModelsConfig(**raw)
@@ -88,7 +118,17 @@ def load_device_models(path: Path) -> DeviceModelsConfig:
 
 
 def load_devices(path: Path) -> DeviceInstancesConfig:
-    """加载并校验 devices.yaml 现场设备实例。"""
+    """加载并校验 devices.yaml 现场设备实例。
+
+    Args:
+        path: devices.yaml 文件路径。
+
+    Returns:
+        校验完成的 DeviceInstancesConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return DeviceInstancesConfig(**raw)
@@ -97,7 +137,17 @@ def load_devices(path: Path) -> DeviceInstancesConfig:
 
 
 def load_points(path: Path) -> PointTablesConfig:
-    """加载并校验 points.yaml，并读取 point_tables 根键。"""
+    """加载并校验 points.yaml，并读取 point_tables 根键。
+
+    Args:
+        path: points.yaml 文件路径。
+
+    Returns:
+        校验完成的 PointTablesConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return PointTablesConfig(tables=raw.get("point_tables") or {})
@@ -106,7 +156,17 @@ def load_points(path: Path) -> PointTablesConfig:
 
 
 def load_tasks(path: Path) -> TasksConfig:
-    """加载并校验 tasks.yaml。"""
+    """加载并校验 tasks.yaml。
+
+    Args:
+        path: tasks.yaml 文件路径。
+
+    Returns:
+        校验完成的 TasksConfig。
+
+    Raises:
+        ConfigError: 文件缺失、YAML 非法或 schema 校验失败。
+    """
     raw = _read_yaml(path)
     try:
         return TasksConfig(**raw)
