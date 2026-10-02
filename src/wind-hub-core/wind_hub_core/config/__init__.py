@@ -1,9 +1,14 @@
-"""Wind Hub 跨进程共享配置模型与纯解析能力。"""
+"""Wind Hub 跨进程共享配置模型、解析与加载入口。"""
 
 from wind_hub_core.config.device_resolver import resolve_devices
+from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub_core.config.schema import (
     ADSSystemConfig,
+    ApiConfig,
+    CliConfig,
+    CollectionTaskConfig,
+    Config,
     DeviceConfig,
     DeviceInstanceConfig,
     DeviceInstancesConfig,
@@ -12,14 +17,22 @@ from wind_hub_core.config.schema import (
     DevicesConfig,
     DeviceTypeConfig,
     InstanceEndpoint,
+    InterfaceConfig,
     PointAddress,
     PointConfig,
     PointPatch,
     PointTableConfig,
     PointTablesConfig,
+    ReportingConfig,
+    ReportingPoint,
     ResolvedPointTable,
     ResolvedPointTables,
+    RuntimeConfig,
+    SinkConfig,
     SiteConfig,
+    SystemConfig,
+    TaskTarget,
+    TasksConfig,
     UnitConfig,
     UnitsConfig,
 )
@@ -44,6 +57,19 @@ __all__ = [
     "PointTablesConfig",
     "ResolvedPointTable",
     "ResolvedPointTables",
+    "RuntimeConfig",
+    "SinkConfig",
+    "ApiConfig",
+    "CliConfig",
+    "InterfaceConfig",
+    "SystemConfig",
+    "TaskTarget",
+    "CollectionTaskConfig",
+    "TasksConfig",
+    "ReportingPoint",
+    "ReportingConfig",
+    "Config",
     "resolve_devices",
     "resolve_point_tables",
+    "load_config",
 ]

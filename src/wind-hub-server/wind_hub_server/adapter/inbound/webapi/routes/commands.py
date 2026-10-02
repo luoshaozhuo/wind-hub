@@ -1,42 +1,33 @@
-"""POST /commands — issue a single write command and return the result."""
+"""POST /commands — 兼容单点写命令入口。"""
 
 from __future__ import annotations
-
-import uuid
 
 from fastapi import APIRouter
 
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.models import CommandRequest, CommandResponse
-from wind_hub_core.model.command import Command, CommandResult
 
 router = APIRouter(tags=["commands"])
 
 
 @router.post("/commands", response_model=CommandResponse)
 async def send_command(request: CommandRequest) -> CommandResponse:
-    """Issue a write command and wait for the ``CommandResult``.
-
-    The idempotency ``command_id`` is generated server-side when omitted.
-    A protocol-level failure is reported inline via ``success=False``;
-    a dispatch failure (e.g. unknown device) raises ``CommandError`` → 404.
-    """
+    """通过 Server DeviceControl → Commander 执行单点写入。"""
     ctx = get_ctx()
-    if ctx.command is None:
-        raise APIError("SERVICE_UNAVAILABLE", "command use case is not configured", status_code=503)
-    command = Command(
-        command_id=request.command_id or str(uuid.uuid4()),
-        device_id=request.device_id,
-        point_id=request.point_id,
-        value=request.value,
+    if ctx.device_control is None:
+        raise APIError(
+            "SERVICE_UNAVAILABLE",
+            "device control use case is not configured",
+            status_code=503,
+        )
+    result = await ctx.device_control.send(
+        request.device_id,
+        request.point_id,
+        request.value,
         timeout=request.timeout,
+        command_id=request.command_id,
     )
-    result = await ctx.command.send(command)
-    return _to_response(result)
-
-
-def _to_response(result: CommandResult) -> CommandResponse:
     return CommandResponse(
         command_id=result.command_id,
         success=result.success,
