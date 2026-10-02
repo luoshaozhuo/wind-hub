@@ -4,27 +4,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from grpc_tools import protoc
 import grpc_tools
+from grpc_tools import protoc
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROTO_DIR = ROOT / "src" / "wind-hub-core" / "wind_hub_core" / "rpc" / "proto"
-OUT_DIR = ROOT / "src" / "wind-hub-core" / "wind_hub_core" / "rpc"
+CORE_ROOT = ROOT / "src" / "wind-hub-core"
+RPC_DIR = CORE_ROOT / "wind_hub_core" / "rpc"
 
 
 def main() -> int:
-    """从共享 proto 源重新生成 pb2/pb2_grpc 文件。"""
+    """从共享 proto 源重新生成 Commander/Collector pb2 与 gRPC stub。"""
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
-    proto = RPC_DIR / "commander.proto"
+    protos = (
+        RPC_DIR / "commander.proto",
+        RPC_DIR / "collector.proto",
+    )
     return protoc.main(
         [
             "grpc_tools.protoc",
-            f"-I{ROOT / 'src' / 'wind-hub-core'}",
+            f"-I{CORE_ROOT}",
             f"-I{include_dir}",
-            f"--python_out={ROOT / 'src' / 'wind-hub-core'}",
-            f"--grpc_python_out={ROOT / 'src' / 'wind-hub-core'}",
-            str(proto),
+            f"--python_out={CORE_ROOT}",
+            f"--grpc_python_out={CORE_ROOT}",
+            *(str(proto) for proto in protos),
         ]
     )
 

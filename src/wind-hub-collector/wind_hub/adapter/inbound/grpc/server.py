@@ -1,67 +1,26 @@
 """Collector gRPC 控制面。
 
-本适配器只把低频控制/运行态查询映射到既有 UseCase；采集 PointValue
-不经过本服务传输。当前 v1 过渡契约使用 google.protobuf.Struct/Empty，
-避免在接口尚未稳定时维护生成代码。
+本适配器实现 collector.proto 生成的 Runtime/Control Servicer。正常采集数据
+不经过该服务；这里只承载低频状态查询、Task 控制、Sink 检查与配置事务。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
+from datetime import datetime
 import grpc
-from google.protobuf import empty_pb2, json_format, struct_pb2
+from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub.application.runtime.collector_identity import CollectorIdentity
 from wind_hub.assembly import AssembledRuntime
-from wind_hub_core.rpc.collector import (
-    CONTROL_SERVICE,
-    GET_COLLECTOR_INFO,
-    GET_RUNTIME_STATUS,
-    GET_METRICS_SNAPSHOT,
-    GET_TASK,
-    GET_TASK_INSTANCE,
-    LIST_DEVICES,
-    LIST_SINKS,
-    LIST_TASKS,
-    LIST_TASK_INSTANCES,
-    RELOAD_CONFIG,
-    PREPARE_CONFIG,
-    ACTIVATE_CONFIG,
-    ABORT_CONFIG,
-    VERIFY_SINK,
-    WRITE_TEST_SINK,
-    RUNTIME_SERVICE,
-    START_ASSIGNED_TASKS,
-    START_TASK,
-    START_TASK_INSTANCE,
-    STOP_ASSIGNED_TASKS,
-    STOP_TASK,
-    STOP_TASK_INSTANCE,
-)
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.rpc import collector_pb2 as pb
+from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 
 
-def _struct(data: dict[str, Any]) -> struct_pb2.Struct:
-    """将 JSON 兼容字典转换为 Protobuf Struct。"""
-    message = struct_pb2.Struct()
-    json_format.ParseDict(data, message)
-    return message
-
-
-def _request_dict(request: struct_pb2.Struct) -> dict[str, Any]:
-    """将 Protobuf Struct 转为普通字典。"""
-    return json_format.MessageToDict(request)
-
-
-def _required_string(data: dict[str, Any], field: str) -> str:
-    """读取必填字符串字段。
-
-    Raises:
-        ValueError: 字段缺失或为空。
-    """
-    value = data.get(field)
-    if not isinstance(value, str) or not value:
+def _required(value: str, field: str) -> str:
+    """校验 protobuf 必填字符串。"""
+    if not value:
         raise ValueError(f"{field} must be a non-empty string")
     return value
 
@@ -69,6 +28,80 @@ def _required_string(data: dict[str, Any], field: str) -> str:
 async def _abort_invalid(context: grpc.aio.ServicerContext, message: str) -> None:
     """终止非法参数请求。"""
     await context.abort(grpc.StatusCode.INVALID_ARGUMENT, message)
+
+
+def _task_summary_to_proto(item) -> pb.TaskSummaryMessage:
+    """把 TaskSummary 转换为 wire message。"""
+    message = pb.TaskSummaryMessage(
+        task_id=item.task_id,
+        point_group=item.point_group,
+        targets=list(item.targets),
+        enabled=item.enabled,
+        runtime_state=item.runtime_state,
+        instance_count=item.instance_count,
+        running_instances=item.running_instances,
+        stopped_instances=item.stopped_instances,
+        failed_instances=item.failed_instances,
+    )
+    if item.device is not None:
+        message.device.CopyFrom(wrappers_pb2.StringValue(value=item.device))
+    if item.device_group is not None:
+        message.device_group.CopyFrom(wrappers_pb2.StringValue(value=item.device_group))
+    if item.interval is not None:
+        message.interval.CopyFrom(wrappers_pb2.DoubleValue(value=item.interval))
+    return message
+
+
+def _task_instance_to_proto(item) -> pb.TaskInstanceMessage:
+    """把 TaskInstanceDetail 转换为 wire message。"""
+    message = pb.TaskInstanceMessage(
+        instance_id=item.instance_id,
+        task_id=item.task_id,
+        device_id=item.device_id,
+        point_group=item.point_group,
+        targets=list(item.targets),
+        state=item.state.value,
+    )
+    if item.interval is not None:
+        message.interval.CopyFrom(wrappers_pb2.DoubleValue(value=item.interval))
+    return message
+
+
+def _diff_to_proto(diff) -> pb.ConfigDiffMessage:
+    """把结构化 ConfigDiff 转换为 wire message。"""
+    return pb.ConfigDiffMessage(
+        devices=pb.DeviceDiffMessage(
+            added=list(diff.devices.added),
+            removed=list(diff.devices.removed),
+            updated=list(diff.devices.updated),
+            unchanged=list(diff.devices.unchanged),
+        ),
+        sinks=pb.SinkDiffMessage(
+            added=list(diff.sinks.added),
+            removed=list(diff.sinks.removed),
+            updated=list(diff.sinks.updated),
+            unchanged=list(diff.sinks.unchanged),
+        ),
+        tasks=pb.TaskDiffMessage(
+            added=list(diff.tasks.added),
+            removed=list(diff.tasks.removed),
+            updated=list(diff.tasks.updated),
+            unchanged=list(diff.tasks.unchanged),
+        ),
+        points_changed=diff.points_changed,
+        point_tables_changed=list(diff.point_tables_changed),
+        units_changed=diff.units_changed,
+    )
+
+
+def _reload_to_proto(result) -> pb.ReloadResultMessage:
+    """把 ReloadResult 转换为 wire message。"""
+    return pb.ReloadResultMessage(
+        success=result.success,
+        diff=_diff_to_proto(result.diff),
+        errors=list(result.errors),
+        duration_ms=result.duration_ms,
+    )
 
 
 @dataclass(slots=True)
@@ -79,23 +112,15 @@ class CollectorGrpcServer:
     endpoint: str
 
     async def start(self) -> None:
-        """开始监听 gRPC endpoint。
-
-        Raises:
-            Exception: gRPC Server 启动失败时原样传播，由 Collector 进程入口处理。
-        """
+        """开始监听 gRPC endpoint。"""
         await self.server.start()
 
     async def stop(self, grace: float = 5.0) -> None:
-        """停止接收新请求并等待正在执行的 RPC。
-
-        Args:
-            grace: 已进入处理阶段 RPC 的最大宽限时间，单位秒。
-        """
+        """停止接收新请求并等待正在执行的 RPC。"""
         await self.server.stop(grace)
 
 
-class CollectorRuntimeService:
+class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
     """Collector 运行态只读查询。"""
 
     def __init__(
@@ -106,170 +131,193 @@ class CollectorRuntimeService:
         self._runtime = runtime
         self._identity = identity
 
-    async def get_collector_info(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """返回 Collector 身份、配置指纹与 Runtime 运行事实。
-
-        Returns:
-            Protobuf Struct 形式的 Collector 基本信息。
-        """
+    async def GetCollectorInfo(self, request, context) -> pb.CollectorInfoResponse:
+        """返回 Collector 身份、配置指纹与 Runtime 运行事实。"""
         del request, context
-        return _struct(
-            {
-                "component": "wind-hub-collector",
-                "collector_id": self._identity.collector_id,
-                "boot_id": self._identity.boot_id,
-                "config_hash": self._runtime.config.config_hash,
-                "active_config_hash": self._runtime.config.config_hash,
-                "prepared_config_hash": self._runtime.config.prepared_hash,
-                "boot_config_hash": self._identity.config_hash,
-                "config_revision": self._identity.config_revision,
-                "active_revision": self._runtime.config.active_revision,
-                "prepared_revision": self._runtime.config.prepared_revision,
-                "runtime_running": self._runtime.runtime.running,
-            }
+        return pb.CollectorInfoResponse(
+            component="wind-hub-collector",
+            collector_id=self._identity.collector_id,
+            boot_id=self._identity.boot_id,
+            config_hash=self._runtime.config.config_hash,
+            active_config_hash=self._runtime.config.config_hash,
+            prepared_config_hash=self._runtime.config.prepared_hash or "",
+            boot_config_hash=self._identity.config_hash,
+            config_revision=self._identity.config_revision or "",
+            active_revision=self._runtime.config.active_revision,
+            prepared_revision=self._runtime.config.prepared_revision or "",
+            runtime_running=self._runtime.runtime.running,
         )
 
-    async def get_runtime_status(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """返回 Runtime 聚合状态快照。
-
-        Returns:
-            Protobuf Struct 形式的 Runtime 状态。
-        """
+    async def GetRuntimeStatus(self, request, context) -> pb.RuntimeStatusResponse:
+        """返回 Runtime 聚合状态快照。"""
         del request, context
         status = await self._runtime.query.status()
-        return _struct(status.model_dump(mode="json"))
+        response = pb.RuntimeStatusResponse(
+            running=status.running,
+            device_count=status.device_count,
+            sink_count=status.sink_count,
+            devices_connected=status.devices_connected,
+            sinks_healthy=status.sinks_healthy,
+            points_collected=status.points_collected,
+            points_routed=status.points_routed,
+            points_dropped=status.points_dropped,
+        )
+        for item in status.acquisitions:
+            row = pb.AcquisitionInfoMessage(
+                instance_id=item.instance_id,
+                task_id=item.task_id,
+                device_id=item.device_id,
+                point_group=item.point_group,
+                running=item.running,
+                consecutive_failures=item.consecutive_failures,
+                last_error=item.last_error or "",
+            )
+            if item.last_duration is not None:
+                row.last_duration.CopyFrom(
+                    wrappers_pb2.DoubleValue(value=item.last_duration)
+                )
+            response.acquisitions.append(row)
+        return response
 
-    async def get_metrics_snapshot(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    async def GetMetricsSnapshot(self, request, context) -> pb.MetricsSnapshotResponse:
         """返回 Collector 本地采集质量累计计数与近期事件。"""
         del request, context
-        return _struct(self._runtime.metrics_state.snapshot())
+        snapshot = self._runtime.metrics_state.snapshot()
+        counters = snapshot["counters"]
+        response = pb.MetricsSnapshotResponse(
+            counters=pb.MetricsCounters(
+                points_total=int(counters["points_total"]),
+                points_bad=int(counters["points_bad"]),
+                acquisition_runs=int(counters["acquisition_runs"]),
+                acquisition_failures=int(counters["acquisition_failures"]),
+                acquisition_partial=int(counters["acquisition_partial"]),
+                missed_cycles=int(counters["missed_cycles"]),
+                poll_overruns=int(counters["poll_overruns"]),
+                connect_failures=int(counters["connect_failures"]),
+                reconnects=int(counters["reconnects"]),
+            )
+        )
+        response.device_connect_failures.extend(
+            pb.StringCounter(key=key, value=int(value))
+            for key, value in sorted(snapshot["device_connect_failures"].items())
+        )
+        response.device_reconnects.extend(
+            pb.StringCounter(key=key, value=int(value))
+            for key, value in sorted(snapshot["device_reconnects"].items())
+        )
+        for event in snapshot["events"]:
+            row = pb.MetricsEvent(
+                kind=str(event["kind"]),
+                object=str(event["object"]),
+                message=str(event["message"]),
+            )
+            row.timestamp.FromDatetime(datetime.fromisoformat(str(event["timestamp"])))
+            response.events.append(row)
+        return response
 
-    async def list_tasks(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """列出 Task Definition 与聚合运行状态。
-
-        Returns:
-            包含 TaskSummary 列表的 Protobuf Struct。
-        """
+    async def ListTasks(self, request, context) -> pb.ListTasksResponse:
+        """列出 Task Definition 与聚合运行状态。"""
         del request, context
         items = await self._runtime.tasks.list_task_summaries()
-        return _struct({"items": [item.model_dump(mode="json") for item in items]})
+        return pb.ListTasksResponse(
+            items=[_task_summary_to_proto(item) for item in items]
+        )
 
-    async def get_task(
+    async def GetTask(
         self,
-        request: struct_pb2.Struct,
+        request: pb.TaskIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """按稳定 task_id 查询 Task 聚合状态。
-
-        Returns:
-            TaskSummary 的 Protobuf Struct 表示。
-
-        Raises:
-            grpc.RpcError: task_id 非法或 Task 不存在时通过 context.abort 终止 RPC。
-        """
+    ) -> pb.TaskSummaryMessage:
+        """按稳定 task_id 查询 Task 聚合状态。"""
         try:
-            task_id = _required_string(_request_dict(request), "task_id")
-            item = await self._runtime.tasks.get_task_summary(task_id)
+            item = await self._runtime.tasks.get_task_summary(
+                _required(request.task_id, "task_id")
+            )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(item.model_dump(mode="json"))
+        return _task_summary_to_proto(item)
 
-    async def list_task_instances(
+    async def ListTaskInstances(
         self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """列出当前展开的全部 Task Instance。
-
-        Returns:
-            包含 Task Instance 列表的 Protobuf Struct。
-        """
+        request,
+        context,
+    ) -> pb.ListTaskInstancesResponse:
+        """列出当前展开的全部 Task Instance。"""
         del request, context
-        instances = await self._runtime.tasks.list_instances()
-        return _struct(
-            {
-                "items": [
-                    item.model_dump(mode="json")
-                    for item in instances
-                ]
-            }
+        items = await self._runtime.tasks.list_instances()
+        return pb.ListTaskInstancesResponse(
+            items=[_task_instance_to_proto(item) for item in items]
         )
 
-    async def get_task_instance(
+    async def GetTaskInstance(
         self,
-        request: struct_pb2.Struct,
+        request: pb.InstanceIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """按 instance_id 查询单个 Task Instance。
-
-        Returns:
-            Task Instance 状态的 Protobuf Struct。
-
-        Raises:
-            grpc.RpcError: 参数非法或实例不存在时通过 context.abort 终止 RPC。
-        """
+    ) -> pb.TaskInstanceMessage:
+        """按 instance_id 查询单个 Task Instance。"""
         try:
-            instance_id = _required_string(_request_dict(request), "instance_id")
-            item = await self._runtime.tasks.get_instance(instance_id)
+            item = await self._runtime.tasks.get_instance(
+                _required(request.instance_id, "instance_id")
+            )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except KeyError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task instance: {exc.args[0]}")
+            await context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                f"unknown task instance: {exc.args[0]}",
+            )
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(item.model_dump(mode="json"))
+        return _task_instance_to_proto(item)
 
-    async def list_sinks(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    async def ListDevices(self, request, context) -> pb.ListDevicesResponse:
+        """列出当前 Runtime 注册设备及连接状态。"""
+        del request, context
+        devices = await self._runtime.query.list_devices()
+        response = pb.ListDevicesResponse()
+        for item in devices:
+            row = pb.DeviceInfoMessage(
+                device_id=item.device_id,
+                protocol=item.protocol,
+                connected=item.connected,
+                consecutive_failures=item.consecutive_failures,
+                last_error=item.last_error or "",
+            )
+            if item.last_seen is not None:
+                row.last_seen.FromDatetime(item.last_seen)
+            response.items.append(row)
+        return response
+
+    async def ListSinks(self, request, context) -> pb.ListSinksResponse:
         """列出当前 Runtime Sink 健康状态与队列深度。"""
         del request, context
         health = self._runtime.runtime.health()
         depths = self._runtime.runtime.sink_queue_depths()
-        items = []
-        for name, sink in self._runtime.runtime.sinks.items():
+        response = pb.ListSinksResponse()
+        for name in self._runtime.runtime.sinks:
             current = health.get(name)
-            items.append(
-                {
-                    "name": name,
-                    "healthy": bool(current.healthy) if current is not None else False,
-                    "message": current.message if current is not None else None,
-                    "queue_depth": int(depths.get(name, 0)),
-                }
+            response.items.append(
+                pb.SinkInfoMessage(
+                    name=name,
+                    healthy=bool(current.healthy) if current is not None else False,
+                    message=(current.message or "") if current is not None else "",
+                    queue_depth=int(depths.get(name, 0)),
+                )
             )
-        return _struct({"items": items})
+        return response
 
-    async def verify_sink(
+    async def VerifySink(
         self,
-        request: struct_pb2.Struct,
+        request: pb.SinkRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    ) -> pb.SinkOperationResponse:
         """返回当前运行 Sink 的真实 health 与队列深度。"""
-        data = _request_dict(request)
         try:
-            name = _required_string(data, "name")
+            name = _required(request.name, "name")
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -278,25 +326,20 @@ class CollectorRuntimeService:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
             raise AssertionError("context.abort must terminate the RPC")
         health = sink.health()
-        return _struct(
-            {
-                "success": bool(health.healthy),
-                "message": health.message,
-                "queue_depth": int(
-                    self._runtime.runtime.sink_queue_depths().get(name, 0)
-                ),
-            }
+        return pb.SinkOperationResponse(
+            success=bool(health.healthy),
+            message=health.message or "",
+            queue_depth=int(self._runtime.runtime.sink_queue_depths().get(name, 0)),
         )
 
-    async def write_test_sink(
+    async def WriteTestSink(
         self,
-        request: struct_pb2.Struct,
+        request: pb.SinkRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    ) -> pb.SinkOperationResponse:
         """向当前运行 Sink 写入一条明确标记的诊断 PointValue。"""
-        data = _request_dict(request)
         try:
-            name = _required_string(data, "name")
+            name = _required(request.name, "name")
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -304,84 +347,56 @@ class CollectorRuntimeService:
         if sink is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
             raise AssertionError("context.abort must terminate the RPC")
-        from wind_hub_core.model.point import PointValue
-
         try:
             await sink.write(
                 [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
             )
             await sink.flush()
         except Exception as exc:
-            return _struct(
-                {
-                    "success": False,
-                    "message": str(exc) or type(exc).__name__,
-                }
+            return pb.SinkOperationResponse(
+                success=False,
+                message=str(exc) or type(exc).__name__,
             )
-        return _struct({"success": True, "message": None})
-
-    async def list_devices(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """列出当前 Runtime 注册设备及连接状态。
-
-        Returns:
-            包含设备列表的 Protobuf Struct。
-        """
-        del request, context
-        devices = await self._runtime.query.list_devices()
-        return _struct(
-            {
-                "items": [
-                    item.model_dump(mode="json")
-                    for item in devices
-                ]
-            }
-        )
+        return pb.SinkOperationResponse(success=True)
 
 
-class CollectorControlService:
+class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
     """Collector 低频运行控制。"""
 
     def __init__(self, runtime: AssembledRuntime) -> None:
         self._runtime = runtime
 
-    async def start_task(
+    async def StartTask(
         self,
-        request: struct_pb2.Struct,
+        request: pb.TaskIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """启动一个 Task 当前展开的全部实例。
-
-        Returns:
-            启动后的 Task 聚合状态。
-        """
+    ) -> pb.TaskSummaryMessage:
+        """启动一个 Task 当前展开的全部实例。"""
         return await self._set_task(request, context, start=True)
 
-    async def stop_task(
+    async def StopTask(
         self,
-        request: struct_pb2.Struct,
+        request: pb.TaskIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """停止一个 Task 当前展开的全部实例。
-
-        Returns:
-            停止后的 Task 聚合状态。
-        """
+    ) -> pb.TaskSummaryMessage:
+        """停止一个 Task 当前展开的全部实例。"""
         return await self._set_task(request, context, start=False)
 
     async def _set_task(
         self,
-        request: struct_pb2.Struct,
+        request: pb.TaskIdRequest,
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
-    ) -> struct_pb2.Struct:
+    ) -> pb.TaskSummaryMessage:
+        """执行单个 Task 启停并统一错误映射。"""
         try:
-            task_id = _required_string(_request_dict(request), "task_id")
-            operation = self._runtime.tasks.start_task if start else self._runtime.tasks.stop_task
+            task_id = _required(request.task_id, "task_id")
+            operation = (
+                self._runtime.tasks.start_task
+                if start
+                else self._runtime.tasks.stop_task
+            )
             item = await operation(task_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
@@ -389,41 +404,34 @@ class CollectorControlService:
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task: {exc.args[0]}")
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(item.model_dump(mode="json"))
+        return _task_summary_to_proto(item)
 
-    async def start_task_instance(
+    async def StartTaskInstance(
         self,
-        request: struct_pb2.Struct,
+        request: pb.InstanceIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """启动单个 Task Instance。
-
-        Returns:
-            启动后的 Task Instance 状态。
-        """
+    ) -> pb.TaskInstanceMessage:
+        """启动单个 Task Instance。"""
         return await self._set_task_instance(request, context, start=True)
 
-    async def stop_task_instance(
+    async def StopTaskInstance(
         self,
-        request: struct_pb2.Struct,
+        request: pb.InstanceIdRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """停止单个 Task Instance。
-
-        Returns:
-            停止后的 Task Instance 状态。
-        """
+    ) -> pb.TaskInstanceMessage:
+        """停止单个 Task Instance。"""
         return await self._set_task_instance(request, context, start=False)
 
     async def _set_task_instance(
         self,
-        request: struct_pb2.Struct,
+        request: pb.InstanceIdRequest,
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
-    ) -> struct_pb2.Struct:
+    ) -> pb.TaskInstanceMessage:
+        """执行单个 Task Instance 启停并统一错误映射。"""
         try:
-            instance_id = _required_string(_request_dict(request), "instance_id")
+            instance_id = _required(request.instance_id, "instance_id")
             operation = (
                 self._runtime.tasks.start_instance
                 if start
@@ -434,232 +442,102 @@ class CollectorControlService:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
         except KeyError as exc:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown task instance: {exc.args[0]}")
+            await context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                f"unknown task instance: {exc.args[0]}",
+            )
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(item.model_dump(mode="json"))
+        return _task_instance_to_proto(item)
 
-    async def start_assigned_tasks(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """启动当前 Collector 已分配的全部 Task Instance。
-
-        Returns:
-            批量启动结果。
-        """
+    async def StartAssignedTasks(self, request, context) -> pb.TaskBatchResultMessage:
+        """启动当前 Collector 已分配的全部 Task Instance。"""
         del request, context
         result = await self._runtime.tasks.start_all_instances()
-        return _struct(result.model_dump(mode="json"))
+        return pb.TaskBatchResultMessage(
+            total=result.total,
+            changed=result.changed,
+            unchanged=result.unchanged,
+        )
 
-    async def stop_assigned_tasks(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """停止当前 Collector 已分配的全部 Task Instance。
-
-        Returns:
-            批量停止结果。
-        """
+    async def StopAssignedTasks(self, request, context) -> pb.TaskBatchResultMessage:
+        """停止当前 Collector 已分配的全部 Task Instance。"""
         del request, context
         result = await self._runtime.tasks.stop_all_instances()
-        return _struct(result.model_dump(mode="json"))
+        return pb.TaskBatchResultMessage(
+            total=result.total,
+            changed=result.changed,
+            unchanged=result.unchanged,
+        )
 
-    async def prepare_config(
+    async def ReloadConfig(self, request, context) -> pb.ReloadResultMessage:
+        """兼容入口：按 prepare → activate 执行一次增量热重载。"""
+        del request, context
+        return _reload_to_proto(await self._runtime.config.reload())
+
+    async def PrepareConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.PrepareConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
+    ) -> pb.PrepareConfigResponse:
         """加载并保存候选配置，不修改当前 Runtime。"""
         try:
-            data = _request_dict(request)
-            revision_id = _required_string(data, "revision_id")
-            config_hash = _required_string(data, "config_hash")
+            revision_id = _required(request.revision_id, "revision_id")
+            config_hash = _required(request.config_hash, "config_hash")
             result = await self._runtime.config.prepare_config(
                 revision_id,
                 expected_config_hash=config_hash,
-                force_reconfigure=bool(data.get("force_reconfigure", False)),
+                force_reconfigure=request.force_reconfigure,
             )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
-        payload = result.model_dump(mode="json")
-        payload["revision_id"] = revision_id
-        payload["config_hash"] = self._runtime.config.prepared_hash
-        return _struct(payload)
+        return pb.PrepareConfigResponse(
+            success=result.success,
+            revision_id=revision_id,
+            config_hash=self._runtime.config.prepared_hash or "",
+            diff=_diff_to_proto(result.diff),
+            errors=list(result.errors),
+            duration_ms=result.duration_ms,
+        )
 
-    async def activate_config(
+    async def ActivateConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.ActivateConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """激活指定 prepared revision，并执行现有增量 reconfigure。"""
+    ) -> pb.ActivateConfigResponse:
+        """激活指定 prepared revision。"""
         try:
-            revision_id = _required_string(_request_dict(request), "revision_id")
+            revision_id = _required(request.revision_id, "revision_id")
             result = await self._runtime.config.activate_config(revision_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
-        payload = result.model_dump(mode="json")
-        payload["revision_id"] = revision_id
-        payload["active_config_hash"] = self._runtime.config.config_hash
-        return _struct(payload)
+        return pb.ActivateConfigResponse(
+            success=result.success,
+            revision_id=revision_id,
+            active_config_hash=self._runtime.config.config_hash,
+            diff=_diff_to_proto(result.diff),
+            errors=list(result.errors),
+            duration_ms=result.duration_ms,
+        )
 
-    async def abort_config(
+    async def AbortConfig(
         self,
-        request: struct_pb2.Struct,
+        request: pb.AbortConfigRequest,
         context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """幂等撤销指定 prepared revision，不修改当前 Runtime。"""
+    ) -> pb.AbortConfigResponse:
+        """幂等撤销指定 prepared revision。"""
         try:
-            revision_id = _required_string(_request_dict(request), "revision_id")
+            revision_id = _required(request.revision_id, "revision_id")
             aborted = await self._runtime.config.abort_config(revision_id)
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
-        return _struct(
-            {
-                "success": True,
-                "revision_id": revision_id,
-                "aborted": aborted,
-            }
+        return pb.AbortConfigResponse(
+            success=True,
+            revision_id=revision_id,
+            aborted=aborted,
         )
-
-    async def reload_config(
-        self,
-        request: empty_pb2.Empty,
-        context: grpc.aio.ServicerContext,
-    ) -> struct_pb2.Struct:
-        """兼容入口：按 prepare → activate 执行一次增量热重载。"""
-        del request, context
-        result = await self._runtime.config.reload()
-        return _struct(result.model_dump(mode="json"))
-
-
-
-def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandler:
-    """构建 Runtime service generic handler。"""
-    return grpc.method_handlers_generic_handler(
-        RUNTIME_SERVICE,
-        {
-            GET_COLLECTOR_INFO: grpc.unary_unary_rpc_method_handler(
-                service.get_collector_info,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            GET_RUNTIME_STATUS: grpc.unary_unary_rpc_method_handler(
-                service.get_runtime_status,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            GET_METRICS_SNAPSHOT: grpc.unary_unary_rpc_method_handler(
-                service.get_metrics_snapshot,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            LIST_TASKS: grpc.unary_unary_rpc_method_handler(
-                service.list_tasks,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            GET_TASK: grpc.unary_unary_rpc_method_handler(
-                service.get_task,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            LIST_TASK_INSTANCES: grpc.unary_unary_rpc_method_handler(
-                service.list_task_instances,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            GET_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
-                service.get_task_instance,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            LIST_DEVICES: grpc.unary_unary_rpc_method_handler(
-                service.list_devices,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            LIST_SINKS: grpc.unary_unary_rpc_method_handler(
-                service.list_sinks,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            VERIFY_SINK: grpc.unary_unary_rpc_method_handler(
-                service.verify_sink,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            WRITE_TEST_SINK: grpc.unary_unary_rpc_method_handler(
-                service.write_test_sink,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-        },
-    )
-
-
-def _control_handlers(service: CollectorControlService) -> grpc.GenericRpcHandler:
-    """构建 Control service generic handler。"""
-    return grpc.method_handlers_generic_handler(
-        CONTROL_SERVICE,
-        {
-            START_TASK: grpc.unary_unary_rpc_method_handler(
-                service.start_task,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            STOP_TASK: grpc.unary_unary_rpc_method_handler(
-                service.stop_task,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            START_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
-                service.start_task_instance,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            STOP_TASK_INSTANCE: grpc.unary_unary_rpc_method_handler(
-                service.stop_task_instance,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            START_ASSIGNED_TASKS: grpc.unary_unary_rpc_method_handler(
-                service.start_assigned_tasks,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            STOP_ASSIGNED_TASKS: grpc.unary_unary_rpc_method_handler(
-                service.stop_assigned_tasks,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            RELOAD_CONFIG: grpc.unary_unary_rpc_method_handler(
-                service.reload_config,
-                request_deserializer=empty_pb2.Empty.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            PREPARE_CONFIG: grpc.unary_unary_rpc_method_handler(
-                service.prepare_config,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            ACTIVATE_CONFIG: grpc.unary_unary_rpc_method_handler(
-                service.activate_config,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-            ABORT_CONFIG: grpc.unary_unary_rpc_method_handler(
-                service.abort_config,
-                request_deserializer=struct_pb2.Struct.FromString,
-                response_serializer=struct_pb2.Struct.SerializeToString,
-            ),
-        },
-    )
-
 
 
 def build_grpc_server(
@@ -669,25 +547,15 @@ def build_grpc_server(
     host: str,
     port: int,
 ) -> CollectorGrpcServer:
-    """构建 Collector gRPC Server，但不开始监听。
-
-    Args:
-        runtime: 已装配的 Collector Runtime。
-        identity: 本次 Collector 进程身份。
-        host: gRPC 监听地址。
-        port: gRPC 监听端口。
-
-    Returns:
-        可由 Collector 进程统一管理生命周期的 Server 包装。
-    """
+    """构建 Collector gRPC Server，但不开始监听。"""
     server = grpc.aio.server()
-    runtime_service = CollectorRuntimeService(runtime, identity)
-    control_service = CollectorControlService(runtime)
-    server.add_generic_rpc_handlers(
-        (
-            _runtime_handlers(runtime_service),
-            _control_handlers(control_service),
-        )
+    pb_grpc.add_CollectorRuntimeServiceServicer_to_server(
+        CollectorRuntimeService(runtime, identity),
+        server,
+    )
+    pb_grpc.add_CollectorControlServiceServicer_to_server(
+        CollectorControlService(runtime),
+        server,
     )
     requested_endpoint = f"{host}:{port}"
     bound_port = server.add_insecure_port(requested_endpoint)
@@ -695,5 +563,4 @@ def build_grpc_server(
         raise RuntimeError(
             f"failed to bind Collector gRPC endpoint {requested_endpoint}"
         )
-    endpoint = f"{host}:{bound_port}"
-    return CollectorGrpcServer(server=server, endpoint=endpoint)
+    return CollectorGrpcServer(server=server, endpoint=f"{host}:{bound_port}")
