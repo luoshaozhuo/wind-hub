@@ -946,6 +946,23 @@ class Runtime:
         """
         errors: list[str] = []
 
+        # 在设备配置被就地更新前记录“point_table 绑定发生变化”的订阅设备。
+        # 这类变化即使两张表内容本身都未修改，也必须重新注册 notification。
+        restart_subscription_devices: set[str] = set()
+        new_devices = {d.device_id: d for d in new_config.devices.devices}
+        for did in diff.devices.updated:
+            old_device = self._devices.get(did)
+            new_device = new_devices.get(did)
+            if (
+                old_device is not None
+                and new_device is not None
+                and old_device.config.point_table != new_device.point_table
+                and _changed_fields(old_device.config, new_device)
+                <= _LIGHTWEIGHT_DEVICE_FIELDS
+                and old_device.acquisition_mode is AcquisitionMode.SUBSCRIBE
+            ):
+                restart_subscription_devices.add(did)
+
         try:
             await self._apply_device_diff(diff, new_config)
         except Exception as exc:
@@ -970,7 +987,6 @@ class Runtime:
         # Task 定义变化：整体替换注册表并重新展开实例。设备/点表变化也可能
         # 改变展开结果（device_group 成员、enabled 翻转），统一在此收尾同步
         # ——实例增删只影响对应实例，不触碰任何 Protocol 连接。
-        restart_subscription_devices: set[str] = set()
         if diff.point_tables_changed:
             changed_tables = set(diff.point_tables_changed)
             for did, device in self._devices.items():
