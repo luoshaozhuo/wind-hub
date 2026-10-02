@@ -112,7 +112,7 @@ class QueryUseCase:
 
         Raises:
             CommandError: 设备或点未知。
-            ProtocolError: 协议驱动读失败（设备不可达等）。
+            ProtocolError: 强制重连失败、协议驱动读失败或未返回值。
         """
         device = self._runtime.devices.get(device_id)
         if device is None:
@@ -121,9 +121,18 @@ class QueryUseCase:
         if not any(p.point_id == point_id for p in device.points):
             raise CommandError(f"unknown point '{device_id}/{point_id}'", "")
 
-        values = await device.read_points([PointRef(device_id=device_id, point_id=point_id)])
+        if not await self._runtime.ensure_connected(device_id, force=True):
+            raise ProtocolError(f"device '{device_id}' is not connected")
+        try:
+            values = await device.read_points([PointRef(device_id=device_id, point_id=point_id)])
+        except Exception as exc:
+            self._runtime.report_read_failure(device_id, exc)
+            raise
         if not values:
-            raise ProtocolError(f"read returned no value for '{device_id}/{point_id}'")
+            error = ProtocolError(f"read returned no value for '{device_id}/{point_id}'")
+            self._runtime.report_read_failure(device_id, error)
+            raise error
+        self._runtime.report_read_success(device_id)
         return values[0]
 
     async def list_devices(self) -> list[DeviceInfo]:
