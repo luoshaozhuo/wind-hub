@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_core.model.point import PointValue, Quality
 
@@ -44,10 +45,12 @@ class DeviceDataUseCase:
     def __init__(
         self,
         config: ConfigUseCase,
+        commander: CommanderPort,
         latest: LatestPointStore,
         trend: TrendStore,
     ) -> None:
         self._config = config
+        self._commander = commander
         self._latest = latest
         self._trend = trend
 
@@ -60,17 +63,37 @@ class DeviceDataUseCase:
     ) -> list[DeviceDataItem]:
         """返回当前点表全部点，并合并缓存中的最近值。"""
         points = self._points_or_raise(device_id)
-        latest = self._latest.list_device(device_id)
         query = (search or "").strip().lower()
+        selected = [
+            point
+            for point in points
+            if (not point_group or point_group in point.point_groups)
+            and (
+                not query
+                or any(
+                    query in str(value or "").lower()
+                    for value in (
+                        point.point_id,
+                        point.variable_name,
+                        point.description,
+                    )
+                )
+            )
+        ]
+        try:
+            observed = await self._commander.read_points(
+                device_id,
+                [point.point_id for point in selected],
+            )
+        except Exception:
+            observed = []
+        if observed:
+            self._latest.put_batch(observed)
+            self._trend.append_batch(observed)
+        latest = self._latest.list_device(device_id)
+
         rows: list[DeviceDataItem] = []
-        for point in points:
-            if point_group and point_group not in point.point_groups:
-                continue
-            if query and not any(
-                query in str(value or "").lower()
-                for value in (point.point_id, point.variable_name, point.description)
-            ):
-                continue
+        for point in selected:
             value = latest.get(point.point_id)
             rows.append(
                 DeviceDataItem(
@@ -104,6 +127,14 @@ class DeviceDataUseCase:
         unknown = [point_id for point_id in requested if point_id not in definitions]
         if unknown:
             raise KeyError(f"unknown points: {', '.join(unknown)}")
+        try:
+            observed = await self._commander.read_points(device_id, requested)
+        except Exception:
+            observed = []
+        if observed:
+            self._latest.put_batch(observed)
+            self._trend.append_batch(observed)
+
         since = datetime.now(UTC) - timedelta(seconds=window_seconds)
         values = self._trend.query(
             device_id,

@@ -95,6 +95,7 @@ def assemble_server(
     devices = DeviceUseCase(collector_client, config)
     device_data = DeviceDataUseCase(
         config,
+        commander_client,
         latest,
         trend,
     )

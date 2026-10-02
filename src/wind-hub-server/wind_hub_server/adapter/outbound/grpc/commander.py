@@ -11,6 +11,7 @@ from wind_hub_core.model.point import PointValue
 from wind_hub_core.rpc.commander import (
     GET_STATUS,
     READ_POINT,
+    READ_POINTS,
     RESOLVE_POINT,
     VERIFY_DEVICE,
     VERIFY_POINT,
@@ -38,6 +39,27 @@ class CommanderGrpcClient(GrpcClientBase):
             await call(to_struct({"device_id": device_id, "point_id": point_id}))
         )
         return PointValue.model_validate(data)
+
+    async def read_points(
+        self,
+        device_id: str,
+        point_ids: list[str],
+    ) -> list[PointValue]:
+        call = self.unary_struct(rpc_path(READ_POINTS))
+        data = from_struct(
+            await call(
+                to_struct(
+                    {
+                        "device_id": device_id,
+                        "point_ids": point_ids,
+                    }
+                )
+            )
+        )
+        return [
+            PointValue.model_validate(item)
+            for item in list(data.get("values") or [])
+        ]
 
     async def write(self, command: Command) -> CommandResult:
         call = self.unary_struct(rpc_path(WRITE_POINT))
