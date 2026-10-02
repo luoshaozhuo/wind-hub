@@ -14,8 +14,10 @@ from wind_hub_core.rpc.collector import (
     LIST_TASK_INSTANCES,
     RELOAD_CONFIG,
     RUNTIME_SERVICE,
+    START_ASSIGNED_TASKS,
     START_TASK,
     START_TASK_INSTANCE,
+    STOP_ASSIGNED_TASKS,
     STOP_TASK,
     STOP_TASK_INSTANCE,
     rpc_path,
@@ -64,6 +66,12 @@ class CollectorGrpcClient(GrpcClientBase):
             STOP_TASK_INSTANCE,
             {"instance_id": instance_id},
         )
+
+    async def start_all(self) -> dict[str, Any]:
+        return await self._empty(CONTROL_SERVICE, START_ASSIGNED_TASKS)
+
+    async def stop_all(self) -> dict[str, Any]:
+        return await self._empty(CONTROL_SERVICE, STOP_ASSIGNED_TASKS)
 
     async def reload_config(self) -> dict[str, Any]:
         return await self._empty(CONTROL_SERVICE, RELOAD_CONFIG)
