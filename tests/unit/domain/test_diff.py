@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from wind_hub_server.application.usecase.config import compute_diff
+from wind_hub.application.usecase.config import compute_diff
 from wind_hub.config.schema import (
     CollectionTaskConfig,
     Config,
