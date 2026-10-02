@@ -104,6 +104,8 @@ class ConfigUseCase:
         self._collector = collector
         self._commander = commander
         self._current = current_config
+        self._desired_revision: str | None = None
+        self._desired_config_hash: str | None = None
         self._transaction_lock = asyncio.Lock()
 
     @property
@@ -113,6 +115,16 @@ class ConfigUseCase:
     @property
     def current_config(self) -> Config:
         return self._current
+
+    @property
+    def desired_revision(self) -> str | None:
+        """最近一次成功激活到全部 Worker 的目标 revision。"""
+        return self._desired_revision
+
+    @property
+    def desired_config_hash(self) -> str | None:
+        """desired_revision 对应的配置集指纹。"""
+        return self._desired_config_hash
 
     @staticmethod
     def load_directory(config_dir: str | Path) -> Config:
@@ -250,6 +262,8 @@ class ConfigUseCase:
         success = all(activate_ok)
         if success:
             self._current = candidate
+            self._desired_revision = revision_id
+            self._desired_config_hash = config_hash
 
         return ReloadResult(
             success=success,
@@ -257,6 +271,112 @@ class ConfigUseCase:
             errors=errors,
             duration_ms=(time.monotonic() - started) * 1000,
         )
+
+    async def reconcile_workers(self) -> dict[str, str]:
+        """把 active_revision 偏离 desired_revision 的 Worker 收敛到目标版本。
+
+        本方法只处理已有 desired revision；不会自行生成新配置版本。若本地磁盘
+        已偏离 desired_config_hash，Worker Prepare 会因 hash 不一致而拒绝，
+        从而避免把未正式 Apply 的文件内容误激活。
+        """
+        async with self._transaction_lock:
+            revision_id = self._desired_revision
+            config_hash = self._desired_config_hash
+            if revision_id is None or config_hash is None:
+                return {
+                    "collector": "no-desired-revision",
+                    "commander": "no-desired-revision",
+                }
+
+            statuses = await asyncio.gather(
+                self._collector.config_status(),
+                self._commander.status(),
+                return_exceptions=True,
+            )
+            outcomes: dict[str, str] = {}
+
+            for name, status in zip(
+                ("collector", "commander"),
+                statuses,
+                strict=True,
+            ):
+                if isinstance(status, BaseException):
+                    outcomes[name] = (
+                        "status-error:"
+                        + (str(status) or type(status).__name__)
+                    )
+                    continue
+
+                active_revision = str(status.get("active_revision") or "")
+                if active_revision == revision_id:
+                    outcomes[name] = "already-current"
+                    continue
+
+                outcomes[name] = await self._reconcile_worker(
+                    name,
+                    revision_id,
+                    config_hash,
+                )
+
+            return outcomes
+
+    async def _reconcile_worker(
+        self,
+        worker: str,
+        revision_id: str,
+        config_hash: str,
+    ) -> str:
+        """对单个偏离 Worker 执行 Prepare/Activate 并确认最终 revision。"""
+        try:
+            if worker == "collector":
+                prepared = await self._collector.prepare_config(
+                    revision_id,
+                    config_hash,
+                )
+            elif worker == "commander":
+                prepared = await self._commander.prepare_config(
+                    revision_id,
+                    config_hash,
+                )
+            else:
+                raise ValueError(f"unknown worker: {worker}")
+        except Exception as exc:
+            return "prepare-error:" + (str(exc) or type(exc).__name__)
+
+        if not bool(prepared.get("success")):
+            errors = [str(item) for item in list(prepared.get("errors") or [])]
+            return "prepare-failed:" + ("; ".join(errors) or "unknown")
+        if str(prepared.get("config_hash") or "") != config_hash:
+            return (
+                "prepare-hash-mismatch:"
+                f"{prepared.get('config_hash')!s}"
+            )
+
+        try:
+            if worker == "collector":
+                activated = await self._collector.activate_config(revision_id)
+            else:
+                activated = await self._commander.activate_config(revision_id)
+        except Exception as exc:
+            confirmed, confirm_error = await self._confirm_active_revision(
+                worker,
+                revision_id,
+            )
+            if confirmed:
+                return "reconciled"
+            if confirm_error is not None:
+                return (
+                    "activate-unknown:"
+                    f"{str(exc) or type(exc).__name__}; "
+                    f"status={confirm_error}"
+                )
+            return "activate-failed:" + (str(exc) or type(exc).__name__)
+
+        if bool(activated.get("success")):
+            return "reconciled"
+
+        errors = [str(item) for item in list(activated.get("errors") or [])]
+        return "activate-failed:" + ("; ".join(errors) or "unknown")
 
     async def _confirm_active_revision(
         self,
