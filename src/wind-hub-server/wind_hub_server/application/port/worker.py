@@ -77,6 +77,12 @@ class CollectorPort(Protocol):
 
     async def reload_config(self) -> dict[str, Any]: ...
 
-    async def prepare_config(self, revision_id: str, config_hash: str) -> dict[str, Any]: ...
+    async def prepare_config(
+        self,
+        revision_id: str,
+        config_hash: str,
+        *,
+        force_reconfigure: bool = False,
+    ) -> dict[str, Any]: ...
 
     async def activate_config(self, revision_id: str) -> dict[str, Any]: ...

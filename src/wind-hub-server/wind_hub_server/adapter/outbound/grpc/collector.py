@@ -105,11 +105,17 @@ class CollectorGrpcClient(GrpcClientBase):
         self,
         revision_id: str,
         config_hash: str,
+        *,
+        force_reconfigure: bool = False,
     ) -> dict[str, Any]:
         return await self._struct(
             CONTROL_SERVICE,
             PREPARE_CONFIG,
-            {"revision_id": revision_id, "config_hash": config_hash},
+            {
+                "revision_id": revision_id,
+                "config_hash": config_hash,
+                "force_reconfigure": force_reconfigure,
+            },
             timeout=30.0,
         )
 

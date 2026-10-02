@@ -201,7 +201,11 @@ class ConfigUseCase:
         revision_id = uuid4().hex
 
         prepared = await asyncio.gather(
-            self._collector.prepare_config(revision_id, config_hash),
+            self._collector.prepare_config(
+                revision_id,
+                config_hash,
+                force_reconfigure=force_workers,
+            ),
             self._commander.prepare_config(revision_id, config_hash),
             return_exceptions=True,
         )
@@ -358,6 +362,7 @@ class ConfigUseCase:
                 prepared = await self._collector.prepare_config(
                     revision_id,
                     config_hash,
+                    force_reconfigure=True,
                 )
             elif worker == "commander":
                 prepared = await self._commander.prepare_config(

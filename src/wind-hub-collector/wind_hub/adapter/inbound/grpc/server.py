@@ -476,6 +476,7 @@ class CollectorControlService:
             result = await self._runtime.config.prepare_config(
                 revision_id,
                 expected_config_hash=config_hash,
+                force_reconfigure=bool(data.get("force_reconfigure", False)),
             )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))

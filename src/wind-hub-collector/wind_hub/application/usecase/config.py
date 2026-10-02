@@ -199,6 +199,8 @@ class ConfigUseCase:
         self,
         revision_id: str,
         expected_config_hash: str | None = None,
+        *,
+        force_reconfigure: bool = False,
     ) -> ReloadResult:
         """加载并校验候选配置，校验指纹后保存候选快照。"""
         started = time.monotonic()
@@ -237,16 +239,21 @@ class ConfigUseCase:
             )
 
         async with self._reload_lock:
-            diff = compute_diff(self._current, candidate)
+            diff = (
+                self._runtime.convergence_diff(candidate)
+                if force_reconfigure
+                else compute_diff(self._current, candidate)
+            )
             self._prepared_revision = revision_id
             self._prepared_config = candidate
             self._prepared_diff = diff
             self._prepared_hash = candidate_hash
 
         logger.info(
-            "Prepared config revision=%s changed=%s",
+            "Prepared config revision=%s changed=%s force_reconfigure=%s",
             revision_id,
             diff.has_any_changes,
+            force_reconfigure,
         )
         return ReloadResult(
             success=True,
