@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package windhub.commander.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message ScalarValue {
+  oneof kind {
+    bool bool_value = 1;
+    sint64 sint64_value = 2;
+    uint64 uint64_value = 3;
+    double double_value = 4;
+    string string_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+
+message ReadPointRequest {
+  string device_id = 1;
+  string point_id = 2;
+}
+
+message ReadPointsRequest {
+  string device_id = 1;
+  repeated string point_ids = 2;
+}
+
+message PointValueMessage {
+  string device_id = 1;
+  string point_id = 2;
+  ScalarValue value = 3;
+  string quality = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  string source = 6;
+}
+
+message ReadPointsResponse {
+  repeated PointValueMessage values = 1;
+}
+
+message WritePointRequest {
+  string command_id = 1;
+  string device_id = 2;
+  string point_id = 3;
+  ScalarValue value = 4;
+  double timeout = 5;
+}
+
+message WritePointsRequest {
+  repeated WritePointRequest commands = 1;
+}
+
+message CommandResultMessage {
+  string command_id = 1;
+  bool success = 2;
+  string error = 3;
+  google.protobuf.Timestamp finished_at = 4;
+}
+
+message WritePointsResponse {
+  repeated CommandResultMessage results = 1;
+}
