@@ -77,6 +77,12 @@ class ConfigDiff(BaseModel):
     units_changed: bool = False
     """units 定义变化时为 True；只提交新快照，不重构运行组件。"""
 
+    runtime_changed: bool = False
+    """system.runtime 变化时为 True；当前需要重启 Collector 才能安全生效。"""
+
+    ads_changed: bool = False
+    """system.ads 本机 AMS 配置变化时为 True；进程级 ADS 身份变化需要重启。"""
+
     @property
     def has_any_changes(self) -> bool:
         """任一会影响配置快照的字段发生变化时返回 True。"""
@@ -92,6 +98,8 @@ class ConfigDiff(BaseModel):
             or self.tasks.updated
             or self.points_changed
             or self.units_changed
+            or self.runtime_changed
+            or self.ads_changed
         )
 
 
