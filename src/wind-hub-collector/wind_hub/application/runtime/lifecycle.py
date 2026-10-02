@@ -63,6 +63,9 @@ class RuntimeLifecycle:
             # 点映射已在装配期（组合根 / add_device / rebuild_device）注入
             # 到各 Device 的协议实例，这里只做连接。
             for device_id, device in self._runtime._devices.items():
+                if not device.enabled:
+                    logger.info("Device '%s' disabled — connection skipped", device_id)
+                    continue
                 try:
                     await asyncio.wait_for(
                         device.connect(),
