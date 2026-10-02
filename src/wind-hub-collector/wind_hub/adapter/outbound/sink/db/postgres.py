@@ -69,6 +69,11 @@ class DBSink(SinkPort):
       仅影响 ``CREATE TABLE``，``INSERT`` 固定写六个标准列。
     - ``pool_min_size`` / ``pool_max_size``：连接池最小/最大连接数，
       默认 ``1`` / ``10``，要求均为正整数且 min <= max（决策 5）。
+    - ``write_timeout``：单批写入（含池获取连接）的超时秒数，默认 ``10.0``。
+      必须显式兜底：数据库黑洞（网络分区、代理丢连接后不再 RST）时，
+      asyncpg 的池获取/查询可能无限期挂起，没有超时消费者会卡死在
+      write 内部——失败计数不增长、健康状态不翻转、数据在队列中静默
+      积压直至背压丢弃。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -81,6 +86,9 @@ class DBSink(SinkPort):
         self._schema = self._build_schema(params.get("schema"))
         self._pool_min_size = self._positive_int(params.get("pool_min_size", 1), "pool_min_size")
         self._pool_max_size = self._positive_int(params.get("pool_max_size", 10), "pool_max_size")
+        self._write_timeout = self._positive_number(
+            params.get("write_timeout", 10.0), "write_timeout"
+        )
         if self._pool_min_size > self._pool_max_size:
             raise ConfigError(
                 f"DBSink 'pool_min_size' ({self._pool_min_size}) must be <= "
@@ -108,6 +116,14 @@ class DBSink(SinkPort):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ConfigError(f"DBSink '{field}' must be a positive integer, got {value!r}")
         return value
+
+    @staticmethod
+    def _positive_number(value: object, field: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ConfigError(
+                f"DBSink '{field}' must be a positive number, got {value!r}"
+            )
+        return float(value)
 
     @staticmethod
     def _validate_table(table: str) -> str:
@@ -189,8 +205,11 @@ class DBSink(SinkPort):
             try:
                 rows = [self._row(pv) for pv in batch]
                 sql = self._insert_sql()
-                for i in range(0, len(rows), self._batch_size):
-                    await self._pool.executemany(sql, rows[i : i + self._batch_size])
+                # 整批（含池获取连接）必须有时限：连接黑洞时 asyncpg 可能
+                # 无限挂起，消费者卡死后健康状态永远不翻转（见类 docstring）。
+                async with asyncio.timeout(self._write_timeout):
+                    for i in range(0, len(rows), self._batch_size):
+                        await self._pool.executemany(sql, rows[i : i + self._batch_size])
             except Exception as exc:
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"DBSink write failed: {exc}") from exc

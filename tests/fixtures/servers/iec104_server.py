@@ -84,6 +84,10 @@ class IEC104MockServer:
         self._common_addr = common_addr
         self._data_points = data_points or {100: 1500.5, 200: 50.0}
         self._server: asyncio.AbstractServer | None = None
+        # 活动客户端连接——``stop()`` 必须主动断开它们：asyncio 的
+        # ``Server.close()`` 只停止接受新连接，不断开既有连接；不主动断开
+        # 的话故障注入（断连恢复测试）对客户端不可见。
+        self._clients: set[asyncio.StreamWriter] = set()
 
     @property
     def port(self) -> int:
@@ -97,6 +101,12 @@ class IEC104MockServer:
         )
 
     async def stop(self) -> None:
+        for writer in list(self._clients):
+            writer.close()
+        for writer in list(self._clients):
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+        self._clients.clear()
         if self._server is not None:
             self._server.close()
             with contextlib.suppress(Exception):
@@ -108,6 +118,7 @@ class IEC104MockServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        self._clients.add(writer)
         send_seq = 0
         recv_seq = 0
         try:
@@ -121,8 +132,11 @@ class IEC104MockServer:
                 if (ctrl[0] & 0x01) == 0:  # I-frame
                     peer_send = (struct.unpack_from("<H", ctrl, 0)[0] >> 1) & 0x7FFF
                     recv_seq = (peer_send + 1) & 0x7FFF
-                    await self._handle_i_frame(writer, asdu_data, send_seq, recv_seq)
-                    send_seq = (send_seq + 1) & 0x7FFF
+                    # 响应可能包含多帧（总召响应 = ACT_CON + N 数据 + ACT_TERM），
+                    # 发送序号由处理器实际发出的帧数推进，不能按请求数 +1。
+                    send_seq = await self._handle_i_frame(
+                        writer, asdu_data, send_seq, recv_seq
+                    )
                 elif (ctrl[0] & 0x03) == 0x01:  # S-frame
                     continue
                 elif (ctrl[0] & 0x03) == 0x03:  # U-frame
@@ -130,6 +144,7 @@ class IEC104MockServer:
         except Exception:
             logger.exception("IEC104 mock server: error handling client")
         finally:
+            self._clients.discard(writer)
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
@@ -165,20 +180,23 @@ class IEC104MockServer:
         asdu_data: bytes,
         send_seq: int,
         recv_seq: int,
-    ) -> None:
+    ) -> int:
+        """处理 I-frame 并返回更新后的发送序号。"""
         if len(asdu_data) < 6:
-            return
+            return send_seq
         type_id = asdu_data[0]
         cause = asdu_data[2] & 0x3F
         if type_id == 0x64 and cause == 0x06:  # C_IC_NA_1 activation
-            await self._send_interrogation_response(writer, send_seq, recv_seq)
+            return await self._send_interrogation_response(writer, send_seq, recv_seq)
+        return send_seq
 
     async def _send_interrogation_response(
         self,
         writer: asyncio.StreamWriter,
         send_seq: int,
         recv_seq: int,
-    ) -> None:
+    ) -> int:
+        """发送总召响应（ACT_CON + 全部数据点 + ACT_TERM），返回新发送序号。"""
         act_con = _make_c_ic_na_1_asdu(0x07, 0, self._common_addr)
         writer.write(_encode_i_frame(send_seq, recv_seq, act_con))
         await writer.drain()
@@ -193,6 +211,7 @@ class IEC104MockServer:
         act_term = _make_c_ic_na_1_asdu(0x0A, 0, self._common_addr)
         writer.write(_encode_i_frame(send_seq, recv_seq, act_term))
         await writer.drain()
+        return (send_seq + 1) & 0x7FFF
 
 
 # 供测试代码引用（避免 Any 泄漏到断言处）。

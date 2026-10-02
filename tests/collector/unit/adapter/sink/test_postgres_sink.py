@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,6 +41,7 @@ class _FakePool:
 
     instances: list[_FakePool] = []
     fail_executemany = False
+    hang_executemany = False
 
     def __init__(self, dsn: str, **kwargs: Any) -> None:
         self.dsn = dsn
@@ -52,6 +55,8 @@ class _FakePool:
         self.executed_sql.append(sql)
 
     async def executemany(self, sql: str, rows: list[tuple[object, ...]]) -> None:
+        if _FakePool.hang_executemany:
+            await asyncio.Event().wait()  # 模拟连接黑洞：永不返回
         if _FakePool.fail_executemany:
             raise OSError("insert failed")
         self.executemany_calls.append((sql, list(rows)))
@@ -76,6 +81,7 @@ class _FakeAsyncpg:
 def fake_asyncpg(monkeypatch: pytest.MonkeyPatch) -> _FakeAsyncpg:
     _FakePool.instances = []
     _FakePool.fail_executemany = False
+    _FakePool.hang_executemany = False
     fake = _FakeAsyncpg()
     monkeypatch.setattr(f"{_MODULE}.asyncpg", fake)
     return fake
@@ -288,6 +294,38 @@ class TestHealth:
         await sink.write([_pv()])
         assert sink.health().healthy is True
         await sink.close()
+
+    async def test_hanging_write_times_out_and_records_failure(
+        self, fake_asyncpg: None
+    ) -> None:
+        """连接黑洞回归：executemany 永不返回时 write 必须在 write_timeout
+        内失败并计入健康跟踪——否则 sink 消费者卡死、健康状态永不翻转。"""
+        _FakePool.hang_executemany = True
+        sink = DBSink(_cfg(write_timeout=0.2))
+        await sink.open()
+        started = time.monotonic()
+        with pytest.raises(SinkError, match="write failed"):
+            await sink.write([_pv()])
+        elapsed = time.monotonic() - started
+        assert elapsed < 5.0, f"write hung for {elapsed:.1f}s despite write_timeout"
+        assert sink._consecutive_failures == 1  # noqa: SLF001
+        await sink.close()
+
+
+# ---------------------------------------------------------------------------
+# write_timeout 参数
+# ---------------------------------------------------------------------------
+
+
+class TestWriteTimeout:
+    def test_default_write_timeout(self) -> None:
+        sink = DBSink(_cfg())
+        assert sink._write_timeout == 10.0  # noqa: SLF001
+
+    @pytest.mark.parametrize("bad", [0, -1, "10", None, True])
+    def test_invalid_write_timeout_raises(self, bad: object) -> None:
+        with pytest.raises(ConfigError, match="write_timeout"):
+            DBSink(_cfg(write_timeout=bad))
 
 
 # ---------------------------------------------------------------------------

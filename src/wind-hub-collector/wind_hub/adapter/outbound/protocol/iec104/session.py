@@ -351,12 +351,18 @@ class IEC104Session:
     async def wait_closed(self) -> None:
         """等待 receive/send task 退出。
 
-        CancelledError 不在这里吞掉：Driver monitor 被取消时必须立即向上传播，
-        否则可能继续等待仍运行的后台 task，导致停机卡住。
+        断线处理会取消 send task（解除 ``queue.get()`` 阻塞）——这种「任务
+        被取消」是正常断线路径，用 ``return_exceptions=True`` 收拢；但
+        monitor 自身被取消时 gather 抛出的 CancelledError 仍原样向上传播，
+        否则停机可能卡在仍运行的后台 task 上。
         """
-        for task in (self._receive_task, self._send_task):
-            if task is not None and not task.done():
-                await task
+        tasks = [
+            task
+            for task in (self._receive_task, self._send_task)
+            if task is not None and not task.done()
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ==================================================================
     # 出站队列
@@ -617,6 +623,9 @@ class IEC104Session:
 
         elif frame.frame_type == UFrameType.TESTFR_CON:
             logger.debug("IEC104: received TESTFR con from %s", self._host)
+            # TESTFR_CON 即 t3 保活的确认——不取消 t1 的话，保活应答到手
+            # 后 t1 仍会超时并误杀正常连接。
+            self._timers.cancel_t1()
 
     # ==================================================================
     # ASDU processing
@@ -695,25 +704,41 @@ class IEC104Session:
     # ==================================================================
 
     async def _handle_disconnect(self) -> None:
-        """处理 TCP 断线事实：切换连接状态并取消全部 IEC104 timer。"""
+        """处理 TCP 断线事实：切换连接状态、取消全部 IEC104 timer 并解除
+        send task 的 ``queue.get()`` 阻塞——否则 :meth:`wait_closed` 永远
+        等不到 send task 退出，Driver monitor 无法进入重连。"""
         if self._state.is_connected:
             with contextlib.suppress(ValueError):
                 self._state.to_disconnected()
 
         self._timers.reset_all()
 
+        send_task = self._send_task
+        if (
+            send_task is not None
+            and not send_task.done()
+            and send_task is not asyncio.current_task()
+        ):
+            send_task.cancel()
+
     # ==================================================================
     # timer callbacks
     # ==================================================================
 
     async def _on_t1_timeout(self) -> None:
-        """处理 t1 超时：对端未在期限内确认，按断线语义处理。"""
+        """处理 t1 超时：对端未在期限内确认，按断线语义处理。
+
+        必须真正关闭 socket：只切状态的话 receive 循环仍阻塞在读上，
+        session 既不结束也不重连（半开连接僵尸）。
+        """
         logger.warning(
             "IEC104: t1 timeout (%ss) for %s — closing connection",
             self._t1,
             self._host,
         )
         await self._handle_disconnect()
+        if self._writer is not None:
+            self._writer.close()
 
     async def _on_t2_timeout(self) -> None:
         """处理 t2 超时：发送延迟的 S-frame 确认。"""
