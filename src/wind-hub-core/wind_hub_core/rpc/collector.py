@@ -20,6 +20,8 @@ LIST_TASK_INSTANCES = "ListTaskInstances"
 GET_TASK_INSTANCE = "GetTaskInstance"
 LIST_DEVICES = "ListDevices"
 LIST_SINKS = "ListSinks"
+VERIFY_SINK = "VerifySink"
+WRITE_TEST_SINK = "WriteTestSink"
 READ_POINT = "ReadPoint"
 
 START_TASK = "StartTask"

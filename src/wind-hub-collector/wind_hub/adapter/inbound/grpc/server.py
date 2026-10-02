@@ -32,6 +32,8 @@ from wind_hub_core.rpc.collector import (
     RESOLVE_POINT,
     RELOAD_CONFIG,
     VERIFY_DEVICE,
+    VERIFY_SINK,
+    WRITE_TEST_SINK,
     VERIFY_POINT,
     VERIFY_POINTS,
     RUNTIME_SERVICE,
@@ -282,6 +284,65 @@ class CollectorRuntimeService:
                 }
             )
         return _struct({"items": items})
+
+    async def verify_sink(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """返回当前运行 Sink 的真实 health 与队列深度。"""
+        data = _request_dict(request)
+        try:
+            name = _required_string(data, "name")
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        sink = self._runtime.runtime.sinks.get(name)
+        if sink is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
+            raise AssertionError("context.abort must terminate the RPC")
+        health = sink.health()
+        return _struct(
+            {
+                "success": bool(health.healthy),
+                "message": health.message,
+                "queue_depth": int(
+                    self._runtime.runtime.sink_queue_depths().get(name, 0)
+                ),
+            }
+        )
+
+    async def write_test_sink(
+        self,
+        request: struct_pb2.Struct,
+        context: grpc.aio.ServicerContext,
+    ) -> struct_pb2.Struct:
+        """向当前运行 Sink 写入一条明确标记的诊断 PointValue。"""
+        data = _request_dict(request)
+        try:
+            name = _required_string(data, "name")
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        sink = self._runtime.runtime.sinks.get(name)
+        if sink is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
+            raise AssertionError("context.abort must terminate the RPC")
+        from wind_hub_core.model.point import PointValue
+
+        try:
+            await sink.write(
+                [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
+            )
+            await sink.flush()
+        except Exception as exc:
+            return _struct(
+                {
+                    "success": False,
+                    "message": str(exc) or type(exc).__name__,
+                }
+            )
+        return _struct({"success": True, "message": None})
 
     async def list_devices(
         self,
@@ -637,6 +698,16 @@ def _runtime_handlers(service: CollectorRuntimeService) -> grpc.GenericRpcHandle
             LIST_SINKS: grpc.unary_unary_rpc_method_handler(
                 service.list_sinks,
                 request_deserializer=empty_pb2.Empty.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            VERIFY_SINK: grpc.unary_unary_rpc_method_handler(
+                service.verify_sink,
+                request_deserializer=struct_pb2.Struct.FromString,
+                response_serializer=struct_pb2.Struct.SerializeToString,
+            ),
+            WRITE_TEST_SINK: grpc.unary_unary_rpc_method_handler(
+                service.write_test_sink,
+                request_deserializer=struct_pb2.Struct.FromString,
                 response_serializer=struct_pb2.Struct.SerializeToString,
             ),
         },

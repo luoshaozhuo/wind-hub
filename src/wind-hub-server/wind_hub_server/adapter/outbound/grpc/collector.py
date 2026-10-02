@@ -21,6 +21,8 @@ from wind_hub_core.rpc.collector import (
     STOP_ASSIGNED_TASKS,
     STOP_TASK,
     STOP_TASK_INSTANCE,
+    VERIFY_SINK,
+    WRITE_TEST_SINK,
     rpc_path,
 )
 from wind_hub_server.adapter.outbound.grpc.common import (
@@ -43,6 +45,12 @@ class CollectorGrpcClient(GrpcClientBase):
     async def list_sinks(self) -> list[dict[str, Any]]:
         data = await self._empty(RUNTIME_SERVICE, LIST_SINKS)
         return list(data.get("items") or [])
+
+    async def verify_sink(self, name: str) -> dict[str, Any]:
+        return await self._struct(RUNTIME_SERVICE, VERIFY_SINK, {"name": name})
+
+    async def write_test_sink(self, name: str) -> dict[str, Any]:
+        return await self._struct(RUNTIME_SERVICE, WRITE_TEST_SINK, {"name": name})
 
     async def list_tasks(self) -> list[dict[str, Any]]:
         data = await self._empty(RUNTIME_SERVICE, LIST_TASKS)
