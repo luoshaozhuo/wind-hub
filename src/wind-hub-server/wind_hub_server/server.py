@@ -51,29 +51,35 @@ async def reload_once(
 ) -> None:
     """Execute one incremental config reload."""
     logger.info("收到 SIGHUP，开始热重载")
+    candidate = None
+    added_devices: set[str] = set()
     if validator is not None:
         try:
             candidate = config.load_disk()
             diff = compute_diff(config.current_config, candidate)
-            summary = await validator.validate_added_devices(
-                candidate,
-                set(diff.devices.added),
-            )
-            if summary.reports:
+            added_devices = set(diff.devices.added)
+        except Exception:
+            logger.warning("reload 配置预检查失败", exc_info=True)
+
+    result = await config.reload()
+    if result.success:
+        logger.info("配置热重载成功")
+        if validator is not None and candidate is not None and added_devices:
+            try:
+                summary = await validator.validate_added_devices(
+                    candidate,
+                    added_devices,
+                )
                 logger.info(
                     "reload active validation completed: devices=%d errors=%d",
                     len(summary.reports),
                     summary.error_count,
                 )
-        except Exception:
-            logger.warning(
-                "reload active validation failed before Runtime reload",
-                exc_info=True,
-            )
-
-    result = await config.reload()
-    if result.success:
-        logger.info("配置热重载成功")
+            except Exception:
+                logger.warning(
+                    "reload 后新增设备主动验证失败",
+                    exc_info=True,
+                )
     else:
         logger.warning("配置热重载失败：%s", result.errors)
 
@@ -103,8 +109,16 @@ async def run_server(settings: ServerSettings) -> int:
     """Run the Server-owned API and management composition."""
     logging.basicConfig(level=logging.INFO)
 
-    validator = ServerConfigValidator(settings.config_dir)
     startup_config = ConfigUseCase.load_directory(settings.config_dir)
+    runtime = assemble_server(
+        settings.config_dir,
+        collector_target=settings.collector_target,
+        commander_target=settings.commander_target,
+    )
+    validator = ServerConfigValidator(
+        settings.config_dir,
+        runtime.commander_client,
+    )
     validation = await validator.validate_startup(startup_config)
     logger.info(
         "startup active validation completed: devices=%d errors=%d repaired_points=%d",
@@ -113,11 +127,6 @@ async def run_server(settings: ServerSettings) -> int:
         validation.repaired_points,
     )
 
-    runtime = assemble_server(
-        settings.config_dir,
-        collector_target=settings.collector_target,
-        commander_target=settings.commander_target,
-    )
     runtime.log_store.install()
     set_context(runtime.context)
 
