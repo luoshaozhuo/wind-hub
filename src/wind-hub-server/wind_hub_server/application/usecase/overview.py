@@ -9,8 +9,8 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.application.usecase.task import TaskUseCase
+from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
 
 class OverviewSnapshot(BaseModel):
@@ -19,6 +19,8 @@ class OverviewSnapshot(BaseModel):
     site_id: str | None = None
     site_name: str | None = None
     runtime_running: bool
+    runtime_state: str
+    workers_unavailable: list[str]
     device_count: int
     devices_connected: int
     devices_offline: int
@@ -37,7 +39,7 @@ class OverviewUseCase:
     """Overview 页的应用层 Read Model。"""
 
     def __init__(
-        self, *, query: QueryUseCase, tasks: TaskUseCase, config: ConfigUseCase
+        self, *, query: WorkerQueryUseCase, tasks: CollectorTaskUseCase, config: ConfigUseCase
     ) -> None:
         self._query = query
         self._tasks = tasks
@@ -52,6 +54,14 @@ class OverviewUseCase:
             site_id=site.site_id if site is not None else None,
             site_name=site.name if site is not None else None,
             runtime_running=status.running,
+            runtime_state=(
+                "degraded"
+                if status.degraded
+                else "running"
+                if status.running
+                else "stopped"
+            ),
+            workers_unavailable=list(status.unavailable_workers),
             device_count=status.device_count,
             devices_connected=status.devices_connected,
             devices_offline=max(0, status.device_count - status.devices_connected),

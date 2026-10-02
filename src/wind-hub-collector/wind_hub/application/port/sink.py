@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.health import HealthStatus
 
 
 class SinkPort(Protocol):

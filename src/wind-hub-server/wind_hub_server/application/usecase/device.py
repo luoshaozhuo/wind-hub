@@ -1,15 +1,17 @@
 """V1 Device 查询用例。
 
-把 Runtime 中的 Device 配置、协议健康状态和重连状态聚合为稳定展示模型；
-不负责 Device CRUD、Verify 或直接点读取。配置修改仍属于 ConfigUseCase。
+静态设备定义来自 Server 当前配置快照；实时连接状态来自 Collector gRPC。
+Server 不直接读取 Collector Runtime 对象。
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
-from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.schema import DeviceConfig
+from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
@@ -34,19 +36,28 @@ class DeviceSnapshot(BaseModel):
 
 
 class DeviceUseCase:
-    """设备管理页的只读查询入口。"""
+    """设备管理页只读入口。"""
 
     def __init__(
         self,
-        runtime: Runtime,
-        config: ConfigUseCase | None = None,
+        collectors: CollectorQueryPort,
+        config: ConfigUseCase,
     ) -> None:
-        self._runtime = runtime
+        self._collectors = collectors
         self._config = config
 
     async def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
-        """返回设备快照，可按 ID/地址/型号/分组进行大小写无关过滤。"""
-        rows = [self._snapshot(device_id) for device_id in self._runtime.devices]
+        """返回配置与 Collector 当前连接状态合并后的设备快照。"""
+        runtime_rows = await self._collectors.list_devices()
+        runtime = {
+            str(row.get("device_id")): row
+            for row in runtime_rows
+            if row.get("device_id") is not None
+        }
+        rows = [
+            self._snapshot(cfg, runtime.get(cfg.device_id))
+            for cfg in self._config.current_config.devices.devices
+        ]
         query = (search or "").strip().lower()
         if query:
             rows = [
@@ -67,19 +78,36 @@ class DeviceUseCase:
         return sorted(rows, key=lambda row: row.device_id)
 
     async def get_device(self, device_id: str) -> DeviceSnapshot:
-        """返回单设备快照；未知 ID 抛 KeyError。"""
-        if device_id not in self._runtime.devices:
+        """返回单设备快照；未知设备抛 KeyError。"""
+        cfg = next(
+            (
+                item
+                for item in self._config.current_config.devices.devices
+                if item.device_id == device_id
+            ),
+            None,
+        )
+        if cfg is None:
             raise KeyError(device_id)
-        return self._snapshot(device_id)
+        runtime_rows = await self._collectors.list_devices()
+        runtime = next(
+            (
+                row
+                for row in runtime_rows
+                if str(row.get("device_id")) == device_id
+            ),
+            None,
+        )
+        return self._snapshot(cfg, runtime)
 
-    def _snapshot(self, device_id: str) -> DeviceSnapshot:
-        """从 Runtime 当前对象构造快照，不缓存热重载前的旧配置。"""
-        device = self._runtime.devices[device_id]
-        cfg = device.config
-        state = self._runtime.device_state(device_id)
+    def _snapshot(
+        self,
+        cfg: DeviceConfig,
+        runtime: dict[str, Any] | None,
+    ) -> DeviceSnapshot:
         port_override, extension_overrides = self._connection_overrides(cfg)
         return DeviceSnapshot(
-            device_id=device_id,
+            device_id=cfg.device_id,
             protocol=cfg.protocol,
             host=cfg.endpoint.host,
             port=cfg.endpoint.port,
@@ -91,18 +119,26 @@ class DeviceUseCase:
             port_override=port_override,
             extension_overrides=extension_overrides,
             enabled=cfg.enabled,
-            connected=device.health().healthy,
-            consecutive_failures=state.consecutive_failures if state is not None else 0,
-            last_error=state.last_error if state is not None else None,
+            connected=bool(runtime.get("connected")) if runtime is not None else False,
+            consecutive_failures=(
+                int(runtime.get("consecutive_failures") or 0)
+                if runtime is not None
+                else 0
+            ),
+            last_error=(
+                str(runtime.get("last_error"))
+                if runtime is not None and runtime.get("last_error")
+                else None
+            ),
         )
 
     def _connection_overrides(
         self,
         cfg: DeviceConfig,
     ) -> tuple[int | None, dict[str, object]]:
-        """从 resolved endpoint 反推出实例连接差异，避免把型号默认值固化。"""
+        """从 resolved endpoint 反推出实例连接差异。"""
         endpoint = cfg.endpoint
-        if self._config is None or not cfg.model:
+        if not cfg.model:
             return endpoint.port, dict(endpoint.extensions)
         model = self._config.current_config.device_models.get(cfg.model)
         if model is None:

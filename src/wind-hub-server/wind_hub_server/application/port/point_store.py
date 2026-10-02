@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 
 class LatestPointStore(Protocol):

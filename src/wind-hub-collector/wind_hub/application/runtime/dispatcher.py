@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 if TYPE_CHECKING:
     from wind_hub.application.runtime.runtime import Runtime

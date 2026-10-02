@@ -1,14 +1,14 @@
 """PostgreSQL 输出 sink —— 用 asyncpg 连接池把点值批量 INSERT 到关系表。
 
 实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实数据库走向：把一批
-:class:`~wind_hub.domain.model.point.PointValue` 映射为行，经 ``asyncpg``
+:class:`~wind_hub_core.model.point.PointValue` 映射为行，经 ``asyncpg``
 连接池的 ``executemany`` 批量写入 ``table``；``value`` 列以 JSON 序列化后按
 ``JSONB`` 落库（决策 5，兼容任意标量/结构化值），``timestamp`` 传 ``datetime``
 由驱动编码为 ``TIMESTAMPTZ``。``create_table: true`` 时在 ``open`` 阶段执行
 ``CREATE TABLE IF NOT EXISTS``（默认表结构见 :data:`_DEFAULT_SCHEMA`）。
 
 参数在**构造时**校验（缺 ``dsn`` / ``table`` 抛
-:class:`~wind_hub.domain.model.errors.ConfigError`）；运行时状态由
+:class:`~wind_hub_core.model.errors.ConfigError`）；运行时状态由
 ``asyncio.Lock`` 保护；写入失败抛 :class:`~wind_hub.domain.model.errors.SinkError`，
 连续失败达到阈值后 ``health()`` 报告 unhealthy（决策 6/8，复用 FileSink 模式）。
 """
@@ -28,10 +28,11 @@ from typing import Any
 import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.config.schema import SinkConfig
+from wind_hub.domain.model.errors import SinkError
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.health import HealthStatus
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +70,6 @@ class DBSink(SinkPort):
       仅影响 ``CREATE TABLE``，``INSERT`` 固定写六个标准列。
     - ``pool_min_size`` / ``pool_max_size``：连接池最小/最大连接数，
       默认 ``1`` / ``10``，要求均为正整数且 min <= max（决策 5）。
-    - ``write_timeout``：单批写入（含池获取连接）的超时秒数，默认 ``10.0``。
-      必须显式兜底：数据库黑洞（网络分区、代理丢连接后不再 RST）时，
-      asyncpg 的池获取/查询可能无限期挂起，没有超时消费者会卡死在
-      write 内部——失败计数不增长、健康状态不翻转、数据在队列中静默
-      积压直至背压丢弃。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -86,9 +82,6 @@ class DBSink(SinkPort):
         self._schema = self._build_schema(params.get("schema"))
         self._pool_min_size = self._positive_int(params.get("pool_min_size", 1), "pool_min_size")
         self._pool_max_size = self._positive_int(params.get("pool_max_size", 10), "pool_max_size")
-        self._write_timeout = self._positive_number(
-            params.get("write_timeout", 10.0), "write_timeout"
-        )
         if self._pool_min_size > self._pool_max_size:
             raise ConfigError(
                 f"DBSink 'pool_min_size' ({self._pool_min_size}) must be <= "
@@ -116,14 +109,6 @@ class DBSink(SinkPort):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ConfigError(f"DBSink '{field}' must be a positive integer, got {value!r}")
         return value
-
-    @staticmethod
-    def _positive_number(value: object, field: str) -> float:
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            raise ConfigError(
-                f"DBSink '{field}' must be a positive number, got {value!r}"
-            )
-        return float(value)
 
     @staticmethod
     def _validate_table(table: str) -> str:
@@ -205,11 +190,8 @@ class DBSink(SinkPort):
             try:
                 rows = [self._row(pv) for pv in batch]
                 sql = self._insert_sql()
-                # 整批（含池获取连接）必须有时限：连接黑洞时 asyncpg 可能
-                # 无限挂起，消费者卡死后健康状态永远不翻转（见类 docstring）。
-                async with asyncio.timeout(self._write_timeout):
-                    for i in range(0, len(rows), self._batch_size):
-                        await self._pool.executemany(sql, rows[i : i + self._batch_size])
+                for i in range(0, len(rows), self._batch_size):
+                    await self._pool.executemany(sql, rows[i : i + self._batch_size])
             except Exception as exc:
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"DBSink write failed: {exc}") from exc

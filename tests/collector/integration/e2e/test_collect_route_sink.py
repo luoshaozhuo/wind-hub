@@ -8,7 +8,7 @@ import pytest
 
 from tests.fixtures.sinks.null_sink import NullSink
 from wind_hub.assembly import AssembledRuntime
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 from .runtime_helpers import start_task_instance
 

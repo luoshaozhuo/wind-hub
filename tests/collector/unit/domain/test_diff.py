@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from wind_hub.application.usecase.config import compute_diff
-from wind_hub.config.schema import (
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -28,7 +28,7 @@ from wind_hub.config.schema import (
     UnitConfig,
     UnitsConfig,
 )
-from wind_hub.domain.model.device import Endpoint
+from wind_hub_core.model.device import Endpoint
 
 
 def _make_config(
@@ -434,7 +434,7 @@ class TestModelChangeDiff:
         from pathlib import Path
 
         from tests.config_helper import write_config_tree
-        from wind_hub.config.loader import load_config
+        from wind_hub_core.config.loader import load_config
 
         site = write_config_tree(
             Path(tmp),

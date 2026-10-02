@@ -16,7 +16,7 @@ import logging
 
 from wind_hub.adapter.inbound.iec104_slave.handlers import IEC104SlaveHandlers
 from wind_hub.adapter.inbound.iec104_slave.session import IEC104SlaveSession
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.model.health import HealthStatus
 
 logger = logging.getLogger(__name__)
 

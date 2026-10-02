@@ -22,10 +22,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub.config.schema import PointAddress, PointConfig
+from wind_hub_core.config.schema import PointAddress, PointConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
-from wind_hub.domain.port.outbound import HealthStatus, ProtocolPort
+from wind_hub_core.model.point import PointRef, PointValue, Quality
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.protocol.port import ProtocolPort
 
 pytestmark = pytest.mark.asyncio
 

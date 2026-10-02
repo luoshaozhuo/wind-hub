@@ -1,15 +1,18 @@
-"""wind-hub-ctl ↔ Collector gRPC 最小闭环测试。"""
+"""wind-hub-ctl ↔ Collector gRPC 只读诊断闭环测试。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+import grpc
 import pytest
 
 from wind_hub.adapter.inbound.grpc.server import build_grpc_server
 from wind_hub.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_ctl.client import CollectorClient
+from wind_hub_core.rpc import collector_pb2 as pb
+from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 
 
 @dataclass
@@ -23,190 +26,157 @@ class _Payload:
 
 class _RuntimeCore:
     running = True
+    sinks: dict[str, object] = {}
+
+    def health(self) -> dict[str, object]:
+        return {}
+
+    def sink_queue_depths(self) -> dict[str, int]:
+        return {}
+
+    def task_definitions(self) -> dict[str, object]:
+        return {"t1": object()}
 
 
 class _Query:
     async def status(self) -> _Payload:
-        return _Payload({"running": True, "device_count": 1, "sink_count": 1})
-
-    async def list_devices(self) -> list[_Payload]:
-        return [_Payload({"device_id": "d1", "protocol": "modbus", "connected": True})]
-
-    async def read_point(self, device_id: str, point_id: str) -> _Payload:
         return _Payload(
             {
-                "device_id": device_id,
-                "point_id": point_id,
-                "value": 12.5,
-                "quality": "good",
-                "source": "test",
+                "running": True,
+                "device_count": 1,
+                "sink_count": 0,
+                "devices_connected": 1,
+                "sinks_healthy": 0,
+                "points_collected": 0,
+                "points_routed": 0,
+                "points_dropped": 0,
+                "acquisitions": [],
             }
         )
+
+    async def list_devices(self) -> list[_Payload]:
+        return [
+            _Payload(
+                {
+                    "device_id": "d1",
+                    "protocol": "modbus",
+                    "connected": True,
+                    "consecutive_failures": 0,
+                    "last_error": None,
+                    "last_seen": None,
+                }
+            )
+        ]
 
 
 class _Tasks:
     async def list_task_summaries(self) -> list[_Payload]:
-        return [_Payload({"task_id": "t1", "runtime_state": "running"})]
+        return [
+            _Payload(
+                {
+                    "task_id": "t1",
+                    "device": "d1",
+                    "device_group": None,
+                    "point_group": "fast",
+                    "interval": 1.0,
+                    "targets": ["archive"],
+                    "enabled": True,
+                    "runtime_state": "running",
+                    "instance_count": 1,
+                    "running_instances": 1,
+                    "stopped_instances": 0,
+                    "failed_instances": 0,
+                }
+            )
+        ]
 
     async def get_task_summary(self, task_id: str) -> _Payload:
-        return _Payload({"task_id": task_id, "runtime_state": "running"})
+        return _Payload(
+            {
+                "task_id": task_id,
+                "device": "d1",
+                "device_group": None,
+                "point_group": "fast",
+                "interval": 1.0,
+                "targets": ["archive"],
+                "enabled": True,
+                "runtime_state": "running",
+                "instance_count": 1,
+                "running_instances": 1,
+                "stopped_instances": 0,
+                "failed_instances": 0,
+            }
+        )
 
     async def start_task(self, task_id: str) -> _Payload:
-        return _Payload({"task_id": task_id, "runtime_state": "running"})
-
-    async def stop_task(self, task_id: str) -> _Payload:
-        return _Payload({"task_id": task_id, "runtime_state": "stopped"})
+        return await self.get_task_summary(task_id)
 
     async def list_instances(self) -> list[_Payload]:
-        return [_Payload({"instance_id": "t1:d1", "state": "running"})]
+        return [
+            _Payload(
+                {
+                    "instance_id": "t1:d1",
+                    "task_id": "t1",
+                    "device_id": "d1",
+                    "point_group": "fast",
+                    "interval": 1.0,
+                    "targets": ["archive"],
+                    "state": "running",
+                }
+            )
+        ]
 
     async def get_instance(self, instance_id: str) -> _Payload:
-        return _Payload({"instance_id": instance_id, "state": "running"})
-
-    async def start_instance(self, instance_id: str) -> _Payload:
-        return _Payload({"instance_id": instance_id, "state": "running"})
-
-    async def stop_instance(self, instance_id: str) -> _Payload:
-        return _Payload({"instance_id": instance_id, "state": "stopped"})
-
-    async def start_all_instances(self) -> _Payload:
-        return _Payload({"success": True, "operation": "start_all"})
-
-    async def stop_all_instances(self) -> _Payload:
-        return _Payload({"success": True, "operation": "stop_all"})
+        return _Payload(
+            {
+                "instance_id": instance_id,
+                "task_id": "t1",
+                "device_id": "d1",
+                "point_group": "fast",
+                "interval": 1.0,
+                "targets": ["archive"],
+                "state": "running",
+            }
+        )
 
 
 class _Config:
     config_hash = "hash-current"
-
-    async def reload(self) -> _Payload:
-        return _Payload(
-            {
-                "success": True,
-                "diff": {},
-                "errors": [],
-                "duration_ms": 1.0,
-            }
-        )
+    active_revision = "rev-current"
+    prepared_revision = None
+    prepared_hash = None
 
 
-class _Command:
-    async def send(self, command: Any) -> _Payload:
-        return _Payload(
-            {
-                "command_id": command.command_id,
-                "success": True,
-                "error": None,
-            }
-        )
-
-
-class _Diagnostic:
-    async def verify_device(self, device_id: str, *, timeout: float = 1.0) -> _Payload:
-        return _Payload(
-            {
-                "device_id": device_id,
-                "protocol": "modbus",
-                "host": "127.0.0.1",
-                "port": 502,
-                "ok": True,
-                "stages": [
-                    {
-                        "name": "network",
-                        "ok": True,
-                        "code": "OK",
-                        "severity": "info",
-                        "message": "",
-                    },
-                    {
-                        "name": "transport",
-                        "ok": True,
-                        "code": "OK",
-                        "severity": "info",
-                        "message": "TCP 502 reachable",
-                    },
-                    {
-                        "name": "protocol",
-                        "ok": True,
-                        "code": "OK",
-                        "severity": "info",
-                        "message": "protocol session is healthy",
-                    },
-                ],
-            }
-        )
-
-    async def resolve_point(self, device_id: str, point_id: str) -> _Payload:
-        return _Payload(
-            {
-                "device_id": device_id,
-                "point_id": point_id,
-                "protocol": "ads",
-                "configured_address": {"symbol": ".wind_speed"},
-                "resolved_address": {"index_group": 16448, "index_offset": 100},
-                "data_type": "float32",
-                "scale": 1.0,
-                "offset": 0.0,
-                "unit": "none",
-                "readable": None,
-                "ok": True,
-                "code": "OK",
-                "severity": "info",
-            }
-        )
-
-    async def verify_point(self, device_id: str, point_id: str) -> _Payload:
-        return _Payload(
-            {
-                "device_id": device_id,
-                "point_id": point_id,
-                "protocol": "modbus",
-                "configured_address": {"address": 1},
-                "resolved_address": {"address": 1},
-                "data_type": "float32",
-                "scale": 2.0,
-                "offset": 1.0,
-                "unit": "none",
-                "readable": True,
-                "raw_value": 5.0,
-                "engineering_value": 11.0,
-                "quality": "good",
-                "ok": True,
-                "code": "OK",
-                "severity": "info",
-            }
-        )
-
-    async def verify_points(
-        self,
-        device_id: str,
-        *,
-        point_group: str | None = None,
-    ) -> _Payload:
-        return _Payload(
-            {
-                "device_id": device_id,
-                "point_group": point_group,
-                "checked": 1,
-                "passed": 1,
-                "failed": 0,
-                "ok": True,
-                "points": [],
-            }
-        )
+class _Metrics:
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "counters": {
+                "points_total": 0,
+                "points_bad": 0,
+                "acquisition_runs": 0,
+                "acquisition_failures": 0,
+                "acquisition_partial": 0,
+                "missed_cycles": 0,
+                "poll_overruns": 0,
+                "connect_failures": 0,
+                "reconnects": 0,
+            },
+            "device_connect_failures": {},
+            "device_reconnects": {},
+            "events": [],
+        }
 
 
 class _AssembledRuntime:
     runtime = _RuntimeCore()
     query = _Query()
     tasks = _Tasks()
-    command = _Command()
     config = _Config()
-    diagnostic = _Diagnostic()
+    metrics_state = _Metrics()
 
 
 @pytest.mark.asyncio
-async def test_ctl_collector_grpc_roundtrip() -> None:
+async def test_ctl_collector_read_only_grpc_roundtrip() -> None:
     identity = CollectorIdentity(
         collector_id="collector-test",
         boot_id="boot-test",
@@ -224,8 +194,6 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
             info = await client.info()
             assert info["collector_id"] == "collector-test"
             assert info["runtime_running"] is True
-            assert info["config_hash"] == "hash-current"
-            assert info["boot_config_hash"] == "hash-test"
 
             status = await client.status()
             assert status["device_count"] == 1
@@ -233,56 +201,65 @@ async def test_ctl_collector_grpc_roundtrip() -> None:
             devices = await client.devices()
             assert devices["items"][0]["device_id"] == "d1"
 
-            value = await client.read("d1", "p1")
-            assert value["value"] == 12.5
-
             tasks = await client.tasks()
             assert tasks["items"][0]["task_id"] == "t1"
 
             task = await client.task("t1")
             assert task["task_id"] == "t1"
 
-            stopped_task = await client.stop_task("t1")
-            assert stopped_task["runtime_state"] == "stopped"
-
-            started_task = await client.start_task("t1")
-            assert started_task["runtime_state"] == "running"
-
             instances = await client.task_instances()
             assert instances["items"][0]["instance_id"] == "t1:d1"
 
             instance = await client.task_instance("t1:d1")
             assert instance["instance_id"] == "t1:d1"
-
-            stopped = await client.stop_task_instance("t1:d1")
-            assert stopped["state"] == "stopped"
-
-            started = await client.start_task_instance("t1:d1")
-            assert started["state"] == "running"
-
-            assert (await client.stop_all())["success"] is True
-            assert (await client.start_all())["success"] is True
-
-            reloaded = await client.reload()
-            assert reloaded["success"] is True
-
-            verified_device = await client.verify_device("d1")
-            assert verified_device["ok"] is True
-            assert verified_device["stages"][2]["code"] == "OK"
-
-            resolved = await client.resolve_point("d1", "p1")
-            assert resolved["resolved_address"]["index_group"] == 16448
-            assert resolved["code"] == "OK"
-
-            verified_point = await client.verify_point("d1", "p1")
-            assert verified_point["raw_value"] == 5.0
-            assert verified_point["engineering_value"] == 11.0
-
-            verified_points = await client.verify_points("d1", point_group="g")
-            assert verified_points["passed"] == 1
-            assert verified_points["ok"] is True
-
-            written = await client.write("d1", "p1", 10.0)
-            assert written["success"] is True
     finally:
+        await server.stop(grace=0)
+
+
+@pytest.mark.asyncio
+async def test_collector_start_requires_current_task_placement() -> None:
+    identity = CollectorIdentity(
+        collector_id="collector-test",
+        boot_id="boot-test",
+        config_hash="hash-test",
+    )
+    server = build_grpc_server(
+        _AssembledRuntime(),  # type: ignore[arg-type]
+        identity,
+        host="127.0.0.1",
+        port=0,
+    )
+    await server.start()
+    channel = grpc.aio.insecure_channel(server.endpoint)
+    stub = pb_grpc.CollectorControlServiceStub(channel)
+    try:
+        with pytest.raises(grpc.aio.AioRpcError) as missing:
+            await stub.StartTask(
+                pb.TaskStartRequest(task_id="t1", placement_generation=1)
+            )
+        assert missing.value.code() is grpc.StatusCode.FAILED_PRECONDITION
+
+        applied = await stub.ApplyTaskPlacement(
+            pb.TaskPlacementSnapshotRequest(
+                worker_id="collector-test",
+                generation=1,
+                task_ids=["t1"],
+            )
+        )
+        assert applied.success is True
+        assert applied.generation == 1
+        assert applied.task_count == 1
+
+        started = await stub.StartTask(
+            pb.TaskStartRequest(task_id="t1", placement_generation=1)
+        )
+        assert started.task_id == "t1"
+
+        with pytest.raises(grpc.aio.AioRpcError) as denied:
+            await stub.StartTask(
+                pb.TaskStartRequest(task_id="other", placement_generation=1)
+            )
+        assert denied.value.code() is grpc.StatusCode.PERMISSION_DENIED
+    finally:
+        await channel.close()
         await server.stop(grace=0)

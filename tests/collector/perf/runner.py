@@ -39,10 +39,10 @@ from tests.collector.perf.servers import (
     start_modbus_server,
 )
 from wind_hub.assembly import assemble, start_runtime, stop_runtime
-from wind_hub.config.schema import DeviceConfig, PointConfig
-from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import ProtocolPort
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.model.device import Endpoint
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.protocol.port import ProtocolPort
 
 logger = logging.getLogger(__name__)
 

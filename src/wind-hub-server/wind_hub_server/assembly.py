@@ -1,9 +1,8 @@
 """wind-hub-server composition root.
 
-Server-specific Admin/Web/Quality/Config objects live here.  The current
-transition keeps an embedded Collector core only as a compatibility backend;
-the ownership boundary is now explicit so it can later be replaced by gRPC
-Worker clients without putting Server concerns back into Collector assembly.
+Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
+Commander gRPC，采集 Task/运行态/Sink 状态经 Collector gRPC；Server 只持有
+配置管理、读模型、监控历史与 Web/Admin 用例。
 """
 
 from __future__ import annotations
@@ -11,17 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from wind_hub.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub.adapter.outbound.sink.file.csv import FileSink
-from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub.application.port.sink import SinkPort
-from wind_hub.assembly import AssembledRuntime as CollectorRuntime
-from wind_hub.assembly import assemble as assemble_collector
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError
+from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
+from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
+from wind_hub_server.adapter.outbound.collector_directory import StaticCollectorDirectory
 from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.operation import OperationManager
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
+from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
@@ -35,70 +30,124 @@ from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
+from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
+from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.worker_model import (
+    COMMANDER_WORKER_ID,
+    WorkerCapability,
+    WorkerDefinition,
+    WorkerRole,
+)
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.infra.log_store import LogStore
-from wind_hub_server.infra.monitoring import (
-    CompositeRuntimeMetrics,
-    MonitoringMetrics,
-    MonitoringService,
-)
-from wind_hub_server.infra.point_store import (
-    InMemoryLatestPointStore,
-    InMemoryTrendStore,
-)
-from wind_hub_server.infra import metrics
+from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
+from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
 
 
 @dataclass(slots=True)
 class ServerRuntime:
-    """Server composition result."""
+    """Server 独立对象图。"""
 
-    collector: CollectorRuntime
     context: AppContext
     config: ConfigUseCase
     monitoring: MonitoringService
     log_store: LogStore
+    collector_clients: dict[str, CollectorGrpcClient]
+    commander_client: CommanderGrpcClient
+    worker_registry: WorkerRegistryUseCase
+    collector_directory: StaticCollectorDirectory
+    task_assignments: TaskAssignmentUseCase
+    tasks: CollectorTaskUseCase
 
 
-def assemble_server(config_dir: str | Path) -> ServerRuntime:
-    """Build Server-owned management/read-model objects around Collector core."""
-    collector = assemble_collector(config_dir)
+def assemble_server(
+    config_dir: str | Path,
+    *,
+    collectors: dict[str, str],
+    commander: str,
+) -> ServerRuntime:
+    """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
+    endpoints = dict(collectors)
+    if not endpoints:
+        raise ValueError("collectors must not be empty")
+    collector_clients = {
+        worker_id: CollectorGrpcClient(endpoint)
+        for worker_id, endpoint in endpoints.items()
+    }
+    commander_client = CommanderGrpcClient(commander)
 
     latest = InMemoryLatestPointStore()
     trend = InMemoryTrendStore(max_samples_per_point=3600)
     monitoring_metrics = MonitoringMetrics()
     log_store = LogStore(capacity=2000)
 
-    collector.engine.add_observer(latest.put_batch)
-    collector.engine.add_observer(trend.append_batch)
-    collector.engine.add_observer(monitoring_metrics.observe_points)
-    collector.runtime.attach_metrics_hook(
-        CompositeRuntimeMetrics(
-            metrics.PrometheusRuntimeMetrics(),
-            monitoring_metrics,
-        )
-    )
+    startup_config = ConfigUseCase.load_directory(config_dir)
 
+    collector_definitions = [
+        WorkerDefinition(
+            worker_id=worker_id,
+            role=WorkerRole.COLLECTOR,
+            endpoint=endpoint,
+            capabilities=[
+                WorkerCapability.CONFIG,
+                WorkerCapability.TASK_RUNTIME,
+                WorkerCapability.ACQUISITION_STATUS,
+                WorkerCapability.SINK,
+                WorkerCapability.METRICS,
+            ],
+        )
+        for worker_id, endpoint in endpoints.items()
+    ]
+    commander_definition = WorkerDefinition(
+        worker_id=COMMANDER_WORKER_ID,
+        role=WorkerRole.COMMANDER,
+        endpoint=commander,
+        capabilities=[
+            WorkerCapability.CONFIG,
+            WorkerCapability.DEVICE_IO,
+            WorkerCapability.DIAGNOSTICS,
+        ],
+    )
+    collector_directory = StaticCollectorDirectory(collector_clients)
     config = ConfigUseCase(
         config_dir=config_dir,
-        runtime=collector.runtime,
-        current_config=collector.boot_config,
+        collectors=collector_directory,
+        commander=commander_client,
+        current_config=startup_config,
     )
-    devices = DeviceUseCase(collector.runtime, config)
-    device_data = DeviceDataUseCase(
-        collector.runtime,
+    worker_registry = WorkerRegistryUseCase(
+        collector_directory,
+        commander_client,
+        definitions=[*collector_definitions, commander_definition],
+    )
+    task_assignments = TaskAssignmentUseCase(config, collector_directory)
+    collector_aggregate = CollectorAggregateUseCase(
+        collector_directory,
+        task_assignments,
         config,
+    )
+    worker_query = WorkerQueryUseCase(collector_aggregate, commander_client)
+    worker_tasks = CollectorTaskUseCase(
+        collector_directory,
+        task_assignments,
+        config,
+    )
+    devices = DeviceUseCase(collector_aggregate, config)
+    device_data = DeviceDataUseCase(
+        config,
+        commander_client,
         latest,
         trend,
     )
     device_control = DeviceControlUseCase(
-        collector.command,
-        collector.query,
+        commander_client,
         latest,
         trend,
     )
     overview = OverviewUseCase(
-        query=collector.query,
-        tasks=collector.tasks,
+        query=worker_query,
+        tasks=worker_tasks,
         config=config,
     )
     operations = OperationManager()
@@ -107,23 +156,23 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
     settings = SettingsUseCase(config, config_admin)
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(
-        collector.runtime,
+        collector_directory,
+        collector_aggregate,
+        task_assignments,
         config,
         config_admin,
-        _create_sink,
     )
     diagnostics = DiagnosticUseCase(
-        collector.runtime,
-        collector.query,
+        commander_client,
         device_control,
+        config,
         operations,
     )
     monitoring = MonitoringService(
-        collector.runtime,
+        collector_aggregate,
         monitoring_metrics,
     )
     quality = QualityUseCase(
-        collector.runtime,
         config,
         monitoring_metrics,
         monitoring,
@@ -133,10 +182,8 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
 
     context = AppContext(
         config=config,
-        tasks=collector.tasks,
-        runtime=collector.runtime,
-        command=collector.command,
-        query=collector.query,
+        tasks=worker_tasks,
+        query=worker_query,
         devices=devices,
         device_data=device_data,
         device_control=device_control,
@@ -151,23 +198,17 @@ def assemble_server(config_dir: str | Path) -> ServerRuntime:
         quality=quality,
         logs=logs,
         system_health=system_health,
+        workers=worker_registry,
     )
     return ServerRuntime(
-        collector=collector,
         context=context,
         config=config,
         monitoring=monitoring,
         log_store=log_store,
-    )
-
-
-def _create_sink(cfg: SinkConfig) -> SinkPort:
-    if cfg.type == "kafka":
-        return KafkaSink(cfg)
-    if cfg.type == "file":
-        return FileSink(cfg)
-    if cfg.type == "db":
-        return DBSink(cfg)
-    raise ConfigError(
-        f"Unknown sink type '{cfg.type}' (available: kafka, file, db)"
+        collector_clients=collector_clients,
+        commander_client=commander_client,
+        worker_registry=worker_registry,
+        collector_directory=collector_directory,
+        task_assignments=task_assignments,
+        tasks=worker_tasks,
     )

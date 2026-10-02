@@ -11,7 +11,7 @@ import asyncio
 
 from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.domain.model.command import Command, CommandResult
+from wind_hub_core.model.command import Command, CommandResult
 
 
 class CommandUseCase:

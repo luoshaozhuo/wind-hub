@@ -41,15 +41,15 @@ from wind_hub.adapter.inbound.iec104_slave.handlers import (
     OBJECT_SIZE_BYTES,
 )
 from wind_hub.adapter.inbound.iec104_slave.session import IEC104SlaveSession
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     MeasuredValueShort,
     QualityFlag,
     TypeID,
 )
-from wind_hub.domain.model.command import CommandResult
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.command import CommandResult
+from wind_hub_core.model.point import PointValue
 
 logger = logging.getLogger(__name__)
 
@@ -68,61 +68,31 @@ _PUSH_OBJECTS_PER_ASDU = MAX_ASDU_PAYLOAD_BYTES // OBJECT_SIZE_BYTES["M_ME_NC_1"
 # ---------------------------------------------------------------------------
 
 
-class ModbusServerHandle:
-    """可反复起停的 pymodbus server 句柄（soak reconnect_storm 故障注入用）。
-
-    ``stop()`` 后可用相同端口再次 ``start()``——pymodbus 的 shutdown 会
-    断开全部客户端连接，客户端驱动侧表现为真实的连接丢失。
-    """
-
-    def __init__(self, host: str, port: int, num_registers: int = 10000) -> None:
-        self._host = host
-        self._port = port
-        self._num_registers = num_registers
-        self._server: ModbusTcpServer | None = None
-
-    async def start(self) -> ModbusTcpServer:
-        """启动 server，预置保持寄存器（unit 1，静态非零值）。
-
-        寄存器值取 ``(i * 7) % 0x8000``——确定性伪随机，避免全 0 被误当成
-        「没读到数据」。
-
-        注意 pymodbus 的数据块地址是 1-based：``ModbusSequentialDataBlock(1,
-        values)`` 使 ``values[i]`` 落在 wire address ``i`` 上（基址 0 会被
-        转换成 -1 直接抛错），因此多分配一个槽位。
-        """
-        values = [(i * 7) % 0x8000 for i in range(self._num_registers + 1)]
-        device = ModbusDeviceContext(hr=ModbusSequentialDataBlock(1, values))
-        context = ModbusServerContext({1: device}, single=False)
-        self._server = ModbusTcpServer(context, address=(self._host, self._port))
-        await self._server.serve_forever(background=True)
-        logger.info(
-            "perf Modbus server listening on %s:%d (%d registers)",
-            self._host,
-            self._port,
-            self._num_registers,
-        )
-        return self._server
-
-    async def stop(self) -> None:
-        if self._server is not None:
-            await self._server.shutdown()
-            self._server = None
-
-
 @asynccontextmanager
 async def start_modbus_server(
     host: str,
     port: int,
     num_registers: int = 10000,
 ) -> AsyncIterator[ModbusTcpServer]:
-    """启动 pymodbus server（ :class:`ModbusServerHandle` 的单次生命周期包装）。"""
-    handle = ModbusServerHandle(host, port, num_registers)
-    server = await handle.start()
+    """启动 pymodbus server，预置保持寄存器（unit 1，静态非零值）。
+
+    寄存器值取 ``(i * 7) % 0x8000``——确定性伪随机，避免全 0 被误当成
+    「没读到数据」。
+
+    注意 pymodbus 的数据块地址是 1-based：``ModbusSequentialDataBlock(1,
+    values)`` 使 ``values[i]`` 落在 wire address ``i`` 上（基址 0 会被
+    转换成 -1 直接抛错），因此多分配一个槽位。
+    """
+    values = [(i * 7) % 0x8000 for i in range(num_registers + 1)]
+    device = ModbusDeviceContext(hr=ModbusSequentialDataBlock(1, values))
+    context = ModbusServerContext({1: device}, single=False)
+    server = ModbusTcpServer(context, address=(host, port))
+    await server.serve_forever(background=True)
+    logger.info("perf Modbus server listening on %s:%d (%d registers)", host, port, num_registers)
     try:
         yield server
     finally:
-        await handle.stop()
+        await server.shutdown()
 
 
 # ---------------------------------------------------------------------------

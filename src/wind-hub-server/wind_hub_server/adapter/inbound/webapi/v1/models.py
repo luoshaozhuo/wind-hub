@@ -51,6 +51,8 @@ class TaskResponse(BaseModel):
     """Task Definition 与实例聚合运行状态 DTO。"""
 
     task_id: str
+    assigned_worker_id: str | None
+    placement_state: str
     device: str | None = None
     device_group: str | None = None
     point_group: str
@@ -75,6 +77,7 @@ class TaskInstanceResponse(BaseModel):
     """指定 Task 展开的实例 DTO。"""
 
     instance_id: str
+    assigned_worker_id: str
     task_id: str
     device_id: str
     point_group: str
@@ -83,12 +86,32 @@ class TaskInstanceResponse(BaseModel):
     state: str
 
 
+class WorkerResponse(BaseModel):
+    """Worker Registry 状态 DTO。"""
+
+    worker_id: str
+    role: str
+    endpoint: str
+    capabilities: list[str]
+    reported_id: str | None = None
+    state: str
+    last_probe_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    last_error: str | None = None
+    runtime_running: bool | None = None
+    active_revision: str | None = None
+    active_config_hash: str | None = None
+    boot_id: str | None = None
+
+
 class OverviewResponse(BaseModel):
     """Overview 核心运行快照 DTO。"""
 
     site_id: str | None = None
     site_name: str | None = None
     runtime_running: bool
+    runtime_state: str
+    workers_unavailable: list[str] = Field(default_factory=list)
     device_count: int
     devices_connected: int
     devices_offline: int

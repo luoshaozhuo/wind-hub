@@ -8,6 +8,7 @@ license = "MIT"
 packages = [
     { include = "wind_hub", from = "src/wind-hub-collector" },
     { include = "wind_hub_server", from = "src/wind-hub-server" },
+    { include = "wind_hub_commander", from = "src/wind-hub-commander" },
     { include = "wind_hub_core", from = "src/wind-hub-core" },
     { include = "wind_hub_ctl", from = "src/wind-hub-ctl" },
 ]
@@ -25,8 +26,6 @@ grpcio = "^1.75"
 protobuf = "^6.32"
 pymodbus = { version = "^3.6", optional = true }
 pyads = { version = "^3.4", optional = true }
-aiokafka = { version = "^0.12", optional = true }
-asyncpg = { version = "^0.30", optional = true }
 
 [tool.poetry.extras]
 ads = ["pyads"]
@@ -44,6 +43,7 @@ all = [
 ]
 
 [tool.poetry.group.dev.dependencies]
+grpcio-tools = "^1.75"
 pytest = "^8.0"
 pytest-asyncio = "^0.24"
 mypy = "^1.0"
@@ -54,6 +54,7 @@ import-linter = "^2.0"
 wind-hub-collector = "wind_hub.main:main"
 wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
+wind-hub-commander = "wind_hub_commander.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -79,22 +80,8 @@ python_version = "3.11"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--strict-markers"
 markers = [
-    "unit: 单元与组件内部测试",
-    "functional: 单一功能测试",
-    "integration: 多组件或真实服务集成测试",
-    "system: 完整系统端到端测试",
-    "recovery: 故障与恢复测试",
-    "perf: 性能与压力测试（需 root + tc netem 的完整压测仍经 scripts/run_benchmark.py 触发）",
-    "soak: 长时间稳定性测试",
-    "real_service: 依赖真实外部服务或真实协议栈（TCP socket / Docker 服务 / 真实 PLC）",
-    "mock_service: 使用模拟协议或服务（monkeypatch / 内存 fake）",
-    "modbus: Modbus 协议测试",
-    "ads: ADS 协议测试",
-    "iec104: IEC104 协议测试",
-    "kafka: Kafka Sink 测试",
-    "postgres: PostgreSQL Sink 测试",
+    "perf: 性能压测（需 root + tc netem；不加入默认收集，经 scripts/run_benchmark.py 触发）",
 ]
 
 [tool.importlinter]

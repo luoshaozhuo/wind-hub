@@ -15,9 +15,7 @@ from typing import cast
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config
+from wind_hub_server.application.usecase.config import Config, ConfigUseCase, compute_diff
 
 
 CONFIG_FILES = (
@@ -133,7 +131,7 @@ class ConfigAdminUseCase:
         result = await self._config.reload()
         if not result.success:
             self._restore_file(path, old_exists, old_content)
-            rollback = await self._config.reload()
+            rollback = await self._config.reload(force_workers=True)
             errors = list(result.errors)
             if not rollback.success:
                 errors.append(f"rollback reload failed: {rollback.errors}")
@@ -177,7 +175,7 @@ class ConfigAdminUseCase:
                 errors = list(result.errors)
             if result is None or not result.success:
                 self._replace_bytes(previous)
-                rollback = await self._config.reload()
+                rollback = await self._config.reload(force_workers=True)
                 if not rollback.success:
                     errors.append(f"rollback reload failed: {rollback.errors}")
                 return ConfigApplyResult(
@@ -223,7 +221,7 @@ class ConfigAdminUseCase:
         result = await self._config.reload()
         if not result.success:
             self._replace_bytes(previous)
-            rollback = await self._config.reload()
+            rollback = await self._config.reload(force_workers=True)
             errors = list(result.errors)
             if not rollback.success:
                 errors.append(f"rollback reload failed: {rollback.errors}")
@@ -251,7 +249,7 @@ class ConfigAdminUseCase:
                     shutil.copy2(source, target / file_name)
             for name, content in files.items():
                 (target / name).write_text(content, encoding="utf-8")
-            return load_config(target)
+            return self._config.load_directory(target)
 
     def _path(self, name: str) -> Path:
         """约束文件名，禁止目录穿越。"""

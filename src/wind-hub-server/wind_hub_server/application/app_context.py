@@ -16,9 +16,7 @@ import threading
 from dataclasses import dataclass
 
 from wind_hub_server.application.operation import OperationManager
-from wind_hub.application.runtime import Runtime
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
-from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
@@ -29,11 +27,12 @@ from wind_hub_server.application.usecase.device_data import DeviceDataUseCase
 from wind_hub_server.application.usecase.overview import OverviewUseCase
 from wind_hub_server.application.usecase.logs import LogsUseCase
 from wind_hub_server.application.usecase.quality import QualityUseCase
-from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
-from wind_hub.application.usecase.task import TaskUseCase
+from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
 
 @dataclass
@@ -47,21 +46,15 @@ class AppContext:
     进程生命周期由 ``main.py`` 信号处理负责。
     """
 
-    command: CommandUseCase | None = None
-    """可选指令下发用例。"""
-
-    query: QueryUseCase | None = None
+    query: WorkerQueryUseCase | None = None
     """可选只读查询用例（含系统状态 ``status()``）。"""
 
     config: ConfigUseCase | None = None
     """可选配置用例（热重载）。引擎可能不带配置用例运行（如只读部署），
     缺失时由适配器上报 503 / 非零退出而非崩溃。"""
 
-    tasks: TaskUseCase | None = None
+    tasks: CollectorTaskUseCase | None = None
     """可选采集 Task 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
-
-    runtime: Runtime | None = None
-    """可选 Runtime，供 /metrics 读取引擎快照。"""
 
     devices: DeviceUseCase | None = None
     """V1 设备查询用例；聚合静态配置与实时连接状态。"""
@@ -104,6 +97,9 @@ class AppContext:
 
     system_health: SystemHealthUseCase | None = None
     """宿主机/进程资源健康用例。"""
+
+    workers: WorkerRegistryUseCase | None = None
+    """Worker Registry 只读状态与探测用例。"""
 
 
 _context: AppContext | None = None

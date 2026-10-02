@@ -6,7 +6,7 @@ import threading
 from collections import defaultdict, deque
 from datetime import datetime
 
-from wind_hub.domain.model.point import PointValue
+from wind_hub_core.model.point import PointValue
 
 
 class InMemoryLatestPointStore:

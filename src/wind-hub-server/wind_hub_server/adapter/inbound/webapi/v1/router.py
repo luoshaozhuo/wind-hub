@@ -60,6 +60,7 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     TaskResponse,
     TrendSampleResponse,
     TrendSeriesResponse,
+    WorkerResponse,
 )
 from wind_hub_server.application.operation import OperationRecord
 from wind_hub_server.application.usecase.admin_state import (
@@ -81,10 +82,14 @@ from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import HealthRange, SystemHealthUseCase
-from wind_hub.application.usecase.task import (
+from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
+from wind_hub_server.application.usecase.task_assignment import TaskPlacementError
+from wind_hub_server.application.usecase.worker_tasks import (
+    CollectorTaskUseCase,
     TaskInstanceDetail,
+    TaskPlacementUnsafeError,
     TaskSummary,
-    TaskUseCase,
+    TaskWorkerUnavailableError,
 )
 
 T = TypeVar("T")
@@ -179,12 +184,20 @@ def _system_health() -> SystemHealthUseCase:
     return ctx.system_health
 
 
-def _tasks() -> TaskUseCase:
+def _tasks() -> CollectorTaskUseCase:
     """返回 TaskUseCase；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.tasks is None:
         raise APIError("SERVICE_UNAVAILABLE", "tasks use case is not configured", 503)
     return ctx.tasks
+
+
+def _workers() -> WorkerRegistryUseCase:
+    """返回 Worker Registry；未装配时按服务不可用处理。"""
+    ctx = get_ctx()
+    if ctx.workers is None:
+        raise APIError("SERVICE_UNAVAILABLE", "worker registry is not configured", 503)
+    return ctx.workers
 
 
 def _overview() -> OverviewUseCase:
@@ -233,6 +246,27 @@ async def get_overview() -> OverviewResponse:
     """返回 wind-hub-admin 总览页的一次聚合运行快照。"""
     snapshot: OverviewSnapshot = await _overview().snapshot()
     return OverviewResponse(**snapshot.model_dump())
+
+
+@router.get("/workers", response_model=list[WorkerResponse], tags=["v1-workers"])
+async def list_workers() -> list[WorkerResponse]:
+    """返回 Server 当前已登记 Worker 的最近探测状态。"""
+    rows = await _workers().list_workers()
+    return [WorkerResponse(**row.model_dump(mode="json")) for row in rows]
+
+
+@router.get(
+    "/workers/{worker_id}",
+    response_model=WorkerResponse,
+    tags=["v1-workers"],
+)
+async def get_worker(worker_id: str) -> WorkerResponse:
+    """返回指定 Worker 的最近探测状态。"""
+    try:
+        row = await _workers().get_worker(worker_id)
+    except KeyError:
+        raise APIError("NOT_FOUND", f"unknown worker '{worker_id}'", 404) from None
+    return WorkerResponse(**row.model_dump(mode="json"))
 
 
 @router.get("/devices", response_model=DevicePageResponse, tags=["v1-devices"])
@@ -317,6 +351,12 @@ async def start_task(task_id: str) -> TaskResponse:
         row = await _tasks().start_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
+    except TaskPlacementError as exc:
+        raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
+    except TaskPlacementUnsafeError as exc:
+        raise APIError("PLACEMENT_UNSAFE", str(exc), 503) from exc
+    except TaskWorkerUnavailableError as exc:
+        raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     except ValueError as exc:
         raise APIError("TASK_DISABLED", str(exc), 409) from exc
     return _task_response(row)
@@ -329,6 +369,10 @@ async def stop_task(task_id: str) -> TaskResponse:
         row = await _tasks().stop_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
+    except TaskPlacementError as exc:
+        raise APIError("TASK_UNASSIGNED", str(exc), 409) from exc
+    except TaskWorkerUnavailableError as exc:
+        raise APIError("WORKER_UNAVAILABLE", str(exc), 503) from exc
     return _task_response(row)
 
 
@@ -574,13 +618,13 @@ async def delete_definition(kind: str, name: str) -> ConfigApplyResponse:
 
 @router.get("/sinks", response_model=list[SinkResponse], tags=["v1-sinks"])
 async def list_sinks() -> list[SinkResponse]:
-    return [SinkResponse(**row.model_dump()) for row in _sinks().list_sinks()]
+    return [SinkResponse(**row.model_dump()) for row in await _sinks().list_sinks()]
 
 
 @router.get("/sinks/{name}", response_model=SinkResponse, tags=["v1-sinks"])
 async def get_sink(name: str) -> SinkResponse:
     try:
-        row = _sinks().get_sink(name)
+        row = await _sinks().get_sink(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
     return SinkResponse(**row.model_dump())
@@ -721,7 +765,7 @@ async def diagnostic_protocol_write(
 async def get_quality(
     window: QualityWindow = Query("24h"),
 ) -> QualityResponse:
-    snapshot = _quality().snapshot(window)
+    snapshot = await _quality().snapshot(window)
     return QualityResponse(**snapshot.model_dump())
 
 
@@ -730,7 +774,7 @@ async def run_quality_check(
     window: QualityWindow = Query("24h"),
 ) -> QualityResponse:
     """立即采样并按真实窗口重算。"""
-    snapshot = _quality().snapshot(window)
+    snapshot = await _quality().snapshot(window)
     return QualityResponse(**snapshot.model_dump())
 
 

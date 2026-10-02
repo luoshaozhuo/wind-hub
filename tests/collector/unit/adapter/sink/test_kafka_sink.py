@@ -17,10 +17,11 @@ from typing import Any
 
 import pytest
 from wind_hub.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue, Quality
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.config.schema import SinkConfig
+from wind_hub.domain.model.errors import SinkError
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointValue, Quality
+from wind_hub_core.model.health import HealthStatus
 
 _TS = datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC)
 
@@ -120,6 +121,10 @@ class TestConstruction:
         with pytest.raises(ConfigError, match="key_field"):
             KafkaSink(_cfg(key_field="not_a_field"))
 
+    def test_invalid_retries_raises(self) -> None:
+        with pytest.raises(ConfigError, match="retries"):
+            KafkaSink(_cfg(retries=-1))
+
     def test_invalid_batch_size_raises(self) -> None:
         with pytest.raises(ConfigError, match="batch_size"):
             KafkaSink(_cfg(batch_size=0))
@@ -131,6 +136,7 @@ class TestConstruction:
     def test_defaults_applied(self) -> None:
         sink = KafkaSink(_cfg())
         assert sink._acks == "all"
+        assert sink._retries == 3
         assert sink._batch_size == 16384
         assert sink._linger_ms == 0
         assert sink._key_field is None
@@ -148,7 +154,7 @@ class TestLifecycle:
     async def test_open_creates_producer_with_params(
         self, fake_producer: type[_FakeProducer]
     ) -> None:
-        sink = KafkaSink(_cfg(compression_type="gzip", acks=1, batch_size=32768))
+        sink = KafkaSink(_cfg(compression_type="gzip", acks=1, retries=5))
         await sink.open()
 
         assert len(_FakeProducer.instances) == 1
@@ -156,8 +162,7 @@ class TestLifecycle:
         assert producer.started is True
         assert producer.kwargs["bootstrap_servers"] == "localhost:9092"
         assert producer.kwargs["acks"] == 1
-        # aiokafka 的批大小参数名是 ``max_batch_size``。
-        assert producer.kwargs["max_batch_size"] == 32768
+        assert producer.kwargs["retries"] == 5
         assert producer.kwargs["compression_type"] == "gzip"
         await sink.close()
 

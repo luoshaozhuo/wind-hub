@@ -1,8 +1,7 @@
 """Server 配置主动验证与 ADS 地址修复。
 
-Server 是配置权威：启动时验证所有实际绑定到 Device 的 Point Table；
-reload 时只主动验证新增 Device。Collector 仍负责运行期 connect/reconnect
-和兜底 symbol 解析，但不写 YAML。
+Server 只负责配置语义、验证编排和安全写回；所有真实 PLC 网络/协议/点读取与
+ADS 地址解析统一经 Commander RPC 执行，Server 不创建协议 Driver 或 Probe。
 """
 
 from __future__ import annotations
@@ -13,25 +12,19 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-import wind_hub.adapter.outbound.protocol  # noqa: F401
-from wind_hub.adapter.outbound.protocol.ads import router as ads_router
-from wind_hub.config.schema import Config, DeviceConfig, PointConfig
-from wind_hub.domain.model.point import PointRef, Quality
-from wind_hub.infra.protocol_registry import protocol_registry
-from wind_hub_core.protocol.ads import ADSProbe
+from wind_hub_core.config.schema import Config, DeviceConfig, PointConfig
 from wind_hub_core.validation.models import (
     AddressResolution,
-    DeviceProbeTarget,
     DeviceValidationReport,
-    PointProbeSpec,
     PointValidationResult,
     ValidationCode,
     ValidationSeverity,
 )
-from wind_hub_core.validation.network import ping_host, tcp_port_open
+from wind_hub_server.application.port.worker import CommanderPort
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +38,6 @@ class ValidationSummary:
 
     @property
     def error_count(self) -> int:
-        """ERROR 级设备结果数量。"""
         return sum(
             1
             for report in self.reports
@@ -54,13 +46,18 @@ class ValidationSummary:
 
 
 class ServerConfigValidator:
-    """Server 权威配置的主动现场验证器。"""
+    """通过 Commander 执行现场验证；Server 自身不连接 PLC。"""
 
-    def __init__(self, config_dir: str | Path) -> None:
+    def __init__(
+        self,
+        config_dir: str | Path,
+        commander: CommanderPort,
+    ) -> None:
         self._config_dir = Path(config_dir)
+        self._commander = commander
 
     async def validate_startup(self, config: Config) -> ValidationSummary:
-        """启动时验证全部已启用 Device，并安全修复一致的 ADS 地址。"""
+        """验证全部已启用设备，并在满足安全条件时修复 ADS 地址。"""
         return await self._validate(config, device_ids=None, allow_repair=True)
 
     async def validate_added_devices(
@@ -68,7 +65,7 @@ class ServerConfigValidator:
         config: Config,
         device_ids: set[str],
     ) -> ValidationSummary:
-        """reload 时只验证新增 Device；首次启用的 Point Table 可安全修正。"""
+        """Worker reload 成功后验证新增设备；不自动修复共享点表。"""
         if not device_ids:
             return ValidationSummary(reports=())
         return await self._validate(
@@ -90,57 +87,94 @@ class ServerConfigValidator:
             if device.enabled
             and (device_ids is None or device.device_id in device_ids)
         ]
-        if not devices:
-            return ValidationSummary(reports=())
-
-        if config.system.ads is not None and any(
-            device.protocol == "ads" for device in devices
-        ):
-            await ads_router.ensure_local_initialized(config.system.ads)
+        reports: list[DeviceValidationReport] = []
+        repairs: dict[str, dict[str, AddressResolution]] = {}
 
         grouped: dict[str, list[DeviceConfig]] = {}
         for device in devices:
             grouped.setdefault(device.point_table, []).append(device)
 
-        reports: list[DeviceValidationReport] = []
-        repairs: dict[str, dict[str, AddressResolution]] = {}
-
-        all_enabled = [device for device in config.devices.devices if device.enabled]
         for table_name, table_devices in grouped.items():
             table = config.point_tables.tables[table_name]
-            points = list(table.points)
+            table_reports: list[DeviceValidationReport] = []
+            canonical: dict[str, AddressResolution] | None = None
+            representative_id: str | None = None
 
-            table_allow_repair = allow_repair
-            if device_ids is not None and not table_allow_repair:
-                all_users = [
-                    device
-                    for device in all_enabled
-                    if device.point_table == table_name
-                ]
-                table_allow_repair = bool(all_users) and all(
-                    device.device_id in device_ids
-                    for device in all_users
+            for device in table_devices:
+                report, resolved = await self._validate_device(
+                    device,
+                    list(table.points),
                 )
+                table_reports.append(report)
+                if (
+                    table.protocol == "ads"
+                    and canonical is None
+                    and report.protocol_ok
+                    and report.points
+                    and all(point.readable for point in report.points)
+                    and resolved
+                ):
+                    canonical = resolved
+                    representative_id = device.device_id
 
-            if table.protocol == "ads":
-                table_reports, table_repairs = await self._validate_ads_table(
-                    table_name,
-                    table_devices,
-                    points,
-                    allow_repair=table_allow_repair,
+            if table.protocol == "ads" and canonical is not None:
+                mismatch = self._configured_mapping_mismatch(
+                    list(table.points),
+                    canonical,
                 )
-                reports.extend(table_reports)
-                if table_repairs:
-                    repairs[table_name] = table_repairs
-            else:
-                for device in table_devices:
-                    reports.append(
-                        await self._validate_generic_device(device, points)
-                    )
+                validation_complete = all(
+                    report.protocol_ok
+                    and report.points
+                    and all(point.readable for point in report.points)
+                    for report in table_reports
+                )
+                safe_to_repair = allow_repair and validation_complete
 
-        repaired_points = 0
-        if repairs:
-            repaired_points = self._repair_points_yaml(config, repairs)
+                if mismatch:
+                    table_repairs: dict[str, AddressResolution] = {}
+                    for point in table.points:
+                        resolved = canonical.get(point.point_id)
+                        if resolved is None:
+                            continue
+                        extra = point.address.model_extra or {}
+                        if (
+                            extra.get("index_group") == resolved.index_group
+                            and extra.get("index_offset") == resolved.index_offset
+                        ):
+                            continue
+                        logger.warning(
+                            (
+                                "ADS point address mismatch table=%s point=%s "
+                                "configured=(%s,%s) resolved=(%s,%s) "
+                                "representative=%s auto_repair=%s"
+                            ),
+                            table_name,
+                            point.point_id,
+                            extra.get("index_group"),
+                            extra.get("index_offset"),
+                            resolved.index_group,
+                            resolved.index_offset,
+                            representative_id,
+                            safe_to_repair,
+                        )
+                        if safe_to_repair:
+                            table_repairs[point.point_id] = resolved
+
+                    if table_repairs:
+                        repairs[table_name] = table_repairs
+                    if not safe_to_repair:
+                        table_reports = [
+                            self._mapping_mismatch(report)
+                            for report in table_reports
+                        ]
+
+            reports.extend(table_reports)
+
+        repaired_points = (
+            self._repair_points_yaml(config, repairs)
+            if repairs
+            else 0
+        )
 
         for report in reports:
             logger.log(
@@ -161,389 +195,194 @@ class ServerConfigValidator:
                 report.protocol_ok,
                 report.message,
             )
+
         return ValidationSummary(
             reports=tuple(reports),
             repaired_points=repaired_points,
         )
 
-    async def _validate_ads_table(
-        self,
-        table_name: str,
-        devices: list[DeviceConfig],
-        points: list[PointConfig],
-        *,
-        allow_repair: bool,
-    ) -> tuple[list[DeviceValidationReport], dict[str, AddressResolution]]:
-        """验证同一 ADS Point Table。
-
-        symbol -> index 地址只在一台代表设备上解析一次，得到 canonical
-        mapping；其余设备直接按该 mapping 做点读取验证，不重复 symbol lookup。
-        """
-        point_specs = [self._point_spec(point) for point in points]
-        reports: list[DeviceValidationReport] = []
-
-        configured = self._configured_resolutions(points)
-        canonical: dict[str, AddressResolution] | None = None
-        representative_id: str | None = None
-
-        if allow_repair or configured is None:
-            for device in devices:
-                report, resolved = await self._validate_ads_device(
-                    device,
-                    point_specs,
-                    resolutions=None,
-                )
-                reports.append(report)
-                if resolved is not None:
-                    canonical = resolved
-                    representative_id = device.device_id
-                    break
-            if canonical is None:
-                return reports, {}
-        else:
-            canonical = configured
-
-        validated_ids = {report.device_id for report in reports}
-        for device in devices:
-            if device.device_id in validated_ids:
-                continue
-            report, _ = await self._validate_ads_device(
-                device,
-                point_specs,
-                resolutions=canonical,
-            )
-            reports.append(report)
-
-        repairs: dict[str, AddressResolution] = {}
-        mismatch = self._configured_mapping_mismatch(points, canonical)
-        validation_complete = all(
-            report.protocol_ok
-            and all(point.readable for point in report.points)
-            for report in reports
-        )
-        safe_to_repair = allow_repair and validation_complete
-
-        if mismatch:
-            for point in points:
-                resolved = canonical.get(point.point_id)
-                if resolved is None:
-                    continue
-                extra = point.address.model_extra or {}
-                if (
-                    extra.get("index_group") == resolved.index_group
-                    and extra.get("index_offset") == resolved.index_offset
-                ):
-                    continue
-                logger.warning(
-                    (
-                        "ADS point address mismatch table=%s point=%s "
-                        "configured=(%s,%s) resolved=(%s,%s) representative=%s "
-                        "auto_repair=%s"
-                    ),
-                    table_name,
-                    point.point_id,
-                    extra.get("index_group"),
-                    extra.get("index_offset"),
-                    resolved.index_group,
-                    resolved.index_offset,
-                    representative_id,
-                    safe_to_repair,
-                )
-                if safe_to_repair:
-                    repairs[point.point_id] = resolved
-
-            if not safe_to_repair:
-                reports = [self._mapping_mismatch(report) for report in reports]
-
-        return reports, repairs
-
-    async def _validate_ads_device(
+    async def _validate_device(
         self,
         device: DeviceConfig,
-        points: list[PointProbeSpec],
-        *,
-        resolutions: dict[str, AddressResolution] | None,
-    ) -> tuple[DeviceValidationReport, dict[str, AddressResolution] | None]:
-        """分层验证单台 ADS Device。
-
-        resolutions 为 None 时，本设备作为代表设备执行一次 symbol 解析；
-        否则直接复用 Point Table canonical mapping，只做实际读取验证。
-        """
-        ping_ok = await ping_host(device.endpoint.host)
-        port_ok = await tcp_port_open(device.endpoint.host, device.endpoint.port)
-        if not port_ok:
-            return (
-                DeviceValidationReport(
-                    device_id=device.device_id,
-                    point_table=device.point_table,
-                    ping_ok=ping_ok,
-                    port_ok=False,
-                    protocol_ok=False,
-                    code=ValidationCode.TCP_PORT_UNREACHABLE,
-                    severity=ValidationSeverity.ERROR,
-                    message=f"TCP port {device.endpoint.port} unreachable",
-                ),
-                None,
-            )
-
-        target = DeviceProbeTarget(
-            device_id=device.device_id,
-            host=device.endpoint.host,
-            options=dict(device.endpoint.extensions),
-        )
-        probe = ADSProbe(target)
+        points: list[PointConfig],
+    ) -> tuple[DeviceValidationReport, dict[str, AddressResolution]]:
+        """通过 Commander 获取设备链路和整表在线验证事实。"""
         try:
-            await probe.connect()
+            device_result = await self._commander.verify_device(device.device_id)
         except Exception as exc:
-            await probe.close()
             return (
                 DeviceValidationReport(
                     device_id=device.device_id,
                     point_table=device.point_table,
-                    ping_ok=ping_ok,
-                    port_ok=True,
+                    ping_ok=False,
+                    port_ok=False,
                     protocol_ok=False,
                     code=ValidationCode.PROTOCOL_CONNECT_FAILED,
                     severity=ValidationSeverity.ERROR,
-                    message=str(exc),
+                    message=str(exc) or type(exc).__name__,
                 ),
-                None,
+                {},
             )
 
-        try:
-            actual = resolutions
-            if actual is None:
-                try:
-                    actual = await probe.resolve_points(points)
-                except Exception as exc:
-                    return (
-                        DeviceValidationReport(
-                            device_id=device.device_id,
-                            point_table=device.point_table,
-                            ping_ok=ping_ok,
-                            port_ok=True,
-                            protocol_ok=True,
-                            code=ValidationCode.POINT_RESOLVE_FAILED,
-                            severity=ValidationSeverity.ERROR,
-                            message=str(exc),
-                        ),
-                        None,
-                    )
+        stages = {
+            str(stage.get("name")): stage
+            for stage in list(device_result.get("stages") or [])
+            if isinstance(stage, dict)
+        }
+        ping_ok = bool((stages.get("network") or {}).get("ok"))
+        port_ok = bool((stages.get("transport") or {}).get("ok"))
+        protocol_ok = bool((stages.get("protocol") or {}).get("ok"))
 
-            readable = await probe.verify_read(points, actual)
-            point_results = tuple(
-                PointValidationResult(
-                    point_id=point.point_id,
-                    readable=point.point_id in readable,
-                    code=(
-                        ValidationCode.OK
-                        if point.point_id in readable
-                        else ValidationCode.POINT_READ_FAILED
-                    ),
-                    severity=(
-                        ValidationSeverity.INFO
-                        if point.point_id in readable
-                        else ValidationSeverity.ERROR
-                    ),
-                    resolved=actual.get(point.point_id),
+        if not port_ok or not protocol_ok:
+            if not port_ok:
+                code = ValidationCode.TCP_PORT_UNREACHABLE
+            else:
+                code = ValidationCode.PROTOCOL_CONNECT_FAILED
+            message = str(
+                (stages.get("transport") or stages.get("protocol") or {}).get(
+                    "message"
                 )
-                for point in points
-            )
-            failed = [item.point_id for item in point_results if not item.readable]
-            code = (
-                ValidationCode.POINT_READ_FAILED
-                if failed
-                else ValidationCode.PING_FAILED
-                if not ping_ok
-                else ValidationCode.OK
-            )
-            severity = (
-                ValidationSeverity.ERROR
-                if failed
-                else ValidationSeverity.WARNING
-                if not ping_ok
-                else ValidationSeverity.INFO
-            )
-            message = (
-                f"unreadable points: {failed}"
-                if failed
-                else "ping failed but TCP/ADS/point reads succeeded"
-                if not ping_ok
-                else ""
+                or ""
             )
             return (
                 DeviceValidationReport(
                     device_id=device.device_id,
                     point_table=device.point_table,
                     ping_ok=ping_ok,
-                    port_ok=True,
-                    protocol_ok=True,
+                    port_ok=port_ok,
+                    protocol_ok=protocol_ok,
                     code=code,
-                    severity=severity,
+                    severity=ValidationSeverity.ERROR,
                     message=message,
-                    points=point_results,
                 ),
-                actual,
-            )
-        finally:
-            await probe.close()
-
-    @staticmethod
-    def _configured_resolutions(
-        points: list[PointConfig],
-    ) -> dict[str, AddressResolution] | None:
-        """从 YAML resolved 点表提取完整 canonical index mapping。
-
-        任一点缺 index_group/index_offset 时返回 None，表示必须选代表设备
-        做一次 symbol resolution。
-        """
-        result: dict[str, AddressResolution] = {}
-        for point in points:
-            extra = point.address.model_extra or {}
-            index_group = extra.get("index_group")
-            index_offset = extra.get("index_offset")
-            if index_group is None or index_offset is None:
-                return None
-            symbol = extra.get("symbol")
-            result[point.point_id] = AddressResolution(
-                point_id=point.point_id,
-                symbol=str(symbol) if symbol is not None else None,
-                index_group=int(index_group),
-                index_offset=int(index_offset),
-                protocol_type=point.data_type,
-            )
-        return result
-
-    async def _validate_generic_device(
-        self,
-        device: DeviceConfig,
-        points: list[PointConfig],
-    ) -> DeviceValidationReport:
-        """验证 Modbus/IEC104 Device 的网络、协议和点可读性。"""
-        ping_ok = await ping_host(device.endpoint.host)
-        port_ok = await tcp_port_open(device.endpoint.host, device.endpoint.port)
-        if not port_ok:
-            return DeviceValidationReport(
-                device_id=device.device_id,
-                point_table=device.point_table,
-                ping_ok=ping_ok,
-                port_ok=False,
-                protocol_ok=False,
-                code=ValidationCode.TCP_PORT_UNREACHABLE,
-                severity=ValidationSeverity.ERROR,
-                message=f"TCP port {device.endpoint.port} unreachable",
+                {},
             )
 
-        driver = protocol_registry.create(device.protocol, device)
-        driver.set_points_mapping(points)
         try:
-            await driver.connect()
+            result = await self._commander.verify_points(device.device_id)
         except Exception as exc:
-            await driver.close()
-            return DeviceValidationReport(
-                device_id=device.device_id,
-                point_table=device.point_table,
-                ping_ok=ping_ok,
-                port_ok=True,
-                protocol_ok=False,
-                code=ValidationCode.PROTOCOL_CONNECT_FAILED,
-                severity=ValidationSeverity.ERROR,
-                message=str(exc),
-            )
-
-        try:
-            refs = [
-                PointRef(device_id=device.device_id, point_id=point.point_id)
-                for point in points
-            ]
-            try:
-                values = await driver.read(refs)
-            except Exception as exc:
-                return DeviceValidationReport(
+            return (
+                DeviceValidationReport(
                     device_id=device.device_id,
                     point_table=device.point_table,
                     ping_ok=ping_ok,
-                    port_ok=True,
-                    protocol_ok=True,
+                    port_ok=port_ok,
+                    protocol_ok=protocol_ok,
                     code=ValidationCode.POINT_READ_FAILED,
                     severity=ValidationSeverity.ERROR,
-                    message=str(exc),
-                    points=tuple(
-                        PointValidationResult(
-                            point_id=point.point_id,
-                            readable=False,
-                            code=ValidationCode.POINT_READ_FAILED,
-                            severity=ValidationSeverity.ERROR,
-                        )
-                        for point in points
-                    ),
-                )
+                    message=str(exc) or type(exc).__name__,
+                ),
+                {},
+            )
 
-            by_id = {value.point_id: value for value in values}
-            point_results = tuple(
+        point_rows = {
+            str(row.get("point_id")): row
+            for row in list(result.get("points") or [])
+            if isinstance(row, dict) and row.get("point_id") is not None
+        }
+        resolved: dict[str, AddressResolution] = {}
+        point_results: list[PointValidationResult] = []
+
+        for point in points:
+            row = point_rows.get(point.point_id, {})
+            readable = bool(row.get("readable") or row.get("ok"))
+            raw_resolved = row.get("resolved_address")
+            resolution = self._resolution_from_dict(
+                point,
+                raw_resolved if isinstance(raw_resolved, dict) else None,
+            )
+            if resolution is not None:
+                resolved[point.point_id] = resolution
+
+            point_results.append(
                 PointValidationResult(
                     point_id=point.point_id,
-                    readable=(
-                        point.point_id in by_id
-                        and by_id[point.point_id].quality == Quality.GOOD
-                    ),
+                    readable=readable,
                     code=(
                         ValidationCode.OK
-                        if point.point_id in by_id
-                        and by_id[point.point_id].quality == Quality.GOOD
+                        if readable
                         else ValidationCode.POINT_READ_FAILED
                     ),
                     severity=(
                         ValidationSeverity.INFO
-                        if point.point_id in by_id
-                        and by_id[point.point_id].quality is Quality.GOOD
+                        if readable
                         else ValidationSeverity.ERROR
                     ),
+                    message=str(row.get("error") or ""),
+                    resolved=resolution,
                 )
-                for point in points
             )
-            failed = [item.point_id for item in point_results if not item.readable]
-            return DeviceValidationReport(
+
+        failed = [row.point_id for row in point_results if not row.readable]
+        code = (
+            ValidationCode.POINT_READ_FAILED
+            if failed
+            else ValidationCode.PING_FAILED
+            if not ping_ok
+            else ValidationCode.OK
+        )
+        severity = (
+            ValidationSeverity.ERROR
+            if failed
+            else ValidationSeverity.WARNING
+            if not ping_ok
+            else ValidationSeverity.INFO
+        )
+        message = (
+            f"unreadable points: {failed}"
+            if failed
+            else "ping failed but TCP/protocol/point reads succeeded"
+            if not ping_ok
+            else ""
+        )
+        return (
+            DeviceValidationReport(
                 device_id=device.device_id,
                 point_table=device.point_table,
                 ping_ok=ping_ok,
-                port_ok=True,
-                protocol_ok=True,
-                code=(
-                    ValidationCode.POINT_READ_FAILED
-                    if failed
-                    else ValidationCode.PING_FAILED
-                    if not ping_ok
-                    else ValidationCode.OK
-                ),
-                severity=(
-                    ValidationSeverity.ERROR
-                    if failed
-                    else ValidationSeverity.WARNING
-                    if not ping_ok
-                    else ValidationSeverity.INFO
-                ),
-                message=(
-                    f"unreadable points: {failed}"
-                    if failed
-                    else "ping failed but TCP/protocol/point reads succeeded"
-                    if not ping_ok
-                    else ""
-                ),
-                points=point_results,
-            )
-        finally:
-            await driver.close()
+                port_ok=port_ok,
+                protocol_ok=protocol_ok,
+                code=code,
+                severity=severity,
+                message=message,
+                points=tuple(point_results),
+            ),
+            resolved,
+        )
 
     @staticmethod
-    def _point_spec(point: PointConfig) -> PointProbeSpec:
-        """把 Collector 配置模型转换为 common probe 输入。"""
-        return PointProbeSpec(
+    def _resolution_from_dict(
+        point: PointConfig,
+        raw: dict[str, Any] | None,
+    ) -> AddressResolution | None:
+        if raw is None:
+            return None
+        index_group = raw.get("index_group")
+        index_offset = raw.get("index_offset")
+        if index_group is None and index_offset is None:
+            return None
+        return AddressResolution(
             point_id=point.point_id,
-            data_type=point.data_type,
-            address=point.address.model_dump(
-                mode="python",
-                exclude_none=True,
+            symbol=(
+                str(raw.get("symbol"))
+                if raw.get("symbol") is not None
+                else None
+            ),
+            index_group=(
+                int(index_group)
+                if index_group is not None
+                else None
+            ),
+            index_offset=(
+                int(index_offset)
+                if index_offset is not None
+                else None
+            ),
+            size=int(raw["size"]) if raw.get("size") is not None else None,
+            protocol_type=(
+                str(raw.get("protocol_type"))
+                if raw.get("protocol_type") is not None
+                else point.data_type
             ),
         )
 

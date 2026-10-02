@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.model.health import HealthStatus
 
 if TYPE_CHECKING:
     from wind_hub.application.runtime.runtime import Runtime

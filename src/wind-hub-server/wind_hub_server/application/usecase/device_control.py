@@ -9,10 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from wind_hub_core.model.command import Command
 from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
-from wind_hub.application.usecase.command import CommandUseCase
-from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.domain.model.command import Command
+from wind_hub_server.application.port.worker import CommanderPort
 
 
 class DeviceCommandResult(BaseModel):
@@ -32,17 +31,15 @@ class DeviceCommandResult(BaseModel):
 
 
 class DeviceControlUseCase:
-    """CommandDispatcher 上层的设备控制业务闭环。"""
+    """通过独立 Commander 完成设备写入与回读闭环。"""
 
     def __init__(
         self,
-        command: CommandUseCase,
-        query: QueryUseCase,
+        commander: CommanderPort,
         latest: LatestPointStore,
         trend: TrendStore,
     ) -> None:
-        self._command = command
-        self._query = query
+        self._commander = commander
         self._latest = latest
         self._trend = trend
 
@@ -55,7 +52,7 @@ class DeviceControlUseCase:
         timeout: float = 5.0,
         command_id: str | None = None,
     ) -> DeviceCommandResult:
-        """写入设备；写成功后直接回读同一点并刷新 Data/Trend 缓存。"""
+        """写入设备；成功后经 Commander 即时回读同一点并刷新缓存。"""
         command = Command(
             command_id=command_id or str(uuid.uuid4()),
             device_id=device_id,
@@ -64,15 +61,16 @@ class DeviceControlUseCase:
             timeout=timeout,
         )
         started = time.monotonic()
-        result = await self._command.send(command)
+        result = await self._commander.write(command)
         latency_ms = (time.monotonic() - started) * 1000
         readback = None
         readback_timestamp = None
         readback_quality = None
         readback_error = None
+
         if result.success:
             try:
-                observed = await self._query.read_point(device_id, point_id)
+                observed = await self._commander.read_point(device_id, point_id)
             except Exception as exc:
                 readback_error = str(exc) or type(exc).__name__
             else:
@@ -81,6 +79,7 @@ class DeviceControlUseCase:
                 readback_quality = observed.quality.value
                 self._latest.put_batch([observed])
                 self._trend.append_batch([observed])
+
         return DeviceCommandResult(
             command_id=result.command_id,
             requested=value,

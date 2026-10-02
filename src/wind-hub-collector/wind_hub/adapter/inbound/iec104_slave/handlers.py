@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from wind_hub.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     DoublePoint,
@@ -33,9 +33,9 @@ from wind_hub.adapter.outbound.protocol.iec104.codec import (
     TypeID,
     from_datetime,
 )
-from wind_hub.domain.model.command import Command
-from wind_hub.domain.model.errors import ProtocolError
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.command import Command
+from wind_hub_core.model.errors import ProtocolError
+from wind_hub_core.model.point import PointValue, Quality
 
 # APDU 长度字段单字节，上限 253；ASDU 头 6 字节（TypeID 1 + VSQ 1 +
 # COT 1 + OA 1 + CA 2），因此单个 ASDU 的信息对象净荷最多 247 字节。

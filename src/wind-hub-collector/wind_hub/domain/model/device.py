@@ -1,28 +1,14 @@
-"""设备端点与只读运行状态领域模型。"""
+"""Collector 查询侧设备运行状态模型。
+
+静态设备端点已迁入 wind-hub-core；本模块只保留 Collector Runtime 派生的
+设备状态快照，不承载跨进程共享配置语义。
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from pydantic import BaseModel, Field
-
-
-class Endpoint(BaseModel):
-    """设备连接端点。
-
-    extensions 保存协议特有参数；Any 仅对应协议动态配置边界，具体 Driver 会将其
-    收敛为强类型协议配置。
-    """
-
-    host: str
-    """设备 IP 或主机名。"""
-
-    port: int
-    """协议连接端口。"""
-
-    extensions: dict[str, Any] = Field(default_factory=dict)
-    """协议扩展参数，例如 common_addr、unit_id、target_net_id。"""
+from pydantic import BaseModel
 
 
 class DeviceInfo(BaseModel):

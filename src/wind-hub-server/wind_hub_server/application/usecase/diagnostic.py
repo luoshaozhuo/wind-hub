@@ -7,11 +7,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from wind_hub_core.model.point import PointValue
 from wind_hub_server.application.operation import OperationManager, OperationRecord
-from wind_hub.application.runtime.runtime import Runtime
-from wind_hub_server.application.usecase.device_control import DeviceCommandResult, DeviceControlUseCase
-from wind_hub.application.usecase.query import QueryUseCase
-from wind_hub.domain.model.point import PointValue
+from wind_hub_server.application.port.worker import CommanderPort
+from wind_hub_server.application.usecase.config import ConfigUseCase
+from wind_hub_server.application.usecase.device_control import (
+    DeviceCommandResult,
+    DeviceControlUseCase,
+)
 from wind_hub_server.infra.network_probe import expand_network, ping_host, probe_port
 
 
@@ -28,18 +31,22 @@ class PortResult(BaseModel):
 
 
 class DiagnosticUseCase:
-    """Diagnostics 页的真实执行入口。"""
+    """Diagnostics 页执行入口。
+
+    Server 自己执行网络层 ping/port scan；所有协议级设备访问通过 Commander，
+    避免 Server/Collector 重复维护 PLC 会话。
+    """
 
     def __init__(
         self,
-        runtime: Runtime,
-        query: QueryUseCase,
+        commander: CommanderPort,
         control: DeviceControlUseCase,
+        config: ConfigUseCase,
         operations: OperationManager,
     ) -> None:
-        self._runtime = runtime
-        self._query = query
+        self._commander = commander
         self._control = control
+        self._config = config
         self._operations = operations
         self._background: set[asyncio.Task[None]] = set()
 
@@ -52,9 +59,14 @@ class DiagnosticUseCase:
         )
 
     async def ports(
-        self, host: str, ports: list[int], timeout: float = 1.0
+        self,
+        host: str,
+        ports: list[int],
+        timeout: float = 1.0,
     ) -> list[PortResult]:
-        results = await asyncio.gather(*(probe_port(host, port, timeout) for port in ports))
+        results = await asyncio.gather(
+            *(probe_port(host, port, timeout) for port in ports)
+        )
         return [
             PortResult(
                 port=result.port,
@@ -65,47 +77,74 @@ class DiagnosticUseCase:
         ]
 
     async def protocol_check(self, device_id: str) -> bool:
-        """确认已配置设备协议连接可用，必要时触发 Runtime 重连。"""
-        if device_id not in self._runtime.devices:
-            raise KeyError(device_id)
-        return await self._runtime.ensure_connected(device_id)
+        """由 Commander 验证网络/TCP/协议会话，返回协议阶段结果。"""
+        result = await self._commander.verify_device(device_id)
+        stages = result.get("stages") or []
+        for stage in stages:
+            if isinstance(stage, dict) and stage.get("name") == "protocol":
+                return bool(stage.get("ok"))
+        return bool(result.get("ok"))
 
     async def read(self, device_id: str, point_id: str) -> PointValue:
-        """直接读设备单点，绕过采集缓存。"""
-        return await self._query.read_point(device_id, point_id)
+        """通过 Commander 即时读取单点，绕过采集缓存。"""
+        return await self._commander.read_point(device_id, point_id)
 
     async def write(
-        self, device_id: str, point_id: str, value: Any
+        self,
+        device_id: str,
+        point_id: str,
+        value: Any,
     ) -> DeviceCommandResult:
         """诊断写复用正式 DeviceControlUseCase。"""
         return await self._control.send(device_id, point_id, value)
 
     def start_subnet_scan(
-        self, network: str, *, timeout: float = 0.5, ports: list[int] | None = None
+        self,
+        network: str,
+        *,
+        timeout: float = 0.5,
+        ports: list[int] | None = None,
     ) -> OperationRecord:
         """创建异步子网扫描 Operation。"""
         ips = expand_network(network)
-        operation = self._operations.create("diagnostics.subnet_scan", total=len(ips))
+        operation = self._operations.create(
+            "diagnostics.subnet_scan",
+            total=len(ips),
+        )
         task = asyncio.create_task(
-            self._scan_worker(operation.operation_id, ips, timeout, ports or [502, 2404, 48898])
+            self._scan_worker(
+                operation.operation_id,
+                ips,
+                timeout,
+                ports or [502, 2404, 48898],
+            )
         )
         self._background.add(task)
         task.add_done_callback(self._background.discard)
         return operation
 
     def start_point_table_test(self, device_id: str) -> OperationRecord:
-        """逐点真实读取当前设备点表，异步返回成功/失败明细。"""
-        device = self._runtime.devices.get(device_id)
+        """按当前 Server 配置取得点表，逐点通过 Commander 在线验证。"""
+        cfg = self._config.current_config
+        device = next(
+            (item for item in cfg.devices.devices if item.device_id == device_id),
+            None,
+        )
         if device is None:
             raise KeyError(device_id)
+        point_ids = [
+            point.point_id
+            for point in cfg.point_tables.tables[device.point_table].points
+        ]
         operation = self._operations.create(
-            "diagnostics.point_table", total=len(device.points)
+            "diagnostics.point_table",
+            total=len(point_ids),
         )
         task = asyncio.create_task(
             self._point_table_worker(
                 operation.operation_id,
                 device_id,
-                [point.point_id for point in device.points],
+                point_ids,
             )
         )
         self._background.add(task)
@@ -113,14 +152,29 @@ class DiagnosticUseCase:
         return operation
 
     async def _point_table_worker(
-        self, operation_id: str, device_id: str, point_ids: list[str]
+        self,
+        operation_id: str,
+        device_id: str,
+        point_ids: list[str],
     ) -> None:
         self._operations.mark_running(operation_id)
         rows: list[dict[str, object]] = []
         failures = 0
         for index, point_id in enumerate(point_ids, start=1):
             try:
-                value = await self._query.read_point(device_id, point_id)
+                result = await self._commander.verify_point(device_id, point_id)
+                success = bool(result.get("ok"))
+                if not success:
+                    failures += 1
+                rows.append(
+                    {
+                        "point_id": point_id,
+                        "success": success,
+                        "quality": result.get("quality"),
+                        "value": result.get("engineering_value"),
+                        "error": result.get("error"),
+                    }
+                )
             except Exception as exc:
                 failures += 1
                 rows.append(
@@ -130,16 +184,8 @@ class DiagnosticUseCase:
                         "error": str(exc) or type(exc).__name__,
                     }
                 )
-            else:
-                rows.append(
-                    {
-                        "point_id": point_id,
-                        "success": True,
-                        "quality": value.quality.value,
-                        "value": value.value,
-                    }
-                )
             self._operations.update_progress(operation_id, completed=index)
+
         result: dict[str, object] = {"points": rows, "failed": failures}
         if failures == 0:
             self._operations.succeed(operation_id, result)
@@ -154,7 +200,11 @@ class DiagnosticUseCase:
             )
 
     async def _scan_worker(
-        self, operation_id: str, ips: list[str], timeout: float, ports: list[int]
+        self,
+        operation_id: str,
+        ips: list[str],
+        timeout: float,
+        ports: list[int],
     ) -> None:
         self._operations.mark_running(operation_id)
         hosts: list[dict[str, object]] = []
@@ -166,19 +216,27 @@ class DiagnosticUseCase:
                 )
                 hosts.extend(row for row in rows if row is not None)
                 self._operations.update_progress(
-                    operation_id, completed=min(index + len(chunk), len(ips))
+                    operation_id,
+                    completed=min(index + len(chunk), len(ips)),
                 )
             self._operations.succeed(operation_id, {"hosts": hosts})
         except Exception as exc:
             self._operations.fail(
-                operation_id, code="DIAGNOSTIC_SCAN_FAILED", message=str(exc)
+                operation_id,
+                code="DIAGNOSTIC_SCAN_FAILED",
+                message=str(exc),
             )
 
     async def _scan_host(
-        self, host: str, timeout: float, ports: list[int]
+        self,
+        host: str,
+        timeout: float,
+        ports: list[int],
     ) -> dict[str, object] | None:
         ping = await ping_host(host, timeout)
-        probed = await asyncio.gather(*(probe_port(host, port, timeout) for port in ports))
+        probed = await asyncio.gather(
+            *(probe_port(host, port, timeout) for port in ports)
+        )
         open_ports = [row.port for row in probed if row.state == "open"]
         if not ping.reachable and not open_ports:
             return None

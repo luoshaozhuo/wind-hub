@@ -26,7 +26,7 @@ from wind_hub.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
 )
-from wind_hub.config.schema import CollectionTaskConfig
+from wind_hub_core.config.schema import CollectionTaskConfig
 
 
 class TaskDetail(BaseModel):

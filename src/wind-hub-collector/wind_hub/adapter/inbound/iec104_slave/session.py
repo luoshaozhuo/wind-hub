@@ -14,7 +14,7 @@ import asyncio
 import logging
 
 from wind_hub.adapter.inbound.iec104_slave.handlers import IEC104SlaveHandlers
-from wind_hub.adapter.outbound.protocol.iec104.codec import (
+from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
     IFrame,

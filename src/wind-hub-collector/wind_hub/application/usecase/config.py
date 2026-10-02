@@ -9,15 +9,17 @@ commit current config」的编排；具体的设备/sink 增删重建、Task Ins
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from uuid import uuid4
 from pathlib import Path
 
 from wind_hub.application.runtime.collector_identity import fingerprint_config_set
 from wind_hub.application.runtime.runtime import Runtime
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import Config
-from wind_hub.domain.model.reload import (
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import Config
+from wind_hub_core.model.reload import (
     ConfigDiff,
     DeviceDiff,
     ReloadResult,
@@ -151,6 +153,12 @@ class ConfigUseCase:
         self._config_dir = Path(config_dir)
         self._runtime = runtime
         self._config_hash = fingerprint_config_set(self._config_dir)
+        self._active_revision = "startup"
+        self._prepared_revision: str | None = None
+        self._prepared_config: Config | None = None
+        self._prepared_diff: ConfigDiff | None = None
+        self._prepared_hash: str | None = None
+        self._reload_lock = asyncio.Lock()
 
         # 初始快照必须由组合根注入（assemble 启动阶段的唯一一次
         # load_config 结果）——本类不自行加载，避免启动配置被重复加载、
@@ -172,62 +180,154 @@ class ConfigUseCase:
         """当前已提交配置快照对应的 YAML 指纹。"""
         return self._config_hash
 
-    async def reload(self) -> ReloadResult:
-        """执行一次增量热重载。
+    @property
+    def active_revision(self) -> str:
+        """返回当前已激活配置版本。"""
+        return self._active_revision
 
-        Returns:
-            ReloadResult，包含 diff、错误列表和耗时。
+    @property
+    def prepared_revision(self) -> str | None:
+        """返回当前已准备但尚未激活的配置版本。"""
+        return self._prepared_revision
 
-        Notes:
-            新 YAML 加载失败时不触碰 Runtime。Runtime.reconfigure 允许部分应用；
-            若返回错误，本用例不推进 current_config/config_hash 成功基线，
-            使同一 YAML 在下一次 reload 时可以继续重试未完成重构。
-        """
-        t0 = time.monotonic()
+    @property
+    def prepared_hash(self) -> str | None:
+        """返回当前已准备配置的指纹。"""
+        return self._prepared_hash
 
-        # 1. 先加载并完成 schema 校验；失败时不应用任何运行时变化。
-        try:
-            new_cfg = load_config(self._config_dir)
-        except Exception as exc:
-            logger.error("Reload aborted — config load failed: %s", exc)
+    async def prepare_config(
+        self,
+        revision_id: str,
+        expected_config_hash: str | None = None,
+        *,
+        force_reconfigure: bool = False,
+    ) -> ReloadResult:
+        """加载并校验候选配置，校验指纹后保存候选快照。"""
+        started = time.monotonic()
+        if not revision_id:
             return ReloadResult(
                 success=False,
                 diff=ConfigDiff(),
-                errors=[str(exc)],
-                duration_ms=(time.monotonic() - t0) * 1000,
+                errors=["revision_id must not be empty"],
+                duration_ms=(time.monotonic() - started) * 1000,
             )
 
-        # 2. 计算纯结构 diff。
-        diff = compute_diff(self._current, new_cfg)
-        if not diff.has_any_changes:
-            self._config_hash = fingerprint_config_set(self._config_dir)
-            logger.info("Reload: no changes detected")
+        try:
+            before_hash = fingerprint_config_set(self._config_dir)
+            candidate = load_config(self._config_dir)
+            candidate_hash = fingerprint_config_set(self._config_dir)
+            if before_hash != candidate_hash:
+                raise ValueError(
+                    "config changed while preparing: "
+                    f"before={before_hash} after={candidate_hash}"
+                )
+            if (
+                expected_config_hash is not None
+                and candidate_hash != expected_config_hash
+            ):
+                raise ValueError(
+                    "config hash mismatch: "
+                    f"expected={expected_config_hash} actual={candidate_hash}"
+                )
+        except Exception as exc:
+            logger.error("Prepare aborted — config load failed: %s", exc)
             return ReloadResult(
-                success=True,
-                diff=diff,
-                duration_ms=(time.monotonic() - t0) * 1000,
+                success=False,
+                diff=ConfigDiff(),
+                errors=[str(exc) or type(exc).__name__],
+                duration_ms=(time.monotonic() - started) * 1000,
             )
 
-        # 3. 全部运行时重构交给 Runtime（设备/sink/task 增删重建、点表
-        #    重注入的执行细节由 Runtime 负责，此处不直接调用任何组件操作）。
-        errors = await self._runtime.reconfigure(new_cfg, diff)
+        async with self._reload_lock:
+            diff = (
+                self._runtime.convergence_diff(candidate)
+                if force_reconfigure
+                else compute_diff(self._current, candidate)
+            )
+            self._prepared_revision = revision_id
+            self._prepared_config = candidate
+            self._prepared_diff = diff
+            self._prepared_hash = candidate_hash
 
-        duration_ms = (time.monotonic() - t0) * 1000
-        success = len(errors) == 0
-
-        # 4. 只有全部重构成功才推进成功基线。部分失败时保留旧基线，
-        #    下一次 reload 会重新生成同一 diff；Runtime 负责幂等重试。
-        if success:
-            self._current = new_cfg
-            self._config_hash = fingerprint_config_set(self._config_dir)
         logger.info(
-            "Reload %s in %.1f ms",
-            "succeeded" if success else "partially failed",
-            duration_ms,
+            "Prepared config revision=%s changed=%s force_reconfigure=%s",
+            revision_id,
+            diff.has_any_changes,
+            force_reconfigure,
         )
         return ReloadResult(
-            success=success,
+            success=True,
             diff=diff,
-            errors=errors,
-            duration_ms=duration_ms,
+            duration_ms=(time.monotonic() - started) * 1000,
         )
+
+    async def activate_config(self, revision_id: str) -> ReloadResult:
+        """激活已准备配置；仅此阶段执行 Runtime.reconfigure。"""
+        started = time.monotonic()
+
+        async with self._reload_lock:
+            if self._prepared_revision != revision_id:
+                return ReloadResult(
+                    success=False,
+                    diff=ConfigDiff(),
+                    errors=[
+                        "prepared revision mismatch: "
+                        f"expected={self._prepared_revision!r} requested={revision_id!r}"
+                    ],
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+            candidate = self._prepared_config
+            diff = self._prepared_diff
+            candidate_hash = self._prepared_hash
+
+            if candidate is None or diff is None or candidate_hash is None:
+                return ReloadResult(
+                    success=False,
+                    diff=ConfigDiff(),
+                    errors=["no prepared configuration"],
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+
+            if diff.has_any_changes:
+                errors = await self._runtime.reconfigure(candidate, diff)
+                if errors:
+                    return ReloadResult(
+                        success=False,
+                        diff=diff,
+                        errors=errors,
+                        duration_ms=(time.monotonic() - started) * 1000,
+                    )
+
+            self._current = candidate
+            self._config_hash = candidate_hash
+            self._active_revision = revision_id
+            self._prepared_revision = None
+            self._prepared_config = None
+            self._prepared_diff = None
+            self._prepared_hash = None
+
+        logger.info("Activated config revision=%s", revision_id)
+        return ReloadResult(
+            success=True,
+            diff=diff,
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+
+    async def abort_config(self, revision_id: str) -> bool:
+        """幂等清理指定 prepared revision，不修改当前 Runtime。"""
+        async with self._reload_lock:
+            if self._prepared_revision != revision_id:
+                return False
+            self._prepared_revision = None
+            self._prepared_config = None
+            self._prepared_diff = None
+            self._prepared_hash = None
+            return True
+
+    async def reload(self) -> ReloadResult:
+        """兼容旧调用：按 prepare → activate 完成一次增量热重载。"""
+        revision_id = uuid4().hex
+        prepared = await self.prepare_config(revision_id)
+        if not prepared.success:
+            return prepared
+        return await self.activate_config(revision_id)

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
-import wind_hub.adapter.outbound.protocol  # noqa: F401
+import wind_hub_core.protocol  # noqa: F401
 from wind_hub.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
@@ -32,22 +32,23 @@ from wind_hub.adapter.inbound.iec104_slave import (
 from wind_hub.application.command_dispatcher import CommandDispatcher
 from wind_hub.application.port.sink import SinkPort
 from wind_hub.application.runtime import Device, Runtime
+from wind_hub.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub.application.usecase.command import CommandUseCase
 from wind_hub.application.usecase.config import ConfigUseCase
 from wind_hub.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub.application.usecase.query import QueryUseCase
 from wind_hub.application.usecase.task import TaskUseCase
-from wind_hub.config.loader import load_config
-from wind_hub.config.schema import (
+from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.schema import (
     Config,
-    DeviceConfig,
     ReportingConfig,
     SinkConfig,
 )
+from wind_hub_core.config.schema import DeviceConfig
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.model.errors import ConfigError
-from wind_hub.domain.port.outbound import ProtocolPort
-from wind_hub.infra.protocol_registry import protocol_registry
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.protocol.port import ProtocolPort
+from wind_hub_core.protocol.registry import protocol_registry
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ class AssembledRuntime:
     query: QueryUseCase
     diagnostic: DiagnosticUseCase
     config: ConfigUseCase
+    metrics_state: CollectorMetricsState
     iec104_slave: IEC104SlaveServer | None = None
 
 
@@ -111,7 +113,6 @@ def assemble(
     for device_cfg in cfg.devices.devices:
         protocol = _create_protocol(device_cfg)
         points = cfg.points_for_device(device_cfg.device_id)
-        protocol.set_points_mapping(points)
         devices[device_cfg.device_id] = Device(
             config=device_cfg,
             points=points,
@@ -125,9 +126,11 @@ def assemble(
         default_timeout=cfg.system.runtime.write_timeout,
     )
 
+    metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(
         read_timeout=cfg.system.runtime.read_timeout,
     )
+    engine.add_observer(metrics_state.observe_points)
 
     runtime = Runtime(
         devices=devices,
@@ -138,6 +141,7 @@ def assemble(
         tasks={task.task_id: task for task in cfg.tasks.tasks},
         protocol_factory=_create_protocol,
         sink_factory=make_sink,
+        metrics_hook=metrics_state,
     )
 
     tasks = TaskUseCase(runtime)
@@ -165,6 +169,7 @@ def assemble(
         query=query,
         diagnostic=diagnostic,
         config=config,
+        metrics_state=metrics_state,
         iec104_slave=iec104_slave,
     )
 
@@ -204,7 +209,7 @@ async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
     ):
         return
 
-    from wind_hub.adapter.outbound.protocol.ads import router as ads_router
+    from wind_hub_core.protocol.ads import router as ads_router
 
     try:
         await ads_router.ensure_local_initialized(ads_cfg)

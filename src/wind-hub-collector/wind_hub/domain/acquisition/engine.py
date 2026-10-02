@@ -33,7 +33,7 @@ import logging
 from collections.abc import Callable
 from typing import Protocol
 
-from wind_hub.domain.model.point import PointRef, PointValue, Quality
+from wind_hub_core.model.point import PointRef, PointValue, Quality
 
 logger = logging.getLogger(__name__)
 

@@ -46,18 +46,18 @@ from wind_hub.application.runtime.task_instance import (
     TaskInstanceState,
     task_instance_id,
 )
-from wind_hub.config.schema import (
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
-    DeviceConfig,
-    PointConfig,
     RuntimeConfig,
     SinkConfig,
 )
+from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub.domain.acquisition.engine import AcquisitionEngine
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.model.reload import ConfigDiff
-from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, ProtocolPort
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 logger = logging.getLogger(__name__)
 
@@ -740,7 +740,6 @@ class Runtime:
             await self.rebuild_device(device_id, cfg, protocol, points)
             return
 
-        protocol.set_points_mapping(points)
         device = Device(config=cfg, points=points, protocol=protocol)
         self._devices[device_id] = device
         self._device_states[device_id] = DeviceRuntimeState()
@@ -817,7 +816,6 @@ class Runtime:
                     exc_info=True,
                 )
 
-        new_protocol.set_points_mapping(points)
         device = Device(config=new_cfg, points=points, protocol=new_protocol)
         self._devices[device_id] = device
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
@@ -964,6 +962,50 @@ class Runtime:
     # ------------------------------------------------------------------
     # 热重载编排（ConfigUseCase 的唯一入口）
     # ------------------------------------------------------------------
+
+    def convergence_diff(self, target: Config) -> ConfigDiff:
+        """基于真实 Runtime 注册表生成强制收敛 diff。
+
+        用于失败回滚或 revision reconciliation。它不依赖 ConfigUseCase 的
+        current_config 基线，而是按当前实际设备/Sink/Task 注册表与目标配置
+        生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
+        收敛到目标配置。
+        """
+        target_devices = {item.device_id: item for item in target.devices.devices}
+        actual_device_ids = set(self._devices)
+        target_device_ids = set(target_devices)
+        devices = DeviceDiff(
+            added=sorted(target_device_ids - actual_device_ids),
+            removed=sorted(actual_device_ids - target_device_ids),
+            updated=sorted(target_device_ids & actual_device_ids),
+        )
+
+        target_sinks = {item.name: item for item in target.system.sinks}
+        actual_sink_ids = set(self._sinks)
+        target_sink_ids = set(target_sinks)
+        sinks = SinkDiff(
+            added=sorted(target_sink_ids - actual_sink_ids),
+            removed=sorted(actual_sink_ids - target_sink_ids),
+            updated=sorted(target_sink_ids & actual_sink_ids),
+        )
+
+        target_task_ids = {item.task_id for item in target.tasks.tasks}
+        actual_task_ids = set(self._task_defs)
+        tasks = TaskDiff(
+            added=sorted(target_task_ids - actual_task_ids),
+            removed=sorted(actual_task_ids - target_task_ids),
+            updated=sorted(target_task_ids & actual_task_ids),
+        )
+
+        changed_tables = sorted(target.point_tables.tables)
+        return ConfigDiff(
+            devices=devices,
+            sinks=sinks,
+            tasks=tasks,
+            points_changed=bool(changed_tables),
+            point_tables_changed=changed_tables,
+            units_changed=True,
+        )
 
     async def reconfigure(self, new_config: Config, diff: ConfigDiff) -> list[str]:
         """按 diff 重构运行时——设备/sink/task 增删重建与点表重注入。

@@ -50,6 +50,6 @@ htmlcov/
 Thumbs.db
 
 # Project
+**/.state/
 **/node_modules/
 **/.vite/
-tests/test.env

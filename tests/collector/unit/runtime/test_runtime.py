@@ -39,7 +39,7 @@ from wind_hub.application.runtime.task_instance import (
     TaskInstanceState,
     task_instance_id,
 )
-from wind_hub.config.schema import (
+from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -57,10 +57,11 @@ from wind_hub.config.schema import (
     UnitsConfig,
 )
 from wind_hub.domain.acquisition import AcquisitionEngine
-from wind_hub.domain.model.device import Endpoint
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.model.reload import ConfigDiff, DeviceDiff, TaskDiff
-from wind_hub.domain.port.outbound import AcquisitionMode, HealthStatus, ProtocolPort
+from wind_hub_core.model.device import Endpoint
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, TaskDiff
+from wind_hub_core.model.health import HealthStatus
+from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 # ---------------------------------------------------------------------------
 # Helpers

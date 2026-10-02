@@ -1,13 +1,13 @@
 """Kafka 输出 sink —— 用 aiokafka 把点值批量投递到消息主题。
 
 实现 :class:`~wind_hub.application.port.sink.SinkPort` 的真实 Kafka 走向：把一批
-:class:`~wind_hub.domain.model.point.PointValue` 序列化成 UTF-8 的 JSON 消息，
+:class:`~wind_hub_core.model.point.PointValue` 序列化成 UTF-8 的 JSON 消息，
 经 ``aiokafka.AIOKafkaProducer`` 投递到 ``topic``；``key_field`` 指定后以点值该
 字段（``device_id`` / ``point_id`` / ``source``）作为消息 key 实现分区亲和，
 否则 key 置空（轮询分区）。
 
 参数在**构造时**校验（缺 ``bootstrap_servers`` / ``topic`` 抛
-:class:`~wind_hub.domain.model.errors.ConfigError`）；运行时状态由
+:class:`~wind_hub_core.model.errors.ConfigError`）；运行时状态由
 ``asyncio.Lock`` 保护，仅在调度器所属同一事件循环内被调用；投递失败抛
 :class:`~wind_hub.domain.model.errors.SinkError`，连续失败达到阈值后
 ``health()`` 报告 unhealthy（决策 6/8，复用 FileSink 模式）。
@@ -32,10 +32,11 @@ from typing import Any
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub.application.port.sink import SinkPort
-from wind_hub.config.schema import SinkConfig
-from wind_hub.domain.model.errors import ConfigError, SinkError
-from wind_hub.domain.model.point import PointValue
-from wind_hub.domain.port.outbound import HealthStatus
+from wind_hub_core.config.schema import SinkConfig
+from wind_hub.domain.model.errors import SinkError
+from wind_hub_core.model.errors import ConfigError
+from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.health import HealthStatus
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +58,9 @@ class KafkaSink(SinkPort):
     - ``compression_type``：可选，aiokafka 压缩类型（``gzip`` / ``snappy`` / ``lz4``
       / ``zstd``），默认不压缩。
     - ``acks``：生产者确认级别（``all`` / ``0`` / ``1``），默认 ``all``。
-    - ``batch_size``：生产者批大小（字节），默认 ``16384``，映射到 aiokafka
-      的 ``max_batch_size``。
+    - ``retries``：发送失败重试次数，默认 ``3``。
+    - ``batch_size``：生产者批大小（字节），默认 ``16384``。
     - ``linger_ms``：批收集等待时长（毫秒），默认 ``0``。
-
-    发送失败重试由 aiokafka 内部按 ``retry_backoff_ms`` / ``request_timeout_ms``
-    默认策略执行——aiokafka 生产者没有重试次数参数，故不提供 ``retries`` 配置。
     """
 
     def __init__(self, config: SinkConfig) -> None:
@@ -73,6 +71,7 @@ class KafkaSink(SinkPort):
         self._key_field = self._validate_key_field(params.get("key_field"))
         self._compression_type = self._optional_str(params, "compression_type")
         self._acks = self._str_or_int(params.get("acks", "all"), "acks")
+        self._retries = self._positive_int(params.get("retries", 3), "retries")
         self._batch_size = self._positive_int(params.get("batch_size", 16384), "batch_size")
         self._linger_ms = self._nonnegative_int(params.get("linger_ms", 0), "linger_ms")
 
@@ -146,7 +145,8 @@ class KafkaSink(SinkPort):
             producer = AIOKafkaProducer(
                 bootstrap_servers=self._bootstrap_servers,
                 acks=self._acks,
-                max_batch_size=self._batch_size,
+                retries=self._retries,
+                batch_size=self._batch_size,
                 linger_ms=self._linger_ms,
                 compression_type=self._compression_type,
             )

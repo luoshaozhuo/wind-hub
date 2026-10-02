@@ -8,10 +8,9 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
-from wind_hub.application.runtime.device import Device
-from wind_hub.application.runtime.runtime import Runtime
+from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub.domain.model.point import PointValue, Quality
+from wind_hub_core.model.point import PointValue, Quality
 
 
 class DeviceDataItem(BaseModel):
@@ -45,13 +44,13 @@ class DeviceDataUseCase:
 
     def __init__(
         self,
-        runtime: Runtime,
         config: ConfigUseCase,
+        commander: CommanderPort,
         latest: LatestPointStore,
         trend: TrendStore,
     ) -> None:
-        self._runtime = runtime
         self._config = config
+        self._commander = commander
         self._latest = latest
         self._trend = trend
 
@@ -63,18 +62,38 @@ class DeviceDataUseCase:
         point_group: str | None = None,
     ) -> list[DeviceDataItem]:
         """返回当前点表全部点，并合并缓存中的最近值。"""
-        device = self._device_or_raise(device_id)
-        latest = self._latest.list_device(device_id)
+        points = self._points_or_raise(device_id)
         query = (search or "").strip().lower()
+        selected = [
+            point
+            for point in points
+            if (not point_group or point_group in point.point_groups)
+            and (
+                not query
+                or any(
+                    query in str(value or "").lower()
+                    for value in (
+                        point.point_id,
+                        point.variable_name,
+                        point.description,
+                    )
+                )
+            )
+        ]
+        try:
+            observed = await self._commander.read_points(
+                device_id,
+                [point.point_id for point in selected],
+            )
+        except Exception:
+            observed = []
+        if observed:
+            self._latest.put_batch(observed)
+            self._trend.append_batch(observed)
+        latest = self._latest.list_device(device_id)
+
         rows: list[DeviceDataItem] = []
-        for point in device.points:
-            if point_group and point_group not in point.point_groups:
-                continue
-            if query and not any(
-                query in str(value or "").lower()
-                for value in (point.point_id, point.variable_name, point.description)
-            ):
-                continue
+        for point in selected:
             value = latest.get(point.point_id)
             rows.append(
                 DeviceDataItem(
@@ -102,12 +121,20 @@ class DeviceDataUseCase:
         limit_per_point: int = 600,
     ) -> list[TrendSeries]:
         """查询指定点的短期内存趋势。"""
-        device = self._device_or_raise(device_id)
-        definitions = {point.point_id: point for point in device.points}
+        points = self._points_or_raise(device_id)
+        definitions = {point.point_id: point for point in points}
         requested = list(dict.fromkeys(point_ids))
         unknown = [point_id for point_id in requested if point_id not in definitions]
         if unknown:
             raise KeyError(f"unknown points: {', '.join(unknown)}")
+        try:
+            observed = await self._commander.read_points(device_id, requested)
+        except Exception:
+            observed = []
+        if observed:
+            self._latest.put_batch(observed)
+            self._trend.append_batch(observed)
+
         since = datetime.now(UTC) - timedelta(seconds=window_seconds)
         values = self._trend.query(
             device_id,
@@ -126,12 +153,16 @@ class DeviceDataUseCase:
             for point_id in requested
         ]
 
-    def _device_or_raise(self, device_id: str) -> Device:
-        """取当前 Runtime Device；热重载后自动看到新对象。"""
-        device = self._runtime.devices.get(device_id)
+    def _points_or_raise(self, device_id: str):
+        """从当前配置快照返回设备绑定的 resolved 点表。"""
+        cfg = self._config.current_config
+        device = next(
+            (item for item in cfg.devices.devices if item.device_id == device_id),
+            None,
+        )
         if device is None:
             raise KeyError(device_id)
-        return device
+        return list(cfg.point_tables.tables[device.point_table].points)
 
     def _unit_symbol(self, unit_id: str) -> str:
         """由当前配置快照解析单位显示符号。"""
