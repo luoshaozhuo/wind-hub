@@ -34,7 +34,7 @@ class TestResolveDevices:
                 "point_table": "t1",
                 "read_mode": "sum",
                 "properties": {"rated_power_kw": 2000},
-                "connection_defaults": {"port": 48898, "twincat_version": "2"},
+                "connection_defaults": {"port": 801, "twincat_version": "2"},
             }
         )
         instances = _instances(
@@ -59,7 +59,7 @@ class TestResolveDevices:
         assert d.device_group == "turbine_ads"
         assert d.enabled is True
         assert d.endpoint.host == "192.168.52.101"
-        assert d.endpoint.port == 48898
+        assert d.endpoint.port == 801
         assert d.endpoint.extensions == {
             "twincat_version": "2",
             "target_net_id": "192.168.52.101.1.1",
@@ -112,7 +112,7 @@ class TestResolveDevices:
     def test_ads_read_mode_defaults_to_sum(self) -> None:
         models = _models(m1={"protocol": "ads", "point_table": "t1"})
         instances = _instances(
-            {"device_id": "d1", "model": "m1", "endpoint": {"host": "h", "port": 48898}}
+            {"device_id": "d1", "model": "m1", "endpoint": {"host": "h", "port": 801}}
         )
         assert resolve_devices(instances, models).devices[0].read_mode == "sum"
 
