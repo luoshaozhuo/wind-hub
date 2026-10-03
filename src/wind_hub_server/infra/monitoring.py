@@ -148,6 +148,7 @@ class MonitoringService:
         self._runtime_status: dict[str, object] = {}
         self._devices: list[dict[str, object]] = []
         self._sinks: list[dict[str, object]] = []
+        self._tasks: list[dict[str, object]] = []
         self._interval = interval
         max_samples = max(2, int(retention_days * 86400 / interval) + 2)
         self._history: deque[HostSnapshot] = deque(maxlen=max_samples)
@@ -182,6 +183,7 @@ class MonitoringService:
         metrics = snapshot.get("metrics")
         devices = snapshot.get("devices")
         sinks = snapshot.get("sinks")
+        tasks = snapshot.get("tasks")
         if not isinstance(status, dict):
             raise TypeError("collector snapshot runtime_status must be a mapping")
         if not isinstance(metrics, dict):
@@ -190,9 +192,12 @@ class MonitoringService:
             raise TypeError("collector snapshot devices must be a list")
         if not isinstance(sinks, list):
             raise TypeError("collector snapshot sinks must be a list")
+        if not isinstance(tasks, list):
+            raise TypeError("collector snapshot tasks must be a list")
         self._runtime_status = dict(status)
         self._devices = [dict(item) for item in devices if isinstance(item, dict)]
         self._sinks = [dict(item) for item in sinks if isinstance(item, dict)]
+        self._tasks = [dict(item) for item in tasks if isinstance(item, dict)]
         self._metrics.apply_remote(dict(metrics))
         return self.capture_now()
 
@@ -207,6 +212,10 @@ class MonitoringService:
     def sinks_snapshot(self) -> list[dict[str, object]]:
         """返回最近一次 Sink 运行态缓存。"""
         return [dict(item) for item in self._sinks]
+
+    def tasks_snapshot(self) -> list[dict[str, object]]:
+        """返回最近一次 Task 聚合运行态缓存。"""
+        return [dict(item) for item in self._tasks]
 
     def counters_snapshot(self) -> CounterSnapshot:
         """返回最近一次 Collector 累计计数快照。"""
