@@ -13,6 +13,20 @@ from wind_hub_collector.application.sink_export import ExportedSinkPointValue
 from wind_hub_core.config.sinks import ModbusSinkAddress
 
 
+MODBUS_WORD_WIDTH: dict[str, int] = {
+    "bool": 1,
+    "int8": 1,
+    "uint8": 1,
+    "int16": 1,
+    "uint16": 1,
+    "int32": 2,
+    "uint32": 2,
+    "float32": 2,
+    "int64": 4,
+    "uint64": 4,
+    "float64": 4,
+}
+
 _STRUCT_FORMAT: dict[str, str] = {
     "int16": "h",
     "uint16": "H",
@@ -115,4 +129,4 @@ def _encode_registers(
     return [int.from_bytes(word, byteorder="big") for word in words]
 
 
-__all__ = ["EncodedModbusValue", "encode_modbus_value"]
+__all__ = ["MODBUS_WORD_WIDTH", "EncodedModbusValue", "encode_modbus_value"]
