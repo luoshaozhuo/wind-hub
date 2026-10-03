@@ -128,14 +128,15 @@ def assemble_server(
         task_assignments,
         config,
     )
+    monitoring = MonitoringService(
+        collector_aggregate,
+        monitoring_metrics,
+    )
     worker_tasks = CollectorTaskUseCase(
         collector_directory,
         task_assignments,
         config,
-    )
-    monitoring = MonitoringService(
-        collector_aggregate,
-        monitoring_metrics,
+        monitoring,
     )
     devices = DeviceUseCase(monitoring, config)
     device_data = DeviceDataUseCase(
