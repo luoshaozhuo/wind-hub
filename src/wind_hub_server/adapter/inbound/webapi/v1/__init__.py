@@ -1,5 +1,5 @@
 """wind-hub Admin API v1。
 
-V1 是 wind-hub-admin 的稳定 HTTP 契约；旧根路径 API 暂时保留兼容，
-后续前端迁移完成后再单独决定弃用策略。
+管理 API 统一挂载在 /api/v1；HTTP DTO 与 application/domain 模型分离，
+不保留旧根路径兼容 API。
 """
