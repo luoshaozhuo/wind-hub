@@ -507,3 +507,22 @@ class TestTasksConfig:
     def test_unique_task_ids_ok(self) -> None:
         cfg = TasksConfig(tasks=[_task(task_id="t1"), _task(task_id="t2")])
         assert len(cfg.tasks) == 2
+
+
+def test_runtime_config_rejects_non_positive_limits() -> None:
+    for field in (
+        "queue_maxsize",
+        "shutdown_timeout",
+        "connect_timeout",
+        "read_timeout",
+        "write_timeout",
+    ):
+        with pytest.raises(ValueError):
+            RuntimeConfig(**{field: 0})
+
+
+def test_api_config_rejects_invalid_port() -> None:
+    with pytest.raises(ValueError):
+        ApiConfig(port=0)
+    with pytest.raises(ValueError):
+        ApiConfig(port=65536)
