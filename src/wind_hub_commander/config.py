@@ -94,17 +94,6 @@ def load_commander_config(config_dir: str | Path) -> CommanderConfig:
                 f"point table '{model.point_table}' protocol '{table.protocol}'"
             )
 
-    for device in devices.devices:
-        table = point_tables.tables.get(device.point_table)
-        if table is None:
-            raise ConfigError(
-                f"Device '{device.device_id}' references unknown point_table '{device.point_table}'"
-            )
-        if table.protocol != device.protocol:
-            raise ConfigError(
-                f"Device '{device.device_id}' protocol '{device.protocol}' does not match "
-                f"point table '{device.point_table}' protocol '{table.protocol}'"
-            )
 
     if connect_timeout <= 0:
         raise ConfigError("runtime.connect_timeout must be > 0")
