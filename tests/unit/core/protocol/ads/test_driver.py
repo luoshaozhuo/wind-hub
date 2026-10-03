@@ -23,7 +23,7 @@ def _make_device_config(**extensions: object) -> DeviceConfig:
         point_table="t1",
         endpoint=Endpoint(
             host="192.168.0.100",
-            port=48898,
+            port=801,
             extensions=dict(extensions),
         ),
         read_mode="sequential",
