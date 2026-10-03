@@ -16,6 +16,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 # 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
@@ -24,7 +25,6 @@ from wind_hub_collector.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
     IEC104SlaveServer,
-    SlaveBridge,
     build_data_type_mapping,
     build_ioa_mapping,
 )
@@ -236,16 +236,11 @@ def _build_iec104_slave(
     snapshot = DataSnapshot()
     ioa_mapping = build_ioa_mapping(reporting.reporting)
     data_type_mapping = build_data_type_mapping(reporting.reporting)
-    bridge = SlaveBridge(
-        snapshot,
-        ioa_mapping,
-    )
-    engine.add_observer(bridge.on_points_collected)
+    engine.add_observer(partial(snapshot.update, mapping=ioa_mapping))
 
     handlers = IEC104SlaveHandlers(
         snapshot=snapshot,
         data_type_mapping=data_type_mapping,
-        bridge=bridge,
         common_address=reporting.common_address,
         batch_size=reporting.batch_size,
     )

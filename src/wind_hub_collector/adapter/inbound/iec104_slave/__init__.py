@@ -5,7 +5,6 @@ Collector 仅把采集到的最新值通过 IEC 60870-5-104 暴露给调度主�
 wind-hub-commander 负责。
 """
 
-from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub_collector.adapter.inbound.iec104_slave.handlers import IEC104SlaveHandlers
 from wind_hub_collector.adapter.inbound.iec104_slave.mapping import (
@@ -19,7 +18,6 @@ __all__ = [
     "DataSnapshot",
     "build_ioa_mapping",
     "build_data_type_mapping",
-    "SlaveBridge",
     "IEC104SlaveHandlers",
     "IEC104SlaveSession",
     "IEC104SlaveServer",

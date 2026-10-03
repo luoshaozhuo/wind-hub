@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
     MAX_APDU_ASDU_BYTES,
@@ -60,14 +59,9 @@ def _make_handlers(
     reporting: list[ReportingPoint] | None = None,
 ) -> IEC104SlaveHandlers:
     reporting = reporting if reporting is not None else _reporting()
-    bridge = SlaveBridge(
-        snapshot=snapshot,
-        mapping=build_ioa_mapping(reporting),
-    )
     return IEC104SlaveHandlers(
         snapshot=snapshot,
         data_type_mapping=build_data_type_mapping(reporting),
-        bridge=bridge,
         common_address=1,
         batch_size=batch_size,
     )
@@ -153,24 +147,6 @@ class TestMapping:
     def test_data_type_mapping(self) -> None:
         m = build_data_type_mapping(_reporting())
         assert m[2001] == "M_SP_NA_1"
-
-# ---------------------------------------------------------------------------
-# bridge
-# ---------------------------------------------------------------------------
-
-
-class TestBridge:
-    async def test_on_points_collected_updates_snapshot(self) -> None:
-        snapshot = DataSnapshot()
-        bridge = SlaveBridge(
-            snapshot=snapshot,
-            mapping=build_ioa_mapping(_reporting()),
-        )
-        bridge.on_points_collected(
-            [PointValue(device_id="wtg-001", point_id="rotor.speed", value=1500.5)]
-        )
-        assert snapshot.get(1001).value == 1500.5  # type: ignore[union-attr]
-
 
 # ---------------------------------------------------------------------------
 # handlers

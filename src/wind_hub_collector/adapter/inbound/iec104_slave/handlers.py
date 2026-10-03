@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import Any, Protocol
-from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointValue, Quality
@@ -157,13 +156,11 @@ class IEC104SlaveHandlers:
         self,
         snapshot: DataSnapshot,
         data_type_mapping: dict[int, str],
-        bridge: SlaveBridge,
         common_address: int,
         batch_size: int,
     ) -> None:
         self._snapshot = snapshot
         self._data_type_mapping = data_type_mapping
-        self._bridge = bridge
         self._common_address = common_address
         self._batch_size = batch_size
 
