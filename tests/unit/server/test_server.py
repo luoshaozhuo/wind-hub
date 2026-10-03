@@ -4,6 +4,7 @@
 socket；覆盖 API Server 构造和 SIGHUP reload 委托，不能证明生产启动闭环。
 """
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -52,24 +53,24 @@ async def test_reload_once_delegates_to_config_use_case() -> None:
 
 
 async def test_wait_for_shutdown_returns_when_signal_arrives() -> None:
-    shutdown = __import__("asyncio").Event()
-    api_task = __import__("asyncio").create_task(__import__("asyncio").sleep(60))
+    shutdown = asyncio.Event()
+    api_task = asyncio.create_task(asyncio.sleep(60))
     shutdown.set()
 
     api_exited = await _wait_for_shutdown_or_api_exit(shutdown, api_task)
 
     assert api_exited is False
     api_task.cancel()
-    await __import__("asyncio").gather(api_task, return_exceptions=True)
+    await asyncio.gather(api_task, return_exceptions=True)
 
 
 async def test_wait_for_shutdown_detects_api_exit() -> None:
-    shutdown = __import__("asyncio").Event()
+    shutdown = asyncio.Event()
 
     async def finished() -> None:
         return None
 
-    api_task = __import__("asyncio").create_task(finished())
+    api_task = asyncio.create_task(finished())
 
     api_exited = await _wait_for_shutdown_or_api_exit(shutdown, api_task)
 
