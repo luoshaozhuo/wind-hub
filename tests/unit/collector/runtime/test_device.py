@@ -177,12 +177,19 @@ class TestPointSelection:
         assert [r.point_id for r in refs] == ["p1", "p2"]
         assert all(r.device_id == "d1" for r in refs)
 
+    def test_points_snapshot_is_immutable(self) -> None:
+        device = _make_device(_FakeProtocol(), [_point("p1", ("g",))])
+
+        assert device.points == (_point("p1", ("g",)),)
+        assert isinstance(device.points, tuple)
+
+
     def test_set_points_updates_table_and_reinjects_mapping(self) -> None:
         proto = _FakeProtocol()
         device = _make_device(proto)
         new_points = [_point("p9", ("g",))]
         device.set_points(new_points)
-        assert device.points == new_points
+        assert device.points == tuple(new_points)
         # 构造期已注入初始映射；set_points 必须再次注入新映射。
         assert proto.set_mapping_calls[-1] == new_points
         assert len(proto.set_mapping_calls) == 2
