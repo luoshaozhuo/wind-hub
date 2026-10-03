@@ -26,7 +26,6 @@ class SinkSnapshot(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     healthy: bool
     message: str | None = None
-    steps: list[dict[str, object]] = Field(default_factory=list)
     queue_depth: int = 0
 
 
@@ -36,6 +35,7 @@ class SinkTestResult(BaseModel):
     success: bool
     latency_ms: float
     message: str | None = None
+    steps: list[dict[str, object]] = Field(default_factory=list)
 
 
 class SinkUseCase:
@@ -112,6 +112,15 @@ class SinkUseCase:
         results = await asyncio.gather(
             *(self._collectors.get(worker_id).verify_sink(name) for worker_id in worker_ids)
         )
+        steps = [
+            {
+                "stage": "health",
+                "worker_id": worker_id,
+                "success": bool(result.get("success")),
+                "message": result.get("message"),
+            }
+            for worker_id, result in zip(worker_ids, results, strict=True)
+        ]
         return SinkTestResult(
             success=all(bool(result.get("success")) for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
@@ -123,6 +132,7 @@ class SinkUseCase:
                 ),
                 None,
             ),
+            steps=steps,
         )
 
     async def write_test(self, name: str) -> SinkTestResult:
@@ -142,6 +152,15 @@ class SinkUseCase:
                 for worker_id in worker_ids
             )
         )
+        steps = [
+            {
+                "stage": "write",
+                "worker_id": worker_id,
+                "success": bool(result.get("success")),
+                "message": result.get("message"),
+            }
+            for worker_id, result in zip(worker_ids, results, strict=True)
+        ]
         return SinkTestResult(
             success=all(bool(result.get("success")) for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
@@ -153,6 +172,7 @@ class SinkUseCase:
                 ),
                 None,
             ),
+            steps=steps,
         )
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
