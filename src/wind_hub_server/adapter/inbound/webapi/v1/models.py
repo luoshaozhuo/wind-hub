@@ -505,15 +505,6 @@ class AdminDeviceItemRequest(BaseModel):
     enabled: bool = True
 
 
-class AdminDevicesRequest(BaseModel):
-    items: list[AdminDeviceItemRequest]
-
-    @model_validator(mode="after")
-    def _unique_device_ids(self) -> AdminDevicesRequest:
-        _ensure_unique((item.device_id for item in self.items), "device_id")
-        return self
-
-
 class AdminTaskItemRequest(BaseModel):
     task_id: str
     device: str | None = None
@@ -524,20 +515,6 @@ class AdminTaskItemRequest(BaseModel):
     enabled: bool = True
 
 
-class AdminTasksRequest(BaseModel):
-    items: list[AdminTaskItemRequest]
-
-    @model_validator(mode="after")
-    def _validate_tasks(self) -> AdminTasksRequest:
-        _ensure_unique((item.task_id for item in self.items), "task_id")
-        for item in self.items:
-            if (item.device is None) == (item.device_group is None):
-                raise ValueError(
-                    f"task '{item.task_id}' requires exactly one of device/device_group"
-                )
-        return self
-
-
 class AdminSinkItemRequest(BaseModel):
     name: str
     type: str
@@ -545,16 +522,7 @@ class AdminSinkItemRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class AdminSinksRequest(BaseModel):
-    items: list[AdminSinkItemRequest]
-
-    @model_validator(mode="after")
-    def _unique_sink_names(self) -> AdminSinksRequest:
-        _ensure_unique((item.name for item in self.items), "sink name")
-        return self
-
-
-class AdminDefinitionsRequest(BaseModel):
+class AdminDefinitionsStateRequest(BaseModel):
     units: dict[str, dict[str, Any]]
     device_types: dict[str, dict[str, Any]]
     device_models: dict[str, dict[str, Any]]
@@ -579,11 +547,16 @@ class AdminStateRequest(BaseModel):
     devices: list[AdminDeviceItemRequest]
     tasks: list[AdminTaskItemRequest]
     sinks: list[AdminSinkItemRequest]
-    definitions: AdminDefinitionsRequest
+    definitions: AdminDefinitionsStateRequest
 
     @model_validator(mode="after")
     def _validate_state(self) -> AdminStateRequest:
-        AdminDevicesRequest(items=self.devices)
-        AdminTasksRequest(items=self.tasks)
-        AdminSinksRequest(items=self.sinks)
+        _ensure_unique((item.device_id for item in self.devices), "device_id")
+        _ensure_unique((item.task_id for item in self.tasks), "task_id")
+        _ensure_unique((item.name for item in self.sinks), "sink name")
+        for item in self.tasks:
+            if (item.device is None) == (item.device_group is None):
+                raise ValueError(
+                    f"task '{item.task_id}' requires exactly one of device/device_group"
+                )
         return self
