@@ -9,7 +9,6 @@ import shlex
 import subprocess
 import sys
 
-
 PROTECTED_BRANCHES = {"main", "master"}
 
 ALWAYS_DENIED = (

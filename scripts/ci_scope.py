@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 FRONTEND_PREFIX = "src/wind-hub-admin/"
 BACKEND_PREFIX = "src/wind_hub_"
 
@@ -188,11 +187,10 @@ def _frontend_fast_required(path: str) -> bool:
     if not path.startswith(FRONTEND_PREFIX):
         return False
 
-    if path.startswith("src/wind-hub-admin/tests/e2e/"):
-        return False
-    if path == "src/wind-hub-admin/playwright.config.ts":
-        return False
-    return True
+    return not (
+        path.startswith("src/wind-hub-admin/tests/e2e/")
+        or path == "src/wind-hub-admin/playwright.config.ts"
+    )
 
 
 def classify(paths: list[str]) -> dict[str, str]:
