@@ -7,8 +7,21 @@
       "Bash(git show *)",
       "Bash(git log *)",
       "Bash(git rev-parse *)",
+      "Bash(git branch --show-current)",
       "Bash(git ls-files *)",
       "Bash(git grep *)",
+      "Bash(git fetch *)",
+      "Bash(git switch -c *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh run view *)",
+      "Bash(python scripts/dev.py *)",
+      "Bash(python3 scripts/dev.py *)",
+      "Bash(python scripts/ci_gate.py *)",
+      "Bash(python3 scripts/ci_gate.py *)",
       "Bash(python -m py_compile *)",
       "Bash(python3 -m py_compile *)",
       "Bash(python -m compileall *)",
@@ -25,10 +38,7 @@
       "Bash(docker compose * config)",
       "Bash(docker compose * ps)",
       "Bash(docker compose * logs *)",
-      "Bash(command -v *)",
-      "Bash(bash -n build.sh)",
-      "Bash(bash -n package.sh)",
-      "Bash(bash -n setup_development.sh)"
+      "Bash(command -v *)"
     ],
     "deny": [
       "Read(./.env)",
@@ -40,7 +50,6 @@
       "Bash(rm -rf *)",
       "Bash(git reset --hard *)",
       "Bash(git clean *)",
-      "Bash(git push *)",
       "Bash(sudo *)",
       "Bash(chmod -R 777 *)"
     ]
@@ -50,6 +59,10 @@
       {
         "matcher": "Bash",
         "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/ai_shared/agent_config/hooks/git-safety-gate.py"
+          },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PROJECT_DIR}/ai_shared/agent_config/hooks/block-dangerous-bash.py"

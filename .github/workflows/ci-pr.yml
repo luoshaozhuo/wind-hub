@@ -1,16 +1,17 @@
 name: CI PR Gate
 
-# Gate 2（PR 门禁，对应《软件交付与CI质量门禁规范》§3）：
-#   integration（真实组件协作；Kafka/PostgreSQL 由 tests/fixtures/services
-#   的 session fixture 经 Compose 拉起，ubuntu-latest 自带 Docker）
-#   + system smoke（startup / e2e 关键链路）
-#   + 前端 Playwright E2E smoke。
-# Gate 1（ci-fast.yml）不在这里重复执行。
+# Gate 2 只验证产品代码 PR。
+# rules/docs/Agent/CI-tooling 等非产品代码变更不触发本 workflow。
 
 on:
   pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "configs/**"
+      - "pyproject.toml"
+      - "poetry.lock"
 
-# PR 更新后取消同一 PR 的过期验证，只验证最新 head SHA。
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -19,7 +20,31 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify product scope
+        id: classify
+        shell: bash
+        run: |
+          git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            > /tmp/changed-files.txt
+          python scripts/ci_scope.py \
+            --file-list /tmp/changed-files.txt \
+            --github-output "$GITHUB_OUTPUT"
+
   backend-integration:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,9 +60,11 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
       - name: Integration tests
-        run: python -m pytest tests/integration -q
+        run: python scripts/ci_gate.py pr --part backend-integration
 
   backend-system-smoke:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,17 +79,20 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: System smoke tests (startup + e2e)
-        run: python -m pytest tests/system/startup tests/system/e2e -q
+      - name: System smoke
+        run: python scripts/ci_gate.py pr --part backend-system
 
   frontend-e2e-smoke:
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/wind-hub-admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -70,8 +100,35 @@ jobs:
           cache: npm
           cache-dependency-path: src/wind-hub-admin/package-lock.json
       - name: Install dependencies
+        working-directory: src/wind-hub-admin
         run: npm ci
       - name: Install Playwright browser
+        working-directory: src/wind-hub-admin
         run: npx playwright install --with-deps chromium
       - name: Playwright e2e smoke
-        run: npm run test:e2e
+        run: python scripts/ci_gate.py pr --part frontend
+
+  ci-pr-gate:
+    if: always()
+    needs: [scope, backend-integration, backend-system-smoke, frontend-e2e-smoke]
+    runs-on: ubuntu-latest
+    env:
+      SCOPE_RESULT: ${{ needs.scope.result }}
+      INTEGRATION: ${{ needs.backend-integration.result }}
+      SYSTEM: ${{ needs.backend-system-smoke.result }}
+      FRONTEND: ${{ needs.frontend-e2e-smoke.result }}
+    steps:
+      - name: Final PR Gate
+        shell: bash
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "FAIL: product scope classification failed"
+            exit 1
+          fi
+          for result in "$INTEGRATION" "$SYSTEM" "$FRONTEND"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "FAIL: relevant PR Gate job failed"
+              exit 1
+            fi
+          done
+          echo "PASS"

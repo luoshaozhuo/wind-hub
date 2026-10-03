@@ -1,13 +1,7 @@
 name: Hardware Qualification Gate
 run-name: Hardware Qualification @ ${{ github.sha }}
 
-# 硬件资格门禁（手动触发）：真实 TwinCAT PLC 上的 ADS 验收。
-# 需要 self-hosted runner 位于 PLC 可达网络，并配置 secrets：
-#   ADS_HOST / ADS_NET_ID（必填）
-#   ADS_PORT / ADS_READ_SYMBOL / ADS_WRITE_SYMBOL /
-#   ADS_LOCAL_NET_ID / ADS_LOCAL_IP（可选）
-# 未配置 secrets 时测试整体 SKIPPED 并在摘要中明确标注
-# NOT EXECUTED——绝不以 mock 结果冒充硬件验收。
+# 真实 TwinCAT PLC ADS 资格验证。环境不可用时记录 NOT EXECUTED，绝不回退 mock。
 
 on:
   workflow_dispatch:
@@ -35,9 +29,9 @@ jobs:
         run: |
           {
             echo "### Hardware Qualification"
-            echo "- SHA: \`$GITHUB_SHA\`"
-            echo "- Run: \`$GITHUB_RUN_ID\`"
-            echo "- Runner: \`$RUNNER_NAME\`"
+            echo "- SHA: `$GITHUB_SHA`"
+            echo "- Run: `$GITHUB_RUN_ID`"
+            echo "- Runner: `$RUNNER_NAME`"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$WIND_HUB_TEST_ADS_HOST" ] || [ -z "$WIND_HUB_TEST_ADS_NET_ID" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -59,14 +53,12 @@ jobs:
       - name: ADS hardware tests
         id: ads-tests
         if: steps.preflight.outputs.available == 'true'
-        run: python -m pytest tests/integration/protocols/ads -q -m "hardware"
+        run: python scripts/ci_gate.py hardware
       - name: Final qualification status
         if: always()
         shell: bash
         run: |
           if [ "${{ steps.preflight.outputs.available }}" != "true" ]; then
-            # GitHub Actions 没有独立 NOT_EXECUTED job conclusion；用失败态阻止误判 PASS，
-            # 真实资格语义以 Step Summary 中的 NOT EXECUTED 为准。
             exit 1
           fi
           if [ "${{ steps.ads-tests.outcome }}" = "success" ]; then

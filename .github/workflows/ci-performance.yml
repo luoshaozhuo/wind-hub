@@ -1,22 +1,16 @@
 name: Performance Gate
 run-name: Performance ${{ inputs.mode }} @ ${{ github.sha }}
 
-# 性能资格通道（Gate 4 的一部分，《软件交付与CI质量门禁规范》§9）：
-# 三协议 × tc netem 场景压测，经 scripts/run_benchmark.py 执行。
-# 需要 root / CAP_NET_ADMIN（tc/ip 命令），普通 CI runner 无法执行——
-# 必须手动触发到具备网络命名空间权限的 self-hosted runner。
-# 权限不足时明确记录 NOT EXECUTED 并以退出码 78 标记，绝不以未执行冒充通过。
-
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 压测规模（quick = 3 场景 × 30s；full = 全矩阵约半小时）
+        description: 压测规模
         type: choice
         options: [quick, full]
         default: quick
       duration:
-        description: 单场景测量时长（秒，仅 full 模式之外的覆盖项）
+        description: 单场景测量时长（秒）
         required: false
         default: ''
 
@@ -35,10 +29,10 @@ jobs:
         run: |
           {
             echo "### Performance Qualification"
-            echo "- SHA: \`$GITHUB_SHA\`"
-            echo "- Run: \`$GITHUB_RUN_ID\`"
-            echo "- Runner: \`$RUNNER_NAME\`"
-            echo "- Mode: \`${{ inputs.mode }}\`"
+            echo "- SHA: `$GITHUB_SHA`"
+            echo "- Run: `$GITHUB_RUN_ID`"
+            echo "- Runner: `$RUNNER_NAME`"
+            echo "- Mode: `${{ inputs.mode }}`"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$(id -u)" != "0" ] && ! capsh --print 2>/dev/null | grep -q cap_net_admin; then
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -60,15 +54,13 @@ jobs:
       - name: Run benchmark
         id: benchmark
         if: steps.preflight.outputs.available == 'true'
+        shell: bash
         run: |
-          args=(--output "perf_report_${{ github.sha }}_${{ inputs.mode }}.md")
-          if [ "${{ inputs.mode }}" = "quick" ]; then
-            args+=(--quick)
-          fi
+          args=(performance --mode "${{ inputs.mode }}" --output "perf_report_${{ github.sha }}_${{ inputs.mode }}.md")
           if [ -n "${{ inputs.duration }}" ]; then
             args+=(--duration "${{ inputs.duration }}")
           fi
-          python scripts/run_benchmark.py "${args[@]}"
+          python scripts/ci_gate.py "${args[@]}"
       - name: Upload benchmark report
         id: upload
         if: always() && steps.preflight.outputs.available == 'true'

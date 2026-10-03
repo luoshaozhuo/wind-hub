@@ -1,113 +1,93 @@
-# 规则读取路由
+# Coding Agent 路由
 
-## 1. 所有 agent 必读
+本文件只决定当前任务读取哪些规则、是否进入产品代码 Gate，不重复其他规则内容。
+
+## 1. 默认入口
+
+所有仓库任务读取：
 
 ```text
+CLAUDE.md
 ai_shared/rules/routing.md
 ```
 
-## 2. code-implementer
+随后按任务最小读取。
 
-必须读取：
+## 2. 先分类变更范围
+
+以当前任务实际修改文件为准：
+
+| 范围 | 典型路径 | 验证 |
+|---|---|---|
+| 产品后端代码 | `src/`（非 admin）、`tests/`、`configs/`、`pyproject.toml`、`poetry.lock` | `local-fast-gate`；PR 前 `local-pr-gate` |
+| 前端产品代码 | `src/wind-hub-admin/` | Fast/PR Gate 的前端部分 |
+| CI / Agent 工具 | `scripts/`、`.github/`、Hook/adapter | 只验证修改工具自身；不自动跑产品测试 |
+| 规则 / Skill / 文档 | `ai_shared/`、`CLAUDE.md`、`AGENTS.md`、`docs/`、`README.md` | 引用、格式、结构检查；不跑产品代码 Gate |
+
+混合变更取并集：只有实际包含产品代码时才进入对应产品 Gate。
+
+## 3. 编码任务
+
+### 后端
+
+读取 `coding.md`；涉及测试设计再读 `testing.md`；涉及注释再读 `comments.md`。
+
+完成产品代码阶段后执行 `local-fast-gate`。
+
+### 前端
+
+读取：
 
 ```text
 ai_shared/rules/coding.md
-```
-
-必要时读取：
-
-```text
-ai_shared/rules/testing.md
-ai_shared/rules/validation-routing.md
-ai_shared/rules/quality-gate.md
-ai_shared/rules/python-docstring-cn.md
-ai_shared/rules/documentation.md
-ai_shared/rules/reporting.md
-```
-
-升级为“必要时读取”的典型触发：
-1. 修改 public interface、跨模块契约、schema、配置或环境变量契约。
-2. 涉及权限、审计、事务、并发、重试、租约、回滚等运行时语义。
-3. 用户显式要求执行 `/test`、`/validate`、`/test-all` 或质量检查。
-
-说明：`python-docstring-cn.md` 是历史文件名，当前语义为“通用注释与文档注释规则”，不再是 Python 专用规则。
-
-## 2a. 前端编码任务（涉及 Web UI 或设计系统修改）
-
-当任务涉及以下任一项时，优先适用本规则集：
-- 修改 `src/wind-hub-admin/` 下的代码；
-- 新增或修改 Web UI 页面、组件、样式或设计系统；
-- 修改 `.ts`、`.tsx`、`.vue`、`.css`、`.html` 等前端资源。
-
-必须读取（按此顺序）：
-
-```text
 ai_shared/rules/frontend.md
-ai_shared/rules/coding.md
 ```
 
-必要时读取：
+涉及测试设计再读 `testing.md`。完成产品代码阶段后执行对应 Fast Gate。
+
+### CI / Agent 工具
+
+只读取与该工具直接相关的规则和真实文件。验证限于修改对象自身，例如：
+
+- Python 工具：parse/compile + Ruff；
+- workflow：GitHub YAML/表达式结构与调用入口；
+- Hook：输入解析、允许/拒绝路径和最小行为检查。
+
+除非工具修改同时改变产品代码，否则不自动执行 pytest、前端 build、Playwright、integration/system。
+
+### 规则 / Skill / 文档
+
+规则体系修改使用 `rule-update`。不执行产品代码 Gate；只检查路径、引用、重复规则、失效文件和结构一致性。
+
+## 4. 生命周期节点
+
+| 场景 | Skill |
+|---|---|
+| 产品代码阶段完成 | `local-fast-gate` |
+| 含产品代码的 PR 准备合并 | `local-pr-gate` |
+| Release / tag | `local-release-gate` |
+| 硬件、性能、soak 资格验证 | `local-qualification` |
+| GitHub CI 失败且与本次变更相关 | `ci-fix-loop` |
+| rules / skills / hooks / agent 配置 | `rule-update` |
+
+## 5. CI 失败相关性
+
+CI 的运行状态与失败相关性是两个维度：
 
 ```text
-ai_shared/rules/testing.md
-ai_shared/rules/quality-gate.md
-ai_shared/rules/python-docstring-cn.md
-ai_shared/rules/validation-routing.md
-ai_shared/rules/documentation.md
+状态：PASS / FAIL / RUNNING / QUEUED / NOT_RUN / NOT_EXECUTED
+相关性：RELATED / UNRELATED / UNKNOWN
 ```
 
-说明：`frontend.md` 置于 `coding.md` 之前，使设计系统和 UI 原则优先于通用编码规则生效。
-前端任务若仅涉及文案、样式微调或局部 UI 排版，默认按轻量路径执行；命中上文“升级触发”再加载额外规则。
+处理规则：
 
-## 3. test-validator
+1. `RELATED`：本次变更涉及失败路径、依赖边界或执行入口；必须处理。
+2. `UNRELATED`：可证明为既有失败，或失败范围与本次修改无依赖关系；记录证据后忽略，不阻断当前任务。
+3. `UNKNOWN`：做最小定位；不能证明无关前不得擅自写成 `UNRELATED`。
+4. 禁止为了让无关 CI 变绿而扩大任务范围。
 
-必须读取：
+## 6. 最小上下文原则
 
-```text
-ai_shared/rules/testing.md
-ai_shared/rules/validation-routing.md
-ai_shared/rules/quality-gate.md
-ai_shared/rules/python-docstring-cn.md
-```
-
-必要时读取：
-
-```text
-ai_shared/rules/coding.md
-```
-
-## 4. project-steward
-
-必须读取：
-
-```text
-ai_shared/rules/documentation.md
-ai_shared/rules/reporting.md
-```
-
-如涉及规则更新，必须读取：
-
-```text
-ai_shared/rules/coding.md
-ai_shared/rules/python-docstring-cn.md
-ai_shared/rules/quality-gate.md
-ai_shared/rules/validation-routing.md
-```
-
-如涉及需求状态，必须结合 `requirement-trace` skill。
-如涉及 project_tree 更新，必须结合 `project-tree-update` skill。
-如涉及规则体系变化，必须结合 `rule-update` skill。
-
-说明：
-
-```text
-1. project_tree 读取是普通导航规则，不再单独设置 project-tree-read skill。
-2. 报告归档是 project-steward 常规职责，不再单独设置 report-archive skill。
-3. 用户反馈归档归入 reporting.md，不再设置 feedback-archive skill。
-```
-
-## 5. 上下文节省
-
-默认不读取全部项目说明、全部 reports、完整 project_tree 或全仓源码。
-
-`project_tree.md` 只用于导航，不能替代二次读取真实源码、测试、配置和 schema。
+1. 不预读全部 rules、docs、tests 或源码。
+2. Rule 管原则；Skill 管完整流程；Hook 管机械安全；CI 管独立环境验证。
+3. 同一规则只有一个权威来源。

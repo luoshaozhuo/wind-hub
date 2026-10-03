@@ -1,50 +1,61 @@
 # Claude Code / Codex 执行入口
 
-默认使用中文。Claude Code 与 Codex 是代码和仓库操作执行器，不主动扩展用户任务边界。
+默认使用中文。Claude Code 与 Codex 作为 VS Code 插件或其他入口运行时，共用本仓库规则、Skill 和环境检查。
 
 ## 1. 环境
 
-会话首次执行仓库命令前运行 `source .env.local`，确认 conda 环境为 `wind-hub`；否则停止。
+首次执行仓库任务前：
 
-## 2. 单一规则源与最小读取
+```bash
+python3 scripts/dev.py env
+```
 
-公共规则只维护在：
+前端产品任务再检查 frontend 工具链：
+
+```bash
+python3 scripts/dev.py env --frontend
+```
+
+本机工具路径配置在不入库的 `.agent/local.json`；不假设 VS Code 插件继承 shell 或 conda 环境。
+
+`.env.local` 只用于运行时、真实服务或测试参数，不负责 Python 环境；不得读取或输出敏感值。
+
+## 2. 规则入口
+
+公共治理只维护在：
 
 ```text
 ai_shared/rules/
-ai_shared/templates/
 ai_shared/agent_config/skills/
 ai_shared/agent_config/hooks/
 ```
 
-`.claude/`、`.codex/`、`.agents/` 仅是工具适配层。默认只读
-`ai_shared/rules/routing.md`、routing 指定规则、用户指定文件，以及当前任务涉及的真实源码、
-测试、配置和 schema。`ai_shared/memory/project_tree.md` 只用于导航。
-前端任务识别：修改范围若包含 `src/wind-hub-admin/` 或 `.ts/.tsx/.vue/.css/.html` 等前端文件，自动参考 routing.md 的“2a. 前端编码任务”分支，并默认优先走轻量路径；仅在命中升级触发条件时加载额外规则。
+`.claude/`、`.codex/`、`.agents/` 仅为适配层。
 
-## 3. 独立执行阶段
+任务开始读取 `ai_shared/rules/routing.md`，随后按 routing 最小读取。
 
-| 阶段 | 触发 | 范围与写入边界 |
-|---|---|---|
-| 编码 | 普通修改请求 | 修改实现；不自动运行测试、lint、type-check 或回归 |
-| 测试 | 用户显式 `/test` | staged diff 直接修改范围；可修改测试，原则上不改生产代码 |
-| 验证 | 用户显式 `/validate` | 从 staged diff 扩展到真实影响范围；只读 |
-| 全量测试 | 用户显式 `/test-all` | 当前完整工作区的常规检查；只读 |
+## 3. 开发生命周期
 
-Codex 对应使用 `$test`、`$validate`、`$test-all`。阶段互不自动串联，均由当前主会话直接执行。
+```text
+origin/main
+→ task branch
+→ 修改
+→ 按变更范围验证
+→ commit(s)
+→ push / PR
+→ scope-aware GitHub CI
+→ 仅处理 RELATED CI failure
+→ merge
+```
 
-`/test` 和 `/validate` 只以 `git diff --cached` 为变更起点：unstaged 与 untracked 不纳入范围；
-mixed 文件必须标记 `MIXED_INDEX_FILE`。检查命令仍运行在当前完整工作区，因此结果可能受 unstaged
-内容影响，报告必须披露。`/test-all` 不按 diff 裁剪；只有显式 `include-heavy` 才包含高成本项。
+产品代码默认进入 Local Fast Gate；含产品代码的 PR 进入 Local PR Gate。
 
-## 4. 不变量
+纯 CI/Agent 工具、rules、skills、docs、README 等非产品代码变更不运行产品代码 Gate，只做与修改对象直接相关的轻量验证。
 
-1. public interface 应有清晰类型、签名或 schema；复杂边界应有解释原因和风险的必要注释。
-2. 不允许无解释的类型/lint 抑制、裸 catch/except/rescue、静默吞异常或 fake OK。
-3. 不通过降低断言、删除测试或扩大 skip 制造通过。
-4. 检查结论必须来自真实命令、真实文件或明确 evidence。
-5. skipped、mock、fake、health check、脚本存在、局部 passed、environment-pending 均不能写成真实通过。
-6. 普通编码反馈不输出检查状态或例行检查命令。
-7. 不把工具或实验模块引入生产路径。
-8. 不自动执行 commit、push、reset、clean 或其他 Git/GitHub 写操作。
-9. 规则、需求、报告、独立文档（docs/、README 等）、project_tree 和 heavy regression 只在用户明确要求时更新或执行；不主动维护或编写文档。
+## 4. CI 失败
+
+CI 状态与失败相关性分开记录。可证明与本次变更无关的既有失败标记 `UNRELATED` 并忽略，不为了全绿扩大任务范围。证据不足时标记 `UNKNOWN`，只做最小诊断。
+
+## 5. Git
+
+不直接在 main 开发或 push；一个独立任务一个短分支；禁止 force push、覆盖用户修改和危险历史重写。

@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/ai_shared/agent_config/hooks/block-git-write-ops.py\"",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/ai_shared/agent_config/hooks/git-safety-gate.py\"",
             "timeout": 30,
-            "statusMessage": "Blocking Git/GitHub write operations"
+            "statusMessage": "Checking Git branch safety"
           },
           {
             "type": "command",

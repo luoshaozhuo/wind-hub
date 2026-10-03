@@ -60,7 +60,7 @@
 
 - Python 3.11+
 - Poetry（推荐）或 pip
-- conda（可选，用于环境隔离）
+- conda / venv（可选，用于环境隔离）
 
 ### 安装
 
@@ -72,30 +72,42 @@ poetry install --with dev --extras "modbus ads"
 pip install -e ".[modbus,ads]"
 ```
 
-### 环境变量
+### Coding Agent / VS Code 插件环境
 
-本地开发需准备 `.env.local`（本地文件，不进仓库）。从模板复制并激活：
+Codex、Claude Code 作为 VS Code 插件启动时，不假设它们继承某个交互式 shell 或
+conda 环境。需要固定本机工具路径时：
 
 ```bash
-cp .env.local.example .env.local
-conda activate wind-hub
-source .env.local
+cp .agent/local.example.json .agent/local.json
+# 按本机实际路径修改 .agent/local.json
+python3 scripts/dev.py env
+python3 scripts/dev.py env --frontend
 ```
 
-- `.env.local.example` 是提交到仓库的模板，含所有可配置项及注释说明；
-- `.env.local` 为本地实际值，已在 `.gitignore` 中排除，请勿提交。
+`.agent/local.json` 仅保存本机 Python / Node / npm 可执行文件路径，不进仓库。
+Agent 执行工具时统一通过：
+
+```bash
+python3 scripts/dev.py python -m pytest
+python3 scripts/dev.py python -m ruff check .
+python3 scripts/dev.py npm --prefix src/wind-hub-admin test
+```
+
+### 运行时环境变量
+
+`.env.local` 仅用于 wind-hub 运行时、真实服务或测试参数，不负责 Python
+解释器、conda/venv 激活或 Coding Agent 启动。仓库不要求 Coding Agent
+`source .env.local`。
+
+`.env.local.example` 是提交到仓库的运行时配置模板；`.env.local` 为本地实际值，
+已在 `.gitignore` 中排除。需要这些变量时，由实际运行入口（例如 VS Code launch、
+容器、服务管理器或人工 shell）显式注入。
 
 ## 快速开始
 
 ```bash
-# 校验配置（无副作用）——configs/ 下的 template / example_modbus /
-# example_ads 都是完整自包含的配置目录，可直接作为 --config 参数
 wind-hub validate --config configs/template
-
-# 前台启动引擎，SIGINT/SIGTERM 优雅停机
 wind-hub run --config configs/template
-
-# 仅查看 run 子命令参数
 wind-hub run --help
 ```
 
@@ -118,23 +130,14 @@ poetry run lint-imports
 
 ## 性能压测
 
-压测框架在 `tests/collector/perf/` 下：三个协议（Modbus / IEC104 / ADS）都用本地
-真实 server 跑完整链路，用 `tc netem` 在专用 veth pair（10.99.0.1 ↔
-10.99.0.2）上注入延迟/抖动/丢包/中断，输出 Markdown + JSON 报告
-（吞吐、P50/P95/P99 延迟、重连行为、CPU/内存/FD）。
-
-压测需要 **root**（tc/ip 命令），不进入 pytest 默认收集，统一经独立
-脚本触发：
+压测框架使用 `tc netem` 在专用网络环境注入延迟、抖动、丢包和中断，并输出
+Markdown + JSON 报告。压测需要 **root**，不进入 pytest 默认收集。
 
 ```bash
-# 快速冒烟（3 场景 × 30 秒，单协议）
-sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py \
-    --quick --protocol modbus
+PYTHON_BIN="$(python3 scripts/dev.py resolve python)"
 
-# 完整矩阵（3 协议 × 8 场景 × 60 秒 + 预热，约半小时）
-sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py
-
-# 可选参数：--duration / --warmup / --output
+sudo "$PYTHON_BIN" scripts/run_benchmark.py --quick --protocol modbus
+sudo "$PYTHON_BIN" scripts/run_benchmark.py
 ```
 
 说明：
@@ -142,7 +145,7 @@ sudo /home/luo/miniconda3/envs/wind-hub/bin/python scripts/run_benchmark.py
 - 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
 - Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
 - 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
-- 组件单元测试（全部 mock，不需要 root）在 `tests/collector/unit/perf/`。
+- 性能报告属于运行产物，不提交仓库。
 
 ## 许可证
 

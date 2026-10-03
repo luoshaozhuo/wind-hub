@@ -1,47 +1,24 @@
 ---
 name: rule-update
-description: Use when the user explicitly asks to update shared rules or when rules, agents, skills, hooks, or templates have a semantic conflict and the single rule source must be adjusted with minimal scope.
+description: Use when rules, skills, hooks or agent adapters must be changed while preserving one authoritative source and minimal governance surface.
 ---
 
-# rule-update
+# Rule Update
 
-## 1. 目的
+## 目的
 
-用户明确要求更新公共规则时，最小修改 `ai_shared/rules/` 和相关 skill/hook/template/工具适配配置。
+保持 Coding Agent 治理结构最小、无重复、无死引用。
 
-## 2. 触发条件
+## 原则
 
-必须使用：
-- 用户明确要求更新规则。
-- 当前任务明确指定规则体系变化。
-- 现有 rules / skills / hooks / templates / 工具适配配置出现语义冲突。
-- 某条规则从 skill 下沉为 rule，或某个 skill 被删除。
+1. Rule 管长期原则；Skill 管完整可执行流程；Hook 管确定性的机械安全限制；CI 管独立环境验证。
+2. 同一规则只有一个权威来源，其他位置只引用。
+3. 无独立闭环的 Skill 应合并或删除。
+4. 不创建不存在的 templates、memory/project_tree、reporting 或 requirement tracking 依赖。
+5. 工具适配层 `.claude/`、`.codex/`、`.agents/` 不复制业务规则。
+6. 删除或重命名文件前搜索全部引用并同步更新。
+7. 不为历史兼容保留无使用者的 wrapper。
 
-禁止使用：
-- 普通代码修改。
-- 只为单个任务临时增加约束。
+## 输出
 
-## 3. 操作步骤
-
-1. 读取受影响规则、skills、hooks、templates 和工具适配配置。
-2. 判断哪些内容应放在 rule，哪些保留为 skill。
-3. 删除或合并无独立闭环的 skill。
-4. 保持单一规则源。
-5. 多语言规则不得退化为 Python-only。
-6. 更新 routing、CLAUDE/AGENTS 和 prompt template；不得创建独立 agent 执行路径。
-7. 输出迁移说明和删除清单。
-
-## 4. 输出格式
-
-```text
-skill result:
-- skill: rule-update
-- rules changed:
-- independent agents removed:
-- skills kept:
-- skills removed:
-- hooks changed:
-- templates changed:
-- migration notes:
-- risk:
-```
+说明新增、删除、重命名和迁移风险即可，不维护额外治理报告。

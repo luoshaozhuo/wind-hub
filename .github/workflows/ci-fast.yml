@@ -1,19 +1,13 @@
 name: CI Fast (Commit Gate)
 
-# Gate 1（提交门禁，对应《软件交付与CI质量门禁规范》§2）：
-#   静态检查（ruff / mypy / import-linter）+ unit + component + contract
-#   + 前端 vitest + 前端类型检查/构建。
-# 任何 commit 进入 main 前必须通过；只跑无外部服务依赖的检查。
-# optional 协议/存储依赖（pymodbus/pyads/asyncpg/...）经 --all-extras 安装，
-# 保证干净 runner 上 collection 与测试不依赖开发机残留包。
+# 对所有 PR 保留稳定的 Gate 结论，但只有产品代码变更才运行产品检查。
+# rules/docs/Agent/CI-tooling 变更会得到 NOT_APPLICABLE，不安装产品依赖、不跑 pytest/前端 build。
 
 on:
   push:
     branches: [main]
   pull_request:
 
-# 同一分支/PR 只保留最新提交的快速验证，避免 coding agent 连续 push 时
-# 旧 SHA 继续占用 runner。每个 CI 结果仍必须按 head_sha 归属具体 commit。
 concurrency:
   group: ci-fast-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -22,7 +16,34 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      product: ${{ steps.classify.outputs.product }}
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify change scope
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          git diff --name-only "$base" "$head" > /tmp/changed-files.txt
+          python scripts/ci_scope.py             --file-list /tmp/changed-files.txt             --github-output "$GITHUB_OUTPUT"
+
   backend-static:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -37,14 +58,12 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Ruff
-        run: ruff check src tests scripts
-      - name: Mypy (strict)
-        run: mypy src
-      - name: Import contracts
-        run: lint-imports
+      - name: Fast backend static
+        run: python scripts/ci_gate.py fast --part backend-static
 
   backend-fast-tests:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -59,21 +78,20 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Unit tests
-        run: python -m pytest tests/unit -q
-      - name: Component tests
-        run: python -m pytest tests/component -q
-      - name: Contract tests
-        run: python -m pytest tests/contract -q
+      - name: Fast backend tests
+        run: python scripts/ci_gate.py fast --part backend-tests
 
   frontend-unit-and-build:
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/wind-hub-admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -81,8 +99,37 @@ jobs:
           cache: npm
           cache-dependency-path: src/wind-hub-admin/package-lock.json
       - name: Install dependencies
+        working-directory: src/wind-hub-admin
         run: npm ci
-      - name: Vitest
-        run: npm test
-      - name: Type check and build (vue-tsc + vite)
-        run: npm run build
+      - name: Fast frontend
+        run: python scripts/ci_gate.py fast --part frontend
+
+  ci-fast-gate:
+    if: always()
+    needs: [scope, backend-static, backend-fast-tests, frontend-unit-and-build]
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT: ${{ needs.scope.outputs.product }}
+      SCOPE_RESULT: ${{ needs.scope.result }}
+      BACKEND_STATIC: ${{ needs.backend-static.result }}
+      BACKEND_TESTS: ${{ needs.backend-fast-tests.result }}
+      FRONTEND: ${{ needs.frontend-unit-and-build.result }}
+    steps:
+      - name: Final Fast Gate
+        shell: bash
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "FAIL: change scope classification failed"
+            exit 1
+          fi
+          if [ "$PRODUCT" != "true" ]; then
+            echo "PASS: NOT_APPLICABLE — no product code changes"
+            exit 0
+          fi
+          for result in "$BACKEND_STATIC" "$BACKEND_TESTS" "$FRONTEND"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "FAIL: relevant Fast Gate job failed"
+              exit 1
+            fi
+          done
+          echo "PASS"
