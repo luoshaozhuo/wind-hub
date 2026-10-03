@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import queue
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -24,6 +25,10 @@ from typing import Any
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.ads.config import ADSConfig
 from wind_hub_core.protocol.ads.mapping import ADSPoint
+
+
+logger = logging.getLogger(__name__)
+_HEALTH_CHECK_INTERVAL = 1.0
 
 
 def _pyads() -> Any:
@@ -80,54 +85,59 @@ class ADSSubscription:
         # worker thread 只写线程安全队列；事件循环负责后续异步分发。
         self._queue: queue.Queue[PointValue] = queue.Queue()
         self._closed = False
+        self._lock = asyncio.Lock()
+        self._monitor_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
 
     async def subscribe(self, points: list[ADSPoint]) -> None:
-        """同步目标订阅集合，只增删差异项。
-
-        Args:
-            points: 已解析 index_group/index_offset 的目标 ADSPoint 列表。
-                未解析点不会注册 notification。
-        """
+        """同步目标订阅集合并确保 notification 健康监视运行。"""
         new_points = {ap.point_id: ap for ap in points if ap.address_resolved}
-        current = self._points
-
-        removed = [
-            point_id
-            for point_id, point in current.items()
-            if point_id not in new_points or new_points[point_id] != point
-        ]
-        added = [
-            point
-            for point_id, point in new_points.items()
-            if point_id not in current or current[point_id] != point
-        ]
-
-        if removed:
-            await self._unregister(removed)
-        if added:
-            await self._register(added)
-
-        self._points = new_points
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("ADS subscription is closed")
+            current = self._points
+            removed = [
+                point_id
+                for point_id, point in current.items()
+                if point_id not in new_points or new_points[point_id] != point
+            ]
+            added = [
+                point
+                for point_id, point in new_points.items()
+                if point_id not in current or current[point_id] != point
+            ]
+            if removed:
+                await self._unregister(removed)
+            if added:
+                await self._register(added)
+            self._points = new_points
+            if self._monitor_task is None or self._monitor_task.done():
+                self._monitor_task = asyncio.create_task(
+                    self._monitor_loop(),
+                    name=f"ads-subscription-monitor-{self._device_id}",
+                )
 
     async def unsubscribe_all(self) -> None:
         """注销当前实例的全部点订阅。"""
-        await self._unregister(list(self._points))
-        self._points = {}
+        async with self._lock:
+            await self._unregister(list(self._points))
+            self._points = {}
 
     async def close(self) -> None:
-        """注销全部 notification 并关闭 connection pool；重复释放异常被隔离。"""
+        """停止健康监视、注销全部 notification 并关闭 connection pool。"""
         self._closed = True
-        await self._unregister(list(self._points))
-        self._points = {}
-        for conn in self._connections:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(conn.close)
-        self._connections = []
-        self._loads = []
+        monitor, self._monitor_task = self._monitor_task, None
+        if monitor is not None and monitor is not asyncio.current_task():
+            monitor.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor
+        async with self._lock:
+            await self._unregister(list(self._points))
+            self._points = {}
+            await self._close_connections()
 
     # ------------------------------------------------------------------
     # connection pool 与 notification 注册
@@ -142,13 +152,72 @@ class ADSSubscription:
         return -1
 
     async def _create_connection(self) -> Any:
-        """在线程池中创建并打开新的 pyads connection。"""
+        """在线程池中创建并验证新的 pyads notification connection。"""
         pyads = _pyads()
         net_id = self._config.target_net_id or None
         conn = pyads.Connection(net_id, self._config.target_port, self._host)
         conn.set_timeout(int(self._config.timeout * 1000))
-        await asyncio.to_thread(conn.open)
+        try:
+            await asyncio.to_thread(conn.open)
+            if not conn.is_open:
+                raise ConnectionError(
+                    f"ADS notification connection is not open: {self._device_id}"
+                )
+            await asyncio.to_thread(conn.read_state)
+        except Exception:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(conn.close)
+            raise
         return conn
+
+    async def _close_connections(self) -> None:
+        """关闭整个 notification connection pool 并清空句柄簿记。"""
+        for conn in self._connections:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(conn.close)
+        self._connections = []
+        self._loads = []
+        self._handles = {}
+
+    async def _rebuild_pool(self) -> None:
+        """重建 connection pool，并按当前目标点重新注册全部 notification。"""
+        points = list(self._points.values())
+        await self._close_connections()
+        if points:
+            await self._register(points)
+
+    async def _monitor_loop(self) -> None:
+        """主动探测 notification connections；失效时重建并重新注册。"""
+        while not self._closed:
+            await asyncio.sleep(_HEALTH_CHECK_INTERVAL)
+            if self._closed:
+                return
+            try:
+                async with self._lock:
+                    for conn in self._connections:
+                        if not conn.is_open:
+                            raise ConnectionError("notification connection closed")
+                        await asyncio.to_thread(conn.read_state)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "ADS notification connection lost device=%s error=%s; rebuilding subscriptions",
+                    self._device_id,
+                    exc,
+                )
+                try:
+                    async with self._lock:
+                        if not self._closed:
+                            await self._rebuild_pool()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as rebuild_exc:
+                    logger.warning(
+                        "ADS notification rebuild failed device=%s error=%s",
+                        self._device_id,
+                        rebuild_exc,
+                    )
 
     async def _register(self, points: list[ADSPoint]) -> None:
         """按 index_group/index_offset 注册 notification，并管理连接容量。"""
