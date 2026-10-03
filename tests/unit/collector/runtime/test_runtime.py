@@ -30,7 +30,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Runtime
 from wind_hub_collector.application.runtime.device import Device
@@ -232,7 +231,6 @@ def _build_runtime(
         devices=device_map,
         sinks=sinks,
         engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 Runtime 依赖面
-        dispatcher=CommandDispatcher(device_map),
         config=_runtime_config(backpressure, queue_maxsize),
         tasks={t.task_id: t for t in tasks},
         protocol_factory=protocol_factory,
@@ -1110,7 +1108,6 @@ class TestSinkDispatch:
             devices=device_map,
             sinks=sinks,
             engine=engine,
-            dispatcher=CommandDispatcher(device_map),
             config=_runtime_config(),
             tasks={"t1": _make_task("t1", device="d1", interval=0.02, sinks=("s1", "s2"))},
         )
