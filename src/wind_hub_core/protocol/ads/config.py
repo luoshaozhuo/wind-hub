@@ -39,10 +39,7 @@ class ADSConfig:
     """指数退避等待时间上限，单位秒。"""
 
     twincat_version: str = "2"
-    """TwinCAT runtime 版本，仅允许 2 或 3。
-
-    未显式配置 target_port 时，该字段决定默认 AMS port；默认 2 以兼容现场老机组。
-    """
+    """TwinCAT runtime 版本，仅允许 2 或 3；用于配置/UI 语义，不替代 AMS port。"""
 
     read_mode: str = "sum"
     """批量读取策略：sum 使用 ADS Sum Read；sequential 逐点读取并限制并发。"""
@@ -102,12 +99,9 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
             f"ADS device '{cfg.device_id}': twincat_version must be '2' or '3', "
             f"got '{twincat_version}'"
         )
-    # 显式 target_port/ams_port 优先；否则按 TwinCAT 版本选择 801 或 851。
-    default_port = 851 if twincat_version == "3" else 801
-
     return ADSConfig(
         target_net_id=target_net_id,
-        target_port=int(ext.get("target_port", ext.get("ams_port", default_port))),
+        target_port=cfg.endpoint.port,
         timeout=float(ext.get("timeout", 5.0)),
         reconnect_max_retries=int(ext.get("reconnect_max_retries", 5)),
         reconnect_backoff_max=float(ext.get("reconnect_backoff_max", 30.0)),
