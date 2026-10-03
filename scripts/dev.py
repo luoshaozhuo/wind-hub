@@ -41,26 +41,38 @@ def _configured_value(config: dict[str, Any], section: str, key: str) -> str | N
     return value or None
 
 
-def _resolve_path(value: str) -> str:
+def _resolve_path(value: str) -> Path:
     """将本机配置路径解析为绝对路径。"""
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = REPO_ROOT / path
-    return str(path.resolve())
+    return path.resolve()
+
+
+def _configured_executable(config: dict[str, Any], section: str, key: str) -> str | None:
+    """仅在配置路径实际存在时使用本机覆盖。"""
+    configured = _configured_value(config, section, key)
+    if not configured:
+        return None
+    path = _resolve_path(configured)
+    return str(path) if path.is_file() else None
 
 
 def resolve_executable(kind: str) -> str:
-    """解析 Python、Node 或 npm 的实际可执行文件。"""
+    """解析 Python、Node 或 npm 的实际可执行文件。
+
+    local.json 只描述特定开发机的偏好路径；在 CI、容器或其他主机上该路径
+    不存在时自动回退到当前环境，避免把个人工作站路径传播成全局运行约束。
+    """
     config = _load_config()
 
     if kind == "python":
-        configured = _configured_value(config, "python", "executable")
-        return _resolve_path(configured) if configured else sys.executable
+        return _configured_executable(config, "python", "executable") or sys.executable
 
     if kind in {"node", "npm"}:
-        configured = _configured_value(config, "frontend", kind)
+        configured = _configured_executable(config, "frontend", kind)
         if configured:
-            return _resolve_path(configured)
+            return configured
         return shutil.which(kind) or kind
 
     raise ValueError(f"unsupported executable kind: {kind}")
