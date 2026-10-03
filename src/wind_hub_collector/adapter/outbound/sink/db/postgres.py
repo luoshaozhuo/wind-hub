@@ -36,7 +36,7 @@ from typing import Any
 import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import DatabaseSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -87,30 +87,17 @@ class DBSink(SinkPort):
     """
 
     def __init__(self, config: SinkConfig) -> None:
-        params = config.params
-
-        self._dsn = self._require_str(params, "dsn")
-        self._table = self._validate_table(self._require_str(params, "table"))
-        self._batch_size = self._positive_int(params.get("batch_size", 1000), "batch_size")
-        self._create_table = bool(params.get("create_table", False))
-        self._schema = self._build_schema(params.get("schema"))
-        self._pool_min_size = self._positive_int(params.get("pool_min_size", 1), "pool_min_size")
-        self._pool_max_size = self._positive_int(params.get("pool_max_size", 10), "pool_max_size")
-        if self._pool_min_size > self._pool_max_size:
-            raise ConfigError(
-                f"DBSink 'pool_min_size' ({self._pool_min_size}) must be <= "
-                f"'pool_max_size' ({self._pool_max_size})"
-            )
-        write_timeout = params.get("write_timeout", _DEFAULT_WRITE_TIMEOUT)
-        if isinstance(write_timeout, bool) or not isinstance(write_timeout, int | float):
-            raise ConfigError(
-                f"DBSink 'write_timeout' must be a positive number, got {write_timeout!r}"
-            )
-        if write_timeout <= 0:
-            raise ConfigError(f"DBSink 'write_timeout' must be > 0, got {write_timeout}")
-        self._write_timeout = float(write_timeout)
-
-        # 运行时状态 —— 由 `asyncio.Lock` 保护；连接池在 open 后创建。
+        connection = config.connection
+        if not isinstance(connection, DatabaseSinkConnection):
+            raise ConfigError("DBSink requires DatabaseSinkConnection")
+        self._dsn = connection.dsn
+        self._table = self._validate_table(connection.table)
+        self._batch_size = connection.batch_size
+        self._create_table = connection.create_table
+        self._schema = self._build_schema(connection.schema)
+        self._pool_min_size = connection.pool_min_size
+        self._pool_max_size = connection.pool_max_size
+        self._write_timeout = connection.write_timeout
         self._pool: Any = None
         self._lock = asyncio.Lock()
         self._healthy = True

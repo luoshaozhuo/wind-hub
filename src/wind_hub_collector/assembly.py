@@ -36,12 +36,8 @@ from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.schema import (
-    Config,
-    DeviceConfig,
-    ReportingConfig,
-    SinkConfig,
-)
+from wind_hub_core.config.schema import Config, DeviceConfig, ReportingConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.protocol.registry import protocol_registry
@@ -109,7 +105,7 @@ def assemble(
             protocol=protocol,
         )
 
-    sinks = {sink.name: make_sink(sink) for sink in cfg.system.sinks}
+    sinks = {sink.name: make_sink(sink) for sink in cfg.sinks.sinks if sink.enabled}
 
     metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(

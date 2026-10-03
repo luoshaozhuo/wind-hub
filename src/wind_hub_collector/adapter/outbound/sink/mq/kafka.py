@@ -32,7 +32,7 @@ from typing import Any
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import KafkaSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -66,71 +66,23 @@ class KafkaSink(SinkPort):
     """
 
     def __init__(self, config: SinkConfig) -> None:
-        params = config.params
-
-        self._bootstrap_servers = self._require_str(params, "bootstrap_servers")
-        self._topic = self._require_str(params, "topic")
-        self._key_field = self._validate_key_field(params.get("key_field"))
-        self._compression_type = self._optional_str(params, "compression_type")
-        self._acks = self._str_or_int(params.get("acks", "all"), "acks")
-        self._batch_size = self._positive_int(params.get("batch_size", 16384), "batch_size")
-        self._linger_ms = self._nonnegative_int(params.get("linger_ms", 0), "linger_ms")
-
-        # 运行时状态 —— 由 `asyncio.Lock` 保护；producer 在 open 后创建。
+        connection = config.connection
+        if not isinstance(connection, KafkaSinkConnection):
+            raise ConfigError("KafkaSink requires KafkaSinkConnection")
+        self._bootstrap_servers = connection.bootstrap_servers
+        self._topic = connection.topic
+        self._key_field = connection.key_field
+        self._compression_type = connection.compression_type
+        self._acks = connection.acks
+        self._batch_size = connection.batch_size
+        self._linger_ms = connection.linger_ms
         self._name = config.name
         self._producer: Any = None
-        # ``send()`` 返回的 broker-ack future 暂存于此：入队即返回的 send 不
-        # 暴露 broker 端失败，需在 write（收割已决项）/ flush（gather 全部）
-        # 时核对并累计失败计数（决策 3）。
         self._pending_futures: list[asyncio.Future[Any]] = []
         self._lock = asyncio.Lock()
         self._healthy = True
         self._error_message: str | None = None
         self._consecutive_failures = 0
-
-    # -- 参数校验 ---------------------------------------------------------
-
-    @staticmethod
-    def _require_str(params: dict[str, Any], field: str) -> str:
-        value = params.get(field)
-        if not isinstance(value, str) or not value:
-            raise ConfigError(f"KafkaSink '{field}' is required and must be a non-empty string")
-        return value
-
-    @staticmethod
-    def _optional_str(params: dict[str, Any], field: str) -> str | None:
-        value = params.get(field)
-        if value is None:
-            return None
-        if not isinstance(value, str) or not value:
-            raise ConfigError(f"KafkaSink '{field}' must be a non-empty string, got {value!r}")
-        return value
-
-    @staticmethod
-    def _str_or_int(value: object, field: str) -> str | int:
-        if not isinstance(value, str | int) or isinstance(value, bool):
-            raise ConfigError(f"KafkaSink '{field}' must be a string or integer, got {value!r}")
-        return value
-
-    @staticmethod
-    def _validate_key_field(value: object) -> str | None:
-        if value is None:
-            return None
-        if not isinstance(value, str) or value not in _KEY_FIELDS:
-            raise ConfigError(f"KafkaSink 'key_field' must be one of {_KEY_FIELDS}, got {value!r}")
-        return value
-
-    @staticmethod
-    def _positive_int(value: object, field: str) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"KafkaSink '{field}' must be a positive integer, got {value!r}")
-        return value
-
-    @staticmethod
-    def _nonnegative_int(value: object, field: str) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ConfigError(f"KafkaSink '{field}' must be a non-negative integer, got {value!r}")
-        return value
 
     # -- SinkPort 契约 ----------------------------------------------------
 

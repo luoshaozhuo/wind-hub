@@ -51,13 +51,24 @@ class FileSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
     format: Literal["jsonl", "csv"] = "jsonl"
+    max_size_mb: float | None = Field(default=None, gt=0)
+    max_age_hours: float | None = Field(default=None, gt=0)
     compress: bool = False
+    compress_level: int = Field(default=6, ge=1, le=9)
+    buffer_size: int = Field(default=100, ge=1)
+    flush_interval: float = Field(default=1.0, ge=0)
+    write_header: bool = True
 
 
 class KafkaSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bootstrap_servers: str | list[str]
     topic: str
+    key_field: Literal["device_id", "point_id", "source"] | None = None
+    compression_type: Literal["gzip", "snappy", "lz4", "zstd"] | None = None
+    acks: Literal["all", 0, 1] = "all"
+    batch_size: int = Field(default=16384, ge=1)
+    linger_ms: int = Field(default=0, ge=0)
 
 
 class DatabaseSinkConnection(BaseModel):
@@ -65,6 +76,17 @@ class DatabaseSinkConnection(BaseModel):
     dsn: str
     table: str
     batch_size: int = Field(default=1000, ge=1)
+    create_table: bool = False
+    schema: dict[str, str] | None = None
+    pool_min_size: int = Field(default=1, ge=1)
+    pool_max_size: int = Field(default=10, ge=1)
+    write_timeout: float = Field(default=5.0, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_pool_sizes(self) -> "DatabaseSinkConnection":
+        if self.pool_min_size > self.pool_max_size:
+            raise ConfigError("Database sink pool_min_size must be <= pool_max_size")
+        return self
 
 
 class IEC104SinkConnection(BaseModel):

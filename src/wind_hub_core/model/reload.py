@@ -64,9 +64,6 @@ class ConfigDiff(BaseModel):
     sinks: SinkDiff = Field(default_factory=SinkDiff)
     """Sink 级变化。"""
 
-    sink_contracts: SinkDiff = Field(default_factory=SinkDiff)
-    """sinks.yaml 统一外部接口契约变化；Phase 1 仅用于配置事务与审计。"""
-
     tasks: TaskDiff = Field(default_factory=TaskDiff)
     """采集 Task 定义级变化——Runtime 据此重新展开 Task Instance。"""
 
@@ -90,9 +87,6 @@ class ConfigDiff(BaseModel):
             or self.sinks.added
             or self.sinks.removed
             or self.sinks.updated
-            or self.sink_contracts.added
-            or self.sink_contracts.removed
-            or self.sink_contracts.updated
             or self.tasks.added
             or self.tasks.removed
             or self.tasks.updated

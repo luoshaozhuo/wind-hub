@@ -44,13 +44,13 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
     PointConfig,
     RuntimeConfig,
-    SinkConfig,
 )
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -975,7 +975,7 @@ class Runtime:
             updated=sorted(target_device_ids & actual_device_ids),
         )
 
-        target_sinks = {item.name: item for item in target.system.sinks}
+        target_sinks = {item.name: item for item in target.sinks.sinks}
         actual_sink_ids = set(self._sinks)
         target_sink_ids = set(target_sinks)
         sinks = SinkDiff(
@@ -1178,7 +1178,7 @@ class Runtime:
         factory = self._sink_factory
         if factory is None and (diff.sinks.added or diff.sinks.updated):
             raise RuntimeError("sink factory is not wired into Runtime")
-        new_sinks = {s.name: s for s in new_cfg.system.sinks}
+        new_sinks = {s.name: s for s in new_cfg.sinks.sinks}
 
         for name in diff.sinks.removed:
             await self.remove_sink(name)

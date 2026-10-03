@@ -595,24 +595,6 @@ class RuntimeConfig(BaseModel):
         return self
 
 
-class SinkConfig(BaseModel):
-    """单个数据 Sink 定义。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    """Sink 唯一名称，由 TaskTarget.sink 引用。"""
-
-    type: str
-    """Sink 类型：kafka、file 或 db。"""
-
-    enabled: bool = True
-    """是否启用该 Sink。"""
-
-    params: dict[str, Any] = Field(default_factory=dict)
-    """Sink 实现特有参数；动态字段由对应 adapter 创建时校验。"""
-
-
 class ApiConfig(BaseModel):
     """Server HTTP API 入站设置。"""
 
@@ -641,15 +623,7 @@ class SystemConfig(BaseModel):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     ads: ADSSystemConfig | None = None
     """进程级 ADS 本机配置；为 ``None`` 时（或无 ADS 设备）不做 ADS 本机初始化。"""
-    sinks: list[SinkConfig] = Field(default_factory=list)
     interfaces: InterfaceConfig = Field(default_factory=InterfaceConfig)
-
-    @model_validator(mode="after")
-    def _validate_sinks(self) -> SystemConfig:
-        sink_names = [s.name for s in self.sinks]
-        if len(sink_names) != len(set(sink_names)):
-            raise ConfigError(f"Duplicate sink names: {sink_names}")
-        return self
 
 
 # ---------------------------------------------------------------------------
@@ -855,8 +829,8 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: SystemConfig
-    sinks: SinksConfig = Field(default_factory=SinksConfig)
-    """sinks.yaml 的统一外部接口契约；Phase 1 不改变旧 Runtime Sink 来源。"""
+    sinks: SinksConfig
+    """sinks.yaml 的统一 Sink 定义，是 Runtime 与外部接口契约的唯一来源。"""
     units: UnitsConfig
     """单位定义集（``units.yaml``）——``PointConfig.unit`` 引用的 unit ID
     命名空间；展示层经 ``units[unit_id].symbol`` 取显示符号。"""
@@ -916,7 +890,6 @@ __all__ = [
     "ResolvedPointTable",
     "ResolvedPointTables",
     "RuntimeConfig",
-    "SinkConfig",
     "SinksConfig",
     "ApiConfig",
     "InterfaceConfig",

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Protocol
 
 from wind_hub_core.model.errors import ConfigError
 
@@ -86,34 +86,18 @@ class NoRotation:
         return timestamp.strftime("%Y%m%d_%H%M%S_%f")
 
 
-def build_rotation(params: dict[str, Any]) -> RotationPolicy:
-    """从 ``SinkConfig.params`` 构建滚动策略。
-
-    ``max_size_mb`` / ``max_age_hours`` 任一为正值都参与滚动；都为 ``None``
-    （或未设置）时返回 :class:`NoRotation`。数值校验沿用 ``FileSink`` 的
-    规则：必须是正数，否则抛 :class:`ConfigError`。
-    """
-    max_size_mb = params.get("max_size_mb")
-    max_age_hours = params.get("max_age_hours")
-
-    if max_size_mb is not None:
-        _validate_positive(max_size_mb, "max_size_mb")
-    if max_age_hours is not None:
-        _validate_positive(max_age_hours, "max_age_hours")
-
+def build_rotation(
+    max_size_mb: float | None,
+    max_age_hours: float | None,
+) -> RotationPolicy:
+    """由已校验的强类型配置构建滚动策略。"""
     policies: list[RotationPolicy] = []
     if max_size_mb is not None:
-        policies.append(SizeRotation(float(max_size_mb)))
+        policies.append(SizeRotation(max_size_mb))
     if max_age_hours is not None:
-        policies.append(TimeRotation(float(max_age_hours)))
-
+        policies.append(TimeRotation(max_age_hours))
     if not policies:
         return NoRotation()
     if len(policies) == 1:
         return policies[0]
     return CompositeRotation(policies)
-
-
-def _validate_positive(value: Any, field: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
-        raise ConfigError(f"FileSink '{field}' must be a positive number, got {value!r}")

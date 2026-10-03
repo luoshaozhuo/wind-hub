@@ -24,7 +24,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
 from wind_hub_collector.adapter.outbound.sink.file.compression import (
     Compressor,
@@ -33,7 +33,7 @@ from wind_hub_collector.adapter.outbound.sink.file.compression import (
 )
 from wind_hub_collector.adapter.outbound.sink.file.rotation import build_rotation
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import FileSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -64,27 +64,20 @@ class FileSink(SinkPort):
     """
 
     def __init__(self, config: SinkConfig) -> None:
-        params = config.params
-
-        path = params.get("path")
-        if not isinstance(path, str) or not path:
-            raise ConfigError("FileSink 'path' is required and must be a non-empty string")
-        self._path = Path(path)
-
-        fmt = params.get("format", "jsonl")
-        if fmt not in ("csv", "jsonl"):
-            raise ConfigError(f"FileSink 'format' must be 'csv' or 'jsonl', got {fmt!r}")
-        self._format = fmt
-
-        self._rotation = build_rotation(params)
-        self._buffer_size = self._positive_int(params.get("buffer_size", 100), "buffer_size")
-        self._flush_interval = self._nonnegative_number(
-            params.get("flush_interval", 1.0), "flush_interval"
+        connection = config.connection
+        if not isinstance(connection, FileSinkConnection):
+            raise ConfigError("FileSink requires FileSinkConnection")
+        self._path = Path(connection.path)
+        self._format = connection.format
+        self._rotation = build_rotation(connection.max_size_mb, connection.max_age_hours)
+        self._buffer_size = connection.buffer_size
+        self._flush_interval = connection.flush_interval
+        self._write_header = connection.write_header
+        self._compressor: Compressor = (
+            GzipCompressor(level=connection.compress_level)
+            if connection.compress
+            else NoCompressor()
         )
-        self._write_header = bool(params.get("write_header", True))
-        self._compressor: Compressor = self._build_compressor(params)
-
-        # 运行时状态 —— 由 `asyncio.Lock` 保护，仅在同一事件循环内被调度器调用。
         self._file: BinaryIO | None = None
         self._buffer: list[str] = []
         self._current_size = 0
@@ -94,34 +87,7 @@ class FileSink(SinkPort):
         self._healthy = True
         self._error_message: str | None = None
         self._consecutive_failures = 0
-        # 滚动触发的后台压缩 task；`close` 时等待其完成，避免解释器退出告警。
         self._compress_tasks: set[asyncio.Task[None]] = set()
-
-    # -- 参数校验 ---------------------------------------------------------
-
-    @staticmethod
-    def _build_compressor(params: dict[str, Any]) -> Compressor:
-        """从 ``params`` 构建压缩器；``compress`` 关闭时返回空实现。"""
-        if not bool(params.get("compress", False)):
-            return NoCompressor()
-        level = params.get("compress_level", 6)
-        if isinstance(level, bool) or not isinstance(level, int) or not 1 <= level <= 9:
-            raise ConfigError(
-                f"FileSink 'compress_level' must be an integer in [1, 9], got {level!r}"
-            )
-        return GzipCompressor(level=level)
-
-    @staticmethod
-    def _positive_int(value: object, field: str) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"FileSink '{field}' must be a positive integer, got {value!r}")
-        return value
-
-    @staticmethod
-    def _nonnegative_number(value: object, field: str) -> float:
-        if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
-            raise ConfigError(f"FileSink '{field}' must be a non-negative number, got {value!r}")
-        return float(value)
 
     # -- SinkPort 契约 ----------------------------------------------------
 

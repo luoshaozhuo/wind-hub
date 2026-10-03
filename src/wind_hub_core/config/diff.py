@@ -20,8 +20,8 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     )
     devices.unchanged = sorted((old_ids & new_ids) - set(devices.updated))
 
-    old_sinks = {item.name: item for item in old.system.sinks}
-    new_sinks = {item.name: item for item in new.system.sinks}
+    old_sinks = {item.name: item for item in old.sinks.sinks}
+    new_sinks = {item.name: item for item in new.sinks.sinks}
     old_sink_ids, new_sink_ids = set(old_sinks), set(new_sinks)
     sinks = SinkDiff(
         added=sorted(new_sink_ids - old_sink_ids),
@@ -33,22 +33,6 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
         if old_sinks[name].model_dump() != new_sinks[name].model_dump()
     )
     sinks.unchanged = sorted((old_sink_ids & new_sink_ids) - set(sinks.updated))
-
-    old_contracts = {item.name: item for item in old.sinks.sinks}
-    new_contracts = {item.name: item for item in new.sinks.sinks}
-    old_contract_ids, new_contract_ids = set(old_contracts), set(new_contracts)
-    sink_contracts = SinkDiff(
-        added=sorted(new_contract_ids - old_contract_ids),
-        removed=sorted(old_contract_ids - new_contract_ids),
-    )
-    sink_contracts.updated = sorted(
-        name
-        for name in old_contract_ids & new_contract_ids
-        if old_contracts[name].model_dump() != new_contracts[name].model_dump()
-    )
-    sink_contracts.unchanged = sorted(
-        (old_contract_ids & new_contract_ids) - set(sink_contracts.updated)
-    )
 
     old_tasks = {item.task_id: item for item in old.tasks.tasks}
     new_tasks = {item.task_id: item for item in new.tasks.tasks}
@@ -78,7 +62,6 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     return ConfigDiff(
         devices=devices,
         sinks=sinks,
-        sink_contracts=sink_contracts,
         tasks=tasks,
         points_changed=bool(changed_tables),
         point_tables_changed=changed_tables,
