@@ -42,9 +42,6 @@ class IEC104Config:
     t3: float
     """空闲保活超时 t3；到期触发 TESTFR。"""
 
-    max_reconnect_retries: int = 5
-    """连接失败后的最大连续重试次数。"""
-
     @classmethod
     def from_device_config(cls, cfg: DeviceConfig) -> IEC104Config:
         """从 DeviceConfig 构造 IEC104Config。
@@ -67,5 +64,4 @@ class IEC104Config:
             t1=float(extensions.get("t1", 15.0)),
             t2=float(extensions.get("t2", 10.0)),
             t3=float(extensions.get("t3", 20.0)),
-            max_reconnect_retries=int(extensions.get("max_reconnect_retries", 5)),
         )
