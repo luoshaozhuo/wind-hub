@@ -14,9 +14,9 @@ from pydantic import BaseModel, Field
 from wind_hub_server.application.port.monitoring import (
     HostSnapshot,
     MonitoringMetricsQueryPort,
+    MonitoringSnapshotPort,
 )
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.infra.monitoring import MonitoringService
 
 
 def _list_field(payload: dict[str, object], name: str) -> list[object]:
@@ -100,15 +100,21 @@ class QualityUseCase:
         self,
         config: ConfigUseCase,
         metrics: MonitoringMetricsQueryPort,
-        monitoring: MonitoringService,
+        monitoring: MonitoringSnapshotPort,
     ) -> None:
         self._config = config
         self._metrics = metrics
         self._monitoring = monitoring
 
-    async def snapshot(self, window: QualityWindow) -> QualitySnapshot:
-        """主动刷新一次 Collector 状态并计算质量快照。"""
-        await self._monitoring.refresh_now()
+    async def snapshot(
+        self,
+        window: QualityWindow,
+        *,
+        refresh: bool = False,
+    ) -> QualitySnapshot:
+        """从低频监控快照计算质量视图；显式 check 可要求立即刷新。"""
+        if refresh:
+            await self._monitoring.refresh_now()
 
         seconds = {"1h": 3600, "24h": 86400, "7d": 604800}[window]
         now = datetime.now(UTC)
