@@ -31,7 +31,8 @@ import yaml
 
 from tests.support.config_helper import write_config_tree
 from wind_hub_collector.application.runtime import Runtime
-from wind_hub_collector.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_collector.application.usecase.config import ConfigUseCase
+from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
