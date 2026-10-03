@@ -2,17 +2,11 @@
 
 基于 :class:`~wind_hub_collector.application.runtime.runtime.Runtime` 提供：
 
-- 单点实时读（绕过采集循环直接调用协议驱动的 ``read``）；
-- 设备列表与单设备信息；
-- 系统状态快照（``status()``）。
+- 当前设备注册表与连接状态；
+- Collector Runtime 聚合状态快照（``status()``）。
 
-本用例**不缓存** devices / points 静态副本，每次查询都经
-Runtime 的当前注册表读取——热重载增删/重建组件后，查询立即看到最新对象。
-
-``read_point`` 的错误语义：
-- 设备不存在 → :class:`CommandError`（API 层映射为 404）。
-- 点不存在 → :class:`CommandError`（同样 404）。
-- 协议读失败 → :class:`ProtocolError` 原样上抛（API 层映射为 503）。
+即时设备读写与现场协议诊断由独立 wind-hub-commander 负责；本用例只暴露
+Collector 自身运行事实。所有查询都穿透 Runtime 当前状态，热重载后立即可见。
 """
 
 from __future__ import annotations
@@ -22,8 +16,6 @@ from pydantic import BaseModel, Field
 from wind_hub_collector.application.runtime.runtime import Runtime
 from wind_hub_collector.domain.model.device import DeviceInfo
 from wind_hub_core.config.schema import DeviceConfig
-from wind_hub_core.model.errors import CommandError, ProtocolError
-from wind_hub_core.model.point import PointRef, PointValue
 
 
 class AcquisitionInfo(BaseModel):
@@ -90,50 +82,10 @@ class SystemStatus(BaseModel):
 
 
 class QueryUseCase:
-    """只读查询用例——所有读取都穿透到 Runtime 当前状态。
-
-    Runtime 的热重载是就地增删 ``devices`` 注册表（Device 聚合配置、
-    点表与协议实例），因此本用例持有的唯一引用就是 Runtime 本身，
-    天然免疫「静态快照失效」问题。
-    """
+    """Collector 运行事实查询用例——所有读取都穿透 Runtime 当前状态。"""
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
-
-    async def read_point(self, device_id: str, point_id: str) -> PointValue:
-        """实时读取单个点，绕过采集缓存直接走协议驱动。
-
-        Args:
-            device_id: 设备稳定标识。
-            point_id: 点表 point_id。
-
-        Returns:
-            协议驱动返回的 PointValue。
-
-        Raises:
-            CommandError: 设备或点未知。
-            ProtocolError: 强制重连失败、协议驱动读失败或未返回值。
-        """
-        device = self._runtime.devices.get(device_id)
-        if device is None:
-            raise CommandError(f"unknown device '{device_id}'", "")
-
-        if not any(p.point_id == point_id for p in device.points):
-            raise CommandError(f"unknown point '{device_id}/{point_id}'", "")
-
-        if not await self._runtime.ensure_connected(device_id, force=True):
-            raise ProtocolError(f"device '{device_id}' is not connected")
-        try:
-            values = await device.read_points([PointRef(device_id=device_id, point_id=point_id)])
-        except Exception as exc:
-            self._runtime.report_read_failure(device_id, exc)
-            raise
-        if not values:
-            error = ProtocolError(f"read returned no value for '{device_id}/{point_id}'")
-            self._runtime.report_read_failure(device_id, error)
-            raise error
-        self._runtime.report_read_success(device_id)
-        return values[0]
 
     async def list_devices(self) -> list[DeviceInfo]:
         """返回当前注册表中全部设备运行状态。
@@ -145,23 +97,6 @@ class QueryUseCase:
             self._device_info(device_id, device.config)
             for device_id, device in self._runtime.devices.items()
         ]
-
-    async def get_device_info(self, device_id: str) -> DeviceInfo:
-        """返回单设备运行时状态。
-
-        Args:
-            device_id: 设备稳定标识。
-
-        Returns:
-            DeviceInfo。
-
-        Raises:
-            CommandError: 设备未知。
-        """
-        device = self._runtime.devices.get(device_id)
-        if device is None:
-            raise CommandError(f"unknown device '{device_id}'", "")
-        return self._device_info(device_id, device.config)
 
     async def status(self) -> SystemStatus:
         """返回 Runtime 聚合状态快照。
