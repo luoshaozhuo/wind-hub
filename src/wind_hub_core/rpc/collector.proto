@@ -4,6 +4,7 @@ package windhub.collector.v1;
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
+import "wind_hub_core/rpc/commander.proto";
 
 message CollectorInfoResponse {
   string component = 1;
@@ -123,6 +124,24 @@ message ListSinksResponse { repeated SinkInfoMessage items = 1; }
 message SinkRequest { string name = 1; }
 message SinkOperationResponse { bool success = 1; string message = 2; uint64 queue_depth = 3; }
 
+message TelemetryLatestRequest { string device_id = 1; }
+message TelemetryLatestResponse {
+  repeated windhub.commander.v1.PointValueMessage values = 1;
+}
+message TelemetryTrendRequest {
+  string device_id = 1;
+  repeated string point_ids = 2;
+  google.protobuf.Timestamp since = 3;
+  uint64 limit_per_point = 4;
+}
+message TelemetryPointSeries {
+  string point_id = 1;
+  repeated windhub.commander.v1.PointValueMessage samples = 2;
+}
+message TelemetryTrendResponse {
+  repeated TelemetryPointSeries series = 1;
+}
+
 message DeviceDiffMessage {
   repeated string added = 1;
   repeated string removed = 2;
@@ -182,6 +201,8 @@ service CollectorRuntimeService {
   rpc ListSinks(google.protobuf.Empty) returns (ListSinksResponse);
   rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
+  rpc GetLatestTelemetry(TelemetryLatestRequest) returns (TelemetryLatestResponse);
+  rpc GetTelemetryTrend(TelemetryTrendRequest) returns (TelemetryTrendResponse);
 }
 service CollectorControlService {
   rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
