@@ -286,26 +286,17 @@ class ConfigUseCase:
             duration_ms=(time.monotonic() - started) * 1000,
         )
 
-    def _config_roots(self) -> list[Path]:
-        """返回参与配置指纹的 YAML 根目录。"""
-        site_dir = self._config_dir.resolve()
-        roots = [site_dir]
-        common_dir = site_dir.parent / "common"
-        if common_dir.is_dir() and common_dir != site_dir:
-            roots.append(common_dir)
-        return roots
-
     def _snapshot_config_files(self) -> dict[Path, bytes]:
         """保存当前已接受配置集的 YAML 文件快照。"""
         snapshot: dict[Path, bytes] = {}
-        for root in self._config_roots():
-            for path in root.rglob("*"):
-                if (
-                    path.is_file()
-                    and path.suffix.lower() in {".yaml", ".yml"}
-                    and ".history" not in path.relative_to(root).parts
-                ):
-                    snapshot[path.resolve()] = path.read_bytes()
+        root = self._config_dir.resolve()
+        for path in root.rglob("*"):
+            if (
+                path.is_file()
+                and path.suffix.lower() in {".yaml", ".yml"}
+                and ".history" not in path.relative_to(root).parts
+            ):
+                snapshot[path.resolve()] = path.read_bytes()
         return snapshot
 
     def _restore_applied_files(self) -> list[str]:
