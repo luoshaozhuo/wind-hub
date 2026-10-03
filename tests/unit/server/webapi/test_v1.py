@@ -57,7 +57,7 @@ def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:
 
 def test_v1_overview_returns_aggregate_snapshot() -> None:
     """Overview V1 应直接暴露聚合 Read Model。"""
-    overview = AsyncMock()
+    overview = MagicMock()
     overview.snapshot.return_value = OverviewSnapshot(
         site_id="farm-a",
         site_name="Farm A",
