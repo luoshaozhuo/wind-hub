@@ -13,7 +13,6 @@ from wind_hub_server.application.port.point_store import LatestPointStore, Trend
 __all__ = [
     "CounterSnapshot",
     "HostSnapshot",
-    "LatestPointStore",
     "LogEntry",
     "LogStorePort",
     "MonitoringEvent",
