@@ -39,7 +39,11 @@ class OverviewUseCase:
     """Overview 页的应用层 Read Model。"""
 
     def __init__(
-        self, *, query: CollectorQueryPort, tasks: CollectorTaskUseCase, config: ConfigUseCase
+        self,
+        *,
+        query: CollectorQueryPort,
+        tasks: CollectorTaskUseCase,
+        config: ConfigUseCase,
     ) -> None:
         self._query = query
         self._tasks = tasks
@@ -61,10 +65,14 @@ class OverviewUseCase:
                 if bool(status.get("running"))
                 else "stopped"
             ),
-            workers_unavailable=list(list(status.get("unavailable_workers") or [])),
+            workers_unavailable=list(status.get("unavailable_workers") or []),
             device_count=int(status.get("device_count") or 0),
             devices_connected=int(status.get("devices_connected") or 0),
-            devices_offline=max(0, int(status.get("device_count") or 0) - int(status.get("devices_connected") or 0)),
+            devices_offline=max(
+                0,
+                int(status.get("device_count") or 0)
+                - int(status.get("devices_connected") or 0),
+            ),
             sink_count=int(status.get("sink_count") or 0),
             sinks_healthy=int(status.get("sinks_healthy") or 0),
             task_count=len(tasks),
