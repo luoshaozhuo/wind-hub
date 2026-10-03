@@ -70,7 +70,7 @@ def test_canonical_ref_generated() -> None:
 
 def test_wrong_connection_type_rejected() -> None:
     raw = _iec104_sink()
-    raw["connection"] = {"host": "0.0.0.0", "port": 502}
+    raw["connection"] = {"path": "/tmp/not-iec104.jsonl"}
     with pytest.raises(ConfigError, match="connection"):
         SinkConfig.model_validate(raw)
 

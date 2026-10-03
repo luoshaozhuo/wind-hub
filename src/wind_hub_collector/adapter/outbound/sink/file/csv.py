@@ -3,12 +3,12 @@
 实现 :class:`~wind_hub_collector.application.port.sink.SinkPort` 的真实文件走向：把一批
 :class:`~wind_hub_core.model.point.PointValue` 序列化成 ``csv`` 或 ``jsonl``
 行，追加写入本地文件；滚动判断委托给 :class:`~.rotation.RotationPolicy`（由
-``params`` 里的 ``max_size_mb`` / ``max_age_hours`` 构建），滚动把当前文件改名
+``connection`` 里的 ``max_size_mb`` / ``max_age_hours`` 构建），滚动把当前文件改名
 成 ``{base}.{suffix}.{ext}`` 后另开新文件，并对旧分片异步压缩（``compress`` 参数
 开启时）；``buffer_size`` / ``flush_interval`` 控制刷盘时机，``close`` 时强制
 flush。
 
-所有文件级参数从 ``SinkConfig.params`` 读取并在**构造时**校验；写文件失败
+所有文件级参数从 ``FileSinkConnection`` 读取并在**构造时**校验；写文件失败
 （磁盘满、权限不足等）抛 :class:`~wind_hub_core.model.errors.SinkError`，
 连续失败达到阈值后 ``health()`` 报告 unhealthy。压缩失败仅记录日志，不影响
 采集主流程。
@@ -50,7 +50,7 @@ _MAX_CONSECUTIVE_FAILURES = 5
 class FileSink(SinkPort):
     """追加写本地文件的输出 sink。
 
-    参数（``SinkConfig.params``）：
+    参数（``FileSinkConnection``）：
 
     - ``path``（必填）：目标文件路径，父目录不存在时自动创建。
     - ``format``：``csv`` 或 ``jsonl``，默认 ``jsonl``。

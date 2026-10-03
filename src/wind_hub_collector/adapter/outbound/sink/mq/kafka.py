@@ -49,7 +49,7 @@ _KEY_FIELDS = ("device_id", "point_id", "source")
 class KafkaSink(SinkPort):
     """把点值批量投递到 Kafka 主题的输出 sink。
 
-    参数（``SinkConfig.params``）：
+    连接参数（``KafkaSinkConnection``）：
 
     - ``bootstrap_servers``（必填）：逗号分隔或单机 broker 地址（如 ``localhost:9092``）。
     - ``topic``（必填）：目标主题名。

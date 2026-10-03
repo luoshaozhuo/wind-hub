@@ -71,7 +71,7 @@ _TABLE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 class DBSink(SinkPort):
     """把点值批量写入 PostgreSQL 关系表的输出 sink。
 
-    参数（``SinkConfig.params``）：
+    连接参数（``DatabaseSinkConnection``）：
 
     - ``dsn``（必填）：asyncpg 连接串（如 ``postgresql://user:pass@host/db``）。
     - ``table``（必填）：目标表名，必须匹配 ``[a-zA-Z_][a-zA-Z0-9_]*``（防注入）。
@@ -105,19 +105,6 @@ class DBSink(SinkPort):
         self._consecutive_failures = 0
 
     # -- 参数校验 ---------------------------------------------------------
-
-    @staticmethod
-    def _require_str(params: dict[str, Any], field: str) -> str:
-        value = params.get(field)
-        if not isinstance(value, str) or not value:
-            raise ConfigError(f"DBSink '{field}' is required and must be a non-empty string")
-        return value
-
-    @staticmethod
-    def _positive_int(value: object, field: str) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"DBSink '{field}' must be a positive integer, got {value!r}")
-        return value
 
     @staticmethod
     def _validate_table(table: str) -> str:

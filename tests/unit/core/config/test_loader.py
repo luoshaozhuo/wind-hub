@@ -457,6 +457,25 @@ class TestCrossFileValidation:
             with pytest.raises(ConfigError, match="unknown sink"):
                 load_config(site)
 
+    def test_task_targets_disabled_sink_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                sinks=[
+                    {
+                        "name": "s1",
+                        "type": "file",
+                        "enabled": False,
+                        "connection": {"path": "/tmp/disabled.jsonl"},
+                    }
+                ],
+                tasks=[_task()],
+            )
+            with pytest.raises(ConfigError, match="unknown sink"):
+                load_config(site)
+
     def test_task_references_unknown_device_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             site = _write_config_dir(

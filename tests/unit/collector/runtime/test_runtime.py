@@ -59,7 +59,7 @@ from wind_hub_core.config.schema import (
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
-from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, TaskDiff
+from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
 from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 # ---------------------------------------------------------------------------
@@ -245,6 +245,7 @@ def _full_config(
     tasks: list[CollectionTaskConfig],
     tables: dict[str, ResolvedPointTable] | None = None,
     sink_names: tuple[str, ...] = ("s1", "s2"),
+    sink_enabled: dict[str, bool] | None = None,
 ) -> Config:
     if tables is None:
         tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
@@ -256,6 +257,7 @@ def _full_config(
                     name=n,
                     type="file",
                     connection={"path": f"/tmp/{n}.jsonl"},
+                    enabled=(sink_enabled or {}).get(n, True),
                 )
                 for n in sink_names
             ]
@@ -1092,6 +1094,57 @@ class TestReconfigure:
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             assert [p.point_id for p in rt.devices["d1"].points] == ["p2"]
             assert proto.connect.await_count == 1
+        finally:
+            await rt.stop()
+
+
+# ---------------------------------------------------------------------------
+# Sink 热重载生命周期
+# ---------------------------------------------------------------------------
+
+
+class TestSinkReloadLifecycle:
+    async def test_enabled_to_disabled_removes_runtime_sink(self) -> None:
+        rt, _, sinks, _ = _build_runtime(devices=[], tasks=[], sink_names=("s1",))
+        await rt.start()
+        try:
+            old_sink = sinks["s1"]
+            new_cfg = _full_config(
+                devices=[],
+                tasks=[],
+                sink_names=("s1",),
+                sink_enabled={"s1": False},
+            )
+            errors = await rt.reconfigure(
+                new_cfg,
+                ConfigDiff(sinks=SinkDiff(updated=["s1"])),
+            )
+            assert errors == []
+            assert "s1" not in rt.sinks
+            old_sink.close.assert_awaited_once()
+        finally:
+            await rt.stop()
+
+    async def test_disabled_to_enabled_adds_runtime_sink(self) -> None:
+        created = _mock_sink()
+        factory = MagicMock(return_value=created)
+        rt, _, _, _ = _build_runtime(
+            devices=[],
+            tasks=[],
+            sink_names=(),
+            sink_factory=factory,
+        )
+        await rt.start()
+        try:
+            new_cfg = _full_config(devices=[], tasks=[], sink_names=("s1",))
+            errors = await rt.reconfigure(
+                new_cfg,
+                ConfigDiff(sinks=SinkDiff(updated=["s1"])),
+            )
+            assert errors == []
+            assert rt.sinks["s1"] is created
+            factory.assert_called_once()
+            created.open.assert_awaited_once()
         finally:
             await rt.stop()
 

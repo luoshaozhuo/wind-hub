@@ -48,14 +48,8 @@ class SinkSource(BaseModel):
 
 class FileSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    path: str
 
-    @field_validator("path")
-    @classmethod
-    def _validate_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ConfigError("File sink path must be non-empty")
-        return value
+    path: str
     format: Literal["jsonl", "csv"] = "jsonl"
     max_size_mb: float | None = Field(default=None, gt=0)
     max_age_hours: float | None = Field(default=None, gt=0)
@@ -65,11 +59,24 @@ class FileSinkConnection(BaseModel):
     flush_interval: float = Field(default=1.0, ge=0)
     write_header: bool = True
 
+    @field_validator("path")
+    @classmethod
+    def _validate_path(cls, value: str) -> str:
+        if not value.strip():
+            raise ConfigError("File sink path must be non-empty")
+        return value
+
 
 class KafkaSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     bootstrap_servers: str | list[str]
     topic: str
+    key_field: Literal["device_id", "point_id", "source"] | None = None
+    compression_type: Literal["gzip", "snappy", "lz4", "zstd"] | None = None
+    acks: Literal["all", 0, 1] = "all"
+    batch_size: int = Field(default=16384, ge=1)
+    linger_ms: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _validate_required_text(self) -> "KafkaSinkConnection":
@@ -85,17 +92,19 @@ class KafkaSinkConnection(BaseModel):
         if not self.topic.strip():
             raise ConfigError("Kafka sink topic must be non-empty")
         return self
-    key_field: Literal["device_id", "point_id", "source"] | None = None
-    compression_type: Literal["gzip", "snappy", "lz4", "zstd"] | None = None
-    acks: Literal["all", 0, 1] = "all"
-    batch_size: int = Field(default=16384, ge=1)
-    linger_ms: int = Field(default=0, ge=0)
 
 
 class DatabaseSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     dsn: str
     table: str
+    batch_size: int = Field(default=1000, ge=1)
+    create_table: bool = False
+    table_schema: dict[str, str] | None = Field(default=None, alias="schema")
+    pool_min_size: int = Field(default=1, ge=1)
+    pool_max_size: int = Field(default=10, ge=1)
+    write_timeout: float = Field(default=5.0, gt=0)
 
     @model_validator(mode="after")
     def _validate_required_text(self) -> "DatabaseSinkConnection":
@@ -104,12 +113,6 @@ class DatabaseSinkConnection(BaseModel):
         if not self.table.strip():
             raise ConfigError("Database sink table must be non-empty")
         return self
-    batch_size: int = Field(default=1000, ge=1)
-    create_table: bool = False
-    table_schema: dict[str, str] | None = Field(default=None, alias="schema")
-    pool_min_size: int = Field(default=1, ge=1)
-    pool_max_size: int = Field(default=10, ge=1)
-    write_timeout: float = Field(default=5.0, gt=0)
 
     @model_validator(mode="after")
     def _validate_pool_sizes(self) -> "DatabaseSinkConnection":

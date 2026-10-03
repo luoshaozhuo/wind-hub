@@ -2,7 +2,7 @@
 
 策略接口 :class:`RotationPolicy` 只有两个方法：``should_rotate`` 判断当前文件
 是否该滚动，``rotation_suffix`` 生成归档文件名的时间戳后缀。``FileSink`` 在
-``params`` 里读到 ``max_size_mb`` / ``max_age_hours`` 后，经
+强类型连接配置中的 ``max_size_mb`` / ``max_age_hours`` 后，经
 :func:`build_rotation` 构造成具体的策略实例，写入循环里只问策略、不再内联
 比较大小与时长。
 """
