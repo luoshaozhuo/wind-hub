@@ -33,18 +33,6 @@ class TaskInstanceState(str, Enum):
     STOPPED = "stopped"
 
 
-class TaskDetail(BaseModel):
-    task_id: str
-    assigned_worker_id: str | None
-    placement_state: TaskPlacementState
-    device: str | None = None
-    device_group: str | None = None
-    point_group: str
-    interval: float | None = None
-    targets: list[str]
-    enabled: bool
-
-
 class TaskInstanceDetail(BaseModel):
     instance_id: str
     assigned_worker_id: str
@@ -247,13 +235,6 @@ class CollectorTaskUseCase:
             stopped_instances=stopped_instances,
             errors=errors,
         )
-
-    async def list_tasks(self) -> list[TaskDetail]:
-        """返回全部 Task Definition，包括未分配 Task。"""
-        return [
-            TaskDetail.model_validate(row.model_dump())
-            for row in await self.list_task_summaries()
-        ]
 
     async def list_task_summaries(self) -> list[TaskSummary]:
         """返回全部 Task 的 placement 与运行状态。"""
