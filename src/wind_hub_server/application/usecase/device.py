@@ -1,7 +1,7 @@
 """V1 Device 查询用例。
 
-静态设备定义来自 Server 当前配置快照；实时连接状态来自 Collector gRPC。
-Server 不直接读取 Collector Runtime 对象。
+静态设备定义来自 Server 当前配置快照；运行状态来自 MonitoringService 最近一次
+低频 Collector 快照。页面读取不直接触发 Collector RPC。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config.schema import DeviceConfig
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
+from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
@@ -40,15 +40,15 @@ class DeviceUseCase:
 
     def __init__(
         self,
-        collectors: CollectorQueryPort,
+        monitoring: MonitoringSnapshotPort,
         config: ConfigUseCase,
     ) -> None:
-        self._collectors = collectors
+        self._monitoring = monitoring
         self._config = config
 
     async def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
-        """返回配置与 Collector 当前连接状态合并后的设备快照。"""
-        runtime_rows = await self._collectors.list_devices()
+        """返回配置与最近一次 Collector 运行状态合并后的设备快照。"""
+        runtime_rows = self._monitoring.devices_snapshot()
         runtime = {
             str(row.get("device_id")): row
             for row in runtime_rows
@@ -89,7 +89,7 @@ class DeviceUseCase:
         )
         if cfg is None:
             raise KeyError(device_id)
-        runtime_rows = await self._collectors.list_devices()
+        runtime_rows = self._monitoring.devices_snapshot()
         runtime = next(
             (
                 row
