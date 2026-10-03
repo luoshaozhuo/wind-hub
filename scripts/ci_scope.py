@@ -16,7 +16,7 @@ TOOLING_PREFIXES = (
     ".agents/",
     "ai_shared/agent_config/hooks/",
 )
-GOVERNANCE_PREFIXES = ("ai_shared/", "docs/")
+GOVERNANCE_PREFIXES = ("ai_shared/",)
 GOVERNANCE_FILES = {"CLAUDE.md", "AGENTS.md", "README.md", ".gitignore"}
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 
