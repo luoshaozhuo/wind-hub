@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+
 import pytest
 
 from wind_hub_collector.adapter.inbound.iec104_slave import (

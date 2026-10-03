@@ -184,6 +184,34 @@ async def _reconcile_loop(
         await asyncio.sleep(interval)
 
 
+async def _wait_for_shutdown_or_api_exit(
+    shutdown_event: asyncio.Event,
+    api_task: asyncio.Task[None],
+) -> bool:
+    """等待停机信号或 API task 提前退出。
+
+    Returns:
+        API task 先结束时返回 True；收到正常停机信号时返回 False。
+
+    Raises:
+        Exception: API task 异常退出时原样传播，触发进程级失败与统一清理。
+    """
+    shutdown_task = asyncio.create_task(shutdown_event.wait())
+    try:
+        done, _ = await asyncio.wait(
+            {shutdown_task, api_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if api_task in done:
+            await api_task
+            return True
+        return False
+    finally:
+        if not shutdown_task.done():
+            shutdown_task.cancel()
+            await asyncio.gather(shutdown_task, return_exceptions=True)
+
+
 def _install_signal_handlers(
     shutdown_event: asyncio.Event,
     reload_event: asyncio.Event,
@@ -269,13 +297,23 @@ async def run_server(settings: ServerSettings) -> int:
                 interval=settings.worker_probe_interval,
             )
         )
-        await shutdown_event.wait()
-        logger.info("收到停机信号，开始优雅停机")
+        api_exited = await _wait_for_shutdown_or_api_exit(
+            shutdown_event,
+            api_task,
+        )
+        if api_exited:
+            logger.warning("API server 已提前退出，开始进程级停机")
+        else:
+            logger.info("收到停机信号，开始优雅停机")
+
         runtime.config.stop_accepting_transactions()
-        transaction_idle = await runtime.config.wait_for_transactions(timeout=30.0)
+        transaction_idle = await runtime.config.wait_for_transactions(
+            timeout=settings.shutdown_timeout
+        )
         if not transaction_idle:
             logger.warning(
-                "配置事务在 30 秒停机宽限期内未结束，将继续执行进程级停机"
+                "配置事务在 %.1f 秒停机宽限期内未结束，将继续执行进程级停机",
+                settings.shutdown_timeout,
             )
     finally:
         try:
@@ -299,7 +337,21 @@ async def run_server(settings: ServerSettings) -> int:
 
             server.should_exit = True
             if api_task is not None:
-                await api_task
+                if api_task.done():
+                    await asyncio.gather(api_task, return_exceptions=True)
+                else:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(api_task),
+                            timeout=settings.shutdown_timeout,
+                        )
+                    except TimeoutError:
+                        logger.warning(
+                            "API server 未在 %.1f 秒内退出，取消其任务",
+                            settings.shutdown_timeout,
+                        )
+                        api_task.cancel()
+                        await asyncio.gather(api_task, return_exceptions=True)
 
             await runtime.monitoring.stop()
         finally:

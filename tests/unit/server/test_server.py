@@ -10,7 +10,11 @@ from unittest.mock import AsyncMock, MagicMock
 import uvicorn
 
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
-from wind_hub_server.server import build_api_server, reload_once
+from wind_hub_server.server import (
+    _wait_for_shutdown_or_api_exit,
+    build_api_server,
+    reload_once,
+)
 from wind_hub_server.settings import ServerSettings
 
 
@@ -45,3 +49,28 @@ async def test_reload_once_delegates_to_config_use_case() -> None:
     await reload_once(config)
 
     config.reload.assert_awaited_once()
+
+
+async def test_wait_for_shutdown_returns_when_signal_arrives() -> None:
+    shutdown = __import__("asyncio").Event()
+    api_task = __import__("asyncio").create_task(__import__("asyncio").sleep(60))
+    shutdown.set()
+
+    api_exited = await _wait_for_shutdown_or_api_exit(shutdown, api_task)
+
+    assert api_exited is False
+    api_task.cancel()
+    await __import__("asyncio").gather(api_task, return_exceptions=True)
+
+
+async def test_wait_for_shutdown_detects_api_exit() -> None:
+    shutdown = __import__("asyncio").Event()
+
+    async def finished() -> None:
+        return None
+
+    api_task = __import__("asyncio").create_task(finished())
+
+    api_exited = await _wait_for_shutdown_or_api_exit(shutdown, api_task)
+
+    assert api_exited is True
