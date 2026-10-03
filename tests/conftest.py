@@ -7,7 +7,7 @@ marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约
   ``integration`` / ``system`` / ``reliability`` / ``performance``）；
   ``reliability/soak`` 额外打 ``soak``；
 - 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
-  ``iec104`` / ``kafka`` / ``postgres`` / ``influxdb`` / ``file``；
+  ``iec104`` / ``kafka`` / ``postgres`` / ``file``；
 - 服务真实性（仅 integration/system/reliability 层级）：路径/文件名
   token 含 ``mock`` 的打 ``mock_service``（monkeypatch / 内存 fake，
   不计入 real-service 验收）；``real_service`` **不按目录默认赋值**——
@@ -45,7 +45,7 @@ _LEVEL_MARKERS = (
     "reliability",
     "performance",
 )
-_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres", "influxdb", "file")
+_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres", "file")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

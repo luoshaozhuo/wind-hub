@@ -6,7 +6,6 @@ interface ErrorEnvelope {
     message?: string
     details?: Record<string, unknown>
   }
-  detail?: unknown
 }
 
 export class ApiError extends Error {
@@ -39,21 +38,8 @@ async function errorFrom(response: Response): Promise<ApiError> {
     )
   }
 
-  // Legacy FastAPI detail fallback while old root routes still coexist.
-  const detail = body?.detail
-  if (detail && typeof detail === 'object') {
-    const value = detail as Record<string, unknown>
-    return new ApiError(
-      String(value.message || response.statusText || 'Request failed'),
-      response.status,
-      String(value.code || 'HTTP_ERROR'),
-      value.details && typeof value.details === 'object'
-        ? value.details as Record<string, unknown>
-        : {},
-    )
-  }
   return new ApiError(
-    String(detail || response.statusText || 'Request failed'),
+    response.statusText || 'Request failed',
     response.status,
   )
 }

@@ -44,7 +44,7 @@ unit component contract integration system reliability performance soak
 mock_service real_service hardware
 
 协议/服务:
-modbus ads iec104 kafka postgres influxdb file
+modbus ads iec104 kafka postgres file
 
 环境:
 docker network root slow fast

@@ -17,10 +17,8 @@ packages = [
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-typer = ">=0.15,<1.0"
 fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
-structlog = "^24.0"
 prometheus-client = "^0.21"
 grpcio = "^1.75"
 protobuf = "^6.32"
@@ -28,21 +26,19 @@ pymodbus = { version = "^3.6", optional = true }
 pyads = { version = "^3.4", optional = true }
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
-influxdb-client = { version = "^1.48", optional = true }
 
 [tool.poetry.extras]
 ads = ["pyads"]
 modbus = ["pymodbus"]
 iec104 = []  # 暂无 Python 客户端依赖
 kafka = ["aiokafka"]
-db = ["asyncpg", "influxdb-client"]
+db = ["asyncpg"]
 all = [
     "pyads",
     "pymodbus",
     # iec104: no dependencies yet
     "aiokafka",
     "asyncpg",
-    "influxdb-client",
 ]
 
 [tool.poetry.group.dev.dependencies]
@@ -78,11 +74,9 @@ extend-exclude = ["*_pb2.py", "*_pb2_grpc.py", "*_pb2.pyi", "*_pb2_grpc.pyi"]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-# ``typer.Option``/``typer.Argument`` 与 ``fastapi.Query``/``Path``/``Body``/``Depends``
-# 默认值是声明 CLI/HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
+# FastAPI Query/Path/Body/Depends 默认值是声明 HTTP 参数的框架惯用法；
+# B008 不应将其判为默认值函数调用。
 extend-immutable-calls = [
-    "typer.Argument",
-    "typer.Option",
     "fastapi.Query",
     "fastapi.Path",
     "fastapi.Body",
@@ -142,7 +136,6 @@ markers = [
     "iec104: IEC104 协议相关",
     "kafka: 需要真实 Kafka",
     "postgres: 需要真实 PostgreSQL",
-    "influxdb: 需要真实 InfluxDB",
     "file: 文件 sink 相关",
     # 服务真实性与环境 marker
     "real_service: 使用真实外部组件（真实协议栈/文件/Docker 服务）",

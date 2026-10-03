@@ -191,17 +191,6 @@ class CommanderRuntime:
                 await self._close_candidate(generation, reason="abort-prepared")
         return generation is not None
 
-    async def reload(
-        self,
-        config: CommanderConfig,
-        *,
-        config_hash: str,
-        revision_id: str = "legacy-reload",
-    ) -> None:
-        """兼容旧调用：按 prepare → activate 完成一次配置切换。"""
-        await self.prepare_config(revision_id, config, config_hash)
-        await self.activate_config(revision_id)
-
     async def start(self) -> None:
         """初始化当前 generation 的进程级协议资源，不主动连接所有设备。"""
         generation = self._current

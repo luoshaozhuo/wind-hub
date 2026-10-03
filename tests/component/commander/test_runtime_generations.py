@@ -6,7 +6,6 @@
 - activate 原子切换 active generation / revision / config hash；
 - activate 与 prepared revision 不匹配时报错且状态不变；
 - abort 幂等撤销候选，revision 不匹配返回 False；
-- reload 兼容路径等价于 prepare + activate；
 - stop 后 prepare/activate 拒绝。
 
 全部为进程内真实对象协作，不做网络 I/O（无 ADS 配置时 activate 的
@@ -127,16 +126,7 @@ class TestAbort:
         assert await commander_app.runtime.abort_config("rev-x") is False
 
 
-class TestReloadAndStop:
-    async def test_reload_is_prepare_plus_activate(self, commander_app: CommanderApp) -> None:
-        runtime = commander_app.runtime
-        candidate = load_commander_config(commander_app.config_dir)
-
-        await runtime.reload(candidate, config_hash="hash-r", revision_id="rev-r")
-
-        assert runtime.active_revision == "rev-r"
-        assert runtime.active_config_hash == "hash-r"
-
+class TestStop:
     async def test_prepare_after_stop_is_rejected(self, commander_app: CommanderApp) -> None:
         runtime = commander_app.runtime
         candidate = load_commander_config(commander_app.config_dir)
