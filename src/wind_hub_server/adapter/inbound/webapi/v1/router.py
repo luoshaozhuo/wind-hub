@@ -448,7 +448,7 @@ async def get_device_trend(
 async def send_device_command(
     device_id: str, request: DeviceCommandRequest
 ) -> DeviceCommandResponse:
-    """真实写入设备；写成功后回读并刷新 Latest/Trend Store。"""
+    """真实写入设备；写成功后即时回读并追加短期 Trend 样本。"""
     result = await _device_control().send(
         device_id,
         request.point_id,
