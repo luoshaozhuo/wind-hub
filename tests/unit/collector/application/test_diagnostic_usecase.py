@@ -36,7 +36,7 @@ async def test_ads_verify_point_reads_probe_resolved_address(
         point_table="t1",
         endpoint=Endpoint(
             host="192.168.1.10",
-            port=48898,
+            port=801,
             extensions={"target_net_id": "192.168.1.10.1.1"},
         ),
     )
