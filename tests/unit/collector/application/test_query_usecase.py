@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Runtime
 from wind_hub_collector.application.runtime.device import Device
@@ -91,7 +90,6 @@ def _runtime(
         devices=device_map,
         sinks=sinks or {},
         engine=AcquisitionEngine(),
-        dispatcher=MagicMock(spec=CommandDispatcher),
         config=RuntimeConfig(),
         tasks=tasks,
     )
