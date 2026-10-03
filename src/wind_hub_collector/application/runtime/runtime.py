@@ -32,7 +32,7 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-from wind_hub_collector.application.port.sink import SinkPort
+from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub_collector.application.runtime.device import AcquisitionHandle, Device
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
@@ -910,49 +910,110 @@ class Runtime:
         self._unhealthy_sinks.discard(sink_name)
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
-    async def rebuild_sink(self, sink_name: str, new_cfg: ResolvedSinkConfig, new_sink: SinkPort) -> None:
-        """重建 sink——先打开新实例，成功后再切换旧实例。
+    async def rebuild_sink(
+        self,
+        sink_name: str,
+        new_cfg: ResolvedSinkConfig,
+        new_sink: SinkPort,
+    ) -> None:
+        """重建 Sink，并按资源能力选择 open-first / close-first。
 
-        既有队列保留，避免在途数据丢失。新 sink 打开失败时旧 sink 与消费者
-        完全保持不变，使 reload 可以安全重试。
-
-        Raises:
-            Exception: 新 sink 的 ``open()`` 失败原样上抛。
+        普通客户端型 Sink 先打开新实例再切换；实现 ExclusiveOpenSinkPort
+        且 exclusive_open=True 的监听型 Sink 先关闭旧实例释放独占资源。
+        若新实例 open 失败，会尽力重新打开旧实例。
         """
-        await new_sink.open()
-
-        task = self._sink_tasks.pop(sink_name, None)
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
-
+        del new_cfg
         old_sink = self._sinks.get(sink_name)
+        exclusive = (
+            isinstance(new_sink, ExclusiveOpenSinkPort)
+            and new_sink.exclusive_open
+        )
+        if not exclusive:
+            await new_sink.open()
+            await self._replace_opened_sink(sink_name, old_sink, new_sink)
+            return
+
+        await self._stop_sink_consumer(sink_name)
         if old_sink is not None:
-            try:
-                await old_sink.flush()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: sink '%s' flush failed during rebuild",
-                    sink_name,
-                    exc_info=True,
-                )
-            try:
-                await old_sink.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: sink '%s' close failed during rebuild",
-                    sink_name,
-                    exc_info=True,
-                )
+            await self._flush_and_close_sink(sink_name, old_sink, "during exclusive rebuild")
+
+        try:
+            await new_sink.open()
+        except Exception:
+            if old_sink is not None:
+                try:
+                    await old_sink.open()
+                except Exception:
+                    logger.error(
+                        "Hot-reload: sink %s failed to restore old instance",
+                        sink_name,
+                        exc_info=True,
+                    )
+                    self._unhealthy_sinks.add(sink_name)
+                else:
+                    self._sinks[sink_name] = old_sink
+                    self._restart_sink_consumer(sink_name, old_sink)
+            raise
 
         self._sinks[sink_name] = new_sink
         self._unhealthy_sinks.discard(sink_name)
-        logger.info("Hot-reload: sink '%s' re-opened", sink_name)
+        self._restart_sink_consumer(sink_name, new_sink)
+        logger.info("Hot-reload: exclusive sink %s re-opened", sink_name)
 
-        if self._running:
-            new_task = asyncio.create_task(self._sink_consumer(sink_name, new_sink))
-            self._sink_tasks[sink_name] = new_task
+    async def _replace_opened_sink(
+        self,
+        sink_name: str,
+        old_sink: SinkPort | None,
+        new_sink: SinkPort,
+    ) -> None:
+        """切换一个已经成功 open 的普通 Sink。"""
+        await self._stop_sink_consumer(sink_name)
+        if old_sink is not None:
+            await self._flush_and_close_sink(sink_name, old_sink, "during rebuild")
+        self._sinks[sink_name] = new_sink
+        self._unhealthy_sinks.discard(sink_name)
+        self._restart_sink_consumer(sink_name, new_sink)
+        logger.info("Hot-reload: sink %s re-opened", sink_name)
+
+    async def _stop_sink_consumer(self, sink_name: str) -> None:
+        task = self._sink_tasks.pop(sink_name, None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
+
+    async def _flush_and_close_sink(
+        self,
+        sink_name: str,
+        sink: SinkPort,
+        context: str,
+    ) -> None:
+        try:
+            await sink.flush()
+        except Exception:
+            logger.warning(
+                "Hot-reload: sink %s flush failed %s",
+                sink_name,
+                context,
+                exc_info=True,
+            )
+        try:
+            await sink.close()
+        except Exception:
+            logger.warning(
+                "Hot-reload: sink %s close failed %s",
+                sink_name,
+                context,
+                exc_info=True,
+            )
+
+    def _restart_sink_consumer(self, sink_name: str, sink: SinkPort) -> None:
+        if not self._running:
+            return
+        self._sink_tasks[sink_name] = asyncio.create_task(
+            self._sink_consumer(sink_name, sink)
+        )
 
     # ------------------------------------------------------------------
     # 热重载编排（ConfigUseCase 的唯一入口）

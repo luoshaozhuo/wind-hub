@@ -25,6 +25,11 @@ from wind_hub_core.model.point import PointValue
 class IEC104Sink(SinkPort):
     """通过 IEC 60870-5-104 从站接口暴露 Sink 点。"""
 
+    @property
+    def exclusive_open(self) -> bool:
+        """监听端口独占，热重载必须先关闭旧实例。"""
+        return True
+
     def __init__(self, config: ResolvedSinkConfig) -> None:
         connection = config.connection
         if not isinstance(connection, IEC104SinkConnection):
