@@ -85,12 +85,19 @@ class ADSSubscription:
         # worker thread 只写线程安全队列；事件循环负责后续异步分发。
         self._queue: queue.Queue[PointValue] = queue.Queue()
         self._closed = False
+        self._healthy = False
         self._lock = asyncio.Lock()
         self._monitor_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
+
+    @property
+    def healthy(self) -> bool:
+        """当前 notification 注册链是否完整可用。"""
+        return not self._closed and self._healthy
+
 
     async def subscribe(self, points: list[ADSPoint]) -> None:
         """同步目标订阅集合并确保 notification 健康监视运行。"""
@@ -114,6 +121,7 @@ class ADSSubscription:
             if added:
                 await self._register(added)
             self._points = new_points
+            self._healthy = len(self._handles) == len(self._points)
             if self._monitor_task is None or self._monitor_task.done():
                 self._monitor_task = asyncio.create_task(
                     self._monitor_loop(),
@@ -129,6 +137,7 @@ class ADSSubscription:
     async def close(self) -> None:
         """停止健康监视、注销全部 notification 并关闭 connection pool。"""
         self._closed = True
+        self._healthy = False
         monitor, self._monitor_task = self._monitor_task, None
         if monitor is not None and monitor is not asyncio.current_task():
             monitor.cancel()
@@ -203,6 +212,7 @@ class ADSSubscription:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                self._healthy = False
                 logger.warning(
                     "ADS notification connection lost device=%s error=%s; rebuilding subscriptions",
                     self._device_id,
@@ -212,6 +222,7 @@ class ADSSubscription:
                     async with self._lock:
                         if not self._closed:
                             await self._rebuild_pool()
+                            self._healthy = len(self._handles) == len(self._points)
                 except asyncio.CancelledError:
                     raise
                 except Exception as rebuild_exc:
