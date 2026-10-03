@@ -237,7 +237,7 @@ def _operation_response(row: OperationRecord) -> OperationResponse:
 @router.get("/overview", response_model=OverviewResponse, tags=["v1-overview"])
 async def get_overview() -> OverviewResponse:
     """返回 wind-hub-admin 总览页的一次聚合运行快照。"""
-    snapshot: OverviewSnapshot = await _overview().snapshot()
+    snapshot: OverviewSnapshot = _overview().snapshot()
     return OverviewResponse(**snapshot.model_dump())
 
 
