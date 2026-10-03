@@ -1,4 +1,4 @@
-"""Server 最新值与短期趋势存储端口。"""
+"""Server 短期即时采样历史存储端口。"""
 
 from __future__ import annotations
 
@@ -6,22 +6,6 @@ from datetime import datetime
 from typing import Protocol
 
 from wind_hub_core.model.point import PointValue
-
-
-class LatestPointStore(Protocol):
-    """设备最新工程值缓存端口。"""
-
-    def put_batch(self, values: list[PointValue]) -> None:
-        """用批次中的值覆盖对应 device/point 的最新值。"""
-        ...
-
-    def get(self, device_id: str, point_id: str) -> PointValue | None:
-        """读取单点最新值。"""
-        ...
-
-    def list_device(self, device_id: str) -> dict[str, PointValue]:
-        """返回设备当前全部最新值，以 point_id 为键。"""
-        ...
 
 
 class TrendStore(Protocol):
