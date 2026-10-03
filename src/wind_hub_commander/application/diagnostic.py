@@ -290,6 +290,17 @@ class DiagnosticUseCase:
             points=rows,
         )
 
+    @staticmethod
+    def _probe_target(device: DeviceSession) -> DeviceProbeTarget:
+        """从 resolved DeviceSession 构造短生命周期协议探测端点。"""
+        endpoint = device.config.endpoint
+        return DeviceProbeTarget(
+            device_id=device.device_id,
+            host=endpoint.host,
+            port=endpoint.port,
+            options=dict(endpoint.extensions),
+        )
+
     def _device(self, device_id: str) -> DeviceSession:
         try:
             return self._runtime.device(device_id)
@@ -325,12 +336,7 @@ class DiagnosticUseCase:
                 {},
             )
 
-        target = DeviceProbeTarget(
-            device_id=device_id,
-            host=device.config.endpoint.host,
-            port=device.config.endpoint.port,
-            options=dict(device.config.endpoint.extensions),
-        )
+        target = self._probe_target(device)
         probe = ADSProbe(target)
         resolved_rows: dict[str, dict[str, Any]] = {}
         errors: dict[str, str] = {}
