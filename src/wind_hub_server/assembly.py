@@ -133,6 +133,10 @@ def assemble_server(
         task_assignments,
         config,
     )
+    monitoring = MonitoringService(
+        collector_aggregate,
+        monitoring_metrics,
+    )
     devices = DeviceUseCase(monitoring, config)
     device_data = DeviceDataUseCase(
         config,
@@ -142,10 +146,6 @@ def assemble_server(
     device_control = DeviceControlUseCase(
         commander_client,
         trend,
-    )
-    monitoring = MonitoringService(
-        collector_aggregate,
-        monitoring_metrics,
     )
     overview = OverviewUseCase(
         monitoring=monitoring,
