@@ -1,25 +1,40 @@
 ---
 name: local-fast-gate
-description: Run the local Fast Gate only when the current change set contains product code that maps to GitHub CI Fast.
+description: Run only Fast checks selected by the current product-code scope; non-product tooling receives lightweight validation only.
 ---
 
 # Local Fast Gate
 
-先确认变更范围包含产品代码。纯 rules/docs/Agent/CI-tooling 变更不得调用本 Skill。
-
-执行：
+先获取 `origin/main...HEAD` 的变更文件并运行：
 
 ```bash
-python3 scripts/dev.py env --frontend
-python3 scripts/dev.py python scripts/ci_gate.py fast
+python3 scripts/ci_scope.py <changed-files...>
 ```
 
-可按实际范围只执行 backend/frontend part。任一相关必需项失败为 `FAIL`。
+按输出执行：
 
-如果发现失败，先判断相关性：
+- `backend_static=true`
+  ```bash
+  python3 scripts/dev.py python scripts/ci_gate.py fast --part backend-static
+  ```
+- `backend_fast_targets` 非空
+  ```bash
+  python3 scripts/dev.py python scripts/ci_gate.py fast --part backend-tests --targets "<targets>"
+  ```
+- `frontend_fast=true`
+  ```bash
+  python3 scripts/dev.py python scripts/ci_gate.py fast --part frontend
+  ```
+- 仅 CI/Agent Python tooling：只做 compile/Ruff，不进入产品测试。
 
-- `RELATED`：修复并重跑；
-- `UNRELATED`：记录基线证据后忽略；
-- `UNKNOWN`：最小定位后再决定。
+典型裁剪：
 
-不自动升级到 PR/release/qualification。
+- 后端生产源码 / 依赖：static + unit + component + contract；
+- 只改 unit test：static + unit；
+- 只改 component test：static + component；
+- 只改 contract test：static + contract；
+- 只改 configs：contract；
+- 只改 Playwright E2E：不跑 Vitest/build，交给 PR E2E target；
+- 普通前端源码：Vitest + build。
+
+只运行与当前变更相关的 Fast 检查。

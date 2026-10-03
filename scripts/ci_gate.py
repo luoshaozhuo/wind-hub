@@ -79,26 +79,42 @@ def _run_many(commands: Sequence[tuple[str, Sequence[str]]]) -> bool:
     return passed
 
 
-def fast_gate(part: str) -> bool:
+def fast_gate(part: str, targets: str) -> bool:
     """执行 Fast Gate。"""
-    commands: dict[str, list[tuple[str, Sequence[str]]]] = {
-        "backend-static": [
-            ("ruff", _python_module("ruff", "check", "src", "tests", "scripts")),
-            ("mypy", _python_module("mypy", "src")),
-            ("import-linter", _tool("lint-imports")),
-        ],
-        "backend-tests": [
-            ("unit", _python_module("pytest", "tests/unit", "-q")),
-            ("component", _python_module("pytest", "tests/component", "-q")),
-            ("contract", _python_module("pytest", "tests/contract", "-q")),
-        ],
-        "frontend": [
-            ("frontend-vitest", _npm("--prefix", str(FRONTEND_DIR), "test")),
-            ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
-        ],
-    }
-    selected = commands if part == "all" else {part: commands[part]}
-    return all(_run_many(items) for items in selected.values())
+    if part == "backend-static":
+        return _run_many(
+            [
+                ("ruff", _python_module("ruff", "check", "src", "tests", "scripts")),
+                ("mypy", _python_module("mypy", "src")),
+                ("import-linter", _tool("lint-imports")),
+            ]
+        )
+
+    if part == "backend-tests":
+        selected = [target.strip() for target in targets.split(",") if target.strip()]
+        valid = {"unit", "component", "contract"}
+        unknown = [target for target in selected if target not in valid]
+        if unknown:
+            print(f"unknown Fast targets: {', '.join(unknown)}", file=sys.stderr)
+            return False
+        if not selected:
+            print("GATE RESULT: NOT_APPLICABLE")
+            return True
+        commands = [
+            (target, _python_module("pytest", f"tests/{target}", "-q"))
+            for target in selected
+        ]
+        return _run_many(commands)
+
+    if part == "frontend":
+        return _run_many(
+            [
+                ("frontend-vitest", _npm("--prefix", str(FRONTEND_DIR), "test")),
+                ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
+            ]
+        )
+
+    raise ValueError(f"unsupported Fast part: {part}")
 
 
 def pr_gate(targets: str) -> bool:
@@ -208,9 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
     fast = subparsers.add_parser("fast")
     fast.add_argument(
         "--part",
-        choices=("all", "backend-static", "backend-tests", "frontend"),
-        default="all",
+        choices=("backend-static", "backend-tests", "frontend"),
+        required=True,
     )
+    fast.add_argument("--targets", default="")
 
     pr = subparsers.add_parser("pr")
     pr.add_argument("--targets", default="")
@@ -237,7 +254,7 @@ def main() -> int:
     args = build_parser().parse_args()
 
     if args.gate == "fast":
-        passed = fast_gate(args.part)
+        passed = fast_gate(args.part, args.targets)
     elif args.gate == "pr":
         passed = pr_gate(args.targets)
     elif args.gate == "frontend-e2e":
