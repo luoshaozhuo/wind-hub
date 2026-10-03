@@ -309,16 +309,24 @@ def test_v1_admin_tasks_reject_ambiguous_selector() -> None:
     client = _client(AppContext())
 
     response = client.put(
-        "/api/v1/admin-state/tasks",
+        "/api/v1/admin-state",
         json={
-            "items": [
+            "devices": [],
+            "tasks": [
                 {
                     "task_id": "t1",
                     "device": "d1",
                     "device_group": "g1",
                     "point_group": "fast",
                 }
-            ]
+            ],
+            "sinks": [],
+            "definitions": {
+                "units": {},
+                "device_types": {},
+                "device_models": {},
+                "point_tables": {},
+            },
         },
     )
 
