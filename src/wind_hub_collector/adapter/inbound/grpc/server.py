@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
@@ -19,6 +19,7 @@ from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
+from wind_hub_core.rpc.commander_io_codec import point_value_to_proto
 
 
 def _required(value: str, field: str) -> str:
@@ -363,6 +364,66 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
                 message=str(exc) or type(exc).__name__,
             )
         return pb.SinkOperationResponse(success=True)
+
+
+    async def GetLatestTelemetry(
+        self,
+        request: pb.TelemetryLatestRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.TelemetryLatestResponse:
+        """返回指定设备由 Collector 实际采集得到的最新点值。"""
+        try:
+            device_id = _required(request.device_id, "device_id")
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+
+        latest = self._runtime.telemetry_store.latest_for_device(device_id)
+        return pb.TelemetryLatestResponse(
+            values=[
+                point_value_to_proto(latest[point_id])
+                for point_id in sorted(latest)
+            ]
+        )
+
+    async def GetTelemetryTrend(
+        self,
+        request: pb.TelemetryTrendRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.TelemetryTrendResponse:
+        """返回指定设备/点位由 Collector 实际采集形成的短期趋势。"""
+        try:
+            device_id = _required(request.device_id, "device_id")
+            point_ids = list(dict.fromkeys(request.point_ids))
+            if not point_ids:
+                raise ValueError("point_ids must not be empty")
+            limit = int(request.limit_per_point or 600)
+            if limit <= 0 or limit > 3600:
+                raise ValueError("limit_per_point must be in range 1..3600")
+        except ValueError as exc:
+            await _abort_invalid(context, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+
+        since = (
+            request.since.ToDatetime(tzinfo=UTC)
+            if request.HasField("since")
+            else None
+        )
+        trend = self._runtime.telemetry_store.trend_for_device(
+            device_id,
+            set(point_ids),
+            since=since,
+            limit_per_point=limit,
+        )
+        response = pb.TelemetryTrendResponse()
+        for point_id in point_ids:
+            row = pb.TelemetryPointSeries(point_id=point_id)
+            row.samples.extend(
+                point_value_to_proto(value)
+                for value in trend.get(point_id, [])
+            )
+            response.series.append(row)
+        return response
 
 
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):

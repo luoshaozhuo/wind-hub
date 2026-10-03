@@ -9,6 +9,7 @@ Start/Stop。placement 拒绝路径（未下发快照直接 Start）必须映射
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,30 @@ class TestQueryRoundTrip:
 
         instances = await grpc_client.list_task_instances()
         assert [i["instance_id"] for i in instances] == [INSTANCE_ID]
+
+    async def test_acquisition_telemetry_round_trip(self, client) -> None:
+        grpc_client, _, _ = client
+        await grpc_client.apply_task_placement(WORKER_ID, 1, [TASK_ID])
+        await grpc_client.start_task(TASK_ID, 1)
+
+        latest = []
+        for _ in range(50):
+            latest = await grpc_client.latest_telemetry("modbus-1")
+            if latest:
+                break
+            await asyncio.sleep(0.1)
+
+        assert latest
+        by_id = {value.point_id: value for value in latest}
+        assert by_id["rotor.speed"].value == pytest.approx(1200.5)
+
+        trend = await grpc_client.telemetry_trend(
+            "modbus-1",
+            ["rotor.speed"],
+            limit_per_point=10,
+        )
+        assert trend["rotor.speed"]
+        assert trend["rotor.speed"][-1].value == pytest.approx(1200.5)
 
 
 class TestConfigTransactionRoundTrip:

@@ -6,6 +6,7 @@ Protobuf 转换为 Server 应用层既有 Python DTO/dict 边界。
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, cast
 
 import grpc
@@ -13,6 +14,7 @@ from google.protobuf import empty_pb2
 
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
+from wind_hub_core.rpc.commander_io_codec import point_value_from_proto
 from wind_hub_core.rpc.collector_codec import (
     collector_info_to_dict,
     device_info_to_dict,
@@ -23,6 +25,7 @@ from wind_hub_core.rpc.collector_codec import (
     task_summary_to_dict,
 )
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
+from wind_hub_core.model.point import PointValue
 from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
 
 
@@ -91,6 +94,39 @@ class CollectorGrpcClient(GrpcClientBase):
             timeout=self.default_timeout,
         )
         return [sink_info_to_dict(item) for item in response.items]
+
+    async def latest_telemetry(self, device_id: str) -> list[PointValue]:
+        """返回 Collector 实际采集到的设备最新点值。"""
+        response = await self._runtime_stub.GetLatestTelemetry(
+            pb.TelemetryLatestRequest(device_id=device_id),
+            timeout=self.default_timeout,
+        )
+        return [point_value_from_proto(item) for item in response.values]
+
+    async def telemetry_trend(
+        self,
+        device_id: str,
+        point_ids: list[str],
+        *,
+        since: datetime | None = None,
+        limit_per_point: int = 600,
+    ) -> dict[str, list[PointValue]]:
+        """返回 Collector 实际采集形成的短期趋势。"""
+        request = pb.TelemetryTrendRequest(
+            device_id=device_id,
+            point_ids=point_ids,
+            limit_per_point=limit_per_point,
+        )
+        if since is not None:
+            request.since.FromDatetime(since)
+        response = await self._runtime_stub.GetTelemetryTrend(
+            request,
+            timeout=self.default_timeout,
+        )
+        return {
+            row.point_id: [point_value_from_proto(item) for item in row.samples]
+            for row in response.series
+        }
 
     async def verify_sink(self, name: str) -> dict[str, Any]:
         """检查指定 Sink 健康状态。"""

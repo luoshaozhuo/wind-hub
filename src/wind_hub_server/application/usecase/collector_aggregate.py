@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import datetime
 from typing import Any
 
+from wind_hub_core.model.point import PointValue
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
+
+
+logger = logging.getLogger(__name__)
 
 
 class CollectorAggregateUseCase:
@@ -42,6 +48,121 @@ class CollectorAggregateUseCase:
         # 返回值在此显式收窄，避免 Any 穿透到上层聚合逻辑。
         result: dict[str, Any] | list[dict[str, Any]] = await operation()
         return result
+
+    async def latest_telemetry(self, device_id: str) -> dict[str, PointValue]:
+        """聚合实际承载设备采集任务的 Collector 最新点值。"""
+        worker_ids = self._assignments.worker_ids_for_device(device_id)
+        if not worker_ids:
+            return {}
+
+        async def query(worker_id: str) -> list[PointValue]:
+            collector = self._collectors.get(worker_id)
+            status = await collector.config_status()
+            reported_id = str(status.get("collector_id") or "")
+            if reported_id != worker_id:
+                raise RuntimeError(
+                    f"collector identity mismatch: expected={worker_id} "
+                    f"reported={reported_id or '<empty>'}"
+                )
+            return await collector.latest_telemetry(device_id)
+
+        results = await asyncio.gather(
+            *(query(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
+        )
+        successful = [
+            result for result in results if not isinstance(result, BaseException)
+        ]
+        failures = [
+            (worker_id, result)
+            for worker_id, result in zip(worker_ids, results, strict=True)
+            if isinstance(result, BaseException)
+        ]
+        if not successful:
+            raise RuntimeError(
+                f"all collectors unavailable for device '{device_id}': "
+                + ", ".join(worker_id for worker_id, _ in failures)
+            )
+        for worker_id, error in failures:
+            logger.warning(
+                "Collector '%s' latest telemetry unavailable for device '%s': %s",
+                worker_id,
+                device_id,
+                error,
+            )
+
+        latest: dict[str, PointValue] = {}
+        for values in successful:
+            for value in values:
+                current = latest.get(value.point_id)
+                if current is None or value.timestamp > current.timestamp:
+                    latest[value.point_id] = value
+        return latest
+
+    async def telemetry_trend(
+        self,
+        device_id: str,
+        point_ids: list[str],
+        *,
+        since: datetime | None = None,
+        limit_per_point: int = 600,
+    ) -> dict[str, list[PointValue]]:
+        """聚合设备实际 owner Collector 的短期采集趋势。"""
+        worker_ids = self._assignments.worker_ids_for_device(device_id)
+        if not worker_ids:
+            return {point_id: [] for point_id in point_ids}
+
+        async def query(worker_id: str) -> dict[str, list[PointValue]]:
+            collector = self._collectors.get(worker_id)
+            status = await collector.config_status()
+            reported_id = str(status.get("collector_id") or "")
+            if reported_id != worker_id:
+                raise RuntimeError(
+                    f"collector identity mismatch: expected={worker_id} "
+                    f"reported={reported_id or '<empty>'}"
+                )
+            return await collector.telemetry_trend(
+                device_id,
+                point_ids,
+                since=since,
+                limit_per_point=limit_per_point,
+            )
+
+        results = await asyncio.gather(
+            *(query(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
+        )
+        successful = [
+            result for result in results if not isinstance(result, BaseException)
+        ]
+        failures = [
+            (worker_id, result)
+            for worker_id, result in zip(worker_ids, results, strict=True)
+            if isinstance(result, BaseException)
+        ]
+        if not successful:
+            raise RuntimeError(
+                f"all collectors unavailable for device '{device_id}': "
+                + ", ".join(worker_id for worker_id, _ in failures)
+            )
+        for worker_id, error in failures:
+            logger.warning(
+                "Collector '%s' trend unavailable for device '%s': %s",
+                worker_id,
+                device_id,
+                error,
+            )
+
+        merged: dict[str, list[PointValue]] = {
+            point_id: [] for point_id in point_ids
+        }
+        for payload in successful:
+            for point_id in point_ids:
+                merged[point_id].extend(payload.get(point_id, []))
+        for point_id, values in merged.items():
+            values.sort(key=lambda item: item.timestamp)
+            merged[point_id] = values[-limit_per_point:]
+        return merged
 
     async def runtime_status(self) -> dict[str, Any]:
         worker_ids = self._collectors.list_worker_ids()

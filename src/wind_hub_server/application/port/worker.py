@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Protocol
 
 from wind_hub_core.model.command import Command, CommandResult
@@ -58,6 +59,17 @@ class CollectorPort(Protocol):
     async def list_devices(self) -> list[dict[str, Any]]: ...
 
     async def list_sinks(self) -> list[dict[str, Any]]: ...
+
+    async def latest_telemetry(self, device_id: str) -> list[PointValue]: ...
+
+    async def telemetry_trend(
+        self,
+        device_id: str,
+        point_ids: list[str],
+        *,
+        since: datetime | None = None,
+        limit_per_point: int = 600,
+    ) -> dict[str, list[PointValue]]: ...
 
     async def verify_sink(self, name: str) -> dict[str, Any]: ...
 

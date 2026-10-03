@@ -1,4 +1,4 @@
-"""Devices Data / Trend 页的缓存查询用例。"""
+"""Devices Data / Trend 页的 Collector 采集读模型查询用例。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from pydantic import BaseModel
 
 from wind_hub_core.config.schema import PointConfig
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
-from wind_hub_server.application.port.worker import CommanderPort
+from wind_hub_server.application.usecase.collector_aggregate import (
+    CollectorAggregateUseCase,
+)
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
@@ -41,19 +42,15 @@ class TrendSeries(BaseModel):
 
 
 class DeviceDataUseCase:
-    """只读缓存查询；不会因为 Data/Trend 页面刷新而主动访问 PLC。"""
+    """只读 Collector 采集读模型，不因页面刷新主动访问 PLC。"""
 
     def __init__(
         self,
         config: ConfigUseCase,
-        commander: CommanderPort,
-        latest: LatestPointStore,
-        trend: TrendStore,
+        collectors: CollectorAggregateUseCase,
     ) -> None:
         self._config = config
-        self._commander = commander
-        self._latest = latest
-        self._trend = trend
+        self._collectors = collectors
 
     async def list_data(
         self,
@@ -62,7 +59,7 @@ class DeviceDataUseCase:
         search: str | None = None,
         point_group: str | None = None,
     ) -> list[DeviceDataItem]:
-        """返回当前点表全部点，并合并缓存中的最近值。"""
+        """返回当前点表全部点，并合并 Collector 的最近采集值。"""
         points = self._points_or_raise(device_id)
         query = (search or "").strip().lower()
         selected = [
@@ -81,37 +78,28 @@ class DeviceDataUseCase:
                 )
             )
         ]
-        try:
-            observed = await self._commander.read_points(
-                device_id,
-                [point.point_id for point in selected],
-            )
-        except Exception:
-            observed = []
-        if observed:
-            self._latest.put_batch(observed)
-            self._trend.append_batch(observed)
-        latest = self._latest.list_device(device_id)
+        latest = await self._collectors.latest_telemetry(device_id)
 
-        rows: list[DeviceDataItem] = []
-        for point in selected:
-            value = latest.get(point.point_id)
-            rows.append(
-                DeviceDataItem(
-                    point_id=point.point_id,
-                    variable_name=point.variable_name,
-                    point_groups=list(point.point_groups),
-                    data_type=point.data_type,
-                    unit=point.unit,
-                    unit_symbol=self._unit_symbol(point.unit),
-                    description=point.description,
-                    value=value.value if value is not None else None,
-                    quality=value.quality if value is not None else None,
-                    timestamp=value.timestamp if value is not None else None,
-                    source=value.source if value is not None else None,
-                )
+        return [
+            DeviceDataItem(
+                point_id=point.point_id,
+                variable_name=point.variable_name,
+                point_groups=list(point.point_groups),
+                data_type=point.data_type,
+                unit=point.unit,
+                unit_symbol=self._unit_symbol(point.unit),
+                description=point.description,
+                value=latest[point.point_id].value if point.point_id in latest else None,
+                quality=latest[point.point_id].quality if point.point_id in latest else None,
+                timestamp=(
+                    latest[point.point_id].timestamp
+                    if point.point_id in latest
+                    else None
+                ),
+                source=latest[point.point_id].source if point.point_id in latest else None,
             )
-        return rows
+            for point in selected
+        ]
 
     async def trend(
         self,
@@ -121,25 +109,18 @@ class DeviceDataUseCase:
         window_seconds: int = 600,
         limit_per_point: int = 600,
     ) -> list[TrendSeries]:
-        """查询指定点的短期内存趋势。"""
+        """查询由 Collector 实际采集形成的短期趋势。"""
         points = self._points_or_raise(device_id)
         definitions = {point.point_id: point for point in points}
         requested = list(dict.fromkeys(point_ids))
         unknown = [point_id for point_id in requested if point_id not in definitions]
         if unknown:
             raise KeyError(f"unknown points: {', '.join(unknown)}")
-        try:
-            observed = await self._commander.read_points(device_id, requested)
-        except Exception:
-            observed = []
-        if observed:
-            self._latest.put_batch(observed)
-            self._trend.append_batch(observed)
 
         since = datetime.now(UTC) - timedelta(seconds=window_seconds)
-        values = self._trend.query(
+        values = await self._collectors.telemetry_trend(
             device_id,
-            set(requested),
+            requested,
             since=since,
             limit_per_point=limit_per_point,
         )
