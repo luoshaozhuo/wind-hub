@@ -394,7 +394,7 @@ async def get_device_data(
     search: str | None = Query(None),
     point_group: str | None = Query(None),
 ) -> DeviceDataPageResponse:
-    """从 LatestPointStore 查询设备当前点值，不主动访问 PLC。"""
+    """经 Commander 即时读取设备当前点值，并返回点定义 metadata。"""
     try:
         rows = await _device_data().list_data(
             device_id, search=search, point_group=point_group
@@ -427,7 +427,7 @@ async def get_device_trend(
     window_seconds: int = Query(600, ge=1, le=604800),
     limit_per_point: int = Query(600, ge=1, le=3600),
 ) -> list[TrendSeriesResponse]:
-    """查询短期内存趋势，不访问历史数据库。"""
+    """即时补采当前值并查询 Server 进程内短期趋势；不访问历史数据库。"""
     try:
         series = await _device_data().trend(
             device_id,
