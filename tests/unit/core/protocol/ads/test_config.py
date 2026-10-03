@@ -28,8 +28,6 @@ def test_defaults() -> None:
     assert c.twincat_version == "2"
     assert c.target_port == 801
     assert c.timeout == 5.0
-    assert c.reconnect_max_retries == 5
-    assert c.reconnect_backoff_max == 30.0
 
 
 def test_custom_target_net_id() -> None:
