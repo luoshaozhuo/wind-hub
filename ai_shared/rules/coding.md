@@ -56,13 +56,15 @@ origin/main
 
 1. **只有产品代码变更默认进入产品代码 Gate。**
 2. CI/Agent 工具修改只验证工具自身，除非同时修改产品代码。
-3. rules/skills/docs 等非代码治理修改不运行产品 pytest、build、Playwright、integration/system。
+3. rules/skills 等非代码治理修改不运行产品 pytest、build、Playwright、integration/system。
 4. 混合变更按真实受影响范围执行对应 Gate。
 5. CI FAIL 先判定 `RELATED / UNRELATED / UNKNOWN`；只有 `RELATED` 必须修复。
 6. 可证明的 `UNRELATED` 既有失败只记录，不扩大本次任务。
 7. 不通过删测试、放宽断言、扩大 skip/xfail 或关闭检查制造 PASS。
 
-## 6. 文档与范围
+## 6. 文档边界
 
 1. 代码内 docstring / 注释按 `comments.md`。
-2. README/docs 仅在任务明确要求或事实已因当前修改陈旧时更新。
+2. README、`docs/`、设计说明、变更记录等独立文档默认只读，不属于普通编码任务的维护对象。
+3. 不因代码、配置、接口或架构变化而主动创建、更新、同步或补写独立文档。
+4. 只有用户明确要求文档任务时才允许修改独立文档；不得把“保持文档同步”作为编码任务的隐式收尾步骤。
