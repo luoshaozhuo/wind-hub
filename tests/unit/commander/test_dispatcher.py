@@ -14,6 +14,7 @@ Runtime 以最小 fake 替代——本层只验证 Dispatcher 自身逻辑，设
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -52,6 +53,10 @@ class _FakeRuntime:
         if device_id != self._device_id:
             raise KeyError(f"unknown device '{device_id}'")
         return self._device
+
+    async def ensure_connected(self, device_id: str) -> bool:
+        self.device(device_id)
+        return True
 
     def operation(self):
         from contextlib import asynccontextmanager
@@ -134,18 +139,19 @@ class TestResultCache:
             await dispatcher.send(_command(f"cmd-{i}"))
         await dispatcher.send(_command("cmd-overflow"))
         # 容量 4 + 1 条新命令——最早写入的 cmd-0 必须被逐出。
-        assert dispatcher.get_cached("cmd-0") is None
-        assert dispatcher.get_cached("cmd-3") is not None
-        assert dispatcher.get_cached("cmd-overflow") is not None
+        assert "cmd-0" not in dispatcher._cache
+        assert "cmd-3" in dispatcher._cache
+        assert "cmd-overflow" in dispatcher._cache
 
     async def test_cache_expires_after_ttl(self, device: _FakeDevice) -> None:
         dispatcher = CommandDispatcher(
             _FakeRuntime(device), default_timeout=1.0, idempotency_ttl=0.05  # type: ignore[arg-type]
         )
         await dispatcher.send(_command("cmd-ttl"))
-        assert dispatcher.get_cached("cmd-ttl") is not None
+        assert "cmd-ttl" in dispatcher._cache
         await asyncio.sleep(0.08)
-        assert dispatcher.get_cached("cmd-ttl") is None
+        dispatcher._expire(time.monotonic())
+        assert "cmd-ttl" not in dispatcher._cache
         await dispatcher.send(_command("cmd-ttl"))
         assert len(device.write_calls) == 2
 
@@ -208,3 +214,32 @@ class TestFailureSemantics:
         await dispatcher.send(_command("cmd-clean"))
         await asyncio.sleep(0)
         assert not dispatcher._inflight
+
+
+class TestIdempotencyConflict:
+    async def test_completed_id_reused_with_different_payload_is_rejected(
+        self, dispatcher: CommandDispatcher, device: _FakeDevice
+    ) -> None:
+        first = await dispatcher.send(_command("cmd-conflict"))
+        conflict = await dispatcher.send(
+            Command(command_id="cmd-conflict", device_id="d1", point_id="p1", value=2.0)
+        )
+        assert first.success
+        assert not conflict.success
+        assert "idempotency conflict" in (conflict.error or "")
+        assert len(device.write_calls) == 1
+
+    async def test_inflight_id_reused_with_different_payload_is_rejected(
+        self, dispatcher: CommandDispatcher, device: _FakeDevice
+    ) -> None:
+        device.delay_s = 0.05
+        first_task = asyncio.create_task(dispatcher.send(_command("cmd-live")))
+        await asyncio.sleep(0)
+        conflict = await dispatcher.send(
+            Command(command_id="cmd-live", device_id="d1", point_id="p1", value=2.0)
+        )
+        first = await first_task
+        assert first.success
+        assert not conflict.success
+        assert "idempotency conflict" in (conflict.error or "")
+        assert len(device.write_calls) == 1

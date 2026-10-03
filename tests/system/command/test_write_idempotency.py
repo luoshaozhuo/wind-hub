@@ -154,3 +154,18 @@ class TestWriteIdempotency:
         assert result.success
         assert result.command_id != ""
         assert server.write_count == 1
+
+
+    async def test_same_command_id_with_different_value_is_rejected(
+        self, idem_env: tuple[CollectorProcess, ModbusMockServer]
+    ) -> None:
+        proc, server = idem_env
+        command_id = "cmd-system-idem-conflict"
+        first = await _write_point_rpc(proc.grpc_target, command_id=command_id, value=44.4)
+        conflict = await _write_point_rpc(proc.grpc_target, command_id=command_id, value=99.9)
+        assert first.success
+        assert not conflict.success
+        assert "idempotency conflict" in conflict.error
+        assert server.write_count == 1
+        registers = await server.read_holding(1, 200, 2)
+        assert _decode_float32(registers) == pytest.approx(44.4)

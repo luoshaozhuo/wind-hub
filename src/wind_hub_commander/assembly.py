@@ -50,7 +50,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         config=config,
         runtime=runtime,
         dispatcher=dispatcher,
-        command=CommandUseCase(runtime, dispatcher),
+        command=CommandUseCase(dispatcher),
         read=ReadUseCase(runtime),
         diagnostic=DiagnosticUseCase(runtime),
         config_dir=Path(config_dir),
