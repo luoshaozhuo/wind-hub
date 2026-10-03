@@ -303,9 +303,9 @@ class ConfigUseCase:
         """把磁盘 YAML 恢复到最近一次成功激活的配置集。"""
         errors: list[str] = []
         try:
+            root = self._config_dir.resolve()
             current = {
                 path.resolve()
-                for root in self._config_roots()
                 for path in root.rglob("*")
                 if (
                     path.is_file()
