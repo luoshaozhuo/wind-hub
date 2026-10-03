@@ -1,4 +1,4 @@
-"""LatestPointStore / TrendStore 的进程内实现。"""
+"""Server 短期即时采样历史的进程内实现。"""
 
 from __future__ import annotations
 
@@ -7,35 +7,6 @@ from collections import defaultdict, deque
 from datetime import datetime
 
 from wind_hub_core.model.point import PointValue
-
-
-class InMemoryLatestPointStore:
-    """线程安全的最新点值缓存。"""
-
-    def __init__(self) -> None:
-        self._values: dict[tuple[str, str], PointValue] = {}
-        self._lock = threading.RLock()
-
-    def put_batch(self, values: list[PointValue]) -> None:
-        """仅保留每个 device/point 最近一次收到的值。"""
-        with self._lock:
-            for value in values:
-                self._values[(value.device_id, value.point_id)] = value.model_copy(deep=True)
-
-    def get(self, device_id: str, point_id: str) -> PointValue | None:
-        """返回独立快照，防止调用方修改缓存对象。"""
-        with self._lock:
-            value = self._values.get((device_id, point_id))
-            return value.model_copy(deep=True) if value is not None else None
-
-    def list_device(self, device_id: str) -> dict[str, PointValue]:
-        """返回指定设备当前全部最新值。"""
-        with self._lock:
-            return {
-                point_id: value.model_copy(deep=True)
-                for (did, point_id), value in self._values.items()
-                if did == device_id
-            }
 
 
 class InMemoryTrendStore:
