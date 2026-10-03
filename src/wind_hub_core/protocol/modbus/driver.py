@@ -134,8 +134,6 @@ class ModbusDriver:
         self._failed = False
         self._shutdown = False
 
-        self._reconnect_event = asyncio.Event()
-        self._monitor_task: asyncio.Task[None] | None = None
 
         # pymodbus client 在 connect 时延迟导入；Any 仅隔离第三方未类型化对象，
         # 不进入 ProtocolPort 公开接口。
@@ -188,18 +186,11 @@ class ModbusDriver:
                     f"Modbus: failed to connect to {self._config.host}:{self._config.port} "
                     f"after {self._config.reconnect_max_retries + 1} attempts: {last_exc}"
                 ) from last_exc
-            self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     async def close(self) -> None:
-        """关闭 Modbus client 和后台重连任务；重复调用安全。"""
+        """关闭 Modbus client；重复调用安全。"""
         async with self._lock:
             self._shutdown = True
-            self._reconnect_event.set()
-            if self._monitor_task is not None and not self._monitor_task.done():
-                self._monitor_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._monitor_task
-            self._monitor_task = None
             self._close_client()
             self._connected = False
             self._failed = False
@@ -274,25 +265,9 @@ class ModbusDriver:
             with contextlib.suppress(Exception):
                 client.close()
 
-    async def _monitor_loop(self) -> None:
-        """断线后在后台按重试策略恢复连接；预算耗尽后停止监视。"""
-        while not self._shutdown:
-            await self._reconnect_event.wait()
-            self._reconnect_event.clear()
-            if self._shutdown:
-                return
-            if self._connected:
-                continue
-            last_exc = await self._connect_with_retry()
-            if last_exc is not None:
-                # 重试预算耗尽进入 failed；等待显式 connect() 才重新开始。
-                logger.error("Modbus: reconnection retries exhausted: %s", last_exc)
-                return
-
     def _signal_disconnect(self) -> None:
-        """标记连接断开，并唤醒后台重连循环。"""
+        """标记连接断开；后续重连由调用方显式 connect() 驱动。"""
         self._connected = False
-        self._reconnect_event.set()
 
     # ------------------------------------------------------------------
     # ProtocolPort：读取
@@ -301,7 +276,7 @@ class ModbusDriver:
     async def read(self, points: list[PointRef]) -> list[PointValue]:
         """批量读取点位，并把相邻地址合并为较少的 Modbus 请求。
 
-        传输异常统一转换为 ProtocolError 并触发重连；单点解码失败返回
+        传输异常统一转换为 ProtocolError 并标记断线；单点解码失败返回
         Quality.BAD，不使同组其他点失败。
         """
         async with self._lock:
@@ -312,7 +287,7 @@ class ModbusDriver:
             except ProtocolError:
                 raise
             except Exception as exc:
-                # pymodbus 第三方异常不越过 ProtocolPort；统一包装并触发重连。
+                # pymodbus 第三方异常不越过 ProtocolPort；统一包装并标记断线。
                 self._signal_disconnect()
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
