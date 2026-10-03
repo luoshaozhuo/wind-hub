@@ -46,7 +46,7 @@ Collector 的 Data/Trend 数据来自真实采集链；页面刷新不会通过 
 |---|---|
 | ADS | TwinCAT 2/3；Sum/sequential 读取；写入；可选 Device Notification |
 | Modbus TCP | Holding/Input/Coil/Discrete；批量读取；写入 |
-| IEC 60870-5-104 | 总召、缓存读取、spontaneous、命令写入及可选 reporting 从站 |
+| IEC 60870-5-104 | 总召、缓存读取、spontaneous、命令写入；可选从站代理支持主站总召与控制命令桥接 |
 
 ADS 默认 TwinCAT 2，默认 AMS 端口 801；TwinCAT 3 默认端口 851。
 显式 `target_port` / `ams_port` 优先于版本推导值。
@@ -56,7 +56,7 @@ ADS 默认 TwinCAT 2，默认 AMS 端口 801；TwinCAT 3 默认端口 851。
 | 类型 | 实现 |
 |---|---|
 | Kafka | `aiokafka` |
-| File | CSV/File Sink |
+| File | CSV / JSONL 本地文件；支持滚动与可选 gzip 压缩 |
 | Database | PostgreSQL / `asyncpg` |
 
 当前 Sink 交付语义为 **at-most-once**。Sink 队列背压或外部写失败导致的
