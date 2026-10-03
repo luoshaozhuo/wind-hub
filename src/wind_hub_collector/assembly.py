@@ -193,6 +193,11 @@ def _create_sink(cfg: ResolvedSinkConfig) -> SinkPort:
         from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
 
         return IEC104Sink(cfg)
+    if cfg.type == "modbus":
+        from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
+
+        return ModbusSink(cfg)
     raise ConfigError(
-        f"Unknown sink type '{cfg.type}' (available: kafka, file, db, iec104)"
+        f"Unknown sink type '{cfg.type}' "
+        "(available: kafka, file, db, iec104, modbus)"
     )

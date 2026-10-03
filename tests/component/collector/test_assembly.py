@@ -186,3 +186,34 @@ async def test_collector_runtime_lifecycle_without_web_components() -> None:
             device.connect = original_connect  # type: ignore[method-assign]
 
         assert assembled.runtime.running is False
+
+
+
+def test_create_sink_supports_modbus() -> None:
+    import wind_hub_collector.assembly as assembly_module
+    from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
+
+    cfg = ResolvedSinkConfig(
+        name="modbus_scada",
+        type="modbus",
+        connection={"host": "127.0.0.1", "port": 1502},
+        points=[
+            {
+                "source": {"device_id": "d1", "point_id": "rotor.speed"},
+                "ref": "d1.rotor.speed",
+                "source_data_type": "float32",
+                "source_unit": "none",
+                "datatype": "float32",
+                "unit": "none",
+                "address": {
+                    "unit_id": 1,
+                    "register_type": "holding",
+                    "address": 100,
+                },
+            }
+        ],
+    )
+
+    sink = assembly_module._create_sink(cfg)  # noqa: SLF001
+    assert isinstance(sink, ModbusSink)
+    assert sink.exclusive_open is True
