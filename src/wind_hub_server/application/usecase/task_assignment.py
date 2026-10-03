@@ -68,10 +68,6 @@ class TaskAssignmentUseCase:
         self.sync()
         return self._generation
 
-    @property
-    def state_path(self) -> Path:
-        """返回 placement 状态文件路径。"""
-        return self._state_path
 
     def _initialize(self) -> None:
         """为首次启动时的 Task 建立稳定 placement。"""
@@ -200,27 +196,6 @@ class TaskAssignmentUseCase:
         if worker_id in set(self._collectors.list_worker_ids()):
             return TaskPlacementState.ASSIGNED
         return TaskPlacementState.ORPHANED
-
-    def assign(self, task_id: str, worker_id: str) -> TaskAssignment:
-        """显式把 Task 分配给指定 Collector。"""
-        self.sync()
-        if task_id not in self._placements:
-            raise KeyError(task_id)
-        self._collectors.get(worker_id)
-        if self._placements[task_id] != worker_id:
-            self._placements[task_id] = worker_id
-            self._changed()
-        return self.assignment_for_task(task_id)
-
-    def unassign(self, task_id: str) -> TaskAssignment:
-        """显式取消 Task placement。"""
-        self.sync()
-        if task_id not in self._placements:
-            raise KeyError(task_id)
-        if self._placements[task_id] is not None:
-            self._placements[task_id] = None
-            self._changed()
-        return self.assignment_for_task(task_id)
 
     def assignment_for_task(self, task_id: str) -> TaskAssignment:
         """返回指定 Task placement；未知 Task 抛 KeyError。"""
