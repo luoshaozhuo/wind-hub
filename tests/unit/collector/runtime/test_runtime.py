@@ -1101,6 +1101,33 @@ class TestReconfigure:
 # ---------------------------------------------------------------------------
 # Sink 热重载生命周期
 # ---------------------------------------------------------------------------
+class _ExclusiveSink:
+    def __init__(self, events: list[str], name: str, fail_open: bool = False) -> None:
+        self.events = events
+        self.name = name
+        self.fail_open = fail_open
+
+    @property
+    def exclusive_open(self) -> bool:
+        return True
+
+    async def open(self) -> None:
+        self.events.append(f"{self.name}:open")
+        if self.fail_open:
+            raise OSError("bind failed")
+
+    async def close(self) -> None:
+        self.events.append(f"{self.name}:close")
+
+    async def write(self, batch: list[PointValue]) -> None:
+        del batch
+
+    async def flush(self) -> None:
+        self.events.append(f"{self.name}:flush")
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(healthy=True)
+
 
 
 class TestSinkReloadLifecycle:
@@ -1147,6 +1174,57 @@ class TestSinkReloadLifecycle:
             created.open.assert_awaited_once()
         finally:
             await rt.stop()
+
+    async def test_exclusive_sink_closes_old_before_opening_new(self) -> None:
+        events: list[str] = []
+        old_sink = _ExclusiveSink(events, "old")
+        new_sink = _ExclusiveSink(events, "new")
+        rt = Runtime(
+            devices={},
+            sinks={"s1": old_sink},
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+            config=_runtime_config(),
+            tasks={},
+        )
+
+        await rt.rebuild_sink(
+            "s1",
+            ResolvedSinkConfig(
+                name="s1",
+                type="file",
+                connection={"path": "/tmp/s1.jsonl"},
+            ),
+            new_sink,
+        )
+
+        assert events[:3] == ["old:flush", "old:close", "new:open"]
+        assert rt.sinks["s1"] is new_sink
+
+    async def test_exclusive_sink_open_failure_restores_old_instance(self) -> None:
+        events: list[str] = []
+        old_sink = _ExclusiveSink(events, "old")
+        new_sink = _ExclusiveSink(events, "new", fail_open=True)
+        rt = Runtime(
+            devices={},
+            sinks={"s1": old_sink},
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+            config=_runtime_config(),
+            tasks={},
+        )
+
+        with pytest.raises(OSError, match="bind failed"):
+            await rt.rebuild_sink(
+                "s1",
+                ResolvedSinkConfig(
+                    name="s1",
+                    type="file",
+                    connection={"path": "/tmp/s1.jsonl"},
+                ),
+                new_sink,
+            )
+
+        assert events == ["old:flush", "old:close", "new:open", "old:open"]
+        assert rt.sinks["s1"] is old_sink
 
 
 # ---------------------------------------------------------------------------
