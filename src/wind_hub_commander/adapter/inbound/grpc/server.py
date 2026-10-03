@@ -125,25 +125,6 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             prepared_config_hash=self._app.runtime.prepared_config_hash or "",
         )
 
-    async def ListDevices(
-        self, request: empty_pb2.Empty, context: grpc.aio.ServicerContext
-    ) -> pb.ListDevicesResponse:
-        """列出 Commander 当前设备会话。"""
-        del request, context
-        response = pb.ListDevicesResponse()
-        response.devices.extend(
-            pb.DeviceSummary(
-                device_id=device.device_id,
-                protocol=device.config.protocol,
-                host=device.config.endpoint.host,
-                port=device.config.endpoint.port,
-                enabled=device.enabled,
-                healthy=device.health().healthy,
-            )
-            for device in self._app.runtime.devices.values()
-        )
-        return response
-
     async def PrepareConfig(
         self,
         request: pb.PrepareConfigRequest,
@@ -267,27 +248,6 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             raise AssertionError("context.abort must terminate the RPC") from exc
         return command_result_to_proto(result)
 
-    async def WritePoints(
-        self,
-        request: pb.WritePointsRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.WritePointsResponse:
-        """强类型批量写入。"""
-        try:
-            if not request.commands:
-                raise ValueError("commands must not be empty")
-            commands = [command_from_proto(item) for item in request.commands]
-            for command in commands:
-                if not command.command_id:
-                    command.command_id = uuid4().hex
-            results = await self._app.command.send_batch(commands)
-        except Exception as exc:
-            await _abort(context, exc)
-            raise AssertionError("context.abort must terminate the RPC") from exc
-        response = pb.WritePointsResponse()
-        response.results.extend(command_result_to_proto(result) for result in results)
-        return response
-
     async def VerifyDevice(
         self,
         request: pb.VerifyDeviceRequest,
@@ -304,62 +264,25 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _device_verify_to_proto(result)
 
-    async def ResolvePoint(
-        self,
-        request: pb.PointRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.PointVerifyResponse:
-        """解析单点协议地址。"""
-        return await self._point_diagnostic(request, context, resolve=True)
-
     async def VerifyPoint(
         self,
         request: pb.PointRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb.PointVerifyResponse:
         """执行单点在线读取验证。"""
-        return await self._point_diagnostic(request, context, resolve=False)
-
-    async def VerifyPoints(
-        self,
-        request: pb.VerifyPointsRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.PointsVerifyResponse:
-        """批量验证设备点表或指定 point_group。"""
-        try:
-            result = await self._app.diagnostic.verify_points(
-                _required(request.device_id, "device_id"),
-                point_group=request.point_group or None,
-            )
-        except Exception as exc:
-            await _abort(context, exc)
-            raise AssertionError("context.abort must terminate the RPC") from exc
-        response = pb.PointsVerifyResponse(
-            device_id=result.device_id,
-            point_group=result.point_group or "",
-            checked=result.checked,
-            passed=result.passed,
-            failed=result.failed,
-            ok=result.ok,
-        )
-        response.points.extend(_point_verify_to_proto(item) for item in result.points)
-        return response
+        return await self._point_diagnostic(request, context)
 
     async def _point_diagnostic(
         self,
         request: pb.PointRequest,
         context: grpc.aio.ServicerContext,
-        *,
-        resolve: bool,
     ) -> pb.PointVerifyResponse:
-        """执行单点 resolve/verify，并统一异常映射。"""
+        """执行单点在线验证，并统一异常映射。"""
         try:
-            device_id = _required(request.device_id, "device_id")
-            point_id = _required(request.point_id, "point_id")
-            if resolve:
-                result = await self._app.diagnostic.resolve_point(device_id, point_id)
-            else:
-                result = await self._app.diagnostic.verify_point(device_id, point_id)
+            result = await self._app.diagnostic.verify_point(
+                _required(request.device_id, "device_id"),
+                _required(request.point_id, "point_id"),
+            )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc

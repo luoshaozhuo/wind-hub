@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from wind_hub_commander.dispatcher import CommandDispatcher
 from wind_hub_commander.runtime import CommanderRuntime
 from wind_hub_core.model.command import Command, CommandResult
@@ -38,6 +36,3 @@ class CommandUseCase:
                 )
             return await self._dispatcher.send(command)
 
-    async def send_batch(self, commands: list[Command]) -> list[CommandResult]:
-        """并发执行多条即时写命令。"""
-        return list(await asyncio.gather(*(self.send(command) for command in commands)))
