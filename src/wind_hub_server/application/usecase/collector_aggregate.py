@@ -1,4 +1,4 @@
-"""基于 TaskAssignment 的多 Collector 聚合读模型。"""
+"""基于 TaskAssignment 的多 Collector 低频聚合快照。"""
 
 from __future__ import annotations
 
@@ -6,12 +6,13 @@ import asyncio
 from typing import Any
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
 
 class CollectorAggregateUseCase:
-    """按 assignment 边界聚合多个 Collector 的运行态。"""
+    """每个 Collector 只校验一次身份，再并发读取低频运行快照。"""
 
     def __init__(
         self,
@@ -23,12 +24,36 @@ class CollectorAggregateUseCase:
         self._assignments = assignments
         self._config = config
 
-    async def _query_worker(
-        self,
-        worker_id: str,
-        method: str,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """校验 Collector 身份后执行只读 RPC。"""
+    async def snapshot(self) -> dict[str, Any]:
+        """返回 MonitoringService 所需的完整 Collector 聚合快照。"""
+        worker_ids = self._collectors.list_worker_ids()
+        results = await asyncio.gather(
+            *(self._worker_snapshot(worker_id) for worker_id in worker_ids),
+            return_exceptions=True,
+        )
+
+        by_worker: dict[str, dict[str, Any]] = {}
+        unavailable_workers: list[str] = []
+        for worker_id, result in zip(worker_ids, results, strict=True):
+            if isinstance(result, BaseException):
+                unavailable_workers.append(worker_id)
+                continue
+            by_worker[worker_id] = result
+
+        devices = self._aggregate_devices(by_worker)
+        sinks = self._aggregate_sinks(by_worker)
+        runtime = self._aggregate_runtime(by_worker, unavailable_workers, devices, sinks)
+        metrics = self._aggregate_metrics(by_worker)
+
+        return {
+            "runtime_status": runtime,
+            "metrics": metrics,
+            "devices": devices,
+            "sinks": sinks,
+        }
+
+    async def _worker_snapshot(self, worker_id: str) -> dict[str, Any]:
+        """校验一次 Collector 身份，然后并发读取本 Worker 的四类只读状态。"""
         collector = self._collectors.get(worker_id)
         status = await collector.config_status()
         reported_id = str(status.get("collector_id") or "")
@@ -37,27 +62,32 @@ class CollectorAggregateUseCase:
                 f"collector identity mismatch: expected={worker_id} "
                 f"reported={reported_id or '<empty>'}"
             )
-        operation = getattr(collector, method)
-        # method 名由调用方限定为 CollectorPort 的只读查询方法；
-        # 返回值在此显式收窄，避免 Any 穿透到上层聚合逻辑。
-        result: dict[str, Any] | list[dict[str, Any]] = await operation()
-        return result
-
-    async def runtime_status(self) -> dict[str, Any]:
-        worker_ids = self._collectors.list_worker_ids()
-        statuses = await asyncio.gather(
-            *(self._query_worker(worker_id, "runtime_status") for worker_id in worker_ids),
-            return_exceptions=True,
+        runtime, metrics, devices, sinks = await asyncio.gather(
+            collector.runtime_status(),
+            collector.metrics_snapshot(),
+            collector.list_devices(),
+            collector.list_sinks(),
         )
+        return {
+            "runtime_status": runtime,
+            "metrics": metrics,
+            "devices": devices,
+            "sinks": sinks,
+        }
+
+    def _aggregate_runtime(
+        self,
+        by_worker: dict[str, dict[str, Any]],
+        unavailable_workers: list[str],
+        devices: list[dict[str, Any]],
+        sinks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         acquisitions: list[dict[str, Any]] = []
         points_collected = points_routed = points_dropped = 0
-        unavailable_workers: list[str] = []
-        running = True
-        for worker_id, status in zip(worker_ids, statuses, strict=True):
-            if isinstance(status, BaseException):
-                unavailable_workers.append(worker_id)
-                running = False
-                continue
+        running = not unavailable_workers
+
+        for worker_id, snapshot in by_worker.items():
+            status = snapshot["runtime_status"]
             if not isinstance(status, dict):
                 raise TypeError(
                     f"unexpected runtime_status payload from worker '{worker_id}': "
@@ -75,8 +105,6 @@ class CollectorAggregateUseCase:
                 and str(item.get("task_id") or "") in assigned
             )
 
-        devices = await self.list_devices()
-        sinks = await self.list_sinks()
         return {
             "running": running,
             "device_count": len(self._config.current_config.devices.devices),
@@ -88,36 +116,32 @@ class CollectorAggregateUseCase:
             "points_dropped": points_dropped,
             "acquisitions": acquisitions,
             "degraded": bool(unavailable_workers),
-            "unavailable_workers": unavailable_workers,
+            "unavailable_workers": list(unavailable_workers),
         }
 
-    async def list_devices(self) -> list[dict[str, Any]]:
-        worker_ids = self._collectors.list_worker_ids()
-        results = await asyncio.gather(
-            *(self._query_worker(worker_id, "list_devices") for worker_id in worker_ids),
-            return_exceptions=True,
-        )
-        by_worker: dict[str, dict[str, dict[str, Any]]] = {}
-        for worker_id, result in zip(worker_ids, results, strict=True):
-            if isinstance(result, BaseException):
-                by_worker[worker_id] = {}
-                continue
-            if not isinstance(result, list):
+    def _aggregate_devices(
+        self,
+        by_worker: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        worker_devices: dict[str, dict[str, dict[str, Any]]] = {}
+        for worker_id, snapshot in by_worker.items():
+            raw = snapshot["devices"]
+            if not isinstance(raw, list):
                 raise TypeError(
                     f"unexpected list_devices payload from worker '{worker_id}': "
-                    f"{type(result).__name__}"
+                    f"{type(raw).__name__}"
                 )
-            device_rows = [row for row in result if isinstance(row, dict)]
-            by_worker[worker_id] = {
+            worker_devices[worker_id] = {
                 str(row.get("device_id")): row
-                for row in device_rows
-                if row.get("device_id") is not None
+                for row in raw
+                if isinstance(row, dict) and row.get("device_id") is not None
             }
+
         rows: list[dict[str, Any]] = []
         for cfg in self._config.current_config.devices.devices:
             owners = self._assignments.worker_ids_for_device(cfg.device_id)
             states = [
-                by_worker.get(worker_id, {}).get(cfg.device_id)
+                worker_devices.get(worker_id, {}).get(cfg.device_id)
                 for worker_id in owners
             ]
             present = [row for row in states if row is not None]
@@ -150,32 +174,31 @@ class CollectorAggregateUseCase:
             )
         return rows
 
-    async def list_sinks(self) -> list[dict[str, Any]]:
-        worker_ids = self._collectors.list_worker_ids()
-        results = await asyncio.gather(
-            *(self._query_worker(worker_id, "list_sinks") for worker_id in worker_ids),
-            return_exceptions=True,
-        )
-        by_worker: dict[str, dict[str, dict[str, Any]]] = {}
-        for worker_id, result in zip(worker_ids, results, strict=True):
-            if isinstance(result, BaseException):
-                by_worker[worker_id] = {}
-                continue
-            if not isinstance(result, list):
+    def _aggregate_sinks(
+        self,
+        by_worker: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        worker_sinks: dict[str, dict[str, dict[str, Any]]] = {}
+        for worker_id, snapshot in by_worker.items():
+            raw = snapshot["sinks"]
+            if not isinstance(raw, list):
                 raise TypeError(
                     f"unexpected list_sinks payload from worker '{worker_id}': "
-                    f"{type(result).__name__}"
+                    f"{type(raw).__name__}"
                 )
-            sink_rows = [row for row in result if isinstance(row, dict)]
-            by_worker[worker_id] = {
+            worker_sinks[worker_id] = {
                 str(row.get("name")): row
-                for row in sink_rows
-                if row.get("name") is not None
+                for row in raw
+                if isinstance(row, dict) and row.get("name") is not None
             }
+
         rows: list[dict[str, Any]] = []
         for cfg in self._config.current_config.system.sinks:
             owners = self._assignments.worker_ids_for_sink(cfg.name)
-            states = [by_worker.get(worker_id, {}).get(cfg.name) for worker_id in owners]
+            states = [
+                worker_sinks.get(worker_id, {}).get(cfg.name)
+                for worker_id in owners
+            ]
             present = [row for row in states if row is not None]
             rows.append(
                 {
@@ -204,12 +227,10 @@ class CollectorAggregateUseCase:
             )
         return rows
 
-    async def metrics_snapshot(self) -> dict[str, Any]:
-        worker_ids = self._collectors.list_worker_ids()
-        snapshots = await asyncio.gather(
-            *(self._query_worker(worker_id, "metrics_snapshot") for worker_id in worker_ids),
-            return_exceptions=True,
-        )
+    def _aggregate_metrics(
+        self,
+        by_worker: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         counter_names = (
             "points_total",
             "points_bad",
@@ -226,15 +247,14 @@ class CollectorAggregateUseCase:
         reconnects: dict[str, int] = {}
         events: list[dict[str, Any]] = []
 
-        for worker_id, snapshot in zip(worker_ids, snapshots, strict=True):
-            if isinstance(snapshot, BaseException):
-                continue
-            if not isinstance(snapshot, dict):
+        for worker_id, snapshot in by_worker.items():
+            metrics = snapshot["metrics"]
+            if not isinstance(metrics, dict):
                 raise TypeError(
                     f"unexpected metrics_snapshot payload from worker '{worker_id}': "
-                    f"{type(snapshot).__name__}"
+                    f"{type(metrics).__name__}"
                 )
-            raw_counters = snapshot.get("counters")
+            raw_counters = metrics.get("counters")
             if isinstance(raw_counters, dict):
                 for name in counter_names:
                     counters[name] += int(raw_counters.get(name) or 0)
@@ -243,14 +263,14 @@ class CollectorAggregateUseCase:
                 ("device_connect_failures", failures),
                 ("device_reconnects", reconnects),
             ):
-                values = snapshot.get(key)
+                values = metrics.get(key)
                 if not isinstance(values, dict):
                     continue
                 for device_id, value in values.items():
                     if worker_id in self._assignments.worker_ids_for_device(str(device_id)):
                         target[str(device_id)] = target.get(str(device_id), 0) + int(value)
 
-            for item in list(snapshot.get("events") or []):
+            for item in list(metrics.get("events") or []):
                 if not isinstance(item, dict):
                     continue
                 object_id = str(item.get("object") or "")
