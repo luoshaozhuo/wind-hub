@@ -133,7 +133,7 @@ def assemble_server(
         task_assignments,
         config,
     )
-    devices = DeviceUseCase(collector_aggregate, config)
+    devices = DeviceUseCase(monitoring, config)
     device_data = DeviceDataUseCase(
         config,
         commander_client,
@@ -159,7 +159,7 @@ def assemble_server(
     definitions = DefinitionsUseCase(config, config_admin)
     sink_ops = SinkUseCase(
         collector_directory,
-        collector_aggregate,
+        monitoring,
         task_assignments,
         config,
         config_admin,
