@@ -1,14 +1,12 @@
 """Unit tests for the IEC104 slave proxy (从站) components.
 
-Covers the pure pieces — snapshot, mapping, handlers, bridge — plus the
-session's negative-confirmation encoding, all without a real socket.  The
-Scheduler and Dispatcher are replaced by mocks (their real contracts are
-exercised by the integration test).
+Covers the pure pieces — snapshot, mapping, handlers and bridge — plus the
+session's negative-confirmation encoding, all without a real socket.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
@@ -21,11 +19,9 @@ from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
 from wind_hub_collector.adapter.inbound.iec104_slave.mapping import (
     build_data_type_mapping,
     build_ioa_mapping,
-    build_reverse_mapping,
 )
 from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
 from wind_hub_core.config.schema import ReportingPoint
-from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
@@ -60,20 +56,17 @@ class _RecordingSession:
 
 def _make_handlers(
     snapshot: DataSnapshot,
-    dispatcher: MagicMock,
     batch_size: int = 50,
     reporting: list[ReportingPoint] | None = None,
 ) -> IEC104SlaveHandlers:
     reporting = reporting if reporting is not None else _reporting()
     bridge = SlaveBridge(
-        dispatcher=dispatcher,
         snapshot=snapshot,
         mapping=build_ioa_mapping(reporting),
     )
     return IEC104SlaveHandlers(
         snapshot=snapshot,
         data_type_mapping=build_data_type_mapping(reporting),
-        reverse_mapping=build_reverse_mapping(reporting),
         bridge=bridge,
         common_address=1,
         batch_size=batch_size,
@@ -161,11 +154,6 @@ class TestMapping:
         m = build_data_type_mapping(_reporting())
         assert m[2001] == "M_SP_NA_1"
 
-    def test_reverse_mapping(self) -> None:
-        m = build_reverse_mapping(_reporting())
-        assert m[1002] == ("wtg-001", "gen.power")
-
-
 # ---------------------------------------------------------------------------
 # bridge
 # ---------------------------------------------------------------------------
@@ -175,7 +163,6 @@ class TestBridge:
     async def test_on_points_collected_updates_snapshot(self) -> None:
         snapshot = DataSnapshot()
         bridge = SlaveBridge(
-            dispatcher=MagicMock(),
             snapshot=snapshot,
             mapping=build_ioa_mapping(_reporting()),
         )
@@ -183,19 +170,6 @@ class TestBridge:
             [PointValue(device_id="wtg-001", point_id="rotor.speed", value=1500.5)]
         )
         assert snapshot.get(1001).value == 1500.5  # type: ignore[union-attr]
-
-    async def test_forward_command_calls_dispatcher(self) -> None:
-        dispatcher = MagicMock()
-        dispatcher.send = AsyncMock(return_value=CommandResult(command_id="c1", success=True))
-        bridge = SlaveBridge(
-            dispatcher=dispatcher,
-            snapshot=DataSnapshot(),
-            mapping=build_ioa_mapping(_reporting()),
-        )
-        cmd = Command(command_id="c1", device_id="wtg-001", point_id="p", value=True)
-        result = await bridge.forward_command(cmd)
-        assert result.success
-        dispatcher.send.assert_awaited_once_with(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +188,7 @@ class TestInterrogation:
             ],
             build_ioa_mapping(_reporting()),
         )
-        handlers = _make_handlers(snapshot, MagicMock())
+        handlers = _make_handlers(snapshot)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(
@@ -254,7 +228,7 @@ class TestInterrogation:
             ],
             build_ioa_mapping(_reporting()),
         )
-        handlers = _make_handlers(snapshot, MagicMock(), batch_size=1)
+        handlers = _make_handlers(snapshot, batch_size=1)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(
@@ -279,7 +253,7 @@ class TestInterrogation:
         """
         reporting, snapshot = _bulk_setup(500, "M_ME_NC_1")
         # 软上限抬高到不触发， isolating 纯字节切分。
-        handlers = _make_handlers(snapshot, MagicMock(), batch_size=500, reporting=reporting)
+        handlers = _make_handlers(snapshot, batch_size=500, reporting=reporting)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(_interrogation(), rec)
@@ -296,7 +270,7 @@ class TestInterrogation:
     async def test_interrogation_chunks_single_points_by_apdu_bytes(self) -> None:
         """500 个 M_SP_NA_1（4B/对象）：每帧 <= 61 对象（247//4）。"""
         reporting, snapshot = _bulk_setup(500, "M_SP_NA_1")
-        handlers = _make_handlers(snapshot, MagicMock(), batch_size=500, reporting=reporting)
+        handlers = _make_handlers(snapshot, batch_size=500, reporting=reporting)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(_interrogation(), rec)
@@ -318,7 +292,7 @@ class TestInterrogation:
             [PointValue(device_id="wtg-001", point_id=p.point_id, value=1) for p in reporting_sp],
             build_ioa_mapping(reporting),
         )
-        handlers = _make_handlers(snapshot, MagicMock(), batch_size=500, reporting=reporting)
+        handlers = _make_handlers(snapshot, batch_size=500, reporting=reporting)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(_interrogation(), rec)
@@ -335,7 +309,7 @@ class TestInterrogation:
         """batch_size 软上限：字节上限内仍按对象数软上限切分。"""
         # M_SP_NA_1 字节上限允许 61 对象/帧，batch_size=10 应压到 10/帧。
         reporting, snapshot = _bulk_setup(25, "M_SP_NA_1")
-        handlers = _make_handlers(snapshot, MagicMock(), batch_size=10, reporting=reporting)
+        handlers = _make_handlers(snapshot, batch_size=10, reporting=reporting)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(_interrogation(), rec)
@@ -350,7 +324,7 @@ class TestInterrogation:
             [PointValue(device_id="wtg-001", point_id="rotor.speed", value=1500.5)],
             build_ioa_mapping(_reporting()),
         )
-        handlers = _make_handlers(snapshot, MagicMock())
+        handlers = _make_handlers(snapshot)
         rec = _RecordingSession()
 
         await handlers.handle_interrogation(
@@ -367,83 +341,6 @@ class TestInterrogation:
             TypeID.M_ME_NC_1,
             TypeID.C_IC_NA_1,
         ]
-
-
-class TestCommand:
-    async def test_command_success_emits_con_and_term(self) -> None:
-        dispatcher = MagicMock()
-        dispatcher.send = AsyncMock(return_value=CommandResult(command_id="c1", success=True))
-        snapshot = DataSnapshot()
-        handlers = _make_handlers(snapshot, dispatcher)
-        rec = _RecordingSession()
-
-        await handlers.handle_command(
-            ASDU(
-                type_id=TypeID.C_SC_NA_1,
-                cause=CauseOfTransmission.ACTIVATION,
-                common_address=1,
-                objects=[SingleCommand(ioa=2001, value=True)],
-            ),
-            rec,
-        )
-
-        # forward_command received a Command for status.running
-        sent_cmd: Command = dispatcher.send.await_args.args[0]
-        assert sent_cmd.device_id == "wtg-001"
-        assert sent_cmd.point_id == "status.running"
-        assert sent_cmd.value is True
-
-        # ACT_CON then ACT_TERM, both positive
-        assert [a.cause for a, _neg in rec.sent] == [
-            CauseOfTransmission.ACTIVATION_CON,
-            CauseOfTransmission.ACTIVATION_TERMINATION,
-        ]
-        assert all(not neg for _a, neg in rec.sent)
-
-    async def test_command_unknown_ioa_is_negative(self) -> None:
-        dispatcher = MagicMock()
-        dispatcher.send = AsyncMock(return_value=CommandResult(command_id="c1", success=True))
-        snapshot = DataSnapshot()
-        handlers = _make_handlers(snapshot, dispatcher)
-        rec = _RecordingSession()
-
-        await handlers.handle_command(
-            ASDU(
-                type_id=TypeID.C_SC_NA_1,
-                cause=CauseOfTransmission.ACTIVATION,
-                common_address=1,
-                objects=[SingleCommand(ioa=9999, value=True)],
-            ),
-            rec,
-        )
-
-        dispatcher.send.assert_not_awaited()
-        assert len(rec.sent) == 1
-        asdu, negative = rec.sent[0]
-        assert asdu.cause == CauseOfTransmission.ACTIVATION_CON
-        assert negative is True
-
-    async def test_command_dispatch_failure_is_negative(self) -> None:
-        dispatcher = MagicMock()
-        dispatcher.send = AsyncMock(
-            return_value=CommandResult(command_id="c1", success=False, error="boom")
-        )
-        snapshot = DataSnapshot()
-        handlers = _make_handlers(snapshot, dispatcher)
-        rec = _RecordingSession()
-
-        await handlers.handle_command(
-            ASDU(
-                type_id=TypeID.C_SC_NA_1,
-                cause=CauseOfTransmission.ACTIVATION,
-                common_address=1,
-                objects=[SingleCommand(ioa=2001, value=True)],
-            ),
-            rec,
-        )
-
-        assert len(rec.sent) == 1
-        assert rec.sent[0][1] is True
 
 
 # ---------------------------------------------------------------------------

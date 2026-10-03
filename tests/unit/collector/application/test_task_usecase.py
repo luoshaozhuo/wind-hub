@@ -13,8 +13,6 @@ Runtime 用最小 Fake（按 ``TaskUseCase`` 实际调用的五个方法桩出�
 - ``list_instances`` / ``get_instance``：实例定义 + 生命周期状态合并；
 - 未知 ``instance_id`` → ``KeyError``（get / start / stop）；
 - ``start_instance`` / ``stop_instance`` 幂等——重复调用状态稳定；
-- ``start_all_instances`` / ``stop_all_instances``：批量结果
-  total / changed / unchanged 正确，已在目标状态的实例不被触碰。
 """
 
 from __future__ import annotations
@@ -234,64 +232,6 @@ async def test_stop_instance_unknown_raises_key_error() -> None:
 
     with pytest.raises(KeyError):
         await usecase.stop_instance("nope:dev-x")
-
-
-# ---------------------------------------------------------------------------
-# start_all_instances / stop_all_instances
-# ---------------------------------------------------------------------------
-
-
-async def test_start_all_instances_counts_only_flipped() -> None:
-    usecase, runtime = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
-
-    result = await usecase.start_all_instances()
-
-    assert result.total == 2
-    assert result.changed == 1
-    assert result.unchanged == 1
-    # 已 RUNNING 的实例未被触碰
-    assert runtime.start_calls == ["t2:dev-b"]
-    states = runtime.instance_states()
-    assert all(s is TaskInstanceState.RUNNING for s in states.values())
-
-
-async def test_start_all_instances_second_run_is_noop() -> None:
-    usecase, runtime = _usecase()
-
-    await usecase.start_all_instances()
-    result = await usecase.start_all_instances()
-
-    assert result.total == 2
-    assert result.changed == 0
-    assert result.unchanged == 2
-    # 第二轮没有发起任何 start 调用
-    assert runtime.start_calls == ["t1:dev-a", "t2:dev-b"]
-
-
-async def test_stop_all_instances_counts_only_flipped() -> None:
-    usecase, runtime = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
-
-    result = await usecase.stop_all_instances()
-
-    assert result.total == 2
-    assert result.changed == 1
-    assert result.unchanged == 1
-    # 已 STOPPED 的实例未被触碰
-    assert runtime.stop_calls == ["t1:dev-a"]
-    states = runtime.instance_states()
-    assert all(s is TaskInstanceState.STOPPED for s in states.values())
-
-
-async def test_stop_all_instances_second_run_is_noop() -> None:
-    usecase, runtime = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
-
-    await usecase.stop_all_instances()
-    result = await usecase.stop_all_instances()
-
-    assert result.total == 2
-    assert result.changed == 0
-    assert result.unchanged == 2
-    assert runtime.stop_calls == ["t1:dev-a"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,7 @@
 """IEC104 从站代理的 ASDU 请求处理器。
 
-支持两类入站请求：
-- C_IC_NA_1 站总召：ACT_CON → 按 TypeID 分组的数据 ASDU → ACT_TERM；
-- C_SC_NA_1/C_DC_NA_1/C_SE_NC_1 遥控：IOA 映射到设备点位，经 SlaveBridge
-  转交 CommandDispatcher，成功返回 ACT_CON+ACT_TERM，失败返回 negative ACT_CON。
+支持站总召：C_IC_NA_1 ACT_CON → 按 TypeID 分组的数据 ASDU → ACT_TERM。
+控制方向 C_* 请求不进入设备写链，由 session 明确否定确认。
 
 单 ASDU 严格受 253-byte APDU 上限约束，batch_size 只是对象数量软上限。
 本模块不持有 TCP socket；发送能力由 SlaveSession Protocol 注入。
@@ -13,11 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import Any, Protocol
-from uuid import uuid4
-
 from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.iec104.codec import (
@@ -155,22 +150,19 @@ def _chunk_by_apdu_limit(
 class IEC104SlaveHandlers:
     """所有从站 session 共享的请求处理器。
 
-    Handler 不保存每连接状态；数据来自共享 DataSnapshot，命令通过 SlaveBridge
-    转发，因此可被多个 session 复用。
+    Handler 不保存每连接状态；数据来自共享 DataSnapshot，可被多个 session 复用。
     """
 
     def __init__(
         self,
         snapshot: DataSnapshot,
         data_type_mapping: dict[int, str],
-        reverse_mapping: dict[int, tuple[str, str]],
         bridge: SlaveBridge,
         common_address: int,
         batch_size: int,
     ) -> None:
         self._snapshot = snapshot
         self._data_type_mapping = data_type_mapping
-        self._reverse_mapping = reverse_mapping
         self._bridge = bridge
         self._common_address = common_address
         self._batch_size = batch_size
@@ -213,52 +205,6 @@ class IEC104SlaveHandlers:
             session, CauseOfTransmission.ACTIVATION_TERMINATION
         )
 
-    async def handle_command(self, asdu: ASDU, session: SlaveSession) -> None:
-        """转发遥控并根据执行结果返回协议确认。
-
-        Args:
-            asdu: 遥控激活 ASDU。
-            session: 用于发送确认的连接接口。
-
-        Notes:
-            未知 IOA 或 CommandResult.success=False 返回 negative ACT_CON；
-            成功返回 positive ACT_CON 后再返回 ACT_TERM。
-        """
-        for obj in asdu.objects:
-            ioa = getattr(obj, "ioa", None)
-            point = self._reverse_mapping.get(ioa) if isinstance(ioa, int) else None
-            if point is None:
-                await self._send_command_confirmation(asdu, [obj], session, ok=False)
-                continue
-
-            device_id, point_id = point
-            cmd = Command(
-                command_id=uuid4().hex,
-                device_id=device_id,
-                point_id=point_id,
-                value=getattr(obj, "value", None),
-            )
-            result = await self._bridge.forward_command(cmd)
-            if result.success:
-                await session.send_asdu(
-                    ASDU(
-                        type_id=asdu.type_id,
-                        cause=CauseOfTransmission.ACTIVATION_CON,
-                        common_address=self._common_address,
-                        objects=[obj],
-                    )
-                )
-                await session.send_asdu(
-                    ASDU(
-                        type_id=asdu.type_id,
-                        cause=CauseOfTransmission.ACTIVATION_TERMINATION,
-                        common_address=self._common_address,
-                        objects=[obj],
-                    )
-                )
-            else:
-                await self._send_command_confirmation(asdu, [obj], session, ok=False)
-
     # ------------------------------------------------------------------
     # 响应辅助函数
     # ------------------------------------------------------------------
@@ -275,27 +221,3 @@ class IEC104SlaveHandlers:
             )
         )
 
-    async def _send_command_confirmation(
-        self,
-        asdu: ASDU,
-        objects: list[Any],
-        session: SlaveSession,
-        ok: bool,
-    ) -> None:
-        """发送单个正向或否定 ACT_CON。
-
-        Args:
-            asdu: 原始请求 ASDU，用于复用 TypeID。
-            objects: 需要回显的 information object。
-            session: 发送接口。
-            ok: True 为正向确认，False 设置 P/N 否定位。
-        """
-        await session.send_asdu(
-            ASDU(
-                type_id=asdu.type_id,
-                cause=CauseOfTransmission.ACTIVATION_CON,
-                common_address=self._common_address,
-                objects=objects,
-            ),
-            negative=not ok,
-        )

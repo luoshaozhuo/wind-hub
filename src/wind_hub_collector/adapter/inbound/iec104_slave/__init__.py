@@ -1,13 +1,8 @@
-"""IEC104 slave proxy (从站模式) inbound adapter.
+"""IEC104 reporting 从站入站适配器。
 
-Lets wind-hub act as an IEC 60870-5-104 **server** (slave): it listens for
-a dispatch master, answers general interrogation from the live data snapshot,
-and accepts remote-control commands routed through the CommandDispatcher.
-
-Reuses the pure :mod:`~wind_hub_core.protocol.iec104.codec`
-encode/decode layer; depends on the
-:class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine` observer mechanism
-and the :class:`~wind_hub_collector.application.command_dispatcher.CommandDispatcher`.
+Collector 仅把采集到的最新值通过 IEC 60870-5-104 暴露给调度主站，
+支持总召与监视方向上送；不执行任何设备遥控写入。即时写入统一由
+wind-hub-commander 负责。
 """
 
 from wind_hub_collector.adapter.inbound.iec104_slave.bridge import SlaveBridge
@@ -16,7 +11,6 @@ from wind_hub_collector.adapter.inbound.iec104_slave.handlers import IEC104Slave
 from wind_hub_collector.adapter.inbound.iec104_slave.mapping import (
     build_data_type_mapping,
     build_ioa_mapping,
-    build_reverse_mapping,
 )
 from wind_hub_collector.adapter.inbound.iec104_slave.server import IEC104SlaveServer
 from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
@@ -25,7 +19,6 @@ __all__ = [
     "DataSnapshot",
     "build_ioa_mapping",
     "build_data_type_mapping",
-    "build_reverse_mapping",
     "SlaveBridge",
     "IEC104SlaveHandlers",
     "IEC104SlaveSession",

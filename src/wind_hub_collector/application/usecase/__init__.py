@@ -11,7 +11,6 @@ from wind_hub_collector.application.usecase.query import (
     SystemStatus,
 )
 from wind_hub_collector.application.usecase.task import (
-    TaskBatchResult,
     TaskInstanceDetail,
     TaskSummary,
     TaskUseCase,
@@ -22,7 +21,6 @@ __all__ = [
     "ConfigUseCase",
     "QueryUseCase",
     "SystemStatus",
-    "TaskBatchResult",
     "TaskInstanceDetail",
     "TaskSummary",
     "TaskUseCase",

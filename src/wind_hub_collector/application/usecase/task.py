@@ -2,7 +2,7 @@
 
 基于 :class:`~wind_hub_collector.application.runtime.runtime.Runtime`，供 Collector gRPC
 控制面管理采集任务：查询 Task 定义与展开后的实例、start/stop 单个实例、
-批量启停。
+
 
 核心语义：
 
@@ -42,19 +42,6 @@ class TaskInstanceDetail(BaseModel):
     targets: list[str]
     state: TaskInstanceState
     """二态生命周期：``RUNNING`` / ``STOPPED``。"""
-
-
-class TaskBatchResult(BaseModel):
-    """批量实例操作（start-all / stop-all）的结果汇总。"""
-
-    total: int
-    """参与本次批量操作的实例总数。"""
-
-    changed: int
-    """本次状态发生翻转的实例数。"""
-
-    unchanged: int
-    """已处于目标状态、本次未触碰的实例数。"""
 
 
 class TaskSummary(BaseModel):
@@ -264,28 +251,6 @@ class TaskUseCase:
             await self._runtime.stop_task_instance(inst.instance_id)
         return await self.get_task_summary(task_id)
 
-    async def start_all_instances(self) -> TaskBatchResult:
-        """启动全部 Task Instance。
-
-        Returns:
-            批量操作总数、状态变化数和未变化数。
-
-        Notes:
-            已处于 RUNNING 的实例保持不变。
-        """
-        return await self._set_all(start=True)
-
-    async def stop_all_instances(self) -> TaskBatchResult:
-        """停止全部 Task Instance 的持续采集。
-
-        Returns:
-            批量操作总数、状态变化数和未变化数。
-
-        Notes:
-            不停止 Runtime，不断开设备连接，不关闭 Sink。
-        """
-        return await self._set_all(start=False)
-
     # ------------------------------------------------------------------
     # 私有
     # ------------------------------------------------------------------
@@ -303,21 +268,6 @@ class TaskUseCase:
         if inst is None:
             raise KeyError(instance_id)
         return inst
-
-    async def _set_all(self, *, start: bool) -> TaskBatchResult:
-        """把全部实例置为目标状态；已在目标状态的不计入 changed。"""
-        states = self._runtime.instance_states()
-        target = TaskInstanceState.RUNNING if start else TaskInstanceState.STOPPED
-        changed = 0
-        for instance_id, state in states.items():
-            if state is target:
-                continue
-            if start:
-                await self._runtime.start_task_instance(instance_id)
-            else:
-                await self._runtime.stop_task_instance(instance_id)
-            changed += 1
-        return TaskBatchResult(total=len(states), changed=changed, unchanged=len(states) - changed)
 
     @staticmethod
     def _to_detail(inst: CollectionTaskInstance, state: TaskInstanceState) -> TaskInstanceDetail:

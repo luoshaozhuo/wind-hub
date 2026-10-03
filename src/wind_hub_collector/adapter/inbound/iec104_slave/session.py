@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 START_CHAR = 0x68
 MAX_SEQ = 0x7FFF
 
-# 可映射为远程控制 Command 的控制方向 TypeID。
+# reporting 从站为只读；控制方向请求统一否定确认，不触发设备写入。
 _COMMAND_TYPE_IDS: frozenset[TypeID] = frozenset(
     {TypeID.C_SC_NA_1, TypeID.C_DC_NA_1, TypeID.C_SE_NC_1}
 )
@@ -146,7 +146,15 @@ class IEC104SlaveSession:
         if asdu.type_id == TypeID.C_IC_NA_1 and asdu.cause == CauseOfTransmission.ACTIVATION:
             await self._handlers.handle_interrogation(asdu, self)
         elif asdu.type_id in _COMMAND_TYPE_IDS and asdu.cause == CauseOfTransmission.ACTIVATION:
-            await self._handlers.handle_command(asdu, self)
+            await self.send_asdu(
+                ASDU(
+                    type_id=asdu.type_id,
+                    cause=CauseOfTransmission.ACTIVATION_CON,
+                    common_address=self._common_address,
+                    objects=list(asdu.objects),
+                ),
+                negative=True,
+            )
 
     async def _write(self, data: bytes) -> None:
         self._writer.write(data)

@@ -1,4 +1,4 @@
-"""Collector 组合根——只装配采集、控制与交付核心。
+"""Collector 组合根——只装配采集与交付核心。
 
 本模块属于 wind-hub-collector。它只构建 wind-hub-ctl / gRPC 控制面实际
 需要的对象图：
@@ -27,9 +27,7 @@ from wind_hub_collector.adapter.inbound.iec104_slave import (
     SlaveBridge,
     build_data_type_mapping,
     build_ioa_mapping,
-    build_reverse_mapping,
 )
-from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Device, Runtime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
@@ -136,14 +134,9 @@ def assemble(
 
     iec104_slave: IEC104SlaveServer | None = None
     if cfg.reporting is not None and cfg.reporting.reporting:
-        dispatcher = CommandDispatcher(
-            devices,
-            default_timeout=cfg.system.runtime.write_timeout,
-        )
         iec104_slave = _build_iec104_slave(
             cfg.reporting,
             engine,
-            dispatcher,
         )
 
     return AssembledRuntime(
@@ -238,16 +231,12 @@ def _create_protocol(cfg: DeviceConfig) -> ProtocolPort:
 def _build_iec104_slave(
     reporting: ReportingConfig,
     engine: AcquisitionEngine,
-    dispatcher: CommandDispatcher,
 ) -> IEC104SlaveServer:
     """装配可选 IEC104 reporting 从站代理。"""
     snapshot = DataSnapshot()
     ioa_mapping = build_ioa_mapping(reporting.reporting)
     data_type_mapping = build_data_type_mapping(reporting.reporting)
-    reverse_mapping = build_reverse_mapping(reporting.reporting)
-
     bridge = SlaveBridge(
-        dispatcher,
         snapshot,
         ioa_mapping,
     )
@@ -256,7 +245,6 @@ def _build_iec104_slave(
     handlers = IEC104SlaveHandlers(
         snapshot=snapshot,
         data_type_mapping=data_type_mapping,
-        reverse_mapping=reverse_mapping,
         bridge=bridge,
         common_address=reporting.common_address,
         batch_size=reporting.batch_size,
