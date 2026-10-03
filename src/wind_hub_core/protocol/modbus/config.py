@@ -34,12 +34,6 @@ class ModbusConfig:
     timeout: float = 5.0
     """单次 Modbus transaction 超时，单位秒。"""
 
-    reconnect_max_retries: int = 5
-    """首次连接阶段允许的连续重试次数。"""
-
-    reconnect_backoff_max: float = 30.0
-    """指数退避等待时间上限，单位秒。"""
-
     word_order: str = "little_endian"
     """多寄存器数据的默认 word order。
 
@@ -94,7 +88,5 @@ def from_device_config(cfg: DeviceConfig) -> ModbusConfig:
         unit_id=unit_id,
         mode=mode,
         timeout=timeout,
-        reconnect_max_retries=int(ext.get("reconnect_max_retries", 5)),
-        reconnect_backoff_max=float(ext.get("reconnect_backoff_max", 30.0)),
         word_order=word_order,
     )
