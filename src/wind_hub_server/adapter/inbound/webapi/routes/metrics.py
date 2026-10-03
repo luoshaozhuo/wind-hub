@@ -15,24 +15,24 @@ router = APIRouter(tags=["metrics"])
 async def metrics_endpoint() -> Response:
     """从 Collector RPC 快照更新 gauge 后渲染 Prometheus 文本。"""
     ctx = get_ctx()
-    query = ctx.query
+    query = ctx.collector_query
     if query is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "worker query use case is not configured",
+            "collector query port is not configured",
             status_code=503,
         )
 
     try:
-        status = await query.status()
+        status = await query.runtime_status()
         devices = await query.list_devices()
         sinks = await query.list_sinks()
 
         metrics.update_gauges(
-            devices_total_val=status.device_count,
-            devices_connected_val=status.devices_connected,
-            sinks_total_val=status.sink_count,
-            sinks_healthy_val=status.sinks_healthy,
+            devices_total_val=int(status.get("device_count") or 0),
+            devices_connected_val=int(status.get("devices_connected") or 0),
+            sinks_total_val=int(status.get("sink_count") or 0),
+            sinks_healthy_val=int(status.get("sinks_healthy") or 0),
         )
         metrics.update_device_gauges(
             [
