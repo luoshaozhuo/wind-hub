@@ -1,13 +1,8 @@
-"""进程级共享 application context——Use Case 与 Runtime 的依赖容器。
+"""Server 进程级 application context。
 
-``AppContext`` 由组合根（``main.py``）装配后通过 :func:`set_context` 注入，
-CLI 与 Web API 两个 inbound adapter 共享同一实例，直接按具体 Use Case
-类型读取，而不持有引擎装配的硬引用。
-
-适配层对缺失上下文的处理各自归属：CLI 经
-``wind_hub_collector.adapter.inbound.cli.context.get_context_or_exit`` 报错退出，
-Web API 经 ``wind_hub_collector.adapter.inbound.webapi.context.get_ctx`` 映射为
-HTTP 503。
+``AppContext`` 由组合根装配后注入 Web API inbound adapter。上下文只持有
+Server 应用层用例/端口，不暴露 Collector 或 Commander Runtime 对象。
+缺失上下文由 Web API 统一映射为 HTTP 503。
 """
 
 from __future__ import annotations
@@ -16,6 +11,7 @@ import threading
 from dataclasses import dataclass
 
 from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
@@ -30,7 +26,6 @@ from wind_hub_server.application.usecase.quality import QualityUseCase
 from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
-from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
@@ -46,8 +41,8 @@ class AppContext:
     进程生命周期由 ``main.py`` 信号处理负责。
     """
 
-    query: WorkerQueryUseCase | None = None
-    """可选只读查询用例（含系统状态 ``status()``）。"""
+    collector_query: CollectorQueryPort | None = None
+    """Collector 聚合只读端口，供 Overview/metrics 等 Server 读模型复用。"""
 
     config: ConfigUseCase | None = None
     """可选配置用例（热重载）。引擎可能不带配置用例运行（如只读部署），
