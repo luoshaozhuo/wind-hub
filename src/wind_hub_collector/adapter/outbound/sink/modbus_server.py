@@ -110,7 +110,7 @@ class ModbusTcpSinkServer:
         try:
             await server.serve_forever(background=True)
         except Exception:
-            await server.shutdown()
+            await server.shutdown()  # type: ignore[no-untyped-call]
             raise
         self._server = server
         self._healthy = True
@@ -122,7 +122,7 @@ class ModbusTcpSinkServer:
             self._healthy = False
             return
         try:
-            await server.shutdown()
+            await server.shutdown()  # type: ignore[no-untyped-call]
         finally:
             self._healthy = False
 

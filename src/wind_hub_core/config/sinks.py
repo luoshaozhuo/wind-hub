@@ -398,7 +398,7 @@ class SinkConfig(BaseModel):
 class ResolvedSinkConfig(SinkConfig):
     """Runtime 直接消费的 Sink 定义；points 已全部解析为稳定引用。"""
 
-    points: list[ResolvedSinkPoint] = Field(default_factory=list)
+    points: list[ResolvedSinkPoint] = Field(default_factory=list)  # type: ignore[assignment]
 
 
 class SinksConfig(BaseModel):

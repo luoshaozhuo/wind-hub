@@ -71,20 +71,16 @@ class TestFingerprintContract:
         assert first == second
         assert len(first) == 64  # SHA-256 hex
 
-    def test_identical_trees_at_different_locations_differ_by_design(
+    def test_identical_trees_at_different_locations_have_same_hash(
         self, tmp_path: Path
     ) -> None:
-        """指纹含相对路径前缀（根目录名）——同内容不同根名指纹不同。
-
-        该语义保证 Server 与 Worker 必须指向同一布局的配置集，防止
-        「内容相同但根不同」被误判为一致。
-        """
+        """配置指纹只由配置集内容与内部相对路径决定，与根目录名无关。"""
         dir_a = _site(tmp_path / "a" / "site")
         dir_b = _site(tmp_path / "b" / "site")
 
         assert fingerprint_config_set(dir_a) == fingerprint_config_set(dir_b)
         dir_c = _site(tmp_path / "b" / "other")
-        assert fingerprint_config_set(dir_b) != fingerprint_config_set(dir_c)
+        assert fingerprint_config_set(dir_b) == fingerprint_config_set(dir_c)
 
     def test_content_change_changes_hash(self, tmp_path: Path) -> None:
         config_dir = _site(tmp_path / "cfg")

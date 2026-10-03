@@ -87,24 +87,24 @@ def _encode_registers(
             raise TypeError("bool datatype requires bool value")
         return [1 if value else 0]
     if datatype == "int8":
-        if isinstance(value, bool):
-            raise TypeError("int8 datatype requires integer value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("int8 datatype requires numeric value")
         return [struct.unpack(">B", struct.pack(">b", int(value)))[0]]
     if datatype == "uint8":
-        if isinstance(value, bool):
-            raise TypeError("uint8 datatype requires integer value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("uint8 datatype requires numeric value")
         return [struct.unpack(">B", struct.pack(">B", int(value)))[0]]
 
     fmt = _STRUCT_FORMAT.get(datatype)
     if fmt is None:
         raise TypeError(f"Unsupported Modbus datatype '{datatype}'")
 
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{datatype} datatype requires numeric value")
     if datatype.startswith("float"):
-        scalar: int | float = float(value)  # type: ignore[arg-type]
+        scalar: int | float = float(value)
     else:
-        if isinstance(value, bool):
-            raise TypeError(f"{datatype} datatype requires integer value")
-        scalar = int(value)  # type: ignore[arg-type]
+        scalar = int(value)
 
     raw = struct.pack(">" + fmt, scalar)
     words = [raw[i : i + 2] for i in range(0, len(raw), 2)]

@@ -728,7 +728,7 @@ class Runtime:
         """
         existing = self._devices.get(device_id)
         if existing is not None:
-            if existing.config.model_dump() == cfg.model_dump() and existing.points == points:
+            if existing.config.model_dump() == cfg.model_dump() and existing.points == tuple(points):
                 await self.ensure_connected(device_id, force=True)
                 await self._sync_task_instances()
                 return

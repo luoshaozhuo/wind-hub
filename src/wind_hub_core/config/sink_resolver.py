@@ -195,6 +195,7 @@ def _validate_modbus_layout(
         if not isinstance(address, ModbusSinkAddress):
             continue
 
+        width: int | None
         if address.register_type in _MODBUS_BIT_REGISTER_TYPES:
             if point.datatype != "bool":
                 raise ConfigError(

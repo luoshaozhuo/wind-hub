@@ -57,8 +57,8 @@ class ModbusSinkStore:
             raise KeyError(f"Unknown Modbus unit_id {value.unit_id}")
 
         if value.register_type in {"coil", "discrete"}:
-            space = self._bit_space(unit, value.register_type)
-            if value.address not in space:
+            bit_space = self._bit_space(unit, value.register_type)
+            if value.address not in bit_space:
                 raise KeyError(
                     f"Undeclared Modbus address {value.unit_id}/"
                     f"{value.register_type}/{value.address}"
@@ -67,16 +67,16 @@ class ModbusSinkStore:
                 value.address + offset for offset in range(len(value.bits))
             ]
             self._require_declared(
-                space,
+                bit_space,
                 value.unit_id,
                 value.register_type,
                 addresses,
             )
             for address, bit in zip(addresses, value.bits, strict=True):
-                space[address] = bit
+                bit_space[address] = bit
             return
 
-        space = self._register_space(unit, value.register_type)
+        register_space = self._register_space(unit, value.register_type)
         addresses = [
             value.address + offset for offset in range(len(value.registers))
         ]
@@ -115,7 +115,7 @@ class ModbusSinkStore:
 
     @staticmethod
     def _require_declared(
-        space: dict[int, object],
+        space: dict[int, bool] | dict[int, int],
         unit_id: int,
         register_type: str,
         addresses: list[int],
