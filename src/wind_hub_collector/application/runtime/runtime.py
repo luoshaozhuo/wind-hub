@@ -39,7 +39,6 @@ from wind_hub_collector.application.runtime.acquisition_state import Acquisition
 from wind_hub_collector.application.runtime.device import AcquisitionHandle, Device
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
 from wind_hub_collector.application.runtime.dispatcher import RuntimeSinkDispatcher
-from wind_hub_collector.application.runtime.health import RuntimeHealth
 from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
@@ -195,7 +194,6 @@ class Runtime:
 
         self._lifecycle = RuntimeLifecycle(self)
         self._sink_dispatcher = RuntimeSinkDispatcher(self)
-        self._health = RuntimeHealth(self)
 
         # Sink 派发的落点：引擎采集结果进入本类的队列/背压/消费者机制。
         self._engine.attach_sink_dispatch(self)
@@ -285,7 +283,15 @@ class Runtime:
 
     def health(self) -> dict[str, HealthStatus]:
         """返回全部设备与 sink 的健康状态（设备优先、随后 sink）。"""
-        return self._health.health()
+        result: dict[str, HealthStatus] = {}
+        for device_id, device in self._devices.items():
+            result[device_id] = device.health()
+        for name, sink in self._sinks.items():
+            if name in self._unhealthy_sinks:
+                result[name] = HealthStatus(healthy=False, message="open failed")
+            else:
+                result[name] = sink.health()
+        return result
 
     @property
     def running(self) -> bool:
