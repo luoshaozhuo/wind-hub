@@ -42,7 +42,13 @@ def _site(base: Path) -> Path:
                 ]
             }
         },
-        sinks=[{"name": "file_sink", "type": "file", "params": {"path": "o.jsonl"}}],
+        sinks=[
+            {
+                "name": "file_sink",
+                "type": "file",
+                "connection": {"path": "o.jsonl"},
+            }
+        ],
         tasks=[
             {
                 "task_id": "modbus-telemetry",
@@ -157,6 +163,18 @@ class TestSchemaStrictnessContract:
         tasks = config_dir / "tasks.yaml"
         content = tasks.read_text(encoding="utf-8")
         tasks.write_text(content + "unknown_key: true\n", encoding="utf-8")
+
+        with pytest.raises(ConfigError):
+            load_config(config_dir)
+
+    def test_legacy_sink_params_rejected(self, tmp_path: Path) -> None:
+        config_dir = _site(tmp_path / "cfg")
+        sinks = config_dir / "sinks.yaml"
+        content = sinks.read_text(encoding="utf-8")
+        sinks.write_text(
+            content.replace("connection:", "params:"),
+            encoding="utf-8",
+        )
 
         with pytest.raises(ConfigError):
             load_config(config_dir)

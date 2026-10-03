@@ -224,15 +224,15 @@ def write_soak_config(
                 }
             )
 
-    sink_params: dict[str, object] = {}
+    sink_connection: dict[str, object] = {}
     if profile.sink == "kafka":
         if kafka_bootstrap is None or kafka_topic is None:
             raise ValueError("kafka profile 需要 kafka_bootstrap / kafka_topic")
-        sink_params = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
+        sink_connection = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
     elif profile.sink == "postgres":
         if postgres_dsn is None or postgres_table is None:
             raise ValueError("postgres profile 需要 postgres_dsn / postgres_table")
-        sink_params = {
+        sink_connection = {
             "dsn": postgres_dsn,
             "table": postgres_table,
             "create_table": True,
@@ -243,11 +243,8 @@ def write_soak_config(
         "kafka": "kafka",
         "postgres": "db",
     }[profile.sink]
-    sink_connection = (
-        {"path": str(config_dir / "soak-null.jsonl")}
-        if profile.sink == "null"
-        else sink_params
-    )
+    if profile.sink == "null":
+        sink_connection = {"path": str(config_dir / "soak-null.jsonl")}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
