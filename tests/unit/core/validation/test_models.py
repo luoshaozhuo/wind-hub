@@ -1,6 +1,6 @@
 """wind-hub-core 主动验证数据契约单元测试。
 
-这些模型是 Collector 诊断面与 Server 配置验证共用的稳定 schema：
+这些模型是 Commander 诊断面与 Server 配置验证共用的稳定 schema：
 字段默认值、枚举取值与 ``ok`` 聚合语义变化会直接改变控制面输出，
 因此以显式断言固化。序列化验证走 ``dataclasses.asdict`` + JSON——
 模型本身不提供自定义序列化方法。
