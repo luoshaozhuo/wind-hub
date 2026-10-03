@@ -68,7 +68,7 @@ def _ads_device(device_id: str = "d1", point_table: str = "t1", **extra: Any) ->
         "device_id": device_id,
         "protocol": "ads",
         "point_table": point_table,
-        "endpoint": {"host": "10.0.0.1", "port": 48898},
+        "endpoint": {"host": "10.0.0.1", "port": 801},
         **extra,
     }
 
@@ -921,7 +921,7 @@ class TestIndividualLoaders:
                             "point_table": "t1",
                             "read_mode": "sum",
                             "properties": {"rated_power_kw": 2000},
-                            "connection_defaults": {"port": 48898},
+                            "connection_defaults": {"port": 801},
                         }
                     },
                 },
@@ -932,7 +932,7 @@ class TestIndividualLoaders:
             assert m.protocol == "ads"
             assert m.read_mode == "sum"
             assert m.properties == {"rated_power_kw": 2000}
-            assert m.connection_defaults == {"port": 48898}
+            assert m.connection_defaults == {"port": 801}
 
     def test_load_devices(self) -> None:
         with tempfile.TemporaryDirectory() as td:
