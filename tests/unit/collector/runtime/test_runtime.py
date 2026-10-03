@@ -39,7 +39,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.sinks import SinkConfig, SinksConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -251,9 +251,9 @@ def _full_config(
         tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
     return Config(
         system=SystemConfig(runtime=_runtime_config()),
-        sinks=SinksConfig(
+        sinks=ResolvedSinksConfig(
             sinks=[
-                SinkConfig(
+                ResolvedSinkConfig(
                     name=n,
                     type="file",
                     connection={"path": f"/tmp/{n}.jsonl"},

@@ -63,9 +63,28 @@ def _site(base: Path, *, contracts: list[dict[str, object]]) -> Path:
     )
 
 
-def test_canonical_ref_generated() -> None:
-    cfg = SinkConfig.model_validate(_iec104_sink())
-    assert cfg.points[0].ref == "wt01.wind_speed"
+def test_raw_sink_keeps_omitted_ref_unresolved() -> None:
+    raw = _iec104_sink()
+    raw["points"][0].pop("datatype", None)  # type: ignore[index]
+    raw["points"][0].pop("unit", None)  # type: ignore[index]
+    cfg = SinkConfig.model_validate(raw)
+    assert cfg.points[0].ref is None
+    assert cfg.points[0].datatype is None
+    assert cfg.points[0].unit is None
+
+
+def test_load_config_resolves_ref_datatype_and_unit_from_source() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        raw["points"][0].pop("datatype", None)  # type: ignore[index]
+        raw["points"][0].pop("unit", None)  # type: ignore[index]
+        cfg = load_config(_site(Path(td), contracts=[raw]))
+        point = cfg.sinks.sinks[0].points[0]
+        assert point.ref == "wt01.wind_speed"
+        assert point.source_data_type == "float32"
+        assert point.source_unit == "meter_per_second"
+        assert point.datatype == "float32"
+        assert point.unit == "meter_per_second"
 
 
 def test_wrong_connection_type_rejected() -> None:
@@ -92,7 +111,7 @@ def test_load_sinks_file() -> None:
         path = Path(td) / "sinks.yaml"
         path.write_text(yaml.safe_dump({"sinks": [_iec104_sink()]}), encoding="utf-8")
         cfg = load_sinks(path)
-        assert cfg.sinks[0].points[0].ref == "wt01.wind_speed"
+        assert cfg.sinks[0].points[0].ref is None
 
 
 def test_unknown_source_device_rejected() -> None:
@@ -121,6 +140,41 @@ def test_unknown_sink_unit_rejected() -> None:
         with pytest.raises(ConfigError, match="unknown unit 'ghost_unit'"):
             load_config(site)
 
+
+def test_sink_metadata_override_is_resolved_explicitly() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        raw["points"][0]["ref"] = "wind.speed"  # type: ignore[index]
+        raw["points"][0]["datatype"] = "float64"  # type: ignore[index]
+        cfg = load_config(_site(Path(td), contracts=[raw]))
+        point = cfg.sinks.sinks[0].points[0]
+        assert point.ref == "wind.speed"
+        assert point.datatype == "float64"
+
+
+def test_affine_transform_rejects_non_numeric_source() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        raw["points"][0]["scale"] = 2.0  # type: ignore[index]
+        site = write_config_tree(
+            Path(td),
+            devices=[
+                {
+                    "device_id": "wt01",
+                    "protocol": "modbus",
+                    "point_table": "t1",
+                    "endpoint": {"host": "10.0.0.1", "port": 502},
+                }
+            ],
+            point_tables={
+                "t1": {
+                    "points": [{**_point(), "data_type": "str"}]
+                }
+            },
+            sinks=[raw],
+        )
+        with pytest.raises(ConfigError, match="scale/offset require numeric source"):
+            load_config(site)
 
 def test_contract_change_appears_in_diff() -> None:
     with tempfile.TemporaryDirectory() as td:

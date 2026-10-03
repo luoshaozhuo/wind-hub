@@ -24,7 +24,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from wind_hub_collector.adapter.outbound.sink.file.compression import (
     Compressor,

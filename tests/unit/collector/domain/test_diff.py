@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from wind_hub_core.config.diff import compute_diff
-from wind_hub_core.config.sinks import SinkConfig, SinksConfig
+from wind_hub_core.config.sinks import ResolvedResolvedSinkConfig, ResolvedResolvedSinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -31,7 +31,7 @@ from wind_hub_core.config.schema import (
 from wind_hub_core.model.device import Endpoint
 
 
-def _sink(name: str, sink_type: str = "file") -> SinkConfig:
+def _sink(name: str, sink_type: str = "file") -> ResolvedSinkConfig:
     if sink_type == "file":
         connection = {"path": f"/tmp/{name}.jsonl"}
     elif sink_type == "kafka":
@@ -40,18 +40,18 @@ def _sink(name: str, sink_type: str = "file") -> SinkConfig:
         connection = {"dsn": "postgresql://u@localhost/db", "table": name}
     else:
         raise ValueError(sink_type)
-    return SinkConfig(name=name, type=sink_type, connection=connection)
+    return ResolvedSinkConfig(name=name, type=sink_type, connection=connection)
 
 
 def _make_config(
     devices: list[DeviceConfig] | None = None,
-    sinks: list[SinkConfig] | None = None,
+    sinks: list[ResolvedSinkConfig] | None = None,
     tables: dict[str, ResolvedPointTable] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
 ) -> Config:
     return Config(
         system=SystemConfig(),
-        sinks=SinksConfig(sinks=sinks or []),
+        sinks=ResolvedSinksConfig(sinks=sinks or []),
         units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=devices or []),
         point_tables=ResolvedPointTables(tables=tables or {}),
