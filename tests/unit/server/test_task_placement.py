@@ -132,7 +132,8 @@ async def test_reconcile_stops_wrong_running_instance_and_opens_start_gate(
         }
     )
 
-    tasks = CollectorTaskUseCase(directory, assignments, config)
+    monitoring = SimpleNamespace(tasks_snapshot=lambda: [])
+    tasks = CollectorTaskUseCase(directory, assignments, config, monitoring)
     assert tasks.placement_safe is False
     with pytest.raises(TaskPlacementUnsafeError):
         tasks._require_safe_start()
