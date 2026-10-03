@@ -42,7 +42,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
             AdminSinkItem(
                 name="s1",
                 type="file",
-                params={"path": "/tmp/out.jsonl"},
+                connection={"path": "/tmp/out.jsonl"},
             )
         ],
         definitions=AdminDefinitionsState(
@@ -70,6 +70,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
         "devices.yaml",
         "tasks.yaml",
         "system.yaml",
+        "sinks.yaml",
         "units.yaml",
         "device_models.yaml",
         "points.yaml",
@@ -78,7 +79,7 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     documents["system.yaml"] = {"runtime": {"keep": True}}
     mutator(documents)
     assert documents["system.yaml"]["runtime"] == {"keep": True}
-    assert documents["system.yaml"]["sinks"][0]["name"] == "s1"
+    assert documents["sinks.yaml"]["sinks"][0]["name"] == "s1"
     assert documents["devices.yaml"]["devices"][0]["device_id"] == "d1"
     assert documents["tasks.yaml"]["tasks"][0]["task_id"] == "t1"
     assert admin.mutate_yaml_files.await_count == 1
