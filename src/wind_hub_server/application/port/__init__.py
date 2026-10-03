@@ -6,7 +6,7 @@ from wind_hub_server.application.port.monitoring import (
     HostSnapshot,
     MonitoringEvent,
     MonitoringHistoryPort,
-    MonitoringMetricsQueryPort,
+    MonitoringSnapshotPort,
 )
 from wind_hub_server.application.port.point_store import TrendStore
 
@@ -17,6 +17,6 @@ __all__ = [
     "LogStorePort",
     "MonitoringEvent",
     "MonitoringHistoryPort",
-    "MonitoringMetricsQueryPort",
+    "MonitoringSnapshotPort",
     "TrendStore",
 ]
