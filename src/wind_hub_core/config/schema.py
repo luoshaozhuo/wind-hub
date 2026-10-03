@@ -289,7 +289,7 @@ class DeviceConfig(BaseModel):
     enabled: bool = True
     read_mode: str = "sum"
     """ADS 读取策略：``'sum'``（单条 Sum 命令，Symbol 批量寻址，用于周期
-    采集）或 ``'sequential'``（逐点 Read，仅用于 CLI/API 单次读取与诊断，
+    采集）或 ``'sequential'``（逐点 Read，仅用于 Commander 请求式读取与诊断，
     不参与周期采集）。仅对 ``protocol == 'ads'`` 有意义。"""
 
     @property
