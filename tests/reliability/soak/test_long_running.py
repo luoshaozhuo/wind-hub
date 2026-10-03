@@ -58,9 +58,35 @@ def _soak_profile_from_env() -> str:
     return profile
 
 
+def resolve_duration_s(soak_name: str, override: str | None) -> float:
+    """解析 ``WIND_HUB_SOAK_DURATION_S`` 覆盖值。
+
+    变量不存在（None）、空串或纯空白时回退到档位默认时长——CI
+    （ci-qualification.yml）的 ``duration_override_s`` 默认就是空串，必须
+    走默认而不是 ``float("")`` 炸掉。非法数字直接抛 ``ValueError``，不
+    静默回退：资格通道传错参数必须显式失败。
+    """
+    if override is None or not override.strip():
+        return _DURATION_S[soak_name]
+    try:
+        value = float(override.strip())
+    except ValueError:
+        raise ValueError(
+            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}："
+            "必须是秒数（如 '3600' 或 '60.5'）"
+        ) from None
+    if value <= 0:
+        raise ValueError(
+            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：时长必须为正数"
+        )
+    return value
+
+
 async def test_long_running_target_load() -> None:
     soak_name = _soak_profile_from_env()
-    duration_s = float(os.environ.get("WIND_HUB_SOAK_DURATION_S", _DURATION_S[soak_name]))
+    duration_s = resolve_duration_s(
+        soak_name, os.environ.get("WIND_HUB_SOAK_DURATION_S")
+    )
     warmup_s = min(60.0, duration_s * 0.05)
 
     profile = PROFILES["target_100x10hz_500x1hz"]
