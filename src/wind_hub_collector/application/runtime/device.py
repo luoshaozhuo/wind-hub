@@ -19,7 +19,6 @@ from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
     InterrogationCapable,
-    SubscriptionHandle,
 )
 
 logger = logging.getLogger(__name__)
