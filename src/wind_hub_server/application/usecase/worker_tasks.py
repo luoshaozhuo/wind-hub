@@ -64,7 +64,16 @@ class TaskPlacementReconcileResult(BaseModel):
     errors: list[str]
 
 
-class TaskSummary(TaskDetail):
+class TaskSummary(BaseModel):
+    task_id: str
+    assigned_worker_id: str | None
+    placement_state: TaskPlacementState
+    device: str | None = None
+    device_group: str | None = None
+    point_group: str
+    interval: float | None = None
+    targets: list[str]
+    enabled: bool
     runtime_state: str
     instance_count: int
     running_instances: int
