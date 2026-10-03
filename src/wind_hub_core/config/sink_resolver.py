@@ -68,7 +68,12 @@ def _resolve_point(
             f"'{point.source.device_id}'"
         )
 
-    table = point_tables.tables[device.point_table]
+    table = point_tables.tables.get(device.point_table)
+    if table is None:
+        raise ConfigError(
+            f"Sink '{sink.name}' point '{_raw_ref(point)}' references device "
+            f"'{device.device_id}' with unknown point_table '{device.point_table}'"
+        )
     source = next(
         (item for item in table.points if item.point_id == point.source.point_id),
         None,

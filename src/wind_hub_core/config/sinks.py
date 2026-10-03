@@ -271,6 +271,22 @@ class ResolvedSinkPoint(BaseModel):
     offset: float = 0.0
     address: SinkAddress
 
+    @model_validator(mode="after")
+    def _validate_resolved(self) -> "ResolvedSinkPoint":
+        if not self.ref.strip():
+            raise ConfigError("Resolved sink point ref must be non-empty")
+        if self.source_data_type not in SINK_DATA_TYPES:
+            raise ConfigError(
+                f"Resolved sink point '{self.ref}': unknown source_data_type "
+                f"'{self.source_data_type}'"
+            )
+        if self.datatype not in SINK_DATA_TYPES:
+            raise ConfigError(
+                f"Resolved sink point '{self.ref}': unknown datatype '{self.datatype}'"
+            )
+        return self
+
+
 class SinkConfig(BaseModel):
     """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
 
@@ -370,6 +386,7 @@ class ResolvedSinkConfig(SinkConfig):
 
     points: list[ResolvedSinkPoint] = Field(default_factory=list)
 
+
 class SinksConfig(BaseModel):
     """sinks.yaml 顶层配置。"""
 
@@ -398,6 +415,7 @@ class ResolvedSinksConfig(BaseModel):
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
         return self
+
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
     if isinstance(address, StreamSinkAddress):

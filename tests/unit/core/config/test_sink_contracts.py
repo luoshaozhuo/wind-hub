@@ -167,14 +167,13 @@ def test_affine_transform_rejects_non_numeric_source() -> None:
                 }
             ],
             point_tables={
-                "t1": {
-                    "points": [{**_point(), "data_type": "str"}]
-                }
+                "t1": {"points": [{**_point(), "data_type": "str"}]}
             },
             sinks=[raw],
         )
         with pytest.raises(ConfigError, match="scale/offset require numeric source"):
             load_config(site)
+
 
 def test_contract_change_appears_in_diff() -> None:
     with tempfile.TemporaryDirectory() as td:

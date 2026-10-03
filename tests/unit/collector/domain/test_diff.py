@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from wind_hub_core.config.diff import compute_diff
-from wind_hub_core.config.sinks import ResolvedResolvedSinkConfig, ResolvedResolvedSinksConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
