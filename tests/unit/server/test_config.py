@@ -19,7 +19,8 @@ import yaml
 from tests.component.collector.conftest import update_yaml
 from tests.support.config_helper import write_config_tree
 from wind_hub_core.config.schema import Config
-from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_server.application.usecase.config import ConfigUseCase
+from wind_hub_core.config.diff import compute_diff
 from wind_hub_server.application.worker_model import COMMANDER_WORKER_ID
 
 COLLECTOR_ID = "collector-1"
