@@ -3,9 +3,7 @@
 from .models import (
     AddressResolution,
     DeviceProbeTarget,
-    DeviceValidationReport,
     PointProbeSpec,
-    PointValidationResult,
     ValidationCode,
     ValidationSeverity,
 )
@@ -13,9 +11,7 @@ from .models import (
 __all__ = [
     "AddressResolution",
     "DeviceProbeTarget",
-    "DeviceValidationReport",
     "PointProbeSpec",
-    "PointValidationResult",
     "ValidationCode",
     "ValidationSeverity",
 ]
