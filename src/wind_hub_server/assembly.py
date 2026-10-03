@@ -32,7 +32,6 @@ from wind_hub_server.application.usecase.settings import SettingsUseCase
 from wind_hub_server.application.usecase.sink import SinkUseCase
 from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
-from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.application.worker_model import (
@@ -130,7 +129,6 @@ def assemble_server(
         task_assignments,
         config,
     )
-    worker_query = WorkerQueryUseCase(collector_aggregate, commander_client)
     worker_tasks = CollectorTaskUseCase(
         collector_directory,
         task_assignments,
@@ -149,7 +147,7 @@ def assemble_server(
         trend,
     )
     overview = OverviewUseCase(
-        query=worker_query,
+        query=collector_aggregate,
         tasks=worker_tasks,
         config=config,
     )
@@ -186,7 +184,7 @@ def assemble_server(
     context = AppContext(
         config=config,
         tasks=worker_tasks,
-        query=worker_query,
+        collector_query=collector_aggregate,
         devices=devices,
         device_data=device_data,
         device_control=device_control,
