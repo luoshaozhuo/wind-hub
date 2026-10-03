@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # wind-hub ADS 示例配置 — 设备实例（34 台机组，TwinCAT 2 / ADS TCP）
-# 协议、点表、read_mode(sum)、端口(48898)、twincat_version 等由型号
+# 协议、点表、read_mode(sum)、AMS Runtime Port(801)、twincat_version 等由型号
 # wtg_ads_site（device_models.yaml）提供；实例只写 host 与
 # target_net_id（AMS Net ID = PLC IP + ".1.1"）。
 # ---------------------------------------------------------------------------
