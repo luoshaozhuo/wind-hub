@@ -32,7 +32,6 @@ const form = reactive({
   unit_id: 1,
   mode: 'tcp',
   word_order: 'little_endian',
-  target_port: 801,
   twincat_version: '2',
   reconnect_max_retries: 5,
   reconnect_backoff_max: 30,
@@ -90,7 +89,6 @@ function resetForm() {
   form.unit_id = 1
   form.mode = 'tcp'
   form.word_order = 'little_endian'
-  form.target_port = 801
   form.twincat_version = '2'
   form.reconnect_max_retries = 5
   form.reconnect_backoff_max = 30
@@ -147,12 +145,11 @@ function openEditModel(row: DeviceModelDef) {
   form.point_table = row.point_table
   form.read_mode = row.read_mode || 'sum'
   const c = row.connection_defaults || {}
-  form.port = Number(c.port ?? (row.protocol === 'iec104' ? 2404 : row.protocol === 'ads' ? 48898 : 502))
+  form.port = Number(c.port ?? (row.protocol === 'iec104' ? 2404 : row.protocol === 'ads' ? 801 : 502))
   form.timeout = Number(c.timeout ?? 3)
   form.unit_id = Number(c.unit_id ?? 1)
   form.mode = String(c.mode ?? 'tcp')
   form.word_order = String(c.word_order ?? 'little_endian')
-  form.target_port = Number(c.target_port ?? 801)
   form.twincat_version = String(c.twincat_version ?? '2')
   form.reconnect_max_retries = Number(c.reconnect_max_retries ?? 5)
   form.reconnect_backoff_max = Number(c.reconnect_backoff_max ?? 30)
@@ -186,8 +183,8 @@ function openEditGroup(row: { id: string; device_type: string }) {
 function onProtocolChange() {
   form.point_table = store.pointTables.find(t => t.protocol === form.protocol)?.id || ''
   if (form.protocol === 'ads') {
-    form.port = 48898
-    form.target_port = 801
+    form.port = 801
+    form.twincat_version = '2'
   } else if (form.protocol === 'iec104') {
     form.port = 2404
   } else {
@@ -212,7 +209,6 @@ function connectionDefaults(): Record<string, unknown> {
     return {
       port: form.port,
       timeout: form.timeout,
-      target_port: form.target_port,
       twincat_version: form.twincat_version,
       reconnect_max_retries: form.reconnect_max_retries,
       reconnect_backoff_max: form.reconnect_backoff_max,
@@ -581,8 +577,7 @@ async function deleteGroup(row: { id: string }) {
             <div class="metadata-form-grid">
               <el-form-item label="Port"><el-input-number v-model="form.port" :min="1" :max="65535" :controls="false" /></el-form-item>
               <template v-if="form.protocol === 'ads'">
-                <el-form-item label="Target Port"><el-input-number v-model="form.target_port" :min="1" :max="65535" :controls="false" /></el-form-item>
-                <el-form-item label="TwinCAT Version"><el-select v-model="form.twincat_version"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+                <el-form-item label="TwinCAT Version"><el-select v-model="form.twincat_version" @change="form.port = $event === '3' ? 851 : 801"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
                 <el-form-item label="Timeout (s)"><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false" /></el-form-item>
                 <el-form-item label="Reconnect Max Retries"><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false" /></el-form-item>
                 <el-form-item label="Reconnect Backoff Max (s)"><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false" /></el-form-item>
