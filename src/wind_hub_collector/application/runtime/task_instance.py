@@ -67,7 +67,7 @@ class CollectionTaskInstance(BaseModel):
     """采集节拍（秒）——POLL 协议（Modbus / ADS Sum）与 ADS 订阅必填；
     纯 IEC104 订阅实例可为 ``None``（数据到达时机由远端决定）。"""
 
-    targets: list[str]
+    targets: tuple[str, ...]
     """输出目标 Sink 名列表（引用 ``system.yaml`` 的 sink 定义）。"""
 
 
