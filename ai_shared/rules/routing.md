@@ -10,7 +10,7 @@
 
 | 等级 | 典型变更 | 验证 |
 |---|---|---|
-| 非产品 | rules/docs/Agent/CI tooling | 只验证修改对象自身 |
+| 非产品 | rules/Agent/CI tooling | 只验证修改对象自身 |
 | L1 | 普通内部实现、普通前端页面/样式 | Fast Gate |
 | L2 | protocol/RPC/sink 等边界 | Fast + targeted Integration |
 | L3 | acquisition/command/diagnostics/reload/startup/task-control/跨系统 E2E | Fast + targeted Integration/System |
