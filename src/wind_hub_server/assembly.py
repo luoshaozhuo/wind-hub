@@ -143,8 +143,12 @@ def assemble_server(
         commander_client,
         trend,
     )
+    monitoring = MonitoringService(
+        collector_aggregate,
+        monitoring_metrics,
+    )
     overview = OverviewUseCase(
-        query=collector_aggregate,
+        monitoring=monitoring,
         tasks=worker_tasks,
         config=config,
     )
@@ -166,10 +170,6 @@ def assemble_server(
         config,
         operations,
     )
-    monitoring = MonitoringService(
-        collector_aggregate,
-        monitoring_metrics,
-    )
     quality = QualityUseCase(
         config,
         monitoring_metrics,
@@ -181,7 +181,7 @@ def assemble_server(
     context = AppContext(
         config=config,
         tasks=worker_tasks,
-        collector_query=collector_aggregate,
+        monitoring=monitoring,
         devices=devices,
         device_data=device_data,
         device_control=device_control,
