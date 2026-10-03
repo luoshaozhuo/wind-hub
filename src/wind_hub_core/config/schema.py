@@ -296,7 +296,7 @@ class DeviceConfig(BaseModel):
     def supports_scheduled_collection(self) -> bool:
         """是否参与周期采集。
 
-        ADS ``sequential`` 设备只允许请求驱动的单次读取（CLI/API/诊断）——
+        ADS ``sequential`` 设备只允许 Commander 请求驱动的单次读取与诊断——
         配置加载阶段已禁止任何采集 Task 引用此类设备。
         """
         return not (self.protocol == "ads" and self.read_mode == "sequential")
@@ -557,11 +557,11 @@ class ResolvedPointTables(BaseModel):
 # ---------------------------------------------------------------------------
 
 class RuntimeConfig(BaseModel):
-    """Runtime 队列、背压和超时参数。"""
+    """跨进程共享的运行参数。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    queue_maxsize: int = 1000
+    queue_maxsize: int = Field(default=1000, ge=1)
     """每个 Sink queue 的容量；满时按 backpressure_policy 处理。"""
 
     backpressure_policy: str = "drop_old"
@@ -570,16 +570,16 @@ class RuntimeConfig(BaseModel):
     drop_new 丢弃新批次；drop_old 淘汰旧批次；block 阻塞采集直到队列有空间。
     """
 
-    shutdown_timeout: float = 30.0
+    shutdown_timeout: float = Field(default=30.0, gt=0)
     """优雅停机等待在途操作完成的最大时间，单位秒。"""
 
-    connect_timeout: float = 10.0
+    connect_timeout: float = Field(default=10.0, gt=0)
     """单设备连接超时，单位秒。"""
 
-    read_timeout: float = 5.0
+    read_timeout: float = Field(default=5.0, gt=0)
     """单次批量读的应用层兜底超时，单位秒；协议 Driver 内部仍保留底层超时。"""
 
-    write_timeout: float = 5.0
+    write_timeout: float = Field(default=5.0, gt=0)
     """默认写超时，单位秒；Command.timeout <= 0 时由 CommandDispatcher 使用。"""
 
     @model_validator(mode="after")
@@ -612,13 +612,13 @@ class SinkConfig(BaseModel):
 
 
 class ApiConfig(BaseModel):
-    """兼容保留的 HTTP Server 设置；Collector 独立进程不消费该字段。"""
+    """Server HTTP API 入站设置。"""
 
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = Field(default=8080, ge=1, le=65535)
 
 
 class InterfaceConfig(BaseModel):
