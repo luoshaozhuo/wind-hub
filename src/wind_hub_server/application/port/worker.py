@@ -35,15 +35,7 @@ class CommanderPort(Protocol):
 
     async def verify_device(self, device_id: str, timeout: float = 1.0) -> dict[str, Any]: ...
 
-    async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]: ...
-
     async def verify_point(self, device_id: str, point_id: str) -> dict[str, Any]: ...
-
-    async def verify_points(
-        self,
-        device_id: str,
-        point_group: str | None = None,
-    ) -> dict[str, Any]: ...
 
 
 class CollectorPort(Protocol):
