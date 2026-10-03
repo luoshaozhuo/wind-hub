@@ -11,7 +11,7 @@ import threading
 from dataclasses import dataclass
 
 from wind_hub_server.application.operation import OperationManager
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
+from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
@@ -41,8 +41,8 @@ class AppContext:
     进程生命周期由 ``main.py`` 信号处理负责。
     """
 
-    collector_query: CollectorQueryPort | None = None
-    """Collector 聚合只读端口，供 Overview/metrics 等 Server 读模型复用。"""
+    monitoring: MonitoringSnapshotPort | None = None
+    """Server 低频运行态/设备/Sink/历史监控事实源。"""
 
     config: ConfigUseCase | None = None
     """可选配置用例（热重载）。引擎可能不带配置用例运行（如只读部署），
