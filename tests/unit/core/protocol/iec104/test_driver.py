@@ -6,6 +6,7 @@ TCP connection.
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
