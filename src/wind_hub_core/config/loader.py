@@ -18,7 +18,6 @@ import yaml
 from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub_core.config.sink_resolver import resolve_sinks
-from wind_hub_core.config.reporting import load_reporting
 from wind_hub_core.config.sinks import SinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
@@ -29,7 +28,6 @@ from wind_hub_core.config.schema import (
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
-    ReportingConfig,
     ResolvedPointTables,
     SystemConfig,
     TasksConfig,
@@ -193,8 +191,7 @@ def load_config(config_dir: str | Path) -> Config:
     2. points.yaml 并展开点表继承；
     3. devices.yaml 与型号默认值合并为运行时 DeviceConfig；
     4. tasks.yaml；
-    5. 可选 reporting.yaml；
-    6. 执行跨文件引用、协议地址、point_group、Sink target 等一致性校验。
+    5. 执行跨文件引用、协议地址、point_group、Sink target 等一致性校验。
 
     Args:
         config_dir: 完整现场配置目录。
@@ -219,12 +216,6 @@ def load_config(config_dir: str | Path) -> Config:
     devices = resolve_devices(load_devices(base / "devices.yaml"), device_models)
     tasks = load_tasks(base / "tasks.yaml")
 
-    # reporting.yaml 可选；不存在即不启用 IEC104 slave proxy。
-    reporting: ReportingConfig | None = None
-    reporting_path = base / "reporting.yaml"
-    if reporting_path.is_file():
-        reporting = load_reporting(reporting_path)
-
     _validate_model_point_tables(device_models, point_tables)
     _validate_point_units(point_tables, units)
     sinks = resolve_sinks(raw_sinks, devices, point_tables, units)
@@ -245,7 +236,6 @@ def load_config(config_dir: str | Path) -> Config:
         devices=devices,
         point_tables=point_tables,
         tasks=tasks,
-        reporting=reporting,
     )
 
 

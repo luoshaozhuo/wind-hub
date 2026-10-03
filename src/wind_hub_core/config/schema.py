@@ -1,7 +1,7 @@
 """Wind Hub 跨进程共享的静态配置模型。
 
 本模块定义配置集的强类型 schema，包括设备、点表、单位、现场标识、Runtime、
-Sink、Task 与可选 Reporting。这里只做纯 schema 与局部校验，不读取 YAML、
+Sink 与 Task。这里只做纯 schema 与局部校验，不读取 YAML、
 不创建任何可执行组件 Runtime；各进程可按职责只加载自己需要的配置子集。
 """
 
@@ -719,103 +719,6 @@ class TasksConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# reporting.yaml — IEC104 slave proxy (从站模式)
-# ---------------------------------------------------------------------------
-
-ALLOWED_REPORTING_DATA_TYPES = frozenset(
-    {
-        "M_SP_NA_1",
-        "M_DP_NA_1",
-        "M_ME_NA_1",
-        "M_ME_NB_1",
-        "M_ME_NC_1",
-        "M_SP_TB_1",
-        "M_DP_TB_1",
-        "M_ME_TF_1",
-    }
-)
-
-
-class ReportingPoint(BaseModel):
-    """通过 IEC104 slave proxy 暴露给调度主站的单个点。
-
-    把 Collector 内部 (device_id, point_id) 映射为 IOA 和监视方向 TypeID。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    device_id: str
-    """设备标识。"""
-
-    point_id: str
-    """设备点表内 point_id。"""
-
-    ioa: int
-    """Information Object Address，范围 0~0xFFFFFF。"""
-
-    data_type: str
-    """监视方向 ASDU TypeID，例如 M_ME_NC_1。"""
-
-    @model_validator(mode="after")
-    def _validate_reporting_point(self) -> ReportingPoint:
-        if not 0 <= self.ioa <= 0xFFFFFF:
-            raise ConfigError(
-                f"Reporting point '{self.device_id}/{self.point_id}': "
-                f"ioa {self.ioa:#x} out of range [0, 0xFFFFFF]"
-            )
-        if self.data_type not in ALLOWED_REPORTING_DATA_TYPES:
-            raise ConfigError(
-                f"Reporting point '{self.device_id}/{self.point_id}': "
-                f"data_type '{self.data_type}' must be one of "
-                f"{sorted(ALLOWED_REPORTING_DATA_TYPES)}"
-            )
-        return self
-
-
-class ReportingConfig(BaseModel):
-    """reporting.yaml 顶层 IEC104 slave proxy 配置。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    reporting: list[ReportingPoint] = Field(default_factory=list)
-    """需要向调度主站暴露的点列表。"""
-
-    batch_size: int = 50
-    """总召数据单批 information object 数量软上限；253-byte APDU 是硬上限。"""
-
-    common_address: int = 1
-    """IEC104 公共地址/站地址。"""
-
-    host: str = "127.0.0.1"
-    """slave proxy TCP 监听地址。"""
-
-    port: int = 12404
-    """slave proxy TCP 监听端口。"""
-
-    @model_validator(mode="after")
-    def _validate_reporting(self) -> ReportingConfig:
-        if self.batch_size <= 0:
-            raise ConfigError(f"batch_size must be >= 1, got {self.batch_size}")
-        if not 0 <= self.common_address <= 0xFFFF:
-            raise ConfigError(f"common_address {self.common_address} out of range [0, 0xFFFF]")
-        if not 1 <= self.port <= 0xFFFF:
-            raise ConfigError(f"port {self.port} out of range [1, 0xFFFF]")
-        seen_points: set[tuple[str, str]] = set()
-        seen_ioas: set[int] = set()
-        for p in self.reporting:
-            key = (p.device_id, p.point_id)
-            if key in seen_points:
-                raise ConfigError(
-                    f"Duplicate reporting (device_id, point_id): ('{p.device_id}', '{p.point_id}')"
-                )
-            seen_points.add(key)
-            if p.ioa in seen_ioas:
-                raise ConfigError(f"Duplicate reporting ioa: {p.ioa:#x}")
-            seen_ioas.add(p.ioa)
-        return self
-
-
-# ---------------------------------------------------------------------------
 # 顶层聚合配置
 # ---------------------------------------------------------------------------
 
@@ -844,9 +747,6 @@ class Config(BaseModel):
     """继承解析完成后的点表集——运行链路只使用 resolved 模型。"""
     tasks: TasksConfig
     """周期采集 Task 定义集——没有 Task 就不进行周期采集。"""
-    reporting: ReportingConfig | None = None
-    """可选 IEC104 slave proxy 配置；None 表示不启用。"""
-
     def points_for_device(self, device_id: str) -> list[PointConfig]:
         """解析设备绑定点表的点集。
 
@@ -896,7 +796,5 @@ __all__ = [
     "TaskTarget",
     "CollectionTaskConfig",
     "TasksConfig",
-    "ReportingPoint",
-    "ReportingConfig",
     "Config",
 ]

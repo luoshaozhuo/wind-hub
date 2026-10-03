@@ -159,16 +159,6 @@ class TestLoadConfig:
             cfg = load_config(site)
             assert cfg.tasks.tasks == []
 
-    def test_reporting_yaml_optional(self) -> None:
-        """reporting.yaml 缺失时 reporting 为 None。"""
-        with tempfile.TemporaryDirectory() as td:
-            site = _write_config_dir(
-                Path(td),
-                devices=[_modbus_device()],
-                point_tables=_table([_modbus_point()]),
-            )
-            cfg = load_config(site)
-            assert cfg.reporting is None
 
 
 # ---------------------------------------------------------------------------

@@ -43,9 +43,6 @@ def site_config():
 
 class TestSiteConfigLoading:
     def test_load_config_succeeds(self, site_config) -> None:
-        # reporting.yaml 存在但 reporting 为空列表 = 不启用 IEC104 slave proxy
-        assert site_config.reporting is not None
-        assert site_config.reporting.reporting == []
         assert site_config.system.site is not None
         assert site_config.system.site.site_id == "example_modbus"
 
