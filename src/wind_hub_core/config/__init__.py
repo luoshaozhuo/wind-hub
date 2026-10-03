@@ -7,7 +7,6 @@ from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub_core.config.schema import (
     ADSSystemConfig,
     ApiConfig,
-    CliConfig,
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -61,7 +60,6 @@ __all__ = [
     "RuntimeConfig",
     "SinkConfig",
     "ApiConfig",
-    "CliConfig",
     "InterfaceConfig",
     "SystemConfig",
     "TaskTarget",
