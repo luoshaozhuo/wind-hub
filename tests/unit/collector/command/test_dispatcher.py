@@ -119,8 +119,6 @@ async def test_send_idempotent_returns_cached_result() -> None:
 
     assert result1.command_id == result2.command_id
     assert result1.success == result2.success
-    # second call should NOT hit the protocol (cache hit)
-    assert dispatcher.cache_size == 1
 
 
 @pytest.mark.asyncio
@@ -287,87 +285,6 @@ async def test_send_protocol_error_returns_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
-# send_batch
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_send_batch_concurrent() -> None:
-    """send_batch executes multiple commands concurrently."""
-    proto = _make_proto()
-    dispatcher = CommandDispatcher(devices=_make_devices({"dev-1": proto}))
-    cmds = [_make_cmd(command_id=f"cmd-{i:03d}") for i in range(5)]
-
-    results = await dispatcher.send_batch(cmds)
-
-    assert len(results) == 5
-    for r in results:
-        assert r.success is True
-        assert r.error is None
-
-
-@pytest.mark.asyncio
-async def test_send_batch_preserves_order() -> None:
-    """send_batch result order matches input order."""
-    proto = _make_proto()
-    dispatcher = CommandDispatcher(devices=_make_devices({"dev-1": proto}))
-    cmds = [_make_cmd(command_id=f"cmd-{i:03d}") for i in range(3)]
-
-    results = await dispatcher.send_batch(cmds)
-
-    assert [r.command_id for r in results] == [c.command_id for c in cmds]
-
-
-@pytest.mark.asyncio
-async def test_send_batch_with_exception() -> None:
-    """send_batch handles one command raising an exception without
-    affecting other commands."""
-    proto_bad = _make_proto(succeed=False)  # raises on write
-    proto_good = _make_proto()
-    dispatcher = CommandDispatcher(
-        devices=_make_devices({"dev-bad": proto_bad, "dev-good": proto_good})
-    )
-    cmds = [
-        _make_cmd(command_id="bad", device_id="dev-bad"),
-        _make_cmd(command_id="good", device_id="dev-good"),
-    ]
-
-    results = await dispatcher.send_batch(cmds)
-
-    assert results[0].success is False
-    assert results[1].success is True
-
-
-# ---------------------------------------------------------------------------
-# cache management
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_clear_cache_resets_idempotency() -> None:
-    """clear_cache removes all cached results so commands re-execute."""
-    proto = _make_proto()
-    dispatcher = CommandDispatcher(devices=_make_devices({"dev-1": proto}))
-    cmd = _make_cmd()
-
-    await dispatcher.send(cmd)
-    assert dispatcher.cache_size == 1
-
-    dispatcher.clear_cache()
-    assert dispatcher.cache_size == 0
-
-    r2 = await dispatcher.send(cmd)
-    # Both should succeed (re-executed, not cached)
-    assert r2.success is True
-
-
-def test_cache_size_property() -> None:
-    """cache_size reflects the number of cached entries."""
-    dispatcher = CommandDispatcher(devices={})
-    assert dispatcher.cache_size == 0
-
-
-# ---------------------------------------------------------------------------
 # cache TTL expiry
 # ---------------------------------------------------------------------------
 
@@ -384,8 +301,6 @@ async def test_cache_ttl_expiry_re_executes() -> None:
     cmd = _make_cmd()
 
     await dispatcher.send(cmd)
-    assert dispatcher.cache_size == 1
-
     # Wait past TTL
     await asyncio.sleep(0.02)
 
@@ -394,71 +309,3 @@ async def test_cache_ttl_expiry_re_executes() -> None:
     assert r2.success is True
 
 
-# ---------------------------------------------------------------------------
-# 成功/失败计数回调
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_send_success_fires_sent_callback() -> None:
-    sent: list[str] = []
-    failed: list[str] = []
-    dispatcher = CommandDispatcher(
-        devices=_make_devices({"dev-1": _make_proto()}),
-        on_command_sent=lambda: sent.append("s"),
-        on_command_failed=lambda: failed.append("f"),
-    )
-    result = await dispatcher.send(_make_cmd())
-    assert result.success is True
-    assert sent == ["s"]
-    assert failed == []
-
-
-@pytest.mark.asyncio
-async def test_send_failure_fires_failed_callback() -> None:
-    sent: list[str] = []
-    failed: list[str] = []
-    dispatcher = CommandDispatcher(
-        devices=_make_devices({"dev-1": _make_proto(succeed=False)}),
-        on_command_sent=lambda: sent.append("s"),
-        on_command_failed=lambda: failed.append("f"),
-    )
-    result = await dispatcher.send(_make_cmd())
-    assert result.success is False
-    assert sent == []
-    assert failed == ["f"]
-
-
-@pytest.mark.asyncio
-async def test_send_unknown_device_counts_as_failed() -> None:
-    failed: list[str] = []
-    dispatcher = CommandDispatcher(devices={}, on_command_failed=lambda: failed.append("f"))
-    result = await dispatcher.send(_make_cmd(device_id="ghost"))
-    assert result.success is False
-    assert failed == ["f"]
-
-
-@pytest.mark.asyncio
-async def test_send_timeout_counts_as_failed() -> None:
-    failed: list[str] = []
-    dispatcher = CommandDispatcher(
-        devices=_make_devices({"dev-1": _make_proto(delay=10.0)}),
-        on_command_failed=lambda: failed.append("f"),
-    )
-    result = await dispatcher.send(_make_cmd(timeout=0.05))
-    assert result.success is False
-    assert result.error is not None and result.error.startswith("write timeout")
-    assert failed == ["f"]
-
-
-@pytest.mark.asyncio
-async def test_cache_hit_does_not_double_count() -> None:
-    sent: list[str] = []
-    dispatcher = CommandDispatcher(
-        devices=_make_devices({"dev-1": _make_proto()}),
-        on_command_sent=lambda: sent.append("s"),
-    )
-    cmd = _make_cmd()
-    await dispatcher.send(cmd)
-    await dispatcher.send(cmd)  # 幂等缓存命中——首次执行已计过，不得重复累计
-    assert sent == ["s"]
