@@ -5,18 +5,25 @@ description: Run explicit hardware, performance, or soak qualification only when
 
 # Local Qualification
 
-## 目的
+仅用户明确要求时执行。先运行：
 
-执行真实 ADS 硬件、性能/netem 或 soak 资格验证。
+```bash
+python3 scripts/dev.py env
+```
 
-## 规则
+再按目标调用：
 
-1. 仅用户明确要求时执行。
-2. 执行前必须 preflight 环境。
-3. 可执行项：
-   - `hardware`：真实 ADS/TwinCAT PLC；
-   - `performance`：root/CAP_NET_ADMIN + tc/netem；
-   - `soak`：明确 profile/duration 的长稳验证。
-4. 环境不足必须报告 `NOT_EXECUTED`，不得 fallback 到 mock。
+```bash
+python3 scripts/dev.py python scripts/ci_gate.py hardware
+python3 scripts/dev.py python scripts/ci_gate.py performance --mode quick
+python3 scripts/dev.py python scripts/ci_gate.py soak
+```
+
+规则：
+
+1. `hardware` 必须是真实 ADS/TwinCAT PLC。
+2. `performance` 必须满足 root/CAP_NET_ADMIN 与 tc/netem 要求。
+3. `soak` 必须明确 profile/duration。
+4. 环境不足为 `NOT_EXECUTED`，不得 fallback 到 mock。
 5. 不自动触发真实 PLC 写入、8h/24h soak 或其他高成本/现场风险动作。
 6. 报告绑定具体 Git SHA，并记录环境/profile。

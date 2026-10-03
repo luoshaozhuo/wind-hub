@@ -5,17 +5,19 @@ description: Run the local counterpart of GitHub CI PR Gate before creating or u
 
 # Local PR Gate
 
-## 目的
-
-在 push/PR 前验证 integration、system smoke 和 frontend E2E，减少远端 CI 往返。
-
 ## 执行
 
-1. 要求当前任务已通过 `local-fast-gate`。
-2. 执行项目统一 Gate 入口的 `pr` 模式；若统一入口尚不可用，按当前 `.github/workflows/ci-pr.yml` 的实际检查集合执行。
-3. 真实软件服务不可用时明确 `NOT_EXECUTED`，不得静默换成 mock。
-4. 失败不得进入“准备合并”状态。
+要求当前任务已通过 `local-fast-gate`，然后：
 
-## 结束
+```bash
+python3 scripts/dev.py env --frontend
+python3 scripts/dev.py python scripts/ci_gate.py pr
+```
 
-报告当前 branch、HEAD SHA、各检查状态以及未执行原因。
+规则：
+
+1. 与 GitHub `ci-pr.yml` 共用 `scripts/ci_gate.py`。
+2. 覆盖 integration、system smoke 和 frontend Playwright。
+3. 真实软件服务不可用时为 `NOT_EXECUTED`，不得退化成 mock。
+4. 失败不得进入准备合并状态。
+5. 报告绑定当前 branch HEAD SHA。

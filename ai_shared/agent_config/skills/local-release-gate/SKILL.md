@@ -5,17 +5,17 @@ description: Run the local counterpart of the GitHub Release Gate before a relea
 
 # Local Release Gate
 
-## 目的
-
-执行完整常规软件验证，不包含需要特殊环境的 hardware/performance/soak。
-
 ## 执行
 
-1. 执行项目统一 Gate 入口的 `release` 模式；若统一入口尚不可用，按 `.github/workflows/ci-release.yml` 的实际集合执行。
-2. Backend：静态检查 + 全部分层常规测试，排除 hardware/performance/soak。
-3. Frontend：build + Vitest + Playwright。
-4. 失败不得生成 Release 候选结论。
+```bash
+python3 scripts/dev.py env --frontend
+python3 scripts/dev.py python scripts/ci_gate.py release
+```
 
-## 结束
+规则：
 
-结果绑定当前 Git SHA。
+1. 与 GitHub `ci-release.yml` 共用 `scripts/ci_gate.py`。
+2. Backend 执行静态检查和常规全量分层测试。
+3. Frontend 执行 build、Vitest、Playwright。
+4. 排除 hardware/performance/soak；这些属于 qualification。
+5. 失败不得生成 Release 候选结论，结果绑定当前 Git SHA。

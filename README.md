@@ -85,7 +85,7 @@ python3 scripts/dev.py env --frontend
 ```
 
 `.agent/local.json` 仅保存本机 Python / Node / npm 可执行文件路径，不进仓库。
-Agent 执行工具时可统一通过：
+Agent 执行工具时统一通过：
 
 ```bash
 python3 scripts/dev.py python -m pytest
@@ -95,28 +95,19 @@ python3 scripts/dev.py npm --prefix src/wind-hub-admin test
 
 ### 运行时环境变量
 
-`.env.local` 只用于 wind-hub 运行时、真实服务或测试参数，不负责选择 Python
-解释器：
+`.env.local` 仅用于 wind-hub 运行时、真实服务或测试参数，不负责 Python
+解释器、conda/venv 激活或 Coding Agent 启动。仓库不要求 Coding Agent
+`source .env.local`。
 
-```bash
-cp .env.local.example .env.local
-source .env.local
-```
-
-- `.env.local.example` 是提交到仓库的运行时配置模板；
-- `.env.local` 为本地实际值，已在 `.gitignore` 中排除，请勿提交。
+`.env.local.example` 是提交到仓库的运行时配置模板；`.env.local` 为本地实际值，
+已在 `.gitignore` 中排除。需要这些变量时，由实际运行入口（例如 VS Code launch、
+容器、服务管理器或人工 shell）显式注入。
 
 ## 快速开始
 
 ```bash
-# 校验配置（无副作用）——configs/ 下的 template / example_modbus /
-# example_ads 都是完整自包含的配置目录，可直接作为 --config 参数
 wind-hub validate --config configs/template
-
-# 前台启动引擎，SIGINT/SIGTERM 优雅停机
 wind-hub run --config configs/template
-
-# 仅查看 run 子命令参数
 wind-hub run --help
 ```
 
@@ -145,10 +136,7 @@ Markdown + JSON 报告。压测需要 **root**，不进入 pytest 默认收集�
 ```bash
 PYTHON_BIN="$(python3 scripts/dev.py resolve python)"
 
-# 快速冒烟
 sudo "$PYTHON_BIN" scripts/run_benchmark.py --quick --protocol modbus
-
-# 完整矩阵
 sudo "$PYTHON_BIN" scripts/run_benchmark.py
 ```
 
@@ -157,6 +145,7 @@ sudo "$PYTHON_BIN" scripts/run_benchmark.py
 - 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
 - Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
 - 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
+- 性能报告属于运行产物，不提交仓库。
 
 ## 许可证
 
