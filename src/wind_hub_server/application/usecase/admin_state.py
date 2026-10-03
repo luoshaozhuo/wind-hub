@@ -50,46 +50,6 @@ class AdminStateUseCase:
     def __init__(self, admin: ConfigAdminUseCase) -> None:
         self._admin = admin
 
-    async def replace_devices(
-        self, items: list[AdminDeviceItem]
-    ) -> ConfigApplyResult:
-        content = self._devices_yaml(items)
-        return await self._admin.apply_file(
-            "devices.yaml",
-            content,
-            source="admin-devices",
-            comment="Devices page structured update",
-        )
-
-    async def replace_tasks(self, items: list[AdminTaskItem]) -> ConfigApplyResult:
-        content = self._tasks_yaml(items)
-        return await self._admin.apply_file(
-            "tasks.yaml",
-            content,
-            source="admin-tasks",
-            comment="Tasks page structured update",
-        )
-
-    async def replace_sinks(self, items: list[AdminSinkItem]) -> ConfigApplyResult:
-        content = self._system_yaml_with_sinks(items)
-        return await self._admin.apply_file(
-            "system.yaml",
-            content,
-            source="admin-sinks",
-            comment="Sinks page structured update",
-        )
-
-    async def replace_definitions(
-        self, state: AdminDefinitionsState
-    ) -> ConfigApplyResult:
-        files = self._definition_files(state)
-        return await self._admin.apply_files(
-            files,
-            source="admin-definitions",
-            comment="Definitions/Points structured update",
-        )
-
-
     async def replace_all(
         self,
         devices: list[AdminDeviceItem],
