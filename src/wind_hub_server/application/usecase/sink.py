@@ -190,7 +190,7 @@ class SinkUseCase:
                 for item in current
                 if isinstance(item, dict) and item.get("name") != name
             ]
-            sinks.append(cfg.model_dump(mode="json"))
+            sinks.append(cfg.model_dump(mode="json", by_alias=True, exclude_none=True))
             raw["sinks"] = sinks
 
         return await self._admin.mutate_yaml_files(

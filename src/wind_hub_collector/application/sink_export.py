@@ -51,7 +51,7 @@ class SinkReferenceExporter:
         """导出当前 Sink 显式定义的点；未映射输入点直接忽略。"""
         exported: list[ExportedSinkPointValue] = []
         for value in batch:
-            definitions = self._mapping.get((value.device_id, value.point_id), ())
+            definitions = self._mapping.get((value.device_id, value.point_id), [])
             for definition in definitions:
                 exported.append(self._export_one(definition, value))
         return exported
@@ -62,7 +62,9 @@ class SinkReferenceExporter:
         value: PointValue,
     ) -> ExportedSinkPointValue:
         transformed = value.value
-        if transformed is not None and (definition.scale != 1.0 or definition.offset != 0.0):
+        if transformed is not None and (
+            definition.scale != 1.0 or definition.offset != 0.0
+        ):
             if isinstance(transformed, bool) or not isinstance(transformed, int | float):
                 raise TypeError(
                     f"Sink point '{definition.ref}' expects numeric value for scale/offset, "
