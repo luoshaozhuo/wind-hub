@@ -6,8 +6,8 @@
 Protocol / Device / Sink -> AcquisitionEngine -> Runtime
                            -> TaskUseCase / QueryUseCase / ConfigUseCase
 
-Admin、Overview、Quality、Web API、长期日志与 System Health 不属于 Collector
-组合根；按需 Diagnostics 与运行时配置 reload 属于 Collector 核心控制面。
+Admin、Overview、Quality、Web API、即时设备通信、现场协议诊断、长期日志与
+System Health 不属于 Collector；运行时配置 reload 属于 Collector 核心控制面。
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Device, Runtime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub_collector.application.usecase.config import ConfigUseCase
-from wind_hub_collector.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
@@ -64,7 +63,6 @@ class AssembledRuntime:
         sinks: 已装配的 Sink 实例注册表。
         tasks: Task / Task Instance 控制用例。
         query: 只读查询用例。
-        diagnostic: 按需现场诊断用例。
         config: 本地 YAML 增量热重载用例。
         iec104_slave: 可选 IEC104 reporting 从站代理。
     """
@@ -76,7 +74,6 @@ class AssembledRuntime:
     sinks: dict[str, SinkPort]
     tasks: TaskUseCase
     query: QueryUseCase
-    diagnostic: DiagnosticUseCase
     config: ConfigUseCase
     metrics_state: CollectorMetricsState
     iec104_slave: IEC104SlaveServer | None = None
@@ -143,7 +140,6 @@ def assemble(
 
     tasks = TaskUseCase(runtime)
     query = QueryUseCase(runtime)
-    diagnostic = DiagnosticUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
 
     iec104_slave: IEC104SlaveServer | None = None
@@ -162,7 +158,6 @@ def assemble(
         sinks=sinks,
         tasks=tasks,
         query=query,
-        diagnostic=diagnostic,
         config=config,
         metrics_state=metrics_state,
         iec104_slave=iec104_slave,
