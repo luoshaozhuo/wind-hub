@@ -175,6 +175,50 @@ def test_affine_transform_rejects_non_numeric_source() -> None:
             load_config(site)
 
 
+def test_inherited_source_metadata_change_updates_sink_diff() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        sink = _iec104_sink()
+        sink["points"][0].pop("datatype", None)  # type: ignore[index]
+        sink["points"][0].pop("unit", None)  # type: ignore[index]
+
+        def make_site(path: Path, data_type: str) -> Path:
+            point = _point()
+            point["data_type"] = data_type
+            return write_config_tree(
+                path,
+                devices=[
+                    {
+                        "device_id": "wt01",
+                        "protocol": "modbus",
+                        "point_table": "t1",
+                        "endpoint": {"host": "10.0.0.1", "port": 502},
+                    }
+                ],
+                point_tables={"t1": {"points": [point]}},
+                sinks=[sink],
+            )
+
+        old = load_config(make_site(root / "old", "float32"))
+        new = load_config(make_site(root / "new", "float64"))
+        diff = compute_diff(old, new)
+        assert diff.sinks.updated == ["iec104_scada"]
+        assert old.sinks.sinks[0].points[0].datatype == "float32"
+        assert new.sinks.sinks[0].points[0].datatype == "float64"
+
+
+def test_duplicate_canonical_ref_rejected_after_resolve() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        second = {
+            **raw["points"][0],  # type: ignore[index]
+            "address": {"ioa": 40102, "type_id": "M_ME_NC_1"},
+        }
+        raw["points"] = [raw["points"][0], second]  # type: ignore[index]
+        site = _site(Path(td), contracts=[raw])
+        with pytest.raises(ConfigError, match="duplicate ref"):
+            load_config(site)
+
 def test_contract_change_appears_in_diff() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
