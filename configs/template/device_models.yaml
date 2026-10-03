@@ -45,5 +45,5 @@ device_models:
     point_table: beckhoff_wtg_v1
     read_mode: sum
     connection_defaults:
-      port: 48898
-      twincat_version: "2"      # '2' → 默认 AMS 端口 801，'3' → 851
+      port: 801                # AMS Runtime Port；TwinCAT 2 第一 PLC 默认 801
+      twincat_version: "2"
