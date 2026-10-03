@@ -83,6 +83,41 @@ class TestDriverConfig:
         assert iece_cfg.t3 == 10.0
 
 
+
+
+class TestConnectRetryability:
+    async def test_initial_connect_failure_does_not_lock_driver(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = 0
+
+        class _Session(_FakeSessionBase):
+            is_started = True
+
+            async def start(self) -> None:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise ProtocolError("IEC104: TCP connect failed")
+
+            async def wait_closed(self) -> None:
+                await asyncio.Event().wait()
+
+            async def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(iec104_driver_module, "IEC104Session", _Session)
+        driver = IEC104Driver(_make_device_config())
+
+        with pytest.raises(ProtocolError):
+            await driver.connect()
+
+        await driver.connect()
+        assert attempts == 2
+
+        await driver.close()
+
+
 # ===========================================================================
 # point mapping
 # ===========================================================================
