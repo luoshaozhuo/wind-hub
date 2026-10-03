@@ -117,16 +117,6 @@ class PollingAcquisitionHandle:
                 self._on_stats(actual - scheduled, overrun, missed)
 
 
-class _SubscriptionAcquisitionHandle:
-    """订阅式采集句柄——包装 ``ProtocolPort.subscribe`` 返回的订阅句柄。"""
-
-    def __init__(self, subscription: SubscriptionHandle) -> None:
-        self._subscription = subscription
-
-    async def close(self) -> None:
-        await self._subscription.close()
-
-
 class Device(DeviceSession):
     """Collector 运行时设备。
 
@@ -195,4 +185,4 @@ class Device(DeviceSession):
         if isinstance(self._protocol, InterrogationCapable):
             # 先建立订阅、再发总召——总召响应经既有订阅链路上报。
             await self._protocol.interrogate()
-        return _SubscriptionAcquisitionHandle(subscription)
+        return subscription
