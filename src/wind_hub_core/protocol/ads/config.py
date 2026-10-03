@@ -27,7 +27,7 @@ class ADSConfig:
     """
 
     target_port: int = 801
-    """目标 AMS port；TwinCAT 2 默认 801，TwinCAT 3 默认 851。"""
+    """目标 AMS port；项目约定 TwinCAT 2 默认 801，TwinCAT 3 默认 802。"""
 
     timeout: float = 5.0
     """单次 ADS 操作超时，单位秒。"""
