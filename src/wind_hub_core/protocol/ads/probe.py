@@ -1,6 +1,6 @@
 """ADS 地址解析与可读性主动探测。
 
-本模块属于 wind-hub-core 的协议验证边界，供 Server/Collector 在短生命周期
+本模块属于 wind-hub-core 的协议验证边界，供 Server/Commander 在短生命周期
 validation session 中复用。它不参与周期采集、不维护长期 PLC 会话，也不修改
 配置文件。
 
@@ -115,7 +115,7 @@ class ADSProbe:
         options = self._target.options
         net_id = str(options.get("target_net_id") or "") or None
         twincat_version = str(options.get("twincat_version", "2"))
-        default_port = 851 if twincat_version == "3" else 801
+        default_port = 802 if twincat_version == "3" else 801
         target_port = int(
             options.get("target_port", options.get("ams_port", default_port))
         )
