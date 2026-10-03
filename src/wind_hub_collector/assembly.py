@@ -59,7 +59,6 @@ class AssembledRuntime:
         boot_config: 进程启动时加载的配置快照；仅表示启动基线。
         runtime: Collector 运行时聚合根。
         engine: 采集执行引擎。
-        dispatcher: 设备写指令分发器。
         sinks: 已装配的 Sink 实例注册表。
         tasks: Task / Task Instance 控制用例。
         query: 只读查询用例。
@@ -70,7 +69,6 @@ class AssembledRuntime:
     boot_config: Config
     runtime: Runtime
     engine: AcquisitionEngine
-    dispatcher: CommandDispatcher
     sinks: dict[str, SinkPort]
     tasks: TaskUseCase
     query: QueryUseCase
@@ -115,11 +113,6 @@ def assemble(
 
     sinks = {sink.name: make_sink(sink) for sink in cfg.system.sinks}
 
-    dispatcher = CommandDispatcher(
-        devices,
-        default_timeout=cfg.system.runtime.write_timeout,
-    )
-
     metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(
         read_timeout=cfg.system.runtime.read_timeout,
@@ -143,6 +136,10 @@ def assemble(
 
     iec104_slave: IEC104SlaveServer | None = None
     if cfg.reporting is not None and cfg.reporting.reporting:
+        dispatcher = CommandDispatcher(
+            devices,
+            default_timeout=cfg.system.runtime.write_timeout,
+        )
         iec104_slave = _build_iec104_slave(
             cfg.reporting,
             engine,
@@ -153,7 +150,6 @@ def assemble(
         boot_config=cfg,
         runtime=runtime,
         engine=engine,
-        dispatcher=dispatcher,
         sinks=sinks,
         tasks=tasks,
         query=query,
