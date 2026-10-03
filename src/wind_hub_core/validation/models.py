@@ -41,11 +41,13 @@ class DeviceProbeTarget:
     Attributes:
         device_id: 设备稳定标识。
         host: 目标主机地址。
+        port: 已解析的协议目标端口。
         options: 协议扩展连接参数。Any 仅对应 YAML 动态字段，由协议探测器解释。
     """
 
     device_id: str
     host: str
+    port: int
     options: dict[str, Any] = field(default_factory=dict)
 
 
