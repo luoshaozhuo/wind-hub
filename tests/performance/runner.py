@@ -103,7 +103,11 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
         device_id=plan.device_id,
         protocol=protocol,
         point_table="perf",
-        endpoint=Endpoint(host=host, port=801 if protocol == "ads" else port, extensions=extensions),
+        endpoint=Endpoint(
+            host=host,
+            port=801 if protocol == "ads" else port,
+            extensions=extensions,
+        ),
         enabled=True,
     )
 
