@@ -381,7 +381,7 @@ class TestTaskExpansion:
             assert inst.device_id == "d1"
             assert inst.point_group == "g1"
             assert inst.interval == 1.0
-            assert inst.targets == ["s1", "s2"]
+            assert inst.targets == ("s1", "s2")
         finally:
             await rt.stop()
 
@@ -850,7 +850,7 @@ class TestReconfigure:
             errors = await rt.reconfigure(new_cfg, ConfigDiff(tasks=TaskDiff(updated=["t1"])))
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
-            assert inst.targets == ["s2"]
+            assert inst.targets == ("s2",)
             assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             await _wait_for(
