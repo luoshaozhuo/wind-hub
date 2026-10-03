@@ -201,6 +201,10 @@ class MonitoringService:
         """返回最近一次 Sink 运行态缓存。"""
         return [dict(item) for item in self._sinks]
 
+    def counters_snapshot(self) -> CounterSnapshot:
+        """返回最近一次 Collector 累计计数快照。"""
+        return self._metrics.counters()
+
     async def stop(self) -> None:
         """停止后台采样；幂等。"""
         task, self._task = self._task, None
