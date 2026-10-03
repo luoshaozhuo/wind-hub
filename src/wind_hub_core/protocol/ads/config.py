@@ -32,12 +32,6 @@ class ADSConfig:
     timeout: float = 5.0
     """单次 ADS 操作超时，单位秒。"""
 
-    reconnect_max_retries: int = 5
-    """首次连接阶段允许的连续重试次数。"""
-
-    reconnect_backoff_max: float = 30.0
-    """指数退避等待时间上限，单位秒。"""
-
     twincat_version: str = "2"
     """TwinCAT runtime 版本，仅允许 2 或 3；用于配置/UI 语义，不替代 AMS port。"""
 
@@ -103,8 +97,6 @@ def from_device_config(cfg: DeviceConfig) -> ADSConfig:
         target_net_id=target_net_id,
         target_port=cfg.endpoint.port,
         timeout=float(ext.get("timeout", 5.0)),
-        reconnect_max_retries=int(ext.get("reconnect_max_retries", 5)),
-        reconnect_backoff_max=float(ext.get("reconnect_backoff_max", 30.0)),
         twincat_version=twincat_version,
         read_mode=cfg.read_mode,
         max_subs_per_sum=int(ext.get("max_subs_per_sum", 500)),
