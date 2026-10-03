@@ -15,7 +15,6 @@ from google.protobuf import empty_pb2
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
-from wind_hub_core.rpc.commander_io_codec import point_value_from_proto
 from wind_hub_core.rpc.collector_codec import (
     collector_info_to_dict,
     device_info_to_dict,
@@ -25,6 +24,7 @@ from wind_hub_core.rpc.collector_codec import (
     task_instance_to_dict,
     task_summary_to_dict,
 )
+from wind_hub_core.rpc.commander_io_codec import point_value_from_proto
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
 from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
 
