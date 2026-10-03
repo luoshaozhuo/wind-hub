@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.command import Command
-from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.point_store import TrendStore
 from wind_hub_server.application.port.worker import CommanderPort
 
 
@@ -36,11 +36,9 @@ class DeviceControlUseCase:
     def __init__(
         self,
         commander: CommanderPort,
-        latest: LatestPointStore,
         trend: TrendStore,
     ) -> None:
         self._commander = commander
-        self._latest = latest
         self._trend = trend
 
     async def send(
@@ -52,7 +50,7 @@ class DeviceControlUseCase:
         timeout: float = 5.0,
         command_id: str | None = None,
     ) -> DeviceCommandResult:
-        """写入设备；成功后经 Commander 即时回读同一点并刷新缓存。"""
+        """写入设备；成功后经 Commander 即时回读，并追加短期趋势样本。"""
         command = Command(
             command_id=command_id or str(uuid.uuid4()),
             device_id=device_id,
@@ -77,7 +75,6 @@ class DeviceControlUseCase:
                 readback = observed.value
                 readback_timestamp = observed.timestamp
                 readback_quality = observed.quality.value
-                self._latest.put_batch([observed])
                 self._trend.append_batch([observed])
 
         return DeviceCommandResult(
