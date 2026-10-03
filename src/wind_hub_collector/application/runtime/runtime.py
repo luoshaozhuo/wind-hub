@@ -108,6 +108,10 @@ class RuntimeMetricsPort(Protocol):
         """断线设备经 ensure 路径重连成功（驱动内部自重连不经 Runtime，不计入）。"""
         ...
 
+    def sink_write_failed(self, sink_name: str, points: int) -> None:
+        """Sink 已出队批次写失败；at-most-once 语义下该批点值视为丢弃。"""
+        ...
+
 
 def _is_connection_level(exc: BaseException) -> bool:
     """判定异常是否属于「连接级」故障（对端不可达的日常表现）。
@@ -320,7 +324,7 @@ class Runtime:
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（单调不减）。"""
+        """累计丢弃点数——背压或 Sink 写失败导致的点值丢失（单调不减）。"""
         return self._points_dropped
 
     def sink_queue_depths(self) -> dict[str, int]:
@@ -1216,8 +1220,11 @@ class Runtime:
                 try:
                     await sink.write(batch)
                 except Exception:
+                    self._points_dropped += len(batch)
+                    if self._metrics is not None:
+                        self._metrics.sink_write_failed(sink_name, len(batch))
                     logger.warning(
-                        "Sink '%s' write failed for %d points",
+                        "Sink '%s' write failed for %d points — batch dropped",
                         sink_name,
                         len(batch),
                         exc_info=True,

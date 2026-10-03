@@ -51,6 +51,11 @@ runtime:
 背压策略（Sink 队列满时）：`drop_old` 丢最旧数据腾位（默认）、
 `drop_new` 丢弃新批次、`block` 阻塞采集任务直到有空间。
 
+Sink 交付采用 **at-most-once** 语义：批次从队列取出后若外部 Sink 写入失败，
+该批次不重试、不重新入队；其点数计入 `points_dropped`，同时记录
+`sink_write_failed` 运行事件。需要故障期不丢数据时，应另行引入持久化
+spool/WAL/DLQ，而不是依赖当前内存队列。
+
 采集周期**不在** system.yaml 定义——每个 Task 自带 `interval`
 （见下文 tasks.yaml），不存在全局默认采集间隔。
 

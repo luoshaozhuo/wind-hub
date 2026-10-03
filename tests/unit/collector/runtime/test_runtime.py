@@ -223,6 +223,7 @@ def _build_runtime(
     queue_maxsize: int = 10,
     protocol_factory=None,
     sink_factory=None,
+    metrics_hook=None,
 ) -> tuple[Runtime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
     protos = {d.device_id: _mock_protocol() for d in devices}
     sinks = {name: _mock_sink() for name in sink_names}
@@ -237,6 +238,7 @@ def _build_runtime(
         tasks={t.task_id: t for t in tasks},
         protocol_factory=protocol_factory,
         sink_factory=sink_factory,
+        metrics_hook=metrics_hook,
     )
     return rt, protos, sinks, eng
 
@@ -1155,6 +1157,33 @@ class TestSinkDispatch:
         await rt.dispatch({"s1": []})
         assert rt.points_routed == 0
         assert rt.sink_queue_depths() == {"s1": 0}
+
+    async def test_sink_write_failure_counts_batch_as_dropped(self) -> None:
+        metrics = CollectorMetricsState()
+        rt, _, sinks, _ = _build_runtime(
+            devices=[],
+            tasks=[],
+            metrics_hook=metrics,
+        )
+        sinks["s1"].write = AsyncMock(side_effect=RuntimeError("sink unavailable"))
+        await rt.start()
+        try:
+            await rt.dispatch(
+                {"s1": [_value(point_id="p1"), _value(point_id="p2")]}
+            )
+            await _wait_for(
+                lambda: sinks["s1"].write.await_count == 1,
+                what="sink write failure",
+            )
+
+            assert rt.points_routed == 2
+            assert rt.points_dropped == 2
+            events = metrics.snapshot()["events"]
+            assert events[-1]["kind"] == "sink_write_failed"
+            assert events[-1]["object"] == "s1"
+            assert "2 point(s)" in events[-1]["message"]
+        finally:
+            await rt.stop()
 
 
 # ---------------------------------------------------------------------------

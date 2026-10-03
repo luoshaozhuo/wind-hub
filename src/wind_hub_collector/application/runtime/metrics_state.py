@@ -94,6 +94,15 @@ class CollectorMetricsState:
             self._device_reconnects[device_id] += 1
             self._event("reconnected", device_id, f"{protocol}: reconnected")
 
+    def sink_write_failed(self, sink_name: str, points: int) -> None:
+        """记录 at-most-once Sink 写失败导致的批次丢弃事件。"""
+        with self._lock:
+            self._event(
+                "sink_write_failed",
+                sink_name,
+                f"dropped {points} point(s) after sink write failure",
+            )
+
     def snapshot(self) -> dict[str, Any]:
         """返回 JSON 兼容指标快照。"""
         with self._lock:
