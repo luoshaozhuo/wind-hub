@@ -1,4 +1,4 @@
-"""LatestPointStore / TrendStore 的进程内实现。"""
+"""控制回读 Latest/Trend Store 的进程内实现。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from datetime import datetime
 from wind_hub_core.model.point import PointValue
 
 
-class InMemoryLatestPointStore:
-    """线程安全的最新点值缓存。"""
+class InMemoryControlReadbackLatestStore:
+    """线程安全的 Commander 控制回读最新值缓存。"""
 
     def __init__(self) -> None:
         self._values: dict[tuple[str, str], PointValue] = {}
@@ -38,8 +38,8 @@ class InMemoryLatestPointStore:
             }
 
 
-class InMemoryTrendStore:
-    """每个 device/point 使用有界 deque 的短期趋势缓存。"""
+class InMemoryControlReadbackControlReadbackTrendStore:
+    """每个 device/point 使用有界 deque 的控制回读短期趋势缓存。"""
 
     def __init__(self, max_samples_per_point: int = 3600) -> None:
         if max_samples_per_point <= 0:

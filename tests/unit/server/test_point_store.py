@@ -1,9 +1,9 @@
-"""Latest/Trend 内存 Store 单元测试。"""
+"""控制回读 Latest/Trend 内存 Store 单元测试。"""
 
 from datetime import UTC, datetime, timedelta
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.infra.point_store import InMemoryLatestPointStore, InMemoryTrendStore
+from wind_hub_server.infra.point_store import InMemoryControlReadbackLatestStore, InMemoryControlReadbackControlReadbackTrendStore
 
 
 def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:
@@ -16,14 +16,14 @@ def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:
 
 
 def test_latest_store_overwrites_by_device_and_point() -> None:
-    store = InMemoryLatestPointStore()
+    store = InMemoryControlReadbackLatestStore()
     store.put_batch([_value("p1", 1.0), _value("p1", 2.0)])
 
     assert store.get("d1", "p1").value == 2.0
 
 
 def test_trend_store_is_bounded_and_ordered() -> None:
-    store = InMemoryTrendStore(max_samples_per_point=2)
+    store = InMemoryControlReadbackControlReadbackTrendStore(max_samples_per_point=2)
     store.append_batch([_value("p1", 1.0), _value("p1", 2.0), _value("p1", 3.0)])
 
     rows = store.query("d1", {"p1"}, limit_per_point=10)

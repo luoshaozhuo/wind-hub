@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.command import Command
-from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.point_store import ControlReadbackLatestStore, ControlReadbackTrendStore
 from wind_hub_server.application.port.worker import CommanderPort
 
 
@@ -36,8 +36,8 @@ class DeviceControlUseCase:
     def __init__(
         self,
         commander: CommanderPort,
-        latest: LatestPointStore,
-        trend: TrendStore,
+        latest: ControlReadbackLatestStore,
+        trend: ControlReadbackTrendStore,
     ) -> None:
         self._commander = commander
         self._latest = latest

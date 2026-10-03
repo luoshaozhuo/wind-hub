@@ -1,4 +1,4 @@
-"""Server 最新值与短期趋势存储端口。"""
+"""Server 控制回读最新值与短期趋势存储端口。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Protocol
 from wind_hub_core.model.point import PointValue
 
 
-class LatestPointStore(Protocol):
-    """设备最新工程值缓存端口。"""
+class ControlReadbackLatestStore(Protocol):
+    """Commander 控制回读最新值缓存端口。"""
 
     def put_batch(self, values: list[PointValue]) -> None:
         """用批次中的值覆盖对应 device/point 的最新值。"""
@@ -24,8 +24,8 @@ class LatestPointStore(Protocol):
         ...
 
 
-class TrendStore(Protocol):
-    """短期趋势缓存端口。"""
+class ControlReadbackTrendStore(Protocol):
+    """Commander 控制回读短期趋势缓存端口。"""
 
     def append_batch(self, values: list[PointValue]) -> None:
         """按点追加采样。"""

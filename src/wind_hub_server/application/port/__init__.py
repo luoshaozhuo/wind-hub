@@ -8,16 +8,16 @@ from wind_hub_server.application.port.monitoring import (
     MonitoringHistoryPort,
     MonitoringMetricsQueryPort,
 )
-from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.point_store import ControlReadbackLatestStore, ControlReadbackTrendStore
 
 __all__ = [
     "CounterSnapshot",
     "HostSnapshot",
-    "LatestPointStore",
+    "ControlReadbackLatestStore",
     "LogEntry",
     "LogStorePort",
     "MonitoringEvent",
     "MonitoringHistoryPort",
     "MonitoringMetricsQueryPort",
-    "TrendStore",
+    "ControlReadbackTrendStore",
 ]
