@@ -42,6 +42,7 @@ class CollectorAggregateUseCase:
 
         devices = self._aggregate_devices(by_worker)
         sinks = self._aggregate_sinks(by_worker)
+        tasks = self._aggregate_tasks(by_worker)
         runtime = self._aggregate_runtime(by_worker, unavailable_workers, devices, sinks)
         metrics = self._aggregate_metrics(by_worker)
 
@@ -50,6 +51,7 @@ class CollectorAggregateUseCase:
             "metrics": metrics,
             "devices": devices,
             "sinks": sinks,
+            "tasks": tasks,
         }
 
     async def _worker_snapshot(self, worker_id: str) -> dict[str, Any]:
@@ -62,17 +64,19 @@ class CollectorAggregateUseCase:
                 f"collector identity mismatch: expected={worker_id} "
                 f"reported={reported_id or '<empty>'}"
             )
-        runtime, metrics, devices, sinks = await asyncio.gather(
+        runtime, metrics, devices, sinks, tasks = await asyncio.gather(
             collector.runtime_status(),
             collector.metrics_snapshot(),
             collector.list_devices(),
             collector.list_sinks(),
+            collector.list_tasks(),
         )
         return {
             "runtime_status": runtime,
             "metrics": metrics,
             "devices": devices,
             "sinks": sinks,
+            "tasks": tasks,
         }
 
     def _aggregate_runtime(
@@ -224,6 +228,28 @@ class CollectorAggregateUseCase:
                         int(row.get("queue_depth") or 0) for row in present
                     ),
                 }
+            )
+        return rows
+
+    def _aggregate_tasks(
+        self,
+        by_worker: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """按 placement 过滤各 Collector 的 Task 聚合状态。"""
+        rows: list[dict[str, Any]] = []
+        for worker_id, snapshot in by_worker.items():
+            raw = snapshot["tasks"]
+            if not isinstance(raw, list):
+                raise TypeError(
+                    f"unexpected list_tasks payload from worker '{worker_id}': "
+                    f"{type(raw).__name__}"
+                )
+            assigned = set(self._assignments.task_ids_for_worker(worker_id))
+            rows.extend(
+                {**row, "assigned_worker_id": worker_id}
+                for row in raw
+                if isinstance(row, dict)
+                and str(row.get("task_id") or "") in assigned
             )
         return rows
 
