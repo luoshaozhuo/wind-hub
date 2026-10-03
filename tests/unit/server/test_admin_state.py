@@ -14,8 +14,7 @@ from wind_hub_server.application.usecase.config_admin import ConfigApplyResult
 
 async def test_replace_all_uses_one_multifile_apply() -> None:
     admin = MagicMock()
-    admin.read_file.return_value = "sinks: []\n"
-    admin.apply_files = AsyncMock(
+    admin.mutate_yaml_files = AsyncMock(
         return_value=ConfigApplyResult(success=True, revision=7)
     )
     usecase = AdminStateUseCase(admin)
@@ -66,8 +65,8 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     )
 
     assert result.success is True
-    files = admin.apply_files.await_args.args[0]
-    assert set(files) == {
+    names, mutator = admin.mutate_yaml_files.await_args.args[:2]
+    assert set(names) == {
         "devices.yaml",
         "tasks.yaml",
         "system.yaml",
@@ -75,4 +74,11 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
         "device_models.yaml",
         "points.yaml",
     }
-    assert admin.apply_files.await_count == 1
+    documents = {name: {} for name in names}
+    documents["system.yaml"] = {"runtime": {"keep": True}}
+    mutator(documents)
+    assert documents["system.yaml"]["runtime"] == {"keep": True}
+    assert documents["system.yaml"]["sinks"][0]["name"] == "s1"
+    assert documents["devices.yaml"]["devices"][0]["device_id"] == "d1"
+    assert documents["tasks.yaml"]["tasks"][0]["task_id"] == "t1"
+    assert admin.mutate_yaml_files.await_count == 1

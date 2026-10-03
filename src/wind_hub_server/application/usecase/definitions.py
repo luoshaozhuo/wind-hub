@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
-import yaml
 from pydantic import BaseModel
 
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -61,14 +60,17 @@ class DefinitionsUseCase:
     ) -> ConfigApplyResult:
         """结构化修改 definition，最终仍写回正式 YAML。"""
         file_name, root = self._location(kind)
-        loaded = yaml.safe_load(self._admin.read_file(file_name)) or {}
-        raw = cast(dict[str, Any], loaded)
-        container = cast(dict[str, Any], raw.setdefault(root, {}))
-        container[name] = value
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            file_name,
-            content,
+
+        def mutate(documents: dict[str, dict[str, Any]]) -> None:
+            raw = documents[file_name]
+            container = raw.setdefault(root, {})
+            if not isinstance(container, dict):
+                raise ValueError(f"{file_name} {root} must be a mapping")
+            container[name] = value
+
+        return await self._admin.mutate_yaml_files(
+            (file_name,),
+            mutate,
             source="definitions",
             comment=f"upsert {kind} {name}",
         )
@@ -76,16 +78,19 @@ class DefinitionsUseCase:
     async def delete(self, kind: str, name: str) -> ConfigApplyResult:
         """删除 definition；引用仍存在时完整配置校验会拒绝。"""
         file_name, root = self._location(kind)
-        loaded = yaml.safe_load(self._admin.read_file(file_name)) or {}
-        raw = cast(dict[str, Any], loaded)
-        container = cast(dict[str, Any], raw.setdefault(root, {}))
-        if name not in container:
-            raise KeyError(name)
-        del container[name]
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            file_name,
-            content,
+
+        def mutate(documents: dict[str, dict[str, Any]]) -> None:
+            raw = documents[file_name]
+            container = raw.setdefault(root, {})
+            if not isinstance(container, dict):
+                raise ValueError(f"{file_name} {root} must be a mapping")
+            if name not in container:
+                raise KeyError(name)
+            del container[name]
+
+        return await self._admin.mutate_yaml_files(
+            (file_name,),
+            mutate,
             source="definitions",
             comment=f"delete {kind} {name}",
         )
@@ -107,5 +112,4 @@ class DefinitionsUseCase:
 
     def _raw_mapping(self, file_name: str) -> dict[str, Any]:
         """读取 Applied YAML 原始结构，保留 extends/remove_points 等编辑语义。"""
-        loaded = yaml.safe_load(self._admin.read_file(file_name)) or {}
-        return cast(dict[str, Any], loaded)
+        return self._admin.read_yaml_mapping(file_name)

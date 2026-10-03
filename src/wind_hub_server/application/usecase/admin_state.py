@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
@@ -58,20 +57,32 @@ class AdminStateUseCase:
         definitions: AdminDefinitionsState,
     ) -> ConfigApplyResult:
         """一次事务提交前端结构化配置，解决跨文件引用更新。"""
-        files = {
-            "devices.yaml": self._devices_yaml(devices),
-            "tasks.yaml": self._tasks_yaml(tasks),
-            "system.yaml": self._system_yaml_with_sinks(sinks),
-            **self._definition_files(definitions),
-        }
-        return await self._admin.apply_files(
-            files,
+        names = (
+            "devices.yaml",
+            "tasks.yaml",
+            "system.yaml",
+            "units.yaml",
+            "device_models.yaml",
+            "points.yaml",
+        )
+
+        def mutate(documents: dict[str, dict[str, Any]]) -> None:
+            documents["devices.yaml"] = self._devices_document(devices)
+            documents["tasks.yaml"] = self._tasks_document(tasks)
+            documents["system.yaml"]["sinks"] = [
+                item.model_dump(mode="json") for item in sinks
+            ]
+            documents.update(self._definition_documents(definitions))
+
+        return await self._admin.mutate_yaml_files(
+            names,
+            mutate,
             source="admin-state",
             comment="Admin structured state update",
         )
 
     @staticmethod
-    def _devices_yaml(items: list[AdminDeviceItem]) -> str:
+    def _devices_document(items: list[AdminDeviceItem]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         for item in items:
             endpoint: dict[str, Any] = {"host": item.host}
@@ -88,12 +99,10 @@ class AdminStateUseCase:
             if item.device_group:
                 row["device_group"] = item.device_group
             rows.append(row)
-        return yaml.safe_dump(
-            {"devices": rows}, allow_unicode=True, sort_keys=False
-        )
+        return {"devices": rows}
 
     @staticmethod
-    def _tasks_yaml(items: list[AdminTaskItem]) -> str:
+    def _tasks_document(items: list[AdminTaskItem]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         for item in items:
             row: dict[str, Any] = {
@@ -109,31 +118,17 @@ class AdminStateUseCase:
             if item.interval is not None:
                 row["interval"] = item.interval
             rows.append(row)
-        return yaml.safe_dump({"tasks": rows}, allow_unicode=True, sort_keys=False)
-
-    def _system_yaml_with_sinks(self, items: list[AdminSinkItem]) -> str:
-        loaded = yaml.safe_load(self._admin.read_file("system.yaml")) or {}
-        raw = cast(dict[str, Any], loaded)
-        raw["sinks"] = [item.model_dump(mode="json") for item in items]
-        return yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
+        return {"tasks": rows}
 
     @staticmethod
-    def _definition_files(state: AdminDefinitionsState) -> dict[str, str]:
+    def _definition_documents(
+        state: AdminDefinitionsState,
+    ) -> dict[str, dict[str, Any]]:
         return {
-            "units.yaml": yaml.safe_dump(
-                {"units": state.units}, allow_unicode=True, sort_keys=False
-            ),
-            "device_models.yaml": yaml.safe_dump(
-                {
-                    "device_types": state.device_types,
-                    "device_models": state.device_models,
-                },
-                allow_unicode=True,
-                sort_keys=False,
-            ),
-            "points.yaml": yaml.safe_dump(
-                {"point_tables": state.point_tables},
-                allow_unicode=True,
-                sort_keys=False,
-            ),
+            "units.yaml": {"units": state.units},
+            "device_models.yaml": {
+                "device_types": state.device_types,
+                "device_models": state.device_models,
+            },
+            "points.yaml": {"point_tables": state.point_tables},
         }

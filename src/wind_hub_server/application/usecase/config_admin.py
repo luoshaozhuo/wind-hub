@@ -11,8 +11,10 @@ import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from collections.abc import Callable
+from typing import Any, cast
 
+import yaml
 from pydantic import BaseModel, Field
 
 from wind_hub_server.application.usecase.config import Config, ConfigUseCase, compute_diff
@@ -151,38 +153,97 @@ class ConfigAdminUseCase:
         if not files:
             return ConfigApplyResult(success=True)
         async with self._apply_lock:
-            try:
-                candidate = self._load_candidates(files)
-            except Exception as exc:
-                return ConfigApplyResult(success=False, errors=[str(exc)])
-            diff = compute_diff(self._config.current_config, candidate)
-            if not diff.has_any_changes:
-                return ConfigApplyResult(success=True)
-            previous = {
-                name: (self._base / name).read_bytes()
-                for name in CONFIG_FILES
-                if (self._base / name).is_file()
+            return await self._apply_files_locked(
+                files,
+                source=source,
+                comment=comment,
+            )
+
+    async def mutate_yaml_files(
+        self,
+        names: tuple[str, ...],
+        mutator: Callable[[dict[str, dict[str, Any]]], None],
+        *,
+        source: str,
+        comment: str,
+    ) -> ConfigApplyResult:
+        """在同一写锁内完成 YAML 读取、结构化修改与配置事务。
+
+        结构化用例只能描述 mutation，不得在锁外执行 read-modify-write，
+        避免并发请求基于同一旧版本产生 lost update。
+        """
+        ordered_names = tuple(dict.fromkeys(names))
+        if not ordered_names:
+            return ConfigApplyResult(success=True)
+        async with self._apply_lock:
+            documents = {
+                name: self.read_yaml_mapping(name)
+                for name in ordered_names
             }
-            try:
-                for name, content in files.items():
-                    self._atomic_write(self._path(name), content)
-                result = await self._config.reload()
-                errors = list(result.errors)
-            except Exception as exc:
-                result = None
-                errors = [str(exc) or type(exc).__name__]
-            if result is None or not result.success:
-                self._replace_bytes(previous)
-                rollback = await self._config.reload(force_workers=True)
-                if not rollback.success:
-                    errors.append(f"rollback reload failed: {rollback.errors}")
-                return ConfigApplyResult(
-                    success=False,
-                    errors=errors,
-                    rollback_performed=True,
+            mutator(documents)
+            files = {
+                name: yaml.safe_dump(
+                    documents[name],
+                    allow_unicode=True,
+                    sort_keys=False,
                 )
-            revision = self._record_revision(source=source, comment=comment)
-            return ConfigApplyResult(success=True, revision=revision)
+                for name in ordered_names
+            }
+            return await self._apply_files_locked(
+                files,
+                source=source,
+                comment=comment,
+            )
+
+    def read_yaml_mapping(self, name: str) -> dict[str, Any]:
+        """读取 YAML 根映射；空文件按空映射处理，非映射根拒绝。"""
+        loaded = yaml.safe_load(self.read_file(name))
+        if loaded is None:
+            return {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{name} YAML root must be a mapping")
+        return cast(dict[str, Any], loaded)
+
+    async def _apply_files_locked(
+        self,
+        files: dict[str, str],
+        *,
+        source: str,
+        comment: str,
+    ) -> ConfigApplyResult:
+        """在 _apply_lock 内校验、替换并提交一组配置文件。"""
+        try:
+            candidate = self._load_candidates(files)
+        except Exception as exc:
+            return ConfigApplyResult(success=False, errors=[str(exc)])
+        diff = compute_diff(self._config.current_config, candidate)
+        if not diff.has_any_changes:
+            return ConfigApplyResult(success=True)
+        previous = {
+            name: (self._base / name).read_bytes()
+            for name in CONFIG_FILES
+            if (self._base / name).is_file()
+        }
+        try:
+            for name, content in files.items():
+                self._atomic_write(self._path(name), content)
+            result = await self._config.reload()
+            errors = list(result.errors)
+        except Exception as exc:
+            result = None
+            errors = [str(exc) or type(exc).__name__]
+        if result is None or not result.success:
+            self._replace_bytes(previous)
+            rollback = await self._config.reload(force_workers=True)
+            if not rollback.success:
+                errors.append(f"rollback reload failed: {rollback.errors}")
+            return ConfigApplyResult(
+                success=False,
+                errors=errors,
+                rollback_performed=True,
+            )
+        revision = self._record_revision(source=source, comment=comment)
+        return ConfigApplyResult(success=True, revision=revision)
 
     def backup_bytes(self) -> bytes:
         """把当前 Applied YAML 集打成 ZIP；不包含 .history。"""

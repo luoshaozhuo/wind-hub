@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, cast
+from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config.schema import SinkConfig
@@ -176,30 +175,49 @@ class SinkUseCase:
         )
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
-        """新增或更新 Sink；最终仍通过 system.yaml + Config Apply 生效。"""
+        """新增或更新 Sink；最终仍通过 system.yaml 配置事务生效。"""
         cfg = SinkConfig(name=name, **payload)
-        loaded = yaml.safe_load(self._admin.read_file("system.yaml")) or {}
-        raw = cast(dict[str, Any], loaded)
-        sinks = cast(list[dict[str, Any]], list(raw.get("sinks") or []))
-        sinks = [item for item in sinks if item.get("name") != name]
-        sinks.append(cfg.model_dump(mode="json"))
-        raw["sinks"] = sinks
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            "system.yaml", content, source="sinks", comment=f"upsert sink {name}"
+
+        def mutate(documents: dict[str, dict[str, Any]]) -> None:
+            raw = documents["system.yaml"]
+            current = raw.get("sinks") or []
+            if not isinstance(current, list):
+                raise ValueError("system.yaml sinks must be a list")
+            sinks = [
+                item
+                for item in current
+                if isinstance(item, dict) and item.get("name") != name
+            ]
+            sinks.append(cfg.model_dump(mode="json"))
+            raw["sinks"] = sinks
+
+        return await self._admin.mutate_yaml_files(
+            ("system.yaml",),
+            mutate,
+            source="sinks",
+            comment=f"upsert sink {name}",
         )
 
     async def delete(self, name: str) -> ConfigApplyResult:
         """删除 Sink；若 Task 仍引用它，正式配置校验会拒绝 Apply。"""
         self._config_for(name)
-        loaded = yaml.safe_load(self._admin.read_file("system.yaml")) or {}
-        raw = cast(dict[str, Any], loaded)
-        raw["sinks"] = [
-            item for item in list(raw.get("sinks") or []) if item.get("name") != name
-        ]
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            "system.yaml", content, source="sinks", comment=f"delete sink {name}"
+
+        def mutate(documents: dict[str, dict[str, Any]]) -> None:
+            raw = documents["system.yaml"]
+            current = raw.get("sinks") or []
+            if not isinstance(current, list):
+                raise ValueError("system.yaml sinks must be a list")
+            raw["sinks"] = [
+                item
+                for item in current
+                if isinstance(item, dict) and item.get("name") != name
+            ]
+
+        return await self._admin.mutate_yaml_files(
+            ("system.yaml",),
+            mutate,
+            source="sinks",
+            comment=f"delete sink {name}",
         )
 
     def _config_for(self, name: str) -> SinkConfig:

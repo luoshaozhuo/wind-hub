@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
-import yaml
 from pydantic import BaseModel, Field
 
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -57,26 +54,31 @@ class SettingsUseCase:
         )
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
-        """只修改 system.yaml 对应字段，其余 runtime/sinks/cli 原样保留。"""
-        loaded = yaml.safe_load(self._admin.read_file("system.yaml")) or {}
-        raw = cast(dict[str, Any], loaded)
-        raw["site"] = {"site_id": request.site_id, "name": request.site_name}
-        interfaces = cast(dict[str, Any], raw.setdefault("interfaces", {}))
-        interfaces["api"] = {
-            "enabled": request.api_enabled,
-            "host": request.api_host,
-            "port": request.api_port,
-        }
-        if request.ads_local_ip and request.ads_local_ams_net_id:
-            raw["ads"] = {
-                "local_ip": request.ads_local_ip,
-                "local_ams_net_id": request.ads_local_ams_net_id,
-                "username": request.ads_username,
-                "password": request.ads_password,
+        """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
+        def mutate(documents: dict[str, dict[str, object]]) -> None:
+            raw = documents["system.yaml"]
+            raw["site"] = {"site_id": request.site_id, "name": request.site_name}
+            interfaces = raw.setdefault("interfaces", {})
+            if not isinstance(interfaces, dict):
+                raise ValueError("system.yaml interfaces must be a mapping")
+            interfaces["api"] = {
+                "enabled": request.api_enabled,
+                "host": request.api_host,
+                "port": request.api_port,
             }
-        else:
-            raw.pop("ads", None)
-        content = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
-        return await self._admin.apply_file(
-            "system.yaml", content, source="settings", comment="System Settings update"
+            if request.ads_local_ip and request.ads_local_ams_net_id:
+                raw["ads"] = {
+                    "local_ip": request.ads_local_ip,
+                    "local_ams_net_id": request.ads_local_ams_net_id,
+                    "username": request.ads_username,
+                    "password": request.ads_password,
+                }
+            else:
+                raw.pop("ads", None)
+
+        return await self._admin.mutate_yaml_files(
+            ("system.yaml",),
+            mutate,
+            source="settings",
+            comment="System Settings update",
         )
