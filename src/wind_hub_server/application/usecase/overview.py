@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.worker_query import WorkerQueryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
 
@@ -39,7 +39,7 @@ class OverviewUseCase:
     """Overview 页的应用层 Read Model。"""
 
     def __init__(
-        self, *, query: WorkerQueryUseCase, tasks: CollectorTaskUseCase, config: ConfigUseCase
+        self, *, query: CollectorQueryPort, tasks: CollectorTaskUseCase, config: ConfigUseCase
     ) -> None:
         self._query = query
         self._tasks = tasks
@@ -47,31 +47,31 @@ class OverviewUseCase:
 
     async def snapshot(self) -> OverviewSnapshot:
         """返回一次一致的当前进程级总览快照。"""
-        status = await self._query.status()
+        status = await self._query.runtime_status()
         tasks = await self._tasks.list_task_summaries()
         site = self._config.current_config.system.site
         return OverviewSnapshot(
             site_id=site.site_id if site is not None else None,
             site_name=site.name if site is not None else None,
-            runtime_running=status.running,
+            runtime_running=bool(status.get("running")),
             runtime_state=(
                 "degraded"
-                if status.degraded
+                if bool(status.get("degraded"))
                 else "running"
-                if status.running
+                if bool(status.get("running"))
                 else "stopped"
             ),
-            workers_unavailable=list(status.unavailable_workers),
-            device_count=status.device_count,
-            devices_connected=status.devices_connected,
-            devices_offline=max(0, status.device_count - status.devices_connected),
-            sink_count=status.sink_count,
-            sinks_healthy=status.sinks_healthy,
+            workers_unavailable=list(list(status.get("unavailable_workers") or [])),
+            device_count=int(status.get("device_count") or 0),
+            devices_connected=int(status.get("devices_connected") or 0),
+            devices_offline=max(0, int(status.get("device_count") or 0) - int(status.get("devices_connected") or 0)),
+            sink_count=int(status.get("sink_count") or 0),
+            sinks_healthy=int(status.get("sinks_healthy") or 0),
             task_count=len(tasks),
             task_instances=sum(task.instance_count for task in tasks),
             task_instances_running=sum(task.running_instances for task in tasks),
             task_instances_failed=sum(task.failed_instances for task in tasks),
-            points_collected=status.points_collected,
-            points_routed=status.points_routed,
-            points_dropped=status.points_dropped,
+            points_collected=int(status.get("points_collected") or 0),
+            points_routed=int(status.get("points_routed") or 0),
+            points_dropped=int(status.get("points_dropped") or 0),
         )
