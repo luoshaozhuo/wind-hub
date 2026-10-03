@@ -14,8 +14,7 @@
 
 持有：``dict[str, Device]``（设备的唯一权威——配置、点表、协议实例都
 聚合在 ``Device`` 内）、:class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
-（PointValue 数据流处理）、
-:class:`~wind_hub_collector.application.command_dispatcher.CommandDispatcher`（命令分发）。
+（PointValue 数据流处理）。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
 （ConfigUseCase）、采集时序（acquisition handle）。
@@ -33,7 +32,6 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub_collector.application.runtime.device import AcquisitionHandle, Device
@@ -131,12 +129,10 @@ class Runtime:
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
-    - ``devices`` — 设备注册表（``{device_id: Device}``），与
-      ``CommandDispatcher`` 共享同一 dict，热重载就地增删后双方立即可见；
+    - ``devices`` — 设备注册表（``{device_id: Device}``）；
     - ``sinks`` — Sink 注册表；
     - ``engine`` — 采集引擎；本类构造时向其绑定 Sink 派发端口；
     - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``）；
-    - ``dispatcher`` — 命令分发器（持有以便组合根单点管理生命周期）；
     - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
     - ``protocol_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
       （由组合根注入，Runtime 不依赖具体适配器）。
@@ -147,7 +143,6 @@ class Runtime:
         devices: dict[str, Device],
         sinks: dict[str, SinkPort],
         engine: AcquisitionEngine,
-        dispatcher: CommandDispatcher,
         config: RuntimeConfig,
         tasks: dict[str, CollectionTaskConfig] | None = None,
         protocol_factory: Callable[[DeviceConfig], ProtocolPort] | None = None,
@@ -158,7 +153,6 @@ class Runtime:
         self._devices = devices
         self._sinks = sinks
         self._engine = engine
-        self._dispatcher = dispatcher
         self._config = config
         self._task_defs: dict[str, CollectionTaskConfig] = dict(tasks or {})
         self._protocol_factory = protocol_factory
@@ -257,11 +251,6 @@ class Runtime:
     def engine(self) -> AcquisitionEngine:
         """当前采集引擎（观察者注册、采集计数的入口）。"""
         return self._engine
-
-    @property
-    def dispatcher(self) -> CommandDispatcher:
-        """命令分发器。"""
-        return self._dispatcher
 
     # ------------------------------------------------------------------
     # Runtime 整体生命周期
