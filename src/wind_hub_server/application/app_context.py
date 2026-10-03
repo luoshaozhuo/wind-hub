@@ -49,7 +49,7 @@ class AppContext:
     缺失时由适配器上报 503 / 非零退出而非崩溃。"""
 
     tasks: CollectorTaskUseCase | None = None
-    """可选采集 Task 生命周期用例（查询 / start / stop / start-all / stop-all）。"""
+    """采集 Task/Task Instance 查询与显式 start/stop 用例。"""
 
     devices: DeviceUseCase | None = None
     """V1 设备查询用例；聚合静态配置与实时连接状态。"""
