@@ -16,6 +16,7 @@ import pytest
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.ads.config import ADSConfig
 from wind_hub_core.protocol.ads.mapping import ADSPoint
+import wind_hub_core.protocol.ads.subscription as subscription_module
 from wind_hub_core.protocol.ads.subscription import ADSSubscription
 
 
@@ -53,6 +54,7 @@ class FakeConnection:
         self.is_open = False
         self.callbacks: dict[tuple[int, int], object] = {}
         self.del_count = 0
+        self.read_state_error: Exception | None = None
         FakeConnection.instances.append(self)
 
     def set_timeout(self, ms: int) -> None:
@@ -63,6 +65,11 @@ class FakeConnection:
 
     def close(self) -> None:
         self.is_open = False
+
+    def read_state(self) -> tuple[int, int]:
+        if self.read_state_error is not None:
+            raise self.read_state_error
+        return (5, 0)
 
     def notification(self, plc_datatype: object) -> object:
         def decorator(callback: object) -> object:
@@ -166,6 +173,36 @@ class TestRegistration:
         # only point a was unregistered
         assert sum(c.del_count for c in FakeConnection.instances) == 1
         await sub.close()
+
+
+class TestRecovery:
+    async def test_connection_loss_rebuilds_pool_and_reregisters(
+        self, patched: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(subscription_module, "_HEALTH_CHECK_INTERVAL", 0.01)
+        sub = ADSSubscription(
+            config=_config(),
+            device_id="test-dev",
+            host="192.168.0.100",
+            loop=asyncio.get_running_loop(),
+            on_data=_noop,
+            cycle_time=0.02,
+        )
+        await sub.subscribe([_point("a", "MAIN.a"), _point("b", "MAIN.b")])
+        first = FakeConnection.instances[0]
+        first.read_state_error = OSError("PLC offline")
+
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            if len(FakeConnection.instances) >= 2 and set(sub._handles) == {"a", "b"}:
+                break
+
+        assert len(FakeConnection.instances) >= 2
+        assert first.is_open is False
+        assert set(sub._handles) == {"a", "b"}
+        assert sub._connections[0] is not first
+        await sub.close()
+
 
 
 class TestDelivery:
