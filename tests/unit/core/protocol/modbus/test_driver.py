@@ -106,28 +106,18 @@ class TestConnect:
         assert client.close.called
         assert driver.health().healthy is False
 
-    async def test_connect_retries_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(modbus_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        client = _FakeClient()
-        client.connect = AsyncMock(side_effect=[False, False, True])
-        _patch_client(monkeypatch, client)
-
-        driver = ModbusDriver(_make_device_config(reconnect_max_retries=2))
-        await driver.connect()
-        assert client.connect.await_count == 3
-        assert driver.health().healthy is True
-        await driver.close()
-
-    async def test_connect_fails_after_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(modbus_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+    async def test_connect_failure_is_single_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = _FakeClient()
         client.connect = AsyncMock(return_value=False)
         _patch_client(monkeypatch, client)
 
-        driver = ModbusDriver(_make_device_config(reconnect_max_retries=2))
+        driver = ModbusDriver(_make_device_config())
         with pytest.raises(ProtocolError, match="failed to connect"):
             await driver.connect()
-        assert driver._failed is True
+
+        assert client.connect.await_count == 1
         assert driver.health().healthy is False
 
     async def test_rtu_mode_raises_not_implemented(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,40 +366,22 @@ import logging  # noqa: E402
 
 
 class TestReconnectLogging:
-    async def test_timeout_logged_as_concise_warning(
+    async def test_connect_timeout_logs_concise_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        monkeypatch.setattr(modbus_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        driver = ModbusDriver(_make_device_config(reconnect_max_retries=1))
+        driver = ModbusDriver(_make_device_config())
 
         async def _timeout_connect() -> None:
             raise TimeoutError("timed out")
 
         monkeypatch.setattr(driver, "_do_connect", _timeout_connect)
         with caplog.at_level(logging.WARNING, logger=modbus_driver_module.__name__):
-            last_exc = await driver._connect_with_retry()  # noqa: SLF001
+            with pytest.raises(ProtocolError, match="failed to connect"):
+                await driver.connect()
 
-        assert isinstance(last_exc, TimeoutError)
         timeout_logs = [r for r in caplog.records if "timed out" in r.message]
-        assert len(timeout_logs) == 2  # 两次尝试各一条
-        assert all(r.exc_info is None for r in timeout_logs)  # 无堆栈
-
-    async def test_non_timeout_failure_keeps_failed_message(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        monkeypatch.setattr(modbus_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        driver = ModbusDriver(_make_device_config(reconnect_max_retries=1))
-
-        async def _refused_connect() -> None:
-            raise OSError("connection refused")
-
-        monkeypatch.setattr(driver, "_do_connect", _refused_connect)
-        with caplog.at_level(logging.WARNING, logger=modbus_driver_module.__name__):
-            last_exc = await driver._connect_with_retry()  # noqa: SLF001
-
-        assert isinstance(last_exc, OSError)
-        assert any("failed" in r.message for r in caplog.records)
-        assert not any("timed out" in r.message for r in caplog.records)
+        assert len(timeout_logs) == 1
+        assert timeout_logs[0].exc_info is None
 
 
 # ---------------------------------------------------------------------------
