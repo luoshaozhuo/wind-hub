@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from wind_hub_core.config.schema import SinkConfig
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
+from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
@@ -44,20 +44,20 @@ class SinkUseCase:
     def __init__(
         self,
         collectors: CollectorDirectory,
-        aggregate: CollectorQueryPort,
+        monitoring: MonitoringSnapshotPort,
         assignments: TaskAssignmentUseCase,
         config: ConfigUseCase,
         admin: ConfigAdminUseCase,
     ) -> None:
         self._collectors = collectors
-        self._aggregate = aggregate
+        self._monitoring = monitoring
         self._assignments = assignments
         self._config = config
         self._admin = admin
 
     async def list_sinks(self) -> list[SinkSnapshot]:
-        """返回配置与 Collector 当前 Sink 运行态。"""
-        runtime_rows = await self._aggregate.list_sinks()
+        """返回配置与最近一次 Collector Sink 运行态。"""
+        runtime_rows = self._monitoring.sinks_snapshot()
         runtime = {
             str(row.get("name")): row
             for row in runtime_rows
