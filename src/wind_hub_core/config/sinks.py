@@ -344,21 +344,22 @@ class SinkConfig(BaseModel):
         refs: set[str] = set()
         addresses: set[tuple[object, ...]] = set()
         for point in self.points:
-            assert point.ref is not None
-            if point.ref in refs:
-                raise ConfigError(f"Sink '{self.name}': duplicate ref '{point.ref}'")
-            refs.add(point.ref)
+            if point.ref is not None:
+                if point.ref in refs:
+                    raise ConfigError(f"Sink '{self.name}': duplicate ref '{point.ref}'")
+                refs.add(point.ref)
 
+            point_label = point.ref or f"{point.source.device_id}.{point.source.point_id}"
             allowed = _ADDRESS_TYPES[self.type]
             if not isinstance(point.address, allowed):
                 raise ConfigError(
-                    f"Sink '{self.name}' point '{point.ref}': address does not match "
+                    f"Sink '{self.name}' point '{point_label}': address does not match "
                     f"type '{self.type}'"
                 )
             key = _address_key(point.address)
             if key in addresses:
                 raise ConfigError(
-                    f"Sink '{self.name}' point '{point.ref}': duplicate external address"
+                    f"Sink '{self.name}' point '{point_label}': duplicate external address"
                 )
             addresses.add(key)
         return self
