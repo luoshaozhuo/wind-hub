@@ -130,7 +130,6 @@ def _validate_transform(
         )
 
 
-
 def _validate_iec104_type(
     sink_name: str,
     ref: str,
@@ -151,7 +150,16 @@ def _validate_iec104_type(
         return
 
     if address.type_id in {"M_DP_NA_1", "M_DP_TB_1"}:
-        integer_types = {"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"}
+        integer_types = {
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        }
         if datatype not in integer_types:
             raise ConfigError(
                 f"Sink '{sink_name}' point '{ref}': {address.type_id} requires "
@@ -164,6 +172,8 @@ def _validate_iec104_type(
             f"Sink '{sink_name}' point '{ref}': {address.type_id} requires numeric "
             f"datatype, got '{datatype}'"
         )
+
+
 def _raw_ref(point: SinkPoint) -> str:
     return point.ref or f"{point.source.device_id}.{point.source.point_id}"
 
