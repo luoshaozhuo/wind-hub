@@ -37,7 +37,7 @@ from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import Config, DeviceConfig, ReportingConfig
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.protocol.registry import protocol_registry
@@ -73,7 +73,7 @@ class AssembledRuntime:
 
 def assemble(
     config_dir: str | Path,
-    sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
+    sink_factory: Callable[[ResolvedSinkConfig], SinkPort] | None = None,
 ) -> AssembledRuntime:
     """从 YAML 配置同步装配 Collector，不执行网络 I/O。
 
@@ -248,7 +248,7 @@ def _build_iec104_slave(
     )
 
 
-def _create_sink(cfg: SinkConfig) -> SinkPort:
+def _create_sink(cfg: ResolvedSinkConfig) -> SinkPort:
     """按配置类型懒加载并创建 Collector Sink。
 
     可选 Sink 依赖只在配置实际使用该类型时导入，File-only 部署无需安装

@@ -44,7 +44,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -146,7 +146,7 @@ class Runtime:
         config: RuntimeConfig,
         tasks: dict[str, CollectionTaskConfig] | None = None,
         protocol_factory: Callable[[DeviceConfig], ProtocolPort] | None = None,
-        sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
+        sink_factory: Callable[[ResolvedSinkConfig], SinkPort] | None = None,
         clock: Callable[[], float] = time.monotonic,
         metrics_hook: RuntimeMetricsPort | None = None,
     ) -> None:
@@ -856,7 +856,7 @@ class Runtime:
     # 热重载——sink 管理
     # ------------------------------------------------------------------
 
-    async def add_sink(self, sink_name: str, cfg: SinkConfig, sink: SinkPort) -> None:
+    async def add_sink(self, sink_name: str, cfg: ResolvedSinkConfig, sink: SinkPort) -> None:
         """运行时新增 sink；open 成功后才提交到 Runtime 注册表。
 
         部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
@@ -910,7 +910,7 @@ class Runtime:
         self._unhealthy_sinks.discard(sink_name)
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
-    async def rebuild_sink(self, sink_name: str, new_cfg: SinkConfig, new_sink: SinkPort) -> None:
+    async def rebuild_sink(self, sink_name: str, new_cfg: ResolvedSinkConfig, new_sink: SinkPort) -> None:
         """重建 sink——先打开新实例，成功后再切换旧实例。
 
         既有队列保留，避免在途数据丢失。新 sink 打开失败时旧 sink 与消费者

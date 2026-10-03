@@ -11,7 +11,7 @@ from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
 from wind_hub_core.config.schema import RuntimeConfig
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedResolvedSinkConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 
@@ -84,7 +84,7 @@ class _NullSink:
         return HealthStatus(healthy=True)
 
 
-def _null_sink_factory(_cfg: SinkConfig) -> _NullSink:
+def _null_sink_factory(_cfg: ResolvedSinkConfig) -> _NullSink:
     return _NullSink()
 
 

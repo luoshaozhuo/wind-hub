@@ -29,7 +29,7 @@ from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.reliability.soak.sinks import RecordingSink, percentile
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedResolvedSinkConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.port import ProtocolPort
@@ -323,7 +323,7 @@ async def run_soak(
     table = postgres_table or f"windhub_soak_{uuid.uuid4().hex[:12]}"
     recording_holder: list[RecordingSink] = []
 
-    def _sink_factory(cfg: SinkConfig) -> RecordingSink:
+    def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
         inner = None
         if profile.sink == "kafka":
             from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink

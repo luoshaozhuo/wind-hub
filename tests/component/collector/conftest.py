@@ -24,7 +24,7 @@ from tests.support.config_helper import write_config_tree
 from tests.support.process import free_port
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedResolvedSinkConfig
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: list[dict[str, Any]] = [
@@ -66,7 +66,7 @@ DEFAULT_TASK: dict[str, Any] = {
 }
 
 
-def functional_sink_factory(cfg: SinkConfig) -> SinkPort:
+def functional_sink_factory(cfg: ResolvedSinkConfig) -> SinkPort:
     """``null`` 注入 NullSink，其余类型走组合根真实工厂（file/kafka/db）。"""
     if cfg.name == "null_sink":
         return NullSink()
@@ -231,7 +231,7 @@ async def modbus_runtime(
 @pytest.fixture
 async def runtime(
     config_dir: Path,
-    sink_factory: Callable[[SinkConfig], SinkPort],
+    sink_factory: Callable[[ResolvedSinkConfig], SinkPort],
     modbus_server: ModbusMockServer,
     iec104_server: IEC104MockServer,
 ) -> AsyncIterator[AssembledRuntime]:

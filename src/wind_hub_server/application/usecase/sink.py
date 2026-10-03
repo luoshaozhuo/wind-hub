@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig, SinkConfig
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -222,8 +222,8 @@ class SinkUseCase:
             comment=f"delete sink {name}",
         )
 
-    def _config_for(self, name: str) -> SinkConfig:
-        """从当前 Config 取 SinkConfig。"""
+    def _config_for(self, name: str) -> ResolvedSinkConfig:
+        """从当前 resolved Config 取 Sink 定义。"""
         for cfg in self._config.current_config.sinks.sinks:
             if cfg.name == name:
                 return cfg

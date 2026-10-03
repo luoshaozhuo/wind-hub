@@ -634,14 +634,14 @@ class SystemConfig(BaseModel):
 class TaskTarget(BaseModel):
     """采集 Task 的输出目标——只引用 Sink 名称。
 
-    Sink 实例与连接参数定义在 ``system.yaml`` 的 ``sinks`` 中；Task 不复制
+    Sink 实例与连接参数定义在 ``sinks.yaml`` 中；Task 不复制
     任何连接配置。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     sink: str
-    """目标 Sink 名（``system.yaml`` 中 ``SinkConfig.name``）。"""
+    """目标 Sink 名（``sinks.yaml`` 中的 Sink name）。"""
 
 
 class CollectionTaskConfig(BaseModel):
