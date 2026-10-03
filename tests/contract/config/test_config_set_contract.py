@@ -126,6 +126,7 @@ class TestRequiredFilesContract:
 
     REQUIRED = [
         "system.yaml",
+        "sinks.yaml",
         "units.yaml",
         "device_models.yaml",
         "devices.yaml",

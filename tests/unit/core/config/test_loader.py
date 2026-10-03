@@ -208,6 +208,15 @@ class TestMissingFile:
             with pytest.raises(ConfigError, match="not found"):
                 load_config(site)
 
+    def test_missing_sinks_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
+            )
+            (site / "sinks.yaml").unlink()
+            with pytest.raises(ConfigError, match="not found"):
+                load_config(site)
+
     def test_missing_units_yaml_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             site = _write_config_dir(
