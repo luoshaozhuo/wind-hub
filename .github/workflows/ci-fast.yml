@@ -12,6 +12,12 @@ on:
     branches: [main]
   pull_request:
 
+# 同一分支/PR 只保留最新提交的快速验证，避免 coding agent 连续 push 时
+# 旧 SHA 继续占用 runner。每个 CI 结果仍必须按 head_sha 归属具体 commit。
+concurrency:
+  group: ci-fast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

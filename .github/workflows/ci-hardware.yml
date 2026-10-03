@@ -1,4 +1,5 @@
 name: Hardware Qualification Gate
+run-name: Hardware Qualification @ ${{ github.sha }}
 
 # 硬件资格门禁（手动触发）：真实 TwinCAT PLC 上的 ADS 验收。
 # 需要 self-hosted runner 位于 PLC 可达网络，并配置 secrets：
@@ -28,21 +29,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Guard — hardware environment configured
+      - name: Preflight — hardware environment
+        id: preflight
+        shell: bash
         run: |
+          {
+            echo "### Hardware Qualification"
+            echo "- SHA: \`$GITHUB_SHA\`"
+            echo "- Run: \`$GITHUB_RUN_ID\`"
+            echo "- Runner: \`$RUNNER_NAME\`"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$WIND_HUB_TEST_ADS_HOST" ] || [ -z "$WIND_HUB_TEST_ADS_NET_ID" ]; then
-            echo "NOT EXECUTED — hardware environment unavailable (ADS_HOST/ADS_NET_ID secrets unset)" \
-              | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 78
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "- Status: **NOT EXECUTED** — ADS_HOST/ADS_NET_ID secrets unset" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Setup Python
+        if: steps.preflight.outputs.available == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install dependencies
+        if: steps.preflight.outputs.available == 'true'
         run: |
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
       - name: ADS hardware tests
+        id: ads-tests
+        if: steps.preflight.outputs.available == 'true'
         run: python -m pytest tests/integration/protocols/ads -q -m "hardware"
+      - name: Final qualification status
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.preflight.outputs.available }}" != "true" ]; then
+            # GitHub Actions 没有独立 NOT_EXECUTED job conclusion；用失败态阻止误判 PASS，
+            # 真实资格语义以 Step Summary 中的 NOT EXECUTED 为准。
+            exit 1
+          fi
+          if [ "${{ steps.ads-tests.outcome }}" = "success" ]; then
+            echo "- Status: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Status: **FAIL**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

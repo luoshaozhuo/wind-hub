@@ -1,4 +1,5 @@
 name: Performance Gate
+run-name: Performance ${{ inputs.mode }} @ ${{ github.sha }}
 
 # 性能资格通道（Gate 4 的一部分，《软件交付与CI质量门禁规范》§9）：
 # 三协议 × tc netem 场景压测，经 scripts/run_benchmark.py 执行。
@@ -28,25 +29,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Guard — root / CAP_NET_ADMIN available
+      - name: Preflight — performance environment
+        id: preflight
+        shell: bash
         run: |
+          {
+            echo "### Performance Qualification"
+            echo "- SHA: \`$GITHUB_SHA\`"
+            echo "- Run: \`$GITHUB_RUN_ID\`"
+            echo "- Runner: \`$RUNNER_NAME\`"
+            echo "- Mode: \`${{ inputs.mode }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$(id -u)" != "0" ] && ! capsh --print 2>/dev/null | grep -q cap_net_admin; then
-            echo "NOT EXECUTED — performance environment unavailable (need root or CAP_NET_ADMIN for tc netem)" \
-              | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 78
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "- Status: **NOT EXECUTED** — root/CAP_NET_ADMIN unavailable" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Setup Python
+        if: steps.preflight.outputs.available == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install dependencies
+        if: steps.preflight.outputs.available == 'true'
         run: |
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
       - name: Run benchmark
+        id: benchmark
+        if: steps.preflight.outputs.available == 'true'
         run: |
-          args=(--output "perf_report_${{ inputs.mode }}.md")
+          args=(--output "perf_report_${{ github.sha }}_${{ inputs.mode }}.md")
           if [ "${{ inputs.mode }}" = "quick" ]; then
             args+=(--quick)
           fi
@@ -55,12 +70,26 @@ jobs:
           fi
           python scripts/run_benchmark.py "${args[@]}"
       - name: Upload benchmark report
-        if: always()
+        id: upload
+        if: always() && steps.preflight.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: perf-report-${{ inputs.mode }}
+          name: perf-report-${{ github.sha }}-${{ inputs.mode }}
           path: |
             perf_report_*.md
             perf_report_*.json
             perf_latency.png
           if-no-files-found: error
+      - name: Final qualification status
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.preflight.outputs.available }}" != "true" ]; then
+            exit 1
+          fi
+          if [ "${{ steps.benchmark.outcome }}" = "success" ] && [ "${{ steps.upload.outcome }}" = "success" ]; then
+            echo "- Status: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Status: **FAIL**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

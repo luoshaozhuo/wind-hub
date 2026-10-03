@@ -10,6 +10,11 @@ name: CI PR Gate
 on:
   pull_request:
 
+# PR 更新后取消同一 PR 的过期验证，只验证最新 head SHA。
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

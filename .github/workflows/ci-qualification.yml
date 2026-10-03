@@ -1,4 +1,5 @@
 name: Production Qualification Gate
+run-name: Soak ${{ inputs.soak_profile }} @ ${{ github.sha }}
 
 # 生产资格通道（Gate 4，《软件交付与CI质量门禁规范》§5）：长时间 soak。
 # 手动触发到可长时间运行的 self-hosted runner；soak 报告写入
@@ -30,6 +31,16 @@ jobs:
       WIND_HUB_SOAK_PROFILE: ${{ inputs.soak_profile }}
       WIND_HUB_SOAK_DURATION_S: ${{ inputs.duration_override_s }}
     steps:
+      - name: Run metadata
+        shell: bash
+        run: |
+          {
+            echo "### Production Qualification"
+            echo "- SHA: \`$GITHUB_SHA\`"
+            echo "- Run: \`$GITHUB_RUN_ID\`"
+            echo "- Runner: \`$RUNNER_NAME\`"
+            echo "- Profile: \`${{ inputs.soak_profile }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Python
@@ -42,11 +53,23 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
       - name: Run soak
+        id: soak
         run: python -m pytest tests/reliability/soak -q -m "soak and not performance"
       - name: Upload soak report
+        id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-report-${{ inputs.soak_profile }}
+          name: soak-report-${{ github.sha }}-${{ inputs.soak_profile }}
           path: artifacts/soak/
           if-no-files-found: error
+      - name: Final qualification status
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.soak.outcome }}" = "success" ] && [ "${{ steps.upload.outcome }}" = "success" ]; then
+            echo "- Status: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Status: **FAIL**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
