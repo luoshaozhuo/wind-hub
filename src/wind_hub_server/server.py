@@ -14,11 +14,10 @@ import uvicorn
 
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import clear_context, set_context
-from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 from wind_hub_server.assembly import ServerRuntime, assemble_server
-from wind_hub_server.config_validation import ServerConfigValidator
 from wind_hub_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
@@ -47,41 +46,12 @@ def build_api_server(
     return uvicorn.Server(config)
 
 
-async def reload_once(
-    config: ConfigUseCase,
-    validator: ServerConfigValidator | None = None,
-) -> None:
+async def reload_once(config: ConfigUseCase) -> None:
     """Execute one incremental config reload."""
     logger.info("收到 SIGHUP，开始热重载")
-    candidate = None
-    added_devices: set[str] = set()
-    if validator is not None:
-        try:
-            candidate = config.load_disk()
-            diff = compute_diff(config.current_config, candidate)
-            added_devices = set(diff.devices.added)
-        except Exception:
-            logger.warning("reload 配置预检查失败", exc_info=True)
-
     result = await config.reload()
     if result.success:
         logger.info("配置热重载成功")
-        if validator is not None and candidate is not None and added_devices:
-            try:
-                summary = await validator.validate_added_devices(
-                    candidate,
-                    added_devices,
-                )
-                logger.info(
-                    "reload active validation completed: devices=%d errors=%d",
-                    len(summary.reports),
-                    summary.error_count,
-                )
-            except Exception:
-                logger.warning(
-                    "reload 后新增设备主动验证失败",
-                    exc_info=True,
-                )
     else:
         logger.warning("配置热重载失败：%s", result.errors)
 
@@ -89,12 +59,11 @@ async def reload_once(
 async def _reload_loop(
     reload_event: asyncio.Event,
     config: ConfigUseCase,
-    validator: ServerConfigValidator,
 ) -> None:
     while True:
         await reload_event.wait()
         reload_event.clear()
-        await reload_once(config, validator)
+        await reload_once(config)
 
 
 async def _worker_probe_loop(
@@ -235,35 +204,6 @@ async def run_server(settings: ServerSettings) -> int:
         collectors=settings.collector_endpoints,
         commander=settings.commander,
     )
-    validator = ServerConfigValidator(
-        settings.config_dir,
-        runtime.commander_client,
-    )
-    validation = await validator.validate_startup(startup_config)
-    logger.info(
-        "startup active validation completed: devices=%d errors=%d repaired_points=%d",
-        len(validation.reports),
-        validation.error_count,
-        validation.repaired_points,
-    )
-
-    if validation.repaired_points:
-        logger.warning(
-            "启动验证已修复 %d 个 ADS 点地址，开始激活修复后的配置",
-            validation.repaired_points,
-        )
-        activation = await runtime.config.reload()
-        if not activation.success:
-            raise RuntimeError(
-                "failed to activate startup validation repairs: "
-                + "; ".join(activation.errors)
-            )
-        startup_config = runtime.config.current_config
-        logger.info(
-            "启动验证修复已在 Collector/Commander 激活，changed_tables=%s",
-            activation.diff.point_tables_changed,
-        )
-
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()
@@ -310,7 +250,7 @@ async def run_server(settings: ServerSettings) -> int:
             settings.port,
         )
         reload_task = asyncio.create_task(
-            _reload_loop(reload_event, runtime.config, validator)
+            _reload_loop(reload_event, runtime.config)
         )
         reconcile_task = asyncio.create_task(
             _reconcile_loop(
