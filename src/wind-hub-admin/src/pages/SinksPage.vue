@@ -41,15 +41,18 @@ const draft=reactive({
   bootstrap_servers:'',topic:'',key_field:'',compression_type:'',acks:'all',retries:3,kafka_batch_size:16384,linger_ms:0,
   dsn:'',table:'points',db_batch_size:1000,create_table:false,pool_min_size:1,pool_max_size:10,
   path:'',format:'jsonl',max_size_mb:100,max_age_hours:24,compress:false,compress_level:6,buffer_size:100,flush_interval:1,write_header:true,
+  host:'0.0.0.0',server_port:0,common_address:1,server_batch_size:50,
 })
 const sinkDraftState=computed(()=>JSON.stringify(draft))
 const sinkDirty=computed(()=>creating.value ? sinkDraftState.value!==sinkSnapshot.value : (!!selected.value && sinkDraftState.value!==sinkSnapshot.value))
 
 function stateLabel(s:SinkDef){return !s.enabled?'Disabled':s.runtime_state.charAt(0).toUpperCase()+s.runtime_state.slice(1)}
 function endpointSummary(s:SinkDef){
-  if(s.type==='kafka')return `${s.params.bootstrap_servers||'—'} · ${s.params.topic||'—'}`
-  if(s.type==='db'){const dsn=String(s.params.dsn||'');return `${dsn.replace(/:\/\/([^:]+):[^@]+@/,'://$1:***@')||'—'} · ${s.params.table||'—'}`}
-  return String(s.params.path||'—')
+  const p=s.connection
+  if(s.type==='kafka')return `${p.bootstrap_servers||'—'} · ${p.topic||'—'}`
+  if(s.type==='db'){const dsn=String(p.dsn||'');return `${dsn.replace(/:\/\/([^:]+):[^@]+@/,'://$1:***@')||'—'} · ${p.table||'—'}`}
+  if(s.type==='iec104'||s.type==='modbus')return `${p.host||'0.0.0.0'}:${p.port||'—'}`
+  return String(p.path||'—')
 }
 function taskRefs(name:string){return store.tasks.filter(t=>t.sinks.includes(name))}
 function verifyLabel(s:SinkDef){
@@ -59,12 +62,14 @@ function verifyLabel(s:SinkDef){
 function verifyType(s:SinkDef){return statusTagType(s.verification.state)}
 
 function resetDraft(type:SinkType='file'){
-  Object.assign(draft,{name:'',type,enabled:true,bootstrap_servers:'',topic:'',key_field:'',compression_type:'',acks:'all',retries:3,kafka_batch_size:16384,linger_ms:0,dsn:'',table:'points',db_batch_size:1000,create_table:false,pool_min_size:1,pool_max_size:10,path:'',format:'jsonl',max_size_mb:100,max_age_hours:24,compress:false,compress_level:6,buffer_size:100,flush_interval:1,write_header:true})
+  Object.assign(draft,{name:'',type,enabled:true,bootstrap_servers:'',topic:'',key_field:'',compression_type:'',acks:'all',retries:3,kafka_batch_size:16384,linger_ms:0,dsn:'',table:'points',db_batch_size:1000,create_table:false,pool_min_size:1,pool_max_size:10,path:'',format:'jsonl',max_size_mb:100,max_age_hours:24,compress:false,compress_level:6,buffer_size:100,flush_interval:1,write_header:true,host:'0.0.0.0',server_port:type==='iec104'?2404:type==='modbus'?1502:0,common_address:1,server_batch_size:50})
 }
 function loadDraft(s:SinkDef){
-  resetDraft(s.type); draft.name=s.name;draft.enabled=s.enabled;const p=s.params
+  resetDraft(s.type); draft.name=s.name;draft.enabled=s.enabled;const p=s.connection
   if(s.type==='kafka'){draft.bootstrap_servers=String(p.bootstrap_servers||'');draft.topic=String(p.topic||'');draft.key_field=String(p.key_field||'');draft.compression_type=String(p.compression_type||'');draft.acks=String(p.acks??'all');draft.retries=Number(p.retries??3);draft.kafka_batch_size=Number(p.batch_size??16384);draft.linger_ms=Number(p.linger_ms??0)}
   else if(s.type==='db'){draft.dsn=String(p.dsn||'');draft.table=String(p.table||'points');draft.db_batch_size=Number(p.batch_size??1000);draft.create_table=Boolean(p.create_table);draft.pool_min_size=Number(p.pool_min_size??1);draft.pool_max_size=Number(p.pool_max_size??10)}
+  else if(s.type==='iec104'){draft.host=String(p.host||'0.0.0.0');draft.server_port=Number(p.port??2404);draft.common_address=Number(p.common_address??1);draft.server_batch_size=Number(p.batch_size??50)}
+  else if(s.type==='modbus'){draft.host=String(p.host||'0.0.0.0');draft.server_port=Number(p.port??1502)}
   else{draft.path=String(p.path||'');draft.format=String(p.format||'jsonl');draft.max_size_mb=Number(p.max_size_mb??100);draft.max_age_hours=Number(p.max_age_hours??24);draft.compress=Boolean(p.compress);draft.compress_level=Number(p.compress_level??6);draft.buffer_size=Number(p.buffer_size??100);draft.flush_interval=Number(p.flush_interval??1);draft.write_header=Boolean(p.write_header??true)}
   sinkSnapshot.value=JSON.stringify(draft)
 }
@@ -75,9 +80,11 @@ async function beforeSinkClose(done:()=>void){
   if(!sinkDirty.value){done();return}
   try{await ElMessageBox.confirm('Discard unsaved Sink changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'});done()}catch{}
 }
-function paramsFromDraft():Record<string,unknown>{
+function connectionFromDraft():Record<string,unknown>{
   if(draft.type==='kafka')return{bootstrap_servers:draft.bootstrap_servers.trim(),topic:draft.topic.trim(),key_field:draft.key_field||undefined,compression_type:draft.compression_type||undefined,acks:draft.acks,retries:draft.retries,batch_size:draft.kafka_batch_size,linger_ms:draft.linger_ms}
   if(draft.type==='db')return{dsn:draft.dsn.trim(),table:draft.table.trim(),batch_size:draft.db_batch_size,create_table:draft.create_table,pool_min_size:draft.pool_min_size,pool_max_size:draft.pool_max_size}
+  if(draft.type==='iec104')return{host:draft.host.trim(),port:draft.server_port,common_address:draft.common_address,batch_size:draft.server_batch_size}
+  if(draft.type==='modbus')return{host:draft.host.trim(),port:draft.server_port}
   return{path:draft.path.trim(),format:draft.format,max_size_mb:draft.max_size_mb,max_age_hours:draft.max_age_hours,compress:draft.compress,compress_level:draft.compress_level,buffer_size:draft.buffer_size,flush_interval:draft.flush_interval,write_header:draft.write_header}
 }
 function validateDraft(){
@@ -87,14 +94,16 @@ function validateDraft(){
   if(draft.type==='db'&&(!draft.dsn.trim()||!draft.table.trim()))return'PostgreSQL DSN and table are required'
   if(draft.type==='db'&&draft.pool_min_size>draft.pool_max_size)return'Pool min size must be <= max size'
   if(draft.type==='file'&&!draft.path.trim())return'File path is required'
+  if((draft.type==='iec104'||draft.type==='modbus')&&!draft.host.trim())return'Listen host is required'
+  if((draft.type==='iec104'||draft.type==='modbus')&&(draft.server_port<1||draft.server_port>65535))return'Listen port must be between 1 and 65535'
   return''
 }
 async function saveSink(){
   const error=validateDraft();if(error){ElMessage.error(error);return}
-  const params=paramsFromDraft()
+  const connection=connectionFromDraft()
   const wasCreating=creating.value
   if(creating.value){
-    const sink:SinkDef={name:draft.name.trim(),type:draft.type,enabled:draft.enabled,params,runtime_state:draft.enabled?'unknown':'disabled',last_test_at:'',last_write_at:'',latency_ms:0,error:'',queue_depth:0,writes_total:0,failures_total:0,dropped_points:0,verification:{state:'never',checked_at:'',passed:0,total:0,checks:[]}}
+    const sink:SinkDef={name:draft.name.trim(),type:draft.type,enabled:draft.enabled,connection,points:[],runtime_state:draft.enabled?'unknown':'disabled',last_test_at:'',last_write_at:'',latency_ms:0,error:'',queue_depth:0,writes_total:0,failures_total:0,dropped_points:0,verification:{state:'never',checked_at:'',passed:0,total:0,checks:[]}}
     store.sinks.push(sink);selectedName.value=sink.name;creating.value=false;loadDraft(sink)
   }else if(selected.value){
     const refs=taskRefs(selected.value.name),running=refs.filter(t=>t.runtime==='RUNNING')
@@ -103,7 +112,7 @@ async function saveSink(){
         await ElMessageBox.confirm('<b>Sink Change Impact</b><br><br>'+refs.length+' Task(s) reference this Sink; '+running.length+' currently running.<br>The Sink instance will be reopened.','Apply Sink Changes',{type:'warning',confirmButtonText:'Apply Changes',dangerouslyUseHTMLString:true})
       }catch{return}
     }
-    selected.value.params=params;selected.value.enabled=draft.enabled;selected.value.runtime_state=draft.enabled?'unknown':'disabled';selected.value.error='';loadDraft(selected.value)
+    selected.value.connection=connection;selected.value.enabled=draft.enabled;selected.value.runtime_state=draft.enabled?'unknown':'disabled';selected.value.error='';loadDraft(selected.value)
   }
   refreshTaskValidity();ElMessage.success(wasCreating?'Sink created ':'Sink configuration saved ')
 }
@@ -169,7 +178,7 @@ async function deleteSink(s:SinkDef){
 
     <el-card shadow="never">
       <div class="sink-filter-row">
-        <div class="sink-filters"><el-input v-model="search" clearable placeholder="Search name / endpoint..."/><el-select v-model="typeFilter"><el-option label="All Types" value="All"/><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select><el-select v-model="stateFilter"><el-option label="All States" value="All"/><el-option label="Healthy" value="healthy"/><el-option label="Failed" value="failed"/><el-option label="Disabled" value="disabled"/><el-option label="Unknown" value="unknown"/></el-select></div>
+        <div class="sink-filters"><el-input v-model="search" clearable placeholder="Search name / endpoint..."/><el-select v-model="typeFilter"><el-option label="All Types" value="All"/><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/><el-option label="IEC104" value="iec104"/><el-option label="Modbus TCP" value="modbus"/></el-select><el-select v-model="stateFilter"><el-option label="All States" value="All"/><el-option label="Healthy" value="healthy"/><el-option label="Failed" value="failed"/><el-option label="Disabled" value="disabled"/><el-option label="Unknown" value="unknown"/></el-select></div>
         <div v-if="batchVerification" class="batch-verify-summary">
           <span>Last Verification</span>
           <b>{{batchVerification.checked}} checked · {{batchVerification.passed}} passed · {{batchVerification.failed}} failed<template v-if="batchVerification.warning"> · {{batchVerification.warning}} warning</template></b>
@@ -196,9 +205,11 @@ async function deleteSink(s:SinkDef){
         <h3>Create Sink</h3>
         <p class="subtle">Choose a type and configure its required parameters.</p>
         <el-form label-position="top">
-          <div class="sink-form-grid"><el-form-item label="Name"><el-input v-model="draft.name"/></el-form-item><el-form-item label="Type"><el-select v-model="draft.type" @change="onTypeChange" class="app-full-width"><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/></el-select></el-form-item><el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item></div>
+          <div class="sink-form-grid"><el-form-item label="Name"><el-input v-model="draft.name"/></el-form-item><el-form-item label="Type"><el-select v-model="draft.type" @change="onTypeChange" class="app-full-width"><el-option label="Kafka" value="kafka"/><el-option label="PostgreSQL" value="db"/><el-option label="File" value="file"/><el-option label="IEC104" value="iec104"/><el-option label="Modbus TCP" value="modbus"/></el-select></el-form-item><el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item></div>
           <template v-if="draft.type==='kafka'"><div class="sink-form-grid"><el-form-item label="Bootstrap Servers"><el-input v-model="draft.bootstrap_servers" placeholder="localhost:9092"/></el-form-item><el-form-item label="Topic"><el-input v-model="draft.topic"/></el-form-item><el-form-item label="Acks"><el-input v-model="draft.acks"/></el-form-item><el-form-item label="Retries"><el-input-number v-model="draft.retries" :min="1" class="app-full-width" /></el-form-item></div></template>
           <template v-else-if="draft.type==='db'"><div class="sink-form-grid"><el-form-item label="DSN"><el-input v-model="draft.dsn" type="password" show-password/></el-form-item><el-form-item label="Table"><el-input v-model="draft.table"/></el-form-item><el-form-item label="Batch Size"><el-input-number v-model="draft.db_batch_size" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Create Table"><el-switch v-model="draft.create_table"/></el-form-item></div></template>
+          <template v-else-if="draft.type==='iec104'"><div class="sink-form-grid"><el-form-item label="Listen Host"><el-input v-model="draft.host"/></el-form-item><el-form-item label="Port"><el-input-number v-model="draft.server_port" :min="1" :max="65535" class="app-full-width"/></el-form-item><el-form-item label="Common Address"><el-input-number v-model="draft.common_address" :min="1" :max="65535" class="app-full-width"/></el-form-item><el-form-item label="Batch Size"><el-input-number v-model="draft.server_batch_size" :min="1" class="app-full-width"/></el-form-item></div></template>
+          <template v-else-if="draft.type==='modbus'"><div class="sink-form-grid"><el-form-item label="Listen Host"><el-input v-model="draft.host"/></el-form-item><el-form-item label="Port"><el-input-number v-model="draft.server_port" :min="1" :max="65535" class="app-full-width"/></el-form-item></div></template>
           <template v-else><div class="sink-form-grid"><el-form-item label="Path"><el-input v-model="draft.path" placeholder="/var/tmp/wind-hub/archive.jsonl"/></el-form-item><el-form-item label="Format"><el-select v-model="draft.format" class="app-full-width"><el-option label="JSONL" value="jsonl"/><el-option label="CSV" value="csv"/></el-select></el-form-item><el-form-item label="Max Size (MB)"><el-input-number v-model="draft.max_size_mb" :min="0" class="app-full-width" /></el-form-item><el-form-item label="Flush Interval"><el-input-number v-model="draft.flush_interval" :min="0" :step="0.1" class="app-full-width" /></el-form-item></div></template>
         </el-form>
         <div class="editor-actions"><el-button type="primary" @click="saveSink">Create Sink</el-button></div>
@@ -213,6 +224,8 @@ async function deleteSink(s:SinkDef){
                 <div class="sink-form-grid"><el-form-item label="Name"><el-input v-model="draft.name" disabled/></el-form-item><el-form-item label="Type"><el-input :model-value="draft.type==='db'?'PostgreSQL':draft.type.toUpperCase()" disabled/></el-form-item><el-form-item label="Enabled"><el-switch v-model="draft.enabled"/></el-form-item></div>
                 <template v-if="draft.type==='kafka'"><div class="sink-form-grid"><el-form-item label="Bootstrap Servers"><el-input v-model="draft.bootstrap_servers"/></el-form-item><el-form-item label="Topic"><el-input v-model="draft.topic"/></el-form-item><el-form-item label="Key Field"><el-input v-model="draft.key_field"/></el-form-item><el-form-item label="Compression"><el-input v-model="draft.compression_type"/></el-form-item><el-form-item label="Acks"><el-input v-model="draft.acks"/></el-form-item><el-form-item label="Retries"><el-input-number v-model="draft.retries" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Batch Size"><el-input-number v-model="draft.kafka_batch_size" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Linger (ms)"><el-input-number v-model="draft.linger_ms" :min="0" class="app-full-width" /></el-form-item></div></template>
                 <template v-else-if="draft.type==='db'"><div class="sink-form-grid"><el-form-item label="DSN"><el-input v-model="draft.dsn" type="password" show-password/></el-form-item><el-form-item label="Table"><el-input v-model="draft.table"/></el-form-item><el-form-item label="Batch Size"><el-input-number v-model="draft.db_batch_size" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Create Table"><el-switch v-model="draft.create_table"/></el-form-item><el-form-item label="Pool Min"><el-input-number v-model="draft.pool_min_size" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Pool Max"><el-input-number v-model="draft.pool_max_size" :min="1" class="app-full-width" /></el-form-item></div></template>
+                <template v-else-if="draft.type==='iec104'"><div class="sink-form-grid"><el-form-item label="Listen Host"><el-input v-model="draft.host"/></el-form-item><el-form-item label="Port"><el-input-number v-model="draft.server_port" :min="1" :max="65535" class="app-full-width"/></el-form-item><el-form-item label="Common Address"><el-input-number v-model="draft.common_address" :min="1" :max="65535" class="app-full-width"/></el-form-item><el-form-item label="Batch Size"><el-input-number v-model="draft.server_batch_size" :min="1" class="app-full-width"/></el-form-item></div></template>
+                <template v-else-if="draft.type==='modbus'"><div class="sink-form-grid"><el-form-item label="Listen Host"><el-input v-model="draft.host"/></el-form-item><el-form-item label="Port"><el-input-number v-model="draft.server_port" :min="1" :max="65535" class="app-full-width"/></el-form-item></div></template>
                 <template v-else><div class="sink-form-grid"><el-form-item label="Path"><el-input v-model="draft.path"/></el-form-item><el-form-item label="Format"><el-select v-model="draft.format" class="app-full-width"><el-option label="JSONL" value="jsonl"/><el-option label="CSV" value="csv"/></el-select></el-form-item><el-form-item label="Max Size (MB)"><el-input-number v-model="draft.max_size_mb" :min="0" class="app-full-width" /></el-form-item><el-form-item label="Max Age (h)"><el-input-number v-model="draft.max_age_hours" :min="0" class="app-full-width" /></el-form-item><el-form-item label="Compress"><el-switch v-model="draft.compress"/></el-form-item><el-form-item label="Compression Level"><el-input-number v-model="draft.compress_level" :min="1" :max="9" class="app-full-width" /></el-form-item><el-form-item label="Buffer Size"><el-input-number v-model="draft.buffer_size" :min="1" class="app-full-width" /></el-form-item><el-form-item label="Flush Interval"><el-input-number v-model="draft.flush_interval" :min="0" :step="0.1" class="app-full-width" /></el-form-item></div></template>
               </el-form>
             </section>
