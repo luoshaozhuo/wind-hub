@@ -205,6 +205,14 @@ class MonitoringService:
         """返回最近一次 Collector 累计计数快照。"""
         return self._metrics.counters()
 
+    def device_counts(self, device_id: str) -> tuple[int, int]:
+        """返回设备 connect failure / reconnect 累计数。"""
+        return self._metrics.device_counts(device_id)
+
+    def events_since(self, since: datetime) -> list[MonitoringEvent]:
+        """返回最近一次 Collector 事件镜像中的窗口事件。"""
+        return self._metrics.events_since(since)
+
     async def stop(self) -> None:
         """停止后台采样；幂等。"""
         task, self._task = self._task, None
