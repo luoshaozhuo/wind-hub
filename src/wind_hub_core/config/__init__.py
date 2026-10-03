@@ -4,7 +4,16 @@ from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
-from wind_hub_core.config.sinks import SinkConfig, SinkPoint, SinkSource, SinksConfig
+from wind_hub_core.config.sink_resolver import resolve_sinks
+from wind_hub_core.config.sinks import (
+    ResolvedSinkConfig,
+    ResolvedSinkPoint,
+    ResolvedSinksConfig,
+    SinkConfig,
+    SinkPoint,
+    SinkSource,
+    SinksConfig,
+)
 from wind_hub_core.config.schema import (
     ADSSystemConfig,
     ApiConfig,
@@ -62,6 +71,9 @@ __all__ = [
     "SinkSource",
     "SinkPoint",
     "SinksConfig",
+    "ResolvedSinkConfig",
+    "ResolvedSinkPoint",
+    "ResolvedSinksConfig",
     "ApiConfig",
     "InterfaceConfig",
     "SystemConfig",
@@ -73,6 +85,7 @@ __all__ = [
     "Config",
     "resolve_devices",
     "resolve_point_tables",
+    "resolve_sinks",
     "load_config",
     "fingerprint_config_set",
 ]

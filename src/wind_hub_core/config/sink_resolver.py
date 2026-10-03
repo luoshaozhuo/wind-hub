@@ -7,7 +7,13 @@
 
 from __future__ import annotations
 
-from wind_hub_core.config.schema import DevicesConfig, PointConfig, ResolvedPointTables, UnitsConfig
+from wind_hub_core.config.schema import (
+    DeviceConfig,
+    DevicesConfig,
+    PointConfig,
+    ResolvedPointTables,
+    UnitsConfig,
+)
 from wind_hub_core.config.sinks import (
     ResolvedSinkConfig,
     ResolvedSinkPoint,
@@ -51,7 +57,7 @@ def resolve_sinks(
 def _resolve_point(
     sink: SinkConfig,
     point: SinkPoint,
-    device_map: dict[str, object],
+    device_map: dict[str, DeviceConfig],
     point_tables: ResolvedPointTables,
     units: UnitsConfig,
 ) -> ResolvedSinkPoint:
@@ -62,8 +68,7 @@ def _resolve_point(
             f"'{point.source.device_id}'"
         )
 
-    point_table = getattr(device, "point_table")
-    table = point_tables.tables[point_table]
+    table = point_tables.tables[device.point_table]
     source = next(
         (item for item in table.points if item.point_id == point.source.point_id),
         None,
