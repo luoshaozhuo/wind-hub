@@ -172,7 +172,6 @@ def assemble_server(
     )
     quality = QualityUseCase(
         config,
-        monitoring_metrics,
         monitoring,
     )
     logs = LogsUseCase(log_store)
