@@ -194,6 +194,8 @@ class ADSSubscription:
                 return
             try:
                 async with self._lock:
+                    if self._points and len(self._handles) != len(self._points):
+                        raise ConnectionError("notification registration incomplete")
                     for conn in self._connections:
                         if not conn.is_open:
                             raise ConnectionError("notification connection closed")
