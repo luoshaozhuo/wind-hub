@@ -46,11 +46,9 @@ from wind_hub_core.protocol.port import ProtocolPort
 
 logger = logging.getLogger(__name__)
 
-# 压测专用端口（非特权，避免与真实服务冲突）。ADS 必须是 48898：驱动
-# 调 pyads.Connection 未传 TCP port，pyads 客户端固定连 48898（约束：
-# 不改驱动）。注意 WSL2 mirrored 网络下 127.0.0.1:48898 被 Windows 侧
-# 保留（bind 报 EADDRINUSE），无 root 回环调试请用 127.0.0.2 作为
-# host；root 压测走 veth 的 10.99.0.2，不受影响。
+# 压测服务监听端口。ADS Router 的 TCP transport 固定使用 48898；
+# 这与 DeviceConfig.endpoint.port 表示的 AMS Runtime Port（TC2 默认 801）
+# 是不同层次的端口。
 DEFAULT_PORTS: dict[str, int] = {"modbus": 10502, "iec104": 12404, "ads": 48898}
 
 
@@ -105,7 +103,7 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
         device_id=plan.device_id,
         protocol=protocol,
         point_table="perf",
-        endpoint=Endpoint(host=host, port=port, extensions=extensions),
+        endpoint=Endpoint(host=host, port=801 if protocol == "ads" else port, extensions=extensions),
         enabled=True,
     )
 
