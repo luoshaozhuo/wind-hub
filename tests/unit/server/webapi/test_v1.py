@@ -88,7 +88,7 @@ def test_v1_overview_returns_aggregate_snapshot() -> None:
 
 def test_v1_devices_search_then_paginate() -> None:
     """设备搜索应先作用完整结果集，再执行分页。"""
-    devices = AsyncMock()
+    devices = MagicMock()
     devices.list_devices.return_value = [
         DeviceSnapshot(
             device_id="wtg-001", protocol="ads", host="192.168.151.1", port=801,
@@ -106,7 +106,7 @@ def test_v1_devices_search_then_paginate() -> None:
     assert response.status_code == 200
     assert response.json()["page"] == {"page": 1, "page_size": 1, "total": 2}
     assert len(response.json()["items"]) == 1
-    devices.list_devices.assert_awaited_once_with("wtg")
+    devices.list_devices.assert_called_once_with("wtg")
 
 
 def test_v1_task_start_and_disabled_conflict() -> None:
