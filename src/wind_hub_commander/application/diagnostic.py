@@ -379,11 +379,7 @@ class DiagnosticUseCase:
     ) -> list[PointVerifyResult]:
         """在同一 ADSProbe session 内完成 symbol resolve 与 index read。"""
         device = self._device(device_id)
-        target = DeviceProbeTarget(
-            device_id=device_id,
-            host=device.config.endpoint.host,
-            options=dict(device.config.endpoint.extensions),
-        )
+        target = self._probe_target(device)
         probe = ADSProbe(target)
         rows: list[PointVerifyResult] = []
         try:
