@@ -99,8 +99,13 @@ def fake_pyads(monkeypatch: pytest.MonkeyPatch) -> type[FakeConnection]:
     return FakeConnection
 
 
-def _target(**options: object) -> DeviceProbeTarget:
-    return DeviceProbeTarget(device_id="plc-1", host="192.0.2.10", options=dict(options))
+def _target(*, port: int = 801, **options: object) -> DeviceProbeTarget:
+    return DeviceProbeTarget(
+        device_id="plc-1",
+        host="192.0.2.10",
+        port=port,
+        options=dict(options),
+    )
 
 
 def _point(
@@ -116,7 +121,7 @@ class TestConnect:
         self, fake_pyads: type[FakeConnection]
     ) -> None:
         probe = ADSProbe(
-            _target(target_net_id="1.2.3.4.1.1", target_port=851, timeout=2.5)
+            _target(port=851, target_net_id="1.2.3.4.1.1", timeout=2.5)
         )
         await probe.connect()
         conn = fake_pyads.instances[0]
@@ -126,16 +131,14 @@ class TestConnect:
         assert conn.timeout_ms == 2500
         assert probe.connected
 
-    async def test_connect_default_port_by_twincat_version(
+    async def test_connect_uses_resolved_target_port(
         self, fake_pyads: type[FakeConnection]
     ) -> None:
-        probe_tc2 = ADSProbe(_target())
-        await probe_tc2.connect()
-        assert fake_pyads.instances[0].port == 801
-
-        probe_tc3 = ADSProbe(_target(twincat_version="3"))
-        await probe_tc3.connect()
-        assert fake_pyads.instances[1].port == 802
+        probe = ADSProbe(
+            _target(port=802, twincat_version="3", target_port=851, ams_port=852)
+        )
+        await probe.connect()
+        assert fake_pyads.instances[0].port == 802
 
     async def test_connect_is_idempotent(
         self, fake_pyads: type[FakeConnection]
