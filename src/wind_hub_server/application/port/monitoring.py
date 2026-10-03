@@ -45,16 +45,6 @@ class HostSnapshot:
     counters: CounterSnapshot
 
 
-class MonitoringMetricsQueryPort(Protocol):
-    """Quality 查询所需的事件/计数视图。"""
-
-    def counters(self) -> CounterSnapshot: ...
-
-    def device_counts(self, device_id: str) -> tuple[int, int]: ...
-
-    def events_since(self, since: datetime) -> list[MonitoringEvent]: ...
-
-
 class MonitoringHistoryPort(Protocol):
     """System Health / Quality 共用的采样历史视图。"""
 
@@ -78,3 +68,7 @@ class MonitoringSnapshotPort(MonitoringHistoryPort, Protocol):
     def sinks_snapshot(self) -> list[dict[str, object]]: ...
 
     def counters_snapshot(self) -> CounterSnapshot: ...
+
+    def device_counts(self, device_id: str) -> tuple[int, int]: ...
+
+    def events_since(self, since: datetime) -> list[MonitoringEvent]: ...
