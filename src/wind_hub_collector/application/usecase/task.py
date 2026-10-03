@@ -29,18 +29,6 @@ from wind_hub_collector.application.runtime.task_instance import (
 from wind_hub_core.config.schema import CollectionTaskConfig
 
 
-class TaskDetail(BaseModel):
-    """Task Definition 的控制面快照。"""
-
-    task_id: str
-    device: str | None = None
-    device_group: str | None = None
-    point_group: str
-    interval: float | None
-    targets: list[str]
-    enabled: bool
-
-
 class TaskInstanceDetail(BaseModel):
     """Task Instance 的展示级快照——实例定义 + 生命周期状态。"""
 
@@ -97,25 +85,6 @@ class TaskUseCase:
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
-
-    async def list_tasks(self) -> list[TaskDetail]:
-        """返回当前全部 Task Definition 的展示级快照。
-
-        Returns:
-            TaskDetail 列表。
-        """
-        return [
-            TaskDetail(
-                task_id=t.task_id,
-                device=t.device,
-                device_group=t.device_group,
-                point_group=t.point_group,
-                interval=t.interval,
-                targets=[target.sink for target in t.targets],
-                enabled=t.enabled,
-            )
-            for t in self._runtime.task_definitions().values()
-        ]
 
     async def list_instances(self) -> list[TaskInstanceDetail]:
         """返回当前全部 Task Instance 的展示级快照。
