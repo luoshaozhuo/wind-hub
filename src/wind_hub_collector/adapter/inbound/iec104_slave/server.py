@@ -1,4 +1,4 @@
-"""IEC104 从站代理 TCP Server。
+"""IEC104 Sink 从站服务 TCP Server。
 
 本模块拥有监听 socket 和每条主站连接对应的 IEC104SlaveSession task。start
 与 stop 均幂等；所有 session 通过 handlers 共享同一份 DataSnapshot，因此
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class IEC104SlaveServer:
-    """监听调度主站连接的 IEC104 从站代理。
+    """监听调度主站连接的 IEC104 Sink 从站服务。
 
     Args:
         host: 监听地址。
@@ -66,7 +66,7 @@ class IEC104SlaveServer:
             port=self._port,
         )
         logger.info(
-            "IEC104 slave proxy listening on %s:%d (common_address=%d)",
+            "IEC104 sink server listening on %s:%d (common_address=%d)",
             self._host,
             self._port,
             self._common_address,
@@ -87,7 +87,7 @@ class IEC104SlaveServer:
         with contextlib.suppress(Exception):
             await self._server.wait_closed()
         self._server = None
-        logger.info("IEC104 slave proxy stopped")
+        logger.info("IEC104 sink server stopped")
 
     # ------------------------------------------------------------------
     # 状态查询
