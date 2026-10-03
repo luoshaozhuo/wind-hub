@@ -13,123 +13,15 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from uuid import uuid4
 
 from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import Config
-from wind_hub_core.model.reload import (
-    ConfigDiff,
-    DeviceDiff,
-    ReloadResult,
-    SinkDiff,
-    TaskDiff,
-)
+from wind_hub_core.model.reload import ConfigDiff, ReloadResult
 
 logger = logging.getLogger(__name__)
-
-
-def compute_diff(old: Config, new: Config) -> ConfigDiff:
-    """计算两个 Config 快照的结构化差异。
-
-    Args:
-        old: 当前已提交配置。
-        new: 新加载并通过 schema 校验的配置。
-
-    Returns:
-        ConfigDiff。Device/Sink/Task 按稳定 ID 比较；point table 按表名和完整模型
-        比较；units 只标记元数据变化。
-
-    Notes:
-        纯函数，不执行 I/O，也不修改 Runtime。
-    """
-    # Device diff。
-    old_dev_ids = {d.device_id: d for d in old.devices.devices}
-    new_dev_ids = {d.device_id: d for d in new.devices.devices}
-
-    old_set = set(old_dev_ids)
-    new_set = set(new_dev_ids)
-
-    devices = DeviceDiff(
-        added=sorted(new_set - old_set),
-        removed=sorted(old_set - new_set),
-    )
-
-    updated: list[str] = []
-    unchanged: list[str] = []
-    for did in old_set & new_set:
-        if old_dev_ids[did].model_dump() != new_dev_ids[did].model_dump():
-            updated.append(did)
-        else:
-            unchanged.append(did)
-    devices.updated = sorted(updated)
-    devices.unchanged = sorted(unchanged)
-
-    # Sink diff。
-    old_sinks = {s.name: s for s in old.system.sinks}
-    new_sinks = {s.name: s for s in new.system.sinks}
-
-    old_sink_set = set(old_sinks)
-    new_sink_set = set(new_sinks)
-
-    sinks = SinkDiff(
-        added=sorted(new_sink_set - old_sink_set),
-        removed=sorted(old_sink_set - new_sink_set),
-    )
-
-    sink_updated: list[str] = []
-    sink_unchanged: list[str] = []
-    for name in old_sink_set & new_sink_set:
-        if old_sinks[name].model_dump() != new_sinks[name].model_dump():
-            sink_updated.append(name)
-        else:
-            sink_unchanged.append(name)
-    sinks.updated = sorted(sink_updated)
-    sinks.unchanged = sorted(sink_unchanged)
-
-    # Task Definition diff。
-    old_tasks = {t.task_id: t for t in old.tasks.tasks}
-    new_tasks = {t.task_id: t for t in new.tasks.tasks}
-
-    old_task_set = set(old_tasks)
-    new_task_set = set(new_tasks)
-
-    tasks = TaskDiff(
-        added=sorted(new_task_set - old_task_set),
-        removed=sorted(old_task_set - new_task_set),
-    )
-
-    task_updated: list[str] = []
-    task_unchanged: list[str] = []
-    for tid in old_task_set & new_task_set:
-        if old_tasks[tid].model_dump() != new_tasks[tid].model_dump():
-            task_updated.append(tid)
-        else:
-            task_unchanged.append(tid)
-    tasks.updated = sorted(task_updated)
-    tasks.unchanged = sorted(task_unchanged)
-
-    # Point table diff。
-    old_tables = old.point_tables.tables
-    new_tables = new.point_tables.tables
-    table_names = set(old_tables) | set(new_tables)
-    point_tables_changed = sorted(
-        name
-        for name in table_names
-        if name not in old_tables
-        or name not in new_tables
-        or old_tables[name].model_dump() != new_tables[name].model_dump()
-    )
-    return ConfigDiff(
-        devices=devices,
-        sinks=sinks,
-        tasks=tasks,
-        points_changed=bool(point_tables_changed),
-        point_tables_changed=point_tables_changed,
-        # units 是纯展示元数据：变化不触发设备重连，但要让新快照提交
-        units_changed=old.units != new.units,
-    )
 
 
 class ConfigUseCase:
@@ -324,10 +216,3 @@ class ConfigUseCase:
             self._prepared_hash = None
             return True
 
-    async def reload(self) -> ReloadResult:
-        """兼容旧调用：按 prepare → activate 完成一次增量热重载。"""
-        revision_id = uuid4().hex
-        prepared = await self.prepare_config(revision_id)
-        if not prepared.success:
-            return prepared
-        return await self.activate_config(revision_id)
