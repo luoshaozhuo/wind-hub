@@ -1,5 +1,5 @@
-// 与 wind-hub 配置 schema（src/wind_hub/config/schema.py、config/loader.py、
-// adapter/outbound/protocol/*/config.py）对齐的前端 api 类型定义。
+// 与 wind-hub 配置 schema（src/wind_hub_core/config/schema.py、config/loader.py
+// 及各协议 config.py）对齐的前端 API 类型定义。
 // 字段名与取值集合均以后端真实代码为准，不另行发明。
 
 export type Protocol = 'ads' | 'modbus' | 'iec104'

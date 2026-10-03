@@ -1,7 +1,8 @@
 """wind-hub-collector 独立进程入口。
 
-Collector 只负责装配并运行采集 Runtime、设备协议和 Sink；不启动 HTTP/Web API。
-当前阶段仍从现场 YAML 配置目录装配 Runtime，后续由 Server 下发 resolved runtime config。
+Collector 只负责装配并运行采集 Runtime、设备协议、Task 与 Sink；不启动 HTTP/Web API。
+进程从 Server 管理的同一现场 YAML 配置集装配启动基线，运行期配置通过
+Prepare/Activate/Abort 事务与 Server 保持一致。
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ async def run_collector(
     """启动 Collector 并阻塞到收到停机信号。
 
     Args:
-        config_dir: 当前过渡阶段使用的现场 YAML 配置目录。
+        config_dir: 现场 YAML 配置目录。
         collector_id: Collector 稳定标识；为空时读取环境变量或主机名。
         grpc_host: gRPC 控制面监听地址。
         grpc_port: gRPC 控制面监听端口。

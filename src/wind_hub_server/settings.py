@@ -1,7 +1,7 @@
 """wind-hub-server 进程级启动参数。
 
 这里只保存服务宿主自身需要的参数，不复制 ``system.yaml`` 的业务配置。
-现场设备、Task、Sink、ADS 等配置仍由 ``wind_hub_collector.config`` 负责加载和校验。
+现场设备、Task、Sink、ADS 等业务配置由 ``wind_hub_core.config`` 统一加载和校验。
 """
 
 from __future__ import annotations

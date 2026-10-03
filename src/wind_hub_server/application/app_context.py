@@ -1,13 +1,8 @@
 """进程级共享 application context——Use Case 与 Runtime 的依赖容器。
 
 ``AppContext`` 由组合根（``main.py``）装配后通过 :func:`set_context` 注入，
-CLI 与 Web API 两个 inbound adapter 共享同一实例，直接按具体 Use Case
-类型读取，而不持有引擎装配的硬引用。
-
-适配层对缺失上下文的处理各自归属：CLI 经
-``wind_hub_collector.adapter.inbound.cli.context.get_context_or_exit`` 报错退出，
-Web API 经 ``wind_hub_collector.adapter.inbound.webapi.context.get_ctx`` 映射为
-HTTP 503。
+Server Web API 从该容器读取已装配的 Use Case，不直接持有 Worker 或协议驱动。
+缺失上下文由 Server Web API context adapter 映射为 HTTP 503。
 """
 
 from __future__ import annotations
@@ -41,9 +36,8 @@ class AppContext:
 
     所有字段都可选：缺失用例由适配器上报 503 / 非零退出而非崩溃。
 
-    三类启停语义在本容器中各有归属：Runtime 生命周期经 ``runtime``
-    （组合根/进程入口编排），采集 Task Instance 生命周期经 ``tasks``，
-    进程生命周期由 ``main.py`` 信号处理负责。
+    Task 生命周期经 ``tasks`` 协调 Collector；Server 自身进程生命周期由
+    ``main.py`` / ``server.py`` 负责。
     """
 
     query: WorkerQueryUseCase | None = None
@@ -60,7 +54,7 @@ class AppContext:
     """V1 设备查询用例；聚合静态配置与实时连接状态。"""
 
     device_data: DeviceDataUseCase | None = None
-    """V1 Devices Data / Trend 缓存查询用例。"""
+    """V1 Devices Data / Trend 的 Collector 采集读模型查询用例。"""
 
     device_control: DeviceControlUseCase | None = None
     """V1 设备写控制与回读用例。"""

@@ -1,152 +1,171 @@
 # wind-hub
 
-风电场主控通信模块：协议无关、输出无关的工业通信内核。
+wind-hub 是面向风电场设备的数据采集与控制基础软件。系统由独立的
+Collector、Commander、Server、CLI 和 Web Admin 组成，共享
+`wind_hub_core` 中的配置、协议、模型与 RPC 契约。
 
-## 核心特性
+## 组件
 
-- **协议无关**：通过 ProtocolPort 抽象，支持 ADS / Modbus / IEC 60870-5-104
-- **输出无关**：通过 SinkPort 抽象，支持消息中间件 / 文件 / 数据库
-- **配置驱动**：YAML 配置 + 采集 Task 声明周期采集与输出去向，零代码切换数据流向
-- **多入口**：CLI（typer） + Web API（FastAPI）
-- **六边形架构**：Domain 核心零外部依赖，所有 I/O 通过 Port/Adapter 接入
+| 组件 | 职责 |
+|---|---|
+| `wind-hub-collector` | 周期/订阅采集、设备连接管理、Task Instance、Sink 投递、采集读模型 |
+| `wind-hub-commander` | 即时 read/write、协议诊断、控制回读 |
+| `wind-hub-server` | Admin API、配置事务、Task placement、Worker 协调、质量与健康聚合 |
+| `wind-hub-ctl` | Collector 运行态只读诊断 CLI |
+| `wind-hub-admin` | Vue 3 + Element Plus 管理前端 |
+| `wind_hub_core` | 配置 schema、统一模型、ADS/Modbus/IEC104 驱动、共享 gRPC 契约 |
 
-## 架构
+## 数据与控制边界
 
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart LR
+    PLC["PLC / 设备"]
+    COL["wind-hub-collector"]
+    SINK["Kafka / File / PostgreSQL"]
+    SRV["wind-hub-server"]
+    CMD["wind-hub-commander"]
+    UI["wind-hub-admin"]
+
+    PLC -->|"周期/订阅采集"| COL
+    COL -->|"at-most-once 投递"| SINK
+    COL -->|"Latest / Trend / Runtime gRPC"| SRV
+    UI -->|"HTTP /api/v1"| SRV
+    SRV -->|"即时 read/write/diagnostic gRPC"| CMD
+    CMD -->|"按需设备访问"| PLC
 ```
-┌─────────────────────────────────────┐
-│         Adapter (inbound)           │
-│      CLI / WebAPI                   │
-├─────────────────────────────────────┤
-│         Application                 │
-│      Command / Task / Config /      │
-│      Status Services                │
-├─────────────────────────────────────┤
-│         Domain (core)               │
-│   ┌──────┐  ┌──────┐  ┌────────┐   │
-│   │Model │  │ Port │  │ Engine │   │
-│   └──────┘  └──────┘  └────────┘   │
-├─────────────────────────────────────┤
-│         Adapter (outbound)          │
-│   Protocol / Sink                   │
-└─────────────────────────────────────┘
-```
 
-## 支持的协议
+Collector 的 Data/Trend 数据来自真实采集链；页面刷新不会通过 Commander
+额外轮询设备。Commander 仅承担即时设备操作与诊断。
 
-| 协议 | 状态 |
-|------|------|
-| ADS (Beckhoff) | 已规划 |
-| Modbus | 已规划 |
-| IEC 60870-5-104 | 已规划 |
+## 支持能力
 
-## 支持的输出
+### 协议
 
-| 输出类型 | 后端 |
-|----------|------|
-| 消息中间件 | Kafka |
-| 文件 | 本地 / 远程 |
-| 数据库 | PostgreSQL / InfluxDB |
+| 协议 | 当前能力 |
+|---|---|
+| ADS | TwinCAT 2/3；Sum/sequential 读取；写入；可选 Device Notification |
+| Modbus TCP | Holding/Input/Coil/Discrete；批量读取；写入 |
+| IEC 60870-5-104 | 总召、缓存读取、spontaneous、命令写入及可选 reporting 从站 |
 
-### 协议默认值说明
+ADS 默认 TwinCAT 2，默认 AMS 端口 801；TwinCAT 3 默认端口 851。
+显式 `target_port` / `ams_port` 优先于版本推导值。
 
-- **ADS 默认 TwinCAT 2**：`ADSConfig.twincat_version` 默认 `"2"`，对应 AMS 端口
-  **801**；使用 TwinCAT 3 时需在设备 `endpoint.extensions` 中显式设置
-  `twincat_version: "3"`（端口 851）。`target_port` / `ams_port` 显式指定时始终
-  优先于版本推导的默认端口。
+### Sink
 
-## 开发环境
+| 类型 | 实现 |
+|---|---|
+| Kafka | `aiokafka` |
+| File | CSV/File Sink |
+| Database | PostgreSQL / `asyncpg` |
 
-### 前置要求
+当前 Sink 交付语义为 **at-most-once**。Sink 队列背压或外部写失败导致的
+点值丢失会计入 `points_dropped`；当前不提供持久化 spool/WAL/DLQ。
 
-- Python 3.11+
-- Poetry（推荐）或 pip
-- conda / venv（可选，用于环境隔离）
+## 配置
 
-### 安装
+业务配置使用 YAML，详见 [docs/config.md](docs/config.md)。样例位于
+`configs/`。
+
+运行参数原则：
+
+- 设备、Task、Sink、协议参数：YAML；
+- Server/Collector/Commander 监听地址等进程宿主参数：CLI；
+- 当前产品代码仅使用 `WIND_HUB_COLLECTOR_ID` 作为 Collector ID 的可选环境变量；
+- 测试外部服务变量见 `tests/test.env.example`。
+
+## 安装
+
+要求 Python 3.11+。
 
 ```bash
-# 方式 1：Poetry（推荐）
-poetry install --with dev --extras "modbus ads"
-
-# 方式 2：pip
-pip install -e ".[modbus,ads]"
+poetry install --all-extras
 ```
 
-### Coding Agent / VS Code 插件环境
+只安装所需可选协议/输出时，可按 Poetry extras 选择 `ads`、`modbus`、
+`kafka`、`db`。
 
-Codex、Claude Code 作为 VS Code 插件启动时，不假设它们继承某个交互式 shell 或
-conda 环境。需要固定本机工具路径时：
+前端：
+
+```bash
+npm --prefix src/wind-hub-admin ci
+```
+
+## 最小本机启动
+
+以下示例使用 `configs/template`，实际现场应换成对应配置目录。
+
+终端 1：
+
+```bash
+poetry run wind-hub-collector \
+  --config configs/template \
+  --collector-id collector-1 \
+  --grpc-host 127.0.0.1 \
+  --grpc-port 50051
+```
+
+终端 2：
+
+```bash
+poetry run wind-hub-commander \
+  --config configs/template \
+  --grpc-host 127.0.0.1 \
+  --grpc-port 50052
+```
+
+终端 3：
+
+```bash
+poetry run wind-hub-server \
+  --config configs/template \
+  --host 127.0.0.1 \
+  --port 8080 \
+  --collector collector-1=127.0.0.1:50051 \
+  --commander 127.0.0.1:50052
+```
+
+Collector 诊断：
+
+```bash
+poetry run wind-hub-ctl --target 127.0.0.1:50051 status
+```
+
+各入口的完整参数以 `--help` 为准。
+
+## 开发与验证
+
+本地 Coding Agent 环境由 `.agent/local.json` 与 `scripts/dev.py` 管理：
 
 ```bash
 cp .agent/local.example.json .agent/local.json
-# 按本机实际路径修改 .agent/local.json
-python3 scripts/dev.py env
 python3 scripts/dev.py env --frontend
 ```
 
-`.agent/local.json` 仅保存本机 Python / Node / npm 可执行文件路径，不进仓库。
-Agent 执行工具时统一通过：
+质量门禁：
 
 ```bash
-python3 scripts/dev.py python -m pytest
-python3 scripts/dev.py python -m ruff check .
-python3 scripts/dev.py npm --prefix src/wind-hub-admin test
+# 日常快速验证：按变更范围选择 static/unit/component/contract/frontend
+python3 scripts/dev.py python scripts/ci_gate.py fast --part backend-static
+
+# 风险增量验证：按 ci_scope.py 输出选择 integration/system target
+python3 scripts/dev.py python scripts/ci_scope.py <changed-files...>
+
+# 发布前常规全量验证
+python3 scripts/dev.py python scripts/ci_gate.py release --part backend
+python3 scripts/dev.py python scripts/ci_gate.py release --part frontend
 ```
 
-### 运行时环境变量
+Hardware、Performance、Soak 属于独立 Qualification，不进入日常开发 Gate。
 
-`.env.local` 仅用于 wind-hub 运行时、真实服务或测试参数，不负责 Python
-解释器、conda/venv 激活或 Coding Agent 启动。仓库不要求 Coding Agent
-`source .env.local`。
+## 文档
 
-`.env.local.example` 是提交到仓库的运行时配置模板；`.env.local` 为本地实际值，
-已在 `.gitignore` 中排除。需要这些变量时，由实际运行入口（例如 VS Code launch、
-容器、服务管理器或人工 shell）显式注入。
+- [架构设计](docs/architecture.md)
+- [配置说明](docs/config.md)
+- [SPI / 扩展点](docs/spi.md)
 
-## 快速开始
+## 安全边界
 
-```bash
-wind-hub validate --config configs/template
-wind-hub run --config configs/template
-wind-hub run --help
-```
-
-## 安全提示
-
-> **本模块当前未实现认证**，Web API 默认监听 `127.0.0.1`（仅本机可访问）。
-> 请勿将 API 端口直接暴露到公网；如需远程访问，应在反向代理/TLS 层
-> 增加认证与加密后方可暴露。
-
-## 开发
-
-```bash
-poetry install --with dev --extras "modbus ads"
-poetry run pytest
-poetry run ruff check .
-poetry run ruff format --check .
-poetry run mypy src/
-poetry run lint-imports
-```
-
-## 性能压测
-
-压测框架使用 `tc netem` 在专用网络环境注入延迟、抖动、丢包和中断，并输出
-Markdown + JSON 报告。压测需要 **root**，不进入 pytest 默认收集。
-
-```bash
-PYTHON_BIN="$(python3 scripts/dev.py resolve python)"
-
-sudo "$PYTHON_BIN" scripts/run_benchmark.py --quick --protocol modbus
-sudo "$PYTHON_BIN" scripts/run_benchmark.py
-```
-
-说明：
-
-- 脚本检测权限，**不会自动 sudo**；无 root 时报告并退出。
-- Sink 用 NullSink（隔离外部 IO，测采集 + Task 分发）。
-- 资源采样直读 `/proc`（psutil 非项目依赖，刻意零新增依赖）。
-- 性能报告属于运行产物，不提交仓库。
-
-## 许可证
-
-TBD
+Server Web API 当前没有内建认证，默认监听 `127.0.0.1`。需要跨主机暴露时，
+必须由受控网络边界或上层接入层提供认证、授权与 TLS；设备写控制不应直接暴露
+到不可信网络。

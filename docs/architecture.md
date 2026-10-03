@@ -1,267 +1,587 @@
-# 架构设计
+<h1 class="title">wind-hub 软件架构设计</h1>
 
-本文档描述 wind-hub 的运行时架构，与当前代码保持一致。配置字段详见
-[config.md](config.md)，协议/Sink 扩展点详见 [spi.md](spi.md)。
+<p class="subtitle">v0_1 · 20261003</p>
 
-## 1. 总体结构
+<style>
+body {
+  font-family: "Microsoft YaHei";
+  font-size: 16px;
+  line-height: 1.75;
+  color: #24292f;
+}
+.title {
+  font-family: "Microsoft YaHei";
+  font-size: 32px;
+  line-height: 1.30;
+  font-weight: 700;
+  text-align: center;
+}
+.subtitle {
+  font-family: "Microsoft YaHei";
+  font-size: 18px;
+  line-height: 1.50;
+  font-weight: 400;
+  text-align: center;
+}
+h1 {
+  font-family: "Microsoft YaHei";
+  font-size: 28px;
+  line-height: 1.40;
+  font-weight: 700;
+}
+h2 {
+  font-family: "Microsoft YaHei";
+  font-size: 22px;
+  line-height: 1.40;
+  font-weight: 700;
+}
+h3 {
+  font-family: "Microsoft YaHei";
+  font-size: 18px;
+  line-height: 1.50;
+  font-weight: 700;
+}
+h4 {
+  font-family: "Microsoft YaHei";
+  font-size: 16px;
+  line-height: 1.50;
+  font-weight: 700;
+}
+p, li {
+  font-family: "Microsoft YaHei";
+  font-size: 16px;
+  line-height: 1.75;
+}
+.figure-caption,
+.formula-caption {
+  font-family: "Microsoft YaHei";
+  font-size: 14px;
+  line-height: 1.50;
+  font-weight: 600;
+  text-align: center;
+  margin: 0.65em 0 0.35em 0;
+}
+.table-caption {
+  font-family: "Microsoft YaHei";
+  font-size: 13px;
+  line-height: 1.40;
+  font-weight: 500;
+  text-align: center;
+  margin: 0.65em 0 0.35em 0;
+}
+.mermaid,
+.mermaid text,
+.mermaid .label {
+  font-family: "Microsoft YaHei" !important;
+  font-size: 14px !important;
+  line-height: 1.20;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Microsoft YaHei";
+  font-size: 13px;
+  line-height: 1.45;
+}
+table th,
+table th p,
+table th li {
+  font-family: "Microsoft YaHei";
+  font-size: 13px;
+  line-height: 1.40;
+  font-weight: 600;
+}
+table td,
+table td p,
+table td li {
+  font-family: "Microsoft YaHei";
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+table th,
+table td {
+  padding: 0.40em 0.60em;
+  vertical-align: top;
+}
+code, pre {
+  font-family: "Cascadia Code";
+  font-size: 14px;
+  line-height: 1.50;
+}
+p code, li code, td code {
+  color: #24292f;
+  background: #f3f4f6;
+  padding: 0.08em 0.28em;
+  border-radius: 3px;
+}
+pre {
+  color: #c9d1d9;
+  background: #0d1117;
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+pre code {
+  color: inherit;
+  background: transparent;
+  padding: 0;
+}
+.hljs-comment, .hljs-quote,
+.token.comment, .token.prolog, .token.doctype, .token.cdata {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-keyword, .hljs-selector-tag, .hljs-literal,
+.token.keyword, .token.boolean { color: #ff7b72; }
+.hljs-string, .hljs-doctag, .hljs-regexp,
+.token.string, .token.char, .token.regex { color: #a5d6ff; }
+.hljs-number, .token.number { color: #79c0ff; }
+.hljs-title, .hljs-function, .token.function { color: #d2a8ff; }
+.hljs-title.class_, .hljs-type, .hljs-built_in,
+.token.class-name, .token.builtin { color: #ffa657; }
+.hljs-variable, .hljs-attr, .hljs-property,
+.token.variable, .token.property, .token.attr-name { color: #7ee787; }
+.hljs-operator, .hljs-punctuation,
+.token.operator, .token.punctuation { color: #c9d1d9; }
+</style>
 
-### 1.1 术语定义
+---
 
-| 术语 | 定义 |
-|---|---|
-| Domain | 核心业务模型与业务规则（model / acquisition / command / domain 扩展点端口），不含应用入口与基础设施语义 |
-| Use Case | application 层完成完整应用业务流程的编排类（`application/usecase/`），接收 inbound adapter 调用，编排 domain 对象、Runtime 与 outbound port |
-| Inbound Adapter | CLI / Web API / IEC104 slave——参数解析、协议转换、调用 Use Case、映射输出 |
-| Inbound Port | 不默认存在：inbound adapter 直接依赖具体 Use Case；只有存在多实现或替换边界时才允许保留，且必须命名为 `xxxPort` |
-| Outbound Port | application / domain 所需外部能力的接口：`application/port/`（SinkPort）与 `domain/port/outbound.py`（ProtocolPort——被 domain 服务直接消费，故留在 domain） |
-| Outbound Adapter | outbound port 的实现：Modbus / ADS / IEC104 / Kafka / Postgres / FileSink |
-| Runtime | 运行期组件生命周期与状态编排核心（`application/runtime/`），不是普通 Use Case |
-| Composition Root | `assembly.py`——唯一知道双方具体类型并负责装配的模块 |
-| AppContext | 进程级共享 application context / 依赖容器（`application/app_context.py`），CLI 与 Web API 共享同一实例 |
+## 目录
 
-注意：**UseCase 不是 Port 的统一后缀**——`xxxUseCase` 是具体编排类；
-"Application Service" 术语不再作为代码主命名体系（不再存在
-`xxxService` 类或 `application/*_service.py` 模块）。
+1. [文档约定](#1-文档约定)
+2. [文档定位与使用方式](#2-文档定位与使用方式)
+3. [系统边界](#3-系统边界)
+4. [进程与通信架构](#4-进程与通信架构)
+5. [采集数据链](#5-采集数据链)
+6. [即时控制与诊断链](#6-即时控制与诊断链)
+7. [配置与任务控制链](#7-配置与任务控制链)
+8. [可靠性与交付语义](#8-可靠性与交付语义)
 
-### 1.2 入口与装配
+---
 
-入口与装配：
+# 1. 文档约定
+
+本章是全文的固定排版与表达规范。文档修订、补充和派生版本均应遵守本章，不再根据个人习惯调整字体、字号、行距、图题、表题、公式或代码样式。
+
+本文开头的 `<style>...</style>` 是 HTML `style` 元素，其中包含内部 CSS 样式表，本文简称为 **CSS 样式块**。第 1.1～1.4 节规定目标样式；CSS 样式块通过 `h1`、`h2`、`p`、`table`、`th`、`td`、`pre`、`code` 等选择器，将规范应用到 Markdown 渲染后生成的 HTML 元素。
+
+## 1.1 字体约定
+
+<p class="table-caption">表 1-1 文档字体与排版规范</p>
+
+| 文档元素 | 字体 | 字号 | 行间距/行高 | 字重 | 对齐方式 |
+|---|---|---:|---:|---:|---|
+| 文档标题 | Microsoft YaHei | 32 px | 1.30 | 700 | 居中 |
+| 文档副标题 | Microsoft YaHei | 18 px | 1.50 | 400 | 居中 |
+| 一级标题 | Microsoft YaHei | 28 px | 1.40 | 700 | 左对齐 |
+| 二级标题 | Microsoft YaHei | 22 px | 1.40 | 700 | 左对齐 |
+| 三级标题 | Microsoft YaHei | 18 px | 1.50 | 700 | 左对齐 |
+| 四级标题 | Microsoft YaHei | 16 px | 1.50 | 700 | 左对齐 |
+| 正文 | Microsoft YaHei | 16 px | 1.75 | 400 | 左对齐 |
+| 图题 | Microsoft YaHei | 14 px | 1.50 | 600 | 居中 |
+| 图内文字 | Microsoft YaHei | 14 px | 1.20 | 400 | 按图形布局 |
+| 表题 | Microsoft YaHei | 13 px | 1.40 | 500 | 居中 |
+| 表头 | Microsoft YaHei | 13 px | 1.40 | 600 | 左对齐 |
+| 表格正文 | Microsoft YaHei | 13 px | 1.45 | 400 | 左对齐 |
+| 公式题 | Microsoft YaHei | 14 px | 1.50 | 600 | 居中 |
+| 代码文字 | Cascadia Code | 14 px | 1.50 | 400 | 左对齐 |
+
+以上规范已经通过本文开头的 CSS 样式块固定。其中，正文为 `16 px`；表题、表头和表格正文均为 `13 px`。表头字重为 `600`，低于标题字重；表格正文行高为 `1.45`，因此表格在字号、字重和行距上均明显弱于正文。英文业务对象、数据库对象和程序标识符仍按所在文本元素的字号排版，但使用行内代码形式，例如 `Asset`、`Connection`、`task_id`。
+
+## 1.2 绘图约定
+
+1. 上下文图、第 0 层及更深层 DFD、总体流程图和关系流程图统一使用 Mermaid。
+2. 每一个 Mermaid 图都必须在 Mermaid 代码块第一行加入初始化配置，统一只设置 `useMaxWidth: true`。初始化配置格式为：
 
 ```text
-main.py → assembly.py（组合根）→ Runtime
+%%{init: {"<Mermaid 图类型配置域>": {"useMaxWidth": true}}}%%
 ```
 
-`assembly.py` 是唯一组合根：加载配置、创建协议驱动 / Sink、
-构造 `AcquisitionEngine` 与 `CommandDispatcher`，最后组装 `Runtime` 并注入全部
-回调（指标、超时等）。`Runtime` 是应用层编排核心，向下分三类协作对象：
+其中 `<Mermaid 图类型配置域>` 必须根据实际 Mermaid 图类型替换，不得固定写成 `flowchart`，也不得使用与实际图类型不匹配的配置域。
 
-```text
-Runtime
-├── Task Instance 采集协程                （每实例一个长生命周期 asyncio Task：
-│     while True: collect → asyncio.sleep(interval)——无外部调度器）
-├── AcquisitionEngine                    （执行一次采集）
-│     read → SinkDispatchPort（按 Task targets 扇出）
-└── Dispatcher                           （写命令下发）
-```
+<p class="table-caption">表 1-2 Mermaid 图类型与初始化配置</p>
 
-分层与依赖规则（由 import-linter 强制，见 `pyproject.toml`）：
-
-| 层 | 内容 | 依赖约束 |
+| Mermaid 图类型 | 图声明 | 第一行初始化配置 |
 |---|---|---|
-| `domain` | 模型、扩展点端口（ProtocolPort）、AcquisitionEngine | 不得依赖 application / adapter / infra；不得 import FastAPI、pyads、pymodbus、prometheus_client |
-| `application` | Use Case（command / config / task / query）、Runtime、DeviceRuntimeState、AcquisitionRuntimeState、TaskInstance、应用级端口（SinkPort）、AppContext | 不得依赖 adapter；指标等经回调/端口注入 |
-| `adapter` | inbound（webapi/cli）、outbound（protocol/sink） | 可依赖 domain / infra |
-| `infra` | metrics、registry | 被各层经组合根接线 |
+| Flowchart | `flowchart TB/LR/...` | `%%{init: {"flowchart": {"useMaxWidth": true}}}%%` |
+| Sequence Diagram | `sequenceDiagram` | `%%{init: {"sequence": {"useMaxWidth": true}}}%%` |
+| State Diagram | `stateDiagram-v2` | `%%{init: {"state": {"useMaxWidth": true}}}%%` |
+| Class Diagram | `classDiagram` | `%%{init: {"class": {"useMaxWidth": true}}}%%` |
+| ER Diagram | `erDiagram` | `%%{init: {"er": {"useMaxWidth": true}}}%%` |
 
-## 2. Runtime 与三个状态维度
-
-`Runtime`（`application/runtime/runtime.py`）负责组件生命周期与状态编排：
-连接设备（best-effort，单设备失败不影响整体启动）、把 tasks.yaml 的
-Task 展开为 Task Instance 并管理其实例协程、实现引擎的采集前/后钩子、
-持有 Sink 队列与消费者、执行热重载。
-
-**Task / Task Instance**：`tasks.yaml` 的每个 Task 按 `device`（单台）
-或 `device_group`（分组全部启用设备）展开为实例
-（`{task_id}:{device_id}`，`application/runtime/task_instance.py`）。
-每个运行中的实例对应一个长生命周期 asyncio Task：
+若后续使用其他 Mermaid 图类型，也必须遵守同一规则：
 
 ```text
-while True:
-    collect(device_id, point_group, targets, execution_id=instance_id)
-    await asyncio.sleep(interval)   # 不对齐墙钟，非固定速率
+实际图类型
+    ↓
+确定该图类型对应的 Mermaid 配置域
+    ↓
+第一行写入：
+%%{init: {"对应配置域": {"useMaxWidth": true}}}%%
 ```
 
-实例协程的引用全部由 Runtime 持有（无裸 `create_task`）；停止实例或
-停机时取消并 await，`CancelledError` 正常传播；单次采集异常只记日志，
-实例继续运行，不会拖垮 Runtime。周期采集**不再依赖 APScheduler** 或
-任何外部调度器。
+不得额外加入 `wrap` 等非统一配置；如确有特殊需要，应在对应图的局部设计说明中单独论证。
 
-运行期有**三个互相独立的状态维度**，刻意不合并：
+3. 每张图必须有图编号和图题，编号采用“章节号-本章图序号”，例如“图 7-2”。
+4. 图题必须使用普通图题样式，不得使用 Markdown 标题。统一写法为：
 
-1. **实例生命周期状态**（`TaskInstanceState`：RUNNING / STOPPED）：
-   实例注册即 STOPPED，需 CLI/Web API 显式 start；stop 只停采集，
-   不删实例、不断设备连接。`enabled: false` 的 Task 不展开实例。
-2. **设备连接状态**（`DeviceRuntimeState`，每台设备一份）：`connected`、
-   `consecutive_failures`、`next_retry_at`（重连节流点）、`last_error`。
-   回答「设备通不通」。
-3. **采集执行状态**（`AcquisitionRuntimeState`，每个实例一份，按
-   `instance_id` 索引）：`running`、`last_started_at`、
-   `last_finished_at`、`last_success_at`、`last_duration`、
-   `consecutive_failures`、`last_error`。回答「这个采集实例最近跑得怎样」。
+```html
+<p class="figure-caption">图 7-2 图题</p>
+```
 
-引擎通过两个端口上报事件，Runtime 持有状态与指标——与 `DeviceStatePort`
-同一 DI 模式：
+## 1.3 公式约定
 
-- `DeviceStatePort`：`ensure_connected` / `report_read_success` /
-  `report_read_failure`（读前问一句、读后如实上报）；
-- `AcquisitionStatePort`：`report_collect_started` /
-  `report_collect_success(partial=...)` / `report_collect_failure(error)`
-  ——均以 `execution_id`（即实例 ID）为首参，同一 `(device, point_group)`
-  可被多个 Task 采集而状态互不覆盖。
-
-一次 `collect` 的生命周期：`begin`（running=True）→ 成功或失败结束
-→ `running` 归位并记录 `last_finished_at` / `last_duration`。无论哪条
-异常路径（读失败、超时、派发异常），`running` 都必须归位——引擎侧以
-try/except 保证，失败只上报一次（不双报）。
-
-所有运行状态的时间戳使用注入时钟（默认 `time.monotonic`），只做内部
-时长/节流计算；不混用 `datetime.now` / `time.time`。
-
-## 3. 两层超时模型
-
-超时分两层，职责不同、**同时存在**：
-
-- **驱动内部超时**（下层）：各协议驱动自己的 socket/协议超时
-  （如 pyads `set_timeout`、pymodbus `timeout`），由驱动配置管理，
-  本层不干预。
-- **应用层外层超时**（上层）：`asyncio.wait_for` 兜底一次业务调用允许
-  占用的最大时间，配置集中在 `system.yaml` 的 `runtime` 段：
-
-| 配置 | 作用点 | 语义 |
-|---|---|---|
-| `connect_timeout`（默认 10s） | Runtime 的 `start` / `ensure_connected` / `add_device` / `rebuild_device` 中的 `connect()` | 单次连接尝试上限 |
-| `read_timeout`（默认 5s） | `AcquisitionEngine.collect` 对 `ProtocolPort.read` 的外层 `wait_for` | 一次批量读上限；超时按连接级失败处理（标记断线、走重连节流） |
-| `write_timeout`（默认 5s） | `Dispatcher` 对 `ProtocolPort.write` 的外层 `wait_for` | 命令未自带超时时（`Command.timeout <= 0`）的默认值 |
-
-写超时优先级：`Command.timeout > 0` 时用命令自带值，否则用系统
-`write_timeout`。不存在硬编码超时。
-
-**错误语义必须定位到阶段**，不允许裸 "timeout"：
-
-- `connect timeout: device=d1 timeout=10.0s — skipped`
-- `read timeout: device=d1 point_group=fast timeout=5.0s`
-- `write timeout: device=d1 point=p001 timeout=3.0s`
-
-未配置外层读超时、驱动自身抛 `TimeoutError` 时，沿用驱动消息并标记为
-driver-level，同样按连接级失败分类。
-
-## 4. 断线、重连与采集的协同
-
-`DeviceRuntimeState` 实现重连节流（无 jitter）：
+1. 行内公式使用单美元符号，例如 `$E_1$`。
+2. 独立公式使用双美元符号，例如：
 
 ```text
-T_k = min(30 s, 1 s · 2^k)   ——  1, 2, 4, 8, 16, 30, 30 …
+$$
+\mathrm{Entity}=E_1\land(E_2\lor E_3\lor E_4)\land E_5
+$$
 ```
 
-协同规则：
+3. 正式公式不得放入代码块。
+4. 不使用 `\[` 与 `\]` 作为公式定界符。
+5. 变量下标统一写成 `E_1`、`R_1`；逻辑“与”和“或”统一写成 `\land`、`\lor`。
+6. 公式必须使用 LaTeX，不使用普通文本模拟数学符号。
+7. 需要编号的公式使用“式（章节号-本章公式序号）”，式题采用普通公式题样式：
 
-- `ensure_connected` 已连接 → 立即放行；断线且未到 `next_retry_at` →
-  返回 `False`；断线且窗口已到 → 尝试一次 `connect()`（驱动 connect
-  幂等，与其内部重连监控安全共存）。
-- `ensure_connected=False` 时本次采集判定 **FAILED**（不是 SKIPPED）：
-  不重发 `read`，`last_error` 记 `device disconnected (reconnect
-  backoff)`，实例协程保留，下一周期继续。
-- 读失败按故障分类处理：连接级（`TimeoutError` /
-  `ConnectionRefusedError` / `OSError`，含 `__cause__` 链）标记断线并
-  进入重连路径；协议/编程级只记 `last_error`，连接状态不动。
-- 驱动自带的后台重连监控（ADS/Modbus/IEC104 均有）与 Runtime 的
-  ensure 路径是两条路径：前者不触发 `device_reconnect_total` 指标，
-  后者触发。
+```html
+<p class="formula-caption">式（8-1）实体判断逻辑</p>
+```
 
-一次采集实例失败**不会**翻转 `Runtime.running`；设备启动即失败也
-不影响整体启动（best-effort）。
+## 1.4 代码约定
 
-## 5. 批量读部分失败语义
+1. 多行代码必须使用带语言标识的围栏代码块，例如 `python`、`sql`、`json`、`yaml`、`mermaid` 或 `text`。
+2. 单个标识符、字段名、命令和短代码使用行内代码，例如 `PRIMARY KEY`、`Connection`。
+3. 伪代码必须明确标记为 `text` 或在正文中说明“以下为伪代码”；不得使读者误认为它可以直接运行。
+4. 代码块统一使用深色背景，颜色为 `#0D1117`；普通代码文字颜色为 `#C9D1D9`。
+5. 语法高亮统一采用表 1-2 的配色。Markdown 渲染器应使用 Highlight.js 或 Prism 可识别的语言标识；渲染器不支持高亮时，至少保留代码背景色和普通代码文字颜色。
 
-`ProtocolPort.read` 返回 `list[PointValue]`，两种失败严格区分：
+<p class="table-caption">表 1-2 代码语法高亮配色</p>
 
-- **连接/会话级失败**（TCP 断开、请求发不出、响应整体不可解析、会话
-  失效）→ 抛 `ProtocolError`，整批失败，走断线/重连路径。
-- **单点失败** → 该点返回 `PointValue(value=None, quality=Quality.BAD)`，
-  批次数量与顺序不变，不影响其它点。
-
-各协议落地：
-
-- **ADS**：sum 模式（`read_list_by_name`）整体失败抛 `ProtocolError`，
-  响应中缺失的符号逐点 BAD；sequential 模式仅 `pyads.ADSError` 且
-  `err_code == 1808`（符号不存在）降级为单点 BAD，其余错误无法与连接
-  级故障可靠区分，保持上抛——不伪造成功。
-- **Modbus**：整组请求失败（异常响应/传输错误）抛 `ProtocolError`；
-  组内单点 decode 失败（响应偏短/类型不符）该点 BAD，同组其它点正常。
-- **IEC104**：读来自会话点值缓存，未知/未缓存 IOA 逐点 BAD；会话无效
-  抛 `ProtocolError`。
-
-BAD 批次照常派发——数据质量信息应流向 sink。点值 quality 只来自
-协议原生判定；工程值换算（scale/offset）由运行时 `Device` 在采集
-出口统一应用（轮询与订阅同语义），非数值（None / str / bool）不参与
-换算。
-
-## 6. 采集结果判定口径
-
-一次 `collect` 的三档判定（`AcquisitionStatePort` 注释同样记录）：
-
-| 判定 | 条件 | 后果 |
+| 语法元素 | 颜色 | 十六进制 |
 |---|---|---|
-| SUCCESS | 无异常且全部点有效 | `consecutive_failures` 清零 |
-| PARTIAL | GOOD/BAD 混合（至少一个有效） | 计为成功：清零失败计数，`last_success_at` 更新；另计 `acquisition_partial_total` |
-| FAILED | 读抛异常 / 读超时 / 断线跳过 / 空批或全 BAD（无任何有效结果） | `consecutive_failures += 1`，记 `last_error` |
+| 代码背景 | 深黑蓝 | `#0D1117` |
+| 普通文字、运算符和标点 | 浅灰 | `#C9D1D9` |
+| 注释 | 灰色 | `#8B949E` |
+| 关键字和布尔值 | 红色 | `#FF7B72` |
+| 字符串和正则表达式 | 浅蓝 | `#A5D6FF` |
+| 数值 | 蓝色 | `#79C0FF` |
+| 函数名 | 紫色 | `#D2A8FF` |
+| 类型、类名和内置对象 | 橙色 | `#FFA657` |
+| 变量、属性和字段 | 绿色 | `#7EE787` |
 
-## 7. Task 分发
+---
 
-数据流是显式的 **Task → 实例 → targets**：
+# 2. 文档定位与使用方式
+
+## 2.1 适用对象
+
+本文描述当前 wind-hub 源码的运行时软件架构，供后端开发、前端联调、代码审查、
+测试设计和生产验收使用。本文不描述容器编排、双机热备、集群拓扑、证书部署等
+部署层问题。
+
+配置字段以 `docs/config.md` 为准；协议与 Sink 扩展接口以
+`docs/spi.md` 为准；本文件只描述模块边界、运行时数据流和跨进程控制关系。
+
+## 2.2 目标
+
+本文用于固定以下架构事实：
+
+1. Collector、Commander、Server 的职责不能相互侵入；
+2. 正常采集数据与即时控制数据采用不同链路；
+3. Data/Trend 必须来自 Collector 的真实采集结果，不由页面刷新触发 PLC 读取；
+4. Server 是配置事务和 Task placement 的协调者；
+5. Collector Sink 当前采用 at-most-once 交付语义；
+6. 跨进程交互统一经 `wind_hub_core.rpc` 中的 gRPC 契约。
+
+---
+
+# 3. 系统边界
+
+wind-hub 面向设备协议通信、数据采集、数据投递和运维控制。设备、外部 Sink 和
+浏览器属于系统边界之外。
+
+<p class="figure-caption">图 3-1 wind-hub 系统边界</p>
+
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart LR
+    Operator["运维人员"]
+    Admin["wind-hub-admin"]
+    Server["wind-hub-server"]
+    Collector["wind-hub-collector"]
+    Commander["wind-hub-commander"]
+    Device["PLC / 现场设备"]
+    Sink["Kafka / File / PostgreSQL"]
+
+    Operator --> Admin
+    Admin -->|"HTTP /api/v1"| Server
+    Server -->|"Collector gRPC"| Collector
+    Server -->|"Commander gRPC"| Commander
+    Collector -->|"周期/订阅采集"| Device
+    Commander -->|"即时 read/write/diagnostic"| Device
+    Collector -->|"采集数据投递"| Sink
+```
+
+系统内进程不通过直接 import 访问其他进程包。依赖方向由 import-linter 固化：
 
 ```text
-Task(device|device_group, point_group, interval, targets)
-  → 展开为 Task Instance（{task_id}:{device_id}）
-  → 实例协程 collect：按 point_group ∈ point.point_groups 选点
-  → SinkDispatchPort.dispatch({sink: batch})——按实例 targets 扇出
+collector ─┐
+commander ─┼──> core
+server ────┤
+ctl ───────┘
 ```
 
-没有路由规则、没有点位级 sink 覆盖、没有投递策略（interval / every_n /
-on_change 均不复存在）：每批采集结果全量投递到该实例 `targets` 声明的
-每个 sink。点表快照语义：热重载经 `Device.set_points` 重注入点表，
-采集循环总是读当前实例。
+`wind_hub_core` 不依赖任何进程包。
 
-## 8. 可观测性
+---
 
-指标框架沿用 prometheus_client 单例（`infra/metrics.py`），不引入新
-框架。domain/application 不 import 该模块：采集计数经组合根注入的
-回调（`on_points_collected` / `on_points_bad`），Runtime 事件经
-`RuntimeMetricsPort` 端口（Prometheus 实现 `PrometheusRuntimeMetrics`
-为结构化实现，避免 infra→application 依赖）累加；`/metrics` 拉取时
-用 Runtime 快照覆盖 gauge。
+# 4. 进程与通信架构
 
-| 指标 | 类型 | 标签 |
+<p class="table-caption">表 4-1 进程职责</p>
+
+| 进程/模块 | 核心职责 | 明确不负责 |
 |---|---|---|
-| `wind_hub_device_connected` | Gauge | `device_id`, `protocol` |
-| `wind_hub_device_connect_failures_total` | Counter | `device_id`, `protocol` |
-| `wind_hub_device_reconnect_total` | Counter | `device_id`, `protocol`（仅 Runtime ensure 路径） |
-| `wind_hub_acquisition_runs_total` | Counter | `device_id`, `group` |
-| `wind_hub_acquisition_failures_total` | Counter | `device_id`, `group` |
-| `wind_hub_acquisition_partial_total` | Counter | `device_id`, `group` |
-| `wind_hub_acquisition_duration_seconds` | Histogram（默认 bucket） | `device_id`, `group` |
-| `wind_hub_sink_queue_depth` | Gauge | `sink_name`（队列归 Runtime，拉取时从 Runtime 读） |
-| `wind_hub_sink_write_failures_total` | Counter | `sink_name` |
-| `wind_hub_points_bad_total` | Counter | 无（协议采集 BAD 点 ≠ 背压丢弃 `points_dropped`） |
+| Collector | 设备采集、Task Instance、重连、采集状态、Sink 队列与投递、Latest/Trend 采集读模型 | Admin HTTP、页面控制、即时人工读写 |
+| Commander | 即时 read/write、协议诊断、控制回读、设备会话 generation | 周期采集、历史趋势、Sink 投递 |
+| Server | Admin API、配置事务、Task placement、Worker Registry、质量/健康聚合 | 直接装配协议驱动、直接访问 PLC |
+| CTL | Collector gRPC 只读诊断 | 修改配置、控制 PLC |
+| Core | 配置、领域模型、协议驱动、共享 RPC 契约 | Server/Collector/Commander 应用编排 |
 
-标签基数受控：只用 `device_id` / `protocol` / `group` / `sink_name`
-等配置值；禁止 `error_message`、`point_id` 等高基数字段作标签。
-热重载删除的设备/sink，其 gauge 标签序列在下一次拉取时移除
-（Counter 序列不删除）。
+Server 同一配置集协调多个 Collector 和一个 Commander。Collector ID 是稳定 worker
+标识；Task placement 由 Server 按 generation 下发并由 Collector 在 start 操作时校验。
 
-健康与状态查询（`QueryUseCase.status()`）分层返回：
-`running` / 设备计数与连通数 / sink 计数与健康数 / 采集计数 /
-`acquisitions`（各采集实例的 `AcquisitionInfo`：instance_id、task_id、
-device_id、point_group、running、consecutive_failures、last_error、
-last_duration）。
+<p class="figure-caption">图 4-1 跨进程通信关系</p>
 
-## 9. 热重载
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart TB
+    UI["wind-hub-admin"]
+    API["wind-hub-server"]
+    C1["collector-1"]
+    C2["collector-N"]
+    CMD["wind-hub-commander"]
+    CTL["wind-hub-ctl"]
 
-唯一入口：`ConfigUseCase.reload()` → 加载校验配置并 diff →
-`Runtime.reconfigure(new_config, diff)`。状态处理规则：
+    UI -->|"HTTP"| API
+    API -->|"配置 / Task / 状态 / Telemetry gRPC"| C1
+    API -->|"配置 / Task / 状态 / Telemetry gRPC"| C2
+    API -->|"配置 / 即时 IO / Diagnostics gRPC"| CMD
+    CTL -->|"只读 Runtime gRPC"| C1
+```
 
-- **设备删除** → 取消其全部实例协程，删除实例、`DeviceRuntimeState`
-  与对应 `AcquisitionRuntimeState`；
-- **设备新增** → 连接，并按匹配它的 device_group Task 展开新实例
-  （注册为 STOPPED，首次 collect 前 status 即可见）；
-- **Task 新增/删除** → 增删对应实例（删除即取消协程并清理状态），
-  不影响其它实例；
-- **Task 字段变化**（interval / targets / point_group）→ 只影响该
-  Task：运行中的实例协程下一轮读取新快照（interval/targets 原地生效），
-  不重建设备连接；
-- **device_group 成员变化**（设备改分组或 enabled 翻转）→ 按成员差
-  增删实例，不重启 Runtime；
-- **点表变化** → 经 `Device.set_points` 重注入点表，不触碰实例协程
-  与采集状态；
-- **连接参数变化** → 走 `rebuild_device`（关旧连接、工厂建新驱动），
-  状态随删除/新建路径重置。
+---
+
+# 5. 采集数据链
+
+## 5.1 采集执行
+
+Collector 的设备协议实例由 `Device` 聚合，Task Definition 根据
+`device` 或 `device_group` 展开为稳定 Task Instance。实例只有收到显式 start
+后才获得 acquisition handle。
+
+轮询协议使用 fixed-rate polling handle；ADS Notification、IEC104 spontaneous
+等订阅型协议通过回调进入同一个 `AcquisitionEngine.process()`。Runtime 不使用
+APScheduler。
+
+采集读失败、连接失败和超时不会终止 Collector 主进程。设备状态通过
+`DeviceRuntimeState` 管理并按退避窗口重连；Task Instance 状态与设备连接状态分离。
+
+## 5.2 统一数据出口
+
+所有有效或 BAD 的 `PointValue` 批次最终进入 `AcquisitionEngine.process()`。
+该入口同时完成：
+
+- 采集计数；
+- BAD 点计数；
+- Observer 通知；
+- 按 Task targets 向 Sink 派发。
+
+Collector 的 `CollectorTelemetryStore` 作为 Observer 保存真实采集的 Latest 与
+有界短期 Trend；它不发起设备通信。
+
+<p class="figure-caption">图 5-1 Collector 采集数据流</p>
+
+```mermaid
+%%{init: {"flowchart": {"useMaxWidth": true}}}%%
+flowchart LR
+    Device["Device / ProtocolPort"]
+    Handle["Polling / Subscription Handle"]
+    Engine["AcquisitionEngine.process"]
+    Metrics["CollectorMetricsState"]
+    Telemetry["CollectorTelemetryStore"]
+    Queue["Per-Sink Bounded Queue"]
+    Sink["Kafka / File / PostgreSQL"]
+
+    Device --> Handle
+    Handle --> Engine
+    Engine -->|"Observer"| Metrics
+    Engine -->|"Observer"| Telemetry
+    Engine -->|"Task targets"| Queue
+    Queue --> Sink
+```
+
+## 5.3 Server Data / Trend
+
+Server 不维护周期采集副本，也不通过 Commander 为页面刷新额外读 PLC。
+
+Data/Trend 查询步骤：
+
+1. Server 从当前配置确认设备和点定义；
+2. `TaskAssignmentUseCase` 找到该设备实际 owner Collector；
+3. Server 经 Collector gRPC 查询 Latest/Trend；
+4. 多 Collector 场景下 Latest 按点取时间戳最新样本；
+5. Trend 合并后按时间排序，并执行每点 limit；
+6. 页面没有采集数据时返回空值，不回退到 Commander 读取。
+
+<p class="figure-caption">图 5-2 Data / Trend 读取链</p>
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+    actor UI as wind-hub-admin
+    participant Server as wind-hub-server
+    participant Assign as TaskAssignmentUseCase
+    participant Collector as wind-hub-collector
+    participant Store as CollectorTelemetryStore
+
+    UI->>Server: GET Data / Trend
+    Server->>Assign: worker_ids_for_device(device_id)
+    Assign-->>Server: owner collector IDs
+    Server->>Collector: GetLatestTelemetry / GetTelemetryTrend
+    Collector->>Store: query snapshot
+    Store-->>Collector: PointValue samples
+    Collector-->>Server: telemetry response
+    Server-->>UI: metadata + acquisition values
+```
+
+---
+
+# 6. 即时控制与诊断链
+
+Commander 与 Collector 的职责不同。Commander 只有在用户主动执行 read、write、
+write-readback 或 protocol diagnostic 时才访问设备。
+
+<p class="figure-caption">图 6-1 即时设备操作链</p>
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+    actor UI as wind-hub-admin
+    participant Server as wind-hub-server
+    participant Commander as wind-hub-commander
+    participant Device as PLC / Device
+
+    UI->>Server: read / write / diagnostic
+    Server->>Commander: gRPC request
+    Commander->>Device: protocol I/O
+    Device-->>Commander: result
+    Commander-->>Server: typed result
+    Server-->>UI: API response
+```
+
+Commander 使用 generation 管理设备会话。配置 `prepare` 只构造候选 generation，
+`activate` 原子切换 active generation；旧 generation 等待 in-flight operation
+排空后关闭。不存在兼容性的单步 `reload()` 入口。
+
+---
+
+# 7. 配置与任务控制链
+
+## 7.1 配置事务
+
+Server 是配置版本与事务协调者。Worker 不自行决定配置版本。
+
+配置变更采用三段式协议：
+
+```text
+Prepare
+→ 校验候选配置并建立 prepared revision
+→ Activate
+→ 原子切换 active revision
+```
+
+中止或失败时使用 `Abort` 撤销 prepared revision。Server 周期执行 reconciliation，
+比较 worker revision/hash 并收敛中断事务。
+
+<p class="figure-caption">图 7-1 配置事务时序</p>
+
+```mermaid
+%%{init: {"sequence": {"useMaxWidth": true}}}%%
+sequenceDiagram
+    participant UI as Admin
+    participant Server as wind-hub-server
+    participant Collector as Collector(s)
+    participant Commander as Commander
+
+    UI->>Server: Apply Config
+    Server->>Collector: PrepareConfig(revision, hash)
+    Server->>Commander: PrepareConfig(revision, hash)
+    Collector-->>Server: prepared
+    Commander-->>Server: prepared
+    Server->>Collector: ActivateConfig(revision)
+    Server->>Commander: ActivateConfig(revision)
+    Collector-->>Server: active hash
+    Commander-->>Server: active hash
+    Server-->>UI: transaction result
+```
+
+## 7.2 Task placement
+
+Server 为 Collector 下发完整 placement snapshot 和单调递增 generation。
+Collector 在 start task / start instance 时验证：
+
+- 已收到 placement；
+- 请求 generation 与当前 generation 相同；
+- task 确实分配给本 Collector。
+
+Server 周期 reconciliation 会停止错误 Worker 上仍在运行的实例。Task 不因
+Collector 进程启动而自动开始。
+
+---
+
+# 8. 可靠性与交付语义
+
+## 8.1 设备侧
+
+- 设备连接采用 best-effort：单设备失败不阻止 Collector 启动；
+- 读失败按连接级/协议级区分；
+- 连接级失败进入节流重连；
+- 单点错误用 `Quality.BAD` 表达，不伪造整批成功或整批失败；
+- Task Instance 单次采集失败后保留，下一周期继续执行。
+
+## 8.2 Sink 侧
+
+每个 Sink 有独立有界队列。背压策略由 `RuntimeConfig.backpressure_policy`
+决定：
+
+- `drop_old`：队列满时淘汰最旧批次；
+- `drop_new`：队列满时丢弃新批次；
+- `block`：等待队列可用，对采集链施加背压。
+
+当前外部交付是 **at-most-once**：
+
+1. 批次成功入队时计入 `points_routed`；
+2. 背压主动丢弃时计入 `points_dropped`；
+3. 批次出队后若 `sink.write()` 失败，不重新入队、不补发；
+4. 该批点数同样计入 `points_dropped`，并记录 `sink_write_failed` 事件；
+5. Sink 后续成功写入时可恢复健康，但故障期已失败批次不回放。
+
+因此，当前内存队列不构成持久化缓冲。若未来要求故障期数据不丢，应单独设计
+持久化 spool/WAL/DLQ，并重新定义 delivery contract，而不是在现有 consumer 中
+隐式增加无限重试。
+
+## 8.3 验证边界
+
+日常开发按风险分层：
+
+- Fast Gate：静态检查、unit/component/contract、前端 Vitest/build；
+- PR Gate：只运行本次变更命中的 integration/system/E2E；
+- Release Gate：完整常规软件验证；
+- Qualification：真实硬件、performance、soak。
+
+Hardware、Performance、Soak 的未执行不能用普通 Release PASS 代替。
