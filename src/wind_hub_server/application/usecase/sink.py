@@ -71,7 +71,7 @@ class SinkUseCase:
                     name=cfg.name,
                     type=cfg.type,
                     enabled=cfg.enabled,
-                    connection=cfg.connection.model_dump(mode="json"),
+                    connection=cfg.connection.model_dump(mode="json", by_alias=True),
                     point_count=len(cfg.points),
                     healthy=(
                         bool(current.get("healthy"))

@@ -975,7 +975,7 @@ class Runtime:
             updated=sorted(target_device_ids & actual_device_ids),
         )
 
-        target_sinks = {item.name: item for item in target.sinks.sinks}
+        target_sinks = {item.name: item for item in target.sinks.sinks if item.enabled}
         actual_sink_ids = set(self._sinks)
         target_sink_ids = set(target_sinks)
         sinks = SinkDiff(
@@ -1174,27 +1174,39 @@ class Runtime:
         return config.points_for_device(device_id)
 
     async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 增删重建 sink；新实例由工厂创建。"""
+        """按 diff 让运行态 Sink 注册表收敛到 enabled Sink 集合。"""
         factory = self._sink_factory
-        if factory is None and (diff.sinks.added or diff.sinks.updated):
+        new_sinks = {sink.name: sink for sink in new_cfg.sinks.sinks}
+
+        needs_factory = any(
+            new_sinks[name].enabled
+            for name in (*diff.sinks.added, *diff.sinks.updated)
+            if name in new_sinks
+        )
+        if factory is None and needs_factory:
             raise RuntimeError("sink factory is not wired into Runtime")
-        new_sinks = {s.name: s for s in new_cfg.sinks.sinks}
 
         for name in diff.sinks.removed:
             await self.remove_sink(name)
 
         for name in diff.sinks.added:
             cfg = new_sinks[name]
-            # 入口已守卫：有新增/更新时 factory 必然非 None
+            if not cfg.enabled:
+                continue
             assert factory is not None
-            sink = factory(cfg)
-            await self.add_sink(name, cfg, sink)
+            await self.add_sink(name, cfg, factory(cfg))
 
         for name in diff.sinks.updated:
             cfg = new_sinks[name]
-            assert factory is not None  # 同上——入口守卫保证
+            if not cfg.enabled:
+                await self.remove_sink(name)
+                continue
+            assert factory is not None
             sink = factory(cfg)
-            await self.rebuild_sink(name, cfg, sink)
+            if name in self._sinks:
+                await self.rebuild_sink(name, cfg, sink)
+            else:
+                await self.add_sink(name, cfg, sink)
 
     # ------------------------------------------------------------------
     # 私有——sink 背压与消费者

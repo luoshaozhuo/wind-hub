@@ -231,7 +231,7 @@ def load_config(config_dir: str | Path) -> Config:
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
 
-    sink_names = {s.name for s in sinks.sinks}
+    sink_names = {s.name for s in sinks.sinks if s.enabled}
     for task in tasks.tasks:
         _validate_task_targets(task, devices, point_tables, sink_names)
 

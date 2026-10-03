@@ -1,8 +1,7 @@
 """统一 Sink 外部接口契约模型。
 
-本模块只定义 sinks.yaml 的强类型模型，不创建任何运行时资源。旧
-system.yaml.sinks 在迁移阶段仍由 Collector Runtime 使用；本模块描述的是
-最终对外 Sink 接口契约。
+本模块定义 sinks.yaml 的强类型模型。sinks.yaml 是 Sink 配置、Runtime 装配
+与对外接口契约的唯一配置来源；本模块本身不创建任何运行时资源。
 """
 
 from __future__ import annotations
@@ -94,7 +93,7 @@ class KafkaSinkConnection(BaseModel):
 
 
 class DatabaseSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     dsn: str
     table: str
 
@@ -107,7 +106,7 @@ class DatabaseSinkConnection(BaseModel):
         return self
     batch_size: int = Field(default=1000, ge=1)
     create_table: bool = False
-    schema: dict[str, str] | None = None
+    table_schema: dict[str, str] | None = Field(default=None, alias="schema")
     pool_min_size: int = Field(default=1, ge=1)
     pool_max_size: int = Field(default=10, ge=1)
     write_timeout: float = Field(default=5.0, gt=0)

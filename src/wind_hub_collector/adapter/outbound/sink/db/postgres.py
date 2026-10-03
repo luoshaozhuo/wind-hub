@@ -94,7 +94,7 @@ class DBSink(SinkPort):
         self._table = self._validate_table(connection.table)
         self._batch_size = connection.batch_size
         self._create_table = connection.create_table
-        self._schema = self._build_schema(connection.schema)
+        self._schema = self._build_schema(connection.table_schema)
         self._pool_min_size = connection.pool_min_size
         self._pool_max_size = connection.pool_max_size
         self._write_timeout = connection.write_timeout
