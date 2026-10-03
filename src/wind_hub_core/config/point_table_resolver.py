@@ -146,8 +146,8 @@ def _merge_point(base: PointConfig, patch: PointPatch, table: str) -> PointConfi
     """override：以 patch 中**实际写出**的字段覆盖父表点。
 
     以 ``model_fields_set`` 区分「未写」与「显式 null」：未写继承父值；
-    写了（含 null）覆盖父值。``address`` 与 ``sinks`` 与其他字段同为整体
-    覆盖——显式配置即全量替换父值，不做递归 merge / append。
+    写了（含 null）覆盖父值。``address`` 与其他字段同为整体覆盖——
+    显式配置即全量替换父值，不做递归 merge / append。
     """
     data = base.model_dump()
     for field in patch.model_fields_set:
