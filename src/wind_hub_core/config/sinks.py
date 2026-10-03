@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from wind_hub_core.model.errors import ConfigError
 
@@ -50,6 +50,13 @@ class SinkSource(BaseModel):
 class FileSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
+
+    @field_validator("path")
+    @classmethod
+    def _validate_path(cls, value: str) -> str:
+        if not value.strip():
+            raise ConfigError("File sink path must be non-empty")
+        return value
     format: Literal["jsonl", "csv"] = "jsonl"
     max_size_mb: float | None = Field(default=None, gt=0)
     max_age_hours: float | None = Field(default=None, gt=0)
@@ -64,6 +71,21 @@ class KafkaSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bootstrap_servers: str | list[str]
     topic: str
+
+    @model_validator(mode="after")
+    def _validate_required_text(self) -> "KafkaSinkConnection":
+        servers = self.bootstrap_servers
+        if isinstance(servers, str):
+            valid_servers = bool(servers.strip())
+        else:
+            valid_servers = bool(servers) and all(
+                isinstance(item, str) and bool(item.strip()) for item in servers
+            )
+        if not valid_servers:
+            raise ConfigError("Kafka sink bootstrap_servers must be non-empty")
+        if not self.topic.strip():
+            raise ConfigError("Kafka sink topic must be non-empty")
+        return self
     key_field: Literal["device_id", "point_id", "source"] | None = None
     compression_type: Literal["gzip", "snappy", "lz4", "zstd"] | None = None
     acks: Literal["all", 0, 1] = "all"
@@ -75,6 +97,14 @@ class DatabaseSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dsn: str
     table: str
+
+    @model_validator(mode="after")
+    def _validate_required_text(self) -> "DatabaseSinkConnection":
+        if not self.dsn.strip():
+            raise ConfigError("Database sink dsn must be non-empty")
+        if not self.table.strip():
+            raise ConfigError("Database sink table must be non-empty")
+        return self
     batch_size: int = Field(default=1000, ge=1)
     create_table: bool = False
     schema: dict[str, str] | None = None
@@ -230,7 +260,14 @@ class SinkConfig(BaseModel):
         parsed = dict(data)
         connection = parsed.get("connection")
         if isinstance(connection, dict):
-            parsed["connection"] = _CONNECTION_TYPES[sink_type].model_validate(connection)
+            try:
+                parsed["connection"] = _CONNECTION_TYPES[sink_type].model_validate(connection)
+            except ConfigError:
+                raise
+            except Exception as exc:
+                raise ConfigError(
+                    f"Sink '{data.get('name', '<unnamed>')}' invalid connection: {exc}"
+                ) from exc
 
         address_type = _ADDRESS_TYPES[sink_type][0]
         points = parsed.get("points")
@@ -243,7 +280,14 @@ class SinkConfig(BaseModel):
                 point = dict(raw_point)
                 address = point.get("address")
                 if isinstance(address, dict):
-                    point["address"] = address_type.model_validate(address)
+                    try:
+                        point["address"] = address_type.model_validate(address)
+                    except ConfigError:
+                        raise
+                    except Exception as exc:
+                        raise ConfigError(
+                            f"Sink '{data.get('name', '<unnamed>')}' invalid point address: {exc}"
+                        ) from exc
                 parsed_points.append(point)
             parsed["points"] = parsed_points
         return parsed

@@ -16,7 +16,7 @@ import asyncpg
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
 
@@ -44,7 +44,7 @@ def _sink(dsn: str, table: str, **params: object) -> DBSink:
         SinkConfig(
             name="db",
             type="db",
-            params={"dsn": dsn, "table": table, **params},
+            connection={"dsn": dsn, "table": table, **params},
         )
     )
 
@@ -163,7 +163,7 @@ class TestPostgresTimeoutRecovery:
 class TestPostgresConfigValidation:
     def test_missing_dsn_rejected(self) -> None:
         with pytest.raises(ConfigError, match="dsn"):
-            DBSink(SinkConfig(name="db", type="db", params={"table": "t"}))
+            DBSink(SinkConfig(name="db", type="db", connection={"table": "t"}))
 
     def test_invalid_table_name_rejected(self, postgres_service: str) -> None:
         with pytest.raises(ConfigError, match="table"):

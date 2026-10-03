@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue, Quality
@@ -84,7 +84,7 @@ def _cfg(**params: Any) -> SinkConfig:
     return SinkConfig(
         name="s1",
         type="kafka",
-        params={"bootstrap_servers": "localhost:9092", "topic": "t", **params},
+        connection={"bootstrap_servers": "localhost:9092", "topic": "t", **params},
     )
 
 
@@ -111,11 +111,11 @@ def _sent_json(sent: tuple[str, bytes, bytes | None]) -> dict[str, Any]:
 class TestConstruction:
     def test_missing_bootstrap_servers_raises(self) -> None:
         with pytest.raises(ConfigError, match="bootstrap_servers"):
-            KafkaSink(SinkConfig(name="s1", type="kafka", params={"topic": "t"}))
+            KafkaSink(SinkConfig(name="s1", type="kafka", connection={"topic": "t"}))
 
     def test_missing_topic_raises(self) -> None:
         with pytest.raises(ConfigError, match="topic"):
-            KafkaSink(SinkConfig(name="s1", type="kafka", params={"bootstrap_servers": "x:9092"}))
+            KafkaSink(SinkConfig(name="s1", type="kafka", connection={"bootstrap_servers": "x:9092"}))
 
     def test_invalid_key_field_raises(self) -> None:
         with pytest.raises(ConfigError, match="key_field"):

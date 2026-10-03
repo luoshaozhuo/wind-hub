@@ -15,7 +15,7 @@ import pytest
 
 from tests.support.wait import wait_kafka_messages
 from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue
 
@@ -43,7 +43,7 @@ def _sink(bootstrap: str, topic: str, **params: object) -> KafkaSink:
         SinkConfig(
             name="kafka",
             type="kafka",
-            params={"bootstrap_servers": bootstrap, "topic": topic, **params},
+            connection={"bootstrap_servers": bootstrap, "topic": topic, **params},
         )
     )
 
@@ -94,7 +94,7 @@ class TestKafkaProduce:
 class TestKafkaConfigValidation:
     def test_missing_bootstrap_rejected(self) -> None:
         with pytest.raises(ConfigError, match="bootstrap_servers"):
-            KafkaSink(SinkConfig(name="kafka", type="kafka", params={"topic": "t"}))
+            KafkaSink(SinkConfig(name="kafka", type="kafka", connection={"topic": "t"}))
 
     def test_missing_topic_rejected(self, kafka_service: str) -> None:
         with pytest.raises(ConfigError, match="topic"):
@@ -102,7 +102,7 @@ class TestKafkaConfigValidation:
                 SinkConfig(
                     name="kafka",
                     type="kafka",
-                    params={"bootstrap_servers": kafka_service},
+                    connection={"bootstrap_servers": kafka_service},
                 )
             )
 
