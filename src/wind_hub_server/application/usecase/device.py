@@ -46,7 +46,7 @@ class DeviceUseCase:
         self._monitoring = monitoring
         self._config = config
 
-    async def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
+    def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
         """返回配置与最近一次 Collector 运行状态合并后的设备快照。"""
         runtime_rows = self._monitoring.devices_snapshot()
         runtime = {
@@ -77,7 +77,7 @@ class DeviceUseCase:
             ]
         return sorted(rows, key=lambda row: row.device_id)
 
-    async def get_device(self, device_id: str) -> DeviceSnapshot:
+    def get_device(self, device_id: str) -> DeviceSnapshot:
         """返回单设备快照；未知设备抛 KeyError。"""
         cfg = next(
             (
