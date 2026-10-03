@@ -238,6 +238,16 @@ def write_soak_config(
             "create_table": True,
         }
 
+    sink_type = {
+        "null": "file",
+        "kafka": "kafka",
+        "postgres": "db",
+    }[profile.sink]
+    sink_connection = (
+        {"path": str(config_dir / "soak-null.jsonl")}
+        if profile.sink == "null"
+        else sink_params
+    )
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -246,10 +256,18 @@ def write_soak_config(
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
         },
+        "interfaces": {"api": {"enabled": False}},
+    }
+    sinks = {
         "sinks": [
-            {"name": "soak_sink", "type": profile.sink, "enabled": True, "params": sink_params}
-        ],
-        "interfaces": {"api": {"enabled": False}, "cli": {"enabled": False}},
+            {
+                "name": "soak_sink",
+                "type": sink_type,
+                "enabled": True,
+                "connection": sink_connection,
+                "points": [],
+            }
+        ]
     }
     files = {
         config_dir / "units.yaml": {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
@@ -259,6 +277,7 @@ def write_soak_config(
         },
         config_dir / "points.yaml": {"point_tables": point_tables},
         config_dir / "system.yaml": system,
+        config_dir / "sinks.yaml": sinks,
         config_dir / "devices.yaml": {"devices": devices},
         config_dir / "tasks.yaml": {"tasks": tasks},
     }

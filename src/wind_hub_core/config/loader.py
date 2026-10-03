@@ -226,7 +226,7 @@ def load_config(config_dir: str | Path) -> Config:
 
     _validate_model_point_tables(device_models, point_tables)
     _validate_point_units(point_tables, units)
-    _validate_sink_contracts(sinks, devices, point_tables, units)
+    _validate_sinks(sinks, devices, point_tables, units)
     _validate_table_addresses(point_tables)
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
@@ -248,7 +248,7 @@ def load_config(config_dir: str | Path) -> Config:
     )
 
 
-def _validate_sink_contracts(
+def _validate_sinks(
     sinks: SinksConfig,
     devices: DevicesConfig,
     point_tables: ResolvedPointTables,

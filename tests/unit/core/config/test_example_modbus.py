@@ -102,9 +102,9 @@ class TestSiteConfigLoading:
         assert control_group == CONTROL_POINTS
 
     def test_file_archive_sink_enabled(self, site_config) -> None:
-        sinks = {s.name: s for s in site_config.system.sinks}
+        sinks = {s.name: s for s in site_config.sinks.sinks}
         assert sinks["file_archive"].enabled is True
-        assert sinks["file_archive"].params["path"] == "/var/tmp/wind-hub/archive.jsonl"
+        assert sinks["file_archive"].connection.path == "/var/tmp/wind-hub/archive.jsonl"
         assert sinks["kafka_main"].enabled is False
         assert sinks["db_main"].enabled is False
 
