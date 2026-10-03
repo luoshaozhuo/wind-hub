@@ -55,7 +55,7 @@ class SinkUseCase:
         self._config = config
         self._admin = admin
 
-    async def list_sinks(self) -> list[SinkSnapshot]:
+    def list_sinks(self) -> list[SinkSnapshot]:
         """返回配置与最近一次 Collector Sink 运行态。"""
         runtime_rows = self._monitoring.sinks_snapshot()
         runtime = {
@@ -91,9 +91,9 @@ class SinkUseCase:
             )
         return rows
 
-    async def get_sink(self, name: str) -> SinkSnapshot:
+    def get_sink(self, name: str) -> SinkSnapshot:
         """查询单 Sink；不存在抛 KeyError。"""
-        for row in await self.list_sinks():
+        for row in self.list_sinks():
             if row.name == name:
                 return row
         raise KeyError(name)
