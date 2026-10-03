@@ -177,15 +177,22 @@ class MonitoringService:
 
     async def refresh_now(self) -> HostSnapshot:
         """立即刷新一次 Collector 低频状态并记录 HostSnapshot。"""
-        status, metrics, devices, sinks = await asyncio.gather(
-            self._collectors.runtime_status(),
-            self._collectors.metrics_snapshot(),
-            self._collectors.list_devices(),
-            self._collectors.list_sinks(),
-        )
+        snapshot = await self._collectors.snapshot()
+        status = snapshot.get("runtime_status")
+        metrics = snapshot.get("metrics")
+        devices = snapshot.get("devices")
+        sinks = snapshot.get("sinks")
+        if not isinstance(status, dict):
+            raise TypeError("collector snapshot runtime_status must be a mapping")
+        if not isinstance(metrics, dict):
+            raise TypeError("collector snapshot metrics must be a mapping")
+        if not isinstance(devices, list):
+            raise TypeError("collector snapshot devices must be a list")
+        if not isinstance(sinks, list):
+            raise TypeError("collector snapshot sinks must be a list")
         self._runtime_status = dict(status)
-        self._devices = [dict(item) for item in devices]
-        self._sinks = [dict(item) for item in sinks]
+        self._devices = [dict(item) for item in devices if isinstance(item, dict)]
+        self._sinks = [dict(item) for item in sinks if isinstance(item, dict)]
         self._metrics.apply_remote(dict(metrics))
         return self.capture_now()
 
