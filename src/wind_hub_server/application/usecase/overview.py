@@ -49,7 +49,7 @@ class OverviewUseCase:
         self._tasks = tasks
         self._config = config
 
-    async def snapshot(self) -> OverviewSnapshot:
+    def snapshot(self) -> OverviewSnapshot:
         """返回一次一致的当前进程级总览快照。"""
         status = self._monitoring.runtime_status()
         tasks = self._tasks.list_task_summaries()
