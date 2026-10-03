@@ -131,8 +131,6 @@ class ModbusDriver:
 
         self._points: dict[str, ModbusPoint] = {}
         self._connected = False
-        self._failed = False
-        self._shutdown = False
 
 
         # pymodbus client 在 connect 时延迟导入；Any 仅隔离第三方未类型化对象，
@@ -179,7 +177,6 @@ class ModbusDriver:
         async with self._lock:
             if self._connected:
                 return
-            self._shutdown = False
             last_exc = await self._connect_with_retry()
             if last_exc is not None:
                 raise ProtocolError(
@@ -190,16 +187,14 @@ class ModbusDriver:
     async def close(self) -> None:
         """关闭 Modbus client；重复调用安全。"""
         async with self._lock:
-            self._shutdown = True
             self._close_client()
             self._connected = False
-            self._failed = False
 
     async def _connect_with_retry(self) -> Exception | None:
         """执行一次有限预算的指数退避连接。
 
         Returns:
-            成功返回 None；预算耗尽返回最后异常并标记 failed。
+            成功返回 None；预算耗尽返回最后异常。
         """
         backoff = _RECONNECT_BACKOFF_BASE
         last_exc: Exception | None = None
@@ -208,7 +203,6 @@ class ModbusDriver:
             try:
                 await self._do_connect()
                 self._connected = True
-                self._failed = False
                 logger.info(
                     "Modbus: connected to %s:%d (unit %d)",
                     self._config.host,
@@ -234,7 +228,6 @@ class ModbusDriver:
                         backoff * _RECONNECT_BACKOFF_MULTIPLIER,
                         self._config.reconnect_backoff_max,
                     )
-        self._failed = True
         return last_exc
 
     async def _do_connect(self) -> None:
@@ -468,8 +461,6 @@ class ModbusDriver:
 
     def health(self) -> HealthStatus:
         """返回缓存的连接健康状态；不执行实时网络 I/O。"""
-        if self._failed:
-            return HealthStatus(healthy=False, message="FAILED: reconnection retries exhausted")
         if not self._connected:
             return HealthStatus(healthy=False, message="not connected")
         return HealthStatus(healthy=True)
