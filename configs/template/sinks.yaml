@@ -40,4 +40,13 @@ sinks:
       port: 2404
       common_address: 1
       batch_size: 50
+    # 例：
+    # points:
+    #   - source: {device_id: wtg-001, point_id: active_power}
+    #     ref: wtg-001.active_power
+    #     datatype: float32
+    #     unit: kilowatt
+    #     scale: 1.0
+    #     offset: 0.0
+    #     address: {ioa: 1001, type_id: M_ME_NC_1}
     points: []

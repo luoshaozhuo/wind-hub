@@ -15,6 +15,7 @@ from wind_hub_core.config.schema import (
     UnitsConfig,
 )
 from wind_hub_core.config.sinks import (
+    IEC104SinkAddress,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
     ResolvedSinksConfig,
@@ -93,6 +94,7 @@ def _resolve_point(
         )
 
     _validate_transform(sink.name, ref, point, source, datatype)
+    _validate_iec104_type(sink.name, ref, point, datatype)
 
     return ResolvedSinkPoint(
         source=point.source,
@@ -128,6 +130,40 @@ def _validate_transform(
         )
 
 
+
+def _validate_iec104_type(
+    sink_name: str,
+    ref: str,
+    point: SinkPoint,
+    datatype: str,
+) -> None:
+    """校验 IEC104 TypeID 与导出 datatype 的基本值域类型一致性。"""
+    address = point.address
+    if not isinstance(address, IEC104SinkAddress):
+        return
+
+    if address.type_id in {"M_SP_NA_1", "M_SP_TB_1"}:
+        if datatype != "bool":
+            raise ConfigError(
+                f"Sink '{sink_name}' point '{ref}': {address.type_id} requires "
+                f"datatype 'bool', got '{datatype}'"
+            )
+        return
+
+    if address.type_id in {"M_DP_NA_1", "M_DP_TB_1"}:
+        integer_types = {"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"}
+        if datatype not in integer_types:
+            raise ConfigError(
+                f"Sink '{sink_name}' point '{ref}': {address.type_id} requires "
+                f"integer datatype, got '{datatype}'"
+            )
+        return
+
+    if datatype not in SINK_NUMERIC_DATA_TYPES:
+        raise ConfigError(
+            f"Sink '{sink_name}' point '{ref}': {address.type_id} requires numeric "
+            f"datatype, got '{datatype}'"
+        )
 def _raw_ref(point: SinkPoint) -> str:
     return point.ref or f"{point.source.device_id}.{point.source.point_id}"
 

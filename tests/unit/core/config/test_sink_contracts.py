@@ -219,6 +219,23 @@ def test_duplicate_canonical_ref_rejected_after_resolve() -> None:
         with pytest.raises(ConfigError, match="duplicate ref"):
             load_config(site)
 
+def test_iec104_single_point_requires_bool_datatype() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        raw["points"][0]["address"] = {"ioa": 40101, "type_id": "M_SP_NA_1"}  # type: ignore[index]
+        site = _site(Path(td), contracts=[raw])
+        with pytest.raises(ConfigError, match="requires datatype 'bool'"):
+            load_config(site)
+
+
+def test_iec104_single_point_accepts_bool_datatype() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        raw = _iec104_sink()
+        raw["points"][0]["datatype"] = "bool"  # type: ignore[index]
+        raw["points"][0]["address"] = {"ioa": 40101, "type_id": "M_SP_NA_1"}  # type: ignore[index]
+        cfg = load_config(_site(Path(td), contracts=[raw]))
+        assert cfg.sinks.sinks[0].points[0].datatype == "bool"
+
 def test_contract_change_appears_in_diff() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

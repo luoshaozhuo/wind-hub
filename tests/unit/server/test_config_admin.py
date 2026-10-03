@@ -11,6 +11,7 @@ def test_config_file_set_is_stable() -> None:
     assert "sinks.yaml" in CONFIG_FILES
     assert "devices.yaml" in CONFIG_FILES
     assert "tasks.yaml" in CONFIG_FILES
+    assert "reporting.yaml" not in CONFIG_FILES
     assert ".history" not in CONFIG_FILES
 
 
