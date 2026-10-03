@@ -68,6 +68,7 @@ system-e2e
 | Release / tag | `local-release-gate` |
 | hardware/performance/soak | `local-qualification` |
 | 当前 SHA 的相关 CI 失败 | `ci-fix-loop` |
+| 任务分支经 PR 合并回 main | `merge-branch` |
 | rules/skills/hooks/Agent 配置 | `rule-update` |
 
 ## 6. CI 失败

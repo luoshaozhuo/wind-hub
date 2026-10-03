@@ -66,4 +66,3 @@ origin/main
 
 1. 代码内 docstring / 注释按 `comments.md`。
 2. README/docs 仅在任务明确要求或事实已因当前修改陈旧时更新。
-3. 不维护不存在的 project tree、reporting 或 requirement-trace 体系。

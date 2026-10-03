@@ -16,7 +16,7 @@ python3 scripts/dev.py env
 python3 scripts/dev.py env --frontend
 ```
 
-本机工具路径配置在不入库的 `.agent/local.json`；不假设 VS Code 插件继承 shell 或 conda 环境。
+本机工具路径配置在已入库的 `ai_shared/agent_config/local.json`；不假设 VS Code 插件继承 shell 或 conda 环境。
 
 `.env.local` 只用于运行时、真实服务或测试参数，不负责 Python 环境；不得读取或输出敏感值。
 
