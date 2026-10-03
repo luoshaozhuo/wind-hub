@@ -7,25 +7,17 @@ from pathlib import Path
 
 
 def fingerprint_config_set(config_dir: str | Path) -> str:
-    """计算现场 YAML 配置集及同级 common/ 的稳定 SHA-256 指纹。"""
+    """计算自包含现场配置目录的稳定 SHA-256 指纹。"""
     site_dir = Path(config_dir).resolve()
-    roots = [site_dir]
-    common_dir = site_dir.parent / "common"
-    if common_dir.is_dir() and common_dir != site_dir:
-        roots.append(common_dir)
-
     digest = hashlib.sha256()
     files: list[tuple[str, Path]] = []
-    for root in roots:
-        prefix = root.name
-        for path in root.rglob("*"):
-            if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
-                continue
-            relative_path = path.relative_to(root)
-            if ".history" in relative_path.parts:
-                continue
-            relative = relative_path.as_posix()
-            files.append((f"{prefix}/{relative}", path))
+    for path in site_dir.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".yaml", ".yml"}:
+            continue
+        relative_path = path.relative_to(site_dir)
+        if ".history" in relative_path.parts:
+            continue
+        files.append((relative_path.as_posix(), path))
 
     for relative, path in sorted(files):
         digest.update(relative.encode("utf-8"))
