@@ -626,3 +626,68 @@ class TestDispatchPointValues:
         assert len(received) == 1
         assert received[0].point_id == "sp1"
         assert received[0].value is True
+
+
+class _ReconnectSession:
+    instances: list["_ReconnectSession"] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        self.is_started = False
+        self.sent: list[ASDU] = []
+        self._closed = asyncio.Event()
+        _ReconnectSession.instances.append(self)
+
+    def set_points_mapping(self, *args: object) -> None:
+        pass
+
+    def set_on_asdu(self, *args: object) -> None:
+        pass
+
+    async def start(self) -> None:
+        self.is_started = True
+
+    async def wait_closed(self) -> None:
+        await self._closed.wait()
+
+    async def close(self) -> None:
+        self.is_started = False
+        self._closed.set()
+
+    def send_asdu(self, asdu: ASDU) -> None:
+        self.sent.append(asdu)
+
+
+class TestReconnectSubscriptionRecovery:
+    async def test_reconnect_with_subscription_sends_general_interrogation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import wind_hub_core.protocol.iec104.driver as driver_module
+
+        monkeypatch.setattr(driver_module, "_RECONNECT_BACKOFF_BASE", 0.01)
+        monkeypatch.setattr(driver_module, "IEC104Session", _ReconnectSession)
+        _ReconnectSession.instances = []
+
+        driver = IEC104Driver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("p1", 100)])
+
+        async def cb(pv: PointValue) -> None:
+            pass
+
+        await driver.subscribe([PointRef(device_id="d1", point_id="p1")], cb)
+
+        task = asyncio.create_task(driver._monitor_loop())  # noqa: SLF001
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if _ReconnectSession.instances and _ReconnectSession.instances[-1].sent:
+                break
+
+        assert _ReconnectSession.instances
+        session = _ReconnectSession.instances[-1]
+        assert session.is_started is True
+        assert len(session.sent) == 1
+        assert session.sent[0].type_id is TypeID.C_IC_NA_1
+        assert driver._subscriptions.ioa_count == 1  # noqa: SLF001
+
+        driver._shutdown = True  # noqa: SLF001
+        await session.close()
+        await asyncio.wait_for(task, timeout=1.0)
