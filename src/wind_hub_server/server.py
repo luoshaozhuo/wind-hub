@@ -198,7 +198,6 @@ async def run_server(settings: ServerSettings) -> int:
     """Run the Server-owned API and management composition."""
     logging.basicConfig(level=logging.INFO)
 
-    startup_config = ConfigUseCase.load_directory(settings.config_dir)
     runtime = assemble_server(
         settings.config_dir,
         collectors=settings.collector_endpoints,
