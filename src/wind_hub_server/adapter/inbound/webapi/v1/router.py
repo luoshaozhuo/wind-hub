@@ -13,11 +13,7 @@ from fastapi import APIRouter, Query, Response
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.v1.models import (
-    AdminDefinitionsRequest,
-    AdminDevicesRequest,
-    AdminSinksRequest,
     AdminStateRequest,
-    AdminTasksRequest,
     ConfigApplyResponse,
     ConfigContentResponse,
     ConfigFileResponse,
@@ -65,10 +61,7 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
 from wind_hub_server.application.operation import OperationRecord
 from wind_hub_server.application.usecase.admin_state import (
     AdminDefinitionsState,
-    AdminDeviceItem,
-    AdminSinkItem,
     AdminStateUseCase,
-    AdminTaskItem,
 )
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
@@ -808,58 +801,6 @@ async def get_system_health(
 
 
 # ------------------------------ Final integration: structured config writes
-
-@router.put(
-    "/admin-state/devices",
-    response_model=ConfigApplyResponse,
-    tags=["v1-admin-state"],
-)
-async def replace_admin_devices(
-    request: AdminDevicesRequest,
-) -> ConfigApplyResponse:
-    result = await _admin_state().replace_devices(
-        [AdminDeviceItem(**item.model_dump()) for item in request.items]
-    )
-    return ConfigApplyResponse(**result.model_dump())
-
-
-@router.put(
-    "/admin-state/tasks",
-    response_model=ConfigApplyResponse,
-    tags=["v1-admin-state"],
-)
-async def replace_admin_tasks(request: AdminTasksRequest) -> ConfigApplyResponse:
-    result = await _admin_state().replace_tasks(
-        [AdminTaskItem(**item.model_dump()) for item in request.items]
-    )
-    return ConfigApplyResponse(**result.model_dump())
-
-
-@router.put(
-    "/admin-state/sinks",
-    response_model=ConfigApplyResponse,
-    tags=["v1-admin-state"],
-)
-async def replace_admin_sinks(request: AdminSinksRequest) -> ConfigApplyResponse:
-    result = await _admin_state().replace_sinks(
-        [AdminSinkItem(**item.model_dump()) for item in request.items]
-    )
-    return ConfigApplyResponse(**result.model_dump())
-
-
-@router.put(
-    "/admin-state/definitions",
-    response_model=ConfigApplyResponse,
-    tags=["v1-admin-state"],
-)
-async def replace_admin_definitions(
-    request: AdminDefinitionsRequest,
-) -> ConfigApplyResponse:
-    result = await _admin_state().replace_definitions(
-        AdminDefinitionsState(**request.model_dump())
-    )
-    return ConfigApplyResponse(**result.model_dump())
-
 
 @router.put(
     "/admin-state",
