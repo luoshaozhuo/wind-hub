@@ -81,13 +81,13 @@ class ModbusSinkStore:
             value.address + offset for offset in range(len(value.registers))
         ]
         self._require_declared(
-            space,
+            register_space,
             value.unit_id,
             value.register_type,
             addresses,
         )
         for address, register in zip(addresses, value.registers, strict=True):
-            space[address] = register
+            register_space[address] = register
 
     def read_bits(
         self,
