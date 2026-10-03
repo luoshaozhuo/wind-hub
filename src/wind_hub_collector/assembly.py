@@ -4,7 +4,7 @@
 需要的对象图：
 
 Protocol / Device / Sink -> AcquisitionEngine -> Runtime
-                           -> TaskUseCase / CommandUseCase / QueryUseCase / ConfigUseCase
+                           -> TaskUseCase / QueryUseCase / ConfigUseCase
 
 Admin、Overview、Quality、Web API、长期日志与 System Health 不属于 Collector
 组合根；按需 Diagnostics 与运行时配置 reload 属于 Collector 核心控制面。
@@ -33,7 +33,6 @@ from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Device, Runtime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
-from wind_hub_collector.application.usecase.command import CommandUseCase
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.diagnostic import DiagnosticUseCase
 from wind_hub_collector.application.usecase.query import QueryUseCase
@@ -64,7 +63,6 @@ class AssembledRuntime:
         dispatcher: 设备写指令分发器。
         sinks: 已装配的 Sink 实例注册表。
         tasks: Task / Task Instance 控制用例。
-        command: 写指令用例。
         query: 只读查询用例。
         diagnostic: 按需现场诊断用例。
         config: 本地 YAML 增量热重载用例。
@@ -77,7 +75,6 @@ class AssembledRuntime:
     dispatcher: CommandDispatcher
     sinks: dict[str, SinkPort]
     tasks: TaskUseCase
-    command: CommandUseCase
     query: QueryUseCase
     diagnostic: DiagnosticUseCase
     config: ConfigUseCase
@@ -145,7 +142,6 @@ def assemble(
     )
 
     tasks = TaskUseCase(runtime)
-    command = CommandUseCase(dispatcher, runtime)
     query = QueryUseCase(runtime)
     diagnostic = DiagnosticUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
@@ -165,7 +161,6 @@ def assemble(
         dispatcher=dispatcher,
         sinks=sinks,
         tasks=tasks,
-        command=command,
         query=query,
         diagnostic=diagnostic,
         config=config,
