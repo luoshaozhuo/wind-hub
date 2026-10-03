@@ -62,13 +62,6 @@ class ProtocolRegistry:
             )
         return factory(cfg)
 
-    def names(self) -> list[str]:
-        """返回已注册协议名，按字典序排列。"""
-        return sorted(self._factories)
-
-    def is_registered(self, name: str) -> bool:
-        """判断协议名是否已注册 factory。"""
-        return name in self._factories
 
 
 # ---------------------------------------------------------------------------
