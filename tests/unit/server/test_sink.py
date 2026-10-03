@@ -29,7 +29,7 @@ async def test_verify_preserves_per_worker_results() -> None:
     assignments = MagicMock()
     assignments.worker_ids_for_sink.return_value = ["collector-a", "collector-b"]
     config = MagicMock()
-    config.current_config.system.sinks = [SimpleNamespace(name="archive")]
+    config.current_config.sinks.sinks = [SimpleNamespace(name="archive")]
 
     usecase = SinkUseCase(
         directory,

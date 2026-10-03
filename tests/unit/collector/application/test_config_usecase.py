@@ -34,12 +34,12 @@ from wind_hub_collector.application.runtime import Runtime
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.loader import load_config
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
     PointConfig,
-    SinkConfig,
     TaskTarget,
 )
 from wind_hub_core.model.device import Endpoint
@@ -188,7 +188,7 @@ async def test_reload_invalid_task_reference_aborts(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         points=[_make_point()],
     )
     runtime = _mock_runtime()
@@ -198,7 +198,7 @@ async def test_reload_invalid_task_reference_aborts(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         points=[_make_point()],
         tasks=[_make_task(sink="no-such-sink")],
     )
@@ -284,7 +284,7 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
     )
     runtime = _mock_runtime()
     usecase = _usecase(tmp_path, runtime)
@@ -292,7 +292,7 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d2")],  # d1 删除、d2 新增
-        sinks=[SinkConfig(name="s1", type="kafka")],  # s1 变更
+        sinks=[SinkConfig(name="s1", type="kafka", connection={"bootstrap_servers": "localhost:9092", "topic": "s1"})],  # s1 变更
     )
     result = await usecase.reload()
 
@@ -312,7 +312,7 @@ async def test_reload_task_changes_reach_runtime(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         points=[_make_point()],
         tasks=[_make_task("task-1")],
     )
@@ -322,7 +322,7 @@ async def test_reload_task_changes_reach_runtime(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         points=[_make_point()],
         tasks=[_make_task("task-1", interval=2.0), _make_task("task-2")],
     )
@@ -346,7 +346,7 @@ async def test_compute_diff_detects_tasks_added_removed_updated(tmp_path: Path) 
     """Task diff 四分类：added / removed / updated / unchanged。"""
     base_kwargs = {
         "devices": [_make_device("d1")],
-        "sinks": [SinkConfig(name="s1", type="file")],
+        "sinks": [SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         "points": [_make_point()],
     }
     _write_configs(
@@ -408,7 +408,7 @@ async def test_compute_diff_identical_configs_report_no_changes(tmp_path: Path) 
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[SinkConfig(name="s1", type="file", connection={"path": "/tmp/s1.jsonl"})],
         points=[_make_point()],
         tasks=[_make_task("task-1")],
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from wind_hub_core.config.sinks import SinkConfig, SinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     DeviceConfig,
@@ -16,7 +17,6 @@ from wind_hub_core.config.schema import (
     PointTablesConfig,
     ResolvedPointTable,
     RuntimeConfig,
-    SinkConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,
@@ -30,32 +30,40 @@ from wind_hub_core.model.errors import ConfigError
 
 
 class TestSinkConfig:
+    @staticmethod
+    def _file(name: str) -> SinkConfig:
+        return SinkConfig(
+            name=name,
+            type="file",
+            connection={"path": f"/tmp/{name}.jsonl"},
+        )
+
     def test_duplicate_sink_names_raises(self) -> None:
-        sinks = [
-            SinkConfig(name="kafka", type="kafka"),
-            SinkConfig(name="kafka", type="kafka"),
-        ]
         with pytest.raises(ConfigError, match="Duplicate"):
-            SystemConfig(sinks=sinks)
+            SinksConfig(sinks=[self._file("archive"), self._file("archive")])
 
     def test_unique_sink_names_ok(self) -> None:
-        sinks = [
-            SinkConfig(name="kafka", type="kafka"),
-            SinkConfig(name="file", type="file"),
-        ]
-        cfg = SystemConfig(sinks=sinks)
+        cfg = SinksConfig(
+            sinks=[
+                self._file("archive"),
+                SinkConfig(
+                    name="kafka",
+                    type="kafka",
+                    connection={"bootstrap_servers": "localhost:9092", "topic": "raw"},
+                ),
+            ]
+        )
         assert len(cfg.sinks) == 2
 
-    def test_defaults(self) -> None:
+    def test_system_config_has_no_sinks(self) -> None:
         cfg = SystemConfig()
         assert cfg.runtime.queue_maxsize == 1000
         assert cfg.runtime.backpressure_policy == "drop_old"
-        assert not hasattr(cfg, "pipeline")  # 处理链已删除——extra="forbid" 拒绝旧配置
-        assert cfg.sinks == []
+        assert not hasattr(cfg, "pipeline")
+        assert not hasattr(cfg, "sinks")
         assert cfg.interfaces.api.port == 8080
 
     def test_no_scheduler_section(self) -> None:
-        """scheduler/default_interval/max_concurrent_devices 已移除。"""
         cfg = SystemConfig()
         assert not hasattr(cfg, "scheduler")
         assert not hasattr(cfg.runtime, "default_interval")

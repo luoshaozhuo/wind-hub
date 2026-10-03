@@ -9,11 +9,6 @@ runtime:
   queue_maxsize: 100
   backpressure_policy: drop_old
 
-sinks:
-  - name: null_sink
-    type: "null"
-    enabled: true
-    params: {}
 
 interfaces:
   api:

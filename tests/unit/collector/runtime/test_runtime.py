@@ -39,6 +39,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
+from wind_hub_core.config.sinks import SinkConfig, SinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -49,7 +50,6 @@ from wind_hub_core.config.schema import (
     ResolvedPointTable,
     ResolvedPointTables,
     RuntimeConfig,
-    SinkConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,
@@ -249,9 +249,16 @@ def _full_config(
     if tables is None:
         tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
     return Config(
-        system=SystemConfig(
-            runtime=_runtime_config(),
-            sinks=[SinkConfig(name=n, type="file") for n in sink_names],
+        system=SystemConfig(runtime=_runtime_config()),
+        sinks=SinksConfig(
+            sinks=[
+                SinkConfig(
+                    name=n,
+                    type="file",
+                    connection={"path": f"/tmp/{n}.jsonl"},
+                )
+                for n in sink_names
+            ]
         ),
         units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=list(devices)),

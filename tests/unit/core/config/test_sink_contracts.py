@@ -59,7 +59,7 @@ def _site(base: Path, *, contracts: list[dict[str, object]]) -> Path:
             }
         ],
         point_tables={"t1": {"points": [_point()]}},
-        sink_contracts=contracts,
+        sinks=contracts,
     )
 
 
@@ -128,7 +128,7 @@ def test_contract_change_appears_in_diff() -> None:
         old_dir = _site(root / "old", contracts=[_iec104_sink(40101)])
         new_dir = _site(root / "new", contracts=[_iec104_sink(40102)])
         diff = compute_diff(load_config(old_dir), load_config(new_dir))
-        assert diff.sink_contracts.updated == ["iec104_scada"]
+        assert diff.sinks.updated == ["iec104_scada"]
         assert diff.has_any_changes
 
 
