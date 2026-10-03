@@ -30,6 +30,21 @@ SINK_DATA_TYPES = frozenset(
     }
 )
 
+SINK_NUMERIC_DATA_TYPES = frozenset(
+    {
+        "float32",
+        "float64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+    }
+)
+
 
 class SinkSource(BaseModel):
     """Sink 点引用的内部稳定身份。"""
@@ -213,30 +228,48 @@ _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
 
 
 class SinkPoint(BaseModel):
-    """单个外部 Sink 点定义。"""
+    """sinks.yaml 中的原始外部点定义。
+
+    ref / datatype / unit 允许省略；完整 Config 加载时由 resolve_sinks
+    根据 source 绑定的内部点补全。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     source: SinkSource
     ref: str | None = None
-    datatype: str = "float32"
-    unit: str = "none"
+    datatype: str | None = None
+    unit: str | None = None
     scale: float = 1.0
     offset: float = 0.0
     address: SinkAddress
 
     @model_validator(mode="after")
     def _validate_point(self) -> "SinkPoint":
-        if self.ref is None:
-            self.ref = f"{self.source.device_id}.{self.source.point_id}"
-        elif not self.ref.strip():
+        if self.ref is not None and not self.ref.strip():
             raise ConfigError("Sink point ref must be non-empty")
-        if self.datatype not in SINK_DATA_TYPES:
+        if self.datatype is not None and self.datatype not in SINK_DATA_TYPES:
             raise ConfigError(
-                f"Sink point '{self.ref}': unknown datatype '{self.datatype}'"
+                f"Sink point '{self.ref or self.source.point_id}': "
+                f"unknown datatype '{self.datatype}'"
             )
         return self
 
+
+class ResolvedSinkPoint(BaseModel):
+    """完成 source 引用解析后的运行时 Sink 点定义。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: SinkSource
+    ref: str
+    source_data_type: str
+    source_unit: str
+    datatype: str
+    unit: str
+    scale: float = 1.0
+    offset: float = 0.0
+    address: SinkAddress
 
 class SinkConfig(BaseModel):
     """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
@@ -331,6 +364,11 @@ class SinkConfig(BaseModel):
         return self
 
 
+class ResolvedSinkConfig(SinkConfig):
+    """Runtime 直接消费的 Sink 定义；points 已全部解析为稳定引用。"""
+
+    points: list[ResolvedSinkPoint] = Field(default_factory=list)
+
 class SinksConfig(BaseModel):
     """sinks.yaml 顶层配置。"""
 
@@ -345,6 +383,20 @@ class SinksConfig(BaseModel):
             raise ConfigError(f"Duplicate sink names: {names}")
         return self
 
+
+class ResolvedSinksConfig(BaseModel):
+    """完成跨文件解析后的 Sink 配置集。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sinks: list[ResolvedSinkConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_unique_names(self) -> "ResolvedSinksConfig":
+        names = [sink.name for sink in self.sinks]
+        if len(names) != len(set(names)):
+            raise ConfigError(f"Duplicate sink names: {names}")
+        return self
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
     if isinstance(address, StreamSinkAddress):
@@ -364,6 +416,7 @@ def _address_key(address: SinkAddress) -> tuple[object, ...]:
 __all__ = [
     "SINK_TYPES",
     "SINK_DATA_TYPES",
+    "SINK_NUMERIC_DATA_TYPES",
     "SinkSource",
     "FileSinkConnection",
     "KafkaSinkConnection",
@@ -376,6 +429,9 @@ __all__ = [
     "OPCUASinkAddress",
     "ModbusSinkAddress",
     "SinkPoint",
+    "ResolvedSinkPoint",
     "SinkConfig",
+    "ResolvedSinkConfig",
     "SinksConfig",
+    "ResolvedSinksConfig",
 ]
