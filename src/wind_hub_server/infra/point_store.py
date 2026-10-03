@@ -38,7 +38,7 @@ class InMemoryControlReadbackLatestStore:
             }
 
 
-class InMemoryControlReadbackControlReadbackTrendStore:
+class InMemoryControlReadbackTrendStore:
     """每个 device/point 使用有界 deque 的控制回读短期趋势缓存。"""
 
     def __init__(self, max_samples_per_point: int = 3600) -> None:

@@ -43,7 +43,7 @@ from wind_hub_server.application.worker_model import (
 )
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
-from wind_hub_server.infra.point_store import InMemoryControlReadbackLatestStore, InMemoryControlReadbackControlReadbackTrendStore
+from wind_hub_server.infra.point_store import InMemoryControlReadbackLatestStore, InMemoryControlReadbackTrendStore
 
 
 @dataclass(slots=True)
@@ -78,8 +78,8 @@ def assemble_server(
     }
     commander_client = CommanderGrpcClient(commander)
 
-    latest = InMemoryControlReadbackLatestStore()
-    trend = InMemoryControlReadbackControlReadbackTrendStore(max_samples_per_point=3600)
+    readback_latest = InMemoryControlReadbackLatestStore()
+    readback_trend = InMemoryControlReadbackTrendStore(max_samples_per_point=3600)
     monitoring_metrics = MonitoringMetrics()
     log_store = LogStore(capacity=2000)
 

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.infra.point_store import InMemoryControlReadbackLatestStore, InMemoryControlReadbackControlReadbackTrendStore
+from wind_hub_server.infra.point_store import InMemoryControlReadbackLatestStore, InMemoryControlReadbackTrendStore
 
 
 def _value(point_id: str, value: float, seconds: int = 0) -> PointValue:
@@ -23,7 +23,7 @@ def test_latest_store_overwrites_by_device_and_point() -> None:
 
 
 def test_trend_store_is_bounded_and_ordered() -> None:
-    store = InMemoryControlReadbackControlReadbackTrendStore(max_samples_per_point=2)
+    store = InMemoryControlReadbackTrendStore(max_samples_per_point=2)
     store.append_batch([_value("p1", 1.0), _value("p1", 2.0), _value("p1", 3.0)])
 
     rows = store.query("d1", {"p1"}, limit_per_point=10)
