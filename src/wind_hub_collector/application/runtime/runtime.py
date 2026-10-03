@@ -557,7 +557,7 @@ class Runtime:
                     device_id=device_id,
                     point_group=task.point_group,
                     interval=task.interval,
-                    targets=[t.sink for t in task.targets],
+                    targets=tuple(t.sink for t in task.targets),
                 )
         return desired
 
