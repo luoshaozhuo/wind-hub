@@ -90,6 +90,16 @@ class CollectorRuntimeServiceStub:
                 request_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
                 response_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
                 _registered_method=True)
+        self.GetLatestTelemetry = channel.unary_unary(
+                '/windhub.collector.v1.CollectorRuntimeService/GetLatestTelemetry',
+                request_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestRequest.SerializeToString,
+                response_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestResponse.FromString,
+                _registered_method=True)
+        self.GetTelemetryTrend = channel.unary_unary(
+                '/windhub.collector.v1.CollectorRuntimeService/GetTelemetryTrend',
+                request_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendRequest.SerializeToString,
+                response_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendResponse.FromString,
+                _registered_method=True)
 
 
 class CollectorRuntimeServiceServicer:
@@ -161,6 +171,18 @@ class CollectorRuntimeServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetLatestTelemetry(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTelemetryTrend(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -218,6 +240,16 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
                     servicer.WriteTestSink,
                     request_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.SinkRequest.FromString,
                     response_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.SinkOperationResponse.SerializeToString,
+            ),
+            'GetLatestTelemetry': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLatestTelemetry,
+                    request_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestRequest.FromString,
+                    response_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestResponse.SerializeToString,
+            ),
+            'GetTelemetryTrend': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTelemetryTrend,
+                    request_deserializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendRequest.FromString,
+                    response_serializer=wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -517,6 +549,60 @@ class CollectorRuntimeService:
             '/windhub.collector.v1.CollectorRuntimeService/WriteTestSink',
             wind__hub__core_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
             wind__hub__core_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLatestTelemetry(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.collector.v1.CollectorRuntimeService/GetLatestTelemetry',
+            wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestRequest.SerializeToString,
+            wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryLatestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTelemetryTrend(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.collector.v1.CollectorRuntimeService/GetTelemetryTrend',
+            wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendRequest.SerializeToString,
+            wind__hub__core_dot_rpc_dot_collector__pb2.TelemetryTrendResponse.FromString,
             options,
             channel_credentials,
             insecure,

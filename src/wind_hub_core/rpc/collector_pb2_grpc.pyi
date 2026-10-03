@@ -43,6 +43,8 @@ class CollectorRuntimeServiceStub:
     ListSinks: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]
     VerifySink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
     WriteTestSink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
+    GetLatestTelemetry: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TelemetryLatestRequest, _collector_pb2.TelemetryLatestResponse]
+    GetTelemetryTrend: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TelemetryTrendRequest, _collector_pb2.TelemetryTrendResponse]
 
 @_typing.type_check_only
 class CollectorRuntimeServiceAsyncStub(CollectorRuntimeServiceStub):
@@ -58,6 +60,8 @@ class CollectorRuntimeServiceAsyncStub(CollectorRuntimeServiceStub):
     ListSinks: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]  # type: ignore[assignment]
     VerifySink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
     WriteTestSink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
+    GetLatestTelemetry: _aio.UnaryUnaryMultiCallable[_collector_pb2.TelemetryLatestRequest, _collector_pb2.TelemetryLatestResponse]  # type: ignore[assignment]
+    GetTelemetryTrend: _aio.UnaryUnaryMultiCallable[_collector_pb2.TelemetryTrendRequest, _collector_pb2.TelemetryTrendResponse]  # type: ignore[assignment]
 
 class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -136,6 +140,20 @@ class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
         request: _collector_pb2.SinkRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_collector_pb2.SinkOperationResponse, _abc.Awaitable[_collector_pb2.SinkOperationResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetLatestTelemetry(
+        self,
+        request: _collector_pb2.TelemetryLatestRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.TelemetryLatestResponse, _abc.Awaitable[_collector_pb2.TelemetryLatestResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetTelemetryTrend(
+        self,
+        request: _collector_pb2.TelemetryTrendRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.TelemetryTrendResponse, _abc.Awaitable[_collector_pb2.TelemetryTrendResponse]]: ...
 
 def add_CollectorRuntimeServiceServicer_to_server(servicer: CollectorRuntimeServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...
 

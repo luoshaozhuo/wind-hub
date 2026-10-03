@@ -9,6 +9,7 @@ from google.protobuf import message as _message
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf import wrappers_pb2 as _wrappers_pb2
 from google.protobuf.internal import containers as _containers
+from wind_hub_core.rpc import commander_pb2 as _commander_pb2
 import builtins as _builtins
 import sys
 import typing as _typing
@@ -694,6 +695,118 @@ class SinkOperationResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___SinkOperationResponse: _TypeAlias = SinkOperationResponse  # noqa: Y015
+
+@_typing.final
+class TelemetryLatestRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        device_id: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TelemetryLatestRequest: _TypeAlias = TelemetryLatestRequest  # noqa: Y015
+
+@_typing.final
+class TelemetryLatestResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedCompositeFieldContainer[_commander_pb2.PointValueMessage]: ...
+    def __init__(
+        self,
+        *,
+        values: _abc.Iterable[_commander_pb2.PointValueMessage] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TelemetryLatestResponse: _TypeAlias = TelemetryLatestResponse  # noqa: Y015
+
+@_typing.final
+class TelemetryTrendRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    POINT_IDS_FIELD_NUMBER: _builtins.int
+    SINCE_FIELD_NUMBER: _builtins.int
+    LIMIT_PER_POINT_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    limit_per_point: _builtins.int
+    @_builtins.property
+    def point_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    @_builtins.property
+    def since(self) -> _timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        device_id: _builtins.str = ...,
+        point_ids: _abc.Iterable[_builtins.str] | None = ...,
+        since: _timestamp_pb2.Timestamp | None = ...,
+        limit_per_point: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["since", b"since"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "limit_per_point", b"limit_per_point", "point_ids", b"point_ids", "since", b"since"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TelemetryTrendRequest: _TypeAlias = TelemetryTrendRequest  # noqa: Y015
+
+@_typing.final
+class TelemetryPointSeries(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    SAMPLES_FIELD_NUMBER: _builtins.int
+    point_id: _builtins.str
+    @_builtins.property
+    def samples(self) -> _containers.RepeatedCompositeFieldContainer[_commander_pb2.PointValueMessage]: ...
+    def __init__(
+        self,
+        *,
+        point_id: _builtins.str = ...,
+        samples: _abc.Iterable[_commander_pb2.PointValueMessage] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["point_id", b"point_id", "samples", b"samples"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TelemetryPointSeries: _TypeAlias = TelemetryPointSeries  # noqa: Y015
+
+@_typing.final
+class TelemetryTrendResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SERIES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def series(self) -> _containers.RepeatedCompositeFieldContainer[Global___TelemetryPointSeries]: ...
+    def __init__(
+        self,
+        *,
+        series: _abc.Iterable[Global___TelemetryPointSeries] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["series", b"series"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TelemetryTrendResponse: _TypeAlias = TelemetryTrendResponse  # noqa: Y015
 
 @_typing.final
 class DeviceDiffMessage(_message.Message):
