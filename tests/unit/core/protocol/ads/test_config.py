@@ -16,7 +16,7 @@ def _cfg(**extensions: object) -> DeviceConfig:
         point_table="t1",
         endpoint=Endpoint(
             host="192.168.0.100",
-            port=48898,
+            port=801,
             extensions=dict(extensions),
         ),
     )
@@ -37,31 +37,17 @@ def test_custom_target_net_id() -> None:
     assert c.target_net_id == "192.168.0.100.1.1"
 
 
-def test_ams_port_alias() -> None:
-    c = from_device_config(_cfg(target_net_id="1.1.1.1.1.1", ams_port=852))
-    assert c.target_port == 852
-
-
-def test_target_port_override() -> None:
-    c = from_device_config(_cfg(target_net_id="1.1.1.1.1.1", target_port=900))
-    assert c.target_port == 900
-
-
-def test_twincat_version_3_defaults_port_851() -> None:
-    c = from_device_config(_cfg(twincat_version="3"))
-    assert c.twincat_version == "3"
+def test_endpoint_port_is_ams_runtime_port() -> None:
+    cfg = _cfg()
+    cfg.endpoint.port = 851
+    c = from_device_config(cfg)
     assert c.target_port == 851
 
 
-def test_twincat_version_2_defaults_port_801() -> None:
-    c = from_device_config(_cfg(twincat_version="2"))
-    assert c.twincat_version == "2"
+def test_twincat_version_does_not_override_explicit_runtime_port() -> None:
+    c = from_device_config(_cfg(twincat_version="3"))
+    assert c.twincat_version == "3"
     assert c.target_port == 801
-
-
-def test_twincat_version_port_can_be_overridden() -> None:
-    c = from_device_config(_cfg(twincat_version="2", target_port=900))
-    assert c.target_port == 900
 
 
 def test_invalid_twincat_version_raises() -> None:
@@ -78,7 +64,7 @@ def test_read_mode_sequential() -> None:
         device_id="test-dev",
         protocol="ads",
         point_table="t1",
-        endpoint=Endpoint(host="192.168.0.100", port=48898),
+        endpoint=Endpoint(host="192.168.0.100", port=801),
         read_mode="sequential",
     )
     assert from_device_config(cfg).read_mode == "sequential"
