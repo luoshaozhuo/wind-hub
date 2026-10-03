@@ -23,7 +23,7 @@ from tests.component.collector.conftest import (
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.support.process import free_port
 from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
-from wind_hub_core.model.errors import CommandError
+from wind_hub_core.model.point import PointRef
 
 pytestmark = pytest.mark.modbus
 
@@ -32,6 +32,13 @@ POINTS = "points.yaml"
 DEVICES = "devices.yaml"
 MODELS = "device_models.yaml"
 SYSTEM = "system.yaml"
+
+
+async def _read_runtime_point(rt, device_id: str, point_id: str):
+    device = rt.runtime.devices[device_id]
+    values = await device.read_points([PointRef(device_id=device_id, point_id=point_id)])
+    assert values
+    return values[0]
 
 
 def _group_task() -> dict[str, Any]:
@@ -164,7 +171,7 @@ class TestPointTableChanges:
             assert [p.point_id for p in device.points] == ["alt.metric"]
 
             # 新绑定立即可读（轻量路径不断连）。
-            value = await ctx.rt.query.read_point("modbus-1", "alt.metric")
+            value = await _read_runtime_point(ctx.rt, "modbus-1", "alt.metric")
             assert value.value == pytest.approx(1200.5)
 
 
@@ -190,7 +197,7 @@ class TestDeviceGroupChanges:
             assert instance_ids == {"grp-telemetry:modbus-1", "grp-telemetry:modbus-2"}
 
             # 新设备立即可读（unit 2 的 fixture 值）。
-            value = await ctx.rt.query.read_point("modbus-2", "rotor.speed")
+            value = await _read_runtime_point(ctx.rt, "modbus-2", "rotor.speed")
             assert value.value == pytest.approx(900.5)
 
     async def test_device_group_change_leaves_group_task(self, runtime_factory) -> None:
@@ -240,7 +247,7 @@ class TestDeviceGroupChanges:
             assert instance_ids == {"grp-telemetry:modbus-1"}
 
             with pytest.raises(CommandError, match="unknown device"):
-                await ctx.rt.query.read_point("modbus-2", "rotor.speed")
+                await _read_runtime_point(ctx.rt, "modbus-2", "rotor.speed")
 
 
 class TestEndpointRebuild:
@@ -260,7 +267,7 @@ class TestEndpointRebuild:
         rt = assemble(config_dir, sink_factory=functional_sink_factory)
         await start_runtime(rt)
         try:
-            value = await rt.query.read_point("modbus-1", "temp.int")
+            value = await _read_runtime_point(rt, "modbus-1", "temp.int")
             assert value.value == 25
 
             def mutate(data: dict[str, Any]) -> None:
@@ -273,7 +280,7 @@ class TestEndpointRebuild:
             assert result.diff.devices.updated == ["modbus-1"]
 
             # 重建后读到的是 server B 的值——连接确实切换了对端。
-            value = await rt.query.read_point("modbus-1", "temp.int")
+            value = await _read_runtime_point(rt, "modbus-1", "temp.int")
             assert value.value == 77
         finally:
             await stop_runtime(rt)
