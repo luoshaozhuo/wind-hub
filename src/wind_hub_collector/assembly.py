@@ -130,7 +130,6 @@ def assemble(
         devices=devices,
         sinks=sinks,
         engine=engine,
-        dispatcher=dispatcher,
         config=cfg.system.runtime,
         tasks={task.task_id: task for task in cfg.tasks.tasks},
         protocol_factory=_create_protocol,
