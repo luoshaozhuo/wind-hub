@@ -33,6 +33,7 @@ import pytest
 from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub_collector.application.runtime.device import Device
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,

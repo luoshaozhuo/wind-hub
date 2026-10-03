@@ -122,6 +122,7 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "config",
             "iec104_slave",
             "metrics_state",
+            "telemetry_store",
             "diagnostic",
         }
         assert set(assembled.__dataclass_fields__) == expected

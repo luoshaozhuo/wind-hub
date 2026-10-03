@@ -26,6 +26,8 @@ _RUNTIME_METHODS = [
     "ListSinks",
     "VerifySink",
     "WriteTestSink",
+    "GetLatestTelemetry",
+    "GetTelemetryTrend",
 ]
 
 _CONTROL_METHODS = [
