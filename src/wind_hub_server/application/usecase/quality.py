@@ -11,11 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.port.monitoring import (
-    HostSnapshot,
-    MonitoringMetricsQueryPort,
-    MonitoringSnapshotPort,
-)
+from wind_hub_server.application.port.monitoring import HostSnapshot, MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
@@ -99,11 +95,9 @@ class QualityUseCase:
     def __init__(
         self,
         config: ConfigUseCase,
-        metrics: MonitoringMetricsQueryPort,
         monitoring: MonitoringSnapshotPort,
     ) -> None:
         self._config = config
-        self._metrics = metrics
         self._monitoring = monitoring
 
     async def snapshot(
@@ -132,7 +126,7 @@ class QualityUseCase:
                 state="Active" if event.kind.endswith("failed") else "Recovered",
                 evidence=event.message,
             )
-            for event in self._metrics.events_since(since)
+            for event in self._monitoring.events_since(since)
         ]
         issues = self._issues()
         stale = sum(
@@ -318,7 +312,7 @@ class QualityUseCase:
                 if isinstance(item, dict)
                 and item.get("last_duration") is not None
             ]
-            failures, reconnects = self._metrics.device_counts(device_id)
+            failures, reconnects = self._monitoring.device_counts(device_id)
             connected = bool(device.get("connected"))
             rows.append(
                 QualityChannel(
