@@ -246,6 +246,135 @@ def test_contract_change_appears_in_diff() -> None:
         assert diff.has_any_changes
 
 
+def _modbus_site(
+    base: Path,
+    *,
+    sink_points: list[dict[str, object]],
+    source_points: list[dict[str, object]],
+) -> Path:
+    return write_config_tree(
+        base,
+        devices=[
+            {
+                "device_id": "wt01",
+                "protocol": "modbus",
+                "point_table": "t1",
+                "endpoint": {"host": "10.0.0.1", "port": 502},
+            }
+        ],
+        point_tables={"t1": {"points": source_points}},
+        sinks=[
+            {
+                "name": "modbus_scada",
+                "type": "modbus",
+                "connection": {"host": "0.0.0.0", "port": 1502},
+                "points": sink_points,
+            }
+        ],
+    )
+
+
+def _source_point(
+    point_id: str,
+    data_type: str,
+    address: int,
+) -> dict[str, object]:
+    return {
+        "point_id": point_id,
+        "point_groups": ["all"],
+        "address": {"type": "holding_register", "address": address},
+        "data_type": data_type,
+        "unit": "none",
+    }
+
+
+def _modbus_sink_point(
+    point_id: str,
+    register_type: str,
+    address: int,
+    *,
+    datatype: str | None = None,
+) -> dict[str, object]:
+    point: dict[str, object] = {
+        "source": {"device_id": "wt01", "point_id": point_id},
+        "address": {
+            "unit_id": 1,
+            "register_type": register_type,
+            "address": address,
+        },
+    }
+    if datatype is not None:
+        point["datatype"] = datatype
+    return point
+
+
+def test_modbus_bit_register_requires_bool() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        site = _modbus_site(
+            Path(td),
+            source_points=[_source_point("p1", "float32", 10)],
+            sink_points=[_modbus_sink_point("p1", "coil", 100)],
+        )
+        with pytest.raises(ConfigError, match="coil requires datatype 'bool'"):
+            load_config(site)
+
+
+def test_modbus_word_register_rejects_str() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        site = _modbus_site(
+            Path(td),
+            source_points=[_source_point("p1", "str", 10)],
+            sink_points=[_modbus_sink_point("p1", "holding", 100)],
+        )
+        with pytest.raises(ConfigError, match="does not support datatype 'str'"):
+            load_config(site)
+
+
+def test_modbus_multi_register_ranges_must_not_overlap() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        site = _modbus_site(
+            Path(td),
+            source_points=[
+                _source_point("p1", "float32", 10),
+                _source_point("p2", "uint16", 20),
+            ],
+            sink_points=[
+                _modbus_sink_point("p1", "holding", 100),
+                _modbus_sink_point("p2", "holding", 101),
+            ],
+        )
+        with pytest.raises(ConfigError, match="Modbus address overlap"):
+            load_config(site)
+
+
+def test_modbus_adjacent_ranges_are_valid() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        site = _modbus_site(
+            Path(td),
+            source_points=[
+                _source_point("p1", "float32", 10),
+                _source_point("p2", "uint16", 20),
+            ],
+            sink_points=[
+                _modbus_sink_point("p1", "holding", 100),
+                _modbus_sink_point("p2", "holding", 102),
+            ],
+        )
+        cfg = load_config(site)
+        assert len(cfg.sinks.sinks[0].points) == 2
+
+
+def test_modbus_register_range_must_fit_address_space() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        site = _modbus_site(
+            Path(td),
+            source_points=[_source_point("p1", "float64", 10)],
+            sink_points=[_modbus_sink_point("p1", "input", 65533)],
+        )
+        with pytest.raises(ConfigError, match="exceeds 65535"):
+            load_config(site)
+
+
 def test_modbus_connection_resolves_to_modbus_type() -> None:
     cfg = SinkConfig.model_validate(
         {

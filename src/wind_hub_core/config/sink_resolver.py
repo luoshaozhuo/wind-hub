@@ -16,6 +16,7 @@ from wind_hub_core.config.schema import (
 )
 from wind_hub_core.config.sinks import (
     IEC104SinkAddress,
+    ModbusSinkAddress,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
     ResolvedSinksConfig,
@@ -25,6 +26,22 @@ from wind_hub_core.config.sinks import (
     SinksConfig,
 )
 from wind_hub_core.model.errors import ConfigError
+
+
+_MODBUS_WORD_WIDTH: dict[str, int] = {
+    "bool": 1,
+    "int8": 1,
+    "uint8": 1,
+    "int16": 1,
+    "uint16": 1,
+    "int32": 2,
+    "uint32": 2,
+    "float32": 2,
+    "int64": 4,
+    "uint64": 4,
+    "float64": 4,
+}
+_MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 
 
 def resolve_sinks(
@@ -42,6 +59,7 @@ def resolve_sinks(
             _resolve_point(sink, point, device_map, point_tables, units)
             for point in sink.points
         ]
+        _validate_modbus_layout(sink.name, points)
         resolved.append(
             ResolvedSinkConfig(
                 name=sink.name,
@@ -172,6 +190,64 @@ def _validate_iec104_type(
             f"Sink '{sink_name}' point '{ref}': {address.type_id} requires numeric "
             f"datatype, got '{datatype}'"
         )
+
+
+def _validate_modbus_layout(
+    sink_name: str,
+    points: list[ResolvedSinkPoint],
+) -> None:
+    """校验 Modbus Sink 点的数据类型、寄存器跨度与地址重叠。"""
+    occupied: dict[
+        tuple[int, str],
+        list[tuple[int, int, str]],
+    ] = {}
+
+    for point in points:
+        address = point.address
+        if not isinstance(address, ModbusSinkAddress):
+            continue
+
+        if address.register_type in _MODBUS_BIT_REGISTER_TYPES:
+            if point.datatype != "bool":
+                raise ConfigError(
+                    f"Sink '{sink_name}' point '{point.ref}': "
+                    f"{address.register_type} requires datatype 'bool', "
+                    f"got '{point.datatype}'"
+                )
+            width = 1
+        else:
+            width = _MODBUS_WORD_WIDTH.get(point.datatype)
+            if width is None:
+                raise ConfigError(
+                    f"Sink '{sink_name}' point '{point.ref}': "
+                    f"{address.register_type} does not support datatype "
+                    f"'{point.datatype}'"
+                )
+
+        end = address.address + width - 1
+        if end > 0xFFFF:
+            raise ConfigError(
+                f"Sink '{sink_name}' point '{point.ref}': Modbus address range "
+                f"{address.address}..{end} exceeds 65535"
+            )
+
+        key = (address.unit_id, address.register_type)
+        occupied.setdefault(key, []).append(
+            (address.address, end, point.ref)
+        )
+
+    for (unit_id, register_type), ranges in occupied.items():
+        ranges.sort(key=lambda item: item[0])
+        for previous, current in zip(ranges, ranges[1:], strict=False):
+            prev_start, prev_end, prev_ref = previous
+            cur_start, cur_end, cur_ref = current
+            if cur_start <= prev_end:
+                raise ConfigError(
+                    f"Sink '{sink_name}': Modbus address overlap on unit "
+                    f"{unit_id} {register_type}: '{prev_ref}' "
+                    f"[{prev_start}..{prev_end}] overlaps '{cur_ref}' "
+                    f"[{cur_start}..{cur_end}]"
+                )
 
 
 def _raw_ref(point: SinkPoint) -> str:
