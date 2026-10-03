@@ -104,6 +104,9 @@ class TestSiteConfigLoading:
         assert sinks["file_archive"].connection.path == "/var/tmp/wind-hub/archive.jsonl"
         assert sinks["kafka_main"].enabled is False
         assert sinks["db_main"].enabled is False
+        assert sinks["modbus_scada"].enabled is False
+        assert sinks["modbus_scada"].type == "modbus"
+        assert sinks["modbus_scada"].connection.port == 1502
 
 
 class TestSitePointMapping:

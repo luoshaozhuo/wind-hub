@@ -50,3 +50,23 @@ sinks:
     #     offset: 0.0
     #     address: {ioa: 1001, type_id: M_ME_NC_1}
     points: []
+
+  - name: modbus_scada
+    type: modbus
+    enabled: false
+    connection:
+      host: "0.0.0.0"
+      port: 1502
+    # 例：
+    # points:
+    #   - source: {device_id: wtg-001, point_id: active_power}
+    #     ref: wtg-001.active_power
+    #     datatype: float32
+    #     unit: kilowatt
+    #     address:
+    #       unit_id: 1
+    #       register_type: holding
+    #       address: 100
+    #       byte_order: big
+    #       word_order: big
+    points: []
