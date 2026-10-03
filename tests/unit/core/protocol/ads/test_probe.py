@@ -3,7 +3,7 @@
 pyads 的真实 PLC 连接在单元层以 ``FakeConnection`` 替代（monkeypatch
 ``pyads.Connection``）；``PLCTYPE_*`` 使用真实 pyads ctypes 类型，保证
 ``ctypes.sizeof`` 与类型映射路径与生产一致。真实 TwinCAT 环境下的行为由
-``tests/collector/integration/protocol/test_ads_real.py`` 验收。
+``tests/integration/protocols/ads/test_commander_ads_real.py`` 验收。
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ class TestConnect:
 
         probe_tc3 = ADSProbe(_target(twincat_version="3"))
         await probe_tc3.connect()
-        assert fake_pyads.instances[1].port == 851
+        assert fake_pyads.instances[1].port == 802
 
     async def test_connect_is_idempotent(
         self, fake_pyads: type[FakeConnection]
