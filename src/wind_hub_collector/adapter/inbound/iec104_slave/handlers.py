@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from typing import Any, Protocol
 
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub_collector.application.sink_export import ExportedSinkExportedSinkPointValue
+from wind_hub_collector.application.sink_export import ExportedSinkPointValue
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.config.sinks import IEC104SinkAddress
 from wind_hub_core.model.point import Quality
@@ -75,7 +75,7 @@ def _build_monitor_object(data_type: str, ioa: int, pv: ExportedSinkPointValue) 
     """按 ResolvedSinkPoint 的 IEC104 TypeID 构造监视方向 information object。
 
     Args:
-        data_type: reporting 配置中的 IEC104 TypeID 名称。
+        data_type: ResolvedSinkPoint.address.type_id。
         ioa: 目标 IOA。
         pv: 最新 ExportedSinkPointValue。
 
@@ -83,7 +83,7 @@ def _build_monitor_object(data_type: str, ioa: int, pv: ExportedSinkPointValue) 
         与 TypeID 对应的强类型 information object。
 
     Raises:
-        ProtocolError: data_type 不在已验证白名单。
+        ProtocolError: data_type 不在 IEC104 Sink 白名单。
     """
     q = _quality_flag(pv.quality)
     if data_type == "M_SP_NA_1":

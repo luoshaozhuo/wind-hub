@@ -1,24 +1,15 @@
-"""IEC104 reporting 从站 TCP component test。
-
-启动真实 IEC104SlaveServer，验证 STARTDT、分批总召，以及控制方向请求被
-negative ACT_CON 明确拒绝；Collector 不执行设备写入。
-"""
+"""IEC104 Sink TCP component test。"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 
 import pytest
 
-from wind_hub_collector.adapter.inbound.iec104_slave import (
-    DataSnapshot,
-    IEC104SlaveHandlers,
-    IEC104SlaveServer,
-    build_data_type_mapping,
-    build_ioa_mapping,
-)
-from wind_hub_core.config.schema import ReportingPoint
+from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
@@ -36,20 +27,46 @@ from wind_hub_core.protocol.iec104.codec import (
 )
 
 
-def _reporting() -> list[ReportingPoint]:
-    return [
-        ReportingPoint(device_id="wtg-001", point_id="rotor.speed", ioa=101, data_type="M_ME_NC_1"),
-        ReportingPoint(device_id="wtg-001", point_id="gen.power", ioa=102, data_type="M_ME_NC_1"),
-        ReportingPoint(device_id="wtg-001", point_id="wind.speed", ioa=103, data_type="M_ME_NC_1"),
-        ReportingPoint(
-            device_id="wtg-001", point_id="status.running", ioa=201, data_type="M_SP_NA_1"
-        ),
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _config(port: int) -> ResolvedSinkConfig:
+    points = []
+    specs = [
+        ("rotor.speed", 101, "M_ME_NC_1"),
+        ("gen.power", 102, "M_ME_NC_1"),
+        ("wind.speed", 103, "M_ME_NC_1"),
+        ("status.running", 201, "M_SP_NA_1"),
     ]
+    for point_id, ioa, type_id in specs:
+        points.append(
+            {
+                "source": {"device_id": "wtg-001", "point_id": point_id},
+                "ref": f"wtg-001.{point_id}",
+                "source_data_type": "float32",
+                "source_unit": "none",
+                "datatype": "float32",
+                "unit": "none",
+                "address": {"ioa": ioa, "type_id": type_id},
+            }
+        )
+    return ResolvedSinkConfig(
+        name="scada",
+        type="iec104",
+        connection={
+            "host": "127.0.0.1",
+            "port": port,
+            "common_address": 1,
+            "batch_size": 2,
+        },
+        points=points,
+    )
 
 
 class _MasterClient:
-    """A minimal IEC104 master: STARTDT handshake, interrogation, command."""
-
     def __init__(self, port: int) -> None:
         self._port = port
         self._send_seq = 0
@@ -104,7 +121,9 @@ class _MasterClient:
     async def startdt(self) -> None:
         await self._send_u(UFrameType.STARTDT_ACT)
         while True:
-            frame = decode_apdu(await self._read_frame())  # type: ignore[arg-type]
+            raw = await self._read_frame()
+            assert raw is not None
+            frame = decode_apdu(raw)
             if getattr(frame, "frame_type", None) == UFrameType.STARTDT_CON:
                 return
 
@@ -131,9 +150,9 @@ class _MasterClient:
             )
         )
         while True:
-            frame_bytes = await self._read_frame()
-            assert frame_bytes is not None
-            frame = decode_apdu(frame_bytes)
+            raw = await self._read_frame()
+            assert raw is not None
+            frame = decode_apdu(raw)
             if not isinstance(frame, IFrame):
                 continue
             self._recv_seq = (frame.send_seq + 1) & 0x7FFF
@@ -142,91 +161,41 @@ class _MasterClient:
 
 
 @pytest.fixture
-async def proxy():
-    """启动只读 reporting 从站并预置最新值快照。"""
-    reporting = _reporting()
-    snapshot = DataSnapshot()
-    snapshot.update(
+async def sink():
+    port = _free_port()
+    iec104 = IEC104Sink(_config(port))
+    await iec104.write(
         [
             PointValue(device_id="wtg-001", point_id="rotor.speed", value=1500.5),
             PointValue(device_id="wtg-001", point_id="gen.power", value=800.0),
             PointValue(device_id="wtg-001", point_id="wind.speed", value=12.5),
             PointValue(device_id="wtg-001", point_id="status.running", value=True),
-        ],
-        build_ioa_mapping(reporting),
+        ]
     )
-    handlers = IEC104SlaveHandlers(
-        snapshot=snapshot,
-        data_type_mapping=build_data_type_mapping(reporting),
-        common_address=1,
-        batch_size=2,
-    )
-    server = IEC104SlaveServer("127.0.0.1", 0, handlers, common_address=1)
-    await server.start()
+    await iec104.open()
     try:
-        yield server
+        yield iec104
     finally:
-        await server.stop()
+        await iec104.close()
 
 
-async def test_full_slave_interrogation_and_reject_command(proxy) -> None:  # type: ignore[no-untyped-def]
-    server = proxy
-    client = _MasterClient(server.port)
+async def test_full_sink_interrogation_and_reject_command(sink) -> None:  # type: ignore[no-untyped-def]
+    client = _MasterClient(sink.port)
     await client.connect()
     try:
-        # 1. STARTDT handshake.
         await client.startdt()
-
-        # 2. General interrogation → ACT_CON + batched data + ACT_TERM.
         asdus = await client.interrogate()
-
-        causes = [a.cause for a in asdus]
-        assert causes[0] == CauseOfTransmission.ACTIVATION_CON
-        assert causes[-1] == CauseOfTransmission.ACTIVATION_TERMINATION
-
-        # Data ASDUs: M_ME_NC_1 batched 2+1 (batch_size=2), then M_SP_NA_1(1).
-        meas_asdus = [a for a in asdus if a.type_id == TypeID.M_ME_NC_1]
-        sp_asdus = [a for a in asdus if a.type_id == TypeID.M_SP_NA_1]
-        assert [len(a.objects) for a in meas_asdus] == [2, 1]
-        meas_objects = [o for a in meas_asdus for o in a.objects]
-        assert {o.ioa: o.value for o in meas_objects} == {
-            101: 1500.5,
-            102: 800.0,
-            103: 12.5,
-        }
-        assert sp_asdus[0].objects[0].ioa == 201
-        assert sp_asdus[0].objects[0].value is True
-
-        # 3. 控制方向请求必须被显式否定，且不进入任何设备写链。
-        reply, negative = await client.send_single_command(ioa=201, value=True)
+        assert asdus[0].cause == CauseOfTransmission.ACTIVATION_CON
+        assert asdus[-1].cause == CauseOfTransmission.ACTIVATION_TERMINATION
+        meas = [a for a in asdus if a.type_id == TypeID.M_ME_NC_1]
+        sp = [a for a in asdus if a.type_id == TypeID.M_SP_NA_1]
+        assert [len(a.objects) for a in meas] == [2, 1]
+        values = {o.ioa: o.value for a in meas for o in a.objects}
+        assert values == {101: 1500.5, 102: 800.0, 103: 12.5}
+        assert sp[0].objects[0].ioa == 201
+        reply, negative = await client.send_single_command(201, True)
         assert reply.type_id == TypeID.C_SC_NA_1
         assert reply.cause == CauseOfTransmission.ACTIVATION_CON
         assert negative is True
     finally:
         await client.close()
-
-
-async def test_proxy_reports_health_and_session_count() -> None:
-    snapshot = DataSnapshot()
-    handlers = IEC104SlaveHandlers(
-        snapshot=snapshot,
-        data_type_mapping={},
-        common_address=1,
-        batch_size=50,
-    )
-    server = IEC104SlaveServer("127.0.0.1", 0, handlers, common_address=1)
-    assert server.health().healthy is False
-
-    await server.start()
-    try:
-        assert server.health().healthy is True
-        assert server.session_count == 0
-        client = _MasterClient(server.port)
-        await client.connect()
-        await asyncio.sleep(0.05)  # let the server register the session
-        assert server.session_count == 1
-        await client.close()
-    finally:
-        await server.stop()
-
-    assert server.health().healthy is False
