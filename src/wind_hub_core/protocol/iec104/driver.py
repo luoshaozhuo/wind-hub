@@ -110,7 +110,7 @@ class IEC104Driver:
 
     Notes:
         Driver 由单个 asyncio event loop 持有。session 自己管理 TCP 收发 task；
-        Driver monitor 负责 session 结束后的有限次重连。
+        Driver monitor 负责已建立 session 断线后的持续恢复。
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
@@ -132,8 +132,6 @@ class IEC104Driver:
 
         # 遥控在途命令注册表。
         self._pending_commands = PendingCommandRegistry()
-
-        self._failed = False
 
     # ==================================================================
     # 点表映射
@@ -192,20 +190,18 @@ class IEC104Driver:
     # ==================================================================
 
     async def connect(self) -> None:
-        """建立 IEC104 session 并启动后台 monitor。
+        """执行一次 IEC104 session 建连并启动后台 monitor。
 
-        已有 session 时幂等返回；Driver 已进入 FAILED 时拒绝自动重新连接。
+        首次建连失败直接上抛，由 Collector/Commander Runtime 负责后续显式重试；
+        session 一旦建立，后续断线恢复由 Driver monitor 持续负责。
 
         Raises:
-            ProtocolError: STARTDT/TCP 建连失败，或 Driver 已处于 FAILED。
+            ProtocolError: 本次 STARTDT/TCP 建连失败。
         """
         async with self._lock:
             if self._session is not None:
                 logger.warning("IEC104: connect() called but already connected")
                 return
-            if self._failed:
-                raise ProtocolError("IEC104: driver is in FAILED state — manual reset required")
-
             self._shutdown = False
 
             session = IEC104Session(
@@ -225,12 +221,7 @@ class IEC104Driver:
             # session 解码后的 ASDU 同步转交 Driver。
             session.set_on_asdu(self._on_asdu_received)
 
-            try:
-                await session.start()
-            except ProtocolError:
-                self._failed = True
-                raise
-
+            await session.start()
             self._session = session
             self._monitor_task = asyncio.ensure_future(self._monitor_loop())
 
@@ -260,8 +251,6 @@ class IEC104Driver:
 
             # 注销全部订阅（重连不清——只有整体 close 才清理注册表）。
             self._subscriptions.clear()
-
-            self._failed = False
 
     def _fail_all_pending(self, reason: str) -> None:
         """把全部在途遥控完成为失败并从 Registry 移除。
@@ -551,11 +540,6 @@ class IEC104Driver:
 
     def health(self) -> HealthStatus:
         """返回当前缓存的 IEC104 连接健康状态；该同步接口不主动执行网络探测。"""
-        if self._failed:
-            return HealthStatus(
-                healthy=False,
-                message="FAILED — max reconnect retries exhausted",
-            )
         session = self._session
         if session is None:
             return HealthStatus(healthy=False, message="not connected")
@@ -647,13 +631,14 @@ class IEC104Driver:
     # ==================================================================
 
     async def _monitor_loop(self) -> None:
-        """监视 session 结束并按指数退避重连。
+        """监视已建立 session；断线后持续退避重连直到成功或显式 close。
 
-        连接丢失会先失败完成所有在途命令，但保留 SubscriptionRegistry；重连成功后
-        新 session 重新绑定点映射与 ASDU callback。超过重试上限进入 FAILED。
+        连接丢失会先失败完成全部在途遥控，但保留 SubscriptionRegistry。新 session
+        重绑点映射和 ASDU callback；若仍有活动订阅，重连成功后补发一次总召，
+        使缓存和订阅者尽快获得当前值。
         """
-        retries = 0
         backoff = _RECONNECT_BACKOFF_BASE
+        attempt = 0
 
         while not self._shutdown:
             session = self._session
@@ -661,7 +646,6 @@ class IEC104Driver:
                 await session.wait_closed()
                 if self._shutdown:
                     return
-
                 logger.warning(
                     "IEC104: session to %s:%d closed — reconnecting",
                     self._cfg.host,
@@ -670,30 +654,14 @@ class IEC104Driver:
                 self._session = None
                 self._fail_all_pending("connection lost")
 
-            retries += 1
-            if retries > self._cfg.max_reconnect_retries:
-                logger.error(
-                    "IEC104: max reconnect retries (%d) exhausted for %s:%d",
-                    self._cfg.max_reconnect_retries,
-                    self._cfg.host,
-                    self._cfg.port,
-                )
-                self._failed = True
-                return
-
             await asyncio.sleep(backoff)
-            backoff = min(
-                backoff * _RECONNECT_BACKOFF_MULTIPLIER,
-                _RECONNECT_BACKOFF_CAP,
-            )
-
             if self._shutdown:
                 return
 
+            attempt += 1
             logger.info(
-                "IEC104: reconnect attempt %d/%d to %s:%d (backoff=%.1fs)",
-                retries,
-                self._cfg.max_reconnect_retries,
+                "IEC104: reconnect attempt %d to %s:%d (backoff=%.1fs)",
+                attempt,
                 self._cfg.host,
                 self._cfg.port,
                 backoff,
@@ -717,13 +685,12 @@ class IEC104Driver:
                 new_session.set_on_asdu(self._on_asdu_received)
                 await new_session.start()
             except TimeoutError:
-                # 连接/握手超时是对端不可达的日常表现：降级为简洁 warning，
-                # 不打堆栈（决策 2）；其他协议错误仍保留完整堆栈便于排查。
                 logger.warning(
                     "IEC104: reconnect timed out for %s:%d",
                     self._cfg.host,
                     self._cfg.port,
                 )
+                backoff = min(backoff * _RECONNECT_BACKOFF_MULTIPLIER, _RECONNECT_BACKOFF_CAP)
                 continue
             except ProtocolError as exc:
                 if _is_timeout_related(exc):
@@ -738,16 +705,29 @@ class IEC104Driver:
                         self._cfg.host,
                         self._cfg.port,
                     )
+                backoff = min(backoff * _RECONNECT_BACKOFF_MULTIPLIER, _RECONNECT_BACKOFF_CAP)
                 continue
 
             self._session = new_session
-            retries = 0
             backoff = _RECONNECT_BACKOFF_BASE
+            attempt = 0
             logger.info(
                 "IEC104: reconnected to %s:%d",
                 self._cfg.host,
                 self._cfg.port,
             )
+
+            if self._subscriptions.global_count or self._subscriptions.ioa_count:
+                try:
+                    await self.interrogate()
+                except ProtocolError:
+                    logger.warning(
+                        "IEC104: post-reconnect general interrogation failed for %s:%d",
+                        self._cfg.host,
+                        self._cfg.port,
+                        exc_info=True,
+                    )
+
 
 
 # ---------------------------------------------------------------------------
