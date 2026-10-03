@@ -81,11 +81,9 @@ class CommanderGrpcClient(GrpcClientBase):
         return {
             "running": response.running,
             "device_count": response.device_count,
-            "healthy_devices": response.healthy_devices,
             "active_revision": response.active_revision,
             "active_config_hash": response.active_config_hash,
             "prepared_revision": response.prepared_revision or None,
-            "prepared_config_hash": response.prepared_config_hash or None,
         }
 
     async def prepare_config(
