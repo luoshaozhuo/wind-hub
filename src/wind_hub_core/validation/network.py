@@ -1,8 +1,7 @@
-"""主动验证使用的基础网络探测。
+"""诊断与协议验证共享的基础网络探测。
 
 Ping 与 TCP 探测保持独立，便于现场区分 ICMP 不可达、TCP 端口不可达和更高层
-协议失败。两个函数都返回布尔事实，不负责生成业务错误码，也不修改系统网络
-配置。
+协议失败。两个函数都返回布尔事实，不负责编排诊断流程，也不修改系统网络配置。
 
 ping_host 会创建短生命周期子进程；tcp_port_open 会创建短生命周期 TCP
 connection。所有正常失败路径都显式释放对应资源。
@@ -40,7 +39,7 @@ async def ping_host(host: str, *, timeout: float = 1.0) -> bool:
             stderr=asyncio.subprocess.DEVNULL,
         )
     except OSError:
-        # 网络诊断工具不可用属于探测失败，不应中断整套配置验证。
+        # 网络诊断工具不可用属于探测失败，不应中断整套诊断流程。
         return False
 
     try:
