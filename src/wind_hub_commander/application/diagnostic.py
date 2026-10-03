@@ -328,6 +328,7 @@ class DiagnosticUseCase:
         target = DeviceProbeTarget(
             device_id=device_id,
             host=device.config.endpoint.host,
+            port=device.config.endpoint.port,
             options=dict(device.config.endpoint.extensions),
         )
         probe = ADSProbe(target)
