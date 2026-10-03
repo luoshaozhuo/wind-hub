@@ -591,83 +591,41 @@ import logging  # noqa: E402
 import wind_hub_core.protocol.ads.driver as ads_driver_module  # noqa: E402
 
 
-class TestReconnectLogging:
-    async def test_timeout_logged_as_concise_warning(
+class TestConnectFailure:
+    async def test_timeout_is_single_attempt_and_logs_concisely(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        driver = ADSDriver(_make_device_config(reconnect_max_retries=1))
+        driver = ADSDriver(_make_device_config())
 
         async def _timeout_connect() -> None:
             raise TimeoutError("timed out")
 
         monkeypatch.setattr(driver, "_do_connect", _timeout_connect)
         with caplog.at_level(logging.WARNING, logger=ads_driver_module.__name__):
-            last_exc = await driver._connect_with_retry()  # noqa: SLF001
+            with pytest.raises(ProtocolError, match="failed to connect"):
+                await driver.connect()
 
-        assert isinstance(last_exc, TimeoutError)
-        timeout_logs = [r for r in caplog.records if "timed out" in r.message]
-        assert len(timeout_logs) == 2  # 两次尝试各一条
-        assert all(r.exc_info is None for r in timeout_logs)  # 无堆栈
+        timeout_logs = [record for record in caplog.records if "timed out" in record.message]
+        assert len(timeout_logs) == 1
+        assert timeout_logs[0].exc_info is None
+        assert driver.health().healthy is False
 
-    async def test_non_timeout_failure_keeps_failed_message(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    async def test_non_timeout_failure_is_single_attempt(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        driver = ADSDriver(_make_device_config(reconnect_max_retries=1))
+        driver = ADSDriver(_make_device_config())
+        calls = 0
 
         async def _refused_connect() -> None:
+            nonlocal calls
+            calls += 1
             raise OSError("connection refused")
 
         monkeypatch.setattr(driver, "_do_connect", _refused_connect)
-        with caplog.at_level(logging.WARNING, logger=ads_driver_module.__name__):
-            last_exc = await driver._connect_with_retry()  # noqa: SLF001
-
-        assert isinstance(last_exc, OSError)
-        assert any("failed" in r.message for r in caplog.records)
-        assert not any("timed out" in r.message for r in caplog.records)
-
-
-# ---------------------------------------------------------------------------
-# 长期重连：retry budget 耗尽后 monitor 不退出，PLC 恢复后仍能连上
-# ---------------------------------------------------------------------------
-
-
-class TestMonitorRecovery:
-    async def test_monitor_survives_exhausted_round_and_recovers(
-        self, patched: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(ads_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-        driver = ADSDriver(
-            _make_device_config(
-                target_net_id="1.1.1.1.1.1",
-                reconnect_max_retries=0,
-                reconnect_backoff_max=0.01,
-            )
-        )
-        plc_up = False
-        real_do_connect = driver._do_connect  # noqa: SLF001
-
-        async def _plc_controlled_connect() -> None:
-            if not plc_up:
-                raise OSError("plc not started")
-            await real_do_connect()
-
-        monkeypatch.setattr(driver, "_do_connect", _plc_controlled_connect)
-
-        # PLC 未启动：首轮连接失败，connect() 抛出，但后台 monitor 继续重连
-        with pytest.raises(ProtocolError):
+        with pytest.raises(ProtocolError, match="failed to connect"):
             await driver.connect()
-        assert driver.health().healthy is False
-        assert "degraded" in (driver.health().message or "")
 
-        plc_up = True  # PLC 数十秒后启动
-        try:
-            for _ in range(200):  # 最多等 ~2s，重连间隔 0.01s
-                if driver._connected:  # noqa: SLF001
-                    break
-                await asyncio.sleep(0.01)
-            assert driver._connected is True  # noqa: SLF001
-            assert driver.health().healthy is True
-        finally:
-            await driver.close()
+        assert calls == 1
+        assert driver.health().healthy is False
+
+
