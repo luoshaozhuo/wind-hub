@@ -12,7 +12,6 @@ from wind_hub_server.application.port.collector_directory import CollectorDirect
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
-
 logger = logging.getLogger(__name__)
 
 
