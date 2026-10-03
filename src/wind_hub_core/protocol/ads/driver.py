@@ -561,9 +561,15 @@ class ADSDriver:
         return _ADSSubscriptionHandle(self, subscription)
 
     def health(self) -> HealthStatus:
-        """返回 ADS 主连接的缓存健康状态；不执行实时网络 I/O。"""
+        """返回 ADS 主连接及活动 notification 订阅的缓存健康状态。"""
         if not self._connected:
             return HealthStatus(healthy=False, message="not connected")
+        unhealthy = sum(not subscription.healthy for subscription in self._subscriptions)
+        if unhealthy:
+            return HealthStatus(
+                healthy=False,
+                message=f"{unhealthy} notification subscription(s) unhealthy",
+            )
         return HealthStatus(healthy=True)
 
 
