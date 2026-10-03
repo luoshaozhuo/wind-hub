@@ -1,6 +1,11 @@
 [features]
 hooks = true
+# 快照恢复的旧 PATH 会覆盖 BASH_ENV 中完成的 Conda 激活。
+shell_snapshot = false
 
 [shell_environment_policy]
 inherit = "core"
 ignore_default_excludes = false
+
+[shell_environment_policy.set]
+BASH_ENV = "/home/luosh/wind-hub/ai_shared/agent_config/activate-env.sh"

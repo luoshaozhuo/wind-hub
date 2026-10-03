@@ -4,7 +4,7 @@
 
 ## 1. 环境
 
-首次执行仓库任务前：
+首次执行仓库任务前（包括计划、回答问题、编码等等）：
 
 ```bash
 python3 scripts/dev.py env
@@ -16,9 +16,13 @@ python3 scripts/dev.py env
 python3 scripts/dev.py env --frontend
 ```
 
-本机工具路径配置在已入库的 `ai_shared/agent_config/local.json`；不假设 VS Code 插件继承 shell 或 conda 环境。
+`ai_shared/agent_config/activate-env.sh` 统一激活本机 `~/miniconda3` 下的 `wind-hub` 环境。
+Claude Code 通过 SessionStart / `CLAUDE_ENV_FILE` 加载；Codex 通过 `.codex/config.toml` 的 `BASH_ENV` 加载。
+不假设 VS Code 插件继承终端环境；`scripts/dev.py env` 检查当前解释器，不切换到其他 Python。
 
 `.env.local` 只用于运行时、真实服务或测试参数，不负责 Python 环境；不得读取或输出敏感值。
+
+如果检查当前环境不是 wind-hub 则报错，不执行后续工作。
 
 ## 2. 规则入口
 

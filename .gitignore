@@ -30,12 +30,12 @@ htmlcov/
 # poetry.lock is committed for reproducible builds
 
 # Environment
-.env
+#.env
 # 本地运行时环境变量（不进仓库），直接使用 .env.local
-.env.*
+#.env.*
 
 # 本地工具权限配置（不进仓库）
-.claude/settings.local.json
+#.claude/settings.local.json
 
 # OS
 .DS_Store

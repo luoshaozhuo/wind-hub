@@ -1,78 +1,27 @@
 """统一 VS Code Coding Agent 的本地开发工具入口。
 
-本脚本只依赖 Python 标准库。它从 `ai_shared/agent_config/local.json` 读取
-本机工具路径，用于避免 Codex/Claude Code VS Code 插件各自继承不同的终端环境。
+本脚本只依赖 Python 标准库，检查并使用 Agent 启动时激活的环境。
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_CONFIG = REPO_ROOT / "ai_shared" / "agent_config" / "local.json"
-
-
-def _load_config() -> dict[str, Any]:
-    """读取本机 Agent 配置；文件不存在时使用当前进程环境。"""
-    if not LOCAL_CONFIG.exists():
-        return {}
-    data = json.loads(LOCAL_CONFIG.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"invalid config root: {LOCAL_CONFIG}")
-    return data
-
-
-def _configured_value(config: dict[str, Any], section: str, key: str) -> str | None:
-    """返回非空字符串配置值。"""
-    raw_section = config.get(section)
-    if not isinstance(raw_section, dict):
-        return None
-    value = raw_section.get(key)
-    if not isinstance(value, str):
-        return None
-    value = value.strip()
-    return value or None
-
-
-def _resolve_path(value: str) -> Path:
-    """将本机配置路径解析为绝对路径。"""
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = REPO_ROOT / path
-    return path.resolve()
-
-
-def _configured_executable(config: dict[str, Any], section: str, key: str) -> str | None:
-    """仅在配置路径实际存在时使用本机覆盖。"""
-    configured = _configured_value(config, section, key)
-    if not configured:
-        return None
-    path = _resolve_path(configured)
-    return str(path) if path.is_file() else None
 
 
 def resolve_executable(kind: str) -> str:
-    """解析 Python、Node 或 npm 的实际可执行文件。
-
-    local.json 只描述特定开发机的偏好路径；在 CI、容器或其他主机上该路径
-    不存在时自动回退到当前环境，避免把个人工作站路径传播成全局运行约束。
-    """
-    config = _load_config()
-
+    """使用当前 Python 解释器或 PATH 中的前端工具。"""
     if kind == "python":
-        return _configured_executable(config, "python", "executable") or sys.executable
+        return sys.executable
 
     if kind in {"node", "npm"}:
-        configured = _configured_executable(config, "frontend", kind)
-        if configured:
-            return configured
         return shutil.which(kind) or kind
 
     raise ValueError(f"unsupported executable kind: {kind}")
@@ -104,8 +53,17 @@ def check_environment(*, frontend: bool) -> int:
     """检查后端开发环境，并按需检查前端工具链。"""
     python = resolve_executable("python")
     print(f"Repository: {REPO_ROOT}")
-    print(f"Local config: {LOCAL_CONFIG if LOCAL_CONFIG.exists() else 'not configured'}")
     print(f"Python executable: {python}")
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if (
+        os.environ.get("CONDA_DEFAULT_ENV") != "wind-hub"
+        or not conda_prefix
+        or Path(sys.prefix).resolve() != Path(conda_prefix).resolve()
+        or Path(python).resolve().parent != Path(conda_prefix).resolve() / "bin"
+    ):
+        print("[FAIL] 当前 Python 未运行在已激活的 wind-hub Conda 环境中")
+        print("RESULT: FAIL")
+        return 2
 
     checks = [
         (
@@ -143,7 +101,7 @@ def check_environment(*, frontend: bool) -> int:
 
 
 def run_configured(kind: str, arguments: Sequence[str]) -> int:
-    """使用本机配置的可执行文件运行透传参数。"""
+    """使用当前环境中的可执行文件运行透传参数。"""
     executable = resolve_executable(kind)
     forwarded = list(arguments)
     if forwarded[:1] == ["--"]:
@@ -173,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_parser.add_argument("kind", choices=("python", "node", "npm"))
 
     for kind in ("python", "node", "npm"):
-        run_parser = subparsers.add_parser(kind, help=f"使用配置的 {kind} 执行命令")
+        run_parser = subparsers.add_parser(kind, help=f"使用当前环境的 {kind} 执行命令")
         run_parser.add_argument("arguments", nargs=argparse.REMAINDER)
 
     return parser

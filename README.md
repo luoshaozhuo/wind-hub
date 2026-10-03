@@ -114,19 +114,29 @@ npm --prefix src/wind-hub-admin install
 npm --prefix src/wind-hub-admin run dev
 ```
 
-Coding Agent 不继承 shell/conda 环境，Node 装在 conda 环境内时，在
-`ai_shared/agent_config/local.json` 的 `frontend.node` / `frontend.npm` 中
-指向该环境内的路径即可（见下节）。
+Coding Agent 启动命令时自动激活 conda 环境，装在同一环境内的 Node / npm
+随 PATH 一起生效（见下节）。
 
 ### Coding Agent 环境（仅 Claude Code / Codex 插件需要）
 
 > 人工开发跳过本节。
 
-Codex、Claude Code 作为 VS Code 插件启动时，不继承交互式 shell 或 conda 环境，
-可能找不到上面装好的 Python / npm。仓库已入库
-`ai_shared/agent_config/local.json` 固定本机工具路径（默认指向 conda
-`wind-hub` 环境，路径不同时直接修改该文件），Agent 统一经 `scripts/dev.py`
-执行工具：
+Codex、Claude Code 的插件或桌面入口不能依赖交互式终端的激活状态。
+共享脚本 `ai_shared/agent_config/activate-env.sh` 通过 `~/miniconda3/etc/profile.d/conda.sh`
+执行 `conda activate wind-hub`，同时加载该环境的激活脚本和 Python / Node 工具链。
+
+- Claude Code：`.claude/settings.json` 的 SessionStart hook 把共享脚本登记到
+  `CLAUDE_ENV_FILE`，后续 Bash 命令自动加载。
+- Codex：`.codex/config.toml` 的 `shell_environment_policy.set.BASH_ENV`
+  指向共享脚本，非交互 Bash（包括 login shell）自动加载；本项目关闭
+  `shell_snapshot`，避免快照恢复旧 PATH 后覆盖已激活的环境。
+
+更换本机 Conda 安装位置时修改共享脚本；移动仓库或使用独立 worktree 时，
+同步修改 Codex 配置里的脚本绝对路径。需要信任该项目并重新启动插件/桌面会话，
+以便加载新配置。此适配面向本机 Bash 命令，不替远端执行环境配置 Conda。
+
+`scripts/dev.py env` 验证当前解释器确实属于已激活的 `wind-hub` 环境，
+未激活或解释器不匹配时直接报错，不再偷偷切换解释器：
 
 ```bash
 python3 scripts/dev.py env            # 检查后端环境
