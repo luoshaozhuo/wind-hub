@@ -1,7 +1,7 @@
 """Server-owned management use cases."""
 
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
-from wind_hub_server.application.usecase.config import ConfigUseCase, compute_diff
+from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
 from wind_hub_server.application.usecase.device import DeviceSnapshot, DeviceUseCase
@@ -45,5 +45,4 @@ __all__ = [
     "SinkUseCase",
     "SystemHealthUseCase",
     "TrendSeries",
-    "compute_diff",
 ]
