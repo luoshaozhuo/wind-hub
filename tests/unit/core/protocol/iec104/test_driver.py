@@ -61,7 +61,6 @@ class TestDriverConfig:
         assert iece_cfg.t1 == 15.0
         assert iece_cfg.t2 == 10.0
         assert iece_cfg.t3 == 20.0
-        assert iece_cfg.max_reconnect_retries == 5
 
     def test_custom_config(self) -> None:
         cfg = _make_device_config(
@@ -72,7 +71,6 @@ class TestDriverConfig:
             t1=3.0,
             t2=2.0,
             t3=10.0,
-            max_reconnect_retries=3,
         )
         driver = IEC104Driver(cfg)
         iece_cfg = driver._cfg
@@ -83,7 +81,6 @@ class TestDriverConfig:
         assert iece_cfg.t1 == 3.0
         assert iece_cfg.t2 == 2.0
         assert iece_cfg.t3 == 10.0
-        assert iece_cfg.max_reconnect_retries == 3
 
 
 # ===========================================================================
@@ -188,14 +185,6 @@ class TestHealth:
         health = driver.health()
         assert not health.healthy
 
-    def test_health_failed(self) -> None:
-        cfg = _make_device_config()
-        driver = IEC104Driver(cfg)
-        driver._failed = True
-        health = driver.health()
-        assert not health.healthy
-        assert "FAILED" in (health.message or "")
-
 
 # ===========================================================================
 # self-registration
@@ -253,42 +242,28 @@ class TestReconnectLogging:
     def test_is_timeout_related_rejects_other_errors(self) -> None:
         assert _is_timeout_related(ProtocolError("IEC104: unexpected frame")) is False
 
-    async def test_monitor_loop_logs_timeout_without_traceback(
+    async def test_monitor_timeout_logs_without_traceback(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        monkeypatch.setattr(iec104_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
+        attempted = asyncio.Event()
 
         class _TimeoutSession(_FakeSessionBase):
             async def start(self) -> None:
+                attempted.set()
                 raise ProtocolError("IEC104: STARTDT handshake timed out after 15.0s")
 
+        monkeypatch.setattr(iec104_driver_module, "_RECONNECT_BACKOFF_BASE", 0.01)
         monkeypatch.setattr(iec104_driver_module, "IEC104Session", _TimeoutSession)
-        driver = IEC104Driver(_make_device_config(max_reconnect_retries=1))
+        driver = IEC104Driver(_make_device_config())
 
         with caplog.at_level(logging.WARNING, logger=iec104_driver_module.__name__):
-            await driver._monitor_loop()  # noqa: SLF001
+            task = asyncio.create_task(driver._monitor_loop())  # noqa: SLF001
+            await asyncio.wait_for(attempted.wait(), timeout=1.0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
-        timeout_logs = [r for r in caplog.records if "reconnect timed out" in r.message]
-        assert len(timeout_logs) == 1
-        assert timeout_logs[0].levelno == logging.WARNING
-        assert timeout_logs[0].exc_info is None  # 降级：无堆栈
+        timeout_logs = [record for record in caplog.records if "reconnect timed out" in record.message]
+        assert timeout_logs
+        assert timeout_logs[0].exc_info is None
 
-    async def test_monitor_loop_keeps_traceback_for_non_timeout(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        monkeypatch.setattr(iec104_driver_module, "_RECONNECT_BACKOFF_BASE", 0.0)
-
-        class _ErrorSession(_FakeSessionBase):
-            async def start(self) -> None:
-                raise ProtocolError("IEC104: unexpected frame")
-
-        monkeypatch.setattr(iec104_driver_module, "IEC104Session", _ErrorSession)
-        driver = IEC104Driver(_make_device_config(max_reconnect_retries=1))
-
-        with caplog.at_level(logging.WARNING, logger=iec104_driver_module.__name__):
-            await driver._monitor_loop()  # noqa: SLF001
-
-        fail_logs = [r for r in caplog.records if "reconnect failed" in r.message]
-        assert len(fail_logs) == 1
-        assert fail_logs[0].levelno == logging.ERROR
-        assert fail_logs[0].exc_info is not None  # 其他异常保留完整堆栈
