@@ -855,7 +855,7 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: SystemConfig
-    sinks: SinksConfig
+    sinks: SinksConfig = Field(default_factory=SinksConfig)
     """sinks.yaml 的统一外部接口契约；Phase 1 不改变旧 Runtime Sink 来源。"""
     units: UnitsConfig
     """单位定义集（``units.yaml``）——``PointConfig.unit`` 引用的 unit ID

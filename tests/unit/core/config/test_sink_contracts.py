@@ -130,3 +130,26 @@ def test_contract_change_appears_in_diff() -> None:
         diff = compute_diff(load_config(old_dir), load_config(new_dir))
         assert diff.sink_contracts.updated == ["iec104_scada"]
         assert diff.has_any_changes
+
+
+def test_modbus_connection_resolves_to_modbus_type() -> None:
+    cfg = SinkConfig.model_validate(
+        {
+            "name": "modbus_scada",
+            "type": "modbus",
+            "connection": {"host": "0.0.0.0", "port": 502},
+            "points": [
+                {
+                    "source": {"device_id": "wt01", "point_id": "wind_speed"},
+                    "datatype": "float32",
+                    "unit": "meter_per_second",
+                    "address": {
+                        "unit_id": 1,
+                        "register_type": "holding",
+                        "address": 100,
+                    },
+                }
+            ],
+        }
+    )
+    assert type(cfg.connection).__name__ == "ModbusSinkConnection"

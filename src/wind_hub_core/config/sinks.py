@@ -195,6 +195,37 @@ class SinkConfig(BaseModel):
     connection: SinkConnection
     points: list[SinkPoint] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_typed_components(cls, data: object) -> object:
+        """先按 Sink.type 解析 connection/address，避免结构相似 union 误判。"""
+        if not isinstance(data, dict):
+            return data
+        sink_type = data.get("type")
+        if not isinstance(sink_type, str) or sink_type not in _CONNECTION_TYPES:
+            return data
+
+        parsed = dict(data)
+        connection = parsed.get("connection")
+        if isinstance(connection, dict):
+            parsed["connection"] = _CONNECTION_TYPES[sink_type].model_validate(connection)
+
+        address_type = _ADDRESS_TYPES[sink_type][0]
+        points = parsed.get("points")
+        if isinstance(points, list):
+            parsed_points: list[object] = []
+            for raw_point in points:
+                if not isinstance(raw_point, dict):
+                    parsed_points.append(raw_point)
+                    continue
+                point = dict(raw_point)
+                address = point.get("address")
+                if isinstance(address, dict):
+                    point["address"] = address_type.model_validate(address)
+                parsed_points.append(point)
+            parsed["points"] = parsed_points
+        return parsed
+
     @model_validator(mode="after")
     def _validate_sink(self) -> "SinkConfig":
         if not self.name.strip():
