@@ -187,14 +187,6 @@ class CommanderGrpcClient(GrpcClientBase):
             ],
         }
 
-    async def resolve_point(self, device_id: str, point_id: str) -> dict[str, Any]:
-        """解析单点协议地址。"""
-        response = await self._stub.ResolvePoint(
-            pb.PointRequest(device_id=device_id, point_id=point_id),
-            timeout=self.default_timeout,
-        )
-        return _point_verify_dict(response)
-
     async def verify_point(self, device_id: str, point_id: str) -> dict[str, Any]:
         """执行单点在线读取验证。"""
         response = await self._stub.VerifyPoint(
@@ -202,26 +194,3 @@ class CommanderGrpcClient(GrpcClientBase):
             timeout=self.default_timeout,
         )
         return _point_verify_dict(response)
-
-    async def verify_points(
-        self,
-        device_id: str,
-        point_group: str | None = None,
-    ) -> dict[str, Any]:
-        """批量验证设备点表或指定 point_group。"""
-        response = await self._stub.VerifyPoints(
-            pb.VerifyPointsRequest(
-                device_id=device_id,
-                point_group=point_group or "",
-            ),
-            timeout=self.default_timeout,
-        )
-        return {
-            "device_id": response.device_id,
-            "point_group": response.point_group or None,
-            "checked": response.checked,
-            "passed": response.passed,
-            "failed": response.failed,
-            "ok": response.ok,
-            "points": [_point_verify_dict(item) for item in response.points],
-        }
