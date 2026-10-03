@@ -1,240 +1,115 @@
 # 测试规则
 
-## 1. 规则定位
+本文件定义测试层级、真实性和结果语义；何时执行测试由 Gate Skill 决定。
 
-本规则定义测试体系的三层模型：
+## 1. 目录与层级
 
-1. 物理视图：测试代码如何组织；
-2. 逻辑视图：测试属于什么集合；
-3. 执行视图：一次改动后应选择哪些验证。
-
-本规则不直接指定每次必须运行的具体命令；执行选择由 `validation-routing.md`、真实变更范围、环境条件和任务范围共同决定。
-
-## 2. 物理视图
-
-### 2.1 推荐物理分类
-
-测试代码按**组件优先、测试层次次之**组织在 `tests/` 下：
+正式测试按第一层测试目的组织：
 
 ```text
 tests/
-├── collector/
-│   ├── unit/
-│   ├── integration/
-│   └── perf/
-├── server/
-│   ├── unit/
-│   └── integration/
-├── ctl/
-│   └── unit/
-├── tools/
-│   └── integration/
-└── fixtures/
-```
-
-说明：
-
-1. 第一层目录表达组件归属，避免 Server/Collector/ctl 测试互相混杂。
-2. `unit` 用于局部规则、分支、映射、错误语义和边界条件验证。
-3. `integration` 用于组件内部或明确组件边界上的协作验证。
-4. `perf` 当前归属 Collector，用于协议采集、网络损伤、容量和资源性能验证。
-5. 共享模拟协议 Server、NullSink 等测试基础设施放在 `tests/fixtures/`。
-
-### 2.2 物理分类边界
-
-1. `smoke`、`regression` 不是推荐的一级物理分类。
-2. 现场反馈、事故复现、缺陷修复不是物理目录分类；它们应通过逻辑标签或追踪索引表达。
-3. 测试文件放置位置不直接决定每次改动后必须执行哪些测试。
-4. 目录结构服务于维护与发现，不替代执行选择策略。
-
-## 3. 逻辑视图
-
-### 3.1 核心测试集合
-
-默认只定义两类通用测试集合：
-
-```text
-smoke
-regression
+├── unit/
+├── component/
+├── contract/
+├── integration/
+├── system/
+├── reliability/
+├── performance/
+├── fixtures/
+└── support/
 ```
 
 定义：
 
-1. `smoke`：快速、低成本、关键路径最小可用验证集合。
-2. `regression`：用于防止历史问题、关键链路或高风险行为回退的测试集合。
-
-### 3.2 marker 规则
-
-marker 用于执行选择，不替代物理目录。
-
-应遵守：
-
-1. `smoke`、`regression` 应作为逻辑集合表达，而不是目录语义。
-2. 模块、子系统、外部依赖、慢速、高成本等维度可使用额外 marker，例如 `starfish`、`deployment`、`slow`。
-3. 推荐使用逻辑表达式选择集合，例如：
-
-```text
-pytest -m smoke
-pytest -m regression
-pytest -m "starfish and smoke"
-pytest -m "starfish and regression"
-```
-
-4. marker 含义必须能在测试索引、测试文件说明或项目规则中追溯。
-5. fake/mock/stub/simulator 测试不得通过 marker 伪装成真实外部依赖验证。
-
-## 4. 执行视图
-
-### 4.1 执行优先级原则
-
-每次编码后不追求“能跑的都跑”，而是执行与变更风险匹配的最小必要验证。
-
-默认原则：
-
-1. 先跑低成本、高信号验证。
-2. 只有当边界风险、历史缺陷或任务范围要求时，才扩大验证层级。
-3. `performance`、长稳、准生产依赖、完整部署演练、全量回归默认不属于每次编码后的必跑项。
-4. 高成本验证应由以下条件触发：
-   - 用户明确要求；
-   - prompt / handoff 明确要求；
-   - 发布前；
-   - 高风险专项变更；
-   - 历史问题追踪项要求。
-
-### 4.2 软件生命周期验证阶段
-
-生命周期阶段用于表达验证语义和成本，不强制等同于物理目录：
-
-| 编号 | 阶段 | 目标 | 常见对象 |
-|---|---|---|---|
-| P1 | 开发期验证 | 验证本地逻辑、接口约束、边界条件和错误路径 | unit、契约测试、解析/转换测试、fake/mock/stub 语义测试 |
-| P2 | 构建期验证 | 验证代码、脚本、配置和包结构可构建、可导入、可静态检查 | 编译、lint、type-check、import boundary、脚本语法检查 |
-| P3 | 模块集成期验证 | 验证单一模块或单一子系统内部组件协作 | use case + adapter、repository、scheduler、临时文件/SQLite/local server |
-| P4 | 跨模块联调期验证 | 验证多个模块之间的数据流和调用链路 | API 到 use case、消息管道、存储链路、simulator-backed 链路 |
-| P5 | 准生产依赖验证期 | 验证真实或等价外部依赖下的行为 | 数据库、消息队列、缓存、对象存储、时序库、外部服务 |
-| P6 | 部署前验收期 | 验证部署配置、运行入口、预检脚本和最小部署闭环 | Docker/Compose、entrypoint、health/ready、migration、rollback/switchover |
-| P7 | 发布后运维验证期 | 沉淀运行问题、故障恢复、容量、性能和可观测性验证 | 运行问题复现、故障注入、长稳、性能基线、告警和审计检查 |
-
-发布回归不是独立生命周期阶段，而是从上述阶段中选择测试形成 `regression` 集合。
-
-## 5. 何时补 unit test
-
-出现以下任一情况时，应考虑补 unit test：
-
-1. 存在独立业务规则、分支逻辑、映射逻辑、错误语义或边界条件。
-2. 输入输出可以通过小范围、低成本、稳定断言验证。
-3. 局部失败难以从更高层测试快速定位。
-4. 该逻辑一旦回退，往往表现为 silent wrong result、错误分类变化、默认值偏移或协议字段不兼容。
-
-一般不要求为以下对象机械补 unit test：
-
-1. 无独立语义的纯转发/胶水代码；
-2. 无行为的纯数据容器；
-3. 已被更高层稳定覆盖且局部无复杂性的薄封装。
-
-## 6. 何时补 integration test
-
-出现以下任一情况时，应考虑补 integration test：
-
-1. 风险主要来自组件协作、装配顺序、资源生命周期或层间契约，而不是单个函数内部逻辑。
-2. 多个组件组合后才体现真实行为。
-3. 存在真实文件、socket、子进程、数据库、临时目录、本地 server 或等价本地依赖协作。
-4. 历史缺陷主要发生在模块边界、协议边界、配置贯通、错误传播或跨层映射。
-
-### 6.1 unit 与 integration 并行补充
-
-当同一改动同时引入：
-
-1. 局部规则风险；
-2. 边界协作风险；
-
-则应同时补 unit 与 integration，而不是二选一。
-
-## 7. 测试结果
-
-测试执行结果只允许：
-
-| 结果 | 含义 |
+| 层级 | 目的 |
 |---|---|
-| PASS | 已执行且通过 |
-| FAIL | 已执行且失败 |
-| NOT_RUN | 未执行，必须说明原因 |
+| `unit` | 单函数、单类、单状态机；无真实外部服务 |
+| `component` | 单进程/模块内部多组件协作；允许 fake/mock 外部依赖 |
+| `contract` | RPC、API、配置/schema、错误码和稳定语义契约 |
+| `integration` | 两个以上真实组件或真实软件服务协作 |
+| `system` | 从外部接口观察完整或接近完整系统行为 |
+| `reliability` | 重试、故障、恢复、资源释放、重启等可靠性行为 |
+| `performance` | 吞吐、延迟、抖动、容量和资源使用 |
+| `soak` | 长时间稳定性；作为 reliability 的长期资格属性 |
 
-`NOT_RUN` 不是通过结果，不得计入通过数量。常用原因码：
+## 2. Marker
 
-| 原因 | 说明 |
-|---|---|
-| OUT_OF_SCOPE | 不属于本次验证范围 |
-| MISSING_ENVIRONMENT | 缺少运行环境、服务、硬件或配置 |
-| MISSING_DEPENDENCY | 缺少库、二进制、工具或镜像 |
-| MANUAL_REQUIRED | 需要人工步骤或受控现场条件 |
-| TOO_EXPENSIVE_FOR_THIS_RUN | 本次执行成本过高，例如长稳、压测、大规模数据 |
-| USER_NOT_REQUESTED | 用户或任务未要求执行 |
-
-测试框架产生的 skip/xfail 必须在报告中转写为 PASS、FAIL 或 NOT_RUN；其中未实际执行的 skip 应转写为 NOT_RUN 并说明原因。
-
-## 8. 测试索引与问题追踪
-
-仓库应维护唯一测试索引，默认位置为：
+Marker 应正交表达不同维度：
 
 ```text
-ai_shared/memory/test_index.md
+层级:
+unit component contract integration system reliability performance soak
+
+真实性:
+mock_service real_service hardware
+
+协议/服务:
+modbus ads iec104 kafka postgres influxdb file
+
+环境:
+docker network root slow fast
 ```
 
-测试索引用于记录测试资产和集合，不替代测试文件、CI 配置或报告。建议包含：
+目录表达主要测试目的，marker 表达真实性、协议、外部依赖和环境要求；不要用一个 marker 混合多个维度。
+
+## 3. 真实性
 
 ```text
-1. 物理分类说明；
-2. 逻辑集合说明；
-3. 测试资产索引；
-4. 集合组合方式；
-5. 工具/实验测试与生产测试的边界；
-6. 维护规则。
+mock/fake/stub
+≠ real_service
+≠ hardware
 ```
 
-仓库可在 `tests/` 下维护问题到测试覆盖的追踪索引，例如：
+1. Integration 若依赖真实软件服务，应明确使用 `real_service` 或相应服务 marker。
+2. 环境缺失时不得静默退化到 mock 后仍声称真实集成通过。
+3. 真实 PLC、现场设备测试必须标记 `hardware`。
+4. health check、脚本存在、端口开放均不是业务测试 PASS。
+
+## 4. 结果状态
+
+Agent 与 Gate 最终只使用：
 
 ```text
-tests/regression_trace.md
-tests/issue_trace.md
+PASS
+FAIL
+RUNNING
+QUEUED
+NOT_RUN
+NOT_EXECUTED
 ```
 
-用于记录：
+含义：
 
-1. 问题来源；
-2. 影响模块；
-3. 对应测试文件与测试用例；
-4. 所属物理层次；
-5. 所属逻辑集合；
-6. 当前状态和边界说明。
+- `PASS`：目标 Gate 已执行且全部必需检查成功。
+- `FAIL`：目标 Gate 已执行并存在失败。
+- `RUNNING` / `QUEUED`：当前目标 SHA 的任务正在执行或等待 runner。
+- `NOT_RUN`：没有执行该 Gate 或该检查。
+- `NOT_EXECUTED`：因硬件、权限、runner 或外部环境不具备而无法执行资格测试。
 
-## 9. 代码变更后的测试同步
+pytest 的 `skip/xfail` 是框架原始状态，不直接等价于 Gate PASS。报告必须说明其原因和是否影响 Gate 资格。
 
-发生以下变化时，必须同步评估和更新测试、fixture、fake/mock/stub 和测试索引：
+## 5. Skip / XFail
 
-1. 行为变化；
-2. public interface、port、Protocol、ABC、API、CLI 变化；
-3. schema、配置、环境变量、迁移、消息格式、协议帧变化；
-4. adapter、repository、gateway、driver 的外部依赖语义变化；
-5. 权限、审计、幂等、重试、超时、事务、lease/fencing、回滚等运行时语义变化。
+允许 skip 的典型原因：
 
-测试失败时不得默认回滚生产代码以迎合旧测试。应先判断：
+- 硬件不可用；
+- Docker/真实外部服务不可用；
+- 所需权限或网络条件不可用。
 
-```text
-1. 生产代码缺陷；
-2. 测试断言过期；
-3. 需求或契约已变化，测试需要更新；
-4. 环境或依赖缺失；
-5. 既有失败。
-```
+禁止用 skip/xfail 掩盖：
 
-## 10. 禁止事项
+- 本次代码缺陷；
+- 陈旧测试；
+- 尚未处理的失败；
+- 仅为了让 Gate 变绿。
 
-1. 不把“能运行不报错”当作有效测试。
-2. 不降低断言、删除失败测试、扩大 skip 或吞异常制造通过。
-3. 不把未执行、mock、fake、stub、health check、脚本存在、单文件通过写成真实闭环。
-4. 不把 `smoke`、`regression` 当作物理目录必须项。
-5. 不默认把 performance、长稳、准生产依赖验证当作每次编码后的必跑集合。
-6. 不只跑局部测试却声称全量通过。
-7. 不新增无条件 skip 掩盖缺陷。
-8. 不把测试工具能力写成生产能力。
+`xfail` 必须有明确已知问题和解除条件。
+
+## 6. 测试设计
+
+1. 行为变化同步更新相应测试。
+2. public contract 变化优先补 contract test。
+3. 错误、超时、取消、重试、幂等、回滚和清理属于正式行为，应覆盖失败路径。
+4. 测试必须隔离并清理进程、socket、asyncio task、临时文件、容器和测试数据。
+5. 不为旧测试恢复已废弃架构；先判断生产缺陷还是断言已过时。
+6. 性能测试没有正式 SLA 时可建立 baseline，但不得凭空制造生产阈值。
