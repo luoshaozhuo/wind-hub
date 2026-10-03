@@ -4,9 +4,3 @@ hooks = true
 [shell_environment_policy]
 inherit = "core"
 ignore_default_excludes = false
-
-[shell_environment_policy.set]
-CONDA_DEFAULT_ENV = "wind-hub"
-CONDA_PREFIX = "/home/luosh/miniconda3/envs/wind-hub"
-CONDA_SHLVL = "1"
-PATH = "/home/luosh/miniconda3/envs/wind-hub/bin:/home/luosh/miniconda3/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

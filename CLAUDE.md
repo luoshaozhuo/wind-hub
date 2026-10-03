@@ -4,7 +4,24 @@
 
 ## 1. 环境
 
-会话首次执行仓库命令前运行 `source .env.local`，确认 conda 环境为 `wind-hub`；否则停止。
+VS Code 插件会话首次执行仓库任务前，先运行：
+
+```bash
+python3 scripts/dev.py env
+```
+
+前端任务运行：
+
+```bash
+python3 scripts/dev.py env --frontend
+```
+
+本机工具路径可写入不进仓库的 `.agent/local.json`，模板见
+`.agent/local.example.json`。Agent 后续执行 Python、Node 或 npm 命令时，应通过
+`scripts/dev.py` 使用同一套本机工具配置，不假设 VS Code 插件继承某个 shell 或 conda 环境。
+
+`.env.local` 仅用于 wind-hub 运行时、真实服务或测试参数，不负责选择 Python
+解释器；不得读取或输出其中的敏感值。
 
 ## 2. 单一规则源与最小读取
 
