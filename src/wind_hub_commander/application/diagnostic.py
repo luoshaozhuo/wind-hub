@@ -71,6 +71,18 @@ class PointVerifyResult(BaseModel):
     error: str | None = None
 
 
+class PointsVerifyResult(BaseModel):
+    """一批点位的在线验证结果。"""
+
+    device_id: str
+    point_group: str | None = None
+    checked: int
+    passed: int
+    failed: int
+    ok: bool
+    points: list[PointVerifyResult]
+
+
 class DiagnosticUseCase:
     """Commander 的按需现场诊断入口。"""
 
@@ -186,6 +198,30 @@ class DiagnosticUseCase:
             stages=stages,
         )
 
+    async def resolve_point(
+        self,
+        device_id: str,
+        point_id: str,
+    ) -> PointVerifyResult:
+        async with self._runtime.operation():
+            return await self._resolve_point(device_id, point_id)
+
+    async def _resolve_point(
+        self,
+        device_id: str,
+        point_id: str,
+    ) -> PointVerifyResult:
+        """解析点位协议地址；ADS 会实际查询 symbol 信息但不读取点值。"""
+        point = self._point(device_id, point_id)
+        resolved, errors = await self._resolve_addresses(device_id, [point])
+        return self._point_result(
+            device_id,
+            point,
+            resolved.get(point.point_id),
+            readable=None,
+            error=errors.get(point.point_id),
+        )
+
     async def verify_point(
         self,
         device_id: str,
@@ -207,6 +243,52 @@ class DiagnosticUseCase:
         resolved, errors = await self._resolve_addresses(device_id, [point])
         rows = await self._verify_read(device_id, [point], resolved, errors)
         return rows[0]
+
+    async def verify_points(
+        self,
+        device_id: str,
+        *,
+        point_group: str | None = None,
+    ) -> PointsVerifyResult:
+        async with self._runtime.operation():
+            return await self._verify_points(
+                device_id,
+                point_group=point_group,
+            )
+
+    async def _verify_points(
+        self,
+        device_id: str,
+        *,
+        point_group: str | None = None,
+    ) -> PointsVerifyResult:
+        """批量验证整个设备点表或指定 point_group。"""
+        device = self._device(device_id)
+        points = (
+            device.point_group_points(point_group)
+            if point_group is not None
+            else list(device.points)
+        )
+        if point_group is not None and not points:
+            raise CommandError(
+                f"unknown or empty point group '{device_id}/{point_group}'",
+                "",
+            )
+        if device.config.protocol == "ads":
+            rows = await self._verify_ads_points(device_id, points)
+        else:
+            resolved, errors = await self._resolve_addresses(device_id, points)
+            rows = await self._verify_read(device_id, points, resolved, errors)
+        passed = sum(1 for row in rows if row.ok)
+        return PointsVerifyResult(
+            device_id=device_id,
+            point_group=point_group,
+            checked=len(rows),
+            passed=passed,
+            failed=len(rows) - passed,
+            ok=passed == len(rows),
+            points=rows,
+        )
 
     @staticmethod
     def _probe_target(device: DeviceSession) -> DeviceProbeTarget:

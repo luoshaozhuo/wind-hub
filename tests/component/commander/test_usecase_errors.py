@@ -40,6 +40,19 @@ class TestCommandUseCase:
         assert not result.success
         assert "not connected" in (result.error or "")
 
+    async def test_send_batch_preserves_order_and_isolates_failures(
+        self, commander_app: CommanderApp
+    ) -> None:
+        results = await commander_app.command.send_batch(
+            [
+                _command("cmd-a", device_id="ghost"),
+                _command("cmd-b"),
+            ]
+        )
+        assert [r.command_id for r in results] == ["cmd-a", "cmd-b"]
+        assert all(not r.success for r in results)
+        assert "ghost" in (results[0].error or "")
+
 
 class TestReadUseCase:
     async def test_unknown_device_raises_command_error(
@@ -74,11 +87,21 @@ class TestDiagnosticUseCase:
         with pytest.raises(CommandError, match="unknown device"):
             await commander_app.diagnostic.verify_device("ghost")
 
-    async def test_verify_unknown_point_raises_command_error(
+    async def test_resolve_unknown_point_raises_command_error(
         self, commander_app: CommanderApp
     ) -> None:
         with pytest.raises(CommandError, match="unknown point"):
-            await commander_app.diagnostic.verify_point("modbus-1", "no.such.point")
+            await commander_app.diagnostic.resolve_point("modbus-1", "no.such.point")
+
+    async def test_resolve_point_returns_configured_address(
+        self, commander_app: CommanderApp
+    ) -> None:
+        """非 ADS 协议的 resolve 不触网——直接返回配置地址事实。"""
+        result = await commander_app.diagnostic.resolve_point("modbus-1", "setpoint.power")
+        assert result.ok
+        assert result.configured_address["register_type"] == "holding"
+        assert result.configured_address["address"] == 200
+        assert result.resolved_address is not None
 
     async def test_verify_device_unreachable_reports_stages(
         self, commander_app: CommanderApp
@@ -90,3 +113,8 @@ class TestDiagnosticUseCase:
         assert by_name["transport"].ok is False
         assert by_name["protocol"].ok is False
 
+    async def test_verify_points_unknown_group_raises_command_error(
+        self, commander_app: CommanderApp
+    ) -> None:
+        with pytest.raises(CommandError, match="point group"):
+            await commander_app.diagnostic.verify_points("modbus-1", point_group="ghost")
