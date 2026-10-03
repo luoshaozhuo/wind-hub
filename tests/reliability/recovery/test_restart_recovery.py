@@ -68,7 +68,6 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
                         "t1": 3.0,
                         "t2": 2.0,
                         "t3": 5.0,
-                        "max_reconnect_retries": 60,
                     },
                 },
             }
