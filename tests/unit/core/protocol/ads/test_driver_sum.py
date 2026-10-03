@@ -22,7 +22,7 @@ def _make_device_config(read_mode: str = "sum", **extensions: object) -> DeviceC
         point_table="t1",
         endpoint=Endpoint(
             host="192.168.0.100",
-            port=48898,
+            port=801,
             extensions=dict(extensions),
         ),
         read_mode=read_mode,
