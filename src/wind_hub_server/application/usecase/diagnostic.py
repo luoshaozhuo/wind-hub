@@ -9,13 +9,13 @@ from pydantic import BaseModel
 
 from wind_hub_core.model.point import PointValue
 from wind_hub_server.application.operation import OperationManager, OperationRecord
+from wind_hub_server.application.port.network_probe import NetworkProbePort
 from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.device_control import (
     DeviceCommandResult,
     DeviceControlUseCase,
 )
-from wind_hub_server.infra.network_probe import expand_network, ping_host, probe_port
 
 
 class PingResult(BaseModel):
@@ -43,15 +43,17 @@ class DiagnosticUseCase:
         control: DeviceControlUseCase,
         config: ConfigUseCase,
         operations: OperationManager,
+        network: NetworkProbePort,
     ) -> None:
         self._commander = commander
         self._control = control
         self._config = config
         self._operations = operations
+        self._network = network
         self._background: set[asyncio.Task[None]] = set()
 
     async def ping(self, host: str, timeout: float = 1.0) -> PingResult:
-        result = await ping_host(host, timeout)
+        result = await self._network.ping(host, timeout)
         return PingResult(
             host=result.host,
             reachable=result.reachable,
@@ -65,7 +67,7 @@ class DiagnosticUseCase:
         timeout: float = 1.0,
     ) -> list[PortResult]:
         results = await asyncio.gather(
-            *(probe_port(host, port, timeout) for port in ports)
+            *(self._network.probe_port(host, port, timeout) for port in ports)
         )
         return [
             PortResult(
@@ -106,7 +108,7 @@ class DiagnosticUseCase:
         ports: list[int] | None = None,
     ) -> OperationRecord:
         """创建异步子网扫描 Operation。"""
-        ips = expand_network(network)
+        ips = self._network.expand_network(network)
         operation = self._operations.create(
             "diagnostics.subnet_scan",
             total=len(ips),
@@ -233,9 +235,9 @@ class DiagnosticUseCase:
         timeout: float,
         ports: list[int],
     ) -> dict[str, object] | None:
-        ping = await ping_host(host, timeout)
+        ping = await self._network.ping(host, timeout)
         probed = await asyncio.gather(
-            *(probe_port(host, port, timeout) for port in ports)
+            *(self._network.probe_port(host, port, timeout) for port in ports)
         )
         open_ports = [row.port for row in probed if row.state == "open"]
         if not ping.reachable and not open_ports:

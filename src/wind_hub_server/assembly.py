@@ -42,6 +42,7 @@ from wind_hub_server.application.worker_model import (
 )
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
+from wind_hub_server.infra.network_probe import NetworkProbe
 from wind_hub_server.infra.point_store import InMemoryTrendStore
 
 
@@ -170,6 +171,7 @@ def assemble_server(
         device_control,
         config,
         operations,
+        NetworkProbe(),
     )
     quality = QualityUseCase(
         config,
