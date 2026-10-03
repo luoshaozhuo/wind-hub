@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.port.collector_query import CollectorQueryPort
+from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
 
@@ -41,17 +41,17 @@ class OverviewUseCase:
     def __init__(
         self,
         *,
-        query: CollectorQueryPort,
+        monitoring: MonitoringSnapshotPort,
         tasks: CollectorTaskUseCase,
         config: ConfigUseCase,
     ) -> None:
-        self._query = query
+        self._monitoring = monitoring
         self._tasks = tasks
         self._config = config
 
     async def snapshot(self) -> OverviewSnapshot:
         """返回一次一致的当前进程级总览快照。"""
-        status = await self._query.runtime_status()
+        status = self._monitoring.runtime_status()
         tasks = await self._tasks.list_task_summaries()
         site = self._config.current_config.system.site
         return OverviewSnapshot(
