@@ -39,9 +39,6 @@ from wind_hub_core.protocol.port import (
 logger = logging.getLogger(__name__)
 
 # 指数退避参数；上限与重试预算由 ModbusConfig 提供。
-_RECONNECT_BACKOFF_BASE = 1.0
-_RECONNECT_BACKOFF_MULTIPLIER = 2.0
-
 # bit-addressed 与 word-addressed 点使用不同解码路径；input 虽只读但属于 word 类型。
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 
@@ -164,11 +161,14 @@ class ModbusDriver:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """建立 Modbus TCP 连接，并按指数退避执行首次重试。
+        """执行一次 Modbus TCP 连接尝试。
+
+        重试、退避和节流由 Collector/Commander Runtime 负责；Driver 只负责
+        单次协议连接，避免双层 retry/backoff。
 
         Raises:
             NotImplementedError: 配置为 RTU。
-            ProtocolError: 首轮连接预算耗尽仍未连接。
+            ProtocolError: 本次连接失败。
         """
         if self._config.mode == "rtu":
             raise NotImplementedError(
@@ -177,58 +177,40 @@ class ModbusDriver:
         async with self._lock:
             if self._connected:
                 return
-            last_exc = await self._connect_with_retry()
-            if last_exc is not None:
+            try:
+                await self._do_connect()
+            except TimeoutError as exc:
+                logger.warning(
+                    "Modbus: connect timed out for %s:%d",
+                    self._config.host,
+                    self._config.port,
+                )
                 raise ProtocolError(
-                    f"Modbus: failed to connect to {self._config.host}:{self._config.port} "
-                    f"after {self._config.reconnect_max_retries + 1} attempts: {last_exc}"
-                ) from last_exc
+                    f"Modbus: failed to connect to {self._config.host}:{self._config.port}: {exc}"
+                ) from exc
+            except Exception as exc:
+                logger.warning(
+                    "Modbus: connect failed for %s:%d: %s",
+                    self._config.host,
+                    self._config.port,
+                    exc,
+                )
+                raise ProtocolError(
+                    f"Modbus: failed to connect to {self._config.host}:{self._config.port}: {exc}"
+                ) from exc
+            self._connected = True
+            logger.info(
+                "Modbus: connected to %s:%d (unit %d)",
+                self._config.host,
+                self._config.port,
+                self._config.unit_id,
+            )
 
     async def close(self) -> None:
         """关闭 Modbus client；重复调用安全。"""
         async with self._lock:
             self._close_client()
             self._connected = False
-
-    async def _connect_with_retry(self) -> Exception | None:
-        """执行一次有限预算的指数退避连接。
-
-        Returns:
-            成功返回 None；预算耗尽返回最后异常。
-        """
-        backoff = _RECONNECT_BACKOFF_BASE
-        last_exc: Exception | None = None
-        budget = self._config.reconnect_max_retries + 1
-        for attempt in range(budget):
-            try:
-                await self._do_connect()
-                self._connected = True
-                logger.info(
-                    "Modbus: connected to %s:%d (unit %d)",
-                    self._config.host,
-                    self._config.port,
-                    self._config.unit_id,
-                )
-                return None
-            except Exception as exc:  # connection failure — retry with backoff
-                last_exc = exc
-                if isinstance(exc, TimeoutError):
-                    # 连接/读写超时是对端不可达的日常表现：明确标记为超时，
-                    # 保持简洁 warning、不打堆栈（决策 2）。
-                    logger.warning(
-                        "Modbus: connect attempt %d/%d timed out: %s", attempt + 1, budget, exc
-                    )
-                else:
-                    logger.warning(
-                        "Modbus: connect attempt %d/%d failed: %s", attempt + 1, budget, exc
-                    )
-                if attempt < budget - 1:
-                    await asyncio.sleep(backoff)
-                    backoff = min(
-                        backoff * _RECONNECT_BACKOFF_MULTIPLIER,
-                        self._config.reconnect_backoff_max,
-                    )
-        return last_exc
 
     async def _do_connect(self) -> None:
         """延迟导入 pymodbus，创建并连接 AsyncModbusTcpClient。
