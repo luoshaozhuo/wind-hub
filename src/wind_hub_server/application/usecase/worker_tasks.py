@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
+from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.port.worker import (
     CollectorPlacementRejectedError,
     CollectorPort,
@@ -83,10 +84,12 @@ class CollectorTaskUseCase:
         collectors: CollectorDirectory,
         assignments: TaskAssignmentUseCase,
         config: ConfigUseCase,
+        monitoring: MonitoringSnapshotPort,
     ) -> None:
         self._collectors = collectors
         self._assignments = assignments
         self._config = config
+        self._monitoring = monitoring
         self._reconciled_generation: int | None = None
 
     async def _verified_collector(self, worker_id: str) -> CollectorPort:
@@ -239,24 +242,25 @@ class CollectorTaskUseCase:
             errors=errors,
         )
 
-    async def list_task_summaries(self) -> list[TaskSummary]:
-        """返回全部 Task 的 placement 与运行状态。"""
+    def list_task_summaries(self) -> list[TaskSummary]:
+        """从 Monitoring 最近一次快照返回 Task placement 与运行状态。"""
         runtime_rows = {
-            str(row.get("task_id")): (worker_id, row)
-            for worker_id, row in await self._list_assigned_task_rows()
+            str(row.get("task_id")): row
+            for row in self._monitoring.tasks_snapshot()
+            if row.get("task_id") is not None
         }
         rows: list[TaskSummary] = []
         for cfg in self._config.current_config.tasks.tasks:
             assignment = self._assignments.assignment_for_task(cfg.task_id)
             current = runtime_rows.get(cfg.task_id)
             if current is not None:
-                worker_id, row = current
                 rows.append(
                     TaskSummary.model_validate(
                         {
-                            **row,
-                            "assigned_worker_id": worker_id,
-                            "placement_state": TaskPlacementState.ASSIGNED,
+                            **current,
+                            "assigned_worker_id": current.get("assigned_worker_id")
+                            or assignment.worker_id,
+                            "placement_state": assignment.state,
                         }
                     )
                 )
@@ -306,38 +310,12 @@ class CollectorTaskUseCase:
                 return row
         raise KeyError(instance_id)
 
-    async def get_task_summary(self, task_id: str) -> TaskSummary:
-        """返回指定 Task placement 与当前聚合状态。"""
-        cfg = next(
-            (
-                item
-                for item in self._config.current_config.tasks.tasks
-                if item.task_id == task_id
-            ),
-            None,
-        )
-        if cfg is None:
-            raise KeyError(task_id)
-        assignment = self._assignments.assignment_for_task(task_id)
-        if assignment.state is not TaskPlacementState.ASSIGNED:
-            return self._fallback_summary(cfg, assignment.worker_id)
-
-        assert assignment.worker_id is not None
-        try:
-            collector = await self._verified_collector(assignment.worker_id)
-            rows = await collector.list_tasks()
-        except TaskWorkerUnavailableError:
-            return self._fallback_summary(cfg, assignment.worker_id)
-        for row in rows:
-            if str(row.get("task_id") or "") == task_id:
-                return TaskSummary.model_validate(
-                    {
-                        **row,
-                        "assigned_worker_id": assignment.worker_id,
-                        "placement_state": assignment.state,
-                    }
-                )
-        return self._fallback_summary(cfg, assignment.worker_id)
+    def get_task_summary(self, task_id: str) -> TaskSummary:
+        """从最近一次 Monitoring 快照返回指定 Task 状态。"""
+        for row in self.list_task_summaries():
+            if row.task_id == task_id:
+                return row
+        raise KeyError(task_id)
 
     async def list_task_instances(self, task_id: str) -> list[TaskInstanceDetail]:
         """返回指定 Task 当前展开的全部实例；未分配 Task 返回空列表。"""
@@ -413,42 +391,6 @@ class CollectorTaskUseCase:
                 "placement_state": TaskPlacementState.ASSIGNED,
             }
         )
-
-    async def _list_assigned_task_rows(
-        self,
-    ) -> list[tuple[str, dict[str, Any]]]:
-        """按 assignment 查询各 Collector，并过滤非本 Worker Task。"""
-        assignments = [
-            row
-            for row in self._assignments.list_assignments()
-            if row.state is TaskPlacementState.ASSIGNED
-            and row.worker_id is not None
-        ]
-        by_worker: dict[str, set[str]] = {}
-        for assignment in assignments:
-            assert assignment.worker_id is not None
-            by_worker.setdefault(assignment.worker_id, set()).add(assignment.task_id)
-
-        worker_ids = sorted(by_worker)
-        async def fetch(worker_id: str) -> list[dict[str, Any]]:
-            collector = await self._verified_collector(worker_id)
-            return await collector.list_tasks()
-
-        results = await asyncio.gather(
-            *(fetch(worker_id) for worker_id in worker_ids),
-            return_exceptions=True,
-        )
-        rows: list[tuple[str, dict[str, Any]]] = []
-        for worker_id, worker_rows in zip(worker_ids, results, strict=True):
-            if isinstance(worker_rows, BaseException):
-                continue
-            assigned_task_ids = by_worker[worker_id]
-            rows.extend(
-                (worker_id, row)
-                for row in worker_rows
-                if str(row.get("task_id") or "") in assigned_task_ids
-            )
-        return rows
 
     def _fallback_summary(
         self,
