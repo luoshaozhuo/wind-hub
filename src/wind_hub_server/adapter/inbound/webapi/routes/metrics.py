@@ -13,20 +13,20 @@ router = APIRouter(tags=["metrics"])
 
 @router.get("/metrics")
 async def metrics_endpoint() -> Response:
-    """从 Collector RPC 快照更新 gauge 后渲染 Prometheus 文本。"""
+    """从 MonitoringService 最近一次低频快照更新 gauge 并渲染 Prometheus。"""
     ctx = get_ctx()
-    query = ctx.collector_query
-    if query is None:
+    monitoring = ctx.monitoring
+    if monitoring is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
-            "collector query port is not configured",
+            "monitoring snapshot is not configured",
             status_code=503,
         )
 
     try:
-        status = await query.runtime_status()
-        devices = await query.list_devices()
-        sinks = await query.list_sinks()
+        status = monitoring.runtime_status()
+        devices = monitoring.devices_snapshot()
+        sinks = monitoring.sinks_snapshot()
 
         metrics.update_gauges(
             devices_total_val=int(status.get("device_count") or 0),
