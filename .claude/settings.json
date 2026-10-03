@@ -52,10 +52,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PROJECT_DIR}/ai_shared/agent_config/hooks/block-git-write-ops.py"
-          },
-          {
-            "type": "command",
             "command": "python3 ${CLAUDE_PROJECT_DIR}/ai_shared/agent_config/hooks/block-dangerous-bash.py"
           }
         ]

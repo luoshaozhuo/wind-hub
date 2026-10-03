@@ -20,6 +20,7 @@ ci-qualification.yml 以该目录为 artifact 归档路径）。
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -75,6 +76,11 @@ def resolve_duration_s(soak_name: str, override: str | None) -> float:
             f"非法 WIND_HUB_SOAK_DURATION_S={override!r}："
             "必须是秒数（如 '3600' 或 '60.5'）"
         ) from None
+    # 先拒非有限值：float("nan") <= 0 为 False，单靠正数校验会漏放 nan。
+    if not math.isfinite(value):
+        raise ValueError(
+            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：必须是有限正数"
+        )
     if value <= 0:
         raise ValueError(
             f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：时长必须为正数"

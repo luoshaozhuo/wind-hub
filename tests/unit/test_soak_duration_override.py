@@ -46,3 +46,13 @@ def test_invalid_number_fails_loudly(override: str) -> None:
 def test_non_positive_fails_loudly(override: str) -> None:
     with pytest.raises(ValueError, match="必须为正数"):
         resolve_duration_s("smoke_1h", override)
+
+
+@pytest.mark.parametrize(
+    "override",
+    ["nan", "NaN", "inf", "+inf", "-inf", "Infinity"],
+)
+def test_non_finite_fails_loudly(override: str) -> None:
+    # float() 接受 nan/inf 字面量，且 nan <= 0 为 False——必须显式拒非有限值。
+    with pytest.raises(ValueError, match="有限正数"):
+        resolve_duration_s("smoke_1h", override)
