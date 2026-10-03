@@ -45,6 +45,20 @@ SINK_NUMERIC_DATA_TYPES = frozenset(
     }
 )
 
+MODBUS_WORD_WIDTH: dict[str, int] = {
+    "bool": 1,
+    "int8": 1,
+    "uint8": 1,
+    "int16": 1,
+    "uint16": 1,
+    "int32": 2,
+    "uint32": 2,
+    "float32": 2,
+    "int64": 4,
+    "uint64": 4,
+    "float64": 4,
+}
+
 
 class SinkSource(BaseModel):
     """Sink 点引用的内部稳定身份。"""
@@ -436,6 +450,7 @@ __all__ = [
     "SINK_TYPES",
     "SINK_DATA_TYPES",
     "SINK_NUMERIC_DATA_TYPES",
+    "MODBUS_WORD_WIDTH",
     "SinkSource",
     "FileSinkConnection",
     "KafkaSinkConnection",

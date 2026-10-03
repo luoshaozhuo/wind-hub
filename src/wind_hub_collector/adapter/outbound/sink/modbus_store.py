@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from wind_hub_collector.adapter.outbound.sink.modbus_codec import (
+from wind_hub_collector.adapter.outbound.sink.modbus_codec import EncodedModbusValue
+from wind_hub_core.config.sinks import (
     MODBUS_WORD_WIDTH,
-    EncodedModbusValue,
+    ModbusSinkAddress,
+    ResolvedSinkPoint,
 )
-from wind_hub_core.config.sinks import ModbusSinkAddress, ResolvedSinkPoint
 
 
 @dataclass(slots=True)
@@ -62,24 +63,30 @@ class ModbusSinkStore:
                     f"Undeclared Modbus address {value.unit_id}/"
                     f"{value.register_type}/{value.address}"
                 )
-            for offset, bit in enumerate(value.bits):
-                address = value.address + offset
-                if address not in space:
-                    raise KeyError(
-                        f"Undeclared Modbus address {value.unit_id}/"
-                        f"{value.register_type}/{address}"
-                    )
+            addresses = [
+                value.address + offset for offset in range(len(value.bits))
+            ]
+            self._require_declared(
+                space,
+                value.unit_id,
+                value.register_type,
+                addresses,
+            )
+            for address, bit in zip(addresses, value.bits, strict=True):
                 space[address] = bit
             return
 
         space = self._register_space(unit, value.register_type)
-        for offset, register in enumerate(value.registers):
-            address = value.address + offset
-            if address not in space:
-                raise KeyError(
-                    f"Undeclared Modbus address {value.unit_id}/"
-                    f"{value.register_type}/{address}"
-                )
+        addresses = [
+            value.address + offset for offset in range(len(value.registers))
+        ]
+        self._require_declared(
+            space,
+            value.unit_id,
+            value.register_type,
+            addresses,
+        )
+        for address, register in zip(addresses, value.registers, strict=True):
             space[address] = register
 
     def read_bits(
@@ -105,6 +112,20 @@ class ModbusSinkStore:
         unit = self._require_unit(unit_id)
         space = self._register_space(unit, register_type)
         return [space[address + offset] for offset in range(count)]
+
+    @staticmethod
+    def _require_declared(
+        space: dict[int, object],
+        unit_id: int,
+        register_type: str,
+        addresses: list[int],
+    ) -> None:
+        for address in addresses:
+            if address not in space:
+                raise KeyError(
+                    f"Undeclared Modbus address {unit_id}/"
+                    f"{register_type}/{address}"
+                )
 
     def _require_unit(self, unit_id: int) -> ModbusUnitStore:
         try:

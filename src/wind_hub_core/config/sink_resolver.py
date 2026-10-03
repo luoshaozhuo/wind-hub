@@ -16,6 +16,7 @@ from wind_hub_core.config.schema import (
 )
 from wind_hub_core.config.sinks import (
     IEC104SinkAddress,
+    MODBUS_WORD_WIDTH,
     ModbusSinkAddress,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
@@ -28,19 +29,6 @@ from wind_hub_core.config.sinks import (
 from wind_hub_core.model.errors import ConfigError
 
 
-_MODBUS_WORD_WIDTH: dict[str, int] = {
-    "bool": 1,
-    "int8": 1,
-    "uint8": 1,
-    "int16": 1,
-    "uint16": 1,
-    "int32": 2,
-    "uint32": 2,
-    "float32": 2,
-    "int64": 4,
-    "uint64": 4,
-    "float64": 4,
-}
 _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 
 
@@ -216,7 +204,7 @@ def _validate_modbus_layout(
                 )
             width = 1
         else:
-            width = _MODBUS_WORD_WIDTH.get(point.datatype)
+            width = MODBUS_WORD_WIDTH.get(point.datatype)
             if width is None:
                 raise ConfigError(
                     f"Sink '{sink_name}' point '{point.ref}': "

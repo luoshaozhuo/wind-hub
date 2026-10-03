@@ -118,3 +118,23 @@ def test_store_rejects_write_outside_declared_span() -> None:
         assert "holding/6" in str(exc)
     else:
         raise AssertionError("expected KeyError")
+
+
+def test_store_rejects_partial_write_without_mutation() -> None:
+    store = ModbusSinkStore(
+        [_point("p1", datatype="uint16", register_type="holding", address=5)]
+    )
+    try:
+        store.write(
+            EncodedModbusValue(
+                unit_id=1,
+                register_type="holding",
+                address=5,
+                registers=(7, 8),
+            )
+        )
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("expected KeyError")
+    assert store.read_registers(1, "holding", 5) == [0]
