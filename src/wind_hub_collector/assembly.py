@@ -33,6 +33,7 @@ from wind_hub_collector.application.command_dispatcher import CommandDispatcher
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Device, Runtime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
+from wind_hub_collector.application.runtime.telemetry_store import CollectorTelemetryStore
 from wind_hub_collector.application.usecase.command import CommandUseCase
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.diagnostic import DiagnosticUseCase
@@ -82,6 +83,7 @@ class AssembledRuntime:
     diagnostic: DiagnosticUseCase
     config: ConfigUseCase
     metrics_state: CollectorMetricsState
+    telemetry_store: CollectorTelemetryStore
     iec104_slave: IEC104SlaveServer | None = None
 
 
@@ -127,10 +129,12 @@ def assemble(
     )
 
     metrics_state = CollectorMetricsState()
+    telemetry_store = CollectorTelemetryStore()
     engine = AcquisitionEngine(
         read_timeout=cfg.system.runtime.read_timeout,
     )
     engine.add_observer(metrics_state.observe_points)
+    engine.add_observer(telemetry_store.observe_points)
 
     runtime = Runtime(
         devices=devices,
@@ -170,6 +174,7 @@ def assemble(
         diagnostic=diagnostic,
         config=config,
         metrics_state=metrics_state,
+        telemetry_store=telemetry_store,
         iec104_slave=iec104_slave,
     )
 
