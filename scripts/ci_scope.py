@@ -14,11 +14,10 @@ TOOLING_PREFIXES = (
     ".claude/",
     ".codex/",
     ".agents/",
-    ".agent/",
     "ai_shared/agent_config/hooks/",
 )
 GOVERNANCE_PREFIXES = ("ai_shared/", "docs/")
-GOVERNANCE_FILES = {"CLAUDE.md", "AGENTS.md", "README.md", ".gitignore", ".env.local.example"}
+GOVERNANCE_FILES = {"CLAUDE.md", "AGENTS.md", "README.md", ".gitignore"}
 BACKEND_GLOBAL_FILES = {"pyproject.toml", "poetry.lock"}
 
 FAST_TEST_ORDER = ("unit", "component", "contract")

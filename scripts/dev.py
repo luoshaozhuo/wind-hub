@@ -1,7 +1,7 @@
 """统一 VS Code Coding Agent 的本地开发工具入口。
 
-本脚本只依赖 Python 标准库。它从 `.agent/local.json` 读取本机工具路径，
-用于避免 Codex/Claude Code VS Code 插件各自继承不同的终端环境。
+本脚本只依赖 Python 标准库。它从 `ai_shared/agent_config/local.json` 读取
+本机工具路径，用于避免 Codex/Claude Code VS Code 插件各自继承不同的终端环境。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_CONFIG = REPO_ROOT / ".agent" / "local.json"
+LOCAL_CONFIG = REPO_ROOT / "ai_shared" / "agent_config" / "local.json"
 
 
 def _load_config() -> dict[str, Any]:

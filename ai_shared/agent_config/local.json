@@ -1,0 +1,9 @@
+{
+  "python": {
+    "executable": "~/miniconda3/envs/wind-hub/bin/python"
+  },
+  "frontend": {
+    "node": "~/miniconda3/envs/wind-hub/bin/node",
+    "npm": "~/miniconda3/envs/wind-hub/bin/npm"
+  }
+}
