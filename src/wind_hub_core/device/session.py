@@ -35,9 +35,9 @@ class DeviceSession:
         protocol: ProtocolPort,
     ) -> None:
         self._config = config
-        self._points = points
+        self._points = tuple(points)
         self._protocol = protocol
-        self._protocol.set_points_mapping(points)
+        self._protocol.set_points_mapping(list(self._points))
 
     @property
     def config(self) -> DeviceConfig:
@@ -70,8 +70,8 @@ class DeviceSession:
         return self._protocol
 
     @property
-    def points(self) -> list[PointConfig]:
-        """返回当前 resolved 点表。"""
+    def points(self) -> tuple[PointConfig, ...]:
+        """返回当前 resolved 点表不可变快照。"""
         return self._points
 
     @property
@@ -88,8 +88,8 @@ class DeviceSession:
         Notes:
             本操作只更新内存映射，不建立或关闭协议连接。
         """
-        self._points = points
-        self._protocol.set_points_mapping(points)
+        self._points = tuple(points)
+        self._protocol.set_points_mapping(list(self._points))
 
     def point_group_points(self, point_group: str) -> list[PointConfig]:
         """返回属于指定 point_group 的点定义。
