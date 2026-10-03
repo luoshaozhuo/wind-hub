@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# wind-hub Modbus 示例配置 — 系统（引擎、Sink、接口）
+# wind-hub Modbus 示例配置 — 系统（引擎、接口）
 # ---------------------------------------------------------------------------
 
 # 当前现场身份 —— 一个 wind-hub 运行实例只对应一个现场
@@ -21,32 +21,6 @@ runtime:
   # 单次写入默认超时（秒）——Command.timeout <= 0 时生效
   write_timeout: 5.0
 
-sinks:
-  # kafka 默认关闭（现场未启用）
-  - name: kafka_main
-    type: kafka
-    enabled: false
-    params:
-      bootstrap_servers: "localhost:9092"
-      topic: wind-hub.raw
-
-  # db 默认关闭（现场未启用）
-  - name: db_main
-    type: db
-    enabled: false
-    params:
-      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
-      table: points
-      batch_size: 1000
-
-  # 唯一启用的 Sink：本地 JSONL 归档
-  - name: file_archive
-    type: file
-    enabled: true
-    params:
-      path: /var/tmp/wind-hub/archive.jsonl
-      format: jsonl
-      compress: false
 
 interfaces:
   api:

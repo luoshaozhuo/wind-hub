@@ -138,7 +138,6 @@ def write_config_tree(
     device_types: dict[str, Any] | None = None,
     units: dict[str, Any] | None = None,
     sinks: list[dict[str, Any]] | None = None,
-    sink_contracts: list[dict[str, Any]] | None = None,
     tasks: list[dict[str, Any]] | None = None,
     system: dict[str, Any] | None = None,
     reporting: dict[str, Any] | None = None,
@@ -167,13 +166,25 @@ def write_config_tree(
     )
     _write_yaml(base, "points.yaml", {"point_tables": tables})
 
-    system_data: dict[str, Any] = {
-        "sinks": sinks if sinks is not None else [{"name": "s1", "type": "file"}]
-    }
+    system_data: dict[str, Any] = {}
     if system:
         system_data.update(system)
     _write_yaml(base, "system.yaml", system_data)
-    _write_yaml(base, "sinks.yaml", {"sinks": sink_contracts or []})
+    _write_yaml(
+        base,
+        "sinks.yaml",
+        {
+            "sinks": sinks
+            if sinks is not None
+            else [
+                {
+                    "name": "s1",
+                    "type": "file",
+                    "connection": {"path": "/tmp/wind-hub-test.jsonl"},
+                }
+            ]
+        },
+    )
     _write_yaml(base, "devices.yaml", {"devices": instances})
     _write_yaml(base, "tasks.yaml", {"tasks": tasks or []})
     if reporting is not None:

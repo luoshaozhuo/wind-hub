@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -22,7 +22,8 @@ class SinkSnapshot(BaseModel):
     name: str
     type: str
     enabled: bool
-    params: dict[str, Any] = Field(default_factory=dict)
+    connection: dict[str, Any] = Field(default_factory=dict)
+    point_count: int = 0
     healthy: bool
     message: str | None = None
     queue_depth: int = 0
@@ -63,14 +64,15 @@ class SinkUseCase:
             if row.get("name") is not None
         }
         rows: list[SinkSnapshot] = []
-        for cfg in self._config.current_config.system.sinks:
+        for cfg in self._config.current_config.sinks.sinks:
             current = runtime.get(cfg.name)
             rows.append(
                 SinkSnapshot(
                     name=cfg.name,
                     type=cfg.type,
                     enabled=cfg.enabled,
-                    params=dict(cfg.params),
+                    connection=cfg.connection.model_dump(mode="json"),
+                    point_count=len(cfg.points),
                     healthy=(
                         bool(current.get("healthy"))
                         if current is not None and cfg.enabled
@@ -175,14 +177,14 @@ class SinkUseCase:
         )
 
     async def upsert(self, name: str, payload: dict[str, Any]) -> ConfigApplyResult:
-        """新增或更新 Sink；最终仍通过 system.yaml 配置事务生效。"""
+        """新增或更新 Sink；通过 sinks.yaml 配置事务生效。"""
         cfg = SinkConfig(name=name, **payload)
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
-            raw = documents["system.yaml"]
+            raw = documents["sinks.yaml"]
             current = raw.get("sinks") or []
             if not isinstance(current, list):
-                raise ValueError("system.yaml sinks must be a list")
+                raise ValueError("sinks.yaml sinks must be a list")
             sinks = [
                 item
                 for item in current
@@ -192,7 +194,7 @@ class SinkUseCase:
             raw["sinks"] = sinks
 
         return await self._admin.mutate_yaml_files(
-            ("system.yaml",),
+            ("sinks.yaml",),
             mutate,
             source="sinks",
             comment=f"upsert sink {name}",
@@ -203,10 +205,10 @@ class SinkUseCase:
         self._config_for(name)
 
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
-            raw = documents["system.yaml"]
+            raw = documents["sinks.yaml"]
             current = raw.get("sinks") or []
             if not isinstance(current, list):
-                raise ValueError("system.yaml sinks must be a list")
+                raise ValueError("sinks.yaml sinks must be a list")
             raw["sinks"] = [
                 item
                 for item in current
@@ -214,7 +216,7 @@ class SinkUseCase:
             ]
 
         return await self._admin.mutate_yaml_files(
-            ("system.yaml",),
+            ("sinks.yaml",),
             mutate,
             source="sinks",
             comment=f"delete sink {name}",
@@ -222,7 +224,7 @@ class SinkUseCase:
 
     def _config_for(self, name: str) -> SinkConfig:
         """从当前 Config 取 SinkConfig。"""
-        for cfg in self._config.current_config.system.sinks:
+        for cfg in self._config.current_config.sinks.sinks:
             if cfg.name == name:
                 return cfg
         raise KeyError(name)
