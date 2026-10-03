@@ -97,7 +97,6 @@ def test_assemble_builds_minimal_collector_graph() -> None:
         assert isinstance(assembled.tasks, TaskUseCase)
         assert isinstance(assembled.config, ConfigUseCase)
         assert assembled.runtime.engine is assembled.engine
-        assert assembled.dispatcher._devices is assembled.runtime.devices  # noqa: SLF001
         assert isinstance(assembled.runtime._config, RuntimeConfig)  # noqa: SLF001
         assert set(assembled.runtime.devices) == {"d1"}
         assert set(assembled.sinks) == {"archive"}
@@ -113,7 +112,6 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "boot_config",
             "runtime",
             "engine",
-            "dispatcher",
             "sinks",
             "tasks",
             "query",
