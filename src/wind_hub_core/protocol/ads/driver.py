@@ -9,7 +9,8 @@ sequential 逐点读取并受 max_concurrent_reads 限制。pyads 为同步 API�
 调用都通过 asyncio.to_thread 离开事件循环。
 
 Driver 由单个 asyncio event loop 持有，内部 Lock 串行化 read/write。传输级
-失败触发后台重连；单点 symbol-not-found 可降级为 BAD 点，不伪装为连接成功。
+失败标记主连接断开，由 Collector/Commander Runtime 负责后续重连；单点
+symbol-not-found 可降级为 BAD 点，不伪装为连接成功。
 pyads 未提供完整类型标注，第三方对象只在本适配边界内使用 Any。
 """
 
@@ -39,9 +40,6 @@ from wind_hub_core.protocol.port import (
 )
 
 logger = logging.getLogger(__name__)
-
-_RECONNECT_BACKOFF_BASE = 1.0
-_RECONNECT_BACKOFF_MULTIPLIER = 2.0
 
 
 def _pyads() -> Any:
@@ -106,12 +104,6 @@ class ADSDriver:
         self._mapping_revision = 0
         self._resolved_revision = -1
         self._connected = False
-        self._failed = False
-        self._shutdown = False
-
-        self._reconnect_event = asyncio.Event()
-        self._monitor_task: asyncio.Task[None] | None = None
-
         # pyads Connection 在 connect 时创建；Any 仅隔离第三方未类型化对象，
         # 不进入 ProtocolPort 公开接口。
         self._connection: Any = None
@@ -142,87 +134,45 @@ class ADSDriver:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """建立 ADS 连接，并按指数退避执行首次重试。
+        """执行一次 ADS 主连接尝试。
 
-        首轮 retry budget 用尽仍失败时启动后台 monitor 持续重连，同时向调用方
-        抛出 ProtocolError，使 Runtime 如实记录初始连接失败。
+        重试、退避和节流由 Collector/Commander Runtime 负责；Driver 只负责
+        单次协议连接，避免主连接恢复与独立 notification connection pool
+        形成两套互不一致的恢复状态机。
 
         Raises:
-            ProtocolError: 首轮连接预算耗尽仍未连接。
+            ProtocolError: 本次连接失败。
         """
         async with self._lock:
             if self._connected:
                 return
-            self._shutdown = False
-            last_exc = await self._connect_with_retry()
-            if self._monitor_task is None or self._monitor_task.done():
-                self._monitor_task = asyncio.create_task(self._monitor_loop())
-            if last_exc is not None:
-                self._reconnect_event.set()
-                raise ProtocolError(
-                    f"ADS: failed to connect to {self._host} "
-                    f"after {self._config.reconnect_max_retries + 1} attempts: {last_exc}"
-                ) from last_exc
+            try:
+                await self._do_connect()
+            except TimeoutError as exc:
+                logger.warning("ADS: connect timed out for %s: %s", self._host, exc)
+                raise ProtocolError(f"ADS: failed to connect to {self._host}: {exc}") from exc
+            except Exception as exc:
+                logger.warning("ADS: connect failed for %s: %s", self._host, exc)
+                raise ProtocolError(f"ADS: failed to connect to {self._host}: {exc}") from exc
+            self._connected = True
+            logger.info(
+                "ADS: connected to %s (net id %s)",
+                self._host,
+                self._config.target_net_id,
+            )
 
     async def close(self) -> None:
-        """关闭 ADS 连接、后台重连任务和全部 notification 订阅。
+        """关闭 ADS 主连接和全部 notification 订阅。
 
         重复调用安全；订阅关闭异常被隔离，避免阻断其余资源释放。
         """
         async with self._lock:
-            self._shutdown = True
-            self._reconnect_event.set()
-            if self._monitor_task is not None and not self._monitor_task.done():
-                self._monitor_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._monitor_task
-            self._monitor_task = None
             for subscription in list(self._subscriptions):
                 with contextlib.suppress(Exception):
                     await subscription.close()
             self._subscriptions.clear()
             self._close_connection()
             self._connected = False
-            self._failed = False
-
-    async def _connect_with_retry(self) -> Exception | None:
-        """执行一次有限预算的指数退避连接。
-
-        Returns:
-            成功返回 None；预算耗尽返回最后一个异常，并把 driver 标记为 failed。
-        """
-        backoff = _RECONNECT_BACKOFF_BASE
-        last_exc: Exception | None = None
-        budget = self._config.reconnect_max_retries + 1
-        for attempt in range(budget):
-            try:
-                await self._do_connect()
-                self._connected = True
-                self._failed = False
-                logger.info(
-                    "ADS: connected to %s (net id %s)", self._host, self._config.target_net_id
-                )
-                return None
-            except Exception as exc:  # connection failure — retry with backoff
-                last_exc = exc
-                if isinstance(exc, TimeoutError):
-                    # 连接/读写超时是对端不可达的日常表现：明确标记为超时，
-                    # 保持简洁 warning、不打堆栈（决策 2）。
-                    logger.warning(
-                        "ADS: connect attempt %d/%d timed out: %s", attempt + 1, budget, exc
-                    )
-                else:
-                    logger.warning(
-                        "ADS: connect attempt %d/%d failed: %s", attempt + 1, budget, exc
-                    )
-                if attempt < budget - 1:
-                    await asyncio.sleep(backoff)
-                    backoff = min(
-                        backoff * _RECONNECT_BACKOFF_MULTIPLIER,
-                        self._config.reconnect_backoff_max,
-                    )
-        self._failed = True
-        return last_exc
 
     async def _do_connect(self) -> None:
         """创建唯一 ADS Connection，并解析当前 session 的 symbol 地址。
@@ -260,7 +210,7 @@ class ADSDriver:
         """解析当前点表中尚未拥有 index 地址的 symbol，并缓存结果。
 
         单个 symbol 不存在只保留为未解析点，后续读时返回 BAD；连接级异常
-        继续上抛，让现有 reconnect 机制处理。同一 mapping revision 在同一
+        继续上抛，让外层 Runtime 的重连机制处理。同一 mapping revision 在同一
         ADS session 内至多解析一次；新 session 会先失效 symbol 地址再重解析。
         """
         if self._resolved_revision == self._mapping_revision:
@@ -308,37 +258,9 @@ class ADSDriver:
             with contextlib.suppress(Exception):
                 connection.close()
 
-    async def _monitor_loop(self) -> None:
-        """Reconnect in the background after a transport failure is signalled.
-
-        一轮 retry budget 耗尽不代表放弃（断电/PLC 晚启动是现场常态）：标记为
-        degraded（``_failed``），等待 ``reconnect_backoff_max`` 后开启新一轮，
-        直到连接成功或 driver shutdown。``close()`` 会 cancel 本协程，故
-        ``asyncio.sleep`` 期间的停机由 CancelledError 保证。
-        """
-        while not self._shutdown:
-            await self._reconnect_event.wait()
-            self._reconnect_event.clear()
-            if self._shutdown:
-                return
-            if self._connected:
-                continue
-            last_exc = await self._connect_with_retry()
-            if last_exc is not None:
-                logger.error(
-                    "ADS: reconnect round exhausted (%s) — degraded; "
-                    "next round in %.0fs",
-                    last_exc,
-                    self._config.reconnect_backoff_max,
-                )
-                await asyncio.sleep(self._config.reconnect_backoff_max)
-                if not self._shutdown and not self._connected:
-                    self._reconnect_event.set()
-
     def _signal_disconnect(self) -> None:
-        """标记连接已断开，并唤醒后台重连循环。"""
+        """标记 ADS 主连接断开；后续重连由调用方显式 connect() 驱动。"""
         self._connected = False
-        self._reconnect_event.set()
 
     # ------------------------------------------------------------------
     # ProtocolPort：读取
@@ -347,7 +269,7 @@ class ADSDriver:
     async def read(self, points: list[PointRef]) -> list[PointValue]:
         """按配置的 Sum/sequential 策略批量读取点位。
 
-        传输级异常会转换为 ProtocolError 并触发后台重连；单点可识别错误可返回
+        传输级异常会转换为 ProtocolError 并标记主连接断开；单点可识别错误可返回
         Quality.BAD，不中断同批其他点。
         """
         async with self._lock:
@@ -365,7 +287,7 @@ class ADSDriver:
                 raise
             except Exception as exc:
                 # ADSError / transport failures must not leak the third-party
-                # type through the port boundary; wrap and schedule a reconnect.
+                # type through the port boundary; wrap and mark disconnected.
                 self._signal_disconnect()
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
 
@@ -639,9 +561,7 @@ class ADSDriver:
         return _ADSSubscriptionHandle(self, subscription)
 
     def health(self) -> HealthStatus:
-        """返回缓存的连接健康状态；不执行实时网络 I/O。"""
-        if self._failed:
-            return HealthStatus(healthy=False, message="degraded: reconnecting in background")
+        """返回 ADS 主连接的缓存健康状态；不执行实时网络 I/O。"""
         if not self._connected:
             return HealthStatus(healthy=False, message="not connected")
         return HealthStatus(healthy=True)
