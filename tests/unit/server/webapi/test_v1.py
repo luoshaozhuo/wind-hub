@@ -19,6 +19,7 @@ from wind_hub_server.application.usecase.device import DeviceSnapshot
 from wind_hub_server.application.usecase.device_control import DeviceCommandResult
 from wind_hub_server.application.usecase.device_data import DeviceDataItem, TrendSeries
 from wind_hub_server.application.usecase.overview import OverviewSnapshot
+from wind_hub_server.application.usecase.sink import SinkSnapshot
 from wind_hub_server.application.usecase.worker_tasks import TaskSummary
 
 
@@ -262,6 +263,45 @@ def test_v1_phase5_system_health_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["cpu_count"] == 4
+
+
+def test_v1_sinks_exposes_unified_connection_and_points() -> None:
+    sinks = MagicMock()
+    sinks.list_sinks.return_value = [
+        SinkSnapshot(
+            name="modbus_scada",
+            type="modbus",
+            enabled=False,
+            connection={"host": "0.0.0.0", "port": 1502},
+            points=[
+                {
+                    "source": {"device_id": "wt01", "point_id": "power"},
+                    "ref": "wt01.power",
+                    "datatype": "float32",
+                    "unit": "none",
+                    "address": {
+                        "unit_id": 1,
+                        "register_type": "holding",
+                        "address": 100,
+                    },
+                }
+            ],
+            point_count=1,
+            healthy=False,
+            message="disabled",
+            queue_depth=0,
+        )
+    ]
+    client = _client(AppContext(sinks=sinks))
+
+    response = client.get("/api/v1/sinks")
+
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["type"] == "modbus"
+    assert row["connection"] == {"host": "0.0.0.0", "port": 1502}
+    assert row["points"][0]["ref"] == "wt01.power"
+    assert "params" not in row
 
 
 def test_v1_admin_state_atomic_apply() -> None:
