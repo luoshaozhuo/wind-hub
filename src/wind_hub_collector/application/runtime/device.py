@@ -148,8 +148,8 @@ class Device(DeviceSession):
             ConfigError: 采集机制与参数不匹配（POLL 缺 interval、ADS
                 ``sequential`` 设备不允许持续采集等）。
         """
-        if self._protocol.acquisition_mode is AcquisitionMode.POLL:
-            if not self._config.supports_scheduled_collection:
+        if self.acquisition_mode is AcquisitionMode.POLL:
+            if not self.config.supports_scheduled_collection:
                 raise ConfigError(
                     f"Device '{self.device_id}' does not support scheduled collection "
                     "(ADS read_mode='sequential' is single-read only)"
@@ -179,10 +179,10 @@ class Device(DeviceSession):
             stamped = value.model_copy(update={"device_id": self.device_id})
             await on_data(self._normalize_values([stamped]))
 
-        subscription = await self._protocol.subscribe(
+        subscription = await self.protocol.subscribe(
             self.point_refs(point_group), _forward, interval=interval
         )
-        if isinstance(self._protocol, InterrogationCapable):
+        if isinstance(self.protocol, InterrogationCapable):
             # 先建立订阅、再发总召——总召响应经既有订阅链路上报。
-            await self._protocol.interrogate()
+            await self.protocol.interrogate()
         return subscription
