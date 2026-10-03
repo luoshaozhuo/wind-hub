@@ -294,7 +294,7 @@ async def list_tasks(
     search: str | None = Query(None),
 ) -> TaskPageResponse:
     """分页查询 Task Definition 与实例聚合运行状态。"""
-    rows = await _tasks().list_task_summaries()
+    rows = _tasks().list_task_summaries()
     query = (search or "").strip().lower()
     if query:
         rows = [
@@ -317,7 +317,7 @@ async def list_tasks(
 async def get_task(task_id: str) -> TaskResponse:
     """查询单个 Task 的聚合运行状态。"""
     try:
-        row = await _tasks().get_task_summary(task_id)
+        row = _tasks().get_task_summary(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     return _task_response(row)
