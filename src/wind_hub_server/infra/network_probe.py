@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ipaddress
-import math
-import shutil
 import time
 from dataclasses import dataclass
+
+from wind_hub_core.validation.network import ping_host as ping_reachable
 
 
 @dataclass(frozen=True)
@@ -38,21 +38,14 @@ def expand_network(network: str, max_ips: int = 4096) -> list[str]:
 
 
 async def ping_host(host: str, timeout: float = 1.0) -> PingProbeResult:
-    """调用系统 ping；极简容器无 ping 时返回 unreachable。"""
+    """执行共享 ICMP 探测，并在 Server 层补充耗时元数据。"""
     started = time.monotonic()
-    if shutil.which("ping") is None:
-        return PingProbeResult(host, False, (time.monotonic() - started) * 1000)
-    wait = max(1, math.ceil(timeout))
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ping", "-c", "1", "-W", str(wait), host,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        code = await asyncio.wait_for(proc.wait(), timeout=timeout + 1.0)
-    except (OSError, TimeoutError):
-        code = 1
-    return PingProbeResult(host, code == 0, (time.monotonic() - started) * 1000)
+    reachable = await ping_reachable(host, timeout=timeout)
+    return PingProbeResult(
+        host=host,
+        reachable=reachable,
+        latency_ms=(time.monotonic() - started) * 1000,
+    )
 
 
 async def probe_port(host: str, port: int, timeout: float = 1.0) -> PortProbeResult:
