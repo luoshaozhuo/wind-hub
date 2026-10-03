@@ -510,11 +510,6 @@ async def validate_config(request: ConfigTextRequest) -> ConfigReviewResponse:
     return ConfigReviewResponse(**review.model_dump())
 
 
-@router.post("/config/review", response_model=ConfigReviewResponse, tags=["v1-config"])
-async def review_config(request: ConfigTextRequest) -> ConfigReviewResponse:
-    return await validate_config(request)
-
-
 @router.post("/config/apply", response_model=ConfigApplyResponse, tags=["v1-config"])
 async def apply_config(request: ConfigTextRequest) -> ConfigApplyResponse:
     try:
