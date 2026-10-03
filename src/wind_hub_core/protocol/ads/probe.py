@@ -114,13 +114,8 @@ class ADSProbe:
         pyads = _pyads()
         options = self._target.options
         net_id = str(options.get("target_net_id") or "") or None
-        twincat_version = str(options.get("twincat_version", "2"))
-        default_port = 802 if twincat_version == "3" else 801
-        target_port = int(
-            options.get("target_port", options.get("ams_port", default_port))
-        )
         timeout = float(options.get("timeout", 5.0))
-        connection = pyads.Connection(net_id, target_port, self._target.host)
+        connection = pyads.Connection(net_id, self._target.port, self._target.host)
         connection.set_timeout(int(timeout * 1000))
         try:
             await asyncio.to_thread(connection.open)
