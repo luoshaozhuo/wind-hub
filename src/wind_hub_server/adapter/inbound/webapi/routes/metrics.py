@@ -28,11 +28,19 @@ async def metrics_endpoint() -> Response:
         devices = monitoring.devices_snapshot()
         sinks = monitoring.sinks_snapshot()
 
-        metrics.update_gauges(
-            devices_total_val=int(status.get("device_count") or 0),
-            devices_connected_val=int(status.get("devices_connected") or 0),
-            sinks_total_val=int(status.get("sink_count") or 0),
-            sinks_healthy_val=int(status.get("sinks_healthy") or 0),
+        counters = monitoring.counters_snapshot()
+        metrics.update_runtime_gauges(
+            status,
+            {
+                "points_bad": counters.points_bad,
+                "acquisition_runs": counters.acquisition_runs,
+                "acquisition_failures": counters.acquisition_failures,
+                "acquisition_partial": counters.acquisition_partial,
+                "missed_cycles": counters.missed_cycles,
+                "poll_overruns": counters.poll_overruns,
+                "connect_failures": counters.connect_failures,
+                "reconnects": counters.reconnects,
+            },
         )
         metrics.update_device_gauges(
             [
