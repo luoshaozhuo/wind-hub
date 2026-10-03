@@ -269,7 +269,7 @@ async def list_devices(
     search: str | None = Query(None),
 ) -> DevicePageResponse:
     """分页查询设备；搜索作用于完整结果集后再分页。"""
-    rows = await _devices().list_devices(search)
+    rows = _devices().list_devices(search)
     paged, meta = _page(rows, page, page_size)
     return DevicePageResponse(
         items=[_device_response(row) for row in paged],
@@ -281,7 +281,7 @@ async def list_devices(
 async def get_device(device_id: str) -> DeviceResponse:
     """查询单设备静态配置与实时连接状态。"""
     try:
-        row = await _devices().get_device(device_id)
+        row = _devices().get_device(device_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown device '{device_id}'", 404) from None
     return _device_response(row)
@@ -606,13 +606,13 @@ async def delete_definition(kind: str, name: str) -> ConfigApplyResponse:
 
 @router.get("/sinks", response_model=list[SinkResponse], tags=["v1-sinks"])
 async def list_sinks() -> list[SinkResponse]:
-    return [SinkResponse(**row.model_dump()) for row in await _sinks().list_sinks()]
+    return [SinkResponse(**row.model_dump()) for row in _sinks().list_sinks()]
 
 
 @router.get("/sinks/{name}", response_model=SinkResponse, tags=["v1-sinks"])
 async def get_sink(name: str) -> SinkResponse:
     try:
-        row = await _sinks().get_sink(name)
+        row = _sinks().get_sink(name)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown sink '{name}'", 404) from None
     return SinkResponse(**row.model_dump())
