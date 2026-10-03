@@ -139,7 +139,9 @@ class TestRegistration:
 
         assert len(sub._connections) == 1  # noqa: SLF001
         assert set(sub._handles) == {"a", "b"}  # noqa: SLF001
+        assert sub.healthy is True
         await sub.close()
+        assert sub.healthy is False
 
     async def test_connection_split_at_threshold(self, patched: None) -> None:
         sub = ADSSubscription(
@@ -201,6 +203,7 @@ class TestRecovery:
         assert first.is_open is False
         assert set(sub._handles) == {"a", "b"}
         assert sub._connections[0] is not first
+        assert sub.healthy is True
         await sub.close()
 
 
