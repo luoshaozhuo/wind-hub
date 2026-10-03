@@ -71,19 +71,16 @@ class AcquisitionRuntimeState:
         self.running = True
         self.last_started_at = now
 
-    def finish_success(self, now: float, *, partial: bool = False) -> None:
+    def finish_success(self, now: float) -> None:
         """记录一次 collect 成功结束。
 
         Args:
             now: 单调时钟时间戳。
-            partial: 批次是否含 BAD 点；partial 仍视为成功并清零连续失败。
         """
         self._finish(now)
         self.last_success_at = now
         self.consecutive_failures = 0
         self.last_error = None
-        # partial 仅由指标层单独计数（acquisition_partial_total），
-        # 状态层不累计——保持状态模型最小。
 
     def finish_failure(self, now: float, error: BaseException | str) -> None:
         """记录一次 collect 失败结束。
