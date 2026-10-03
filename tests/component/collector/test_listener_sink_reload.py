@@ -138,3 +138,45 @@ def test_listener_ports_are_available_before_component_run() -> None:
     port = free_port()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", port))
+
+
+async def test_modbus_failed_rebuild_restores_old_listener() -> None:
+    old_port = free_port()
+    blocked_port = free_port()
+    old_cfg = _modbus_config(old_port)
+    old_sink = ModbusSink(old_cfg)
+    await old_sink.write(
+        [PointValue(device_id="wt01", point_id="power", value=1.0)]
+    )
+    rt = _runtime("modbus_scada", old_sink)
+    await rt.start()
+
+    blocker = await asyncio.start_server(
+        lambda _reader, writer: writer.close(),
+        "127.0.0.1",
+        blocked_port,
+    )
+    try:
+        new_cfg = _modbus_config(blocked_port)
+        new_sink = ModbusSink(new_cfg)
+
+        with pytest.raises(RuntimeError):
+            await rt.rebuild_sink("modbus_scada", new_cfg, new_sink)
+
+        assert rt.sinks["modbus_scada"] is old_sink
+        assert old_sink.health().healthy is True
+
+        client = AsyncModbusTcpClient("127.0.0.1", port=old_port)
+        assert await client.connect()
+        try:
+            response = await client.read_holding_registers(
+                100, count=2, device_id=1
+            )
+            assert not response.isError()
+            assert list(response.registers) == [0x3F80, 0x0000]
+        finally:
+            client.close()
+    finally:
+        blocker.close()
+        await blocker.wait_closed()
+        await rt.stop()
