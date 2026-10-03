@@ -32,7 +32,7 @@ ai_shared/agent_config/hooks/
 
 `.claude/`、`.codex/`、`.agents/` 仅为适配层。
 
-任务开始读取 `ai_shared/rules/routing.md`，随后按 routing 最小读取。
+任务开始读取 `ai_shared/rules/routing.md`，随后按 routing 最小读取。普通编码任务的独立文档边界由 `ai_shared/rules/coding.md` 约束。
 
 ## 3. 开发生命周期
 
@@ -50,7 +50,7 @@ origin/main
 
 产品代码默认进入 Local Fast Gate；含产品代码的 PR 进入 Local PR Gate。
 
-纯 CI/Agent 工具、rules、skills、docs、README 等非产品代码变更不运行产品代码 Gate，只做与修改对象直接相关的轻量验证。
+纯 CI/Agent 工具、rules、skills 等非产品代码变更不运行产品代码 Gate，只做与修改对象直接相关的轻量验证。
 
 ## 4. CI 失败
 
