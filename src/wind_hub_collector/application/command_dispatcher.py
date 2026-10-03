@@ -9,8 +9,6 @@
 - ``command_id`` 幂等（in-flight 去重 + LRU/TTL 结果缓存，进程内）；
 - 写超时（``Command.timeout > 0`` 优先，否则系统默认）；
 - 异常 → ``CommandResult``（协议级失败内联，不上抛）；
-- 成功/失败 metrics 回调；
-- ``send_batch`` 并发下发。
 
 ``Command`` / ``CommandResult`` 来自 wind-hub-core 公共领域模型。
 """
@@ -21,7 +19,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 
 from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.command import Command, CommandResult
@@ -37,7 +35,6 @@ class CommandDispatcher:
     - 以 command_id 提供进程内 LRU+TTL 幂等；
     - 对 DeviceSession.write 应用单命令超时；
     - 把协议/设备异常收敛为 CommandResult；
-    - 通过注入 callback 上报成功/失败计数。
 
     不负责权限、审计、跨进程幂等或协议实现。跨进程幂等应由更高层控制面保证。
 
@@ -46,8 +43,6 @@ class CommandDispatcher:
         idempotency_cache_size: 幂等缓存最大条目数。
         idempotency_ttl: 幂等结果保留时长，单位秒。
         default_timeout: Command 未提供正超时时使用的默认写超时。
-        on_command_sent: 首次成功执行后的回调。
-        on_command_failed: 首次失败执行后的回调。
     """
 
     def __init__(
@@ -56,8 +51,6 @@ class CommandDispatcher:
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
         default_timeout: float = 5.0,
-        on_command_sent: Callable[[], None] | None = None,
-        on_command_failed: Callable[[], None] | None = None,
     ) -> None:
         self._devices = devices
         self._cache_max = idempotency_cache_size
@@ -65,10 +58,6 @@ class CommandDispatcher:
         # 命令未自带超时（``Command.timeout <= 0``）时使用的系统默认写超时，
         # 由组合根从 ``system.yaml`` 的 ``runtime.write_timeout`` 注入。
         self._default_timeout = default_timeout
-        # 命令成功/失败回调：组合根注入 Prometheus 计数器递增；
-        # application 不得依赖 infra，故不在此直接 import metrics。
-        self._on_command_sent = on_command_sent or (lambda: None)
-        self._on_command_failed = on_command_failed or (lambda: None)
         # OrderedDict 尾部保存最近访问项，用于 O(1) LRU 淘汰。
         self._cache: OrderedDict[str, tuple[CommandResult, float]] = OrderedDict()
         # 同一 command_id 的并发请求共享一个执行 Task，避免重复写设备。
@@ -123,7 +112,6 @@ class CommandDispatcher:
                 success=False,
                 error=f"Unknown device '{cmd.device_id}'",
             )
-            self._on_command_failed()
             self._cache_store(cmd.command_id, result, now)
             return result
 
@@ -167,10 +155,6 @@ class CommandDispatcher:
                 error=str(exc),
             )
 
-        if result.success:
-            self._on_command_sent()
-        else:
-            self._on_command_failed()
         self._cache_store(cmd.command_id, result, now)
         return result
 
@@ -182,54 +166,6 @@ class CommandDispatcher:
         """仅移除当前 command_id 对应的已完成 Task。"""
         if self._inflight.get(command_id) is task:
             self._inflight.pop(command_id, None)
-
-    async def send_batch(
-        self,
-        cmds: list[Command],
-    ) -> list[CommandResult]:
-        """并发执行多条命令。
-
-        Args:
-            cmds: 输入命令列表。
-
-        Returns:
-            与输入顺序一致的 CommandResult 列表。单命令异常被收敛为对应失败结果，
-            不取消同批其他命令。
-        """
-        results: list[CommandResult | BaseException] = await asyncio.gather(
-            *[self.send(c) for c in cmds],
-            return_exceptions=True,
-        )
-        out: list[CommandResult] = []
-        for i, res in enumerate(results):
-            if isinstance(res, CommandResult):
-                out.append(res)
-            else:
-                out.append(
-                    CommandResult(
-                        command_id=cmds[i].command_id,
-                        success=False,
-                        error=str(res),
-                    )
-                )
-        return out
-
-    def get_cached(self, command_id: str) -> CommandResult | None:
-        """返回仍在 TTL 内的幂等结果；未命中时返回 None。
-
-        该方法只读取进程内缓存，不执行设备 I/O。控制用例可在显式重连前
-        查询它，保证重复 command_id 不因当前连接状态变化而改变结果。
-        """
-        return self._cache_lookup(command_id, time.monotonic())
-
-    def clear_cache(self) -> None:
-        """清空进程内幂等缓存；用于维护或测试隔离。"""
-        self._cache.clear()
-
-    @property
-    def cache_size(self) -> int:
-        """返回当前幂等缓存条目数。"""
-        return len(self._cache)
 
     # ------------------------------------------------------------------
     # 幂等缓存辅助函数（LRU + TTL）
