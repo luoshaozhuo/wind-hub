@@ -158,7 +158,7 @@ async def test_list_tasks_returns_definition_details() -> None:
     assert t1.device_group is None
     assert t1.point_group == "fast"
     assert t1.interval == 1.0
-    assert t1.targets == ["s1", "s2"]  # TaskTarget 展开为 sink 名
+    assert t1.targets == ("s1", "s2")  # TaskTarget 展开为 sink 名
     assert t1.enabled is True
     t2 = by_id["t2"]
     assert t2.device is None
@@ -183,7 +183,7 @@ async def test_list_instances_merges_definition_and_state() -> None:
     assert d1.device_id == "dev-a"
     assert d1.point_group == "fast"
     assert d1.interval == 1.0
-    assert d1.targets == ["s1", "s2"]
+    assert d1.targets == ("s1", "s2")
     assert d1.state is TaskInstanceState.RUNNING
     assert by_id["t2:dev-b"].state is TaskInstanceState.STOPPED
 
