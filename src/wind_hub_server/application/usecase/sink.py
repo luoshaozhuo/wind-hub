@@ -23,6 +23,7 @@ class SinkSnapshot(BaseModel):
     type: str
     enabled: bool
     connection: dict[str, Any] = Field(default_factory=dict)
+    points: list[dict[str, Any]] = Field(default_factory=list)
     point_count: int = 0
     healthy: bool
     message: str | None = None
@@ -72,6 +73,10 @@ class SinkUseCase:
                     type=cfg.type,
                     enabled=cfg.enabled,
                     connection=cfg.connection.model_dump(mode="json", by_alias=True),
+                    points=[
+                        point.model_dump(mode="json", by_alias=True)
+                        for point in cfg.points
+                    ],
                     point_count=len(cfg.points),
                     healthy=(
                         bool(current.get("healthy"))
