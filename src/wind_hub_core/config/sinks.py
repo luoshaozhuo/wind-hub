@@ -1,0 +1,282 @@
+"""统一 Sink 外部接口契约模型。
+
+本模块只定义 sinks.yaml 的强类型模型，不创建任何运行时资源。旧
+system.yaml.sinks 在迁移阶段仍由 Collector Runtime 使用；本模块描述的是
+最终对外 Sink 接口契约。
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from wind_hub_core.model.errors import ConfigError
+
+SINK_TYPES = frozenset({"file", "kafka", "db", "iec104", "opcua", "modbus"})
+SINK_DATA_TYPES = frozenset(
+    {
+        "float32",
+        "float64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "bool",
+        "str",
+    }
+)
+
+
+class SinkSource(BaseModel):
+    """Sink 点引用的内部稳定身份。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    device_id: str
+    point_id: str
+
+    @model_validator(mode="after")
+    def _validate_non_empty(self) -> "SinkSource":
+        if not self.device_id.strip() or not self.point_id.strip():
+            raise ConfigError("Sink source device_id/point_id must be non-empty")
+        return self
+
+
+class FileSinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    format: Literal["jsonl", "csv"] = "jsonl"
+    compress: bool = False
+
+
+class KafkaSinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bootstrap_servers: str | list[str]
+    topic: str
+
+
+class DatabaseSinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dsn: str
+    table: str
+    batch_size: int = Field(default=1000, ge=1)
+
+
+class IEC104SinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    host: str = "0.0.0.0"
+    port: int = Field(default=2404, ge=1, le=65535)
+    common_address: int = Field(default=1, ge=0, le=0xFFFF)
+    batch_size: int = Field(default=50, ge=1)
+
+
+class OPCUASinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    host: str = "0.0.0.0"
+    port: int = Field(default=4840, ge=1, le=65535)
+    endpoint: str = "/wind-hub"
+    namespace: int = Field(default=2, ge=1)
+
+
+class ModbusSinkConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    host: str = "0.0.0.0"
+    port: int = Field(default=502, ge=1, le=65535)
+
+
+SinkConnection = (
+    FileSinkConnection
+    | KafkaSinkConnection
+    | DatabaseSinkConnection
+    | IEC104SinkConnection
+    | OPCUASinkConnection
+    | ModbusSinkConnection
+)
+
+
+class StreamSinkAddress(BaseModel):
+    """File/Kafka/DB 中对外字段名。"""
+
+    model_config = ConfigDict(extra="forbid")
+    field: str
+
+
+class IEC104SinkAddress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ioa: int = Field(ge=0, le=0xFFFFFF)
+    type_id: Literal[
+        "M_SP_NA_1",
+        "M_DP_NA_1",
+        "M_ME_NA_1",
+        "M_ME_NB_1",
+        "M_ME_NC_1",
+        "M_SP_TB_1",
+        "M_DP_TB_1",
+        "M_ME_TF_1",
+    ]
+
+
+class OPCUASinkAddress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: str
+    browse_name: str | None = None
+
+
+class ModbusSinkAddress(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    unit_id: int = Field(ge=0, le=255)
+    register_type: Literal["holding", "input", "coil", "discrete"]
+    address: int = Field(ge=0, le=65535)
+    byte_order: Literal["big", "little"] = "big"
+    word_order: Literal["big", "little"] = "big"
+
+
+SinkAddress = StreamSinkAddress | IEC104SinkAddress | OPCUASinkAddress | ModbusSinkAddress
+
+
+_CONNECTION_TYPES: dict[str, type[BaseModel]] = {
+    "file": FileSinkConnection,
+    "kafka": KafkaSinkConnection,
+    "db": DatabaseSinkConnection,
+    "iec104": IEC104SinkConnection,
+    "opcua": OPCUASinkConnection,
+    "modbus": ModbusSinkConnection,
+}
+
+_ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
+    "file": (StreamSinkAddress,),
+    "kafka": (StreamSinkAddress,),
+    "db": (StreamSinkAddress,),
+    "iec104": (IEC104SinkAddress,),
+    "opcua": (OPCUASinkAddress,),
+    "modbus": (ModbusSinkAddress,),
+}
+
+
+class SinkPoint(BaseModel):
+    """单个外部 Sink 点定义。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: SinkSource
+    ref: str | None = None
+    datatype: str = "float32"
+    unit: str = "none"
+    scale: float = 1.0
+    offset: float = 0.0
+    address: SinkAddress
+
+    @model_validator(mode="after")
+    def _validate_point(self) -> "SinkPoint":
+        if self.ref is None:
+            self.ref = f"{self.source.device_id}.{self.source.point_id}"
+        elif not self.ref.strip():
+            raise ConfigError("Sink point ref must be non-empty")
+        if self.datatype not in SINK_DATA_TYPES:
+            raise ConfigError(
+                f"Sink point '{self.ref}': unknown datatype '{self.datatype}'"
+            )
+        return self
+
+
+class SinkConfig(BaseModel):
+    """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str
+    enabled: bool = True
+    connection: SinkConnection
+    points: list[SinkPoint] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_sink(self) -> "SinkConfig":
+        if not self.name.strip():
+            raise ConfigError("Sink name must be non-empty")
+        if self.type not in SINK_TYPES:
+            raise ConfigError(
+                f"Sink '{self.name}': type '{self.type}' must be one of {sorted(SINK_TYPES)}"
+            )
+        expected_connection = _CONNECTION_TYPES[self.type]
+        if not isinstance(self.connection, expected_connection):
+            raise ConfigError(
+                f"Sink '{self.name}': connection does not match type '{self.type}'"
+            )
+
+        refs: set[str] = set()
+        addresses: set[tuple[object, ...]] = set()
+        for point in self.points:
+            assert point.ref is not None
+            if point.ref in refs:
+                raise ConfigError(f"Sink '{self.name}': duplicate ref '{point.ref}'")
+            refs.add(point.ref)
+
+            allowed = _ADDRESS_TYPES[self.type]
+            if not isinstance(point.address, allowed):
+                raise ConfigError(
+                    f"Sink '{self.name}' point '{point.ref}': address does not match "
+                    f"type '{self.type}'"
+                )
+            key = _address_key(point.address)
+            if key in addresses:
+                raise ConfigError(
+                    f"Sink '{self.name}' point '{point.ref}': duplicate external address"
+                )
+            addresses.add(key)
+        return self
+
+
+class SinksConfig(BaseModel):
+    """sinks.yaml 顶层配置。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sinks: list[SinkConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_unique_names(self) -> "SinksConfig":
+        names = [sink.name for sink in self.sinks]
+        if len(names) != len(set(names)):
+            raise ConfigError(f"Duplicate sink names: {names}")
+        return self
+
+
+def _address_key(address: SinkAddress) -> tuple[object, ...]:
+    if isinstance(address, StreamSinkAddress):
+        return ("stream", address.field)
+    if isinstance(address, IEC104SinkAddress):
+        return ("iec104", address.ioa)
+    if isinstance(address, OPCUASinkAddress):
+        return ("opcua", address.node_id)
+    return (
+        "modbus",
+        address.unit_id,
+        address.register_type,
+        address.address,
+    )
+
+
+__all__ = [
+    "SINK_TYPES",
+    "SINK_DATA_TYPES",
+    "SinkSource",
+    "FileSinkConnection",
+    "KafkaSinkConnection",
+    "DatabaseSinkConnection",
+    "IEC104SinkConnection",
+    "OPCUASinkConnection",
+    "ModbusSinkConnection",
+    "StreamSinkAddress",
+    "IEC104SinkAddress",
+    "OPCUASinkAddress",
+    "ModbusSinkAddress",
+    "SinkPoint",
+    "SinkConfig",
+    "SinksConfig",
+]

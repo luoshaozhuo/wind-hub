@@ -21,6 +21,7 @@ from wind_hub_server.application.usecase.config import Config, ConfigUseCase, co
 
 CONFIG_FILES = (
     "system.yaml",
+    "sinks.yaml",
     "units.yaml",
     "device_models.yaml",
     "points.yaml",

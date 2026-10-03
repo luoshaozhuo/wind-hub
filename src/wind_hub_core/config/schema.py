@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from wind_hub_core.config.sinks import SinksConfig
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ConfigError
 
@@ -854,6 +855,8 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     system: SystemConfig
+    sinks: SinksConfig
+    """sinks.yaml 的统一外部接口契约；Phase 1 不改变旧 Runtime Sink 来源。"""
     units: UnitsConfig
     """单位定义集（``units.yaml``）——``PointConfig.unit`` 引用的 unit ID
     命名空间；展示层经 ``units[unit_id].symbol`` 取显示符号。"""
@@ -914,6 +917,7 @@ __all__ = [
     "ResolvedPointTables",
     "RuntimeConfig",
     "SinkConfig",
+    "SinksConfig",
     "ApiConfig",
     "InterfaceConfig",
     "SystemConfig",

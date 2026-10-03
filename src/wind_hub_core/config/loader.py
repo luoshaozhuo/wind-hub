@@ -18,6 +18,7 @@ import yaml
 from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
 from wind_hub_core.config.reporting import load_reporting
+from wind_hub_core.config.sinks import SinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -77,6 +78,15 @@ def load_system(path: Path) -> SystemConfig:
         return SystemConfig(**raw)
     except Exception as exc:
         raise ConfigError(f"Invalid system config [{path}]: {exc}") from exc
+
+
+def load_sinks(path: Path) -> SinksConfig:
+    """加载并校验 sinks.yaml 统一 Sink 外部接口契约。"""
+    raw = _read_yaml(path)
+    try:
+        return SinksConfig(**raw)
+    except Exception as exc:
+        raise ConfigError(f"Invalid sinks config [{path}]: {exc}") from exc
 
 
 def load_units(path: Path) -> UnitsConfig:
@@ -197,6 +207,7 @@ def load_config(config_dir: str | Path) -> Config:
     base = Path(config_dir)
 
     system = load_system(base / "system.yaml")
+    sinks = load_sinks(base / "sinks.yaml")
     units = load_units(base / "units.yaml")
     device_models = load_device_models(base / "device_models.yaml")
     # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
@@ -215,6 +226,7 @@ def load_config(config_dir: str | Path) -> Config:
 
     _validate_model_point_tables(device_models, point_tables)
     _validate_point_units(point_tables, units)
+    _validate_sink_contracts(sinks, devices, point_tables, units)
     _validate_table_addresses(point_tables)
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
@@ -225,6 +237,7 @@ def load_config(config_dir: str | Path) -> Config:
 
     return Config(
         system=system,
+        sinks=sinks,
         units=units,
         device_types=device_models.device_types,
         device_models=device_models.device_models,
@@ -233,6 +246,36 @@ def load_config(config_dir: str | Path) -> Config:
         tasks=tasks,
         reporting=reporting,
     )
+
+
+def _validate_sink_contracts(
+    sinks: SinksConfig,
+    devices: DevicesConfig,
+    point_tables: ResolvedPointTables,
+    units: UnitsConfig,
+) -> None:
+    """校验 Sink source 与内部点、unit 的跨文件引用。"""
+    device_map = {device.device_id: device for device in devices.devices}
+    for sink in sinks.sinks:
+        for point in sink.points:
+            device = device_map.get(point.source.device_id)
+            if device is None:
+                raise ConfigError(
+                    f"Sink '{sink.name}' point '{point.ref}' references unknown device "
+                    f"'{point.source.device_id}'"
+                )
+            table = point_tables.tables[device.point_table]
+            point_ids = {item.point_id for item in table.points}
+            if point.source.point_id not in point_ids:
+                raise ConfigError(
+                    f"Sink '{sink.name}' point '{point.ref}' references unknown point "
+                    f"'{point.source.point_id}' on device '{device.device_id}'"
+                )
+            if point.unit not in units.units:
+                raise ConfigError(
+                    f"Sink '{sink.name}' point '{point.ref}' references unknown unit "
+                    f"'{point.unit}'"
+                )
 
 
 def _validate_model_point_tables(

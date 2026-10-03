@@ -1,0 +1,3 @@
+# 统一 Sink 外部接口契约。
+# Phase 1 仅建立正式模型；现有 Runtime Sink 将在下一阶段从 system.yaml 迁移。
+sinks: []
