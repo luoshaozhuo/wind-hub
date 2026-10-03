@@ -1,21 +1,16 @@
 name: Production Qualification Gate
 run-name: Soak ${{ inputs.soak_profile }} @ ${{ github.sha }}
 
-# 生产资格通道（Gate 4，《软件交付与CI质量门禁规范》§5）：长时间 soak。
-# 手动触发到可长时间运行的 self-hosted runner；soak 报告写入
-# artifacts/soak/ 并作为 CI artifact 归档，保证资格执行有可追踪记录。
-# 配套通道：硬件资格见 ci-hardware.yml，性能压测见 ci-performance.yml。
-
 on:
   workflow_dispatch:
     inputs:
       soak_profile:
-        description: soak 档位（smoke_1h / prerelease_8h / rc_24h）
+        description: soak 档位
         type: choice
         options: [smoke_1h, prerelease_8h, rc_24h]
         default: smoke_1h
       duration_override_s:
-        description: 覆盖测量时长（秒，仅用于验证 soak 路径本身）
+        description: 覆盖测量时长（秒，仅验证 soak 路径）
         required: false
         default: ''
 
@@ -25,7 +20,6 @@ permissions:
 jobs:
   soak:
     runs-on: [self-hosted, qualification]
-    # 覆盖 rc_24h + 启动/收尾余量；self-hosted runner 不受 6h 限制。
     timeout-minutes: 1560
     env:
       WIND_HUB_SOAK_PROFILE: ${{ inputs.soak_profile }}
@@ -36,10 +30,10 @@ jobs:
         run: |
           {
             echo "### Production Qualification"
-            echo "- SHA: \`$GITHUB_SHA\`"
-            echo "- Run: \`$GITHUB_RUN_ID\`"
-            echo "- Runner: \`$RUNNER_NAME\`"
-            echo "- Profile: \`${{ inputs.soak_profile }}\`"
+            echo "- SHA: `$GITHUB_SHA`"
+            echo "- Run: `$GITHUB_RUN_ID`"
+            echo "- Runner: `$RUNNER_NAME`"
+            echo "- Profile: `${{ inputs.soak_profile }}`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,7 +48,7 @@ jobs:
           poetry install --all-extras --no-interaction
       - name: Run soak
         id: soak
-        run: python -m pytest tests/reliability/soak -q -m "soak and not performance"
+        run: python scripts/ci_gate.py soak
       - name: Upload soak report
         id: upload
         if: always()

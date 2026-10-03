@@ -1,10 +1,6 @@
 name: CI Release Gate
 
-# Gate 3（发布门禁，对应《软件交付与CI质量门禁规范》§4）：全量分层测试
-# （hardware / performance / soak 除外——它们属于 Gate 4 独立资格通道，
-# 有正式可追踪入口：ci-hardware.yml / ci-performance.yml /
-# ci-qualification.yml，均手动触发并在环境不可用时明确记录 NOT EXECUTED）。
-# 前端：构建 + Vitest + Playwright 端到端。
+# Gate 3：全量常规软件验证；hardware/performance/soak 属于独立资格通道。
 
 on:
   push:
@@ -30,25 +26,18 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Ruff
-        run: ruff check src tests scripts
-      - name: Mypy (strict)
-        run: mypy src
-      - name: Import contracts
-        run: lint-imports
-      - name: Full layered tests
-        run: >-
-          python -m pytest tests -q
-          -m "not hardware and not performance and not soak"
+      - name: Release backend
+        run: python scripts/ci_gate.py release --part backend
 
   frontend-full:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/wind-hub-admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -56,12 +45,10 @@ jobs:
           cache: npm
           cache-dependency-path: src/wind-hub-admin/package-lock.json
       - name: Install dependencies
+        working-directory: src/wind-hub-admin
         run: npm ci
-      - name: Type check and build
-        run: npm run build
-      - name: Vitest
-        run: npm test
       - name: Install Playwright browser
+        working-directory: src/wind-hub-admin
         run: npx playwright install --with-deps chromium
-      - name: Playwright e2e
-        run: npm run test:e2e
+      - name: Release frontend
+        run: python scripts/ci_gate.py release --part frontend

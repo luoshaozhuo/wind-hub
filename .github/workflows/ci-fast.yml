@@ -1,19 +1,13 @@
 name: CI Fast (Commit Gate)
 
-# Gate 1（提交门禁，对应《软件交付与CI质量门禁规范》§2）：
-#   静态检查（ruff / mypy / import-linter）+ unit + component + contract
-#   + 前端 vitest + 前端类型检查/构建。
-# 任何 commit 进入 main 前必须通过；只跑无外部服务依赖的检查。
-# optional 协议/存储依赖（pymodbus/pyads/asyncpg/...）经 --all-extras 安装，
-# 保证干净 runner 上 collection 与测试不依赖开发机残留包。
+# Gate 1：静态检查 + unit/component/contract + 前端 Vitest/build。
+# 本地 local-fast-gate 与本 workflow 共用 scripts/ci_gate.py 中的命令定义。
 
 on:
   push:
     branches: [main]
   pull_request:
 
-# 同一分支/PR 只保留最新提交的快速验证，避免 coding agent 连续 push 时
-# 旧 SHA 继续占用 runner。每个 CI 结果仍必须按 head_sha 归属具体 commit。
 concurrency:
   group: ci-fast-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -37,12 +31,8 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Ruff
-        run: ruff check src tests scripts
-      - name: Mypy (strict)
-        run: mypy src
-      - name: Import contracts
-        run: lint-imports
+      - name: Fast backend static
+        run: python scripts/ci_gate.py fast --part backend-static
 
   backend-fast-tests:
     runs-on: ubuntu-latest
@@ -59,21 +49,18 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Unit tests
-        run: python -m pytest tests/unit -q
-      - name: Component tests
-        run: python -m pytest tests/component -q
-      - name: Contract tests
-        run: python -m pytest tests/contract -q
+      - name: Fast backend tests
+        run: python scripts/ci_gate.py fast --part backend-tests
 
   frontend-unit-and-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/wind-hub-admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -81,8 +68,7 @@ jobs:
           cache: npm
           cache-dependency-path: src/wind-hub-admin/package-lock.json
       - name: Install dependencies
+        working-directory: src/wind-hub-admin
         run: npm ci
-      - name: Vitest
-        run: npm test
-      - name: Type check and build (vue-tsc + vite)
-        run: npm run build
+      - name: Fast frontend
+        run: python scripts/ci_gate.py fast --part frontend

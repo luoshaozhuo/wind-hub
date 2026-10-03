@@ -1,16 +1,11 @@
 name: CI PR Gate
 
-# Gate 2（PR 门禁，对应《软件交付与CI质量门禁规范》§3）：
-#   integration（真实组件协作；Kafka/PostgreSQL 由 tests/fixtures/services
-#   的 session fixture 经 Compose 拉起，ubuntu-latest 自带 Docker）
-#   + system smoke（startup / e2e 关键链路）
-#   + 前端 Playwright E2E smoke。
-# Gate 1（ci-fast.yml）不在这里重复执行。
+# Gate 2：integration + system smoke + frontend Playwright。
+# Gate 1 不在这里重复；本地 local-pr-gate 共用 scripts/ci_gate.py。
 
 on:
   pull_request:
 
-# PR 更新后取消同一 PR 的过期验证，只验证最新 head SHA。
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -35,7 +30,7 @@ jobs:
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
       - name: Integration tests
-        run: python -m pytest tests/integration -q
+        run: python scripts/ci_gate.py pr --part backend-integration
 
   backend-system-smoke:
     runs-on: ubuntu-latest
@@ -52,17 +47,18 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: System smoke tests (startup + e2e)
-        run: python -m pytest tests/system/startup tests/system/e2e -q
+      - name: System smoke
+        run: python scripts/ci_gate.py pr --part backend-system
 
   frontend-e2e-smoke:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: src/wind-hub-admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -70,8 +66,10 @@ jobs:
           cache: npm
           cache-dependency-path: src/wind-hub-admin/package-lock.json
       - name: Install dependencies
+        working-directory: src/wind-hub-admin
         run: npm ci
       - name: Install Playwright browser
+        working-directory: src/wind-hub-admin
         run: npx playwright install --with-deps chromium
       - name: Playwright e2e smoke
-        run: npm run test:e2e
+        run: python scripts/ci_gate.py pr --part frontend
