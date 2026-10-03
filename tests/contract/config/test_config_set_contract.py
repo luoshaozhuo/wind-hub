@@ -1,7 +1,7 @@
 """Contract：配置集文件布局与指纹语义——Server/Collector/Commander 的共享契约。
 
 三方经 ``config_hash``（``fingerprint_config_set``）校验同一份磁盘配置集：
-指纹的确定性、文件集成员规则（仅 YAML、排除 .history、纳入同级 common/）、
+指纹的确定性、文件集成员规则（仅 config_dir 内 YAML、排除 .history）、
 必备文件清单与 schema 严格性（未知字段拒绝）都是跨进程契约，漂移会导致
 prepare hash mismatch 或配置静默分叉。
 """
@@ -109,16 +109,16 @@ class TestFingerprintContract:
 
         assert fingerprint_config_set(config_dir) == before
 
-    def test_sibling_common_directory_included(self, tmp_path: Path) -> None:
-        """同级 common/ 是配置集的一部分，其变更必须反映到指纹。"""
+    def test_sibling_yaml_directory_is_ignored(self, tmp_path: Path) -> None:
+        """配置集是自包含目录；同级目录不参与当前站点指纹。"""
         site = _site(tmp_path / "deployment" / "site")
         before = fingerprint_config_set(site)
 
-        common = tmp_path / "deployment" / "common"
-        common.mkdir(parents=True)
-        (common / "shared.yaml").write_text("shared: true\n", encoding="utf-8")
+        sibling = tmp_path / "deployment" / "common"
+        sibling.mkdir(parents=True)
+        (sibling / "shared.yaml").write_text("shared: true\n", encoding="utf-8")
 
-        assert fingerprint_config_set(site) != before
+        assert fingerprint_config_set(site) == before
 
 
 class TestRequiredFilesContract:
