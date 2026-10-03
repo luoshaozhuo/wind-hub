@@ -1,8 +1,8 @@
 """Task use case——采集 Task / Task Instance 显式生命周期控制的应用编排。
 
 基于 :class:`~wind_hub_collector.application.runtime.runtime.Runtime`，供 Collector gRPC
-控制面管理采集任务：查询 Task 定义与展开后的实例、start/stop 单个实例、
-
+控制面管理采集任务：查询 Task 定义与展开后的实例，以及显式 start/stop
+Task 或单个 Task Instance。
 
 核心语义：
 

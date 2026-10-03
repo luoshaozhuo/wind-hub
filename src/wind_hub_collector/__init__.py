@@ -1,4 +1,5 @@
-"""wind-hub — 风电场主控通信模块。
+"""wind-hub-collector：设备采集、Task Runtime 与 Sink 交付进程。
 
-协议无关、输出无关的工业通信内核。
+Collector 不承担 Web/API、即时设备写入或现场协议诊断；这些职责分别属于
+wind-hub-server 与 wind-hub-commander。
 """

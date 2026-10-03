@@ -1,8 +1,8 @@
 """Wind Hub 跨进程共享的静态配置模型。
 
-本模块定义设备、点表、单位、现场标识与 ADS 进程级参数等跨 Collector、
-Commander、Server 共享的配置语义。这里只做纯 schema 与局部校验，不读取 YAML、
-不创建 Runtime，也不包含 Task、Sink、Reporting 等 Collector 专属配置。
+本模块定义配置集的强类型 schema，包括设备、点表、单位、现场标识、Runtime、
+Sink、Task 与可选 Reporting。这里只做纯 schema 与局部校验，不读取 YAML、
+不创建任何可执行组件 Runtime；各进程可按职责只加载自己需要的配置子集。
 """
 
 from __future__ import annotations
@@ -56,6 +56,7 @@ class ADSSystemConfig(BaseModel):
     @classmethod
     def _check_local_ams_net_id(cls, v: str) -> str:
         return _validate_ams_net_id(v)
+
 
 class SiteConfig(BaseModel):
     """当前部署实例所属现场的身份（``system.yaml`` 的 ``site`` 段）。

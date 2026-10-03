@@ -360,6 +360,28 @@ class _FakeWriter:
 
 
 class TestSession:
+    async def test_command_dispatch_is_rejected_without_device_write(self) -> None:
+        handlers = MagicMock()
+        session = IEC104SlaveSession(
+            reader=MagicMock(),
+            writer=_FakeWriter(),  # type: ignore[arg-type]
+            handlers=handlers,
+            common_address=1,
+        )
+        await session._dispatch(  # noqa: SLF001
+            ASDU(
+                type_id=TypeID.C_SC_NA_1,
+                cause=CauseOfTransmission.ACTIVATION,
+                common_address=1,
+                objects=[SingleCommand(ioa=2001, value=True)],
+            )
+        )
+
+        handlers.handle_command.assert_not_called()
+        data = bytes(session._writer.buf)  # noqa: SLF001
+        assert data[8] & 0x80
+        assert data[8] & 0x3F == CauseOfTransmission.ACTIVATION_CON.value
+
     async def test_send_asdu_negative_sets_pn_bit(self) -> None:
         session = IEC104SlaveSession(
             reader=MagicMock(),  # unused in send_asdu
