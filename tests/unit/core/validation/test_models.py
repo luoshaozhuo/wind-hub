@@ -44,10 +44,11 @@ def test_validation_severity_values_are_stable() -> None:
 
 
 def test_device_probe_target_defaults_to_empty_options() -> None:
-    target = DeviceProbeTarget(device_id="d1", host="127.0.0.1")
+    target = DeviceProbeTarget(device_id="d1", host="127.0.0.1", port=801)
+    assert target.port == 801
     assert target.options == {}
     # default_factory 语义：两个实例不共享同一个 dict。
-    other = DeviceProbeTarget(device_id="d2", host="127.0.0.1")
+    other = DeviceProbeTarget(device_id="d2", host="127.0.0.1", port=801)
     assert target.options is not other.options
 
 
