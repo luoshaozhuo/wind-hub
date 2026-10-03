@@ -52,7 +52,7 @@ class OverviewUseCase:
     async def snapshot(self) -> OverviewSnapshot:
         """返回一次一致的当前进程级总览快照。"""
         status = self._monitoring.runtime_status()
-        tasks = await self._tasks.list_task_summaries()
+        tasks = self._tasks.list_task_summaries()
         site = self._config.current_config.system.site
         return OverviewSnapshot(
             site_id=site.site_id if site is not None else None,
