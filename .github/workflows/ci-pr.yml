@@ -1,7 +1,7 @@
 name: CI PR Gate
 
-# Gate 2：integration + system smoke + frontend Playwright。
-# Gate 1 不在这里重复；本地 local-pr-gate 共用 scripts/ci_gate.py。
+# 对所有 PR 保留稳定结论；仅产品代码变更运行 integration/system/Playwright。
+# 非产品代码变更返回 NOT_APPLICABLE，不消耗产品测试资源。
 
 on:
   pull_request:
@@ -14,7 +14,27 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      product: ${{ steps.classify.outputs.product }}
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify change scope
+        id: classify
+        shell: bash
+        run: |
+          git diff --name-only             "${{ github.event.pull_request.base.sha }}"             "${{ github.event.pull_request.head.sha }}"             > /tmp/changed-files.txt
+          python scripts/ci_scope.py             --file-list /tmp/changed-files.txt             --github-output "$GITHUB_OUTPUT"
+
   backend-integration:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,6 +53,8 @@ jobs:
         run: python scripts/ci_gate.py pr --part backend-integration
 
   backend-system-smoke:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,6 +73,8 @@ jobs:
         run: python scripts/ci_gate.py pr --part backend-system
 
   frontend-e2e-smoke:
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,3 +97,33 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Playwright e2e smoke
         run: python scripts/ci_gate.py pr --part frontend
+
+  ci-pr-gate:
+    if: always()
+    needs: [scope, backend-integration, backend-system-smoke, frontend-e2e-smoke]
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT: ${{ needs.scope.outputs.product }}
+      SCOPE_RESULT: ${{ needs.scope.result }}
+      INTEGRATION: ${{ needs.backend-integration.result }}
+      SYSTEM: ${{ needs.backend-system-smoke.result }}
+      FRONTEND: ${{ needs.frontend-e2e-smoke.result }}
+    steps:
+      - name: Final PR Gate
+        shell: bash
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "FAIL: change scope classification failed"
+            exit 1
+          fi
+          if [ "$PRODUCT" != "true" ]; then
+            echo "PASS: NOT_APPLICABLE — no product code changes"
+            exit 0
+          fi
+          for result in "$INTEGRATION" "$SYSTEM" "$FRONTEND"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "FAIL: relevant PR Gate job failed"
+              exit 1
+            fi
+          done
+          echo "PASS"

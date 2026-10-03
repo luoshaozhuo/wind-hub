@@ -15,7 +15,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_CONFIG = REPO_ROOT / ".agent" / "local.json"
 

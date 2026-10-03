@@ -1,35 +1,38 @@
 ---
 name: ci-fix-loop
-description: Diagnose and fix GitHub Actions failures bound to one exact branch HEAD SHA, restarting whenever the target branch moves.
+description: Diagnose and fix only GitHub CI failures that are relevant to the current branch HEAD and current change scope.
 ---
 
 # CI Fix Loop
 
-## 状态
+## 状态与相关性
 
-只使用：
+状态：
 
 ```text
-PASS
-FAIL
-RUNNING
-QUEUED
-NOT_RUN
-NOT_EXECUTED
+PASS / FAIL / RUNNING / QUEUED / NOT_RUN / NOT_EXECUTED
+```
+
+相关性：
+
+```text
+RELATED / UNRELATED / UNKNOWN
 ```
 
 ## 流程
 
-1. 获取目标 branch 的远端 HEAD，记录 `TARGET_SHA`。
-2. 只分析 `head_sha == TARGET_SHA` 的 workflow run；禁止用旧 SHA 的最近结果代替。
-3. queued/running 只报告状态；completed 只读取该 SHA 的失败 job/step/log。
-4. 修改前重新确认远端 HEAD。HEAD 已移动则废弃旧诊断并从新 SHA 重启。
-5. 只修复当前失败直接暴露的问题，不扩大范围。
-6. 修复后执行至少 `local-fast-gate`；必要时执行对应本地 Gate。
-7. commit/push 前再次确认远端 HEAD，禁止 force push 和覆盖用户已有修改。
-8. push 后以新 SHA 重新跟踪，旧 SHA 结论立即过期。
-9. hardware/performance/soak 缺环境时使用 `NOT_EXECUTED`；不要把资格环境问题改成产品代码问题。
+1. 获取目标 branch HEAD，记录 `TARGET_SHA`；只分析该 SHA 的 run。
+2. 读取本次变更文件，确定产品代码、前端、CI/tooling、治理范围。
+3. 对失败先判断相关性：
+   - 当前变更直接涉及失败文件、依赖、测试或执行入口 → `RELATED`；
+   - 同一失败可在 base/main 证实已存在，或失败子系统与本次变更无依赖 → `UNRELATED`；
+   - 证据不足 → `UNKNOWN`。
+4. `UNRELATED`：记录失败 job、证据和理由后忽略，不修改代码，不阻断本次任务。
+5. `UNKNOWN`：只做足以判断相关性的最小诊断。
+6. `RELATED`：只修复当前失败直接暴露的问题，不扩大范围。
+7. 修复后只执行与变更范围匹配的本地验证；非产品变更不得为了 CI 红灯跑完整产品 Gate。
+8. commit/push 前重新确认远端 HEAD；HEAD 移动则废弃旧诊断。
+9. push 后以新 SHA 重启判断，旧 SHA 结论立即过期。
+10. hardware/performance/soak 环境不足为 `NOT_EXECUTED`，不改成产品 FAIL。
 
-## 结束
-
-仅当当前 `TARGET_SHA` 的必需 GitHub Gate 明确 PASS 时，才能声称 CI 通过。
+禁止为了“全绿”修复与当前任务无关的既有问题。

@@ -1,6 +1,6 @@
 # Claude Code / Codex 执行入口
 
-默认使用中文。Claude Code 与 Codex 作为 VS Code 插件或其他入口运行时，共用本仓库的规则、Skill 和环境检查。
+默认使用中文。Claude Code 与 Codex 作为 VS Code 插件或其他入口运行时，共用本仓库规则、Skill 和环境检查。
 
 ## 1. 环境
 
@@ -10,16 +10,15 @@
 python3 scripts/dev.py env
 ```
 
-前端任务：
+前端产品任务再检查 frontend 工具链：
 
 ```bash
 python3 scripts/dev.py env --frontend
 ```
 
-本机工具路径可配置在不入库的 `.agent/local.json`，模板为
-`.agent/local.example.json`。不假设 VS Code 插件继承某个交互式 shell 或 conda 环境。
+本机工具路径配置在不入库的 `.agent/local.json`；不假设 VS Code 插件继承 shell 或 conda 环境。
 
-`.env.local` 只用于运行时、真实服务或测试参数，不负责选择 Python 解释器；不得读取或输出其中的敏感值。
+`.env.local` 只用于运行时、真实服务或测试参数，不负责 Python 环境；不得读取或输出敏感值。
 
 ## 2. 规则入口
 
@@ -31,43 +30,32 @@ ai_shared/agent_config/skills/
 ai_shared/agent_config/hooks/
 ```
 
-`.claude/`、`.codex/`、`.agents/` 只是工具适配层。
+`.claude/`、`.codex/`、`.agents/` 仅为适配层。
 
-任务开始读取：
-
-```text
-ai_shared/rules/routing.md
-```
-
-随后仅按 routing 读取需要的规则、真实源码、测试、配置和 schema。
+任务开始读取 `ai_shared/rules/routing.md`，随后按 routing 最小读取。
 
 ## 3. 开发生命周期
-
-独立编码任务默认遵循：
 
 ```text
 origin/main
 → task branch
-→ code
-→ local-fast-gate
+→ 修改
+→ 按变更范围验证
 → commit(s)
-→ local-pr-gate
-→ push
-→ PR → main
-→ GitHub ci-fast + ci-pr
-→ ci-fix-loop（失败时）
+→ push / PR
+→ scope-aware GitHub CI
+→ 仅处理 RELATED CI failure
 → merge
 ```
 
-要求：
+产品代码默认进入 Local Fast Gate；含产品代码的 PR 进入 Local PR Gate。
 
-1. 不直接在 `main` 开发或 push。
-2. 一个独立任务一个短生命周期分支，一个分支可多个 commit。
-3. `local-fast-gate` 在每轮完整编码阶段结束后默认执行。
-4. Release 与真实资格验证只在对应阶段执行。
-5. GitHub CI 结果必须绑定当前 branch HEAD SHA。
-6. 不 force push，不覆盖用户已有修改，不用测试放宽制造 PASS。
+纯 CI/Agent 工具、rules、skills、docs、README 等非产品代码变更不运行产品代码 Gate，只做与修改对象直接相关的轻量验证。
 
-## 4. 证据
+## 4. CI 失败
 
-mock/fake、skip、health check、脚本存在、局部通过、旧 SHA 的 CI 结果均不能冒充当前真实 Gate PASS。
+CI 状态与失败相关性分开记录。可证明与本次变更无关的既有失败标记 `UNRELATED` 并忽略，不为了全绿扩大任务范围。证据不足时标记 `UNKNOWN`，只做最小诊断。
+
+## 5. Git
+
+不直接在 main 开发或 push；一个独立任务一个短分支；禁止 force push、覆盖用户修改和危险历史重写。

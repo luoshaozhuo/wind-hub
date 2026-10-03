@@ -9,7 +9,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEV_TOOL = REPO_ROOT / "scripts" / "dev.py"
 FRONTEND_DIR = REPO_ROOT / "src" / "wind-hub-admin"

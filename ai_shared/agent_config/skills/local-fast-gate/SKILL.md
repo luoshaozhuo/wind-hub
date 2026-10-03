@@ -1,22 +1,25 @@
 ---
 name: local-fast-gate
-description: Run the local counterpart of GitHub CI Fast after a coding stage is complete. Use by default after code changes before considering the coding stage complete.
+description: Run the local Fast Gate only when the current change set contains product code that maps to GitHub CI Fast.
 ---
 
 # Local Fast Gate
 
-## 执行
+先确认变更范围包含产品代码。纯 rules/docs/Agent/CI-tooling 变更不得调用本 Skill。
 
-本地固定使用 Agent 本机配置的工具链：
+执行：
 
 ```bash
 python3 scripts/dev.py env --frontend
 python3 scripts/dev.py python scripts/ci_gate.py fast
 ```
 
-规则：
+可按实际范围只执行 backend/frontend part。任一相关必需项失败为 `FAIL`。
 
-1. 与 GitHub `ci-fast.yml` 共用 `scripts/ci_gate.py` 中的命令定义。
-2. 任一必需项失败则为 `FAIL`，修复后重新执行。
-3. 不自动升级到 integration/system/Playwright/hardware/performance/soak。
-4. 只报告 `PASS`、`FAIL` 或明确的 `NOT_EXECUTED`；局部通过不得代替整个 Gate。
+如果发现失败，先判断相关性：
+
+- `RELATED`：修复并重跑；
+- `UNRELATED`：记录基线证据后忽略；
+- `UNKNOWN`：最小定位后再决定。
+
+不自动升级到 PR/release/qualification。

@@ -1,7 +1,7 @@
 name: CI Fast (Commit Gate)
 
-# Gate 1：静态检查 + unit/component/contract + 前端 Vitest/build。
-# 本地 local-fast-gate 与本 workflow 共用 scripts/ci_gate.py 中的命令定义。
+# 对所有 PR 保留稳定的 Gate 结论，但只有产品代码变更才运行产品检查。
+# rules/docs/Agent/CI-tooling 变更会得到 NOT_APPLICABLE，不安装产品依赖、不跑 pytest/前端 build。
 
 on:
   push:
@@ -16,7 +16,34 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      product: ${{ steps.classify.outputs.product }}
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify change scope
+        id: classify
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          git diff --name-only "$base" "$head" > /tmp/changed-files.txt
+          python scripts/ci_scope.py             --file-list /tmp/changed-files.txt             --github-output "$GITHUB_OUTPUT"
+
   backend-static:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +62,8 @@ jobs:
         run: python scripts/ci_gate.py fast --part backend-static
 
   backend-fast-tests:
+    needs: scope
+    if: needs.scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -53,6 +82,8 @@ jobs:
         run: python scripts/ci_gate.py fast --part backend-tests
 
   frontend-unit-and-build:
+    needs: scope
+    if: needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -72,3 +103,33 @@ jobs:
         run: npm ci
       - name: Fast frontend
         run: python scripts/ci_gate.py fast --part frontend
+
+  ci-fast-gate:
+    if: always()
+    needs: [scope, backend-static, backend-fast-tests, frontend-unit-and-build]
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT: ${{ needs.scope.outputs.product }}
+      SCOPE_RESULT: ${{ needs.scope.result }}
+      BACKEND_STATIC: ${{ needs.backend-static.result }}
+      BACKEND_TESTS: ${{ needs.backend-fast-tests.result }}
+      FRONTEND: ${{ needs.frontend-unit-and-build.result }}
+    steps:
+      - name: Final Fast Gate
+        shell: bash
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "FAIL: change scope classification failed"
+            exit 1
+          fi
+          if [ "$PRODUCT" != "true" ]; then
+            echo "PASS: NOT_APPLICABLE — no product code changes"
+            exit 0
+          fi
+          for result in "$BACKEND_STATIC" "$BACKEND_TESTS" "$FRONTEND"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "FAIL: relevant Fast Gate job failed"
+              exit 1
+            fi
+          done
+          echo "PASS"
