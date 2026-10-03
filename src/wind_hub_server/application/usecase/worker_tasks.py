@@ -44,12 +44,6 @@ class TaskInstanceDetail(BaseModel):
     state: TaskInstanceState
 
 
-class TaskBatchResult(BaseModel):
-    total: int
-    changed: int
-    unchanged: int
-
-
 class TaskPlacementReconcileResult(BaseModel):
     """一次 placement reconciliation 结果。"""
 
@@ -486,40 +480,4 @@ class CollectorTaskUseCase:
             running_instances=0,
             stopped_instances=0,
             failed_instances=0,
-        )
-
-    async def start_all_instances(self) -> TaskBatchResult:
-        """按 assignment 启动全部 Task Instance。"""
-        self._require_safe_start()
-        return await self._set_all_instances(start=True)
-
-    async def stop_all_instances(self) -> TaskBatchResult:
-        """按 assignment 停止全部 Task Instance。"""
-        return await self._set_all_instances(start=False)
-
-    async def _set_all_instances(self, *, start: bool) -> TaskBatchResult:
-        """仅操作当前 assignment 覆盖的实例，并聚合批量结果。"""
-        instances = await self.list_instances()
-        target = TaskInstanceState.RUNNING if start else TaskInstanceState.STOPPED
-        changed = [row for row in instances if row.state is not target]
-
-        async def apply(row: TaskInstanceDetail) -> None:
-            collector = await self._verified_collector(row.assigned_worker_id)
-            if start:
-                try:
-                    await collector.start_task_instance(
-                        row.instance_id,
-                        self._assignments.generation,
-                    )
-                except CollectorPlacementRejectedError as exc:
-                    self._reconciled_generation = None
-                    raise TaskPlacementUnsafeError(str(exc)) from exc
-            else:
-                await collector.stop_task_instance(row.instance_id)
-
-        await asyncio.gather(*(apply(row) for row in changed))
-        return TaskBatchResult(
-            total=len(instances),
-            changed=len(changed),
-            unchanged=len(instances) - len(changed),
         )
