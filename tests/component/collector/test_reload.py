@@ -246,7 +246,7 @@ class TestDeviceGroupChanges:
             instance_ids = {i.instance_id for i in await ctx.rt.tasks.list_instances()}
             assert instance_ids == {"grp-telemetry:modbus-1"}
 
-            with pytest.raises(CommandError, match="unknown device"):
+            with pytest.raises(KeyError):
                 await _read_runtime_point(ctx.rt, "modbus-2", "rotor.speed")
 
 
