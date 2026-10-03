@@ -13,6 +13,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEV_TOOL = REPO_ROOT / "scripts" / "dev.py"
 FRONTEND_DIR = REPO_ROOT / "src" / "wind-hub-admin"
 
+PR_TARGETS: dict[str, tuple[str, ...]] = {
+    "integration-protocol": ("tests/integration/protocols",),
+    "integration-rpc": ("tests/integration/rpc",),
+    "integration-sinks": ("tests/integration/sinks",),
+    "system-acquisition": ("tests/system/acquisition",),
+    "system-command": ("tests/system/command",),
+    "system-diagnostics": ("tests/system/diagnostics",),
+    "system-reload": ("tests/system/reload",),
+    "system-startup": ("tests/system/startup",),
+    "system-task-control": ("tests/system/task_control",),
+    "system-e2e": ("tests/system/e2e",),
+}
+
 
 def _run(label: str, command: Sequence[str], *, cwd: Path = REPO_ROOT) -> bool:
     """执行一个门禁命令并保留原始输出。"""
@@ -88,29 +101,35 @@ def fast_gate(part: str) -> bool:
     return all(_run_many(items) for items in selected.values())
 
 
-def pr_gate(part: str) -> bool:
-    """执行 PR Gate。"""
-    commands: dict[str, list[tuple[str, Sequence[str]]]] = {
-        "backend-integration": [
-            ("integration", _python_module("pytest", "tests/integration", "-q")),
-        ],
-        "backend-system": [
-            (
-                "system-smoke",
-                _python_module(
-                    "pytest",
-                    "tests/system/startup",
-                    "tests/system/e2e",
-                    "-q",
-                ),
-            ),
-        ],
-        "frontend": [
-            ("frontend-e2e", _npm("--prefix", str(FRONTEND_DIR), "run", "test:e2e")),
-        ],
-    }
-    selected = commands if part == "all" else {part: commands[part]}
-    return all(_run_many(items) for items in selected.values())
+def pr_gate(targets: str) -> bool:
+    """执行由变更风险选择的后端 integration/system 目标。"""
+    selected = [target.strip() for target in targets.split(",") if target.strip()]
+    if not selected:
+        print("GATE RESULT: NOT_APPLICABLE")
+        return True
+
+    unknown = [target for target in selected if target not in PR_TARGETS]
+    if unknown:
+        print(f"unknown PR targets: {', '.join(unknown)}", file=sys.stderr)
+        return False
+
+    paths: list[str] = []
+    for target in selected:
+        paths.extend(PR_TARGETS[target])
+
+    unique_paths = list(dict.fromkeys(paths))
+    return _run(
+        "targeted-pr",
+        _python_module("pytest", *unique_paths, "-q"),
+    )
+
+
+def frontend_e2e_gate() -> bool:
+    """执行当前 Playwright 应用外壳 E2E。"""
+    return _run(
+        "frontend-e2e",
+        _npm("--prefix", str(FRONTEND_DIR), "run", "test:e2e"),
+    )
 
 
 def release_gate(part: str) -> bool:
@@ -194,11 +213,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     pr = subparsers.add_parser("pr")
-    pr.add_argument(
-        "--part",
-        choices=("all", "backend-integration", "backend-system", "frontend"),
-        default="all",
-    )
+    pr.add_argument("--targets", default="")
+
+    subparsers.add_parser("frontend-e2e")
 
     release = subparsers.add_parser("release")
     release.add_argument("--part", choices=("all", "backend", "frontend"), default="all")
@@ -222,7 +239,9 @@ def main() -> int:
     if args.gate == "fast":
         passed = fast_gate(args.part)
     elif args.gate == "pr":
-        passed = pr_gate(args.part)
+        passed = pr_gate(args.targets)
+    elif args.gate == "frontend-e2e":
+        passed = frontend_e2e_gate()
     elif args.gate == "release":
         passed = release_gate(args.part)
     elif args.gate == "hardware":
