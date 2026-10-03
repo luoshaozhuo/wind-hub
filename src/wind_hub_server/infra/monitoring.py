@@ -13,7 +13,6 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.port.monitoring import (
     CounterSnapshot,
@@ -33,7 +32,7 @@ def _int_counter(payload: dict[str, object], name: str) -> int:
 
 
 class MonitoringMetrics:
-    """RuntimeMetricsPort 的内存统计实现，同时记录近期事件。"""
+    """Collector metrics_snapshot 的线程安全本地镜像。"""
 
     def __init__(self, event_capacity: int = 5000) -> None:
         self._lock = threading.RLock()
@@ -48,56 +47,7 @@ class MonitoringMetrics:
         self._reconnects = 0
         self._device_connect_failures: dict[str, int] = defaultdict(int)
         self._device_reconnects: dict[str, int] = defaultdict(int)
-        self._instance_failures: dict[tuple[str, str], int] = defaultdict(int)
-        self._instance_missed: dict[tuple[str, str], int] = defaultdict(int)
         self._events: deque[MonitoringEvent] = deque(maxlen=event_capacity)
-
-    def observe_points(self, values: list[PointValue]) -> None:
-        """记录真实采集批次的点数与 BAD 点。"""
-        with self._lock:
-            self._points_total += len(values)
-            self._points_bad += sum(1 for value in values if value.quality is Quality.BAD)
-
-    def acquisition_run_finished(
-        self, device_id: str, group: str, outcome: str, duration: float | None
-    ) -> None:
-        with self._lock:
-            self._runs += 1
-            if outcome == "failed":
-                self._failures += 1
-                self._instance_failures[(device_id, group)] += 1
-                self._event("acquisition_failed", device_id, f"{group}: collect failed")
-            elif outcome == "partial":
-                self._partial += 1
-                self._event("acquisition_partial", device_id, f"{group}: partial batch")
-
-    def acquisition_poll_stats(
-        self, device_id: str, group: str, jitter: float, overrun: bool, missed: int
-    ) -> None:
-        with self._lock:
-            if overrun:
-                self._overruns += 1
-                self._event("poll_overrun", device_id, f"{group}: overrun")
-            if missed:
-                self._missed += missed
-                self._instance_missed[(device_id, group)] += missed
-                self._event(
-                    "missed_cycles", device_id, f"{group}: missed {missed} cycle(s)"
-                )
-
-    def device_connect_failed(self, device_id: str, protocol: str) -> None:
-        with self._lock:
-            self._connect_failures += 1
-            self._device_connect_failures[device_id] += 1
-            self._event(
-                "connect_failed", device_id, f"{protocol}: connection failed"
-            )
-
-    def device_reconnected(self, device_id: str, protocol: str) -> None:
-        with self._lock:
-            self._reconnects += 1
-            self._device_reconnects[device_id] += 1
-            self._event("reconnected", device_id, f"{protocol}: reconnected")
 
     def counters(self) -> CounterSnapshot:
         """返回进程累计计数快照。"""
@@ -180,10 +130,6 @@ class MonitoringMetrics:
         with self._lock:
             return [event for event in reversed(self._events) if event.timestamp >= since]
 
-    def _event(self, kind: str, object_name: str, message: str) -> None:
-        self._events.append(
-            MonitoringEvent(datetime.now(UTC), kind, object_name, message)
-        )
 
 
 class MonitoringService:
