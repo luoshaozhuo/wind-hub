@@ -621,21 +621,12 @@ class ApiConfig(BaseModel):
     port: int = 8080
 
 
-class CliConfig(BaseModel):
-    """兼容保留的 CLI 设置；wind-hub-ctl 不从该配置读取连接目标。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = True
-
-
 class InterfaceConfig(BaseModel):
-    """兼容保留的入站适配器设置。"""
+    """HTTP Server 入站适配器设置。"""
 
     model_config = ConfigDict(extra="forbid")
 
     api: ApiConfig = Field(default_factory=ApiConfig)
-    cli: CliConfig = Field(default_factory=CliConfig)
 
 
 class SystemConfig(BaseModel):
@@ -923,7 +914,6 @@ __all__ = [
     "RuntimeConfig",
     "SinkConfig",
     "ApiConfig",
-    "CliConfig",
     "InterfaceConfig",
     "SystemConfig",
     "TaskTarget",
