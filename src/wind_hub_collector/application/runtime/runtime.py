@@ -684,7 +684,7 @@ class Runtime:
     ) -> None:
         """一次 collect 成功（含 partial——GOOD/BAD 混合不计连续失败）。"""
         state = self._acq_state_for(execution_id, device_id, group)
-        state.finish_success(self._clock(), partial=partial)
+        state.finish_success(self._clock())
         if self._metrics is not None:
             self._metrics.acquisition_run_finished(
                 device_id, group, "partial" if partial else "success", state.last_duration
