@@ -373,7 +373,6 @@ const newDev = ref({
   port: 502,
   enabled: true,
   target_net_id: '',
-  target_port: 801,
   twincat_version: '2',
   timeout: 3,
   unit_id: 1,
@@ -398,13 +397,12 @@ function applyNewModelDefaults() {
   const defaults = model.connection_defaults || {}
   newDev.value.type = model.device_type
   newDev.value.port = Number(defaults.port || (
-    model.protocol === 'ads' ? 48898 :
+    model.protocol === 'ads' ? 801 :
     model.protocol === 'iec104' ? 2404 : 502
   ))
   newDev.value.timeout = Number(defaults.timeout || 3)
 
   if (model.protocol === 'ads') {
-    newDev.value.target_port = Number(defaults.target_port || defaults.ams_port || 801)
     newDev.value.twincat_version = String(defaults.twincat_version || '2')
     if (newDev.value.host) newDev.value.target_net_id = `${newDev.value.host}.1.1`
   } else if (model.protocol === 'modbus') {
@@ -464,8 +462,7 @@ function openAdd() {
     port: 502,
     enabled: true,
     target_net_id: '',
-    target_port: 801,
-    twincat_version: '2',
+      twincat_version: '2',
     timeout: 3,
     unit_id: 1,
     mode: 'tcp',
@@ -506,7 +503,6 @@ function addDevice() {
   if (model.protocol === 'ads') {
     if (!newDev.value.target_net_id.trim()) { ElMessage.error('Target AMS Net ID is required for ADS'); return }
     extensions.target_net_id = newDev.value.target_net_id.trim()
-    setOverride('target_port', newDev.value.target_port)
     setOverride('twincat_version', newDev.value.twincat_version)
     setOverride('timeout', newDev.value.timeout)
   } else if (model.protocol === 'modbus') {
@@ -552,7 +548,6 @@ const editForm = ref({
   host: '',
   port: 0,
   target_net_id: '',
-  target_port: 801,
   twincat_version: '2',
   timeout: 3,
   unit_id: 1,
@@ -610,7 +605,6 @@ function loadEditForm() {
     host: selected.value.host,
     port: Number(conn.port || selected.value.port || 0),
     target_net_id: String(conn.target_net_id || ''),
-    target_port: Number(conn.target_port || conn.ams_port || 801),
     twincat_version: String(conn.twincat_version || '2'),
     timeout: Number(conn.timeout || 3),
     unit_id: Number(conn.unit_id || 1),
@@ -651,7 +645,6 @@ function onEditModelChange() {
   editForm.value.port = Number(defaults.port || editForm.value.port || 0)
 
   if (model.protocol === 'ads') {
-    editForm.value.target_port = Number(defaults.target_port || defaults.ams_port || 801)
     editForm.value.twincat_version = String(defaults.twincat_version || '2')
     editForm.value.timeout = Number(defaults.timeout || 3)
     if (!editForm.value.target_net_id && editForm.value.host) {
@@ -775,7 +768,6 @@ async function saveConfig() {
 
   if (model.protocol === 'ads') {
     extensions.target_net_id = editForm.value.target_net_id.trim()
-    setOverride('target_port', editForm.value.target_port)
     setOverride('twincat_version', editForm.value.twincat_version)
     setOverride('timeout', editForm.value.timeout)
   } else if (model.protocol === 'modbus') {
@@ -1486,8 +1478,7 @@ async function sendCommand() {
 
             <div v-if="newDevModel?.protocol === 'ads'" class="form-grid add-device-grid">
               <el-form-item label="Target AMS Net ID"><el-input v-model="newDev.target_net_id" /></el-form-item>
-              <el-form-item label="Target Port"><el-input-number v-model="newDev.target_port" :min="1" :max="65535" class="app-full-width" /></el-form-item>
-              <el-form-item label="TwinCAT Version"><el-select v-model="newDev.twincat_version" class="app-full-width"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+              <el-form-item label="TwinCAT Version"><el-select v-model="newDev.twincat_version" class="app-full-width" @change="newDev.port = $event === '3' ? 851 : 801"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
               <el-form-item label="Timeout (s)"><el-input-number v-model="newDev.timeout" :min="0.1" :step="0.5" class="app-full-width" /></el-form-item>
             </div>
             <div v-else-if="newDevModel?.protocol === 'modbus'" class="form-grid add-device-grid">
@@ -1622,8 +1613,7 @@ async function sendCommand() {
                   <div class="form-grid config-edit-grid">
                     <el-form-item label="Port"><el-input-number v-model="editForm.port" :min="1" :max="65535" class="app-full-width" /></el-form-item>
                     <template v-if="editForm.protocol === 'ads'">
-                      <el-form-item label="Target Port"><el-input-number v-model="editForm.target_port" :min="1" :max="65535" class="app-full-width" /></el-form-item>
-                      <el-form-item label="TwinCAT Version"><el-select v-model="editForm.twincat_version" class="app-full-width"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
+                      <el-form-item label="TwinCAT Version"><el-select v-model="editForm.twincat_version" class="app-full-width" @change="editForm.port = $event === '3' ? 851 : 801"><el-option label="TwinCAT 2" value="2" /><el-option label="TwinCAT 3" value="3" /></el-select></el-form-item>
                       <el-form-item label="Timeout (s)"><el-input-number v-model="editForm.timeout" :min="0.1" :step="0.5" class="app-full-width" /></el-form-item>
                     </template>
                     <template v-else-if="editForm.protocol === 'modbus'">
