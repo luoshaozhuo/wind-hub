@@ -17,7 +17,7 @@ Runtime 的当前注册表读取——热重载增删/重建组件后，查询�
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from wind_hub_collector.application.runtime.runtime import Runtime
 from wind_hub_collector.domain.model.device import DeviceInfo
@@ -85,7 +85,7 @@ class SystemStatus(BaseModel):
     points_dropped: int = 0
     """累计丢弃点数——背压策略丢弃的点值总数。"""
 
-    acquisitions: list[AcquisitionInfo] = []
+    acquisitions: list[AcquisitionInfo] = Field(default_factory=list)
     """各采集实例的业务执行状态（按 Task Instance 粒度）。"""
 
 
