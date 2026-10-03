@@ -1,30 +1,23 @@
-"""Integration test — IEC104 slave proxy against a minimal master client.
+"""IEC104 reporting 从站 TCP component test。
 
-Starts the real :class:`IEC104SlaveServer` (snapshot + handlers + bridge with
-a mocked Dispatcher), connects a hand-rolled IEC104 master client over TCP,
-and verifies the STARTDT handshake, a batched general interrogation, and a
-remote-control command round trip (``ACT_CON`` → ``ACT_TERM``).
+启动真实 IEC104SlaveServer，验证 STARTDT、分批总召，以及控制方向请求被
+negative ACT_CON 明确拒绝；Collector 不执行设备写入。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from wind_hub_collector.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
     IEC104SlaveServer,
-    SlaveBridge,
     build_data_type_mapping,
     build_ioa_mapping,
-    build_reverse_mapping,
 )
 from wind_hub_core.config.schema import ReportingPoint
-from wind_hub_core.model.command import CommandResult
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
@@ -127,7 +120,7 @@ class _MasterClient:
             (TypeID.C_IC_NA_1, CauseOfTransmission.ACTIVATION_TERMINATION)
         )
 
-    async def send_single_command(self, ioa: int, value: bool) -> list[ASDU]:
+    async def send_single_command(self, ioa: int, value: bool) -> tuple[ASDU, bool]:
         await self._send_i(
             ASDU(
                 type_id=TypeID.C_SC_NA_1,
@@ -136,53 +129,47 @@ class _MasterClient:
                 objects=[SingleCommand(ioa=ioa, value=value)],
             )
         )
-        return await self._read_asdus(
-            (TypeID.C_SC_NA_1, CauseOfTransmission.ACTIVATION_TERMINATION)
-        )
+        while True:
+            frame_bytes = await self._read_frame()
+            assert frame_bytes is not None
+            frame = decode_apdu(frame_bytes)
+            if not isinstance(frame, IFrame):
+                continue
+            self._recv_seq = (frame.send_seq + 1) & 0x7FFF
+            asdu, _ = decode_asdu(frame.asdu)
+            return asdu, bool(frame.asdu[2] & 0x80)
 
 
 @pytest.fixture
 async def proxy():
-    """A started slave proxy with a populated snapshot and mocked dispatcher."""
+    """启动只读 reporting 从站并预置最新值快照。"""
     reporting = _reporting()
     snapshot = DataSnapshot()
-    dispatcher = MagicMock()
-    dispatcher.send = AsyncMock(
-        side_effect=lambda cmd: CommandResult(command_id=cmd.command_id, success=True)
-    )
-    bridge = SlaveBridge(
-        dispatcher=dispatcher,
-        snapshot=snapshot,
-        mapping=build_ioa_mapping(reporting),
-    )
-    handlers = IEC104SlaveHandlers(
-        snapshot=snapshot,
-        data_type_mapping=build_data_type_mapping(reporting),
-        reverse_mapping=build_reverse_mapping(reporting),
-        bridge=bridge,
-        common_address=1,
-        batch_size=2,
-    )
-    server = IEC104SlaveServer("127.0.0.1", 0, handlers, common_address=1)
-
-    bridge.on_points_collected(
+    snapshot.update(
         [
             PointValue(device_id="wtg-001", point_id="rotor.speed", value=1500.5),
             PointValue(device_id="wtg-001", point_id="gen.power", value=800.0),
             PointValue(device_id="wtg-001", point_id="wind.speed", value=12.5),
             PointValue(device_id="wtg-001", point_id="status.running", value=True),
-        ]
+        ],
+        build_ioa_mapping(reporting),
     )
-
+    handlers = IEC104SlaveHandlers(
+        snapshot=snapshot,
+        data_type_mapping=build_data_type_mapping(reporting),
+        common_address=1,
+        batch_size=2,
+    )
+    server = IEC104SlaveServer("127.0.0.1", 0, handlers, common_address=1)
     await server.start()
     try:
-        yield server, dispatcher
+        yield server
     finally:
         await server.stop()
 
 
-async def test_full_slave_interrogation_and_command(proxy) -> None:  # type: ignore[no-untyped-def]
-    server, dispatcher = proxy
+async def test_full_slave_interrogation_and_reject_command(proxy) -> None:  # type: ignore[no-untyped-def]
+    server = proxy
     client = _MasterClient(server.port)
     await client.connect()
     try:
@@ -209,16 +196,11 @@ async def test_full_slave_interrogation_and_command(proxy) -> None:  # type: ign
         assert sp_asdus[0].objects[0].ioa == 201
         assert sp_asdus[0].objects[0].value is True
 
-        # 3. Remote command → ACT_CON + ACT_TERM.
-        reply = await client.send_single_command(ioa=201, value=True)
-        assert [a.cause for a in reply] == [
-            CauseOfTransmission.ACTIVATION_CON,
-            CauseOfTransmission.ACTIVATION_TERMINATION,
-        ]
-        sent_cmd = dispatcher.send.await_args.args[0]
-        assert sent_cmd.device_id == "wtg-001"
-        assert sent_cmd.point_id == "status.running"
-        assert sent_cmd.value is True
+        # 3. 控制方向请求必须被显式否定，且不进入任何设备写链。
+        reply, negative = await client.send_single_command(ioa=201, value=True)
+        assert reply.type_id == TypeID.C_SC_NA_1
+        assert reply.cause == CauseOfTransmission.ACTIVATION_CON
+        assert negative is True
     finally:
         await client.close()
 
@@ -228,12 +210,6 @@ async def test_proxy_reports_health_and_session_count() -> None:
     handlers = IEC104SlaveHandlers(
         snapshot=snapshot,
         data_type_mapping={},
-        reverse_mapping={},
-        bridge=SlaveBridge(
-            dispatcher=MagicMock(),
-            snapshot=snapshot,
-            mapping={},
-        ),
         common_address=1,
         batch_size=50,
     )
