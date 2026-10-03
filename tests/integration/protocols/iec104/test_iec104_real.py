@@ -65,7 +65,6 @@ async def iec104_driver(tmp_path: Path) -> AsyncIterator[tuple[IEC104Driver, IEC
                         "t1": 3.0,
                         "t2": 2.0,
                         "t3": 5.0,
-                        "max_reconnect_retries": 3,
                     },
                 },
             }
