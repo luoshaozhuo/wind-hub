@@ -28,9 +28,11 @@ export default defineConfig({
     launchOptions: { env: browserEnv() },
   },
   webServer: {
-    command: 'npm run dev -- --port 15173 --strictPort',
+    command: 'npm run dev -- --host 127.0.0.1 --port 15173 --strictPort',
     url: 'http://127.0.0.1:15173',
     reuseExistingServer: false,
+    stdout: 'pipe',
+    stderr: 'pipe',
     timeout: 60_000,
   },
 })
