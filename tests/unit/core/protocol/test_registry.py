@@ -44,7 +44,7 @@ class TestFreshRegistry:
     def test_register_driver_success(self) -> None:
         reg = ProtocolRegistry()
         reg.register("test", lambda cfg: "fake-driver")  # type: ignore[arg-type,return-value]
-        assert reg.is_registered("test")
+        assert reg.create("test", _make_device_cfg()) == "fake-driver"
 
     def test_register_duplicate_raises(self) -> None:
         reg = ProtocolRegistry()
@@ -65,17 +65,6 @@ class TestFreshRegistry:
         with pytest.raises(ConfigError, match="Unknown protocol driver 'unknown'"):
             reg.create("unknown", cfg)
 
-    def test_names_returns_sorted_list(self) -> None:
-        reg = ProtocolRegistry()
-        reg.register("z", lambda _: "z")  # type: ignore[arg-type,return-value]
-        reg.register("a", lambda _: "a")  # type: ignore[arg-type,return-value]
-        assert reg.names() == ["a", "z"]
-
-    def test_is_registered(self) -> None:
-        reg = ProtocolRegistry()
-        reg.register("foo", lambda _: "bar")  # type: ignore[arg-type,return-value]
-        assert reg.is_registered("foo") is True
-        assert reg.is_registered("bar") is False
 
 
 # ---------------------------------------------------------------------------
@@ -85,12 +74,6 @@ class TestFreshRegistry:
 
 class TestGlobalRegistry:
     """Tests against the global singleton (drivers already registered)."""
-
-    def test_three_drivers_registered(self) -> None:
-        names = protocol_registry.names()
-        assert "ads" in names
-        assert "modbus" in names
-        assert "iec104" in names
 
     def test_create_all_three_returns_instances(self) -> None:
         for proto_name in ("ads", "modbus", "iec104"):
@@ -118,10 +101,6 @@ def test_decorator_registers_factory() -> None:
     def _factory(cfg: DeviceConfig) -> str:  # type: ignore[return-type]
         return f"deco-{cfg.device_id}"
 
-    # The decorator registered into the global singleton — verify
-    assert protocol_registry.is_registered("deco-test")
-
-    # Clean up after ourselves (remove from global singleton)
-    # We can't easily remove, but at least verify it's there
+    # The decorator registered into the global singleton.
     driver = protocol_registry.create("deco-test", _make_device_cfg())
     assert driver == "deco-test-dev"
