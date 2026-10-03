@@ -1,4 +1,4 @@
-"""Devices Data / Trend 页的缓存查询用例。"""
+"""Devices Data / Trend 页的即时采样与短期历史用例。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from wind_hub_core.config.schema import PointConfig
 from wind_hub_core.model.point import PointValue, Quality
-from wind_hub_server.application.port.point_store import LatestPointStore, TrendStore
+from wind_hub_server.application.port.point_store import TrendStore
 from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 
@@ -41,18 +41,16 @@ class TrendSeries(BaseModel):
 
 
 class DeviceDataUseCase:
-    """只读缓存查询；不会因为 Data/Trend 页面刷新而主动访问 PLC。"""
+    """Data 读取 Commander 当前值；Trend 保存这些即时读取形成的短期历史。"""
 
     def __init__(
         self,
         config: ConfigUseCase,
         commander: CommanderPort,
-        latest: LatestPointStore,
         trend: TrendStore,
     ) -> None:
         self._config = config
         self._commander = commander
-        self._latest = latest
         self._trend = trend
 
     async def list_data(
@@ -62,7 +60,7 @@ class DeviceDataUseCase:
         search: str | None = None,
         point_group: str | None = None,
     ) -> list[DeviceDataItem]:
-        """返回当前点表全部点，并合并缓存中的最近值。"""
+        """即时读取选中点，并与点定义 metadata 合并。"""
         points = self._points_or_raise(device_id)
         query = (search or "").strip().lower()
         selected = [
@@ -89,13 +87,12 @@ class DeviceDataUseCase:
         except Exception:
             observed = []
         if observed:
-            self._latest.put_batch(observed)
             self._trend.append_batch(observed)
-        latest = self._latest.list_device(device_id)
+        current = {value.point_id: value for value in observed}
 
         rows: list[DeviceDataItem] = []
         for point in selected:
-            value = latest.get(point.point_id)
+            value = current.get(point.point_id)
             rows.append(
                 DeviceDataItem(
                     point_id=point.point_id,
@@ -133,7 +130,6 @@ class DeviceDataUseCase:
         except Exception:
             observed = []
         if observed:
-            self._latest.put_batch(observed)
             self._trend.append_batch(observed)
 
         since = datetime.now(UTC) - timedelta(seconds=window_seconds)
