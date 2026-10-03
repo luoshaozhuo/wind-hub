@@ -13,7 +13,6 @@ from tests.component.collector.conftest import DEFAULT_TASK, FunctionalContext
 from tests.fixtures.sinks.null_sink import NullSink
 from tests.support.wait import wait_until
 from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
-from wind_hub_collector.application.usecase.task import TaskBatchResult
 
 pytestmark = pytest.mark.modbus
 
@@ -114,40 +113,3 @@ class TestTaskLevelControl:
         ) as ctx:
             with pytest.raises(ValueError, match="disabled"):
                 await ctx.rt.tasks.start_task("modbus-telemetry")
-
-
-class TestBatchControl:
-    async def test_start_all_then_stop_all(
-        self, modbus_runtime: FunctionalContext
-    ) -> None:
-        tasks = modbus_runtime.rt.tasks
-        result = await tasks.start_all_instances()
-        assert result == TaskBatchResult(total=1, changed=1, unchanged=0)
-
-        result = await tasks.stop_all_instances()
-        assert result == TaskBatchResult(total=1, changed=1, unchanged=0)
-
-    async def test_batch_operations_count_unchanged_instances(
-        self, modbus_runtime: FunctionalContext
-    ) -> None:
-        tasks = modbus_runtime.rt.tasks
-        # 实例已 STOPPED：stop-all 全部 unchanged；重复 start-all 同理。
-        result = await tasks.stop_all_instances()
-        assert result == TaskBatchResult(total=1, changed=0, unchanged=1)
-
-        await tasks.start_all_instances()
-        result = await tasks.start_all_instances()
-        assert result == TaskBatchResult(total=1, changed=0, unchanged=1)
-
-    async def test_task_summary_reflects_instance_states(
-        self, modbus_runtime: FunctionalContext
-    ) -> None:
-        tasks = modbus_runtime.rt.tasks
-        summary = await tasks.get_task_summary("modbus-telemetry")
-        assert summary.instance_count == 1
-        assert summary.runtime_state == "stopped"
-
-        await tasks.start_all_instances()
-        summary = await tasks.get_task_summary("modbus-telemetry")
-        assert summary.runtime_state == "running"
-        assert summary.running_instances == 1

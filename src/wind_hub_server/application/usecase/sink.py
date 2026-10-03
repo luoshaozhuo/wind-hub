@@ -39,6 +39,17 @@ class SinkTestResult(BaseModel):
     steps: list[dict[str, object]] = Field(default_factory=list)
 
 
+def _as_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 class SinkUseCase:
     """Sink 页面后端入口。"""
 
@@ -89,7 +100,7 @@ class SinkUseCase:
                         else ("disabled" if not cfg.enabled else "not loaded")
                     ),
                     queue_depth=(
-                        int(current.get("queue_depth") or 0)
+                        _as_int(current.get("queue_depth"))
                         if current is not None
                         else 0
                     ),

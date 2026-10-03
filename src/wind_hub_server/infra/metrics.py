@@ -78,18 +78,29 @@ _device_gauge_labels: set[tuple[str, str]] = set()
 _sink_depth_labels: set[str] = set()
 
 
+def _as_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 def update_runtime_gauges(
     status: dict[str, object],
     counters: dict[str, int],
 ) -> None:
     """用 Monitoring 缓存覆盖 Server 暴露的 Collector 聚合指标。"""
-    devices_total.set(int(status.get("device_count") or 0))
-    devices_connected.set(int(status.get("devices_connected") or 0))
-    sinks_total.set(int(status.get("sink_count") or 0))
-    sinks_healthy.set(int(status.get("sinks_healthy") or 0))
-    points_collected_total.set(int(status.get("points_collected") or 0))
-    points_routed_total.set(int(status.get("points_routed") or 0))
-    points_dropped_total.set(int(status.get("points_dropped") or 0))
+    devices_total.set(_as_int(status.get("device_count")))
+    devices_connected.set(_as_int(status.get("devices_connected")))
+    sinks_total.set(_as_int(status.get("sink_count")))
+    sinks_healthy.set(_as_int(status.get("sinks_healthy")))
+    points_collected_total.set(_as_int(status.get("points_collected")))
+    points_routed_total.set(_as_int(status.get("points_routed")))
+    points_dropped_total.set(_as_int(status.get("points_dropped")))
     points_bad_total.set(counters.get("points_bad", 0))
     acquisition_runs_total.set(counters.get("acquisition_runs", 0))
     acquisition_failures_total.set(counters.get("acquisition_failures", 0))
