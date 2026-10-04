@@ -1,11 +1,11 @@
-"""System Settings 的结构化配置用例。"""
+"""System Settings 的结构化配置服务。"""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
+from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
+from wind_hub_server.application.config.service import ConfigService
 
 
 class SettingsSnapshot(BaseModel):
@@ -28,10 +28,10 @@ class SettingsUpdate(SettingsSnapshot):
     api_port: int = Field(ge=1, le=65535)
 
 
-class SettingsUseCase:
+class SettingsService:
     """Settings 与 system.yaml 的同源结构化入口。"""
 
-    def __init__(self, config: ConfigUseCase, admin: ConfigAdminUseCase) -> None:
+    def __init__(self, config: ConfigService, admin: ConfigFileService) -> None:
         self._config = config
         self._admin = admin
 

@@ -58,137 +58,134 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     TrendSeriesResponse,
     WorkerResponse,
 )
-from wind_hub_server.application.operation import OperationRecord
-from wind_hub_server.application.usecase.admin_state import (
+from wind_hub_server.application.config.admin_state import (
     AdminDefinitionsState,
     AdminDeviceItem,
     AdminSinkItem,
-    AdminStateUseCase,
+    AdminStateService,
     AdminTaskItem,
 )
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
-from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
-from wind_hub_server.application.usecase.device import DeviceSnapshot, DeviceUseCase
-from wind_hub_server.application.usecase.device_control import DeviceControlUseCase
-from wind_hub_server.application.usecase.device_data import DeviceDataUseCase, TrendSeries
-from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
-from wind_hub_server.application.usecase.logs import LogsUseCase
-from wind_hub_server.application.usecase.overview import OverviewSnapshot, OverviewUseCase
-from wind_hub_server.application.usecase.quality import QualityUseCase, QualityWindow
-from wind_hub_server.application.usecase.settings import SettingsUseCase
-from wind_hub_server.application.usecase.sink import SinkUseCase
-from wind_hub_server.application.usecase.system_health import HealthRange, SystemHealthUseCase
-from wind_hub_server.application.usecase.task_assignment import TaskPlacementError
-from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
-from wind_hub_server.application.usecase.worker_tasks import (
-    CollectorTaskUseCase,
-    TaskInstanceDetail,
-    TaskPlacementUnsafeError,
-    TaskSummary,
-    TaskWorkerUnavailableError,
-)
+from wind_hub_server.application.config.definitions import DefinitionQueryService
+from wind_hub_server.application.config.files import ConfigFileService
+from wind_hub_server.application.config.settings import SettingsService
+from wind_hub_server.application.device.command import DeviceCommandService
+from wind_hub_server.application.device.data import DeviceDataService, TrendSeries
+from wind_hub_server.application.device.diagnostic import DiagnosticService
+from wind_hub_server.application.device.query import DeviceQueryService, DeviceSnapshot
+from wind_hub_server.application.monitoring.health import HealthRange, SystemHealthService
+from wind_hub_server.application.monitoring.logs import LogQueryService
+from wind_hub_server.application.monitoring.overview import OverviewService, OverviewSnapshot
+from wind_hub_server.application.monitoring.quality import QualityService, QualityWindow
+from wind_hub_server.application.operation.registry import OperationRecord
+from wind_hub_server.application.sink.service import SinkService
+from wind_hub_server.application.task.collector import TaskWorkerUnavailableError
+from wind_hub_server.application.task.control import TaskControlService
+from wind_hub_server.application.task.model import TaskInstanceDetail, TaskSummary
+from wind_hub_server.application.task.placement import TaskPlacementError
+from wind_hub_server.application.task.reconcile import TaskPlacementUnsafeError
+from wind_hub_server.application.worker.registry import WorkerRegistry
 
 T = TypeVar("T")
 
 router = APIRouter(prefix="/api/v1")
 
 
-def _devices() -> DeviceUseCase:
-    """返回 V1 DeviceUseCase；未装配时按服务不可用处理。"""
+def _devices() -> DeviceQueryService:
+    """返回 V1 DeviceQueryService；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.devices is None:
         raise APIError("SERVICE_UNAVAILABLE", "device use case is not configured", 503)
     return ctx.devices
 
 
-def _device_data() -> DeviceDataUseCase:
-    """返回 Devices Data/Trend 用例。"""
+def _device_data() -> DeviceDataService:
+    """返回 Devices Data/Trend 服务。"""
     ctx = get_ctx()
     if ctx.device_data is None:
         raise APIError("SERVICE_UNAVAILABLE", "device data use case is not configured", 503)
     return ctx.device_data
 
 
-def _device_control() -> DeviceControlUseCase:
-    """返回设备控制与回读用例。"""
+def _device_control() -> DeviceCommandService:
+    """返回设备控制与回读服务。"""
     ctx = get_ctx()
     if ctx.device_control is None:
         raise APIError("SERVICE_UNAVAILABLE", "device control use case is not configured", 503)
     return ctx.device_control
 
 
-def _admin_state() -> AdminStateUseCase:
+def _admin_state() -> AdminStateService:
     ctx = get_ctx()
     if ctx.admin_state is None:
         raise APIError("SERVICE_UNAVAILABLE", "admin state is not configured", 503)
     return ctx.admin_state
 
 
-def _config_admin() -> ConfigAdminUseCase:
+def _config_admin() -> ConfigFileService:
     ctx = get_ctx()
     if ctx.config_admin is None:
         raise APIError("SERVICE_UNAVAILABLE", "config admin is not configured", 503)
     return ctx.config_admin
 
 
-def _settings() -> SettingsUseCase:
+def _settings() -> SettingsService:
     ctx = get_ctx()
     if ctx.settings is None:
         raise APIError("SERVICE_UNAVAILABLE", "settings use case is not configured", 503)
     return ctx.settings
 
 
-def _definitions() -> DefinitionsUseCase:
+def _definitions() -> DefinitionQueryService:
     ctx = get_ctx()
     if ctx.definitions is None:
         raise APIError("SERVICE_UNAVAILABLE", "definitions use case is not configured", 503)
     return ctx.definitions
 
 
-def _sinks() -> SinkUseCase:
+def _sinks() -> SinkService:
     ctx = get_ctx()
     if ctx.sinks is None:
         raise APIError("SERVICE_UNAVAILABLE", "sink use case is not configured", 503)
     return ctx.sinks
 
 
-def _diagnostics() -> DiagnosticUseCase:
+def _diagnostics() -> DiagnosticService:
     ctx = get_ctx()
     if ctx.diagnostics is None:
         raise APIError("SERVICE_UNAVAILABLE", "diagnostics use case is not configured", 503)
     return ctx.diagnostics
 
 
-def _quality() -> QualityUseCase:
+def _quality() -> QualityService:
     ctx = get_ctx()
     if ctx.quality is None:
         raise APIError("SERVICE_UNAVAILABLE", "quality use case is not configured", 503)
     return ctx.quality
 
 
-def _logs() -> LogsUseCase:
+def _logs() -> LogQueryService:
     ctx = get_ctx()
     if ctx.logs is None:
         raise APIError("SERVICE_UNAVAILABLE", "logs use case is not configured", 503)
     return ctx.logs
 
 
-def _system_health() -> SystemHealthUseCase:
+def _system_health() -> SystemHealthService:
     ctx = get_ctx()
     if ctx.system_health is None:
         raise APIError("SERVICE_UNAVAILABLE", "system health use case is not configured", 503)
     return ctx.system_health
 
 
-def _tasks() -> CollectorTaskUseCase:
-    """返回 TaskUseCase；未装配时按服务不可用处理。"""
+def _tasks() -> TaskControlService:
+    """返回 Task 控制服务；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.tasks is None:
         raise APIError("SERVICE_UNAVAILABLE", "tasks use case is not configured", 503)
     return ctx.tasks
 
 
-def _workers() -> WorkerRegistryUseCase:
+def _workers() -> WorkerRegistry:
     """返回 Worker Registry；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.workers is None:
@@ -196,8 +193,8 @@ def _workers() -> WorkerRegistryUseCase:
     return ctx.workers
 
 
-def _overview() -> OverviewUseCase:
-    """返回 OverviewUseCase；未装配时按服务不可用处理。"""
+def _overview() -> OverviewService:
+    """返回 OverviewService；未装配时按服务不可用处理。"""
     ctx = get_ctx()
     if ctx.overview is None:
         raise APIError("SERVICE_UNAVAILABLE", "overview use case is not configured", 503)
@@ -564,7 +561,7 @@ async def get_settings() -> SettingsResponse:
 
 @router.put("/settings", response_model=ConfigApplyResponse, tags=["v1-settings"])
 async def update_settings(request: SettingsRequest) -> ConfigApplyResponse:
-    from wind_hub_server.application.usecase.settings import SettingsUpdate
+    from wind_hub_server.application.config.settings import SettingsUpdate
 
     result = await _settings().update(SettingsUpdate(**request.model_dump()))
     return ConfigApplyResponse(**result.model_dump())

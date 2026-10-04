@@ -20,7 +20,7 @@ from wind_hub_core.config.schema import Config
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
-from wind_hub_server.application.worker_model import COMMANDER_WORKER_ID
+from wind_hub_server.application.worker.model import COMMANDER_WORKER_ID
 
 
 def _remote_errors(payload: dict[str, object]) -> list[str]:
@@ -31,7 +31,7 @@ def _remote_errors(payload: dict[str, object]) -> list[str]:
     return [str(item) for item in raw]
 
 
-class ConfigUseCase:
+class ConfigService:
     """Server 配置成功基线与多 Worker prepare/activate 编排。"""
 
     def __init__(
@@ -562,4 +562,4 @@ class ConfigUseCase:
         return await collector.config_status()
 
 
-__all__ = ["Config", "ConfigUseCase", "compute_diff"]
+__all__ = ["Config", "ConfigService", "compute_diff"]

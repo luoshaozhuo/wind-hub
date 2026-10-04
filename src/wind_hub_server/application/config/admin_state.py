@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
+from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
 
 
 class AdminDeviceItem(BaseModel):
@@ -44,10 +44,10 @@ class AdminDefinitionsState(BaseModel):
     point_tables: dict[str, dict[str, Any]]
 
 
-class AdminStateUseCase:
+class AdminStateService:
     """把前端结构化编辑结果落回正式 YAML 配置集。"""
 
-    def __init__(self, admin: ConfigAdminUseCase) -> None:
+    def __init__(self, admin: ConfigFileService) -> None:
         self._admin = admin
 
     async def replace_all(

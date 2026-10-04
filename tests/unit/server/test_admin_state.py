@@ -1,15 +1,15 @@
-"""AdminStateUseCase 原子配置写测试。"""
+"""AdminStateService 原子配置写测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub_server.application.usecase.admin_state import (
+from wind_hub_server.application.config.admin_state import (
     AdminDefinitionsState,
     AdminDeviceItem,
     AdminSinkItem,
-    AdminStateUseCase,
+    AdminStateService,
     AdminTaskItem,
 )
-from wind_hub_server.application.usecase.config_admin import ConfigApplyResult
+from wind_hub_server.application.config.files import ConfigApplyResult
 
 
 async def test_replace_all_uses_one_multifile_apply() -> None:
@@ -17,9 +17,9 @@ async def test_replace_all_uses_one_multifile_apply() -> None:
     admin.mutate_yaml_files = AsyncMock(
         return_value=ConfigApplyResult(success=True, revision=7)
     )
-    usecase = AdminStateUseCase(admin)
+    service = AdminStateService(admin)
 
-    result = await usecase.replace_all(
+    result = await service.replace_all(
         devices=[
             AdminDeviceItem(
                 device_id="d1",

@@ -38,7 +38,7 @@ def test_build_api_server_uses_server_settings() -> None:
 
 
 async def test_reload_once_delegates_to_config_use_case() -> None:
-    """SIGHUP helper 只调用一次 ConfigUseCase.reload。"""
+    """SIGHUP helper 只调用一次 ConfigService.reload。"""
     config = AsyncMock()
     config.reload.return_value = ReloadResult(
         success=True,

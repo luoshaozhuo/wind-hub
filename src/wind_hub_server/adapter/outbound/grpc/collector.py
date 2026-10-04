@@ -31,7 +31,7 @@ def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
 
     Collector 对 placement 栅栏违例返回 FAILED_PRECONDITION（未下发快照、
     generation 不一致）或 PERMISSION_DENIED（任务不在快照内）——这两类
-    对 Server 意味着「placement 不再安全」，必须由用例层重建栅栏；
+    对 Server 意味着「placement 不再安全」，必须由应用层重建栅栏；
     其他错误码（UNAVAILABLE 等）按普通 RPC 故障向上传播。
     """
     if exc.code() in (

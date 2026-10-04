@@ -1,4 +1,4 @@
-"""Overview 聚合只读用例。
+"""Overview 聚合只读服务。
 
 将 Runtime 状态、Task 聚合状态和当前配置现场身份收敛为一次读取，避免
 wind-hub-admin 为总览页拼接多个底层接口。这里只做读模型聚合，不修改状态。
@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
+from wind_hub_server.application.task.control import TaskControlService
 
 
 class OverviewSnapshot(BaseModel):
@@ -52,15 +52,15 @@ def _as_str_list(value: object) -> list[str]:
     return [str(item) for item in value]
 
 
-class OverviewUseCase:
+class OverviewService:
     """Overview 页的应用层 Read Model。"""
 
     def __init__(
         self,
         *,
         monitoring: MonitoringSnapshotPort,
-        tasks: CollectorTaskUseCase,
-        config: ConfigUseCase,
+        tasks: TaskControlService,
+        config: ConfigService,
     ) -> None:
         self._monitoring = monitoring
         self._tasks = tasks

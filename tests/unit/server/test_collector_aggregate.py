@@ -1,8 +1,8 @@
-"""CollectorAggregateUseCase 低频快照聚合测试。"""
+"""CollectorStatusAggregator 低频快照聚合测试。"""
 
 from types import SimpleNamespace
 
-from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
+from wind_hub_server.application.monitoring.aggregate import CollectorStatusAggregator
 
 
 class _Collector:
@@ -114,7 +114,7 @@ async def test_snapshot_verifies_identity_once_and_aggregates_all_views() -> Non
             system=SimpleNamespace(),
         )
     )
-    aggregate = CollectorAggregateUseCase(
+    aggregate = CollectorStatusAggregator(
         _Directory(collector),
         _Assignments(),
         config,

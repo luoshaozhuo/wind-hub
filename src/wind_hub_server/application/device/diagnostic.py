@@ -1,4 +1,4 @@
-"""网络、协议与设备读写诊断用例。"""
+"""网络、协议与设备读写诊断服务。"""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.operation import OperationRecord, OperationRegistry
+from wind_hub_server.application.config.service import ConfigService
+from wind_hub_server.application.device.command import (
+    DeviceCommandResult,
+    DeviceCommandService,
+)
+from wind_hub_server.application.operation.registry import OperationRecord, OperationRegistry
 from wind_hub_server.application.port.network_probe import NetworkProbePort
 from wind_hub_server.application.port.worker import CommanderPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.device_control import (
-    DeviceCommandResult,
-    DeviceControlUseCase,
-)
 
 
 class PingResult(BaseModel):
@@ -30,7 +30,7 @@ class PortResult(BaseModel):
     latency_ms: float
 
 
-class DiagnosticUseCase:
+class DiagnosticService:
     """Diagnostics 页执行入口。
 
     Server 自己执行网络层 ping/port scan；所有协议级设备访问通过 Commander，
@@ -40,8 +40,8 @@ class DiagnosticUseCase:
     def __init__(
         self,
         commander: CommanderPort,
-        control: DeviceControlUseCase,
-        config: ConfigUseCase,
+        control: DeviceCommandService,
+        config: ConfigService,
         operations: OperationRegistry,
         network: NetworkProbePort,
     ) -> None:
@@ -97,7 +97,7 @@ class DiagnosticUseCase:
         point_id: str,
         value: Any,
     ) -> DeviceCommandResult:
-        """诊断写复用正式 DeviceControlUseCase。"""
+        """诊断写复用正式 DeviceCommandService。"""
         return await self._control.send(device_id, point_id, value)
 
     def start_subnet_scan(

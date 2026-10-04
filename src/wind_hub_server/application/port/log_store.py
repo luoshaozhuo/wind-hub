@@ -19,7 +19,7 @@ class LogEntry(BaseModel):
 
 
 class LogStorePort(Protocol):
-    """LogsUseCase 依赖的查询能力。"""
+    """LogQueryService 依赖的查询能力。"""
 
     def query(
         self,

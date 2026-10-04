@@ -11,8 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import HostSnapshot, MonitoringSnapshotPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
 def _list_field(payload: dict[str, object], name: str) -> list[object]:
@@ -89,12 +89,12 @@ class QualitySnapshot(BaseModel):
     events: list[CommunicationEvent] = Field(default_factory=list)
 
 
-class QualityUseCase:
+class QualityService:
     """按 Collector 运行快照与本地历史计算 1h/24h/7d 质量视图。"""
 
     def __init__(
         self,
-        config: ConfigUseCase,
+        config: ConfigService,
         monitoring: MonitoringSnapshotPort,
     ) -> None:
         self._config = config

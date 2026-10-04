@@ -54,7 +54,7 @@ class SystemHealthSnapshot(BaseModel):
     current: dict[str, float | int | str | None]
 
 
-class SystemHealthUseCase:
+class SystemHealthService:
     """从 MonitoringService 生成资源详情、风险和趋势。"""
 
     def __init__(self, monitoring: MonitoringHistoryPort) -> None:

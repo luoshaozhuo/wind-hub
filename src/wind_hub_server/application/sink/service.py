@@ -1,4 +1,4 @@
-"""Sink 管理、Verify 与 Write Test 用例。"""
+"""Sink 管理、Verify 与 Write Test 服务。"""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config.sinks import ResolvedSinkConfig, SinkConfig
+from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
-from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
+from wind_hub_server.application.task.placement import TaskPlacementRegistry
 
 
 class SinkSnapshot(BaseModel):
@@ -50,20 +50,20 @@ def _as_int(value: object) -> int:
     return 0
 
 
-class SinkUseCase:
+class SinkService:
     """Sink 页面后端入口。"""
 
     def __init__(
         self,
         collectors: CollectorDirectory,
         monitoring: MonitoringSnapshotPort,
-        assignments: TaskAssignmentUseCase,
-        config: ConfigUseCase,
-        admin: ConfigAdminUseCase,
+        placements: TaskPlacementRegistry,
+        config: ConfigService,
+        admin: ConfigFileService,
     ) -> None:
         self._collectors = collectors
         self._monitoring = monitoring
-        self._assignments = assignments
+        self._placements = placements
         self._config = config
         self._admin = admin
 
@@ -119,7 +119,7 @@ class SinkUseCase:
         """由 Collector 在实际运行环境验证 Sink。"""
         self._config_for(name)
         started = time.monotonic()
-        worker_ids = self._assignments.worker_ids_for_sink(name)
+        worker_ids = self._placements.worker_ids_for_sink(name)
         if not worker_ids:
             return SinkTestResult(
                 success=False,
@@ -156,7 +156,7 @@ class SinkUseCase:
         """由 Collector 对当前运行 Sink 执行明确标记的测试写入。"""
         self._config_for(name)
         started = time.monotonic()
-        worker_ids = self._assignments.worker_ids_for_sink(name)
+        worker_ids = self._placements.worker_ids_for_sink(name)
         if not worker_ids:
             return SinkTestResult(
                 success=False,

@@ -1,4 +1,4 @@
-"""设备写控制与真实回读用例。"""
+"""设备写控制与真实回读服务。"""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class DeviceCommandResult(BaseModel):
     readback_error: str | None = None
 
 
-class DeviceControlUseCase:
+class DeviceCommandService:
     """通过独立 Commander 完成设备写入与回读闭环。"""
 
     def __init__(

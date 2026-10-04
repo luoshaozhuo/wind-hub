@@ -9,8 +9,8 @@ from hashlib import sha256
 
 from pydantic import BaseModel
 
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.usecase.config import ConfigUseCase
 
 _STATE_VERSION = 2
 
@@ -23,7 +23,7 @@ class TaskPlacementState(StrEnum):
     ORPHANED = "orphaned"
 
 
-class TaskAssignment(BaseModel):
+class TaskPlacement(BaseModel):
     """单个 Task 的 Collector placement。"""
 
     task_id: str
@@ -35,7 +35,7 @@ class TaskPlacementError(RuntimeError):
     """Task 当前没有可执行 placement。"""
 
 
-class TaskAssignmentUseCase:
+class TaskPlacementRegistry:
     """Server 持有并持久化的 Task placement 状态。
 
     首次启动使用 rendezvous hashing 建立稳定 placement；之后从状态文件恢复。
@@ -45,7 +45,7 @@ class TaskAssignmentUseCase:
 
     def __init__(
         self,
-        config: ConfigUseCase,
+        config: ConfigService,
         collectors: CollectorDirectory,
     ) -> None:
         self._config = config
@@ -196,13 +196,13 @@ class TaskAssignmentUseCase:
             return TaskPlacementState.ASSIGNED
         return TaskPlacementState.ORPHANED
 
-    def assignment_for_task(self, task_id: str) -> TaskAssignment:
+    def placement_for_task(self, task_id: str) -> TaskPlacement:
         """返回指定 Task placement；未知 Task 抛 KeyError。"""
         self.sync()
         if task_id not in self._placements:
             raise KeyError(task_id)
         worker_id = self._placements[task_id]
-        return TaskAssignment(
+        return TaskPlacement(
             task_id=task_id,
             worker_id=worker_id,
             state=self._state_for(worker_id),
@@ -210,22 +210,22 @@ class TaskAssignmentUseCase:
 
     def worker_for_task(self, task_id: str) -> str:
         """返回可执行 Collector；未分配/孤儿 placement 抛 TaskPlacementError。"""
-        assignment = self.assignment_for_task(task_id)
-        if assignment.state is TaskPlacementState.UNASSIGNED:
+        placement = self.placement_for_task(task_id)
+        if placement.state is TaskPlacementState.UNASSIGNED:
             raise TaskPlacementError(f"task '{task_id}' is unassigned")
-        if assignment.state is TaskPlacementState.ORPHANED:
+        if placement.state is TaskPlacementState.ORPHANED:
             raise TaskPlacementError(
                 f"task '{task_id}' is orphaned from worker "
-                f"'{assignment.worker_id}'"
+                f"'{placement.worker_id}'"
             )
-        assert assignment.worker_id is not None
-        return assignment.worker_id
+        assert placement.worker_id is not None
+        return placement.worker_id
 
-    def list_assignments(self) -> list[TaskAssignment]:
+    def list_placements(self) -> list[TaskPlacement]:
         """返回当前成功配置中全部 Task placement。"""
         self.sync()
         return [
-            TaskAssignment(
+            TaskPlacement(
                 task_id=task_id,
                 worker_id=worker_id,
                 state=self._state_for(worker_id),
@@ -238,7 +238,7 @@ class TaskAssignmentUseCase:
         self._collectors.get(worker_id)
         return [
             row.task_id
-            for row in self.list_assignments()
+            for row in self.list_placements()
             if row.state is TaskPlacementState.ASSIGNED
             and row.worker_id == worker_id
         ]
@@ -250,15 +250,15 @@ class TaskAssignmentUseCase:
         if device is None:
             raise KeyError(device_id)
 
-        assignments = {
+        placements = {
             row.task_id: row.worker_id
-            for row in self.list_assignments()
+            for row in self.list_placements()
             if row.state is TaskPlacementState.ASSIGNED
             and row.worker_id is not None
         }
         workers: set[str] = set()
         for task in self._config.current_config.tasks.tasks:
-            if not task.enabled or task.task_id not in assignments:
+            if not task.enabled or task.task_id not in placements:
                 continue
             matches = (
                 task.device == device_id
@@ -266,7 +266,7 @@ class TaskAssignmentUseCase:
                 else task.device_group == device.device_group
             )
             if matches:
-                workers.add(assignments[task.task_id])
+                workers.add(placements[task.task_id])
         return sorted(workers)
 
     def worker_ids_for_sink(self, sink_name: str) -> list[str]:
@@ -277,18 +277,18 @@ class TaskAssignmentUseCase:
         ):
             raise KeyError(sink_name)
 
-        assignments = {
+        placements = {
             row.task_id: row.worker_id
-            for row in self.list_assignments()
+            for row in self.list_placements()
             if row.state is TaskPlacementState.ASSIGNED
             and row.worker_id is not None
         }
         workers = {
-            assignments[task.task_id]
+            placements[task.task_id]
             for task in self._config.current_config.tasks.tasks
             if (
                 task.enabled
-                and task.task_id in assignments
+                and task.task_id in placements
                 and any(target.sink == sink_name for target in task.targets)
             )
         }
@@ -296,8 +296,8 @@ class TaskAssignmentUseCase:
 
 
 __all__ = [
-    "TaskAssignment",
-    "TaskAssignmentUseCase",
+    "TaskPlacement",
+    "TaskPlacementRegistry",
     "TaskPlacementError",
     "TaskPlacementState",
 ]

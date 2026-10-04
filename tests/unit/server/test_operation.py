@@ -6,7 +6,7 @@
 
 import pytest
 
-from wind_hub_server.application.operation import OperationRegistry, OperationState
+from wind_hub_server.application.operation.registry import OperationRegistry, OperationState
 
 
 def test_operation_lifecycle_and_progress() -> None:

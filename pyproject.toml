@@ -222,3 +222,31 @@ name = "Application 不得依赖 Adapter"
 type = "forbidden"
 source_modules = ["wind_hub_collector.application"]
 forbidden_modules = ["wind_hub_collector.adapter"]
+
+# ---- server application 内部分层 ----
+# 依赖方向：adapter → application capability → application port → outbound adapter/infra。
+# capability 之间只允许单向依赖（见 layers contract），禁止反向或环。
+
+[[tool.importlinter.contracts]]
+name = "server application 不得依赖 adapter / infra"
+type = "forbidden"
+source_modules = ["wind_hub_server.application"]
+forbidden_modules = ["wind_hub_server.adapter", "wind_hub_server.infra"]
+
+[[tool.importlinter.contracts]]
+name = "server application 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = ["wind_hub_server.application"]
+forbidden_modules = ["wind_hub_core.rpc"]
+
+[[tool.importlinter.contracts]]
+name = "server application capability 分层"
+type = "layers"
+layers = [
+    "wind_hub_server.application.app_context",
+    "wind_hub_server.application.monitoring | wind_hub_server.application.device | wind_hub_server.application.sink",
+    "wind_hub_server.application.task",
+    "wind_hub_server.application.config",
+    "wind_hub_server.application.worker | wind_hub_server.application.operation",
+    "wind_hub_server.application.port",
+]

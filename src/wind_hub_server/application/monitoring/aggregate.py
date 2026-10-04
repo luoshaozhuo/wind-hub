@@ -1,26 +1,26 @@
-"""基于 TaskAssignment 的多 Collector 低频聚合快照。"""
+"""基于 TaskPlacement 的多 Collector 低频聚合快照。"""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
 
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
+from wind_hub_server.application.task.placement import TaskPlacementRegistry
 
 
-class CollectorAggregateUseCase:
+class CollectorStatusAggregator:
     """每个 Collector 只校验一次身份，再并发读取低频运行快照。"""
 
     def __init__(
         self,
         collectors: CollectorDirectory,
-        assignments: TaskAssignmentUseCase,
-        config: ConfigUseCase,
+        placements: TaskPlacementRegistry,
+        config: ConfigService,
     ) -> None:
         self._collectors = collectors
-        self._assignments = assignments
+        self._placements = placements
         self._config = config
 
     async def snapshot(self) -> dict[str, Any]:
@@ -96,7 +96,7 @@ class CollectorAggregateUseCase:
                     f"unexpected runtime_status payload from worker '{worker_id}': "
                     f"{type(status).__name__}"
                 )
-            assigned = set(self._assignments.task_ids_for_worker(worker_id))
+            assigned = set(self._placements.task_ids_for_worker(worker_id))
             running = running and bool(status.get("running"))
             points_collected += int(status.get("points_collected") or 0)
             points_routed += int(status.get("points_routed") or 0)
@@ -142,7 +142,7 @@ class CollectorAggregateUseCase:
 
         rows: list[dict[str, Any]] = []
         for cfg in self._config.current_config.devices.devices:
-            owners = self._assignments.worker_ids_for_device(cfg.device_id)
+            owners = self._placements.worker_ids_for_device(cfg.device_id)
             states = [
                 worker_devices.get(worker_id, {}).get(cfg.device_id)
                 for worker_id in owners
@@ -197,7 +197,7 @@ class CollectorAggregateUseCase:
 
         rows: list[dict[str, Any]] = []
         for cfg in self._config.current_config.sinks.sinks:
-            owners = self._assignments.worker_ids_for_sink(cfg.name)
+            owners = self._placements.worker_ids_for_sink(cfg.name)
             states = [
                 worker_sinks.get(worker_id, {}).get(cfg.name)
                 for worker_id in owners
@@ -243,7 +243,7 @@ class CollectorAggregateUseCase:
                     f"unexpected list_tasks payload from worker '{worker_id}': "
                     f"{type(raw).__name__}"
                 )
-            assigned = set(self._assignments.task_ids_for_worker(worker_id))
+            assigned = set(self._placements.task_ids_for_worker(worker_id))
             rows.extend(
                 {**row, "assigned_worker_id": worker_id}
                 for row in raw
@@ -292,7 +292,7 @@ class CollectorAggregateUseCase:
                 if not isinstance(values, dict):
                     continue
                 for device_id, value in values.items():
-                    if worker_id in self._assignments.worker_ids_for_device(str(device_id)):
+                    if worker_id in self._placements.worker_ids_for_device(str(device_id)):
                         target[str(device_id)] = target.get(str(device_id), 0) + int(value)
 
             for item in list(metrics.get("events") or []):
@@ -300,7 +300,7 @@ class CollectorAggregateUseCase:
                     continue
                 object_id = str(item.get("object") or "")
                 try:
-                    owners = self._assignments.worker_ids_for_device(object_id)
+                    owners = self._placements.worker_ids_for_device(object_id)
                 except KeyError:
                     owners = [worker_id]
                 if worker_id in owners:

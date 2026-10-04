@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.worker import CommanderPort
-from wind_hub_server.application.worker_model import (
+from wind_hub_server.application.worker.model import (
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,
@@ -49,7 +49,7 @@ class WorkerRecord(BaseModel):
     boot_id: str | None = None
 
 
-class WorkerRegistryUseCase:
+class WorkerRegistry:
     """维护当前 Server 已知 Worker 的最近状态。"""
 
     def __init__(

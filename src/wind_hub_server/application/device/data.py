@@ -1,4 +1,4 @@
-"""Devices Data / Trend 页的即时采样与短期历史用例。"""
+"""Devices Data / Trend 页的即时采样与短期历史服务。"""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from pydantic import BaseModel
 
 from wind_hub_core.config.schema import PointConfig
 from wind_hub_core.model.point import PointValue, Quality
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.point_store import TrendStore
 from wind_hub_server.application.port.worker import CommanderPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
 class DeviceDataItem(BaseModel):
@@ -40,12 +40,12 @@ class TrendSeries(BaseModel):
     samples: list[PointValue]
 
 
-class DeviceDataUseCase:
+class DeviceDataService:
     """Data 读取 Commander 当前值；Trend 保存这些即时读取形成的短期历史。"""
 
     def __init__(
         self,
-        config: ConfigUseCase,
+        config: ConfigService,
         commander: CommanderPort,
         trend: TrendStore,
     ) -> None:

@@ -17,7 +17,7 @@ from typing import Any, cast
 import yaml
 from pydantic import BaseModel, Field
 
-from wind_hub_server.application.usecase.config import Config, ConfigUseCase, compute_diff
+from wind_hub_server.application.config.service import Config, ConfigService, compute_diff
 
 CONFIG_FILES = (
     "system.yaml",
@@ -66,10 +66,10 @@ class ConfigRevisionInfo(BaseModel):
     comment: str = ""
 
 
-class ConfigAdminUseCase:
-    """以现有 YAML 配置目录为唯一持久化源的管理用例。"""
+class ConfigFileService:
+    """以现有 YAML 配置目录为唯一持久化源的配置文件管理服务。"""
 
-    def __init__(self, config: ConfigUseCase) -> None:
+    def __init__(self, config: ConfigService) -> None:
         self._config = config
         self._base = config.config_dir
         self._history = self._base / ".history"
@@ -165,7 +165,7 @@ class ConfigAdminUseCase:
     ) -> ConfigApplyResult:
         """在同一写锁内完成 YAML 读取、结构化修改与配置事务。
 
-        结构化用例只能描述 mutation，不得在锁外执行 read-modify-write，
+        结构化配置服务只能描述 mutation，不得在锁外执行 read-modify-write，
         避免并发请求基于同一旧版本产生 lost update。
         """
         ordered_names = tuple(dict.fromkeys(names))
@@ -324,7 +324,7 @@ class ConfigAdminUseCase:
     def _restore_file(path: Path, existed: bool, content: str | None) -> None:
         """恢复单文件旧版本。"""
         if existed and content is not None:
-            ConfigAdminUseCase._atomic_write(path, content)
+            ConfigFileService._atomic_write(path, content)
         elif path.exists():
             path.unlink()
 

@@ -1,9 +1,9 @@
-"""SinkUseCase 显式验证聚合单元测试。"""
+"""SinkService 显式验证聚合单元测试。"""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from wind_hub_server.application.usecase.sink import SinkUseCase
+from wind_hub_server.application.sink.service import SinkService
 
 
 async def test_verify_preserves_per_worker_results() -> None:
@@ -26,20 +26,20 @@ async def test_verify_preserves_per_worker_results() -> None:
         "collector-b": collector_b,
     }.__getitem__
 
-    assignments = MagicMock()
-    assignments.worker_ids_for_sink.return_value = ["collector-a", "collector-b"]
+    placements = MagicMock()
+    placements.worker_ids_for_sink.return_value = ["collector-a", "collector-b"]
     config = MagicMock()
     config.current_config.sinks.sinks = [SimpleNamespace(name="archive")]
 
-    usecase = SinkUseCase(
+    service = SinkService(
         directory,
         MagicMock(),
-        assignments,
+        placements,
         config,
         MagicMock(),
     )
 
-    result = await usecase.verify("archive")
+    result = await service.verify("archive")
 
     assert result.success is False
     assert result.message == "broker unavailable"
@@ -63,7 +63,7 @@ async def test_verify_preserves_per_worker_results() -> None:
 def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
     from wind_hub_core.config.schema import Config
     from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
-    from wind_hub_server.application.usecase.sink import SinkUseCase
+    from wind_hub_server.application.sink.service import SinkService
 
     config = MagicMock()
     config.current_config = MagicMock(spec=Config)
@@ -94,15 +94,15 @@ def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
     )
     monitoring = MagicMock()
     monitoring.sinks_snapshot.return_value = []
-    usecase = SinkUseCase(
+    service = SinkService(
         collectors=MagicMock(),
         monitoring=monitoring,
-        assignments=MagicMock(),
+        placements=MagicMock(),
         config=config,
         admin=MagicMock(),
     )
 
-    row = usecase.list_sinks()[0]
+    row = service.list_sinks()[0]
 
     assert row.connection == {"host": "0.0.0.0", "port": 1502}
     assert row.point_count == 1

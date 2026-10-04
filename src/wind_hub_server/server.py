@@ -14,9 +14,9 @@ import uvicorn
 
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import clear_context, set_context
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
-from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
+from wind_hub_server.application.config.service import ConfigService
+from wind_hub_server.application.task.reconcile import TaskPlacementReconciler
+from wind_hub_server.application.worker.registry import WorkerRegistry
 from wind_hub_server.assembly import ServerApp, assemble_server
 from wind_hub_server.settings import ServerSettings
 
@@ -46,7 +46,7 @@ def build_api_server(
     return uvicorn.Server(config)
 
 
-async def reload_once(config: ConfigUseCase) -> None:
+async def reload_once(config: ConfigService) -> None:
     """Execute one incremental config reload."""
     logger.info("收到 SIGHUP，开始热重载")
     result = await config.reload()
@@ -58,7 +58,7 @@ async def reload_once(config: ConfigUseCase) -> None:
 
 async def _reload_loop(
     reload_event: asyncio.Event,
-    config: ConfigUseCase,
+    config: ConfigService,
 ) -> None:
     while True:
         await reload_event.wait()
@@ -67,7 +67,7 @@ async def _reload_loop(
 
 
 async def _worker_probe_loop(
-    registry: WorkerRegistryUseCase,
+    registry: WorkerRegistry,
     *,
     interval: float,
 ) -> None:
@@ -88,7 +88,7 @@ async def _worker_probe_loop(
 
 
 async def _task_placement_reconcile_loop(
-    tasks: CollectorTaskUseCase,
+    reconciler: TaskPlacementReconciler,
     *,
     interval: float,
 ) -> None:
@@ -103,7 +103,7 @@ async def _task_placement_reconcile_loop(
     ] | None = None
     while True:
         try:
-            result = await tasks.reconcile_placement()
+            result = await reconciler.reconcile()
             current = (
                 result.safe,
                 result.wrong_running_instances,
@@ -141,7 +141,7 @@ async def _task_placement_reconcile_loop(
 
 
 async def _reconcile_loop(
-    config: ConfigUseCase,
+    config: ConfigService,
     *,
     interval: float,
 ) -> None:
@@ -249,7 +249,7 @@ async def run_server(settings: ServerSettings) -> int:
 
     try:
         await runtime.worker_registry.refresh()
-        placement = await runtime.tasks.reconcile_placement()
+        placement = await runtime.task_reconciler.reconcile()
         if placement.wrong_running_instances:
             logger.warning(
                 "task placement startup reconciliation stopped %d/%d "
@@ -287,7 +287,7 @@ async def run_server(settings: ServerSettings) -> int:
         )
         placement_reconcile_task = asyncio.create_task(
             _task_placement_reconcile_loop(
-                runtime.tasks,
+                runtime.task_reconciler,
                 interval=settings.reconcile_interval,
             )
         )

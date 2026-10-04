@@ -1,4 +1,4 @@
-"""V1 Device 查询用例。
+"""V1 Device 查询服务。
 
 静态设备定义来自 Server 当前配置快照；运行状态来自 MonitoringService 最近一次
 低频 Collector 快照。页面读取不直接触发 Collector RPC。
@@ -11,8 +11,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.usecase.config import ConfigUseCase
 
 
 class DeviceSnapshot(BaseModel):
@@ -35,13 +35,13 @@ class DeviceSnapshot(BaseModel):
     last_error: str | None = None
 
 
-class DeviceUseCase:
+class DeviceQueryService:
     """设备管理页只读入口。"""
 
     def __init__(
         self,
         monitoring: MonitoringSnapshotPort,
-        config: ConfigUseCase,
+        config: ConfigService,
     ) -> None:
         self._monitoring = monitoring
         self._config = config

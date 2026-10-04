@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase, ConfigApplyResult
+from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
+from wind_hub_server.application.config.service import ConfigService
 
 
 class DefinitionsSnapshot(BaseModel):
@@ -21,10 +21,10 @@ class DefinitionsSnapshot(BaseModel):
     device_groups: list[str]
 
 
-class DefinitionsUseCase:
+class DefinitionQueryService:
     """definitions 的只读聚合入口；修改统一经 Config Apply。"""
 
-    def __init__(self, config: ConfigUseCase, admin: ConfigAdminUseCase) -> None:
+    def __init__(self, config: ConfigService, admin: ConfigFileService) -> None:
         self._config = config
         self._admin = admin
 

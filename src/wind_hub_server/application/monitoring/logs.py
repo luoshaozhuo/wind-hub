@@ -1,4 +1,4 @@
-"""Admin Logs 查询用例。"""
+"""Admin Logs 查询服务。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ class LogPage(BaseModel):
     total: int
 
 
-class LogsUseCase:
+class LogQueryService:
     """结构化日志筛选与分页。"""
 
     def __init__(self, store: LogStorePort) -> None:

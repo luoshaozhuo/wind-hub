@@ -1,6 +1,6 @@
-"""QualityUseCase 的窗口差分测试。"""
+"""QualityService 的窗口差分测试。"""
 
-from wind_hub_server.application.usecase.quality import QualityUseCase
+from wind_hub_server.application.monitoring.quality import QualityService
 
 
 def test_quality_delta_never_negative() -> None:
@@ -36,5 +36,5 @@ def test_quality_delta_never_negative() -> None:
     )()
     last.points_dropped = 2
 
-    delta = QualityUseCase._delta(first, last)  # type: ignore[arg-type]
+    delta = QualityService._delta(first, last)  # type: ignore[arg-type]
     assert all(value >= 0 for value in delta.values())
