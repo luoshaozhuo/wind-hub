@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import struct
+from typing import Any
 
 from pymodbus.datastore import (
     ModbusDeviceContext,
@@ -22,6 +25,7 @@ from pymodbus.datastore import (
 )
 from pymodbus.pdu import ModbusPDU
 from pymodbus.server import ModbusTcpServer
+from pymodbus.server.requesthandler import ServerRequestHandler
 
 MODBUS_PORT = 15020
 
@@ -52,6 +56,32 @@ def _holding_registers(
     values[_ADDR_TEMP_INT] = temp & 0xFFFF
     values[_ADDR_SETPOINT : _ADDR_SETPOINT + 2] = _float32_registers(setpoint)
     return values
+
+
+class _TrackedModbusTcpServer(ModbusTcpServer):
+    """跟踪活动连接 handler 的 ModbusTcpServer（fixture 内部使用）。
+
+    pymodbus ``shutdown()`` 只关监听 socket，不触碰活动连接的 handler
+    task；故障测试反复起停时，滞留 handler 会在事件循环收尾时变成
+    "Task was destroyed but it is pending" 噪声。跟踪 handler 是为了
+    在 stop 时主动断开（与 IEC104MockServer.stop 的语义一致）。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.active_handlers: set[ServerRequestHandler] = set()
+
+    def callback_new_connection(self) -> ServerRequestHandler:
+        handler = super().callback_new_connection()
+        self.active_handlers.add(handler)
+        original = handler.callback_disconnected
+
+        def _disconnected(exc: Exception | None = None) -> None:
+            self.active_handlers.discard(handler)
+            original(exc)
+
+        handler.callback_disconnected = _disconnected  # type: ignore[method-assign]
+        return handler
 
 
 class ModbusMockServer:
@@ -123,7 +153,7 @@ class ModbusMockServer:
         )
         # single=False：按 unit id 分派（1 / 2 各自独立数据块）。
         context = ModbusServerContext({1: unit1, 2: unit2}, single=False)
-        self._server = ModbusTcpServer(
+        self._server = _TrackedModbusTcpServer(
             context,
             address=(self._host, self._port),
             trace_pdu=self._trace_pdu,
@@ -131,9 +161,18 @@ class ModbusMockServer:
         await self._server.serve_forever(background=True)
 
     async def stop(self) -> None:
-        """关闭从站并释放端口。"""
+        """关闭从站并释放端口；先主动断开活动客户端连接。"""
         if self._server is not None:
+            for handler in list(self._server.active_handlers):
+                with contextlib.suppress(Exception):
+                    handler.close()
+            self._server.active_handlers.clear()
             await self._server.shutdown()
+            # 断开在 handler 侧触发的回调（call_soon 排队的 handle_request
+            # 等）需要事件循环迭代才能排空；这里是 fixture 收尾的确定性
+            # 排空，不是时序猜测——fixture 返回后测试事件循环随即关闭。
+            for _ in range(3):
+                await asyncio.sleep(0)
             self._server = None
 
     async def read_holding(self, unit_id: int, address: int, count: int = 1) -> list[int]:
