@@ -8,7 +8,7 @@ YAML 原始值使用 dict[str, Any] 是安全反序列化后的动态输入边�
 schema 后收敛为强类型配置对象。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from pathlib import Path
 from typing import Any, cast

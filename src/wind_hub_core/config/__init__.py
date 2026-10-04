@@ -1,5 +1,7 @@
 """Wind Hub 跨进程共享配置模型、解析与加载入口。"""
 
+# ruff: noqa: I001
+
 from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config

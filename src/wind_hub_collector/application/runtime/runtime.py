@@ -23,7 +23,7 @@
 其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import contextlib
@@ -728,7 +728,9 @@ class Runtime:
         """
         existing = self._devices.get(device_id)
         if existing is not None:
-            if existing.config.model_dump() == cfg.model_dump() and existing.points == tuple(points):
+            same_config = existing.config.model_dump() == cfg.model_dump()
+            same_points = existing.points == tuple(points)
+            if same_config and same_points:
                 await self.ensure_connected(device_id, force=True)
                 await self._sync_task_instances()
                 return

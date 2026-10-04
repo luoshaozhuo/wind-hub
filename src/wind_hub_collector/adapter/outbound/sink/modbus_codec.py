@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 
 from wind_hub_collector.application.sink_export import ExportedSinkPointValue
-from wind_hub_core.config.sinks import MODBUS_WORD_WIDTH, ModbusSinkAddress
+from wind_hub_core.config.sinks import ModbusSinkAddress
 
 
 _STRUCT_FORMAT: dict[str, str] = {
@@ -87,11 +87,11 @@ def _encode_registers(
             raise TypeError("bool datatype requires bool value")
         return [1 if value else 0]
     if datatype == "int8":
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, int | float):
             raise TypeError("int8 datatype requires numeric value")
         return [struct.unpack(">B", struct.pack(">b", int(value)))[0]]
     if datatype == "uint8":
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, int | float):
             raise TypeError("uint8 datatype requires numeric value")
         return [struct.unpack(">B", struct.pack(">B", int(value)))[0]]
 
@@ -99,7 +99,7 @@ def _encode_registers(
     if fmt is None:
         raise TypeError(f"Unsupported Modbus datatype '{datatype}'")
 
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{datatype} datatype requires numeric value")
     if datatype.startswith("float"):
         scalar: int | float = float(value)

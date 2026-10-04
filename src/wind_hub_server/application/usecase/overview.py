@@ -38,7 +38,7 @@ class OverviewSnapshot(BaseModel):
 def _as_int(value: object) -> int:
     if isinstance(value, bool):
         return int(value)
-    if isinstance(value, (int, float, str)):
+    if isinstance(value, int | float | str):
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -87,8 +87,8 @@ class OverviewUseCase:
             devices_connected=_as_int(status.get("devices_connected")),
             devices_offline=max(
                 0,
-                int(status.get("device_count") or 0)
-                - int(status.get("devices_connected") or 0),
+                _as_int(status.get("device_count"))
+                - _as_int(status.get("devices_connected")),
             ),
             sink_count=_as_int(status.get("sink_count")),
             sinks_healthy=_as_int(status.get("sinks_healthy")),

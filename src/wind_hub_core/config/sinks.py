@@ -69,7 +69,7 @@ class SinkSource(BaseModel):
     point_id: str
 
     @model_validator(mode="after")
-    def _validate_non_empty(self) -> "SinkSource":
+    def _validate_non_empty(self) -> SinkSource:
         if not self.device_id.strip() or not self.point_id.strip():
             raise ConfigError("Sink source device_id/point_id must be non-empty")
         return self
@@ -108,7 +108,7 @@ class KafkaSinkConnection(BaseModel):
     linger_ms: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
-    def _validate_required_text(self) -> "KafkaSinkConnection":
+    def _validate_required_text(self) -> KafkaSinkConnection:
         servers = self.bootstrap_servers
         if isinstance(servers, str):
             valid_servers = bool(servers.strip())
@@ -136,7 +136,7 @@ class DatabaseSinkConnection(BaseModel):
     write_timeout: float = Field(default=5.0, gt=0)
 
     @model_validator(mode="after")
-    def _validate_required_text(self) -> "DatabaseSinkConnection":
+    def _validate_required_text(self) -> DatabaseSinkConnection:
         if not self.dsn.strip():
             raise ConfigError("Database sink dsn must be non-empty")
         if not self.table.strip():
@@ -144,7 +144,7 @@ class DatabaseSinkConnection(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_pool_sizes(self) -> "DatabaseSinkConnection":
+    def _validate_pool_sizes(self) -> DatabaseSinkConnection:
         if self.pool_min_size > self.pool_max_size:
             raise ConfigError("Database sink pool_min_size must be <= pool_max_size")
         return self
@@ -259,7 +259,7 @@ class SinkPoint(BaseModel):
     address: SinkAddress
 
     @model_validator(mode="after")
-    def _validate_point(self) -> "SinkPoint":
+    def _validate_point(self) -> SinkPoint:
         if self.ref is not None and not self.ref.strip():
             raise ConfigError("Sink point ref must be non-empty")
         if self.datatype is not None and self.datatype not in SINK_DATA_TYPES:
@@ -286,7 +286,7 @@ class ResolvedSinkPoint(BaseModel):
     address: SinkAddress
 
     @model_validator(mode="after")
-    def _validate_resolved(self) -> "ResolvedSinkPoint":
+    def _validate_resolved(self) -> ResolvedSinkPoint:
         if not self.ref.strip():
             raise ConfigError("Resolved sink point ref must be non-empty")
         if self.source_data_type not in SINK_DATA_TYPES:
@@ -358,7 +358,7 @@ class SinkConfig(BaseModel):
         return parsed
 
     @model_validator(mode="after")
-    def _validate_sink(self) -> "SinkConfig":
+    def _validate_sink(self) -> SinkConfig:
         if not self.name.strip():
             raise ConfigError("Sink name must be non-empty")
         if self.type not in SINK_TYPES:
@@ -409,7 +409,7 @@ class SinksConfig(BaseModel):
     sinks: list[SinkConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_unique_names(self) -> "SinksConfig":
+    def _validate_unique_names(self) -> SinksConfig:
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
@@ -424,7 +424,7 @@ class ResolvedSinksConfig(BaseModel):
     sinks: list[ResolvedSinkConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_unique_names(self) -> "ResolvedSinksConfig":
+    def _validate_unique_names(self) -> ResolvedSinksConfig:
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")

@@ -81,7 +81,7 @@ _sink_depth_labels: set[str] = set()
 def _as_int(value: object) -> int:
     if isinstance(value, bool):
         return int(value)
-    if isinstance(value, (int, float, str)):
+    if isinstance(value, int | float | str):
         try:
             return int(value)
         except (TypeError, ValueError):

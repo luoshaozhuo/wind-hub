@@ -4,7 +4,7 @@
 寄存器状态。当前 Sink 为只读暴露，所有 Modbus 写功能码统一拒绝。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from typing import Any
 
@@ -36,7 +36,7 @@ class StoreBackedModbusContext(ModbusServerContext):
         self.old_simulator = True
         self._store = store
 
-    async def async_getValues(
+    async def async_getValues(  # noqa: N802
         self,
         device_id: int,
         func_code: int,
@@ -64,7 +64,7 @@ class StoreBackedModbusContext(ModbusServerContext):
         except KeyError:
             return ExcCodes.ILLEGAL_ADDRESS
 
-    async def async_setValues(
+    async def async_setValues(  # noqa: N802
         self,
         device_id: int,
         func_code: int,
