@@ -634,11 +634,25 @@ class Runtime:
     def report_read_failure(self, device_id: str, error: BaseException) -> None:
         """采集读失败（实现 ``DeviceStatePort``）。
 
-        连接级失败标记断线（下一次 ``ensure_connected`` 起走重连节流）；
-        协议/编程级失败只记录错误——连接本身可能仍然健康。
+        优先沿异常 cause 链判定连接级故障；若第三方协议库把断线包装成
+        不含 OSError 的协议异常，则再读取 Driver 的缓存 health。Driver 已
+        标记 unhealthy 时同样把 Runtime 状态切到 disconnected，使下一周期
+        进入 ``ensure_connected`` 重连路径。
         """
+        connection_level = _is_connection_level(error)
+        if not connection_level:
+            device = self._devices.get(device_id)
+            if device is not None:
+                try:
+                    connection_level = not device.health().healthy
+                except Exception:
+                    logger.debug(
+                        "Device '%s' health check failed while classifying read error",
+                        device_id,
+                        exc_info=True,
+                    )
         self._state_for(device_id).mark_read_failure(
-            self._clock(), error, connection_level=_is_connection_level(error)
+            self._clock(), error, connection_level=connection_level
         )
 
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:

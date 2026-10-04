@@ -12,6 +12,7 @@ from wind_hub_collector.adapter.outbound.sink.file.rotation import (
     TimeRotation,
     build_rotation,
 )
+
 _BYTES_PER_MB = 1024 * 1024
 _SECONDS_PER_HOUR = 3600.0
 _TS = datetime(2026, 9, 16, 14, 30, 25, tzinfo=UTC)
