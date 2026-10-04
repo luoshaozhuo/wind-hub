@@ -78,6 +78,26 @@ def test_create_assigns_addresses_and_brings_up(fake_ip: _FakeIp) -> None:
     assert "ip link set lo up" in joined
 
 
+def test_create_with_server_namespace_moves_end_and_configures_via_netns(
+    fake_ip: _FakeIp,
+) -> None:
+    """跨命名空间拓扑：server 端挪入 netns，配置命令经 ip netns exec 下达。
+
+    同命名空间时本机投递走 lo 回环、绕过 veth qdisc，netem 不生效——
+    reliability 网络降级测试依赖此拓扑让流量真实穿越 veth pair。
+    """
+    pair = VethManager(server_namespace="whn-test").create()
+
+    assert pair.name_server == "veth-ws"
+    joined = [" ".join(c) for c in fake_ip.calls]
+    assert "ip link set veth-ws netns whn-test" in joined
+    assert "ip netns exec whn-test ip addr add 10.99.0.2/24 dev veth-ws" in joined
+    assert "ip netns exec whn-test ip link set veth-ws up" in joined
+    assert "ip netns exec whn-test ip link set lo up" in joined
+    # client 端仍在 root namespace，不走 netns exec。
+    assert "ip addr add 10.99.0.1/24 dev veth-wc" in joined
+
+
 def test_create_is_idempotent(fake_ip: _FakeIp) -> None:
     mgr = VethManager()
     mgr.create()

@@ -52,9 +52,9 @@ class ProxiedStack:
 
 @pytest.fixture
 async def proxied_stack(
-    modbus_server: ModbusMockServer,
-    collector_factory,
-    commander_factory,
+    modbus_server: ModbusMockServer,  # noqa: F811 - fixture 参数注入即对导入 fixture 的消费
+    collector_factory,  # noqa: F811
+    commander_factory,  # noqa: F811
     tmp_path: Path,
 ) -> AsyncIterator[ProxiedStack]:
     proxy = WriteResponseDropProxy("127.0.0.1", modbus_server.port, free_port())

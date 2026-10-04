@@ -9,7 +9,6 @@ PostgreSQL）。已有 ``test_sink_disconnect.py`` 验证的是「单 Sink 中�
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from pathlib import Path
 
@@ -169,7 +168,7 @@ class TestPostgresOutageIsolation:
                 postgres_service,
                 table,
                 min_rows=1,
-                where=f"\"timestamp\" > NOW() - INTERVAL '60 seconds'",
+                where="\"timestamp\" > NOW() - INTERVAL '60 seconds'",
             )
         finally:
             if db_stopped:

@@ -119,12 +119,12 @@ class TestReconnectBackoff:
             f"connect attempts ({attempts}) not throttled relative to "
             f"acquisition ticks ({runs})"
         )
-        gaps = [b - a for a, b in zip(attempts_at, attempts_at[1:])]
+        gaps = [b - a for a, b in zip(attempts_at, attempts_at[1:], strict=False)]
         # 启动期的前几次尝试可能落在采样基线之前，窗口内只要求可判型的间隔数。
         assert len(gaps) >= 2, f"too few attempts to inspect backoff gaps: {attempts_at}"
         # 指数退避：后一档不短于前一档（采样误差 ±0.5s，留 0.6 容忍系数），
         # 且末档显著大于 1s 固定重试能达到的间隔。
-        for prev, cur in zip(gaps, gaps[1:]):
+        for prev, cur in zip(gaps, gaps[1:], strict=False):
             assert cur >= prev * 0.6, f"backoff gaps not non-decreasing: {gaps}"
         assert gaps[-1] >= 2.0, f"final backoff gap too small (no exponential growth): {gaps}"
 
