@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.operation import OperationRegistry
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -63,7 +63,7 @@ class AppContext:
     overview: OverviewUseCase | None = None
     """V1 Overview 聚合只读模型。"""
 
-    operations: OperationManager | None = None
+    operations: OperationRegistry | None = None
     """进程内异步 Operation 注册表。"""
 
     admin_state: AdminStateUseCase | None = None

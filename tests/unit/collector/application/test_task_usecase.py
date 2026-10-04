@@ -34,7 +34,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 
 
-class _FakeRuntime:
+class _FakeCollectorRuntime:
     """按 TaskUseCase 调用面做的最小 Runtime 桩。
 
     与生产 Runtime 一致的状态语义：start/stop 翻转 ``_states`` 簿记；
@@ -125,7 +125,7 @@ def _instance(
 def _usecase(
     *,
     initial_states: dict[str, TaskInstanceState] | None = None,
-) -> tuple[TaskUseCase, _FakeRuntime]:
+) -> tuple[TaskUseCase, _FakeCollectorRuntime]:
     tasks = {
         "t1": _task("t1", device="dev-a", sinks=["s1", "s2"]),
         "t2": _task("t2", device=None, device_group="turbine", interval=5.0, enabled=False),
@@ -134,7 +134,7 @@ def _usecase(
         "t1:dev-a": _instance("t1", "dev-a", targets=["s1", "s2"]),
         "t2:dev-b": _instance("t2", "dev-b", interval=5.0),
     }
-    runtime = _FakeRuntime(tasks, instances, initial_states)
+    runtime = _FakeCollectorRuntime(tasks, instances, initial_states)
     return TaskUseCase(runtime), runtime
 
 

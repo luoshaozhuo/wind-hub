@@ -58,7 +58,7 @@ _TERMINAL_STATES = {
 }
 
 
-class OperationManager:
+class OperationRegistry:
     """线程安全的进程内 Operation 注册表。
 
     当前实现不持久化，适用于单进程 wind-hub-server。Operation 执行逻辑由

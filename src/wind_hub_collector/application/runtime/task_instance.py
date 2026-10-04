@@ -12,7 +12,7 @@
 实例的采集回调每轮从 Runtime 注册表读取最新实例，interval / point_group
 变化时由 Runtime 重建对应的 acquisition handle。
 
-实例的实际执行机制（fixed-rate polling 或协议订阅）由 Device 按协议
+实例的实际执行机制（fixed-rate polling 或协议订阅）由 CollectorDeviceSession 按协议
 capability 决定——Task Instance 只是「Task Definition 在具体 Device 上
 展开出的持续采集实例」，不表达协议差异。
 
@@ -21,7 +21,7 @@ capability 决定——Task Instance 只是「Task Definition 在具体 Device �
 - :class:`AcquisitionRuntimeState`——业务执行状态（最近一次 collect 成功/
   失败/耗时），以 ``instance_id`` 为键；
 - 实例生命周期状态（RUNNING / STOPPED）——由 Runtime 显式簿记
-  （见 ``Runtime.instance_states``），决定实例的 acquisition handle
+  （见 ``CollectorRuntime.instance_states``），决定实例的 acquisition handle
   （fixed-rate polling 或协议订阅）是否存在。
 """
 

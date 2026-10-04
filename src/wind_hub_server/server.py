@@ -17,14 +17,14 @@ from wind_hub_server.application.app_context import clear_context, set_context
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
 from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
-from wind_hub_server.assembly import ServerRuntime, assemble_server
+from wind_hub_server.assembly import ServerApp, assemble_server
 from wind_hub_server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
 
 
 def build_api_server(
-    runtime: ServerRuntime,
+    runtime: ServerApp,
     settings: ServerSettings,
 ) -> uvicorn.Server:
     """Build the Server-owned FastAPI/uvicorn host."""

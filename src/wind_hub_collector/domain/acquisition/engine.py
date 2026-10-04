@@ -4,13 +4,13 @@
 
     把一次获得的 PointValue 批次经过 Observer 和 targets 投递到 Sink
     并维护采集执行状态/统计；对于主动采集，也提供
-    ``Device.read → process`` 的薄封装（:meth:`collect`）。
+    ``CollectorDeviceSession.read → process`` 的薄封装（:meth:`collect`）。
 
 数据在 ``PointValue[]`` 这一层汇合——主动轮询（Modbus / ADS Sum）与
 订阅推送（ADS notification / IEC104 spontaneous）最终都进入
 :meth:`process`：
 
-    主动轮询：Device.read()        → engine.collect()（内含 process）
+    主动轮询：CollectorDeviceSession.read()        → engine.collect()（内含 process）
     订阅推送：协议 callback        → engine.process()
 
 不负责：
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 class ReadableDevice(Protocol):
     """主动读取路径对运行时设备的结构化依赖（避免 domain → application 反向依赖）。
 
-    由 application/runtime 的 ``Device`` 结构化满足；引擎只依赖这三件
+    由 application/runtime 的 ``CollectorDeviceSession`` 结构化满足；引擎只依赖这三件
     事：设备身份、按 point_group 选点、按 point_group 批量读。
     """
 
@@ -222,7 +222,7 @@ class AcquisitionEngine:
         self._observers.append(callback)
 
     # ------------------------------------------------------------------
-    # 主动采集（薄封装：Device.read → process）
+    # 主动采集（薄封装：CollectorDeviceSession.read → process）
     # ------------------------------------------------------------------
 
     async def collect(

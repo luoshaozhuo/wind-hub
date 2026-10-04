@@ -1,6 +1,6 @@
 """Admin API v1 单元测试。
 
-验证阶段：unit。UseCase 使用 AsyncMock/真实 OperationManager，验证 wire 契约、
+验证阶段：unit。UseCase 使用 AsyncMock/真实 OperationRegistry，验证 wire 契约、
 分页、404/409 和 Task 级启停映射；不启动真实 Runtime 或网络监听。
 """
 
@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.adapter.inbound.webapi.app import build_api
 from wind_hub_server.application.app_context import AppContext, clear_context, set_context
-from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.operation import OperationRegistry
 from wind_hub_server.application.usecase.device import DeviceSnapshot
 from wind_hub_server.application.usecase.device_control import DeviceCommandResult
 from wind_hub_server.application.usecase.device_data import DeviceDataItem, TrendSeries
@@ -129,7 +129,7 @@ def test_v1_task_start_and_disabled_conflict() -> None:
 
 def test_v1_operation_query() -> None:
     """Operation 查询应返回统一生命周期状态。"""
-    operations = OperationManager()
+    operations = OperationRegistry()
     created = operations.create("devices.verify_all", total=48)
     operations.mark_running(created.operation_id)
     client = _client(AppContext(operations=operations))
@@ -142,7 +142,7 @@ def test_v1_operation_query() -> None:
 
 def test_v1_unknown_operation_returns_404() -> None:
     """未知 Operation 必须返回稳定 NOT_FOUND。"""
-    client = _client(AppContext(operations=OperationManager()))
+    client = _client(AppContext(operations=OperationRegistry()))
 
     response = client.get("/api/v1/operations/missing")
 

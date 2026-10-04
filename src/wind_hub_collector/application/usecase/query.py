@@ -1,19 +1,19 @@
 """Query use case——只读查询的应用编排。
 
-基于 :class:`~wind_hub_collector.application.runtime.runtime.Runtime` 提供：
+基于 :class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime` 提供：
 
 - 当前设备注册表与连接状态；
-- Collector Runtime 聚合状态快照（``status()``）。
+- CollectorRuntime 聚合状态快照（``status()``）。
 
 即时设备读写与现场协议诊断由独立 wind-hub-commander 负责；本用例只暴露
-Collector 自身运行事实。所有查询都穿透 Runtime 当前状态，热重载后立即可见。
+Collector 自身运行事实。所有查询都穿透 CollectorRuntime 当前状态，热重载后立即可见。
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 from wind_hub_collector.domain.model.device import DeviceInfo
 from wind_hub_core.config.schema import DeviceConfig
 
@@ -51,7 +51,7 @@ class AcquisitionInfo(BaseModel):
 
 
 class SystemStatus(BaseModel):
-    """QueryUseCase.status 返回的 Runtime 聚合状态快照。"""
+    """QueryUseCase.status 返回的 CollectorRuntime 聚合状态快照。"""
 
     running: bool
     """Runtime 已启动时为 True。"""
@@ -82,16 +82,16 @@ class SystemStatus(BaseModel):
 
 
 class QueryUseCase:
-    """Collector 运行事实查询用例——所有读取都穿透 Runtime 当前状态。"""
+    """Collector 运行事实查询用例——所有读取都穿透 CollectorRuntime 当前状态。"""
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime
 
     async def list_devices(self) -> list[DeviceInfo]:
         """返回当前注册表中全部设备运行状态。
 
         Returns:
-            DeviceInfo 列表；热重载后立即反映当前 Runtime。
+            DeviceInfo 列表；热重载后立即反映当前 CollectorRuntime。
         """
         return [
             self._device_info(device_id, device.config)
@@ -99,16 +99,16 @@ class QueryUseCase:
         ]
 
     async def status(self) -> SystemStatus:
-        """返回 Runtime 聚合状态快照。
+        """返回 CollectorRuntime 聚合状态快照。
 
-        从 Runtime 聚合：
+        从 CollectorRuntime 聚合：
         - ``running``：运行时就绪标志。
-        - ``device_count`` / ``sink_count``：Runtime 持有的组件总数。
+        - ``device_count`` / ``sink_count``：CollectorRuntime 持有的组件总数。
         - ``devices_connected`` / ``sinks_healthy``：按 ``health()`` 返回的
           「设备优先、随后 sink」顺序，依 ``device_count`` 切分后统计健康数。
-        - 点位统计：采集计数经 Runtime 透传自 AcquisitionEngine，路由/丢弃
-          计数来自 Runtime 的 Sink 派发侧。
-        - ``acquisitions``：各采集实例的业务执行状态（Runtime 的
+        - 点位统计：采集计数经 CollectorRuntime 透传自 AcquisitionEngine，路由/丢弃
+          计数来自 CollectorRuntime 的 Sink 派发侧。
+        - ``acquisitions``：各采集实例的业务执行状态（CollectorRuntime 的
           AcquisitionRuntimeState 快照）——与设备连接状态、实例启停状态
           分维度。
         """
@@ -144,16 +144,16 @@ class QueryUseCase:
         )
 
     def _device_info(self, device_id: str, cfg: DeviceConfig) -> DeviceInfo:
-        """从设备配置 + 协议健康状态 + Runtime 设备运行状态构造
+        """从设备配置 + 协议健康状态 + CollectorRuntime 设备运行状态构造
         :class:`DeviceInfo`。
 
         ``last_seen`` 暂无逐设备读取墙钟时间戳追踪，恒为 ``None``（诚实
-        空缺）；连接健康与重连计数来自 Runtime 的 DeviceRuntimeState。
+        空缺）；连接健康与重连计数来自 CollectorRuntime 的 DeviceRuntimeState。
         """
         device = self._runtime.devices.get(device_id)
         state = self._runtime.device_state(device_id)
-        # connected 以驱动实时 health 为准（驱动自带重连监控时比 Runtime
-        # 的记账更新）；consecutive_failures/last_error 来自 Runtime 的
+        # connected 以驱动实时 health 为准（驱动自带重连监控时比 CollectorRuntime
+        # 的记账更新）；consecutive_failures/last_error 来自 CollectorRuntime 的
         # 重连节流状态。
         connected = device.health().healthy if device is not None else False
         return DeviceInfo(

@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wind_hub_core.model.point import PointValue
-from wind_hub_server.application.operation import OperationManager, OperationRecord
+from wind_hub_server.application.operation import OperationRecord, OperationRegistry
 from wind_hub_server.application.port.network_probe import NetworkProbePort
 from wind_hub_server.application.port.worker import CommanderPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
@@ -42,7 +42,7 @@ class DiagnosticUseCase:
         commander: CommanderPort,
         control: DeviceControlUseCase,
         config: ConfigUseCase,
-        operations: OperationManager,
+        operations: OperationRegistry,
         network: NetworkProbePort,
     ) -> None:
         self._commander = commander

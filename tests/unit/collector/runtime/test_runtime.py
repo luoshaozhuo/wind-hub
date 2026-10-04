@@ -1,6 +1,6 @@
-"""Runtime（``application/runtime``）的单元测试——Task / Task Instance 模型。
+"""CollectorRuntime（``application/runtime``）的单元测试——Task / Task Instance 模型。
 
-验证对象：:class:`Runtime`（组件生命周期、Task Instance 展开与启停、
+验证对象：:class:`CollectorRuntime`（组件生命周期、Task Instance 展开与启停、
 acquisition handle 管理、热重载、Sink 背压/派发）。
 
 覆盖点（对应重构简报 spec §30）：
@@ -18,7 +18,7 @@ acquisition handle 管理、热重载、Sink 背压/派发）。
   变化重建句柄、targets 快照替换（句柄不重启）/ 点表重注入 / 连接不重建；
 - Sink 派发与背压：targets fan-out、未知 sink 跳过、drop_old / drop_new。
 
-引擎侧循环测试使用内存 ``_FakeEngine``（只实现 Runtime 依赖的装配缝与
+引擎侧循环测试使用内存 ``_FakeEngine``（只实现 CollectorRuntime 依赖的装配缝与
 ``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
@@ -31,8 +31,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Runtime
-from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.runtime import CollectorRuntime
+from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -120,7 +120,7 @@ def _mock_protocol() -> ProtocolPort:
     proto.read = AsyncMock(return_value=[])
     proto.write = AsyncMock()
     proto.health = MagicMock(return_value=HealthStatus(healthy=True))
-    # 默认主动轮询型设备（Modbus 语义）——经 Device.start_acquisition
+    # 默认主动轮询型设备（Modbus 语义）——经 CollectorDeviceSession.start_acquisition
     # 走 PollingAcquisitionHandle。
     proto.acquisition_mode = AcquisitionMode.POLL
     return proto
@@ -151,7 +151,7 @@ def _runtime_config(backpressure: str = "drop_old", queue_maxsize: int = 10) -> 
 
 
 class _FakeEngine:
-    """``AcquisitionEngine`` 的内存替身——只实现 Runtime 依赖的接口面。
+    """``AcquisitionEngine`` 的内存替身——只实现 CollectorRuntime 依赖的接口面。
 
     记录每次 ``collect`` 调用的完整参数；``fail_next`` 让下一次 collect
     抛异常（验证 polling 循环的异常韧性）；``collect_gate`` 可阻塞 collect
@@ -181,7 +181,7 @@ class _FakeEngine:
 
     async def collect(
         self,
-        device: Device,
+        device: CollectorDeviceSession,
         point_group: str,
         targets: list[str],
         execution_id: str,
@@ -201,13 +201,13 @@ def _build_devices(
     configs: list[DeviceConfig],
     protos: dict[str, ProtocolPort],
     points: dict[str, list[PointConfig]],
-) -> dict[str, Device]:
-    """按装配语义构建运行时 Device：构造期注入点映射并聚合配置/点表/协议。"""
-    devices: dict[str, Device] = {}
+) -> dict[str, CollectorDeviceSession]:
+    """按装配语义构建运行时 CollectorDeviceSession：构造期注入点映射并聚合配置/点表/协议。"""
+    devices: dict[str, CollectorDeviceSession] = {}
     for cfg in configs:
         proto = protos[cfg.device_id]
         device_points = points.get(cfg.device_id, [])
-        devices[cfg.device_id] = Device(cfg, device_points, proto)
+        devices[cfg.device_id] = CollectorDeviceSession(cfg, device_points, proto)
     return devices
 
 
@@ -222,15 +222,15 @@ def _build_runtime(
     queue_maxsize: int = 10,
     protocol_factory=None,
     sink_factory=None,
-) -> tuple[Runtime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
+) -> tuple[CollectorRuntime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
     protos = {d.device_id: _mock_protocol() for d in devices}
     sinks = {name: _mock_sink() for name in sink_names}
     eng = engine if engine is not None else _FakeEngine()
     device_map = _build_devices(devices, protos, points if points is not None else {})
-    rt = Runtime(
+    rt = CollectorRuntime(
         devices=device_map,
         sinks=sinks,
-        engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 Runtime 依赖面
+        engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 CollectorRuntime 依赖面
         config=_runtime_config(backpressure, queue_maxsize),
         tasks={t.task_id: t for t in tasks},
         protocol_factory=protocol_factory,
@@ -295,7 +295,7 @@ def _instance_coroutine_tasks() -> list[asyncio.Task]:
 
 class TestEnsureConnected:
     async def test_force_checks_driver_health_before_fast_path(self) -> None:
-        """Runtime 显示 connected 但 Driver unhealthy 时，force=True 必须重连。"""
+        """CollectorRuntime 显示 connected 但 Driver unhealthy 时，force=True 必须重连。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -321,7 +321,7 @@ class TestEnsureConnected:
             await rt.stop()
 
     async def test_force_healthy_driver_keeps_zero_io_fast_path(self) -> None:
-        """Runtime 与 Driver 都健康时，force=True 不重复 connect。"""
+        """CollectorRuntime 与 Driver 都健康时，force=True 不重复 connect。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -340,7 +340,7 @@ class TestEnsureConnected:
             await rt.stop()
 
     async def test_force_unhealthy_driver_connect_failure_marks_disconnected(self) -> None:
-        """强制重连失败必须把 Runtime 状态同步为 disconnected。"""
+        """强制重连失败必须把 CollectorRuntime 状态同步为 disconnected。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -1179,7 +1179,7 @@ class TestSinkReloadLifecycle:
         events: list[str] = []
         old_sink = _ExclusiveSink(events, "old")
         new_sink = _ExclusiveSink(events, "new")
-        rt = Runtime(
+        rt = CollectorRuntime(
             devices={},
             sinks={"s1": old_sink},
             engine=_FakeEngine(),  # type: ignore[arg-type]
@@ -1204,7 +1204,7 @@ class TestSinkReloadLifecycle:
         events: list[str] = []
         old_sink = _ExclusiveSink(events, "old")
         new_sink = _ExclusiveSink(events, "new", fail_open=True)
-        rt = Runtime(
+        rt = CollectorRuntime(
             devices={},
             sinks={"s1": old_sink},
             engine=_FakeEngine(),  # type: ignore[arg-type]
@@ -1242,7 +1242,7 @@ class TestSinkDispatch:
         points = {"d1": [_make_point("p1", groups=("g1",))]}
         device_map = _build_devices(devices, protos, points)
         engine = AcquisitionEngine(read_timeout=None)
-        rt = Runtime(
+        rt = CollectorRuntime(
             devices=device_map,
             sinks=sinks,
             engine=engine,

@@ -116,7 +116,7 @@ class PollingAcquisitionHandle:
                 self._on_stats(actual - scheduled, overrun, missed)
 
 
-class Device(DeviceSession):
+class CollectorDeviceSession(DeviceSession):
     """Collector 运行时设备。
 
     基础连接、读写、点表和工程值换算继承自 DeviceSession；本类只增加周期轮询/
@@ -174,7 +174,7 @@ class Device(DeviceSession):
         async def _forward(value: PointValue) -> None:
             # 订阅上送没有 PointRef 上下文，协议驱动无法保证盖上设备身份
             # （IEC104 上送 device_id 为空）——采集句柄本就属于本设备，
-            # 由 Device 聚合统一补盖；协议原生值换算为工程值（与轮询同语义）。
+            # 由 CollectorDeviceSession 聚合统一补盖；协议原生值换算为工程值（与轮询同语义）。
             stamped = value.model_copy(update={"device_id": self.device_id})
             await on_data(self._normalize_values([stamped]))
 

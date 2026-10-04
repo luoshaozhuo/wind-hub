@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Runtime
-from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.runtime import CollectorRuntime
+from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.schema import (
@@ -74,19 +74,19 @@ def _runtime(
     sinks: dict[str, MagicMock] | None = None,
     points: dict[str, list[PointConfig]] | None = None,
     tasks: dict[str, CollectionTaskConfig] | None = None,
-) -> Runtime:
+) -> CollectorRuntime:
     devices = devices or {}
     protocols = protocols or {}
     points = points or {}
     device_map = {
-        device_id: Device(
+        device_id: CollectorDeviceSession(
             cfg,
             points.get(device_id, []),
             protocols.get(device_id) or _protocol(),
         )
         for device_id, cfg in devices.items()
     }
-    return Runtime(
+    return CollectorRuntime(
         devices=device_map,
         sinks=sinks or {},
         engine=AcquisitionEngine(),

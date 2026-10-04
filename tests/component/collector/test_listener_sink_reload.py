@@ -12,7 +12,7 @@ from tests.support.iec104_master import IEC104MasterClient
 from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
 from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
-from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.schema import RuntimeConfig
 from wind_hub_core.config.sinks import ResolvedSinkConfig
@@ -22,8 +22,8 @@ from wind_hub_core.protocol.iec104.codec import CauseOfTransmission, TypeID
 pytestmark = pytest.mark.real_service
 
 
-def _runtime(sink_name: str, sink) -> Runtime:  # type: ignore[no-untyped-def]
-    return Runtime(
+def _runtime(sink_name: str, sink) -> CollectorRuntime:  # type: ignore[no-untyped-def]
+    return CollectorRuntime(
         devices={},
         sinks={sink_name: sink},
         engine=AcquisitionEngine(read_timeout=None),

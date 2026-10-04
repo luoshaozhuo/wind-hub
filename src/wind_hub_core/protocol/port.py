@@ -44,7 +44,7 @@ class SubscriptionHandle(Protocol):
 class InterrogationCapable(Protocol):
     """可选能力：master 侧总召（General Interrogation）。
 
-    仅 IEC104 这类主站协议实现；``Device.start_acquisition`` 在订阅建立
+    仅 IEC104 这类主站协议实现；``CollectorDeviceSession.start_acquisition`` 在订阅建立
     后探测本能力并触发一次总召，使总召响应经既有订阅链路上报。
     """
 

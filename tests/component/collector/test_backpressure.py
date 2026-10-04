@@ -24,7 +24,7 @@ from tests.support.config_helper import write_config_tree
 from tests.support.process import free_port
 from tests.support.wait import wait_until
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 
@@ -40,7 +40,7 @@ async def _start_bp_runtime(
     tmp_path: Path,
     *,
     backpressure_policy: str,
-) -> tuple[AssembledRuntime, ModbusMockServer, NullSink, SlowSink]:
+) -> tuple[CollectorApp, ModbusMockServer, NullSink, SlowSink]:
     """装配 fast(null) + slow 双 Sink 的背压运行时。"""
     port = free_port()
     server = ModbusMockServer(port=port)
@@ -98,7 +98,7 @@ async def _start_bp_runtime(
     return rt, server, fast, slow
 
 
-async def _stop(rt: AssembledRuntime, server: ModbusMockServer) -> None:
+async def _stop(rt: CollectorApp, server: ModbusMockServer) -> None:
     await stop_runtime(rt)
     await server.stop()
 

@@ -1,4 +1,4 @@
-"""Runtime 启动与优雅停机编排。
+"""CollectorRuntime 启动与优雅停机编排。
 
 启动阶段只连接设备、打开 Sink、创建 Sink consumer，并展开默认 STOPPED 的
 Task Instance；不会自动启动采集任务。设备或 Sink 单项启动失败被隔离，使其他
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
 
 if TYPE_CHECKING:
-    from wind_hub_collector.application.runtime.runtime import Runtime
+    from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +42,13 @@ def _is_connection_level(exc: BaseException) -> bool:
 
 
 class RuntimeLifecycle:
-    """持有 Runtime 的启动/停机编排逻辑，避免 Runtime 主类继续膨胀。"""
+    """持有 CollectorRuntime 的启动/停机编排逻辑，避免 CollectorRuntime 主类继续膨胀。"""
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime
 
     async def start(self) -> None:
-        """启动 Runtime 基础资源。
+        """启动 CollectorRuntime 基础资源。
 
         单设备/单 Sink 失败只记录状态并继续，避免一个现场端点阻断整进程。
         Task Instance 仅注册为 STOPPED，必须由控制面显式启动采集。
@@ -115,7 +115,7 @@ class RuntimeLifecycle:
             self._runtime._started = True
 
     async def stop(self) -> None:
-        """按依赖逆序优雅停止 Runtime。
+        """按依赖逆序优雅停止 CollectorRuntime。
 
         采集句柄先停，随后终止 Sink consumer 并 flush/close，最后关闭设备连接。
         单资源清理异常被记录但不阻断其他资源释放。

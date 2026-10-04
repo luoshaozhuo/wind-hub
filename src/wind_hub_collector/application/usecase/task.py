@@ -1,6 +1,6 @@
 """Task use case——采集 Task / Task Instance 显式生命周期控制的应用编排。
 
-基于 :class:`~wind_hub_collector.application.runtime.runtime.Runtime`，供 Collector gRPC
+基于 :class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime`，供 Collector gRPC
 控制面管理采集任务：查询 Task 定义与展开后的实例，以及显式 start/stop
 Task 或单个 Task Instance。
 
@@ -12,8 +12,8 @@ Task 或单个 Task Instance。
 - 实例状态只有两态——采集执行状态（failed/partial）与设备连接状态
   （disconnected）是另外的维度，不由本用例呈现或修改。
 
-职责边界：本用例只管 Task / Task Instance 粒度操作。Runtime 整体
-``start()``/``stop()``（Runtime 生命周期）与进程启停（process 生命周期）
+职责边界：本用例只管 Task / Task Instance 粒度操作。CollectorRuntime 整体
+``start()``/``stop()``（CollectorRuntime 生命周期）与进程启停（process 生命周期）
 是另外两层语义，不在此暴露——三者不得混用。
 """
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -64,13 +64,13 @@ class TaskSummary(BaseModel):
 
 
 class TaskUseCase:
-    """采集 Task 管理用例——实例启停直接委托给 Runtime。
+    """采集 Task 管理用例——实例启停直接委托给 CollectorRuntime。
 
     未知 ``instance_id`` 的 ``KeyError`` 由本用例统一抛出，调用方
     （适配层）据此映射为 404 / 非零退出。
     """
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime
 
     async def list_instances(self) -> list[TaskInstanceDetail]:

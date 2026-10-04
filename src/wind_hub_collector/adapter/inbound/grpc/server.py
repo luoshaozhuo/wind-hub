@@ -14,7 +14,7 @@ from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_collector.application.usecase.task import TaskInstanceDetail, TaskSummary
-from wind_hub_collector.assembly import AssembledRuntime
+from wind_hub_collector.assembly import CollectorApp
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff
 from wind_hub_core.rpc import collector_pb2 as pb
@@ -118,7 +118,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
 
     def __init__(
         self,
-        runtime: AssembledRuntime,
+        runtime: CollectorApp,
         identity: CollectorIdentity,
     ) -> None:
         self._runtime = runtime
@@ -370,7 +370,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
 
     def __init__(
         self,
-        runtime: AssembledRuntime,
+        runtime: CollectorApp,
         identity: CollectorIdentity,
     ) -> None:
         self._runtime = runtime
@@ -629,7 +629,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
 
 
 def build_grpc_server(
-    runtime: AssembledRuntime,
+    runtime: CollectorApp,
     identity: CollectorIdentity,
     *,
     host: str,

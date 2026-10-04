@@ -1,19 +1,20 @@
-"""Runtime —— 采集系统的运行时组件管理与生命周期编排核心。
+"""CollectorRuntime —— 采集系统的运行时组件管理与生命周期编排核心。
 
 架构位置：application 层。职责：
 
-- 设备生命周期（连接 / 关闭 / 重建）——以 :class:`Device` 为唯一聚合；
+- 设备生命周期（连接 / 关闭 / 重建）——以 :class:`CollectorDeviceSession` 为唯一聚合；
 - Sink 生命周期（打开 / 队列 / 消费者任务 / 背压 / 关闭）；
 - 采集 Task：Task Definition（``tasks.yaml``）按设备展开为
   :class:`CollectionTaskInstance`；显式 start 时经
-  ``Device.start_acquisition`` 获得 :class:`AcquisitionHandle`（底层是
-  fixed-rate polling 或协议订阅，Runtime 不感知），stop 时关闭句柄；
+  ``CollectorDeviceSession.start_acquisition`` 获得 :class:`AcquisitionHandle`（底层是
+  fixed-rate polling 或协议订阅，CollectorRuntime 不感知），stop 时关闭句柄；
 - 设备与 Sink 的增删 / 重建，配置热重载时的运行时重构（:meth:`reconfigure`）；
-- Runtime 状态（running / health / 组件计数 / 点位统计）；
+- CollectorRuntime 状态（running / health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()``。
 
-持有：``dict[str, Device]``（设备的唯一权威——配置、点表、协议实例都
-聚合在 ``Device`` 内）、:class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
+持有：``dict[str, CollectorDeviceSession]``（设备的唯一权威——配置、点表、协议实例都
+聚合在 ``CollectorDeviceSession`` 内）、
+:class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
 （PointValue 数据流处理）。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
@@ -34,9 +35,9 @@ from typing import Protocol
 
 from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
-from wind_hub_collector.application.runtime.device import AcquisitionHandle, Device
+from wind_hub_collector.application.runtime.device import AcquisitionHandle, CollectorDeviceSession
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
-from wind_hub_collector.application.runtime.dispatcher import RuntimeSinkDispatcher
+from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
 from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
@@ -75,7 +76,7 @@ class RuntimeMetricsPort(Protocol):
 
     只承载「事件发生时累加」的计数与观测（connect 失败、重连成功、
     collect 完成、poll 时序统计）；gauge 类状态（设备连通数、sink 队列
-    深度）由 ``/metrics`` 拉取时从 Runtime 快照覆盖，不经本端口。
+    深度）由 ``/metrics`` 拉取时从 CollectorRuntime 快照覆盖，不经本端口。
     application 层不直接依赖 infra 的 metrics 模块——保持与引擎回调
     一致的依赖倒置。
     """
@@ -102,7 +103,7 @@ class RuntimeMetricsPort(Protocol):
         ...
 
     def device_reconnected(self, device_id: str, protocol: str) -> None:
-        """断线设备经 ensure 路径重连成功（驱动内部自重连不经 Runtime，不计入）。"""
+        """断线设备经 ensure 路径重连成功（驱动内部自重连不经 CollectorRuntime，不计入）。"""
         ...
 
 
@@ -124,23 +125,23 @@ def _is_connection_level(exc: BaseException) -> bool:
     return False
 
 
-class Runtime:
+class CollectorRuntime:
     """运行时——组件注册表、生命周期与状态的唯一权威。
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
-    - ``devices`` — 设备注册表（``{device_id: Device}``）；
+    - ``devices`` — 设备注册表（``{device_id: CollectorDeviceSession}``）；
     - ``sinks`` — Sink 注册表；
     - ``engine`` — 采集引擎；本类构造时向其绑定 Sink 派发端口；
     - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``）；
     - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
     - ``protocol_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
-      （由组合根注入，Runtime 不依赖具体适配器）。
+      （由组合根注入，CollectorRuntime 不依赖具体适配器）。
     """
 
     def __init__(
         self,
-        devices: dict[str, Device],
+        devices: dict[str, CollectorDeviceSession],
         sinks: dict[str, SinkPort],
         engine: AcquisitionEngine,
         config: RuntimeConfig,
@@ -161,7 +162,8 @@ class Runtime:
         # 运行时指标端口（可选）：组合根接 Prometheus；未注入时跳过计数。
         self._metrics = metrics_hook
 
-        # 每台设备的运行状态（与 Device 分离——Device 聚合配置/点表/协议，
+        # 每台设备的运行状态（与 CollectorDeviceSession 分离——
+        # CollectorDeviceSession 聚合配置/点表/协议，
         # 状态随采集/重连演进）。设备增删/重建时同步维护。
         self._device_states: dict[str, DeviceRuntimeState] = {
             device_id: DeviceRuntimeState() for device_id in devices
@@ -173,7 +175,7 @@ class Runtime:
         # - ``_instance_states``：实例生命周期状态（RUNNING/STOPPED，显式
         #   簿记——acquisition handle 是否存在由它决定，不反向推断）；
         # - ``_acquisition_handles``：运行中实例的采集句柄（polling 协程
-        #   或协议订阅，Runtime 不感知机制），不留 orphan 资源。
+        #   或协议订阅，CollectorRuntime 不感知机制），不留 orphan 资源。
         self._task_instances: dict[str, CollectionTaskInstance] = {}
         self._instance_states: dict[str, TaskInstanceState] = {}
         self._acquisition_handles: dict[str, AcquisitionHandle] = {}
@@ -184,10 +186,10 @@ class Runtime:
         # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
         # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
         # 上报演进。
-        self._acq_states: dict[str, AcquisitionRuntimeState] = {}
+        self._acquisition_states: dict[str, AcquisitionRuntimeState] = {}
 
         self._lifecycle = RuntimeLifecycle(self)
-        self._sink_dispatcher = RuntimeSinkDispatcher(self)
+        self._sink_dispatcher = SinkDispatcher(self)
 
         # Sink 派发的落点：引擎采集结果进入本类的队列/背压/消费者机制。
         self._engine.attach_sink_dispatch(self)
@@ -238,7 +240,7 @@ class Runtime:
         self._metrics = metrics_hook
 
     @property
-    def devices(self) -> dict[str, Device]:
+    def devices(self) -> dict[str, CollectorDeviceSession]:
         """当前设备注册表（热重载后就地反映最新内容）。"""
         return self._devices
 
@@ -253,7 +255,7 @@ class Runtime:
         return self._engine
 
     # ------------------------------------------------------------------
-    # Runtime 整体生命周期
+    # CollectorRuntime 整体生命周期
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
@@ -295,12 +297,12 @@ class Runtime:
 
     @property
     def device_count(self) -> int:
-        """返回当前 Runtime 注册的设备数量。"""
+        """返回当前 CollectorRuntime 注册的设备数量。"""
         return len(self._devices)
 
     @property
     def sink_count(self) -> int:
-        """返回当前 Runtime 注册的 Sink 数量。"""
+        """返回当前 CollectorRuntime 注册的 Sink 数量。"""
         return len(self._sinks)
 
     @property
@@ -320,7 +322,7 @@ class Runtime:
 
     def sink_queue_depths(self) -> dict[str, int]:
         """各 sink 队列当前深度——``/metrics`` 拉取时覆盖 ``sink_queue_depth``
-        gauge（队列归 Runtime 所有，SinkPort 自身不感知队列）。"""
+        gauge（队列归 CollectorRuntime 所有，SinkPort 自身不感知队列）。"""
         return {name: queue.qsize() for name, queue in self._queues.items()}
 
     # ------------------------------------------------------------------
@@ -340,10 +342,10 @@ class Runtime:
         return dict(self._instance_states)
 
     async def start_task_instance(self, instance_id: str) -> None:
-        """启动单个 Task Instance 的持续采集（经 Device 获取采集句柄）。
+        """启动单个 Task Instance 的持续采集（经 CollectorDeviceSession 获取采集句柄）。
 
         幂等：已 RUNNING 的实例不触碰——同一实例绝不会出现两份 handle。
-        采集机制（fixed-rate polling / 协议订阅）由 Device 按协议
+        采集机制（fixed-rate polling / 协议订阅）由 CollectorDeviceSession 按协议
         capability 决定，本方法不感知。
 
         Raises:
@@ -462,7 +464,7 @@ class Runtime:
             await self._close_acquisition_handle(iid)
             self._task_instances.pop(iid, None)
             self._instance_states.pop(iid, None)
-            self._acq_states.pop(iid, None)
+            self._acquisition_states.pop(iid, None)
             self._restart_pending.discard(iid)
             logger.info("Task instance '%s' unregistered", iid)
 
@@ -504,13 +506,13 @@ class Runtime:
                         raise
                     else:
                         self._restart_pending.discard(iid)
-            state = self._acq_states.get(iid)
+            state = self._acquisition_states.get(iid)
             if (
                 state is None
                 or state.task_id != instance.task_id
                 or state.point_group != instance.point_group
             ):
-                self._acq_states[iid] = AcquisitionRuntimeState(
+                self._acquisition_states[iid] = AcquisitionRuntimeState(
                     instance_id=iid,
                     task_id=instance.task_id,
                     device_id=instance.device_id,
@@ -551,7 +553,7 @@ class Runtime:
         return desired
 
     # ------------------------------------------------------------------
-    # Sink 派发端口实现（AcquisitionEngine → Runtime 的落点）
+    # Sink 派发端口实现（AcquisitionEngine → CollectorRuntime 的落点）
     # ------------------------------------------------------------------
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
@@ -559,7 +561,7 @@ class Runtime:
         await self._sink_dispatcher.dispatch(routed)
 
     # ------------------------------------------------------------------
-    # 设备状态端口实现（AcquisitionEngine → Runtime 的采集前/后钩子）
+    # 设备状态端口实现（AcquisitionEngine → CollectorRuntime 的采集前/后钩子）
     # ------------------------------------------------------------------
 
     async def ensure_connected(self, device_id: str, *, force: bool = False) -> bool:
@@ -567,10 +569,10 @@ class Runtime:
 
         语义：
 
-        - ``force=False`` 且 Runtime 状态已连接 → 立即 ``True``（零开销快路径）；
+        - ``force=False`` 且 CollectorRuntime 状态已连接 → 立即 ``True``（零开销快路径）；
         - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
           高频轮询不会形成 connect 风暴；
-        - ``force=True`` 用于显式控制/诊断请求：若 Runtime 状态显示已连接，
+        - ``force=True`` 用于显式控制/诊断请求：若 CollectorRuntime 状态显示已连接，
           还会检查协议 Driver health；health 不健康时忽略重连节流窗口并立即
           执行一次幂等 ``connect()``；
         - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
@@ -636,7 +638,7 @@ class Runtime:
 
         优先沿异常 cause 链判定连接级故障；若第三方协议库把断线包装成
         不含 OSError 的协议异常，则再读取 Driver 的缓存 health。Driver 已
-        标记 unhealthy 时同样把 Runtime 状态切到 disconnected，使下一周期
+        标记 unhealthy 时同样把 CollectorRuntime 状态切到 disconnected，使下一周期
         进入 ``ensure_connected`` 重连路径。
         """
         connection_level = _is_connection_level(error)
@@ -675,7 +677,7 @@ class Runtime:
         return device.config.protocol if device is not None else "unknown"
 
     # ------------------------------------------------------------------
-    # 采集执行状态端口实现（AcquisitionEngine → Runtime 的 collect 钩子）
+    # 采集执行状态端口实现（AcquisitionEngine → CollectorRuntime 的 collect 钩子）
     # ------------------------------------------------------------------
 
     def report_collect_started(self, execution_id: str, device_id: str, group: str) -> None:
@@ -705,14 +707,14 @@ class Runtime:
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，
         QueryUseCase 用）。"""
-        return dict(self._acq_states)
+        return dict(self._acquisition_states)
 
     def _acq_state_for(
         self, execution_id: str, device_id: str, group: str
     ) -> AcquisitionRuntimeState:
         """取采集执行状态；缺失时按当前实例信息创建（引擎只对运行中实例
         上报，实例必然已注册）。"""
-        state = self._acq_states.get(execution_id)
+        state = self._acquisition_states.get(execution_id)
         if state is None:
             inst = self._task_instances[execution_id]
             state = AcquisitionRuntimeState(
@@ -721,7 +723,7 @@ class Runtime:
                 device_id=device_id,
                 point_group=group,
             )
-            self._acq_states[execution_id] = state
+            self._acquisition_states[execution_id] = state
         return state
 
     # ------------------------------------------------------------------
@@ -751,7 +753,7 @@ class Runtime:
             await self.rebuild_device(device_id, cfg, protocol, points)
             return
 
-        device = Device(config=cfg, points=points, protocol=protocol)
+        device = CollectorDeviceSession(config=cfg, points=points, protocol=protocol)
         self._devices[device_id] = device
         self._device_states[device_id] = DeviceRuntimeState()
 
@@ -803,7 +805,7 @@ class Runtime:
     ) -> None:
         """重建设备——关闭旧连接，换入新配置/驱动后重新接入。
 
-        正在运行的相关 TaskInstance：先关闭旧采集句柄，Device 重建完成
+        正在运行的相关 TaskInstance：先关闭旧采集句柄，CollectorDeviceSession 重建完成
         后重新启动原本 RUNNING 的实例，保持其原运行状态。
         """
         was_running = [
@@ -827,7 +829,7 @@ class Runtime:
                     exc_info=True,
                 )
 
-        device = Device(config=new_cfg, points=points, protocol=new_protocol)
+        device = CollectorDeviceSession(config=new_cfg, points=points, protocol=new_protocol)
         self._devices[device_id] = device
         # 驱动实例已更换——运行状态随之重置（新驱动的首次 connect 结果
         # 立即写入全新状态）。
@@ -873,7 +875,7 @@ class Runtime:
     # ------------------------------------------------------------------
 
     async def add_sink(self, sink_name: str, cfg: ResolvedSinkConfig, sink: SinkPort) -> None:
-        """运行时新增 sink；open 成功后才提交到 Runtime 注册表。
+        """运行时新增 sink；open 成功后才提交到 CollectorRuntime 注册表。
 
         部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
         收敛到目标实例，避免重复注册消费者或遗留半初始化对象。
@@ -1036,7 +1038,7 @@ class Runtime:
     # ------------------------------------------------------------------
 
     def convergence_diff(self, target: Config) -> ConfigDiff:
-        """基于真实 Runtime 注册表生成强制收敛 diff。
+        """基于真实 CollectorRuntime 注册表生成强制收敛 diff。
 
         用于失败回滚或 revision reconciliation。它不依赖 ConfigUseCase 的
         current_config 基线，而是按当前实际设备/Sink/Task 注册表与目标配置
@@ -1159,7 +1161,7 @@ class Runtime:
     def _reinject_changed_tables(self, new_config: Config, diff: ConfigDiff) -> None:
         """点表内容变化时，对绑定受影响表的既有设备重注入点映射。
 
-        仅重注入内存映射（``Device.set_points``——点表 + 协议映射），
+        仅重注入内存映射（``CollectorDeviceSession.set_points``——点表 + 协议映射），
         不触碰 Protocol 连接。新增/删除设备跳过；updated 设备若已经成功
         收敛到目标配置则仍会重注入，避免“轻量设备字段变化 + 点表内容变化”
         时遗漏新 mapping。

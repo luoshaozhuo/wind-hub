@@ -1,6 +1,6 @@
-"""Collector Application 层：Runtime、应用端口与核心 Use Case。"""
+"""Collector Application 层：CollectorRuntime、应用端口与核心 Use Case。"""
 
-from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.usecase import (
     QueryUseCase,
     TaskUseCase,
@@ -8,6 +8,6 @@ from wind_hub_collector.application.usecase import (
 
 __all__ = [
     "QueryUseCase",
-    "Runtime",
+    "CollectorRuntime",
     "TaskUseCase",
 ]

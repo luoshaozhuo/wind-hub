@@ -14,7 +14,7 @@ from wind_hub_server.adapter.outbound.collector_directory import StaticCollector
 from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.operation import OperationRegistry
 from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
 from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
@@ -47,7 +47,7 @@ from wind_hub_server.infra.point_store import InMemoryTrendStore
 
 
 @dataclass(slots=True)
-class ServerRuntime:
+class ServerApp:
     """Server 独立对象图。"""
 
     context: AppContext
@@ -67,7 +67,7 @@ def assemble_server(
     *,
     collectors: dict[str, str],
     commander: str,
-) -> ServerRuntime:
+) -> ServerApp:
     """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
     endpoints = dict(collectors)
     if not endpoints:
@@ -154,7 +154,7 @@ def assemble_server(
         tasks=worker_tasks,
         config=config,
     )
-    operations = OperationManager()
+    operations = OperationRegistry()
     config_admin = ConfigAdminUseCase(config)
     admin_state = AdminStateUseCase(config_admin)
     settings = SettingsUseCase(config, config_admin)
@@ -200,7 +200,7 @@ def assemble_server(
         system_health=system_health,
         workers=worker_registry,
     )
-    return ServerRuntime(
+    return ServerApp(
         context=context,
         config=config,
         monitoring=monitoring,

@@ -23,12 +23,12 @@ from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.process import free_port
 from tests.support.wait import wait_kafka_messages, wait_postgres_rows
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 
 pytestmark = [pytest.mark.modbus, pytest.mark.kafka, pytest.mark.postgres]
 
 
-async def _start_chain(config_dir: Path) -> AssembledRuntime:
+async def _start_chain(config_dir: Path) -> CollectorApp:
     rt = assemble(config_dir)
     await start_runtime(rt)
     await rt.tasks.start_instance("modbus-telemetry:modbus-1")

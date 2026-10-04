@@ -3,7 +3,7 @@
 本模块属于 wind-hub-collector。它只构建 wind-hub-ctl / gRPC 控制面实际
 需要的对象图：
 
-Protocol / Device / Sink -> AcquisitionEngine -> Runtime
+Protocol / CollectorDeviceSession / Sink -> AcquisitionEngine -> CollectorRuntime
                            -> TaskUseCase / QueryUseCase / ConfigUseCase
 
 Admin、Overview、Quality、Web API、即时设备通信、现场协议诊断、长期日志与
@@ -21,7 +21,7 @@ from pathlib import Path
 # 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
 import wind_hub_core.protocol  # noqa: F401
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Device, Runtime
+from wind_hub_collector.application.runtime import CollectorDeviceSession, CollectorRuntime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.query import QueryUseCase
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class AssembledRuntime:
+class CollectorApp:
     """Collector 最小运行对象图。
 
     Attributes:
@@ -52,7 +52,7 @@ class AssembledRuntime:
     """
 
     boot_config: Config
-    runtime: Runtime
+    runtime: CollectorRuntime
     engine: AcquisitionEngine
     sinks: dict[str, SinkPort]
     tasks: TaskUseCase
@@ -64,7 +64,7 @@ class AssembledRuntime:
 def assemble(
     config_dir: str | Path,
     sink_factory: Callable[[ResolvedSinkConfig], SinkPort] | None = None,
-) -> AssembledRuntime:
+) -> CollectorApp:
     """从 YAML 配置同步装配 Collector，不执行网络 I/O。
 
     Args:
@@ -72,7 +72,7 @@ def assemble(
         sink_factory: 可选 Sink 工厂；测试或定制部署可注入替代实现。
 
     Returns:
-        完整但尚未启动的 AssembledRuntime。
+        完整但尚未启动的 CollectorApp。
 
     Raises:
         ConfigError: 配置缺失、跨文件引用非法或 Sink 类型未知。
@@ -85,11 +85,11 @@ def assemble(
     cfg = load_config(config_dir)
     make_sink = sink_factory or _create_sink
 
-    devices: dict[str, Device] = {}
+    devices: dict[str, CollectorDeviceSession] = {}
     for device_cfg in cfg.devices.devices:
         protocol = _create_protocol(device_cfg)
         points = cfg.points_for_device(device_cfg.device_id)
-        devices[device_cfg.device_id] = Device(
+        devices[device_cfg.device_id] = CollectorDeviceSession(
             config=device_cfg,
             points=points,
             protocol=protocol,
@@ -103,7 +103,7 @@ def assemble(
     )
     engine.add_observer(metrics_state.observe_points)
 
-    runtime = Runtime(
+    runtime = CollectorRuntime(
         devices=devices,
         sinks=sinks,
         engine=engine,
@@ -118,7 +118,7 @@ def assemble(
     query = QueryUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
 
-    return AssembledRuntime(
+    return CollectorApp(
         boot_config=cfg,
         runtime=runtime,
         engine=engine,
@@ -130,13 +130,13 @@ def assemble(
     )
 
 
-async def start_runtime(rt: AssembledRuntime) -> None:
-    """启动 Collector Runtime。"""
+async def start_runtime(rt: CollectorApp) -> None:
+    """启动 CollectorRuntime。"""
     await _maybe_init_ads_local(rt)
     await rt.runtime.start()
 
 
-async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
+async def _maybe_init_ads_local(rt: CollectorApp) -> None:
     """存在 ADS 设备时执行一次进程级本机 AMS 初始化。"""
     ads_cfg = rt.boot_config.system.ads
     if ads_cfg is None:
@@ -159,10 +159,10 @@ async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
 
 
 async def stop_runtime(
-    rt: AssembledRuntime,
+    rt: CollectorApp,
     timeout: float = 30.0,
 ) -> None:
-    """在硬超时内优雅停止 Collector Runtime。"""
+    """在硬超时内优雅停止 CollectorRuntime。"""
     await asyncio.wait_for(rt.runtime.stop(), timeout=timeout)
 
 

@@ -3,8 +3,8 @@
 职责边界：本用例只做「load → validate → diff → runtime.reconfigure →
 commit current config」的编排；具体的设备/sink 增删重建、Task Instance
 重新展开与点表重注入全部由
-:class:`~wind_hub_collector.application.runtime.runtime.Runtime` 的
-:meth:`Runtime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
+:class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime` 的
+:meth:`CollectorRuntime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import logging
 import time
 from pathlib import Path
 
-from wind_hub_collector.application.runtime.runtime import Runtime
+from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
@@ -33,15 +33,17 @@ class ConfigUseCase:
 
     1. 从磁盘加载新配置（load + schema 校验，失败即中止，不应用任何改动）；
     2. 计算 :class:`ConfigDiff`（无变更则直接返回成功）；
-    3. 调用 :meth:`Runtime.reconfigure` 执行全部运行时重构；
+    3. 调用 :meth:`CollectorRuntime.reconfigure` 执行全部运行时重构；
     4. 仅当全部运行时重构成功时，提交新配置为当前快照。
 
     reconfigure 返回的错误列表原样汇入 ``ReloadResult.errors``。部分失败时
     ``success=False`` 且成功基线保持不变；下一次 reload 会重新计算同一 diff
-    并重试。Runtime 的重构路径必须保持可重复调用。
+    并重试。CollectorRuntime 的重构路径必须保持可重复调用。
     """
 
-    def __init__(self, config_dir: str | Path, runtime: Runtime, current_config: Config) -> None:
+    def __init__(
+        self, config_dir: str | Path, runtime: CollectorRuntime, current_config: Config
+    ) -> None:
         self._config_dir = Path(config_dir)
         self._runtime = runtime
         self._config_hash = fingerprint_config_set(self._config_dir)
@@ -55,14 +57,14 @@ class ConfigUseCase:
 
         # 初始快照必须由组合根注入（assemble 启动阶段的唯一一次
         # load_config 结果）——本类不自行加载，避免启动配置被重复加载、
-        # 以及两次加载之间文件变化导致 Runtime 实际配置与 diff 基线不一致。
+        # 以及两次加载之间文件变化导致 CollectorRuntime 实际配置与 diff 基线不一致。
         self._current = current_config
 
     async def reload(self) -> ReloadResult:
         """本地一次性执行 prepare + activate 热重载。
 
         分布式配置事务仍通过 prepare_config/activate_config 两阶段 RPC；
-        本方法用于 Collector 本地控制与组件测试，不绕过任何校验或 Runtime
+        本方法用于 Collector 本地控制与组件测试，不绕过任何校验或 CollectorRuntime
         reconfigure 语义。
         """
         self._local_reload_sequence += 1
@@ -169,7 +171,7 @@ class ConfigUseCase:
         )
 
     async def activate_config(self, revision_id: str) -> ReloadResult:
-        """激活已准备配置；仅此阶段执行 Runtime.reconfigure。"""
+        """激活已准备配置；仅此阶段执行 CollectorRuntime.reconfigure。"""
         started = time.monotonic()
 
         async with self._reload_lock:
@@ -221,7 +223,7 @@ class ConfigUseCase:
         )
 
     async def abort_config(self, revision_id: str) -> bool:
-        """幂等清理指定 prepared revision，不修改当前 Runtime。"""
+        """幂等清理指定 prepared revision，不修改当前 CollectorRuntime。"""
         async with self._reload_lock:
             if self._prepared_revision != revision_id:
                 return False

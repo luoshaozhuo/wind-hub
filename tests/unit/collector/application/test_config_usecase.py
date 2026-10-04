@@ -1,7 +1,7 @@
 """ConfigUseCase 的单元测试。
 
 验证对象：``application/usecase/config.py`` 的热重载编排——
-「load → validate → diff → Runtime.reconfigure → commit current config」。
+「load → validate → diff → CollectorRuntime.reconfigure → commit current config」。
 
 覆盖点：
 
@@ -10,14 +10,14 @@
   ``diff.tasks: TaskDiff(added/removed/updated/unchanged)``；
 - 旧模型字段已移除：``ConfigDiff`` 不再有 ``rules_changed``，
   配置目录不再需要 ``routing.yaml``；
-- 非法配置：中止重载、不触碰 Runtime、旧快照保持；
+- 非法配置：中止重载、不触碰 CollectorRuntime、旧快照保持；
 - 无变更：不调用 reconfigure 直接成功；
-- 有变更：以 ``(new_config, diff)`` 调用 ``Runtime.reconfigure`` 一次；
+- 有变更：以 ``(new_config, diff)`` 调用 ``CollectorRuntime.reconfigure`` 一次；
 - reconfigure 返回错误：``success=False``、错误透传、成功快照不推进；
   下一次 reload 重新计算同一 diff 并重试；
 - 点表继承的父表变化向子表传播。
 
-Runtime 用 mock——本层只验证编排，重构执行由
+CollectorRuntime 用 mock——本层只验证编排，重构执行由
 ``tests/unit/runtime/test_runtime.py`` 覆盖。
 """
 
@@ -30,7 +30,7 @@ import pytest
 import yaml
 
 from tests.support.config_helper import write_config_tree
-from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.loader import load_config
@@ -117,7 +117,7 @@ def _make_task(
 
 
 def _mock_runtime(reconfigure_errors: list[str] | None = None) -> MagicMock:
-    runtime = MagicMock(spec=Runtime)
+    runtime = MagicMock(spec=CollectorRuntime)
     runtime.reconfigure = AsyncMock(return_value=reconfigure_errors or [])
     return runtime
 
@@ -317,7 +317,7 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
 
 
 async def test_reload_task_changes_reach_runtime(tmp_path: Path) -> None:
-    """tasks.yaml 的变更经 diff.tasks 传递给 Runtime.reconfigure。"""
+    """tasks.yaml 的变更经 diff.tasks 传递给 CollectorRuntime.reconfigure。"""
     _write_configs(
         tmp_path,
         devices=[_make_device("d1")],
@@ -490,7 +490,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
 
 
 async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: Path) -> None:
-    """父表变化：diff 基于 resolved 结果，子表被标记变更并携带新点集进入 Runtime。"""
+    """父表变化：diff 基于 resolved 结果，子表被标记变更并携带新点集进入 CollectorRuntime。"""
     _write_inheritance_configs(tmp_path, base_unit="rpm")
     runtime = _mock_runtime()
     usecase = _usecase(tmp_path, runtime)
@@ -502,7 +502,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     assert result.success is True
     runtime.reconfigure.assert_awaited_once()
     new_cfg, diff = runtime.reconfigure.await_args.args
-    # 父表变化把继承它的子表一并标记为变更——Runtime 据此为绑定子表的
+    # 父表变化把继承它的子表一并标记为变更——CollectorRuntime 据此为绑定子表的
     # 设备重新注入点映射（_reinject_changed_tables 路径）
     assert diff.points_changed is True
     assert diff.point_tables_changed == ["base", "child"]
@@ -515,7 +515,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
 
 
 async def test_reload_unmodified_inheritance_chain_is_noop(tmp_path: Path) -> None:
-    """继承链配置未变：reload 无 diff、不触碰 Runtime。"""
+    """继承链配置未变：reload 无 diff、不触碰 CollectorRuntime。"""
     _write_inheritance_configs(tmp_path)
     runtime = _mock_runtime()
     usecase = _usecase(tmp_path, runtime)

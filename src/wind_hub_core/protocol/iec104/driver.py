@@ -519,7 +519,7 @@ class IEC104Driver:
         """发送一次 General Interrogation（C_IC_NA_1，QOI=20，master 侧）。
 
         总召响应经既有 ASDU 接收链进入各订阅回调，不另设返回通道。
-        由 ``Device.start_acquisition`` 在订阅建立后触发一次；不做周期
+        由 ``CollectorDeviceSession.start_acquisition`` 在订阅建立后触发一次；不做周期
         总召。
         """
         session = self._session

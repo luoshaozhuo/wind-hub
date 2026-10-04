@@ -6,7 +6,7 @@ task 的话，长期运行的现场网关会在数十次 reload 后耗尽 FD。
 
 SINK-05：SCADA 客户端反复断开/重连（含 RST 异常掉线）不得打挂
 listener——listener 保持可服务、已服务的值正确，且同进程的其它
-sink 经 Runtime 派发路径收数不受影响。
+sink 经 CollectorRuntime 派发路径收数不受影响。
 
 配置/helper 与 test_listener_sink_reload.py 同型（ModbusSink 监听
 127.0.0.1:<port>，wt01.power → holding 100，float32）。
@@ -24,7 +24,7 @@ from pymodbus.client import AsyncModbusTcpClient
 from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.schema import RuntimeConfig
 from wind_hub_core.config.sinks import ResolvedSinkConfig
@@ -62,8 +62,8 @@ def _modbus_config(port: int) -> ResolvedSinkConfig:
     )
 
 
-def _runtime(sinks: dict[str, SinkPort]) -> Runtime:
-    return Runtime(
+def _runtime(sinks: dict[str, SinkPort]) -> CollectorRuntime:
+    return CollectorRuntime(
         devices={},
         sinks=sinks,
         engine=AcquisitionEngine(read_timeout=None),
@@ -193,7 +193,7 @@ class TestListenerClientFlapIsolation:
         rt = _runtime({"modbus_scada": listener, "rec": recording})
         await rt.start()
         try:
-            # 初始值经 Runtime 派发路径送达两个 sink。
+            # 初始值经 CollectorRuntime 派发路径送达两个 sink。
             await rt.dispatch({"modbus_scada": [_point(1.0)], "rec": [_point(1.0)]})
             await _wait_listener_value(port, 1.0)
 
