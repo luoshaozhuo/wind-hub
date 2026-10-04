@@ -18,8 +18,14 @@ netem 规则对这类流量不生效（故障根本没注入，测试会是空�
 请求/响应协议只需损伤请求方向即可完整决定驱动的超时/重传/重连行为；
 响应方向（root 侧 ingress）不挂 qdisc。
 
-需要 root（CAP_NET_ADMIN）；无权限时 skip（决策 10：不自动 sudo，
-与 tests/performance 同一约定）——报告中计为 NOT_RUN，不是 PASS。
+执行策略（默认真实注入，不允许静默 skip）：
+
+1. euid==0（真实 root / CI root runner）：直接执行；
+2. 非 root 但 user namespace 可用：**默认**在 ``unshare -rmn`` 隔离命名
+   空间子进程里重跑本目录全部用例（命名空间内 euid=0 + CAP_NET_ADMIN，
+   与宿主机网络完全隔离，不需要 sudo，不违反「不自动 sudo」约定）——
+   由本文件底部的 collection/sessionfinish hook 透明完成；
+3. 两者都不可用：fixture 诚实 skip，报告中计 NOT_RUN，不是 PASS。
 """
 
 from __future__ import annotations
@@ -92,7 +98,10 @@ async def netem_link(tmp_path: Path) -> AsyncIterator[NetemLink]:
         server_namespace=namespace,
     )
     if not manager.check_permission():
-        pytest.skip("netem/veth 需要 root 权限（决策 10：不自动 sudo）——NOT_RUN")
+        pytest.skip(
+            "netem/veth 需要 root 或 user namespace（unshare -rmn），"
+            "当前环境均不可用——NOT_RUN"
+        )
 
     netem = NetemController(f"vnc{pid}")
     server_proc: subprocess.Popen[bytes] | None = None
@@ -163,3 +172,67 @@ async def _wait_link_ready(
             writer.close()
             await writer.wait_closed()
             return
+
+
+# ---------------------------------------------------------------------------
+# 默认真实 root 执行：非 root 时转入 user namespace 子进程重跑本目录
+# ---------------------------------------------------------------------------
+
+NETWORK_DIR = Path(__file__).resolve().parent
+
+#: 子进程环境标记——防重入（命名空间内 euid==0 本身已是充分条件）。
+_NS_CHILD_ENV = "WIND_HUB_NETEM_NS_CHILD"
+
+
+def _userns_netem_available() -> bool:
+    """探测非 root 下的提权路径：user+mount+net namespace 内获得
+    euid=0 + CAP_NET_ADMIN（隔离环境，不影响宿主机网络，不需要 sudo）。"""
+    if os.environ.get(_NS_CHILD_ENV):
+        return False
+    result = subprocess.run(["unshare", "-rmn", "true"], capture_output=True, check=False)
+    return result.returncode == 0
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """非 root 且可进 user namespace 时，把本目录用例移出当前进程，交给
+    sessionfinish 阶段的命名空间子进程真实执行（子进程输出直接继承到
+    终端，退出码回传——失败即整体 FAIL，不存在静默 PASS）。"""
+    if os.geteuid() == 0 or getattr(config.option, "collectonly", False):
+        return
+    netem_items = [i for i in items if i.path.is_relative_to(NETWORK_DIR)]
+    if not netem_items or not _userns_netem_available():
+        return
+    items[:] = [i for i in items if i not in netem_items]
+    config.hook.pytest_deselected(items=netem_items)
+    config._netem_ns_deferred = True  # type: ignore[attr-defined]
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    deferred = getattr(session.config, "_netem_ns_deferred", False)
+    if not deferred:
+        return
+    print(
+        "\n===== netem 矩阵：当前非 root，转入 unshare -rmn 隔离命名空间"
+        "子进程真实执行（tc/veth 注入全部生效）====="
+    )
+    result = subprocess.run(
+        [
+            "unshare",
+            "-rmn",
+            "bash",
+            "-c",
+            "mount -t tmpfs tmpfs /run && mkdir -p /run/netns && ip link set lo up && "
+            f"exec {sys.executable} -m pytest {NETWORK_DIR} -q",
+        ],
+        cwd=REPO_ROOT,
+        env={**os.environ, _NS_CHILD_ENV: "1"},
+        check=False,
+    )
+    if result.returncode != 0:
+        session.exitstatus = int(pytest.ExitCode.TESTS_FAILED)
+    elif exitstatus == int(pytest.ExitCode.NO_TESTS_COLLECTED):
+        # 全部用例被 defer（如单独跑本目录）时，父进程没有可执行用例，
+        # 结果以子进程为准。
+        session.exitstatus = int(pytest.ExitCode.OK)
