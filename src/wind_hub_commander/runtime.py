@@ -119,6 +119,17 @@ class CommanderRuntime:
         """返回当前操作固定的 generation，否则返回最新 generation。"""
         return self._operation_generation.get() or self._current
 
+    async def reload(
+        self,
+        config: CommanderConfig,
+        *,
+        config_hash: str,
+        revision_id: str,
+    ) -> None:
+        """本地兼容入口：按 prepare + activate 原子切换配置代次。"""
+        await self.prepare_config(revision_id, config, config_hash)
+        await self.activate_config(revision_id)
+
     async def prepare_config(
         self,
         revision_id: str,

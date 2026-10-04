@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +32,7 @@ def _install_overview(side_effect: object) -> None:
     错误包络契约经任一真实路由验证；此处选用 ``GET /api/v1/overview``
     （直达 use case，无额外参数校验分支）。
     """
-    overview = AsyncMock()
+    overview = MagicMock()
     overview.snapshot.side_effect = side_effect
     set_context(AppContext(overview=overview))
 

@@ -248,7 +248,8 @@ async def runtime(
     """
     rt = assemble(config_dir, sink_factory=sink_factory)
     await start_runtime(rt)
-    await rt.tasks.start_all_instances()
+    for instance in await rt.tasks.list_instances():
+        await rt.tasks.start_instance(instance.instance_id)
     try:
         yield rt
     finally:
