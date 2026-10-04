@@ -488,3 +488,71 @@ class TestWordOrder:
         values = await driver.read([PointRef(device_id="test-dev", point_id="sp")])
         await driver.close()
         assert values[0].value == 123456
+
+
+# ---------------------------------------------------------------------------
+# 异常响应分类（§10）：Modbus exception response ≠ 断连
+# ---------------------------------------------------------------------------
+
+
+class TestExceptionResponse:
+    """异常响应（Illegal Function/Illegal Data Address/Slave Failure 等）表示
+    链路活着、对端明确拒绝请求——Runtime 依据「异常链无 OSError + 驱动
+    health 仍 healthy」把它分类为非连接级失败。本类固定这一契约。"""
+
+    @staticmethod
+    def _assert_no_oserror_in_chain(exc: BaseException) -> None:
+        current: BaseException | None = exc
+        while current is not None:
+            assert not isinstance(current, OSError), (
+                f"异常响应不得携带 OSError cause（会被误分类为连接级失败）: {current!r}"
+            )
+            current = current.__cause__
+
+    async def test_read_exception_response_keeps_connection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = _FakeClient()
+        client.read_holding_registers.return_value = _FakeResponse(error=True)
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("gen.power", "holding", 300)])
+        await driver.connect()
+
+        with pytest.raises(ProtocolError, match="exception response") as excinfo:
+            await driver.read([PointRef(device_id="test-dev", point_id="gen.power")])
+
+        self._assert_no_oserror_in_chain(excinfo.value)
+        # 连接保持：health 仍 healthy，后续读不触发重连。
+        assert driver.health().healthy is True
+
+        client.read_holding_registers.return_value = _FakeResponse(
+            registers=_float32_registers(42.5)
+        )
+        values = await driver.read([PointRef(device_id="test-dev", point_id="gen.power")])
+        assert values[0].quality == Quality.GOOD
+        await driver.close()
+        client.connect.assert_awaited_once()  # 全程没有第二次 connect
+
+    async def test_write_exception_response_fails_command_but_keeps_connection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = _FakeClient()
+        client.write_register.return_value = _FakeResponse(error=True)
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping(
+            [_make_point_config("sp", "holding", 200, data_type="int16")]
+        )
+        await driver.connect()
+
+        results = await driver.write(
+            [Command(command_id="c1", device_id="test-dev", point_id="sp", value=1)]
+        )
+        assert results[0].success is False
+        assert "rejected" in (results[0].error or "")
+        assert driver.health().healthy is True
+        await driver.close()
+        client.connect.assert_awaited_once()
