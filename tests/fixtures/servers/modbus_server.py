@@ -63,20 +63,29 @@ class ModbusMockServer:
     默认寄存器布局见模块 docstring；``holding`` / ``inputs`` 可整体替换
     unit 1 的保持/输入寄存器块（按 wire address 索引的完整寄存器列表），
     供需要自定义点表布局的测试使用（如 example_modbus 配置联调）。
+
+    ``host`` 默认 127.0.0.1；传入其他 loopback 地址（如 127.0.0.2）可构造
+    「同机不同 IP」的对端，供 endpoint host 变化类故障测试使用。
     """
 
     def __init__(
         self,
         port: int = MODBUS_PORT,
         *,
+        host: str = "127.0.0.1",
         holding: list[int] | None = None,
         inputs: list[int] | None = None,
     ) -> None:
+        self._host = host
         self._port = port
         self._holding = holding
         self._inputs = inputs
         self._server: ModbusTcpServer | None = None
         self._write_count = 0
+
+    @property
+    def host(self) -> str:
+        return self._host
 
     @property
     def port(self) -> int:
@@ -116,7 +125,7 @@ class ModbusMockServer:
         context = ModbusServerContext({1: unit1, 2: unit2}, single=False)
         self._server = ModbusTcpServer(
             context,
-            address=("127.0.0.1", self._port),
+            address=(self._host, self._port),
             trace_pdu=self._trace_pdu,
         )
         await self._server.serve_forever(background=True)
@@ -136,7 +145,7 @@ class ModbusMockServer:
         """
         from pymodbus.client import AsyncModbusTcpClient
 
-        client = AsyncModbusTcpClient("127.0.0.1", port=self._port)
+        client = AsyncModbusTcpClient(self._host, port=self._port)
         await client.connect()
         try:
             rr = await client.read_holding_registers(address, count=count, device_id=unit_id)
