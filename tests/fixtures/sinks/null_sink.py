@@ -1,10 +1,11 @@
-"""Null sink — 测试用 sink 替身，只记录收到的数据，不写外部。
+"""Null sink — 测试用最小 SinkPort fixture，只记录收到的数据，不写外部。
 
-生产 sink（File/Kafka/DB）的 ``write`` 仍是骨架（抛 ``NotImplementedError``），
-端到端测试无法用它们断言数据落地。NullSink 实现
+实现
 :class:`~wind_hub_collector.application.port.sink.SinkPort` 的最小契约，把收到的
-:class:`~wind_hub_collector.domain.model.point.PointValue` 存入内存，供测试断言
-「采集 → 路由 → 输出」链路是否真的把数据推到了 sink。
+:class:`~wind_hub_core.model.point.PointValue` 存入内存，用于隔离 Runtime /
+routing / lifecycle 测试：这些测试只需要一个可注入的 SinkPort 来断言
+「采集 → 路由 → 输出」链路数据流向，不依赖任何生产 Sink 的外部资源。
+本 fixture 不代表生产 Sink（File/Kafka/DB/IEC104/Modbus）的实现状态。
 """
 
 from __future__ import annotations

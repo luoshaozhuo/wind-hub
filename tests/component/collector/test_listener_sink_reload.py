@@ -8,6 +8,7 @@ import socket
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
+from tests.support.iec104_master import IEC104MasterClient
 from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
 from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
@@ -16,6 +17,7 @@ from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.schema import RuntimeConfig
 from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.point import PointValue
+from wind_hub_core.protocol.iec104.codec import CauseOfTransmission, TypeID
 
 pytestmark = pytest.mark.real_service
 
@@ -113,23 +115,84 @@ async def test_modbus_runtime_rebuild_reuses_same_listener_port() -> None:
         await rt.stop()
 
 
+async def _interrogate_values(port: int) -> dict[int, object]:
+    """以真实 IEC104 主站总召，返回 {ioa: value}（仅监视量 ASDU）。"""
+    client = IEC104MasterClient(port)
+    await client.connect()
+    try:
+        await client.startdt()
+        asdus = await client.interrogate()
+        assert asdus[0].cause == CauseOfTransmission.ACTIVATION_CON
+        assert asdus[-1].cause == CauseOfTransmission.ACTIVATION_TERMINATION
+        return {
+            obj.ioa: obj.value
+            for asdu in asdus
+            if asdu.type_id == TypeID.M_ME_NC_1
+            for obj in asdu.objects
+        }
+    finally:
+        await client.close()
+
+
 async def test_iec104_runtime_rebuild_reuses_same_listener_port() -> None:
     port = free_port()
     cfg = _iec104_config(port)
     old_sink = IEC104Sink(cfg)
+    await old_sink.write(
+        [PointValue(device_id="wt01", point_id="power", value=1.0)]
+    )
     rt = _runtime("iec104_scada", old_sink)
     await rt.start()
     try:
+        assert await _interrogate_values(port) == {1001: 1.0}
+
         new_sink = IEC104Sink(cfg)
+        await new_sink.write(
+            [PointValue(device_id="wt01", point_id="power", value=2.0)]
+        )
         await rt.rebuild_sink("iec104_scada", cfg, new_sink)
 
-        reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        del reader
-        writer.close()
-        await writer.wait_closed()
+        # 同端口重连后必须读到新 sink 链路（exporter→snapshot→server→ASDU）的值。
+        assert await _interrogate_values(port) == {1001: 2.0}
         assert rt.sinks["iec104_scada"] is new_sink
         assert new_sink.health().healthy is True
     finally:
+        await rt.stop()
+
+
+async def test_iec104_failed_rebuild_restores_old_listener() -> None:
+    old_port = free_port()
+    blocked_port = free_port()
+    old_cfg = _iec104_config(old_port)
+    old_sink = IEC104Sink(old_cfg)
+    await old_sink.write(
+        [PointValue(device_id="wt01", point_id="power", value=1.0)]
+    )
+    rt = _runtime("iec104_scada", old_sink)
+    await rt.start()
+
+    blocker = await asyncio.start_server(
+        lambda _reader, writer: writer.close(),
+        "127.0.0.1",
+        blocked_port,
+    )
+    try:
+        new_cfg = _iec104_config(blocked_port)
+        new_sink = IEC104Sink(new_cfg)
+
+        # IEC104SlaveServer 对 bind 失败抛原始 OSError（Modbus 侧 pymodbus
+        # 包装为 RuntimeError）；rebuild_sink 原样重抛并恢复旧实例。
+        with pytest.raises(OSError):
+            await rt.rebuild_sink("iec104_scada", new_cfg, new_sink)
+
+        assert rt.sinks["iec104_scada"] is old_sink
+        assert old_sink.health().healthy is True
+
+        # 回滚后旧 sink 必须在协议层继续工作，而不只是端口可 connect。
+        assert await _interrogate_values(old_port) == {1001: 1.0}
+    finally:
+        blocker.close()
+        await blocker.wait_closed()
         await rt.stop()
 
 
