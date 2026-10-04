@@ -21,7 +21,7 @@ Runtime 用 mock——本层只验证编排，重构执行由
 ``tests/unit/runtime/test_runtime.py`` 覆盖。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -292,7 +292,16 @@ async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
     _write_configs(
         tmp_path,
         devices=[_make_device("d2")],  # d1 删除、d2 新增
-        sinks=[SinkConfig(name="s1", type="kafka", connection={"bootstrap_servers": "localhost:9092", "topic": "s1"})],  # s1 变更
+        sinks=[
+            SinkConfig(
+                name="s1",
+                type="kafka",
+                connection={
+                    "bootstrap_servers": "localhost:9092",
+                    "topic": "s1",
+                },
+            )
+        ],  # s1 变更
     )
     result = await usecase.reload()
 

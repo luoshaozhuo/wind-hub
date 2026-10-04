@@ -22,7 +22,7 @@ acquisition handle 管理、热重载、Sink 背压/派发）。
 ``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import logging

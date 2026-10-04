@@ -124,7 +124,13 @@ def write_functional_config(
         device_models=device_models,
         sinks=sinks
         if sinks is not None
-        else [{"name": "null_sink", "type": "file", "connection": {"path": "/tmp/wind-hub-null.jsonl"}}],
+        else [
+            {
+                "name": "null_sink",
+                "type": "file",
+                "connection": {"path": "/tmp/wind-hub-null.jsonl"},
+            }
+        ],
         tasks=tasks if tasks is not None else [dict(DEFAULT_TASK)],
         system={
             "runtime": {

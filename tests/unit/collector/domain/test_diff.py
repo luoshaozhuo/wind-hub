@@ -9,7 +9,7 @@
   ``points_changed=True``。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig

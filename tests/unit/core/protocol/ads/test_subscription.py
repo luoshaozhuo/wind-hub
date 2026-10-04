@@ -6,7 +6,7 @@ delivery path.  ``pyads.Connection`` / ``pyads.NotificationAttrib`` are replaced
 by fakes; the callback is invoked directly to simulate pyads' worker thread.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 from datetime import datetime

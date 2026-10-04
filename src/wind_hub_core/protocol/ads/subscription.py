@@ -12,7 +12,7 @@ pyads 回调对象缺少稳定类型标注，因此 connection/handle/callback �
 Any；这些类型不会进入 ProtocolPort 或领域模型。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import contextlib

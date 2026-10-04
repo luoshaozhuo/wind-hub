@@ -6,7 +6,6 @@ import asyncio
 from typing import Any
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
