@@ -56,6 +56,19 @@ async def ctl_status(proc: CollectorProcess) -> dict[str, Any] | None:
     return json.loads(result.stdout)
 
 
+async def ctl_instance_states(proc: CollectorProcess) -> dict[str, str] | None:
+    """经 ctl task-instances 查询实例状态表（instance_id → state）。
+
+    与 status 的 ``acquisitions[].running``（一次 collect 执行中的瞬态
+    标志）不同，这是实例的生命周期状态（RUNNING/STOPPED）——任务控制
+    断言必须用它。RPC 失败返回 None（继续轮询）。
+    """
+    result = await run_ctl_async("task-instances", target=proc.grpc_target)
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return {item["instance_id"]: item["state"] for item in json.loads(result.stdout)["items"]}
+
+
 async def wait_status(
     proc: CollectorProcess,
     predicate: Callable[[dict[str, Any]], bool],

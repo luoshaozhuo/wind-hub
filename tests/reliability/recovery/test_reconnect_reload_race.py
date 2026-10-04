@@ -15,14 +15,19 @@ import pytest
 
 from tests.component.collector.conftest import update_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import ctl_status, wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import (
+    ctl_instance_states,
+    ctl_status,
+    wait_status,
+    write_modbus_file_config,
+)
 from tests.support.control import (
     apply_placement_and_start_instance,
     reload_config,
     stop_instance,
 )
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_jsonl, wait_file_rows, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -116,27 +121,26 @@ class TestStopTaskDuringReconnect:
             proc, lambda p: p["devices_connected"] == 0, description="device disconnected"
         )
 
-        # ---- reconnect/backoff 进行中停止实例 ----
+        # ---- reconnect/backoff 进行中停止实例（断言生命周期状态，非 collect 瞬态） ----
         await stop_instance(proc.grpc_target, INSTANCE_ID)
-        await wait_status(
-            proc,
-            lambda p: any(
-                a["instance_id"] == INSTANCE_ID and not a["running"]
-                for a in p["acquisitions"]
-            ),
-            description="instance stopped",
-        )
+
+        async def _stopped() -> bool | None:
+            states = await ctl_instance_states(proc)
+            if states is None:
+                return None
+            return True if states.get(INSTANCE_ID) == "stopped" else None
+
+        await wait_until(_stopped, timeout=15.0, description="instance STOPPED")
 
         # ---- 设备恢复：reconnect 成功不得顺带把实例拉起来 ----
         await modbus_server.start()
         await asyncio.sleep(3.0)  # 覆盖至少一次重连成功 + 若干采集周期
 
-        status = await ctl_status(proc)
-        assert status is not None
-        instance = next(
-            a for a in status["acquisitions"] if a["instance_id"] == INSTANCE_ID
+        states = await ctl_instance_states(proc)
+        assert states is not None
+        assert states.get(INSTANCE_ID) == "stopped", (
+            f"device recovery resurrected a stopped task: {states}"
         )
-        assert instance["running"] is False, "device recovery resurrected a stopped task"
 
         # 数据面保持静默（等残余缓冲落盘后行数不再增长）。
         await asyncio.sleep(1.0)
