@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — 系统（引擎、ADS 本机、Sink、接口）
+# wind-hub 配置模板 — 系统（引擎、ADS 本机、接口）
 # ---------------------------------------------------------------------------
 #
 # 本目录是完整、自包含的配置模板：复制整个目录后按现场修改即可作为
@@ -34,31 +34,6 @@ ads:
   username: "Administrator"
   password: ""
 
-sinks:
-  # Sink 定义 — Task 的 targets 通过名称引用它们
-
-  - name: kafka_main
-    type: kafka
-    enabled: false
-    params:
-      bootstrap_servers: "localhost:9092"
-      topic: wind-hub.raw
-
-  - name: db_main
-    type: db
-    enabled: false
-    params:
-      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
-      table: points
-      batch_size: 1000
-
-  - name: file_archive
-    type: file
-    enabled: true
-    params:
-      path: /var/tmp/wind-hub/archive.jsonl
-      format: jsonl
-      compress: false
 
 interfaces:
   api:

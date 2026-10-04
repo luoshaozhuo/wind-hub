@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
 
@@ -34,7 +34,7 @@ def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue
 
 
 def _sink(path: Path, **params: object) -> FileSink:
-    return FileSink(SinkConfig(name="file", type="file", params={"path": str(path), **params}))
+    return FileSink(SinkConfig(name="file", type="file", connection={"path": str(path), **params}))
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -137,7 +137,7 @@ class TestFailureSemantics:
 class TestConfigValidation:
     def test_missing_path_rejected(self) -> None:
         with pytest.raises(ConfigError, match="path"):
-            FileSink(SinkConfig(name="file", type="file", params={}))
+            FileSink(SinkConfig(name="file", type="file", connection={}))
 
     def test_invalid_format_rejected(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigError, match="format"):

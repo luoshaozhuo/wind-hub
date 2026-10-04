@@ -42,6 +42,9 @@ class MockAdsConnection:
     def close(self) -> None:
         self.is_open = False
 
+    def read_state(self) -> tuple[int, int]:
+        return (5, 0)
+
     def get_symbol(self, name: str) -> object:
         return SimpleNamespace(
             index_group=0x4020,

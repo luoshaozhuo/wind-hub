@@ -46,7 +46,7 @@ async def collector(
             {
                 "name": "file_sink",
                 "type": "file",
-                "params": {
+                "connection": {
                     "path": str(tmp_path / "out" / "telemetry.jsonl"),
                     "buffer_size": 4,
                     "flush_interval": 0.5,

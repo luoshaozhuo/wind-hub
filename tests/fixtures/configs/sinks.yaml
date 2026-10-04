@@ -1,0 +1,8 @@
+# 测试配置：由测试工厂把名为 null_sink 的合法 file Sink 替换为 NullSink。
+sinks:
+  - name: null_sink
+    type: file
+    enabled: true
+    connection:
+      path: /tmp/wind-hub-null.jsonl
+    points: []

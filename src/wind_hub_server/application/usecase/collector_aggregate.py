@@ -6,7 +6,6 @@ import asyncio
 from typing import Any
 
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort
 from wind_hub_server.application.usecase.config import ConfigUseCase
 from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
 
@@ -112,7 +111,7 @@ class CollectorAggregateUseCase:
         return {
             "running": running,
             "device_count": len(self._config.current_config.devices.devices),
-            "sink_count": len(self._config.current_config.system.sinks),
+            "sink_count": len(self._config.current_config.sinks.sinks),
             "devices_connected": sum(1 for row in devices if bool(row.get("connected"))),
             "sinks_healthy": sum(1 for row in sinks if bool(row.get("healthy"))),
             "points_collected": points_collected,
@@ -197,7 +196,7 @@ class CollectorAggregateUseCase:
             }
 
         rows: list[dict[str, Any]] = []
-        for cfg in self._config.current_config.system.sinks:
+        for cfg in self._config.current_config.sinks.sinks:
             owners = self._assignments.worker_ids_for_sink(cfg.name)
             states = [
                 worker_sinks.get(worker_id, {}).get(cfg.name)

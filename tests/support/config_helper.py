@@ -2,7 +2,7 @@
 
 生产配置目录是完全独立、自包含的完整配置集（``system.yaml`` /
 ``units.yaml`` / ``device_models.yaml`` / ``points.yaml`` /
-``devices.yaml`` / ``tasks.yaml``，``reporting.yaml`` 可选）。
+``devices.yaml`` / ``tasks.yaml`` / ``sinks.yaml``）。
 :func:`write_config_tree` 把整套文件直接写进 ``base`` 并返回 ``base``
 （即 ``load_config`` 的参数），与生产 loader 的目录规则一致。
 
@@ -140,7 +140,6 @@ def write_config_tree(
     sinks: list[dict[str, Any]] | None = None,
     tasks: list[dict[str, Any]] | None = None,
     system: dict[str, Any] | None = None,
-    reporting: dict[str, Any] | None = None,
 ) -> Path:
     """在 ``base`` 下写出自包含配置集，返回配置目录（即 ``base``）。"""
     base = Path(base)
@@ -166,14 +165,25 @@ def write_config_tree(
     )
     _write_yaml(base, "points.yaml", {"point_tables": tables})
 
-    system_data: dict[str, Any] = {
-        "sinks": sinks if sinks is not None else [{"name": "s1", "type": "file"}]
-    }
+    system_data: dict[str, Any] = {}
     if system:
         system_data.update(system)
     _write_yaml(base, "system.yaml", system_data)
+    _write_yaml(
+        base,
+        "sinks.yaml",
+        {
+            "sinks": sinks
+            if sinks is not None
+            else [
+                {
+                    "name": "s1",
+                    "type": "file",
+                    "connection": {"path": "/tmp/wind-hub-test.jsonl"},
+                }
+            ]
+        },
+    )
     _write_yaml(base, "devices.yaml", {"devices": instances})
     _write_yaml(base, "tasks.yaml", {"tasks": tasks or []})
-    if reporting is not None:
-        _write_yaml(base, "reporting.yaml", reporting)
     return base

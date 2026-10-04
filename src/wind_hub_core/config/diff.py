@@ -20,8 +20,8 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     )
     devices.unchanged = sorted((old_ids & new_ids) - set(devices.updated))
 
-    old_sinks = {item.name: item for item in old.system.sinks}
-    new_sinks = {item.name: item for item in new.system.sinks}
+    old_sinks = {item.name: item for item in old.sinks.sinks}
+    new_sinks = {item.name: item for item in new.sinks.sinks}
     old_sink_ids, new_sink_ids = set(old_sinks), set(new_sinks)
     sinks = SinkDiff(
         added=sorted(new_sink_ids - old_sink_ids),

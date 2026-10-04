@@ -51,11 +51,26 @@ class ConfigUseCase:
         self._prepared_diff: ConfigDiff | None = None
         self._prepared_hash: str | None = None
         self._reload_lock = asyncio.Lock()
+        self._local_reload_sequence = 0
 
         # 初始快照必须由组合根注入（assemble 启动阶段的唯一一次
         # load_config 结果）——本类不自行加载，避免启动配置被重复加载、
         # 以及两次加载之间文件变化导致 Runtime 实际配置与 diff 基线不一致。
         self._current = current_config
+
+    async def reload(self) -> ReloadResult:
+        """本地一次性执行 prepare + activate 热重载。
+
+        分布式配置事务仍通过 prepare_config/activate_config 两阶段 RPC；
+        本方法用于 Collector 本地控制与组件测试，不绕过任何校验或 Runtime
+        reconfigure 语义。
+        """
+        self._local_reload_sequence += 1
+        revision_id = f"local-{self._local_reload_sequence}"
+        prepared = await self.prepare_config(revision_id)
+        if not prepared.success:
+            return prepared
+        return await self.activate_config(revision_id)
 
     @property
     def config_dir(self) -> Path:

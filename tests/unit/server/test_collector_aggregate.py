@@ -108,9 +108,10 @@ async def test_snapshot_verifies_identity_once_and_aggregates_all_views() -> Non
                     )
                 ]
             ),
-            system=SimpleNamespace(
+            sinks=SimpleNamespace(
                 sinks=[SimpleNamespace(name="archive")]
             ),
+            system=SimpleNamespace(),
         )
     )
     aggregate = CollectorAggregateUseCase(

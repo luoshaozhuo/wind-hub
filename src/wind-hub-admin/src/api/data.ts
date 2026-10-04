@@ -19,7 +19,8 @@ interface TaskDto {
   interval:number|null; targets:string[]; enabled:boolean; runtime_state:string;
 }
 interface SinkDto {
-  name:string; type:'kafka'|'db'|'file'; enabled:boolean; params:Record<string,unknown>;
+  name:string; type:'kafka'|'db'|'file'|'iec104'|'modbus'; enabled:boolean;
+  connection:Record<string,unknown>; points?:Record<string,unknown>[];
   healthy:boolean; message?:string|null; queue_depth:number
 }
 interface SettingsDto {
@@ -197,7 +198,8 @@ function hydrateSinks(rows:SinkDto[]){
   store.sinks=rows.map(row=>{
     const old=previous[row.name]
     return {
-      name:row.name,type:row.type,enabled:row.enabled,params:{...row.params},
+      name:row.name,type:row.type,enabled:row.enabled,
+      connection:{...row.connection},points:(row.points||[]).map(point=>({...point})),
       runtime_state:!row.enabled?'disabled':row.healthy?'healthy':'failed',
       last_test_at:old?.last_test_at||'',last_write_at:old?.last_write_at||'',
       latency_ms:old?.latency_ms||0,error:row.message||'',queue_depth:row.queue_depth,
@@ -302,7 +304,8 @@ function adminStatePayload(){
       point_group:t.point_group,interval:t.interval,sinks:[...t.sinks],enabled:t.enabled,
     })),
     sinks:store.sinks.map(s=>({
-      name:s.name,type:s.type,enabled:s.enabled,params:{...s.params},
+      name:s.name,type:s.type,enabled:s.enabled,
+      connection:{...s.connection},points:s.points.map(point=>({...point})),
     })),
     definitions:definitionsPayload(),
   }

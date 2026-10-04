@@ -22,7 +22,6 @@ import logging
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
 
 from pymodbus.datastore import (
     ModbusDeviceContext,
@@ -34,14 +33,14 @@ from pymodbus.server import ModbusTcpServer
 from wind_hub_collector.adapter.inbound.iec104_slave import (
     DataSnapshot,
     IEC104SlaveHandlers,
-    SlaveBridge,
 )
 from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
     MAX_ASDU_PAYLOAD_BYTES,
     OBJECT_SIZE_BYTES,
 )
 from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
-from wind_hub_core.model.command import CommandResult
+from wind_hub_collector.application.sink_export import SinkReferenceExporter
+from wind_hub_core.config.sinks import IEC104SinkAddress, ResolvedSinkPoint, SinkSource
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
@@ -175,26 +174,24 @@ class _PerfIEC104Slave:
 
         self._snapshot = DataSnapshot()
         self._point_ids = [f"mv.{i:04d}" for i in range(num_points)]
-        self._ioa_mapping = {
-            (device_id, pid): IEC104_IOA_BASE + i for i, pid in enumerate(self._point_ids)
-        }
-        data_type_mapping = {ioa: "M_ME_NC_1" for ioa in self._ioa_mapping.values()}
-        reverse_mapping = {ioa: key for key, ioa in self._ioa_mapping.items()}
-
-        dispatcher = MagicMock()
-        dispatcher.send = AsyncMock(
-            side_effect=lambda cmd: CommandResult(command_id=cmd.command_id, success=True)
-        )
-        bridge = SlaveBridge(
-            dispatcher=dispatcher,
-            snapshot=self._snapshot,
-            mapping=self._ioa_mapping,
-        )
+        definitions = [
+            ResolvedSinkPoint(
+                source=SinkSource(device_id=device_id, point_id=pid),
+                ref=f"{device_id}.{pid}",
+                source_data_type="float32",
+                source_unit="none",
+                datatype="float32",
+                unit="none",
+                address=IEC104SinkAddress(
+                    ioa=IEC104_IOA_BASE + i,
+                    type_id="M_ME_NC_1",
+                ),
+            )
+            for i, pid in enumerate(self._point_ids)
+        ]
+        self._exporter = SinkReferenceExporter(definitions)
         self._handlers = IEC104SlaveHandlers(
             snapshot=self._snapshot,
-            data_type_mapping=data_type_mapping,
-            reverse_mapping=reverse_mapping,
-            bridge=bridge,
             common_address=1,
             batch_size=IEC104_BATCH_SIZE,
         )
@@ -265,8 +262,7 @@ class _PerfIEC104Slave:
             )
             for i, pid in enumerate(self._point_ids)
         ]
-        # bridge 的 mapping 与快照构造时一致，直接复用其刷新路径。
-        self._snapshot.update(values, self._ioa_mapping)
+        self._snapshot.update(self._exporter.export(values))
 
     async def _push_loop(self) -> None:
         """周期推送：刷新快照 → 对每个已启动的 session 广播 SPONTANEOUS。"""

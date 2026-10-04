@@ -177,8 +177,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
         },
-        "sinks": [{"name": "perf_null", "type": "null", "enabled": True}],
-        "interfaces": {"api": {"enabled": False}, "cli": {"enabled": False}},
+        "interfaces": {"api": {"enabled": False}},
     }
     tasks = {
         "tasks": [
@@ -205,6 +204,17 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
             }
         },
         site / "system.yaml": system,
+        site / "sinks.yaml": {
+            "sinks": [
+                {
+                    "name": "perf_null",
+                    "type": "file",
+                    "enabled": True,
+                    "connection": {"path": str(site / "perf-null.jsonl")},
+                    "points": [],
+                }
+            ]
+        },
         site / "devices.yaml": {"devices": [instance]},
         site / "tasks.yaml": tasks,
     }

@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# wind-hub ADS 示例配置 — 系统（引擎、ADS 本机、Sink、接口）
+# wind-hub ADS 示例配置 — 系统（引擎、ADS 本机、接口）
 # ---------------------------------------------------------------------------
 
 # 当前现场身份 —— 一个 wind-hub 运行实例只对应一个现场
@@ -24,29 +24,6 @@ ads:
   username: "Administrator"
   password: ""
 
-sinks:
-  - name: kafka_main
-    type: kafka
-    enabled: false
-    params:
-      bootstrap_servers: "localhost:9092"
-      topic: wind-hub.raw
-
-  - name: db_main
-    type: db
-    enabled: false
-    params:
-      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
-      table: points
-      batch_size: 1000
-
-  - name: file_archive
-    type: file
-    enabled: true
-    params:
-      path: /var/tmp/wind-hub/archive.jsonl
-      format: jsonl
-      compress: false
 
 interfaces:
   api:

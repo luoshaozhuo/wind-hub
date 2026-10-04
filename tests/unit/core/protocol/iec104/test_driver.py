@@ -7,6 +7,7 @@ TCP connection.
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
@@ -299,7 +300,11 @@ class TestReconnectLogging:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        timeout_logs = [record for record in caplog.records if "reconnect timed out" in record.message]
+        timeout_logs = [
+            record
+            for record in caplog.records
+            if "reconnect timed out" in record.message
+        ]
         assert timeout_logs
         assert timeout_logs[0].exc_info is None
 

@@ -9,9 +9,10 @@
   ``points_changed=True``。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from wind_hub_core.config.diff import compute_diff
+from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -21,7 +22,6 @@ from wind_hub_core.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
-    SinkConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,
@@ -31,16 +31,27 @@ from wind_hub_core.config.schema import (
 from wind_hub_core.model.device import Endpoint
 
 
+def _sink(name: str, sink_type: str = "file") -> ResolvedSinkConfig:
+    if sink_type == "file":
+        connection = {"path": f"/tmp/{name}.jsonl"}
+    elif sink_type == "kafka":
+        connection = {"bootstrap_servers": "localhost:9092", "topic": name}
+    elif sink_type == "db":
+        connection = {"dsn": "postgresql://u@localhost/db", "table": name}
+    else:
+        raise ValueError(sink_type)
+    return ResolvedSinkConfig(name=name, type=sink_type, connection=connection)
+
+
 def _make_config(
     devices: list[DeviceConfig] | None = None,
-    sinks: list[SinkConfig] | None = None,
+    sinks: list[ResolvedSinkConfig] | None = None,
     tables: dict[str, ResolvedPointTable] | None = None,
     tasks: list[CollectionTaskConfig] | None = None,
 ) -> Config:
     return Config(
-        system=SystemConfig(
-            sinks=sinks or [],
-        ),
+        system=SystemConfig(),
+        sinks=ResolvedSinksConfig(sinks=sinks or []),
         units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=devices or []),
         point_tables=ResolvedPointTables(tables=tables or {}),
@@ -104,7 +115,7 @@ def _task(
 def test_empty_diff_identical_configs() -> None:
     cfg = _make_config(
         devices=[_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
         tables={"t1": _table(_point("p1"))},
         tasks=[_task("task-1")],
     )
@@ -129,14 +140,14 @@ def test_empty_diff_identical_configs() -> None:
 def test_device_added() -> None:
     old = _make_config(
         devices=[_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     new = _make_config(
         devices=[
             _device("d1"),
             _device("d2", protocol="ads", endpoint=_ep("10.0.0.2")),
         ],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     diff = compute_diff(old, new)
     assert diff.devices.added == ["d2"]
@@ -156,11 +167,11 @@ def test_device_removed() -> None:
             _device("d1"),
             _device("d2", protocol="ads", endpoint=_ep("10.0.0.2")),
         ],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     new = _make_config(
         devices=[_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     diff = compute_diff(old, new)
     assert diff.devices.removed == ["d2"]
@@ -176,11 +187,11 @@ def test_device_removed() -> None:
 def test_device_endpoint_changed() -> None:
     old = _make_config(
         devices=[_device("d1", endpoint=_ep("10.0.0.1"))],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     new = _make_config(
         devices=[_device("d1", endpoint=_ep("10.0.1.1"))],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     diff = compute_diff(old, new)
     assert diff.devices.updated == ["d1"]
@@ -196,11 +207,11 @@ def test_device_endpoint_changed() -> None:
 def test_device_protocol_changed() -> None:
     old = _make_config(
         devices=[_device("d1")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     new = _make_config(
         devices=[_device("d1", protocol="iec104")],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     diff = compute_diff(old, new)
     assert diff.devices.updated == ["d1"]
@@ -214,11 +225,11 @@ def test_device_protocol_changed() -> None:
 def test_device_enabled_changed() -> None:
     old = _make_config(
         devices=[_device("d1", enabled=True)],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     new = _make_config(
         devices=[_device("d1", enabled=False)],
-        sinks=[SinkConfig(name="s1", type="file")],
+        sinks=[_sink("s1", "file")],
     )
     diff = compute_diff(old, new)
     assert diff.devices.updated == ["d1"]
@@ -230,11 +241,11 @@ def test_device_enabled_changed() -> None:
 
 
 def test_sink_added() -> None:
-    old = _make_config(sinks=[SinkConfig(name="s1", type="file")])
+    old = _make_config(sinks=[_sink("s1", "file")])
     new = _make_config(
         sinks=[
-            SinkConfig(name="s1", type="file"),
-            SinkConfig(name="s2", type="kafka"),
+            _sink("s1", "file"),
+            _sink("s2", "kafka"),
         ],
     )
     diff = compute_diff(old, new)
@@ -245,19 +256,19 @@ def test_sink_added() -> None:
 def test_sink_removed() -> None:
     old = _make_config(
         sinks=[
-            SinkConfig(name="s1", type="file"),
-            SinkConfig(name="s2", type="kafka"),
+            _sink("s1", "file"),
+            _sink("s2", "kafka"),
         ],
     )
-    new = _make_config(sinks=[SinkConfig(name="s1", type="file")])
+    new = _make_config(sinks=[_sink("s1", "file")])
     diff = compute_diff(old, new)
     assert diff.sinks.removed == ["s2"]
     assert diff.sinks.unchanged == ["s1"]
 
 
 def test_sink_updated() -> None:
-    old = _make_config(sinks=[SinkConfig(name="s1", type="file")])
-    new = _make_config(sinks=[SinkConfig(name="s1", type="kafka")])
+    old = _make_config(sinks=[_sink("s1", "file")])
+    new = _make_config(sinks=[_sink("s1", "kafka")])
     diff = compute_diff(old, new)
     assert diff.sinks.updated == ["s1"]
 
@@ -388,8 +399,8 @@ def test_comprehensive_diff() -> None:
             _device("d2", protocol="ads", endpoint=_ep("10.0.0.2")),
         ],
         sinks=[
-            SinkConfig(name="s1", type="file"),
-            SinkConfig(name="s2", type="kafka"),
+            _sink("s1", "file"),
+            _sink("s2", "kafka"),
         ],
         tables={"t1": _table(_point("p1"))},
         tasks=[_task("task-1"), _task("task-2")],
@@ -400,8 +411,8 @@ def test_comprehensive_diff() -> None:
             _device("d3", endpoint=_ep("10.0.0.3")),
         ],
         sinks=[
-            SinkConfig(name="s1", type="kafka"),
-            SinkConfig(name="s3", type="db"),
+            _sink("s1", "kafka"),
+            _sink("s3", "db"),
         ],
         tables={"t1": _table(_point("p1"), _point("p2"))},
         tasks=[_task("task-1", interval=9.0), _task("task-3")],

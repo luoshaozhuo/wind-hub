@@ -24,7 +24,7 @@ from tests.support.config_helper import write_config_tree
 from tests.support.process import free_port
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: list[dict[str, Any]] = [
@@ -66,9 +66,9 @@ DEFAULT_TASK: dict[str, Any] = {
 }
 
 
-def functional_sink_factory(cfg: SinkConfig) -> SinkPort:
+def functional_sink_factory(cfg: ResolvedSinkConfig) -> SinkPort:
     """``null`` 注入 NullSink，其余类型走组合根真实工厂（file/kafka/db）。"""
-    if cfg.type == "null":
+    if cfg.name == "null_sink":
         return NullSink()
     # 复用组合根的适配器装配，避免在测试侧复制第二套 sink 接线。
     from wind_hub_collector.assembly import _create_sink
@@ -124,7 +124,13 @@ def write_functional_config(
         device_models=device_models,
         sinks=sinks
         if sinks is not None
-        else [{"name": "null_sink", "type": "null"}],
+        else [
+            {
+                "name": "null_sink",
+                "type": "file",
+                "connection": {"path": "/tmp/wind-hub-null.jsonl"},
+            }
+        ],
         tasks=tasks if tasks is not None else [dict(DEFAULT_TASK)],
         system={
             "runtime": {
@@ -231,7 +237,7 @@ async def modbus_runtime(
 @pytest.fixture
 async def runtime(
     config_dir: Path,
-    sink_factory: Callable[[SinkConfig], SinkPort],
+    sink_factory: Callable[[ResolvedSinkConfig], SinkPort],
     modbus_server: ModbusMockServer,
     iec104_server: IEC104MockServer,
 ) -> AsyncIterator[AssembledRuntime]:
@@ -242,7 +248,8 @@ async def runtime(
     """
     rt = assemble(config_dir, sink_factory=sink_factory)
     await start_runtime(rt)
-    await rt.tasks.start_all_instances()
+    for instance in await rt.tasks.list_instances():
+        await rt.tasks.start_instance(instance.instance_id)
     try:
         yield rt
     finally:

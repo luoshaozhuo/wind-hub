@@ -35,6 +35,23 @@ class OverviewSnapshot(BaseModel):
     points_dropped: int
 
 
+def _as_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
 class OverviewUseCase:
     """Overview 页的应用层 Read Model。"""
 
@@ -65,21 +82,21 @@ class OverviewUseCase:
                 if bool(status.get("running"))
                 else "stopped"
             ),
-            workers_unavailable=list(status.get("unavailable_workers") or []),
-            device_count=int(status.get("device_count") or 0),
-            devices_connected=int(status.get("devices_connected") or 0),
+            workers_unavailable=_as_str_list(status.get("unavailable_workers")),
+            device_count=_as_int(status.get("device_count")),
+            devices_connected=_as_int(status.get("devices_connected")),
             devices_offline=max(
                 0,
-                int(status.get("device_count") or 0)
-                - int(status.get("devices_connected") or 0),
+                _as_int(status.get("device_count"))
+                - _as_int(status.get("devices_connected")),
             ),
-            sink_count=int(status.get("sink_count") or 0),
-            sinks_healthy=int(status.get("sinks_healthy") or 0),
+            sink_count=_as_int(status.get("sink_count")),
+            sinks_healthy=_as_int(status.get("sinks_healthy")),
             task_count=len(tasks),
             task_instances=sum(task.instance_count for task in tasks),
             task_instances_running=sum(task.running_instances for task in tasks),
             task_instances_failed=sum(task.failed_instances for task in tasks),
-            points_collected=int(status.get("points_collected") or 0),
-            points_routed=int(status.get("points_routed") or 0),
-            points_dropped=int(status.get("points_dropped") or 0),
+            points_collected=_as_int(status.get("points_collected")),
+            points_routed=_as_int(status.get("points_routed")),
+            points_dropped=_as_int(status.get("points_dropped")),
         )

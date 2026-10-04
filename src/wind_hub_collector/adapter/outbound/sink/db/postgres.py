@@ -36,7 +36,7 @@ from typing import Any
 import asyncpg  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import DatabaseSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -71,7 +71,7 @@ _TABLE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 class DBSink(SinkPort):
     """把点值批量写入 PostgreSQL 关系表的输出 sink。
 
-    参数（``SinkConfig.params``）：
+    连接参数（``DatabaseSinkConnection``）：
 
     - ``dsn``（必填）：asyncpg 连接串（如 ``postgresql://user:pass@host/db``）。
     - ``table``（必填）：目标表名，必须匹配 ``[a-zA-Z_][a-zA-Z0-9_]*``（防注入）。
@@ -87,30 +87,17 @@ class DBSink(SinkPort):
     """
 
     def __init__(self, config: SinkConfig) -> None:
-        params = config.params
-
-        self._dsn = self._require_str(params, "dsn")
-        self._table = self._validate_table(self._require_str(params, "table"))
-        self._batch_size = self._positive_int(params.get("batch_size", 1000), "batch_size")
-        self._create_table = bool(params.get("create_table", False))
-        self._schema = self._build_schema(params.get("schema"))
-        self._pool_min_size = self._positive_int(params.get("pool_min_size", 1), "pool_min_size")
-        self._pool_max_size = self._positive_int(params.get("pool_max_size", 10), "pool_max_size")
-        if self._pool_min_size > self._pool_max_size:
-            raise ConfigError(
-                f"DBSink 'pool_min_size' ({self._pool_min_size}) must be <= "
-                f"'pool_max_size' ({self._pool_max_size})"
-            )
-        write_timeout = params.get("write_timeout", _DEFAULT_WRITE_TIMEOUT)
-        if isinstance(write_timeout, bool) or not isinstance(write_timeout, int | float):
-            raise ConfigError(
-                f"DBSink 'write_timeout' must be a positive number, got {write_timeout!r}"
-            )
-        if write_timeout <= 0:
-            raise ConfigError(f"DBSink 'write_timeout' must be > 0, got {write_timeout}")
-        self._write_timeout = float(write_timeout)
-
-        # 运行时状态 —— 由 `asyncio.Lock` 保护；连接池在 open 后创建。
+        connection = config.connection
+        if not isinstance(connection, DatabaseSinkConnection):
+            raise ConfigError("DBSink requires DatabaseSinkConnection")
+        self._dsn = connection.dsn
+        self._table = self._validate_table(connection.table)
+        self._batch_size = connection.batch_size
+        self._create_table = connection.create_table
+        self._schema = self._build_schema(connection.table_schema)
+        self._pool_min_size = connection.pool_min_size
+        self._pool_max_size = connection.pool_max_size
+        self._write_timeout = connection.write_timeout
         self._pool: Any = None
         self._lock = asyncio.Lock()
         self._healthy = True
@@ -118,19 +105,6 @@ class DBSink(SinkPort):
         self._consecutive_failures = 0
 
     # -- 参数校验 ---------------------------------------------------------
-
-    @staticmethod
-    def _require_str(params: dict[str, Any], field: str) -> str:
-        value = params.get(field)
-        if not isinstance(value, str) or not value:
-            raise ConfigError(f"DBSink '{field}' is required and must be a non-empty string")
-        return value
-
-    @staticmethod
-    def _positive_int(value: object, field: str) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"DBSink '{field}' must be a positive integer, got {value!r}")
-        return value
 
     @staticmethod
     def _validate_table(table: str) -> str:

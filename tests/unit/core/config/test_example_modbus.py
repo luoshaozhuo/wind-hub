@@ -43,9 +43,6 @@ def site_config():
 
 class TestSiteConfigLoading:
     def test_load_config_succeeds(self, site_config) -> None:
-        # reporting.yaml 存在但 reporting 为空列表 = 不启用 IEC104 slave proxy
-        assert site_config.reporting is not None
-        assert site_config.reporting.reporting == []
         assert site_config.system.site is not None
         assert site_config.system.site.site_id == "example_modbus"
 
@@ -102,11 +99,14 @@ class TestSiteConfigLoading:
         assert control_group == CONTROL_POINTS
 
     def test_file_archive_sink_enabled(self, site_config) -> None:
-        sinks = {s.name: s for s in site_config.system.sinks}
+        sinks = {s.name: s for s in site_config.sinks.sinks}
         assert sinks["file_archive"].enabled is True
-        assert sinks["file_archive"].params["path"] == "/var/tmp/wind-hub/archive.jsonl"
+        assert sinks["file_archive"].connection.path == "/var/tmp/wind-hub/archive.jsonl"
         assert sinks["kafka_main"].enabled is False
         assert sinks["db_main"].enabled is False
+        assert sinks["modbus_scada"].enabled is False
+        assert sinks["modbus_scada"].type == "modbus"
+        assert sinks["modbus_scada"].connection.port == 1502
 
 
 class TestSitePointMapping:

@@ -8,7 +8,7 @@ YAML 原始值使用 dict[str, Any] 是安全反序列化后的动态输入边�
 schema 后收敛为强类型配置对象。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from pathlib import Path
 from typing import Any, cast
@@ -17,7 +17,8 @@ import yaml
 
 from wind_hub_core.config.device_resolver import resolve_devices
 from wind_hub_core.config.point_table_resolver import resolve_point_tables
-from wind_hub_core.config.reporting import load_reporting
+from wind_hub_core.config.sink_resolver import resolve_sinks
+from wind_hub_core.config.sinks import SinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -27,7 +28,6 @@ from wind_hub_core.config.schema import (
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
-    ReportingConfig,
     ResolvedPointTables,
     SystemConfig,
     TasksConfig,
@@ -77,6 +77,15 @@ def load_system(path: Path) -> SystemConfig:
         return SystemConfig(**raw)
     except Exception as exc:
         raise ConfigError(f"Invalid system config [{path}]: {exc}") from exc
+
+
+def load_sinks(path: Path) -> SinksConfig:
+    """加载并校验 sinks.yaml 统一 Sink 外部接口契约。"""
+    raw = _read_yaml(path)
+    try:
+        return SinksConfig(**raw)
+    except Exception as exc:
+        raise ConfigError(f"Invalid sinks config [{path}]: {exc}") from exc
 
 
 def load_units(path: Path) -> UnitsConfig:
@@ -182,8 +191,7 @@ def load_config(config_dir: str | Path) -> Config:
     2. points.yaml 并展开点表继承；
     3. devices.yaml 与型号默认值合并为运行时 DeviceConfig；
     4. tasks.yaml；
-    5. 可选 reporting.yaml；
-    6. 执行跨文件引用、协议地址、point_group、Sink target 等一致性校验。
+    5. 执行跨文件引用、协议地址、point_group、Sink target 等一致性校验。
 
     Args:
         config_dir: 完整现场配置目录。
@@ -197,6 +205,7 @@ def load_config(config_dir: str | Path) -> Config:
     base = Path(config_dir)
 
     system = load_system(base / "system.yaml")
+    raw_sinks = load_sinks(base / "sinks.yaml")
     units = load_units(base / "units.yaml")
     device_models = load_device_models(base / "device_models.yaml")
     # Raw 点表 → 继承展开 → Resolved 点表；后续全部校验与运行链路只接触
@@ -207,31 +216,26 @@ def load_config(config_dir: str | Path) -> Config:
     devices = resolve_devices(load_devices(base / "devices.yaml"), device_models)
     tasks = load_tasks(base / "tasks.yaml")
 
-    # reporting.yaml 可选；不存在即不启用 IEC104 slave proxy。
-    reporting: ReportingConfig | None = None
-    reporting_path = base / "reporting.yaml"
-    if reporting_path.is_file():
-        reporting = load_reporting(reporting_path)
-
     _validate_model_point_tables(device_models, point_tables)
     _validate_point_units(point_tables, units)
+    sinks = resolve_sinks(raw_sinks, devices, point_tables, units)
     _validate_table_addresses(point_tables)
     for device in devices.devices:
         _validate_device_binding(device, point_tables)
 
-    sink_names = {s.name for s in system.sinks}
+    sink_names = {s.name for s in sinks.sinks if s.enabled}
     for task in tasks.tasks:
         _validate_task_targets(task, devices, point_tables, sink_names)
 
     return Config(
         system=system,
+        sinks=sinks,
         units=units,
         device_types=device_models.device_types,
         device_models=device_models.device_models,
         devices=devices,
         point_tables=point_tables,
         tasks=tasks,
-        reporting=reporting,
     )
 
 

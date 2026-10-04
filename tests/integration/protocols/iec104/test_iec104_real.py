@@ -70,7 +70,7 @@ async def iec104_driver(tmp_path: Path) -> AsyncIterator[tuple[IEC104Driver, IEC
             }
         ],
         point_tables={"iec104": {"points": list(IEC104_POINTS)}},
-        sinks=[{"name": "null_sink", "type": "null"}],
+        sinks=[],
         tasks=[],
     )
     config = load_config(config_dir)

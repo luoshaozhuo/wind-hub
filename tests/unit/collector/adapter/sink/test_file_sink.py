@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue, Quality
@@ -28,7 +28,7 @@ _CSV_HEADER = "device_id,point_id,value,quality,timestamp,source"
 
 
 def _cfg(path: str, **params: Any) -> SinkConfig:
-    return SinkConfig(name="s1", type="file", params={"path": path, **params})
+    return SinkConfig(name="s1", type="file", connection={"path": path, **params})
 
 
 def _pv(
@@ -60,11 +60,11 @@ def _raise_oserror(*args: object, **kwargs: object) -> None:
 class TestConstruction:
     def test_missing_path_raises_config_error(self) -> None:
         with pytest.raises(ConfigError, match="path"):
-            FileSink(SinkConfig(name="s1", type="file", params={}))
+            FileSink(SinkConfig(name="s1", type="file", connection={}))
 
     def test_empty_path_raises_config_error(self) -> None:
         with pytest.raises(ConfigError, match="path"):
-            FileSink(SinkConfig(name="s1", type="file", params={"path": ""}))
+            FileSink(SinkConfig(name="s1", type="file", connection={"path": ""}))
 
     def test_invalid_format_raises_config_error(self) -> None:
         with pytest.raises(ConfigError, match="format"):

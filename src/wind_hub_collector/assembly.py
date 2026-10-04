@@ -16,18 +16,10 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 # 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
 import wind_hub_core.protocol  # noqa: F401
-from wind_hub_collector.adapter.inbound.iec104_slave import (
-    DataSnapshot,
-    IEC104SlaveHandlers,
-    IEC104SlaveServer,
-    build_data_type_mapping,
-    build_ioa_mapping,
-)
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import Device, Runtime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
@@ -36,12 +28,8 @@ from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.schema import (
-    Config,
-    DeviceConfig,
-    ReportingConfig,
-    SinkConfig,
-)
+from wind_hub_core.config.schema import Config, DeviceConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.protocol.registry import protocol_registry
@@ -61,7 +49,6 @@ class AssembledRuntime:
         tasks: Task / Task Instance 控制用例。
         query: 只读查询用例。
         config: 本地 YAML 增量热重载用例。
-        iec104_slave: 可选 IEC104 reporting 从站代理。
     """
 
     boot_config: Config
@@ -72,12 +59,11 @@ class AssembledRuntime:
     query: QueryUseCase
     config: ConfigUseCase
     metrics_state: CollectorMetricsState
-    iec104_slave: IEC104SlaveServer | None = None
 
 
 def assemble(
     config_dir: str | Path,
-    sink_factory: Callable[[SinkConfig], SinkPort] | None = None,
+    sink_factory: Callable[[ResolvedSinkConfig], SinkPort] | None = None,
 ) -> AssembledRuntime:
     """从 YAML 配置同步装配 Collector，不执行网络 I/O。
 
@@ -93,8 +79,8 @@ def assemble(
         Exception: 协议/Sink 构造阶段的其他配置型异常原样传播。
 
     Notes:
-        本函数只构造对象图和内存映射；设备连接、Sink open、IEC104 reporting
-        监听均在 start_runtime 阶段发生。
+        本函数只构造对象图和内存映射；设备连接与 Sink open 均在
+        start_runtime 阶段发生。
     """
     cfg = load_config(config_dir)
     make_sink = sink_factory or _create_sink
@@ -109,7 +95,7 @@ def assemble(
             protocol=protocol,
         )
 
-    sinks = {sink.name: make_sink(sink) for sink in cfg.system.sinks}
+    sinks = {sink.name: make_sink(sink) for sink in cfg.sinks.sinks if sink.enabled}
 
     metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(
@@ -132,13 +118,6 @@ def assemble(
     query = QueryUseCase(runtime)
     config = ConfigUseCase(config_dir, runtime, cfg)
 
-    iec104_slave: IEC104SlaveServer | None = None
-    if cfg.reporting is not None and cfg.reporting.reporting:
-        iec104_slave = _build_iec104_slave(
-            cfg.reporting,
-            engine,
-        )
-
     return AssembledRuntime(
         boot_config=cfg,
         runtime=runtime,
@@ -148,32 +127,13 @@ def assemble(
         query=query,
         config=config,
         metrics_state=metrics_state,
-        iec104_slave=iec104_slave,
     )
 
 
 async def start_runtime(rt: AssembledRuntime) -> None:
-    """启动 Collector Runtime 及可选 IEC104 reporting 从站。
-
-    Args:
-        rt: 已完成同步装配的 Collector 对象图。
-
-    Notes:
-        Runtime 启动失败会向上传播；可选 IEC104 reporting 从站启动失败仅记录
-        告警并继续，使采集主链路不因附加上送能力失效而退出。
-    """
+    """启动 Collector Runtime。"""
     await _maybe_init_ads_local(rt)
     await rt.runtime.start()
-
-    if rt.iec104_slave is not None:
-        try:
-            await rt.iec104_slave.start()
-            logger.info("IEC104 从站代理已启动")
-        except Exception:
-            logger.warning(
-                "IEC104 从站代理启动失败——Collector 继续运行",
-                exc_info=True,
-            )
 
 
 async def _maybe_init_ads_local(rt: AssembledRuntime) -> None:
@@ -202,24 +162,7 @@ async def stop_runtime(
     rt: AssembledRuntime,
     timeout: float = 30.0,
 ) -> None:
-    """停止可选 IEC104 从站并优雅停止 Collector Runtime。
-
-    Args:
-        rt: 当前 Collector 对象图。
-        timeout: Runtime 整体停机硬超时，单位秒。
-
-    Raises:
-        TimeoutError: Runtime 未在硬超时内完成优雅停机。
-
-    Notes:
-        IEC104 reporting 从站停止失败只记录告警，仍继续释放 Runtime 主资源。
-    """
-    if rt.iec104_slave is not None:
-        try:
-            await rt.iec104_slave.stop()
-        except Exception:
-            logger.warning("IEC104 从站代理停止失败", exc_info=True)
-
+    """在硬超时内优雅停止 Collector Runtime。"""
     await asyncio.wait_for(rt.runtime.stop(), timeout=timeout)
 
 
@@ -228,31 +171,7 @@ def _create_protocol(cfg: DeviceConfig) -> ProtocolPort:
     return protocol_registry.create(cfg.protocol, cfg)
 
 
-def _build_iec104_slave(
-    reporting: ReportingConfig,
-    engine: AcquisitionEngine,
-) -> IEC104SlaveServer:
-    """装配可选 IEC104 reporting 从站代理。"""
-    snapshot = DataSnapshot()
-    ioa_mapping = build_ioa_mapping(reporting.reporting)
-    data_type_mapping = build_data_type_mapping(reporting.reporting)
-    engine.add_observer(partial(snapshot.update, mapping=ioa_mapping))
-
-    handlers = IEC104SlaveHandlers(
-        snapshot=snapshot,
-        data_type_mapping=data_type_mapping,
-        common_address=reporting.common_address,
-        batch_size=reporting.batch_size,
-    )
-    return IEC104SlaveServer(
-        host=reporting.host,
-        port=reporting.port,
-        handlers=handlers,
-        common_address=reporting.common_address,
-    )
-
-
-def _create_sink(cfg: SinkConfig) -> SinkPort:
+def _create_sink(cfg: ResolvedSinkConfig) -> SinkPort:
     """按配置类型懒加载并创建 Collector Sink。
 
     可选 Sink 依赖只在配置实际使用该类型时导入，File-only 部署无需安装
@@ -270,6 +189,15 @@ def _create_sink(cfg: SinkConfig) -> SinkPort:
         from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
 
         return DBSink(cfg)
+    if cfg.type == "iec104":
+        from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
+
+        return IEC104Sink(cfg)
+    if cfg.type == "modbus":
+        from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
+
+        return ModbusSink(cfg)
     raise ConfigError(
-        f"Unknown sink type '{cfg.type}' (available: kafka, file, db)"
+        f"Unknown sink type '{cfg.type}' "
+        "(available: kafka, file, db, iec104, modbus)"
     )

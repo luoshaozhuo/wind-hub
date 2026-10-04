@@ -102,7 +102,7 @@ def _write_config(tmp_path: Path) -> Path:
             {
                 "name": "db",
                 "type": "db",
-                "params": {"dsn": "postgresql://u:p@localhost/windhub", "table": "points"},
+                "connection": {"dsn": "postgresql://u:p@localhost/windhub", "table": "points"},
             },
         ],
         tasks=[

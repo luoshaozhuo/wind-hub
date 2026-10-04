@@ -39,7 +39,7 @@ def build_api_server(
     logger.info(
         "wind-hub-server API 启动中（%d 台设备，%d 个 sink）→ %s:%d",
         len(runtime.config.current_config.devices.devices),
-        len(runtime.config.current_config.system.sinks),
+        len(runtime.config.current_config.sinks.sinks),
         settings.host,
         settings.port,
     )
@@ -272,7 +272,7 @@ async def run_server(settings: ServerSettings) -> int:
         logger.info(
             "wind-hub-server 已启动（%d 台设备，%d 个 sink）；API %s:%d",
             len(runtime.config.current_config.devices.devices),
-            len(runtime.config.current_config.system.sinks),
+            len(runtime.config.current_config.sinks.sinks),
             settings.host,
             settings.port,
         )

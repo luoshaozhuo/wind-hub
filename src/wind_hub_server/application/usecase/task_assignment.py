@@ -6,7 +6,6 @@ import json
 import os
 from enum import StrEnum
 from hashlib import sha256
-from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -274,7 +273,7 @@ class TaskAssignmentUseCase:
         """返回实际向指定 Sink 写入的当前 Collector。"""
         if not any(
             sink.name == sink_name
-            for sink in self._config.current_config.system.sinks
+            for sink in self._config.current_config.sinks.sinks
         ):
             raise KeyError(sink_name)
 

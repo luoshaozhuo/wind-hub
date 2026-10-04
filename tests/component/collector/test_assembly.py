@@ -10,7 +10,8 @@ from wind_hub_collector.application.runtime import Runtime
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.schema import RuntimeConfig, SinkConfig
+from wind_hub_core.config.schema import RuntimeConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 
@@ -50,7 +51,7 @@ def _write_minimal_config(base: Path) -> Path:
             {
                 "name": "archive",
                 "type": "file",
-                "params": {"path": "/tmp/x.csv"},
+                "connection": {"path": "/tmp/x.csv", "format": "csv"},
             }
         ],
         tasks=[
@@ -83,7 +84,7 @@ class _NullSink:
         return HealthStatus(healthy=True)
 
 
-def _null_sink_factory(_cfg: SinkConfig) -> _NullSink:
+def _null_sink_factory(_cfg: ResolvedSinkConfig) -> _NullSink:
     return _NullSink()
 
 
@@ -116,7 +117,6 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "tasks",
             "query",
             "config",
-            "iec104_slave",
             "metrics_state",
         }
         assert set(assembled.__dataclass_fields__) == expected
@@ -186,3 +186,34 @@ async def test_collector_runtime_lifecycle_without_web_components() -> None:
             device.connect = original_connect  # type: ignore[method-assign]
 
         assert assembled.runtime.running is False
+
+
+
+def test_create_sink_supports_modbus() -> None:
+    import wind_hub_collector.assembly as assembly_module
+    from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
+
+    cfg = ResolvedSinkConfig(
+        name="modbus_scada",
+        type="modbus",
+        connection={"host": "127.0.0.1", "port": 1502},
+        points=[
+            {
+                "source": {"device_id": "d1", "point_id": "rotor.speed"},
+                "ref": "d1.rotor.speed",
+                "source_data_type": "float32",
+                "source_unit": "none",
+                "datatype": "float32",
+                "unit": "none",
+                "address": {
+                    "unit_id": 1,
+                    "register_type": "holding",
+                    "address": 100,
+                },
+            }
+        ],
+    )
+
+    sink = assembly_module._create_sink(cfg)  # noqa: SLF001
+    assert isinstance(sink, ModbusSink)
+    assert sink.exclusive_open is True

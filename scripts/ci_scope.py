@@ -65,6 +65,8 @@ def _backend_pr_targets(path: str) -> set[str]:
         "tests/integration/sinks/",
     ):
         targets.add("integration-sinks")
+        if path.startswith("src/wind_hub_collector/adapter/outbound/sink/"):
+            targets.add("system-reload")
 
     if _starts(
         path,

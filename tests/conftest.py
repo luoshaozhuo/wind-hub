@@ -30,7 +30,7 @@ from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 
 FIXTURE_CONFIGS = Path(__file__).resolve().parent / "fixtures" / "configs"
@@ -79,11 +79,11 @@ def config_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def sink_factory() -> Callable[[SinkConfig], SinkPort]:
+def sink_factory() -> Callable[[ResolvedSinkConfig], SinkPort]:
     """``null`` sink 工厂，注入 ``assemble(sink_factory=...)``。"""
 
-    def _factory(cfg: SinkConfig) -> SinkPort:
-        if cfg.type == "null":
+    def _factory(cfg: ResolvedSinkConfig) -> SinkPort:
+        if cfg.name == "null_sink":
             return NullSink()
         raise ConfigError(f"unknown sink type '{cfg.type}' (test factory)")
 

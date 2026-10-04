@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,7 +39,7 @@ def _clean_context() -> None:
 
 
 def _client_with_overview(side_effect: BaseException) -> TestClient:
-    overview = AsyncMock()
+    overview = MagicMock()
     overview.snapshot.side_effect = side_effect
     set_context(AppContext(overview=overview))
     return TestClient(build_api(), raise_server_exceptions=False)
@@ -126,7 +126,7 @@ class TestValidationErrorEnvelope:
 
 class TestEnvelopeStability:
     def test_404_unknown_task_uses_unified_envelope(self) -> None:
-        tasks = AsyncMock()
+        tasks = MagicMock()
         tasks.get_task_summary.side_effect = KeyError("ghost")
         set_context(AppContext(tasks=tasks))
         client = TestClient(build_api(), raise_server_exceptions=False)

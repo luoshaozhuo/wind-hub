@@ -32,6 +32,7 @@ POINTS = "points.yaml"
 DEVICES = "devices.yaml"
 MODELS = "device_models.yaml"
 SYSTEM = "system.yaml"
+SINKS = "sinks.yaml"
 
 
 async def _read_runtime_point(rt, device_id: str, point_id: str):
@@ -91,17 +92,17 @@ class TestTaskChanges:
         self, runtime_factory, tmp_path
     ) -> None:
         async with runtime_factory() as ctx:
-            # 先在 system.yaml 注册第二个 sink，再把 task targets 切过去。
+            # 先在 sinks.yaml 注册第二个 sink，再把 task targets 切过去。
             def add_sink(data: dict[str, Any]) -> None:
                 data["sinks"].append(
                     {
                         "name": "file_sink",
                         "type": "file",
-                        "params": {"path": str(tmp_path / "out" / "data.jsonl")},
+                        "connection": {"path": str(tmp_path / "out" / "data.jsonl")},
                     }
                 )
 
-            update_yaml(ctx.config_dir, SYSTEM, add_sink)
+            update_yaml(ctx.config_dir, SINKS, add_sink)
 
             def retarget(data: dict[str, Any]) -> None:
                 data["tasks"][0]["targets"] = [{"sink": "file_sink"}]
@@ -296,11 +297,11 @@ class TestSinkChanges:
                     {
                         "name": "file_sink",
                         "type": "file",
-                        "params": {"path": str(tmp_path / "added" / "data.jsonl")},
+                        "connection": {"path": str(tmp_path / "added" / "data.jsonl")},
                     }
                 )
 
-            update_yaml(ctx.config_dir, SYSTEM, mutate)
+            update_yaml(ctx.config_dir, SINKS, mutate)
             result = await ctx.rt.config.reload()
             assert result.success, result.errors
             assert result.diff is not None
@@ -316,19 +317,19 @@ class TestSinkChanges:
                     {
                         "name": "file_sink",
                         "type": "file",
-                        "params": {"path": str(tmp_path / "v1" / "data.jsonl")},
+                        "connection": {"path": str(tmp_path / "v1" / "data.jsonl")},
                     }
                 )
 
-            update_yaml(ctx.config_dir, SYSTEM, add_sink)
+            update_yaml(ctx.config_dir, SINKS, add_sink)
             result = await ctx.rt.config.reload()
             assert result.success, result.errors
             before = ctx.rt.sinks["file_sink"]
 
             def move_sink(data: dict[str, Any]) -> None:
-                data["sinks"][1]["params"]["path"] = str(tmp_path / "v2" / "data.jsonl")
+                data["sinks"][1]["connection"]["path"] = str(tmp_path / "v2" / "data.jsonl")
 
-            update_yaml(ctx.config_dir, SYSTEM, move_sink)
+            update_yaml(ctx.config_dir, SINKS, move_sink)
             result = await ctx.rt.config.reload()
             assert result.success, result.errors
             assert result.diff is not None

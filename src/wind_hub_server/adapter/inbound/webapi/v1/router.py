@@ -61,7 +61,10 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
 from wind_hub_server.application.operation import OperationRecord
 from wind_hub_server.application.usecase.admin_state import (
     AdminDefinitionsState,
+    AdminDeviceItem,
+    AdminSinkItem,
     AdminStateUseCase,
+    AdminTaskItem,
 )
 from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
 from wind_hub_server.application.usecase.definitions import DefinitionsUseCase

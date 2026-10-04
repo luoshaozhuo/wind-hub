@@ -29,7 +29,7 @@ from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.reliability.soak.sinks import RecordingSink, percentile
 from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.port import ProtocolPort
@@ -224,20 +224,27 @@ def write_soak_config(
                 }
             )
 
-    sink_params: dict[str, object] = {}
+    sink_connection: dict[str, object] = {}
     if profile.sink == "kafka":
         if kafka_bootstrap is None or kafka_topic is None:
             raise ValueError("kafka profile 需要 kafka_bootstrap / kafka_topic")
-        sink_params = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
+        sink_connection = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
     elif profile.sink == "postgres":
         if postgres_dsn is None or postgres_table is None:
             raise ValueError("postgres profile 需要 postgres_dsn / postgres_table")
-        sink_params = {
+        sink_connection = {
             "dsn": postgres_dsn,
             "table": postgres_table,
             "create_table": True,
         }
 
+    sink_type = {
+        "null": "file",
+        "kafka": "kafka",
+        "postgres": "db",
+    }[profile.sink]
+    if profile.sink == "null":
+        sink_connection = {"path": str(config_dir / "soak-null.jsonl")}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -246,10 +253,18 @@ def write_soak_config(
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
         },
+        "interfaces": {"api": {"enabled": False}},
+    }
+    sinks = {
         "sinks": [
-            {"name": "soak_sink", "type": profile.sink, "enabled": True, "params": sink_params}
-        ],
-        "interfaces": {"api": {"enabled": False}, "cli": {"enabled": False}},
+            {
+                "name": "soak_sink",
+                "type": sink_type,
+                "enabled": True,
+                "connection": sink_connection,
+                "points": [],
+            }
+        ]
     }
     files = {
         config_dir / "units.yaml": {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
@@ -259,6 +274,7 @@ def write_soak_config(
         },
         config_dir / "points.yaml": {"point_tables": point_tables},
         config_dir / "system.yaml": system,
+        config_dir / "sinks.yaml": sinks,
         config_dir / "devices.yaml": {"devices": devices},
         config_dir / "tasks.yaml": {"tasks": tasks},
     }
@@ -304,7 +320,7 @@ async def run_soak(
     table = postgres_table or f"windhub_soak_{uuid.uuid4().hex[:12]}"
     recording_holder: list[RecordingSink] = []
 
-    def _sink_factory(cfg: SinkConfig) -> RecordingSink:
+    def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
         inner = None
         if profile.sink == "kafka":
             from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink

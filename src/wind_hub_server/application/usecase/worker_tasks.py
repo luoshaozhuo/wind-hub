@@ -258,6 +258,14 @@ class CollectorTaskUseCase:
                     TaskSummary.model_validate(
                         {
                             **current,
+                            # 配置定义以 Server 当前成功基线为权威；Monitoring
+                            # 仅提供运行态/实例计数，避免配置 Apply 后仍暴露旧值。
+                            "device": cfg.device,
+                            "device_group": cfg.device_group,
+                            "point_group": cfg.point_group,
+                            "interval": cfg.interval,
+                            "targets": [target.sink for target in cfg.targets],
+                            "enabled": cfg.enabled,
                             "assigned_worker_id": current.get("assigned_worker_id")
                             or assignment.worker_id,
                             "placement_state": assignment.state,
@@ -348,17 +356,21 @@ class CollectorTaskUseCase:
         except CollectorPlacementRejectedError as exc:
             self._reconciled_generation = None
             raise TaskPlacementUnsafeError(str(exc)) from exc
-        return TaskInstanceDetail.model_validate(
+        result = TaskInstanceDetail.model_validate(
             {**data, "assigned_worker_id": current.assigned_worker_id}
         )
+        await self._monitoring.refresh_now()
+        return result
 
     async def stop_instance(self, instance_id: str) -> TaskInstanceDetail:
         current = await self.get_instance(instance_id)
         collector = await self._verified_collector(current.assigned_worker_id)
         data = await collector.stop_task_instance(instance_id)
-        return TaskInstanceDetail.model_validate(
+        result = TaskInstanceDetail.model_validate(
             {**data, "assigned_worker_id": current.assigned_worker_id}
         )
+        await self._monitoring.refresh_now()
+        return result
 
     async def start_task(self, task_id: str) -> TaskSummary:
         self._require_safe_start()
@@ -372,25 +384,29 @@ class CollectorTaskUseCase:
         except CollectorPlacementRejectedError as exc:
             self._reconciled_generation = None
             raise TaskPlacementUnsafeError(str(exc)) from exc
-        return TaskSummary.model_validate(
+        result = TaskSummary.model_validate(
             {
                 **data,
                 "assigned_worker_id": worker_id,
                 "placement_state": TaskPlacementState.ASSIGNED,
             }
         )
+        await self._monitoring.refresh_now()
+        return result
 
     async def stop_task(self, task_id: str) -> TaskSummary:
         worker_id = self._assignments.worker_for_task(task_id)
         collector = await self._verified_collector(worker_id)
         data = await collector.stop_task(task_id)
-        return TaskSummary.model_validate(
+        result = TaskSummary.model_validate(
             {
                 **data,
                 "assigned_worker_id": worker_id,
                 "placement_state": TaskPlacementState.ASSIGNED,
             }
         )
+        await self._monitoring.refresh_now()
+        return result
 
     def _fallback_summary(
         self,

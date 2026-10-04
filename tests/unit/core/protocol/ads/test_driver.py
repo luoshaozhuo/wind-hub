@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import ctypes
 from types import SimpleNamespace
 
@@ -70,6 +69,9 @@ class FakeConnection:
 
     def close(self) -> None:
         self.is_open = False
+
+    def read_state(self) -> tuple[int, int]:
+        return (5, 0)
 
     def read(self, index_group: int, index_offset: int, plc_datatype: object) -> object:
         if not self.is_open:
@@ -601,9 +603,11 @@ class TestConnectFailure:
             raise TimeoutError("timed out")
 
         monkeypatch.setattr(driver, "_do_connect", _timeout_connect)
-        with caplog.at_level(logging.WARNING, logger=ads_driver_module.__name__):
-            with pytest.raises(ProtocolError, match="failed to connect"):
-                await driver.connect()
+        with (
+            caplog.at_level(logging.WARNING, logger=ads_driver_module.__name__),
+            pytest.raises(ProtocolError, match="failed to connect"),
+        ):
+            await driver.connect()
 
         timeout_logs = [record for record in caplog.records if "timed out" in record.message]
         assert len(timeout_logs) == 1

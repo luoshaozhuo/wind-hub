@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import Any, Protocol
+
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
+from wind_hub_collector.application.sink_export import ExportedSinkPointValue
+from wind_hub_core.config.sinks import IEC104SinkAddress
 from wind_hub_core.model.errors import ProtocolError
-from wind_hub_core.model.point import PointValue, Quality
+from wind_hub_core.model.point import Quality
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
@@ -68,19 +71,19 @@ def _quality_flag(q: Quality) -> QualityFlag:
     return QualityFlag(0)
 
 
-def _build_monitor_object(data_type: str, ioa: int, pv: PointValue) -> Any:
-    """按 reporting TypeID 构造监视方向 information object。
+def _build_monitor_object(data_type: str, ioa: int, pv: ExportedSinkPointValue) -> Any:
+    """按 ResolvedSinkPoint 的 IEC104 TypeID 构造监视方向 information object。
 
     Args:
-        data_type: reporting 配置中的 IEC104 TypeID 名称。
+        data_type: ResolvedSinkPoint.address.type_id。
         ioa: 目标 IOA。
-        pv: 最新 PointValue。
+        pv: 最新 ExportedSinkPointValue。
 
     Returns:
         与 TypeID 对应的强类型 information object。
 
     Raises:
-        ProtocolError: data_type 不在已验证白名单。
+        ProtocolError: data_type 不在 IEC104 Sink 白名单。
     """
     q = _quality_flag(pv.quality)
     if data_type == "M_SP_NA_1":
@@ -114,19 +117,19 @@ def _build_monitor_object(data_type: str, ioa: int, pv: PointValue) -> Any:
             quality=q,
             timestamp=from_datetime(pv.timestamp),
         )
-    # ReportingConfig 已做白名单校验；到达这里说明配置验证边界被绕过。
-    raise ProtocolError(f"Unsupported reporting data_type '{data_type}'")
+    # IEC104SinkAddress 已做白名单校验；到达这里说明配置验证边界被绕过。
+    raise ProtocolError(f"Unsupported IEC104 sink type_id '{data_type}'")
 
 
 def _chunk_by_apdu_limit(
-    items: list[tuple[int, PointValue]],
+    items: list[tuple[int, ExportedSinkPointValue]],
     data_type: str,
     batch_size: int,
-) -> Iterator[list[tuple[int, PointValue]]]:
+) -> Iterator[list[tuple[int, ExportedSinkPointValue]]]:
     """按 APDU 硬上限和 batch_size 软上限切分同 TypeID 数据。
 
     Args:
-        items: 同一 TypeID 的 (ioa, PointValue) 列表。
+        items: 同一 TypeID 的 (ioa, ExportedSinkPointValue) 列表。
         data_type: TypeID 名称，用于获取单对象 wire 大小。
         batch_size: 单批对象数量软上限。
 
@@ -134,7 +137,7 @@ def _chunk_by_apdu_limit(
         每个都能装入单个 APDU 的对象批次。
     """
     object_bytes = OBJECT_SIZE_BYTES[data_type]
-    chunk: list[tuple[int, PointValue]] = []
+    chunk: list[tuple[int, ExportedSinkPointValue]] = []
     for item in items:
         if chunk and (
             len(chunk) >= batch_size or (len(chunk) + 1) * object_bytes > MAX_ASDU_PAYLOAD_BYTES
@@ -155,12 +158,10 @@ class IEC104SlaveHandlers:
     def __init__(
         self,
         snapshot: DataSnapshot,
-        data_type_mapping: dict[int, str],
         common_address: int,
         batch_size: int,
     ) -> None:
         self._snapshot = snapshot
-        self._data_type_mapping = data_type_mapping
         self._common_address = common_address
         self._batch_size = batch_size
 
@@ -178,12 +179,12 @@ class IEC104SlaveHandlers:
 
         await self._send_interrogation_confirmation(session, CauseOfTransmission.ACTIVATION_CON)
 
-        grouped: dict[str, list[tuple[int, PointValue]]] = {}
+        grouped: dict[str, list[tuple[int, ExportedSinkPointValue]]] = {}
         for ioa, pv in self._snapshot.get_all():
-            dtype = self._data_type_mapping.get(ioa)
-            if dtype is None:
+            address = pv.definition.address
+            if not isinstance(address, IEC104SinkAddress):
                 continue
-            grouped.setdefault(dtype, []).append((ioa, pv))
+            grouped.setdefault(address.type_id, []).append((ioa, pv))
 
         for dtype, items in grouped.items():
             type_id = TypeID.__members__[dtype]

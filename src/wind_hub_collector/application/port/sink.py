@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
@@ -57,4 +57,18 @@ class SinkPort(Protocol):
 
     def health(self) -> HealthStatus:
         """返回缓存的 Sink 健康状态；不得在该同步接口中执行阻塞 I/O。"""
+        ...
+
+
+@runtime_checkable
+class ExclusiveOpenSinkPort(Protocol):
+    """可选 Sink 能力：重建时必须先关闭旧实例才能打开新实例。
+
+    典型场景是监听固定 TCP 端口的 server 型 Sink。Runtime 仅在实现该能力
+    且 exclusive_open 为 True 时采用 close-first 替换策略。
+    """
+
+    @property
+    def exclusive_open(self) -> bool:
+        """是否要求同名 Sink 重建采用 close-first。"""
         ...

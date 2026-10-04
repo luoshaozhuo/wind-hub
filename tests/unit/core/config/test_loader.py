@@ -159,16 +159,6 @@ class TestLoadConfig:
             cfg = load_config(site)
             assert cfg.tasks.tasks == []
 
-    def test_reporting_yaml_optional(self) -> None:
-        """reporting.yaml 缺失时 reporting 为 None。"""
-        with tempfile.TemporaryDirectory() as td:
-            site = _write_config_dir(
-                Path(td),
-                devices=[_modbus_device()],
-                point_tables=_table([_modbus_point()]),
-            )
-            cfg = load_config(site)
-            assert cfg.reporting is None
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +195,15 @@ class TestMissingFile:
                 Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
             )
             (site / "points.yaml").unlink()
+            with pytest.raises(ConfigError, match="not found"):
+                load_config(site)
+
+    def test_missing_sinks_yaml_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td), devices=[_modbus_device()], point_tables=_table([_modbus_point()])
+            )
+            (site / "sinks.yaml").unlink()
             with pytest.raises(ConfigError, match="not found"):
                 load_config(site)
 
@@ -444,6 +443,25 @@ class TestCrossFileValidation:
                 devices=[_modbus_device()],
                 point_tables=_table([_modbus_point()]),
                 tasks=[_task(targets=[{"sink": "ghost_sink"}])],
+            )
+            with pytest.raises(ConfigError, match="unknown sink"):
+                load_config(site)
+
+    def test_task_targets_disabled_sink_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            site = _write_config_dir(
+                Path(td),
+                devices=[_modbus_device()],
+                point_tables=_table([_modbus_point()]),
+                sinks=[
+                    {
+                        "name": "s1",
+                        "type": "file",
+                        "enabled": False,
+                        "connection": {"path": "/tmp/disabled.jsonl"},
+                    }
+                ],
+                tasks=[_task()],
             )
             with pytest.raises(ConfigError, match="unknown sink"):
                 load_config(site)
@@ -898,11 +916,9 @@ class TestIndividualLoaders:
                 "system.yaml",
                 {
                     "site": {"site_id": "wind_farm_a", "name": "某某风电场"},
-                    "sinks": [{"name": "s1", "type": "kafka"}],
                 },
             )
             cfg = load_system(p)
-            assert cfg.sinks[0].name == "s1"
             assert cfg.site is not None
             assert cfg.site.site_id == "wind_farm_a"
             assert cfg.site.name == "某某风电场"

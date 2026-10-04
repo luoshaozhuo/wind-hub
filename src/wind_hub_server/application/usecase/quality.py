@@ -340,7 +340,7 @@ class QualityUseCase:
             if item.get("name") is not None
         }
         rows: list[QualityChannel] = []
-        for cfg in self._config.current_config.system.sinks:
+        for cfg in self._config.current_config.sinks.sinks:
             current = runtime.get(cfg.name)
             if not cfg.enabled:
                 state = "Disabled"
@@ -349,10 +349,12 @@ class QualityUseCase:
             else:
                 state = "Interrupted"
 
+            connection = cfg.connection.model_dump(mode="json")
             target = str(
-                cfg.params.get("bootstrap_servers")
-                or cfg.params.get("dsn")
-                or cfg.params.get("path")
+                connection.get("bootstrap_servers")
+                or connection.get("dsn")
+                or connection.get("path")
+                or connection.get("host")
                 or "configured"
             )
             queue_depth = _int_field(current, "queue_depth") if current is not None else 0

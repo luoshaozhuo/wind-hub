@@ -629,7 +629,7 @@ class TestDispatchPointValues:
 
 
 class _ReconnectSession:
-    instances: list["_ReconnectSession"] = []
+    instances: list[_ReconnectSession] = []
 
     def __init__(self, **kwargs: object) -> None:
         self.is_started = False

@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub_core.config.schema import SinkConfig
+from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue, Quality
@@ -94,7 +94,7 @@ def _cfg(**params: Any) -> SinkConfig:
     return SinkConfig(
         name="s1",
         type="db",
-        params={"dsn": "postgresql://u@h/db", "table": "t", **params},
+        connection={"dsn": "postgresql://u@h/db", "table": "t", **params},
     )
 
 
@@ -117,11 +117,11 @@ def _pv(point_id: str = "p1", value: Any = 800.0, device_id: str = "d1") -> Poin
 class TestConstruction:
     def test_missing_dsn_raises(self) -> None:
         with pytest.raises(ConfigError, match="dsn"):
-            DBSink(SinkConfig(name="s1", type="db", params={"table": "t"}))
+            DBSink(SinkConfig(name="s1", type="db", connection={"table": "t"}))
 
     def test_missing_table_raises(self) -> None:
         with pytest.raises(ConfigError, match="table"):
-            DBSink(SinkConfig(name="s1", type="db", params={"dsn": "postgresql://u@h/db"}))
+            DBSink(SinkConfig(name="s1", type="db", connection={"dsn": "postgresql://u@h/db"}))
 
     def test_invalid_batch_size_raises(self) -> None:
         with pytest.raises(ConfigError, match="batch_size"):

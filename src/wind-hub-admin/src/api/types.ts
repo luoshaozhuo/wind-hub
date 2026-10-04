@@ -105,7 +105,7 @@ export interface TaskDef {
   updated_at: string
 }
 
-export type SinkType = 'kafka' | 'db' | 'file'
+export type SinkType = 'kafka' | 'db' | 'file' | 'iec104' | 'modbus'
 export type SinkRuntimeState = 'unknown' | 'healthy' | 'warning' | 'failed' | 'disabled' | 'testing'
 export type SinkCheckState = 'passed' | 'warning' | 'failed' | 'skipped'
 export type SinkCheckLayer = 'network' | 'protocol' | 'target' | 'filesystem'
@@ -132,7 +132,8 @@ export interface SinkDef {
   name: string
   type: SinkType
   enabled: boolean
-  params: Record<string, unknown>
+  connection: Record<string, unknown>
+  points: Record<string, unknown>[]
   runtime_state: SinkRuntimeState
   last_test_at: string
   last_write_at: string

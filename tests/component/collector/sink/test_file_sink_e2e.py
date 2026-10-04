@@ -76,7 +76,7 @@ def _write_config(tmp_path: Path, sink_path: Path, **sink_params: Any) -> Path:
             },
         },
         sinks=[
-            {"name": "file", "type": "file", "params": {"path": str(sink_path), **sink_params}},
+            {"name": "file", "type": "file", "connection": {"path": str(sink_path), **sink_params}},
         ],
         tasks=[
             {

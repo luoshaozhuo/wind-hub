@@ -22,7 +22,7 @@ acquisition handle 管理、热重载、Sink 背压/派发）。
 ``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import asyncio
 import logging
@@ -39,6 +39,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
+from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
 from wind_hub_core.config.schema import (
     CollectionTaskConfig,
     Config,
@@ -49,7 +50,6 @@ from wind_hub_core.config.schema import (
     ResolvedPointTable,
     ResolvedPointTables,
     RuntimeConfig,
-    SinkConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,
@@ -59,7 +59,7 @@ from wind_hub_core.config.schema import (
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
-from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, TaskDiff
+from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
 from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
 # ---------------------------------------------------------------------------
@@ -245,13 +245,22 @@ def _full_config(
     tasks: list[CollectionTaskConfig],
     tables: dict[str, ResolvedPointTable] | None = None,
     sink_names: tuple[str, ...] = ("s1", "s2"),
+    sink_enabled: dict[str, bool] | None = None,
 ) -> Config:
     if tables is None:
         tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
     return Config(
-        system=SystemConfig(
-            runtime=_runtime_config(),
-            sinks=[SinkConfig(name=n, type="file") for n in sink_names],
+        system=SystemConfig(runtime=_runtime_config()),
+        sinks=ResolvedSinksConfig(
+            sinks=[
+                ResolvedSinkConfig(
+                    name=n,
+                    type="file",
+                    connection={"path": f"/tmp/{n}.jsonl"},
+                    enabled=(sink_enabled or {}).get(n, True),
+                )
+                for n in sink_names
+            ]
         ),
         units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
         devices=DevicesConfig(devices=list(devices)),
@@ -1087,6 +1096,135 @@ class TestReconfigure:
             assert proto.connect.await_count == 1
         finally:
             await rt.stop()
+
+
+# ---------------------------------------------------------------------------
+# Sink 热重载生命周期
+# ---------------------------------------------------------------------------
+class _ExclusiveSink:
+    def __init__(self, events: list[str], name: str, fail_open: bool = False) -> None:
+        self.events = events
+        self.name = name
+        self.fail_open = fail_open
+
+    @property
+    def exclusive_open(self) -> bool:
+        return True
+
+    async def open(self) -> None:
+        self.events.append(f"{self.name}:open")
+        if self.fail_open:
+            raise OSError("bind failed")
+
+    async def close(self) -> None:
+        self.events.append(f"{self.name}:close")
+
+    async def write(self, batch: list[PointValue]) -> None:
+        del batch
+
+    async def flush(self) -> None:
+        self.events.append(f"{self.name}:flush")
+
+    def health(self) -> HealthStatus:
+        return HealthStatus(healthy=True)
+
+
+
+class TestSinkReloadLifecycle:
+    async def test_enabled_to_disabled_removes_runtime_sink(self) -> None:
+        rt, _, sinks, _ = _build_runtime(devices=[], tasks=[], sink_names=("s1",))
+        await rt.start()
+        try:
+            old_sink = sinks["s1"]
+            new_cfg = _full_config(
+                devices=[],
+                tasks=[],
+                sink_names=("s1",),
+                sink_enabled={"s1": False},
+            )
+            errors = await rt.reconfigure(
+                new_cfg,
+                ConfigDiff(sinks=SinkDiff(updated=["s1"])),
+            )
+            assert errors == []
+            assert "s1" not in rt.sinks
+            old_sink.close.assert_awaited_once()
+        finally:
+            await rt.stop()
+
+    async def test_disabled_to_enabled_adds_runtime_sink(self) -> None:
+        created = _mock_sink()
+        factory = MagicMock(return_value=created)
+        rt, _, _, _ = _build_runtime(
+            devices=[],
+            tasks=[],
+            sink_names=(),
+            sink_factory=factory,
+        )
+        await rt.start()
+        try:
+            new_cfg = _full_config(devices=[], tasks=[], sink_names=("s1",))
+            errors = await rt.reconfigure(
+                new_cfg,
+                ConfigDiff(sinks=SinkDiff(updated=["s1"])),
+            )
+            assert errors == []
+            assert rt.sinks["s1"] is created
+            factory.assert_called_once()
+            created.open.assert_awaited_once()
+        finally:
+            await rt.stop()
+
+    async def test_exclusive_sink_closes_old_before_opening_new(self) -> None:
+        events: list[str] = []
+        old_sink = _ExclusiveSink(events, "old")
+        new_sink = _ExclusiveSink(events, "new")
+        rt = Runtime(
+            devices={},
+            sinks={"s1": old_sink},
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+            config=_runtime_config(),
+            tasks={},
+        )
+
+        await rt.rebuild_sink(
+            "s1",
+            ResolvedSinkConfig(
+                name="s1",
+                type="file",
+                connection={"path": "/tmp/s1.jsonl"},
+            ),
+            new_sink,
+        )
+
+        assert events[:3] == ["old:flush", "old:close", "new:open"]
+        assert rt.sinks["s1"] is new_sink
+
+    async def test_exclusive_sink_open_failure_restores_old_instance(self) -> None:
+        events: list[str] = []
+        old_sink = _ExclusiveSink(events, "old")
+        new_sink = _ExclusiveSink(events, "new", fail_open=True)
+        rt = Runtime(
+            devices={},
+            sinks={"s1": old_sink},
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+            config=_runtime_config(),
+            tasks={},
+        )
+
+        with pytest.raises(OSError, match="bind failed"):
+            await rt.rebuild_sink(
+                "s1",
+                ResolvedSinkConfig(
+                    name="s1",
+                    type="file",
+                    connection={"path": "/tmp/s1.jsonl"},
+                ),
+                new_sink,
+            )
+
+        assert events == ["old:flush", "old:close", "new:open", "old:open"]
+        assert rt.sinks["s1"] is old_sink
 
 
 # ---------------------------------------------------------------------------

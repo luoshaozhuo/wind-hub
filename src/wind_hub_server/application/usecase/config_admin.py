@@ -21,12 +21,12 @@ from wind_hub_server.application.usecase.config import Config, ConfigUseCase, co
 
 CONFIG_FILES = (
     "system.yaml",
+    "sinks.yaml",
     "units.yaml",
     "device_models.yaml",
     "points.yaml",
     "devices.yaml",
     "tasks.yaml",
-    "reporting.yaml",
 )
 
 
@@ -76,13 +76,9 @@ class ConfigAdminUseCase:
         self._apply_lock = asyncio.Lock()
 
     def list_files(self) -> list[ConfigFileInfo]:
-        """列出固定配置集；reporting.yaml 是唯一可选文件。"""
+        """列出固定配置集。"""
         return [
-            ConfigFileInfo(
-                name=name,
-                exists=(self._base / name).is_file(),
-                optional=name == "reporting.yaml",
-            )
+            ConfigFileInfo(name=name, exists=(self._base / name).is_file())
             for name in CONFIG_FILES
         ]
 

@@ -1,7 +1,7 @@
 """Modbus 驱动 × 真实 Modbus TCP server 集成测试。
 
-被测组件是 :class:`ModbusDriver` 本身（含 pymodbus 客户端、重连
-monitor、编解码路径）；对端是真实的 pymodbus server fixture——
+被测组件是 :class:`ModbusDriver` 本身（含 pymodbus 客户端、连接生命周期
+与编解码路径）；对端是真实的 pymodbus server fixture——
 不 monkeypatch 任何一方。写入经 fixture server 独立客户端回读确认。
 """
 
@@ -16,7 +16,6 @@ import pytest
 from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.process import free_port
-from tests.support.wait import wait_until
 from wind_hub_core.config.loader import load_config
 from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command
@@ -128,26 +127,22 @@ class TestWrite:
 
 
 class TestReconnect:
-    async def test_driver_recovers_after_server_restart(self, modbus_driver) -> None:
+    async def test_driver_reconnects_when_caller_requests_connect(
+        self, modbus_driver
+    ) -> None:
         driver, server = modbus_driver
         await driver.connect()
 
         await server.stop()
         with pytest.raises(ProtocolError):
             await driver.read([_ref("rotor.speed")])
+        assert driver.health().healthy is False
 
         await server.start()
-        # monitor 后台重连：轮询直到读恢复。
-        async def _probe() -> list | None:
-            try:
-                values = await driver.read([_ref("rotor.speed")])
-            except ProtocolError:
-                return None
-            return values if values[0].quality is Quality.GOOD else None
+        await driver.connect()
 
-        values = await wait_until(
-            _probe, timeout=15.0, description="modbus driver reconnects"
-        )
+        values = await driver.read([_ref("rotor.speed")])
+        assert values[0].quality is Quality.GOOD
         assert values[0].value == pytest.approx(1200.5)
         assert driver.health().healthy is True
 

@@ -33,7 +33,8 @@ class AdminSinkItem(BaseModel):
     name: str
     type: str
     enabled: bool = True
-    params: dict[str, Any] = Field(default_factory=dict)
+    connection: dict[str, Any]
+    points: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AdminDefinitionsState(BaseModel):
@@ -61,6 +62,7 @@ class AdminStateUseCase:
             "devices.yaml",
             "tasks.yaml",
             "system.yaml",
+            "sinks.yaml",
             "units.yaml",
             "device_models.yaml",
             "points.yaml",
@@ -69,9 +71,9 @@ class AdminStateUseCase:
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             documents["devices.yaml"] = self._devices_document(devices)
             documents["tasks.yaml"] = self._tasks_document(tasks)
-            documents["system.yaml"]["sinks"] = [
-                item.model_dump(mode="json") for item in sinks
-            ]
+            documents["sinks.yaml"] = {
+                "sinks": [item.model_dump(mode="json") for item in sinks]
+            }
             documents.update(self._definition_documents(definitions))
 
         return await self._admin.mutate_yaml_files(
