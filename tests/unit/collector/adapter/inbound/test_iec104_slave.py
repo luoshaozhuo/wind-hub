@@ -18,10 +18,11 @@ from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
 from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
 from wind_hub_collector.application.sink_export import SinkReferenceExporter
 from wind_hub_core.config.sinks import IEC104SinkAddress, ResolvedSinkPoint, SinkSource
-from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.iec104.codec import (
     ASDU,
     CauseOfTransmission,
+    QualityFlag,
     SingleCommand,
     TypeID,
     encode_asdu,
@@ -187,6 +188,73 @@ class TestInterrogation:
             assert len(asdu.objects) * OBJECT_SIZE_BYTES["M_SP_NA_1"] <= MAX_ASDU_PAYLOAD_BYTES
             assert len(encode_asdu(asdu)) <= MAX_APDU_ASDU_BYTES
         assert len(data) == 9
+
+
+class TestQualityMapping:
+    """内部 Quality 到线上 QDS（一字节品质描述词）的映射。
+
+    直接断言总召发出的 ASDU 信息对象 quality 位，并以 M_ME_NC_1 的
+    wire bytes 末字节（QDS）复核，不停留在内部枚举层面。
+    """
+
+    async def _interrogated_objects(
+        self,
+        quality: Quality,
+    ) -> tuple[object, object]:
+        snap = _snapshot(
+            _definitions(),
+            [
+                PointValue(
+                    device_id="wtg-001",
+                    point_id="rotor.speed",
+                    value=1.0,
+                    quality=quality,
+                ),
+                PointValue(
+                    device_id="wtg-001",
+                    point_id="gen.power",
+                    value=2.0,
+                    quality=quality,
+                ),
+                PointValue(
+                    device_id="wtg-001",
+                    point_id="status.running",
+                    value=True,
+                    quality=quality,
+                ),
+            ],
+        )
+        rec = _RecordingSession()
+        await _make_handlers(snap).handle_interrogation(_interrogation(), rec)
+        meas = next(a for a, _ in rec.sent if a.type_id == TypeID.M_ME_NC_1)
+        single = next(a for a, _ in rec.sent if a.type_id == TypeID.M_SP_NA_1)
+        return meas, single
+
+    async def test_good_quality_maps_to_zero_qds(self) -> None:
+        meas, single = await self._interrogated_objects(Quality.GOOD)
+        assert all(o.quality == QualityFlag(0) for o in meas.objects)  # type: ignore[attr-defined]
+        assert single.objects[0].quality == QualityFlag(0)  # type: ignore[attr-defined]
+
+    async def test_bad_quality_maps_to_iv(self) -> None:
+        meas, single = await self._interrogated_objects(Quality.BAD)
+        assert all(o.quality == QualityFlag.IV for o in meas.objects)  # type: ignore[attr-defined]
+        assert single.objects[0].quality == QualityFlag.IV  # type: ignore[attr-defined]
+
+    async def test_uncertain_quality_maps_to_nt(self) -> None:
+        meas, single = await self._interrogated_objects(Quality.UNCERTAIN)
+        assert all(o.quality == QualityFlag.NT for o in meas.objects)  # type: ignore[attr-defined]
+        assert single.objects[0].quality == QualityFlag.NT  # type: ignore[attr-defined]
+
+    async def test_wire_qds_byte_matches_information_object(self) -> None:
+        meas, _ = await self._interrogated_objects(Quality.BAD)
+        single_object_asdu = ASDU(
+            type_id=TypeID.M_ME_NC_1,
+            cause=meas.cause,
+            common_address=meas.common_address,
+            objects=[meas.objects[0]],
+        )
+        # M_ME_NC_1 wire 布局：ASDU header + IOA(3) + float32(4) + QDS(1)。
+        assert encode_asdu(single_object_asdu)[-1] == QualityFlag.IV
 
 
 class _FakeWriter:

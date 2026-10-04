@@ -389,6 +389,10 @@ class TestSessionWithEchoServer:
         # with a silent server.
 
         # Create a temporary server that eats all data silently.
+        # asyncio.start_server 只为连接回调创建孤儿 task；这里显式持有
+        # handler task 集合，teardown 时统一 cancel + await，避免泄漏。
+        handler_tasks: set[asyncio.Task[None]] = set()
+
         async def _silent_handler(
             reader: asyncio.StreamReader,
             writer: asyncio.StreamWriter,
@@ -402,8 +406,16 @@ class TestSessionWithEchoServer:
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
 
+        def _on_client(
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+        ) -> None:
+            task = asyncio.ensure_future(_silent_handler(reader, writer))
+            handler_tasks.add(task)
+            task.add_done_callback(handler_tasks.discard)
+
         silent_srv = await asyncio.start_server(
-            _silent_handler,
+            _on_client,
             host="127.0.0.1",
             port=0,
         )
@@ -423,3 +435,9 @@ class TestSessionWithEchoServer:
             silent_srv.close()
             with contextlib.suppress(Exception):
                 await silent_srv.wait_closed()
+            pending = list(handler_tasks)
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
