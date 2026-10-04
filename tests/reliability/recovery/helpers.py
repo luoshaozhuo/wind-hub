@@ -8,6 +8,7 @@ consumer、输出文件行数——不读取 Collector 进程内部状态。
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -180,13 +181,32 @@ class KafkaFlowObserver:
         current = asyncio.current_task()
         try:
             await self._consumer.stop()
+            return
         except asyncio.CancelledError:
-            # aiokafka 0.12 fetcher.close() 等待内部 fetch 任务时，若该任务
-            # 正在处理 broker 死亡引发的 NodeNotReadyError，对内部任务的取消
-            # 会穿透到 stop() 的调用方。只有外层任务自身被取消（真正的测试
-            # 取消）才向上传播，否则视为清理噪声——观测结论早已完成。
+            # aiokafka 0.14 fetcher.close() 对 _pending_tasks 的 cancel+await
+            # 不抑制 CancelledError（fetcher.py:455-457；同文件 _fetch_task
+            # 与 client.py 均正确抑制）——对内部任务的取消穿透到 stop() 的
+            # 调用方。只有外层任务自身被取消（真正的测试取消）才向上传播。
             if current is not None and current.cancelling() > 0:
                 raise
         except KafkaError:
             # broker 尚未恢复时的关闭失败不影响已完成的观测结论。
             pass
+        # stop() 因上述 bug 在 client.close() 之前中断，且 _closed 标记使其
+        # 不可重入——_md_synchronizer 与连接 reader 任务会滞留为 pending
+        # （事件循环收尾时打印 "Task was destroyed but it is pending!"）。
+        # 公开 API 已无可重入的关闭路径，只能经底层 client 释放剩余资源。
+        with contextlib.suppress(Exception):
+            await self._consumer._client.close()
+
+
+def aiokafka_stray_tasks() -> list[asyncio.Task[Any]]:
+    """当前事件循环中仍 pending 的 aiokafka 内部任务（排除调用方自身）。"""
+    current = asyncio.current_task()
+    return [
+        task
+        for task in asyncio.all_tasks()
+        if task is not current
+        and task.get_coro() is not None
+        and "aiokafka" in task.get_coro().cr_code.co_filename
+    ]

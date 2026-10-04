@@ -18,6 +18,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.services import compose
 from tests.reliability.recovery.helpers import (
     KafkaFlowObserver,
+    aiokafka_stray_tasks,
     telemetry_task,
     wait_status,
 )
@@ -98,6 +99,10 @@ class TestKafkaOutageRecovery:
             if broker_stopped:
                 compose.compose_start_service("kafka")
             await observer.close()
+            # 观测器关闭后不得滞留 aiokafka 内部任务（client/connection
+            # 未释放会在事件循环收尾时变成 "Task was destroyed but it is
+            # pending!" 噪声）。
+            assert not aiokafka_stray_tasks()
 
 
 @pytest.mark.postgres

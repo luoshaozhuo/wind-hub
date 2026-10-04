@@ -17,7 +17,11 @@ import pytest
 from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.services import compose
-from tests.reliability.recovery.helpers import telemetry_task, wait_status
+from tests.reliability.recovery.helpers import (
+    aiokafka_stray_tasks,
+    telemetry_task,
+    wait_status,
+)
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess
 from tests.support.wait import (
@@ -103,6 +107,9 @@ class TestKafkaOutageIsolation:
         finally:
             if broker_stopped:
                 compose.compose_start_service("kafka")
+            # 独立验证 consumer 全部成对 stop——滞留 aiokafka 任务会在
+            # 事件循环收尾时变成 pending task 噪声。
+            assert not aiokafka_stray_tasks()
 
 
 @pytest.mark.postgres
