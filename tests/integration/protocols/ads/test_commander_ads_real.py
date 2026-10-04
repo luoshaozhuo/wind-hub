@@ -83,7 +83,7 @@ def _write_ads_config(base: Path) -> Path:
             }
         ],
         point_tables={"ads": {"points": points}},
-        sinks=[{"name": "null_sink", "type": "null"}],
+        sinks=[],
         tasks=[],
         system=system,
     )
