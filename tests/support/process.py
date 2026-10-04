@@ -163,6 +163,14 @@ class CollectorProcess:
         """关闭日志文件句柄（进程退出后调用）。"""
         self._log_file.close()  # type: ignore[attr-defined]
 
+    def fd_count(self) -> int:
+        """主进程当前打开的 FD 数（/proc 采样，含 socket/文件/管道）。
+
+        短周期故障测试的资源泄漏观测点：reconnect/reload 循环前后对比，
+        单调增长即句柄泄漏。仅 Linux（测试执行环境）可用。
+        """
+        return len(os.listdir(f"/proc/{self.proc.pid}/fd"))
+
 
 def start_collector(
     config_dir: Path,

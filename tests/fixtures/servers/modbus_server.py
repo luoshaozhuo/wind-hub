@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import struct
+from typing import Any
 
 from pymodbus.datastore import (
     ModbusDeviceContext,
@@ -22,6 +25,7 @@ from pymodbus.datastore import (
 )
 from pymodbus.pdu import ModbusPDU
 from pymodbus.server import ModbusTcpServer
+from pymodbus.server.requesthandler import ServerRequestHandler
 
 MODBUS_PORT = 15020
 
@@ -54,6 +58,32 @@ def _holding_registers(
     return values
 
 
+class _TrackedModbusTcpServer(ModbusTcpServer):
+    """跟踪活动连接 handler 的 ModbusTcpServer（fixture 内部使用）。
+
+    pymodbus ``shutdown()`` 只关监听 socket，不触碰活动连接的 handler
+    task；故障测试反复起停时，滞留 handler 会在事件循环收尾时变成
+    "Task was destroyed but it is pending" 噪声。跟踪 handler 是为了
+    在 stop 时主动断开（与 IEC104MockServer.stop 的语义一致）。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.active_handlers: set[ServerRequestHandler] = set()
+
+    def callback_new_connection(self) -> ServerRequestHandler:
+        handler = super().callback_new_connection()
+        self.active_handlers.add(handler)
+        original = handler.callback_disconnected
+
+        def _disconnected(exc: Exception | None = None) -> None:
+            self.active_handlers.discard(handler)
+            original(exc)
+
+        handler.callback_disconnected = _disconnected  # type: ignore[method-assign]
+        return handler
+
+
 class ModbusMockServer:
     """异步生命周期的 Modbus TCP 从站。
 
@@ -63,20 +93,29 @@ class ModbusMockServer:
     默认寄存器布局见模块 docstring；``holding`` / ``inputs`` 可整体替换
     unit 1 的保持/输入寄存器块（按 wire address 索引的完整寄存器列表），
     供需要自定义点表布局的测试使用（如 example_modbus 配置联调）。
+
+    ``host`` 默认 127.0.0.1；传入其他 loopback 地址（如 127.0.0.2）可构造
+    「同机不同 IP」的对端，供 endpoint host 变化类故障测试使用。
     """
 
     def __init__(
         self,
         port: int = MODBUS_PORT,
         *,
+        host: str = "127.0.0.1",
         holding: list[int] | None = None,
         inputs: list[int] | None = None,
     ) -> None:
+        self._host = host
         self._port = port
         self._holding = holding
         self._inputs = inputs
         self._server: ModbusTcpServer | None = None
         self._write_count = 0
+
+    @property
+    def host(self) -> str:
+        return self._host
 
     @property
     def port(self) -> int:
@@ -114,17 +153,26 @@ class ModbusMockServer:
         )
         # single=False：按 unit id 分派（1 / 2 各自独立数据块）。
         context = ModbusServerContext({1: unit1, 2: unit2}, single=False)
-        self._server = ModbusTcpServer(
+        self._server = _TrackedModbusTcpServer(
             context,
-            address=("127.0.0.1", self._port),
+            address=(self._host, self._port),
             trace_pdu=self._trace_pdu,
         )
         await self._server.serve_forever(background=True)
 
     async def stop(self) -> None:
-        """关闭从站并释放端口。"""
+        """关闭从站并释放端口；先主动断开活动客户端连接。"""
         if self._server is not None:
+            for handler in list(self._server.active_handlers):
+                with contextlib.suppress(Exception):
+                    handler.close()
+            self._server.active_handlers.clear()
             await self._server.shutdown()
+            # 断开在 handler 侧触发的回调（call_soon 排队的 handle_request
+            # 等）需要事件循环迭代才能排空；这里是 fixture 收尾的确定性
+            # 排空，不是时序猜测——fixture 返回后测试事件循环随即关闭。
+            for _ in range(3):
+                await asyncio.sleep(0)
             self._server = None
 
     async def read_holding(self, unit_id: int, address: int, count: int = 1) -> list[int]:
@@ -136,7 +184,7 @@ class ModbusMockServer:
         """
         from pymodbus.client import AsyncModbusTcpClient
 
-        client = AsyncModbusTcpClient("127.0.0.1", port=self._port)
+        client = AsyncModbusTcpClient(self._host, port=self._port)
         await client.connect()
         try:
             rr = await client.read_holding_registers(address, count=count, device_id=unit_id)

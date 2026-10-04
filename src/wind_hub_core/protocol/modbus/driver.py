@@ -215,18 +215,31 @@ class ModbusDriver:
     async def _do_connect(self) -> None:
         """延迟导入 pymodbus，创建并连接 AsyncModbusTcpClient。
 
+        重建前必须释放旧 client：断线后重连走的是「新建 client」路径，
+        不主动关闭会让旧 socket 以 ESTABLISHED 状态滞留（每次重连泄漏
+        一个 FD）。连接尝试失败同样要关闭半成品 client。
+
         Raises:
             ImportError: 实际使用 Modbus 但环境未安装 modbus extra。
             ProtocolError: TCP client 返回连接失败。
         """
         from pymodbus.client import AsyncModbusTcpClient
 
+        self._close_client()
         client = AsyncModbusTcpClient(
             self._config.host,
             port=self._config.port,
             timeout=self._config.timeout,
+            # 必须是 0：pymodbus 默认 retries=3 会在响应丢失时自动重发
+            # 请求——对写命令这意味着 PLC 侧重复执行（响应丢了 ≠ 没执行）。
+            # 重试/退避由 Runtime 层统一负责（见 connect docstring）。
+            retries=0,
         )
-        connected = await client.connect()
+        try:
+            connected = await client.connect()
+        except Exception:
+            client.close()
+            raise
         if not connected:
             client.close()
             raise ProtocolError(
@@ -241,8 +254,13 @@ class ModbusDriver:
                 client.close()
 
     def _signal_disconnect(self) -> None:
-        """标记连接断开；后续重连由调用方显式 connect() 驱动。"""
+        """标记连接断开并释放已死 client；后续重连由调用方显式 connect() 驱动。
+
+        连接既已判定死亡，socket 必须立即关闭——否则重连前旧 FD 一直
+        滞留（flap 场景每次断连泄漏一个）。
+        """
         self._connected = False
+        self._close_client()
 
     # ------------------------------------------------------------------
     # ProtocolPort：读取

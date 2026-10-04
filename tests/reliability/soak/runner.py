@@ -527,24 +527,36 @@ async def _health_watch(
 
 
 async def _write_loop(rt: AssembledRuntime, profile: SoakProfile, stats: WriteStats) -> None:
-    """混合读写：按 write_interval_s 轮询向各设备下发写命令（值确定性轮换）。"""
+    """混合读写：按 write_interval_s 轮询向各设备下发写命令（值确定性轮换）。
+
+    命令路径与 Commander 一致：经 DeviceSession.write 直达协议 Driver。
+    soak 是单进程场景，无 Commander 幂等/路由层；断连或传输异常按失败
+    计数，不中断写循环。
+    """
     assert profile.write_interval_s is not None
     device_ids = [f"{g.name}-{i:03d}" for g in profile.groups for i in range(g.devices)]
     tick = 0
     while True:
         await asyncio.sleep(profile.write_interval_s)
         device_id = device_ids[tick % len(device_ids)]
-        result = await rt.command.send(
-            Command(
-                command_id=uuid.uuid4().hex,
-                device_id=device_id,
-                point_id="r.0000",
-                value=tick % 0x8000,
-            )
-        )
         stats.commands += 1
-        if not result.success:
+        try:
+            results = await rt.runtime.devices[device_id].write(
+                [
+                    Command(
+                        command_id=uuid.uuid4().hex,
+                        device_id=device_id,
+                        point_id="r.0000",
+                        value=tick % 0x8000,
+                    )
+                ]
+            )
+        except Exception:
+            # 断连/传输失败 = 本次写失败；写循环本身必须持续。
             stats.failures += 1
+        else:
+            if not results or not results[0].success:
+                stats.failures += 1
         tick += 1
 
 

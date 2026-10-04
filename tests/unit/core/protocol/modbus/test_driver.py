@@ -488,3 +488,232 @@ class TestWordOrder:
         values = await driver.read([PointRef(device_id="test-dev", point_id="sp")])
         await driver.close()
         assert values[0].value == 123456
+
+
+# ---------------------------------------------------------------------------
+# client 生命周期：一个 Driver 任意时刻最多拥有一个有效 client
+# ---------------------------------------------------------------------------
+
+
+def _patch_client_factory(
+    monkeypatch: pytest.MonkeyPatch, created: list[_FakeClient]
+) -> None:
+    """每次 connect 生成独立 FakeClient 并记录，用于追踪关闭情况。"""
+
+    def _factory(*args: object, **kwargs: object) -> _FakeClient:
+        client = _FakeClient()
+        created.append(client)
+        return client
+
+    monkeypatch.setattr("pymodbus.client.AsyncModbusTcpClient", _factory)
+
+
+class TestClientLifecycle:
+    async def test_read_transport_error_closes_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """读传输异常 → 断连判定 → 死 client 必须立即关闭。"""
+        client = _FakeClient()
+        client.read_holding_registers.side_effect = ConnectionError("reset by peer")
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("p", "holding", 100)])
+        await driver.connect()
+
+        with pytest.raises(ProtocolError, match="read failed"):
+            await driver.read([PointRef(device_id="test-dev", point_id="p")])
+
+        client.close.assert_called_once()
+        assert driver.health().healthy is False
+
+    async def test_write_transport_error_closes_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """写传输异常 → 断连判定 → 死 client 必须立即关闭。"""
+        client = _FakeClient()
+        client.write_register.side_effect = ConnectionError("reset by peer")
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("sp", "holding", 200, data_type="int16")])
+        await driver.connect()
+
+        with pytest.raises(ProtocolError, match="write failed"):
+            await driver.write(
+                [Command(command_id="c1", device_id="test-dev", point_id="sp", value=1)]
+            )
+
+        client.close.assert_called_once()
+        assert driver.health().healthy is False
+
+    async def test_connect_exception_closes_half_initialized_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """connect 过程中抛异常（refused/timeout 等）→ 半成品 client 必须关闭。"""
+        client = _FakeClient()
+        client.connect = AsyncMock(side_effect=ConnectionRefusedError("refused"))
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        with pytest.raises(ProtocolError, match="failed to connect"):
+            await driver.connect()
+
+        client.close.assert_called_once()
+        assert driver.health().healthy is False
+
+    async def test_connect_rejected_closes_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """connect 返回 False（对端拒绝）→ client 必须关闭。"""
+        client = _FakeClient()
+        client.connect = AsyncMock(return_value=False)
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        with pytest.raises(ProtocolError, match="failed to connect"):
+            await driver.connect()
+
+        client.close.assert_called_once()
+
+    async def test_reconnect_closes_previous_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """断连后重连：新建 client 前旧 client 必须已关闭，不许直接覆盖。"""
+        created: list[_FakeClient] = []
+        _patch_client_factory(monkeypatch, created)
+
+        driver = ModbusDriver(_make_device_config())
+        await driver.connect()
+        first = created[0]
+        first.close.assert_not_called()
+
+        # 模拟断连（health 变 False 后 Runtime 驱动重连）。
+        first.read_holding_registers.side_effect = ConnectionError("reset by peer")
+        driver.set_points_mapping([_make_point_config("p", "holding", 100)])
+        with pytest.raises(ProtocolError):
+            await driver.read([PointRef(device_id="test-dev", point_id="p")])
+        first.close.assert_called_once()
+
+        await driver.connect()
+        assert len(created) == 2
+        assert driver.health().healthy is True
+        await driver.close()
+        created[1].close.assert_called_once()
+
+    async def test_close_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """close 幂等：重复调用不 raise、不 double-close、不遗留 client。"""
+        client = _FakeClient()
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        await driver.connect()
+        await driver.close()
+        await driver.close()
+
+        client.close.assert_called_once()
+        assert driver.health().healthy is False
+
+    async def test_close_without_connect_is_noop(self) -> None:
+        """从未 connect 的 driver 直接 close 安全。"""
+        driver = ModbusDriver(_make_device_config())
+        await driver.close()
+        assert driver.health().healthy is False
+
+    async def test_ten_flap_cycles_leak_no_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """10 次断连/重连：创建的 client 数与关闭数相等，无 client 泄漏。"""
+        created: list[_FakeClient] = []
+        _patch_client_factory(monkeypatch, created)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("p", "holding", 100)])
+
+        for _ in range(10):
+            await driver.connect()
+            current = created[-1]
+            current.read_holding_registers.side_effect = ConnectionError("reset by peer")
+            with pytest.raises(ProtocolError):
+                await driver.read([PointRef(device_id="test-dev", point_id="p")])
+            assert driver.health().healthy is False
+
+        # 每次断连都关闭了对应 client；最后一次重连前同样先清死 client。
+        for client in created:
+            client.close.assert_called_once()
+        assert len(created) == 10
+
+        # 最终恢复并关闭：最后建连的 client 也随之释放，关闭总数 == 创建总数。
+        await driver.connect()
+        assert len(created) == 11
+        await driver.close()
+        for client in created:
+            client.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 异常响应分类（§10）：Modbus exception response ≠ 断连
+# ---------------------------------------------------------------------------
+
+
+class TestExceptionResponse:
+    """异常响应（Illegal Function/Illegal Data Address/Slave Failure 等）表示
+    链路活着、对端明确拒绝请求——Runtime 依据「异常链无 OSError + 驱动
+    health 仍 healthy」把它分类为非连接级失败。本类固定这一契约。"""
+
+    @staticmethod
+    def _assert_no_oserror_in_chain(exc: BaseException) -> None:
+        current: BaseException | None = exc
+        while current is not None:
+            assert not isinstance(current, OSError), (
+                f"异常响应不得携带 OSError cause（会被误分类为连接级失败）: {current!r}"
+            )
+            current = current.__cause__
+
+    async def test_read_exception_response_keeps_connection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = _FakeClient()
+        client.read_holding_registers.return_value = _FakeResponse(error=True)
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping([_make_point_config("gen.power", "holding", 300)])
+        await driver.connect()
+
+        with pytest.raises(ProtocolError, match="exception response") as excinfo:
+            await driver.read([PointRef(device_id="test-dev", point_id="gen.power")])
+
+        self._assert_no_oserror_in_chain(excinfo.value)
+        # 连接保持：health 仍 healthy，后续读不触发重连。
+        assert driver.health().healthy is True
+
+        client.read_holding_registers.return_value = _FakeResponse(
+            registers=_float32_registers(42.5)
+        )
+        values = await driver.read([PointRef(device_id="test-dev", point_id="gen.power")])
+        assert values[0].quality == Quality.GOOD
+        await driver.close()
+        client.connect.assert_awaited_once()  # 全程没有第二次 connect
+
+    async def test_write_exception_response_fails_command_but_keeps_connection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = _FakeClient()
+        client.write_register.return_value = _FakeResponse(error=True)
+        _patch_client(monkeypatch, client)
+
+        driver = ModbusDriver(_make_device_config())
+        driver.set_points_mapping(
+            [_make_point_config("sp", "holding", 200, data_type="int16")]
+        )
+        await driver.connect()
+
+        results = await driver.write(
+            [Command(command_id="c1", device_id="test-dev", point_id="sp", value=1)]
+        )
+        assert results[0].success is False
+        assert "rejected" in (results[0].error or "")
+        assert driver.health().healthy is True
+        await driver.close()
+        client.connect.assert_awaited_once()

@@ -11,12 +11,15 @@ placement 语义：StartTask/StartTaskInstance 要求先经 ApplyTaskPlacement
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import grpc
+from google.protobuf import empty_pb2
 
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
+from wind_hub_core.rpc.collector_codec import metrics_snapshot_to_dict
 
 #: ``tests.support.process.start_collector`` 的默认 collector_id。
 DEFAULT_WORKER_ID = "system-test"
@@ -110,6 +113,21 @@ async def reload_config(
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
         return await stub.ActivateConfig(pb.ActivateConfigRequest(revision_id=revision_id))
+    finally:
+        await channel.close()
+
+
+async def metrics_snapshot(target: str) -> dict[str, Any]:
+    """查询 Collector 指标快照（connect_failures/reconnects 等累计计数）。
+
+    backoff 与 reconnect 行为的边界观测点：计数单调不减，测试用前后差值
+    度量窗口内的 connect 尝试次数。
+    """
+    channel = grpc.aio.insecure_channel(target)
+    stub = pb_grpc.CollectorRuntimeServiceStub(channel)
+    try:
+        response = await stub.GetMetricsSnapshot(empty_pb2.Empty(), timeout=5.0)
+        return metrics_snapshot_to_dict(response)
     finally:
         await channel.close()
 
