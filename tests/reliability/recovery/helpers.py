@@ -43,7 +43,7 @@ def write_modbus_file_config(
     return write_functional_config(
         base,
         port,
-        sinks=[{"name": "file_sink", "type": "file", "params": params}],
+        sinks=[{"name": "file_sink", "type": "file", "connection": params}],
         tasks=[telemetry_task("file_sink")],
     )
 
