@@ -95,7 +95,7 @@ class QueryUseCase:
         """
         return [
             self._device_info(device_id, device.config)
-            for device_id, device in self._runtime.devices.items()
+            for device_id, device in self._runtime.device_runtime.devices.items()
         ]
 
     async def status(self) -> SystemStatus:
@@ -144,16 +144,16 @@ class QueryUseCase:
         )
 
     def _device_info(self, device_id: str, cfg: DeviceConfig) -> DeviceInfo:
-        """从设备配置 + 协议健康状态 + CollectorRuntime 设备运行状态构造
+        """从设备配置 + 协议健康状态 + DeviceRuntime 设备运行状态构造
         :class:`DeviceInfo`。
 
         ``last_seen`` 暂无逐设备读取墙钟时间戳追踪，恒为 ``None``（诚实
-        空缺）；连接健康与重连计数来自 CollectorRuntime 的 DeviceRuntimeState。
+        空缺）；连接健康与重连计数来自 DeviceRuntime 的 DeviceRuntimeState。
         """
-        device = self._runtime.devices.get(device_id)
-        state = self._runtime.device_state(device_id)
+        device = self._runtime.device_runtime.devices.get(device_id)
+        state = self._runtime.device_runtime.device_state(device_id)
         # connected 以驱动实时 health 为准（驱动自带重连监控时比 CollectorRuntime
-        # 的记账更新）；consecutive_failures/last_error 来自 CollectorRuntime 的
+        # 的记账更新）；consecutive_failures/last_error 来自 DeviceRuntime 的
         # 重连节流状态。
         connected = device.health().healthy if device is not None else False
         return DeviceInfo(

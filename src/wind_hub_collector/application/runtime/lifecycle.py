@@ -22,25 +22,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _is_connection_level(exc: BaseException) -> bool:
-    """判断异常链是否属于常见连接级失败。
-
-    Args:
-        exc: 捕获到的异常。
-
-    Returns:
-        异常或其 cause 为 TimeoutError/ConnectionRefusedError/OSError 时返回 True。
-    """
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        if isinstance(current, TimeoutError | ConnectionRefusedError | OSError):
-            return True
-        current = current.__cause__
-    return False
-
-
 class RuntimeLifecycle:
     """持有 CollectorRuntime 的启动/停机编排逻辑，避免 CollectorRuntime 主类继续膨胀。"""
 
@@ -59,40 +40,7 @@ class RuntimeLifecycle:
             self._runtime._running = True
             self._runtime._started = False
 
-            # 点映射已在装配期（组合根 / add_device / rebuild_device）注入
-            # 到各 Device 的协议实例，这里只做连接。
-            for device_id, device in self._runtime._devices.items():
-                try:
-                    await asyncio.wait_for(
-                        device.connect(),
-                        timeout=self._runtime._config.connect_timeout,
-                    )
-                    self._runtime._state_for(device_id).mark_success(self._runtime._clock())
-                    logger.info("Device '%s' connected", device_id)
-                except TimeoutError:
-                    self._runtime._note_connect_failure(
-                        device_id,
-                        TimeoutError("connect timeout"),
-                    )
-                    logger.warning(
-                        "connect timeout: device=%s timeout=%.1fs — skipped",
-                        device_id,
-                        self._runtime._config.connect_timeout,
-                    )
-                except Exception as exc:
-                    self._runtime._note_connect_failure(device_id, exc)
-                    if _is_connection_level(exc):
-                        logger.warning(
-                            "Device '%s' failed to connect — skipped: %s",
-                            device_id,
-                            exc,
-                        )
-                    else:
-                        logger.warning(
-                            "Device '%s' failed to connect — skipped",
-                            device_id,
-                            exc_info=True,
-                        )
+            await self._runtime.device_runtime.connect_all()
 
             for name, sink in self._runtime._sinks.items():
                 try:
@@ -159,8 +107,4 @@ class RuntimeLifecycle:
                 except Exception:
                     logger.warning("Sink '%s' close failed", name, exc_info=True)
 
-            for device_id, device in self._runtime._devices.items():
-                try:
-                    await device.close()
-                except Exception:
-                    logger.warning("Device '%s' close failed", device_id, exc_info=True)
+            await self._runtime.device_runtime.close_all()

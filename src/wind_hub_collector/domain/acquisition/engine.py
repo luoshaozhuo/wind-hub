@@ -17,7 +17,7 @@
 
 - 「什么时候执行」——那是 application/runtime 的 acquisition handle
   （fixed-rate polling / subscription）的职责；
-- Protocol / Device 的创建、连接与关闭——那是 Runtime 的生命周期职责；
+- Protocol / Device 的创建、连接与关闭——那是 DeviceRuntime 的生命周期职责；
 - Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托给
   实现方（Runtime）。
 
@@ -78,7 +78,7 @@ class SinkDispatchPort(Protocol):
 class DeviceStatePort(Protocol):
     """设备连接状态端口——采集前确保连接、采集后上报结果。
 
-    由 Runtime 实现：引擎**不管理 Protocol 生命周期**（不重连、不计
+    由 DeviceRuntime 实现：引擎**不管理 Protocol 生命周期**（不重连、不计
     失败次数），只在「读之前问一句能否读、读之后如实报告结果」。
     :meth:`ensure_connected` 返回 ``False``（断线且重连节流中）时本次
     采集直接跳过——断线设备不再发起注定失败的 read，也不形成连接风暴。
@@ -202,7 +202,7 @@ class AcquisitionEngine:
 
         绑定后 :meth:`collect` 在读之前经 :meth:`DeviceStatePort.ensure_connected`
         确认设备可用（断线设备在此完成带节流的重连），读之后上报结果；
-        协议实例的生命周期仍完全属于 Runtime。
+        协议实例的生命周期完全属于 DeviceRuntime。
         """
         self._device_state = device_state
 

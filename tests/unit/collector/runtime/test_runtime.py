@@ -303,8 +303,8 @@ class TestEnsureConnected:
         await rt.start()
         try:
             proto = protos["d1"]
-            assert rt.device_state("d1") is not None
-            assert rt.device_state("d1").connected is True
+            assert rt.device_runtime.device_state("d1") is not None
+            assert rt.device_runtime.device_state("d1").connected is True
 
             proto.connect.reset_mock()
             proto.health.return_value = HealthStatus(
@@ -312,11 +312,11 @@ class TestEnsureConnected:
                 message="driver disconnected",
             )
 
-            assert await rt.ensure_connected("d1", force=True) is True
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is True
 
             proto.health.assert_called_once()
             proto.connect.assert_awaited_once()
-            assert rt.device_state("d1").connected is True
+            assert rt.device_runtime.device_state("d1").connected is True
         finally:
             await rt.stop()
 
@@ -332,7 +332,7 @@ class TestEnsureConnected:
             proto.connect.reset_mock()
             proto.health.return_value = HealthStatus(healthy=True)
 
-            assert await rt.ensure_connected("d1", force=True) is True
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is True
 
             proto.health.assert_called_once()
             proto.connect.assert_not_awaited()
@@ -355,10 +355,10 @@ class TestEnsureConnected:
             )
             proto.connect.side_effect = OSError("connection refused")
 
-            assert await rt.ensure_connected("d1", force=True) is False
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is False
 
             proto.connect.assert_awaited_once()
-            state = rt.device_state("d1")
+            state = rt.device_runtime.device_state("d1")
             assert state is not None
             assert state.connected is False
             assert "connection refused" in (state.last_error or "")
@@ -1312,3 +1312,66 @@ class TestHealth:
             assert rt.running is True  # 单组件失败不阻塞整体启动
         finally:
             await rt.stop()
+
+
+@pytest.mark.parametrize("via_add", [False, True])
+async def test_device_replacement_stops_handle_before_close_and_resumes_after_connect(
+    via_add: bool,
+) -> None:
+    """设备替换仍由 Collector 协调采集；重复热增的 rebuild 分支顺序也必须一致。"""
+    cfg = _make_device_config("d1")
+    rt, protocols, _, _ = _build_runtime(
+        devices=[cfg], tasks=[_make_task("t1", device="d1")],
+    )
+    await rt.start()
+    try:
+        await rt.start_task_instance("t1:d1")
+        old_handle = rt._acquisition_handles["t1:d1"]
+        events: list[str] = []
+
+        async def close_old() -> None:
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            assert "t1:d1" not in rt._acquisition_handles
+            events.append("close old")
+
+        async def connect_new() -> None:
+            assert events == ["close old", "set mapping"]
+            assert "t1:d1" not in rt._acquisition_handles
+            events.append("connect new")
+
+        protocols["d1"].close.side_effect = close_old
+        new_protocol = _mock_protocol()
+        new_protocol.set_points_mapping.side_effect = lambda _: events.append("set mapping")
+        new_protocol.connect.side_effect = connect_new
+        updated = cfg.model_copy(update={"enabled": True, "device_group": "new-group"})
+        if via_add:
+            await rt.add_device("d1", updated, new_protocol, [])
+        else:
+            await rt.rebuild_device("d1", updated, new_protocol, [])
+
+        assert events == ["close old", "set mapping", "connect new"]
+        assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+        assert rt._acquisition_handles["t1:d1"] is not old_handle
+        assert rt.device_runtime.devices["d1"].protocol is new_protocol
+        protocols["d1"].close.assert_awaited_once()
+    finally:
+        await rt.stop()
+    new_protocol.close.assert_awaited_once()
+    assert _instance_coroutine_tasks() == []
+
+
+async def test_missing_protocol_factory_fails_before_removing_existing_device() -> None:
+    """工厂前置检查迁入 DeviceRuntime 后，原有 diff 的失败边界保持不变。"""
+    rt, protocols, _, _ = _build_runtime(devices=[_make_device_config("d1")], tasks=[])
+    await rt.start()
+    try:
+        errors = await rt.reconfigure(
+            _full_config(devices=[_make_device_config("d2")], tasks=[]),
+            ConfigDiff(devices=DeviceDiff(removed=["d1"], added=["d2"])),
+        )
+        assert errors == ["device: protocol factory is not wired into Runtime"]
+        assert set(rt.device_runtime.devices) == {"d1"}
+        assert rt.device_runtime.device_state("d1").connected is True
+        protocols["d1"].close.assert_not_awaited()
+    finally:
+        await rt.stop()

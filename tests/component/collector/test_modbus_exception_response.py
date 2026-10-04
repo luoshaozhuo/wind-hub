@@ -89,7 +89,7 @@ class TestExceptionResponseClassification:
                 assert protocol.health().healthy is True, (
                     "异常响应被误判为断连（driver health 掉线）"
                 )
-                state = ctx.rt.runtime.device_state("modbus-1")
+                state = ctx.rt.runtime.device_runtime.device_state("modbus-1")
                 assert state is not None and state.connected is True, (
                     "异常响应被误判为断连（runtime state 掉线）"
                 )

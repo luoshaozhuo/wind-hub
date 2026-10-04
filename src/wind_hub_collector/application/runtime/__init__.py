@@ -6,6 +6,7 @@ from wind_hub_collector.application.runtime.device import (
     CollectorDeviceSession,
     PollingAcquisitionHandle,
 )
+from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
 from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
 from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
@@ -21,6 +22,7 @@ __all__ = [
     "AcquisitionRuntimeState",
     "CollectionTaskInstance",
     "CollectorDeviceSession",
+    "DeviceRuntime",
     "DeviceRuntimeState",
     "PollingAcquisitionHandle",
     "CollectorRuntime",
