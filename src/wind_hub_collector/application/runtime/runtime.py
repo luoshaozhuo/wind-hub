@@ -1,22 +1,25 @@
-"""CollectorRuntime —— 采集系统的运行时组件管理与生命周期编排核心。
+"""CollectorRuntime —— 采集系统三个子 Runtime 之间的整体协调器。
 
 架构位置：application 层。职责：
 
 - 设备子系统——委托 :class:`DeviceRuntime` 管理会话、连接状态与协议生命周期；
 - Task 子系统——委托 :class:`TaskRuntime` 管理 Task Definition 展开、实例
   启停、采集句柄与采集执行状态；
-- Sink 生命周期（打开 / 队列 / 消费者任务 / 背压 / 关闭）；
-- 设备与 Sink 的增删 / 重建，配置热重载时的运行时重构（:meth:`reconfigure`）；
-- CollectorRuntime 状态（running / health / 组件计数 / 点位统计）；
-- 整体 ``start()`` / ``stop()``。
+- Sink 子系统——委托 :class:`SinkRuntime` 管理 Sink 生命周期、队列、
+  消费者、背压与派发；
+- 设备与 Sink 的增删 / 重建，配置热重载时的跨子系统顺序（:meth:`reconfigure`）；
+- CollectorRuntime 状态（running / 聚合 health / 组件计数 / 点位统计）；
+- 整体 ``start()`` / ``stop()`` 的子系统顺序。
 
 持有：``DeviceRuntime``（设备会话与连接状态的唯一权威）、``TaskRuntime``
 （Task / TaskInstance / 采集句柄 / 采集执行状态的唯一权威）、
+``SinkRuntime``（Sink 注册表 / 队列 / 消费者 / 背压 / 派发的唯一权威）、
 :class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
 （PointValue 数据流处理）。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
-（ConfigUseCase）、采集时序（acquisition handle）。
+（ConfigUseCase）、采集时序（acquisition handle）、Sink 交付细节
+（SinkRuntime）。
 
 失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
 其余组件照常启动，失败组件经 :meth:`health` 暴露为不健康。
@@ -25,19 +28,17 @@
 from __future__ import annotations  # noqa: I001
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Callable
 from functools import partial
 from typing import Protocol
 
-from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
+from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
-from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
-from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
+from wind_hub_collector.application.runtime.sink_runtime import SinkRuntime
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -53,7 +54,6 @@ from wind_hub_core.config.schema import (
     RuntimeConfig,
 )
 from wind_hub_core.model.health import HealthStatus
-from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
 from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
 
@@ -96,18 +96,20 @@ class RuntimeMetricsPort(Protocol):
 
 
 class CollectorRuntime:
-    """Collector 整体生命周期协调器，暂持 Sink 的运行状态。
+    """Collector 整体生命周期协调器——Device/Task/Sink 三个子 Runtime 的装配与编排。
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
     - ``devices`` — 初始设备注册表，构造时把所有权交给 DeviceRuntime；
-    - ``sinks`` — Sink 注册表；
-    - ``engine`` — 采集引擎；本类构造时向其绑定 Sink 派发端口；
+    - ``sinks`` — Sink 注册表，构造时把所有权交给 SinkRuntime；
+    - ``engine`` — 采集引擎；本类构造时把三个状态端口分别绑定到对应
+      子 Runtime（设备 → DeviceRuntime，采集 → TaskRuntime，派发 → SinkRuntime）；
     - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``），
       构造时把所有权交给 TaskRuntime；
-    - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
+    - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时——透传给
+      各子 Runtime，本类只保留整体快照）；
     - ``protocol_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
-      （由组合根注入；协议工厂仅转交 DeviceRuntime，不在本类保存）。
+      （由组合根注入；分别转交 DeviceRuntime / SinkRuntime，不在本类保存）。
     """
 
     def __init__(
@@ -128,46 +130,24 @@ class CollectorRuntime:
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
-        self._sinks = sinks
+        self._sink_runtime = SinkRuntime(sinks, config, sink_factory)
         self._engine = engine
         self._config = config
-        self._sink_factory = sink_factory
-        self._clock = clock
-        # 运行时指标端口（可选）：组合根接 Prometheus；未注入时跳过计数。
-        self._metrics = metrics_hook
 
-        self._lifecycle = RuntimeLifecycle(self)
-        self._sink_dispatcher = SinkDispatcher(self)
-
-        # Sink 派发的落点：引擎采集结果进入本类的队列/背压/消费者机制。
-        self._engine.attach_sink_dispatch(self)
         # 设备连接状态的落点：引擎采集前经 ensure_connected 完成带节流的
         # 重连，采集后上报 read 结果；设备端口直接绑定唯一 owner。
         self._engine.attach_device_state(self._device_runtime)
         # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
         # （TaskRuntime 实现 AcquisitionStatePort）。
         self._engine.attach_acquisition_state(self._task_runtime)
+        # Sink 派发的落点：引擎采集结果进入 SinkRuntime 的队列/背压/消费者机制。
+        self._engine.attach_sink_dispatch(self._sink_runtime)
 
-        # 每个 Sink 使用独立有界 queue，容量来自 RuntimeConfig。
-        self._queues: dict[str, asyncio.Queue[list[PointValue]]] = {
-            name: asyncio.Queue(maxsize=config.queue_maxsize) for name in sinks
-        }
-
-        # Sink 消费者任务簿记
-        self._sink_tasks: dict[str, asyncio.Task[None]] = {}
         # 生命周期串行化：start / stop 不能重叠，保证启动中状态不会被停机
         # 直接覆写；``running`` 依然只在 ``_started`` 真正完成后才返回 True。
         self._lifecycle_lock = asyncio.Lock()
         self._running = False
         self._started = False
-
-        # start() 阶段 open 失败的 Sink 不启动 consumer，并由 health() 持续暴露为 unhealthy。
-        self._unhealthy_sinks: set[str] = set()
-
-        # 运行期统计：派发/丢弃在 Sink 派发侧计数；
-        # 采集计数在引擎侧（经 ``points_collected`` 属性透传）。
-        self._points_routed = 0
-        self._points_dropped = 0
 
     # ------------------------------------------------------------------
     # 组件只读视图（QueryUseCase / 适配器经此读取当前实例，热重载安全）
@@ -185,7 +165,6 @@ class CollectorRuntime:
         Notes:
             这是组合边界，不改变采集、控制或队列行为。
         """
-        self._metrics = metrics_hook
         self._device_runtime.attach_metrics_hook(metrics_hook)
         self._task_runtime.attach_metrics_hook(metrics_hook)
 
@@ -200,14 +179,19 @@ class CollectorRuntime:
         return self._task_runtime
 
     @property
+    def sink_runtime(self) -> SinkRuntime:
+        """Sink 子系统；Sink 注册表、队列、消费者与派发端口的唯一入口。"""
+        return self._sink_runtime
+
+    @property
     def devices(self) -> dict[str, CollectorDeviceSession]:
         """供现有组件观察者读取的设备视图；所有权与变更均在 DeviceRuntime。"""
         return self._device_runtime.devices
 
     @property
     def sinks(self) -> dict[str, SinkPort]:
-        """当前 Sink 注册表（热重载后就地反映最新内容）。"""
-        return self._sinks
+        """当前 Sink 注册表（热重载后就地反映最新内容）；所有权在 SinkRuntime。"""
+        return self._sink_runtime.sinks
 
     @property
     def engine(self) -> AcquisitionEngine:
@@ -220,13 +204,43 @@ class CollectorRuntime:
 
     async def start(self) -> None:
         """启动运行时——连接设备、打开 sink、注册采集 Task Instance（默认
-        STOPPED，显式 start 才启动 acquisition）。"""
-        await self._lifecycle.start()
+        STOPPED，显式 start 才启动 acquisition）。
+
+        子系统顺序：设备连接 → Sink 打开/消费者 → Task Instance 注册。
+        单设备/单 Sink 失败只记录状态并继续，避免一个现场端点阻断整进程。
+        """
+        async with self._lifecycle_lock:
+            if self._running:
+                return
+            self._running = True
+            self._started = False
+
+            await self._device_runtime.connect_all()
+            await self._sink_runtime.start()
+            # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
+            # 采集，只有 gRPC 控制面的显式 start 才启动 acquisition。
+            await self._task_runtime.sync_instances()
+
+            self._started = True
 
     async def stop(self) -> None:
         """优雅停机——关闭全部 acquisition handle、排空队列、flush 并关闭
-        sink、关闭设备连接。"""
-        await self._lifecycle.stop()
+        sink、关闭设备连接。
+
+        子系统按依赖逆序：先停采集（不再产生数据），再排空/关闭 Sink，
+        最后关闭设备连接。单资源清理异常被记录但不阻断其他资源释放。
+        """
+        async with self._lifecycle_lock:
+            if not self._running:
+                return
+            self._running = False
+            self._started = False
+
+            # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
+            # 后台 task 或订阅；实例定义保留并统一标记 STOPPED。
+            await self._task_runtime.stop_all()
+            await self._sink_runtime.stop()
+            await self._device_runtime.close_all()
 
     # ------------------------------------------------------------------
     # 状态
@@ -235,11 +249,7 @@ class CollectorRuntime:
     def health(self) -> dict[str, HealthStatus]:
         """返回全部设备与 sink 的健康状态（设备优先、随后 sink）。"""
         result = self._device_runtime.health()
-        for name, sink in self._sinks.items():
-            if name in self._unhealthy_sinks:
-                result[name] = HealthStatus(healthy=False, message="open failed")
-            else:
-                result[name] = sink.health()
+        result.update(self._sink_runtime.health())
         return result
 
     @property
@@ -261,7 +271,7 @@ class CollectorRuntime:
     @property
     def sink_count(self) -> int:
         """返回当前 CollectorRuntime 注册的 Sink 数量。"""
-        return len(self._sinks)
+        return len(self._sink_runtime.sinks)
 
     @property
     def points_collected(self) -> int:
@@ -270,18 +280,18 @@ class CollectorRuntime:
 
     @property
     def points_routed(self) -> int:
-        """累计派发点数——成功进入 sink 队列的点值总数（单调不减）。"""
-        return self._points_routed
+        """累计派发点数——成功进入 sink 队列的点值总数（SinkRuntime 口径）。"""
+        return self._sink_runtime.points_routed
 
     @property
     def points_dropped(self) -> int:
-        """累计丢弃点数——背压策略丢弃的点值总数（单调不减）。"""
-        return self._points_dropped
+        """累计丢弃点数——背压策略丢弃的点值总数（SinkRuntime 口径）。"""
+        return self._sink_runtime.points_dropped
 
     def sink_queue_depths(self) -> dict[str, int]:
         """各 sink 队列当前深度——``/metrics`` 拉取时覆盖 ``sink_queue_depth``
-        gauge（队列归 CollectorRuntime 所有，SinkPort 自身不感知队列）。"""
-        return {name: queue.qsize() for name, queue in self._queues.items()}
+        gauge（只读透传 SinkRuntime，SinkPort 自身不感知队列）。"""
+        return self._sink_runtime.queue_depths()
 
     # ------------------------------------------------------------------
     # 采集 Task——查询与实例生命周期委托（实现与簿记在 TaskRuntime）
@@ -315,14 +325,6 @@ class CollectorRuntime:
             KeyError: ``instance_id`` 不存在。
         """
         await self._task_runtime.stop_instance(instance_id)
-
-    # ------------------------------------------------------------------
-    # Sink 派发端口实现（AcquisitionEngine → CollectorRuntime 的落点）
-    # ------------------------------------------------------------------
-
-    async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
-        """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。"""
-        await self._sink_dispatcher.dispatch(routed)
 
     # ------------------------------------------------------------------
     # 采集执行状态（簿记在 TaskRuntime——引擎的 collect 钩子直接绑定它）
@@ -385,169 +387,6 @@ class CollectorRuntime:
         await self._task_runtime.resume_after_device_change(was_running)
 
     # ------------------------------------------------------------------
-    # 热重载——sink 管理
-    # ------------------------------------------------------------------
-
-    async def add_sink(self, sink_name: str, cfg: ResolvedSinkConfig, sink: SinkPort) -> None:
-        """运行时新增 sink；open 成功后才提交到 CollectorRuntime 注册表。
-
-        部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
-        收敛到目标实例，避免重复注册消费者或遗留半初始化对象。
-
-        Raises:
-            Exception: ``sink.open()`` 失败原样上抛；失败前不修改注册表。
-        """
-        if sink_name in self._sinks:
-            await self.rebuild_sink(sink_name, cfg, sink)
-            return
-
-        await sink.open()
-        queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._config.queue_maxsize)
-        self._sinks[sink_name] = sink
-        self._queues[sink_name] = queue
-        logger.info("Hot-reload: sink '%s' opened", sink_name)
-
-        if self._running:
-            task = asyncio.create_task(self._sink_consumer(sink_name, sink))
-            self._sink_tasks[sink_name] = task
-
-    async def remove_sink(self, sink_name: str) -> None:
-        """运行时移除 sink——停消费者、flush、关闭、移除队列。"""
-        task = self._sink_tasks.pop(sink_name, None)
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
-
-        old_sink = self._sinks.pop(sink_name, None)
-        if old_sink is not None:
-            try:
-                await old_sink.flush()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: sink '%s' flush failed",
-                    sink_name,
-                    exc_info=True,
-                )
-            try:
-                await old_sink.close()
-            except Exception:
-                logger.warning(
-                    "Hot-reload: sink '%s' close failed",
-                    sink_name,
-                    exc_info=True,
-                )
-
-        self._queues.pop(sink_name, None)
-        self._unhealthy_sinks.discard(sink_name)
-        logger.info("Hot-reload: sink '%s' removed", sink_name)
-
-    async def rebuild_sink(
-        self,
-        sink_name: str,
-        new_cfg: ResolvedSinkConfig,
-        new_sink: SinkPort,
-    ) -> None:
-        """重建 Sink，并按资源能力选择 open-first / close-first。
-
-        普通客户端型 Sink 先打开新实例再切换；实现 ExclusiveOpenSinkPort
-        且 exclusive_open=True 的监听型 Sink 先关闭旧实例释放独占资源。
-        若新实例 open 失败，会尽力重新打开旧实例。
-        """
-        del new_cfg
-        old_sink = self._sinks.get(sink_name)
-        exclusive = (
-            isinstance(new_sink, ExclusiveOpenSinkPort)
-            and new_sink.exclusive_open
-        )
-        if not exclusive:
-            await new_sink.open()
-            await self._replace_opened_sink(sink_name, old_sink, new_sink)
-            return
-
-        await self._stop_sink_consumer(sink_name)
-        if old_sink is not None:
-            await self._flush_and_close_sink(sink_name, old_sink, "during exclusive rebuild")
-
-        try:
-            await new_sink.open()
-        except Exception:
-            if old_sink is not None:
-                try:
-                    await old_sink.open()
-                except Exception:
-                    logger.error(
-                        "Hot-reload: sink %s failed to restore old instance",
-                        sink_name,
-                        exc_info=True,
-                    )
-                    self._unhealthy_sinks.add(sink_name)
-                else:
-                    self._sinks[sink_name] = old_sink
-                    self._restart_sink_consumer(sink_name, old_sink)
-            raise
-
-        self._sinks[sink_name] = new_sink
-        self._unhealthy_sinks.discard(sink_name)
-        self._restart_sink_consumer(sink_name, new_sink)
-        logger.info("Hot-reload: exclusive sink %s re-opened", sink_name)
-
-    async def _replace_opened_sink(
-        self,
-        sink_name: str,
-        old_sink: SinkPort | None,
-        new_sink: SinkPort,
-    ) -> None:
-        """切换一个已经成功 open 的普通 Sink。"""
-        await self._stop_sink_consumer(sink_name)
-        if old_sink is not None:
-            await self._flush_and_close_sink(sink_name, old_sink, "during rebuild")
-        self._sinks[sink_name] = new_sink
-        self._unhealthy_sinks.discard(sink_name)
-        self._restart_sink_consumer(sink_name, new_sink)
-        logger.info("Hot-reload: sink %s re-opened", sink_name)
-
-    async def _stop_sink_consumer(self, sink_name: str) -> None:
-        task = self._sink_tasks.pop(sink_name, None)
-        if task is None:
-            return
-        task.cancel()
-        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-            await asyncio.wait_for(task, timeout=self._config.shutdown_timeout)
-
-    async def _flush_and_close_sink(
-        self,
-        sink_name: str,
-        sink: SinkPort,
-        context: str,
-    ) -> None:
-        try:
-            await sink.flush()
-        except Exception:
-            logger.warning(
-                "Hot-reload: sink %s flush failed %s",
-                sink_name,
-                context,
-                exc_info=True,
-            )
-        try:
-            await sink.close()
-        except Exception:
-            logger.warning(
-                "Hot-reload: sink %s close failed %s",
-                sink_name,
-                context,
-                exc_info=True,
-            )
-
-    def _restart_sink_consumer(self, sink_name: str, sink: SinkPort) -> None:
-        if not self._running:
-            return
-        self._sink_tasks[sink_name] = asyncio.create_task(
-            self._sink_consumer(sink_name, sink)
-        )
-
-    # ------------------------------------------------------------------
     # 热重载编排（ConfigUseCase 的唯一入口）
     # ------------------------------------------------------------------
 
@@ -569,7 +408,7 @@ class CollectorRuntime:
         )
 
         target_sinks = {item.name: item for item in target.sinks.sinks if item.enabled}
-        actual_sink_ids = set(self._sinks)
+        actual_sink_ids = set(self._sink_runtime.sinks)
         target_sink_ids = set(target_sinks)
         sinks = SinkDiff(
             added=sorted(target_sink_ids - actual_sink_ids),
@@ -600,7 +439,8 @@ class CollectorRuntime:
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
         本方法不修改配置快照——``current_config`` 的提交时机由
-        ConfigUseCase 决定。
+        ConfigUseCase 决定。本类只负责跨子系统顺序与点表重注入；设备/sink
+        子系统内部细节分别在 DeviceRuntime / SinkRuntime。
 
         Args:
             new_config: 已加载并通过校验的新配置。
@@ -634,7 +474,9 @@ class CollectorRuntime:
             errors.append(f"device: {exc}")
 
         try:
-            await self._apply_sink_diff(diff, new_config)
+            await self._sink_runtime.apply_diff(
+                diff.sinks, {s.name: s for s in new_config.sinks.sinks}
+            )
         except Exception as exc:
             logger.error("Sink diff apply failed: %s", exc, exc_info=True)
             errors.append(f"sink: {exc}")
@@ -736,63 +578,3 @@ class CollectorRuntime:
     def _points_for_device(config: Config, device_id: str) -> list[PointConfig]:
         """取设备绑定点表中的点列表（设备无关点表经绑定解析）。"""
         return config.points_for_device(device_id)
-
-    async def _apply_sink_diff(self, diff: ConfigDiff, new_cfg: Config) -> None:
-        """按 diff 让运行态 Sink 注册表收敛到 enabled Sink 集合。"""
-        factory = self._sink_factory
-        new_sinks = {sink.name: sink for sink in new_cfg.sinks.sinks}
-
-        needs_factory = any(
-            new_sinks[name].enabled
-            for name in (*diff.sinks.added, *diff.sinks.updated)
-            if name in new_sinks
-        )
-        if factory is None and needs_factory:
-            raise RuntimeError("sink factory is not wired into Runtime")
-
-        for name in diff.sinks.removed:
-            await self.remove_sink(name)
-
-        for name in diff.sinks.added:
-            cfg = new_sinks[name]
-            if not cfg.enabled:
-                continue
-            assert factory is not None
-            await self.add_sink(name, cfg, factory(cfg))
-
-        for name in diff.sinks.updated:
-            cfg = new_sinks[name]
-            if not cfg.enabled:
-                await self.remove_sink(name)
-                continue
-            assert factory is not None
-            sink = factory(cfg)
-            if name in self._sinks:
-                await self.rebuild_sink(name, cfg, sink)
-            else:
-                await self.add_sink(name, cfg, sink)
-
-    # ------------------------------------------------------------------
-    # 私有——sink 背压与消费者
-    # ------------------------------------------------------------------
-
-    async def _sink_consumer(self, sink_name: str, sink: SinkPort) -> None:
-        """Per-sink 消费者任务——从队列取批次并写入 SinkPort。"""
-        queue = self._queues[sink_name]
-        try:
-            while True:
-                batch = await queue.get()
-                if not batch:  # empty list = shutdown sentinel
-                    break
-                try:
-                    await sink.write(batch)
-                except Exception:
-                    logger.warning(
-                        "Sink '%s' write failed for %d points",
-                        sink_name,
-                        len(batch),
-                        exc_info=True,
-                    )
-        except asyncio.CancelledError:
-            logger.info("Sink consumer '%s' cancelled", sink_name)
-            raise

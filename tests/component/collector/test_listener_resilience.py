@@ -147,14 +147,14 @@ class TestListenerRebuildResourceStability:
         rt = _runtime({"modbus_scada": first})
         await rt.start()
         try:
-            await rt.rebuild_sink("modbus_scada", cfg, await _next_sink(cfg, 1.0))
+            await rt.sink_runtime.rebuild_sink("modbus_scada", cfg, await _next_sink(cfg, 1.0))
             assert await _read_listener_value(port) == pytest.approx(1.0)
 
             tasks_baseline = len(asyncio.all_tasks())
             fds_baseline = _fd_count()
 
             for cycle in range(2, REBUILD_CYCLES + 1):
-                await rt.rebuild_sink(
+                await rt.sink_runtime.rebuild_sink(
                     "modbus_scada", cfg, await _next_sink(cfg, float(cycle))
                 )
                 assert await _read_listener_value(port) == pytest.approx(
@@ -194,7 +194,7 @@ class TestListenerClientFlapIsolation:
         await rt.start()
         try:
             # 初始值经 CollectorRuntime 派发路径送达两个 sink。
-            await rt.dispatch({"modbus_scada": [_point(1.0)], "rec": [_point(1.0)]})
+            await rt.sink_runtime.dispatch({"modbus_scada": [_point(1.0)], "rec": [_point(1.0)]})
             await _wait_listener_value(port, 1.0)
 
             tasks_baseline = len(asyncio.all_tasks())
@@ -203,7 +203,7 @@ class TestListenerClientFlapIsolation:
             # ---- 客户端抖动：10 次正常断连 + 5 次 RST 异常掉线 ----
             for cycle in range(10):
                 value = float(cycle + 2)
-                await rt.dispatch(
+                await rt.sink_runtime.dispatch(
                     {"modbus_scada": [_point(value)], "rec": [_point(value)]}
                 )
                 await _wait_listener_value(port, value)

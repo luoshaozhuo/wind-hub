@@ -1,7 +1,9 @@
-"""CollectorRuntime 的 Sink 派发与背压策略。
+"""SinkRuntime 的 Sink 派发与背压策略。
 
-本对象拥有各 Sink queue 的入队策略，但不负责 Sink open/close。drop_new/drop_old
-会显式累计丢弃点数；block 通过 await queue.put() 向采集任务施加背压。
+本对象拥有各 Sink queue 的入队策略，但不负责 Sink open/close——queue、
+计数与配置均归 :class:`SinkRuntime` 所有，本对象只是其内部策略 helper。
+drop_new/drop_old 会显式累计丢弃点数；block 通过 await queue.put() 向
+采集任务施加背压。
 """
 
 from __future__ import annotations
@@ -13,15 +15,15 @@ from typing import TYPE_CHECKING
 from wind_hub_core.model.point import PointValue
 
 if TYPE_CHECKING:
-    from wind_hub_collector.application.runtime.runtime import CollectorRuntime
+    from wind_hub_collector.application.runtime.sink_runtime import SinkRuntime
 
 logger = logging.getLogger(__name__)
 
 
 class SinkDispatcher:
-    """封装 CollectorRuntime 的 Sink queue 派发与背压决策。"""
+    """封装 SinkRuntime 的 Sink queue 派发与背压决策。"""
 
-    def __init__(self, runtime: CollectorRuntime) -> None:
+    def __init__(self, runtime: SinkRuntime) -> None:
         self._runtime = runtime
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:

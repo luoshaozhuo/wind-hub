@@ -16,10 +16,13 @@ acquisition handle 管理、热重载、Sink 背压/派发）。
 - 停机：``stop()`` 关闭全部采集句柄、无孤儿协程；
 - 热重载 ``reconfigure``：Task 增删 / device_group 成员变化 / interval
   变化重建句柄、targets 快照替换（句柄不重启）/ 点表重注入 / 连接不重建；
-- Sink 派发与背压：targets fan-out、未知 sink 跳过、drop_old / drop_new。
+- Sink 协调路径：reconfigure 的 sink diff 委托 SinkRuntime 收敛注册表；
+  真实引擎 fan-out 经 SinkRuntime 派发到全部 target sink。
 
-引擎侧循环测试使用内存 ``_FakeEngine``（只实现 CollectorRuntime 依赖的装配缝与
-``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
+SinkRuntime 自身的注册表/queue/消费者/背压/exclusive-open 归属与资源
+不变量由 ``test_sink_runtime.py`` 直接验证。引擎侧循环测试使用内存
+``_FakeEngine``（只实现 CollectorRuntime 依赖的装配缝与 ``collect``），
+Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
 from __future__ import annotations  # noqa: I001
@@ -1099,37 +1102,8 @@ class TestReconfigure:
 
 
 # ---------------------------------------------------------------------------
-# Sink 热重载生命周期
+# Sink 热重载协调（CollectorRuntime.reconfigure → SinkRuntime.apply_diff）
 # ---------------------------------------------------------------------------
-class _ExclusiveSink:
-    def __init__(self, events: list[str], name: str, fail_open: bool = False) -> None:
-        self.events = events
-        self.name = name
-        self.fail_open = fail_open
-
-    @property
-    def exclusive_open(self) -> bool:
-        return True
-
-    async def open(self) -> None:
-        self.events.append(f"{self.name}:open")
-        if self.fail_open:
-            raise OSError("bind failed")
-
-    async def close(self) -> None:
-        self.events.append(f"{self.name}:close")
-
-    async def write(self, batch: list[PointValue]) -> None:
-        del batch
-
-    async def flush(self) -> None:
-        self.events.append(f"{self.name}:flush")
-
-    def health(self) -> HealthStatus:
-        return HealthStatus(healthy=True)
-
-
-
 class TestSinkReloadLifecycle:
     async def test_enabled_to_disabled_removes_runtime_sink(self) -> None:
         rt, _, sinks, _ = _build_runtime(devices=[], tasks=[], sink_names=("s1",))
@@ -1175,60 +1149,9 @@ class TestSinkReloadLifecycle:
         finally:
             await rt.stop()
 
-    async def test_exclusive_sink_closes_old_before_opening_new(self) -> None:
-        events: list[str] = []
-        old_sink = _ExclusiveSink(events, "old")
-        new_sink = _ExclusiveSink(events, "new")
-        rt = CollectorRuntime(
-            devices={},
-            sinks={"s1": old_sink},
-            engine=_FakeEngine(),  # type: ignore[arg-type]
-            config=_runtime_config(),
-            tasks={},
-        )
-
-        await rt.rebuild_sink(
-            "s1",
-            ResolvedSinkConfig(
-                name="s1",
-                type="file",
-                connection={"path": "/tmp/s1.jsonl"},
-            ),
-            new_sink,
-        )
-
-        assert events[:3] == ["old:flush", "old:close", "new:open"]
-        assert rt.sinks["s1"] is new_sink
-
-    async def test_exclusive_sink_open_failure_restores_old_instance(self) -> None:
-        events: list[str] = []
-        old_sink = _ExclusiveSink(events, "old")
-        new_sink = _ExclusiveSink(events, "new", fail_open=True)
-        rt = CollectorRuntime(
-            devices={},
-            sinks={"s1": old_sink},
-            engine=_FakeEngine(),  # type: ignore[arg-type]
-            config=_runtime_config(),
-            tasks={},
-        )
-
-        with pytest.raises(OSError, match="bind failed"):
-            await rt.rebuild_sink(
-                "s1",
-                ResolvedSinkConfig(
-                    name="s1",
-                    type="file",
-                    connection={"path": "/tmp/s1.jsonl"},
-                ),
-                new_sink,
-            )
-
-        assert events == ["old:flush", "old:close", "new:open", "old:open"]
-        assert rt.sinks["s1"] is old_sink
-
 
 # ---------------------------------------------------------------------------
-# Sink 派发与背压
+# Sink 派发（真实引擎 fan-out 经 CollectorRuntime → SinkRuntime）
 # ---------------------------------------------------------------------------
 
 
@@ -1263,33 +1186,6 @@ class TestSinkDispatch:
         finally:
             await rt.stop()
 
-    async def test_dispatch_to_unknown_sink_skipped(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
-        await rt.dispatch({"ghost": [_value()]})
-        assert rt.points_routed == 0
-        assert rt.points_dropped == 0
-
-    async def test_backpressure_drop_old_evicts_oldest(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_old", queue_maxsize=1)
-        await rt.dispatch({"s1": [_value(point_id="p1")]})
-        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
-        assert rt.points_dropped == 1  # 最旧批次被驱逐
-        assert rt.points_routed == 3
-        assert rt.sink_queue_depths() == {"s1": 1}
-
-    async def test_backpressure_drop_new_discards_incoming(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_new", queue_maxsize=1)
-        await rt.dispatch({"s1": [_value(point_id="p1")]})
-        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
-        assert rt.points_dropped == 2  # 新批次整体丢弃
-        assert rt.points_routed == 1
-        assert rt.sink_queue_depths() == {"s1": 1}
-
-    async def test_empty_batch_ignored(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
-        await rt.dispatch({"s1": []})
-        assert rt.points_routed == 0
-        assert rt.sink_queue_depths() == {"s1": 0}
 
 
 # ---------------------------------------------------------------------------

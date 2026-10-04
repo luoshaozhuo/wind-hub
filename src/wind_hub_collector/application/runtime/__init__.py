@@ -9,8 +9,8 @@ from wind_hub_collector.application.runtime.device import (
 from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
 from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
-from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub_collector.application.runtime.runtime import CollectorRuntime
+from wind_hub_collector.application.runtime.sink_runtime import SinkRuntime
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -27,8 +27,8 @@ __all__ = [
     "DeviceRuntimeState",
     "PollingAcquisitionHandle",
     "CollectorRuntime",
-    "RuntimeLifecycle",
     "SinkDispatcher",
+    "SinkRuntime",
     "TaskInstanceState",
     "TaskRuntime",
     "task_instance_id",
