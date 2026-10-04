@@ -147,7 +147,7 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
                 ]
             }
         },
-        sinks=[{"name": "file_sink", "type": "file", "params": {"path": "out.jsonl"}}],
+        sinks=[{"name": "file_sink", "type": "file", "connection": {"path": "out.jsonl"}}],
         tasks=[
             {
                 "task_id": "modbus-telemetry",

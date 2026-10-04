@@ -46,7 +46,7 @@ class TestGracefulStop:
                     "name": "file_sink",
                     "type": "file",
                     # 大缓冲 + 长刷盘间隔：若 stop 不主动 flush，数据不会落盘。
-                    "params": {
+                    "connection": {
                         "path": str(sink_path),
                         "buffer_size": 100000,
                         "flush_interval": 3600.0,

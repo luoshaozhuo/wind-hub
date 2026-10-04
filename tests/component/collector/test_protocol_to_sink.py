@@ -55,7 +55,7 @@ class TestModbusToKafka:
                 {
                     "name": "kafka_sink",
                     "type": "kafka",
-                    "params": {"bootstrap_servers": kafka_service, "topic": topic},
+                    "connection": {"bootstrap_servers": kafka_service, "topic": topic},
                 }
             ],
             tasks=[
@@ -95,7 +95,7 @@ class TestModbusToPostgres:
                 {
                     "name": "db_sink",
                     "type": "db",
-                    "params": {
+                    "connection": {
                         "dsn": postgres_service,
                         "table": table,
                         "create_table": True,

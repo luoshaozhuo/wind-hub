@@ -97,7 +97,7 @@ def _write_config(tmp_path: Path, **sink_params: Any) -> Path:
             {
                 "name": "kafka",
                 "type": "kafka",
-                "params": {"bootstrap_servers": "localhost:9092",
+                "connection": {"bootstrap_servers": "localhost:9092",
                 "topic": "wind-hub.raw",
                 **sink_params},
             },
