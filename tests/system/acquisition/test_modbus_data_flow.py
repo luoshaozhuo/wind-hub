@@ -53,7 +53,7 @@ def _file_config(base: Path, port: int, sink_path: Path) -> Path:
             {
                 "name": "file_sink",
                 "type": "file",
-                "params": {
+                "connection": {
                     "path": str(sink_path),
                     "buffer_size": 4,
                     "flush_interval": 0.5,
@@ -132,7 +132,7 @@ class TestModbusToKafka:
                 {
                     "name": "kafka_sink",
                     "type": "kafka",
-                    "params": {"bootstrap_servers": kafka_service, "topic": topic},
+                    "connection": {"bootstrap_servers": kafka_service, "topic": topic},
                 }
             ],
             tasks=[_task("kafka_sink")],
@@ -170,7 +170,7 @@ class TestModbusToPostgres:
                 {
                     "name": "db_sink",
                     "type": "db",
-                    "params": {
+                    "connection": {
                         "dsn": postgres_service,
                         "table": table,
                         "create_table": True,

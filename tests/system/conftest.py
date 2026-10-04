@@ -157,7 +157,7 @@ async def full_stack(
             {
                 "name": "file_sink",
                 "type": "file",
-                "params": {
+                "connection": {
                     "path": str(sink_path),
                     "buffer_size": 4,
                     "flush_interval": 0.5,
