@@ -230,6 +230,10 @@ class ModbusDriver:
             self._config.host,
             port=self._config.port,
             timeout=self._config.timeout,
+            # 必须是 0：pymodbus 默认 retries=3 会在响应丢失时自动重发
+            # 请求——对写命令这意味着 PLC 侧重复执行（响应丢了 ≠ 没执行）。
+            # 重试/退避由 Runtime 层统一负责（见 connect docstring）。
+            retries=0,
         )
         try:
             connected = await client.connect()
