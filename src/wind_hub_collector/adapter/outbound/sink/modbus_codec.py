@@ -4,7 +4,7 @@
 或 16-bit register；不创建 datastore、不启动 TCP Server。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import struct
 from dataclasses import dataclass
