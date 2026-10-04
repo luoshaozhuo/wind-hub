@@ -135,6 +135,13 @@ class DatabaseSinkConnection(BaseModel):
     pool_max_size: int = Field(default=10, ge=1)
     write_timeout: float = Field(default=5.0, gt=0)
 
+    @field_validator("write_timeout", mode="before")
+    @classmethod
+    def _reject_bool_write_timeout(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ConfigError("Database sink write_timeout must be a positive number")
+        return value
+
     @model_validator(mode="after")
     def _validate_required_text(self) -> DatabaseSinkConnection:
         if not self.dsn.strip():

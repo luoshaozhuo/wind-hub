@@ -70,6 +70,9 @@ class FakeConnection:
     def close(self) -> None:
         self.is_open = False
 
+    def read_state(self) -> tuple[int, int]:
+        return (5, 0)
+
     def read(self, index_group: int, index_offset: int, plc_datatype: object) -> object:
         if not self.is_open:
             raise RuntimeError("connection is closed")

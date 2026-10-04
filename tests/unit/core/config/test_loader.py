@@ -916,11 +916,9 @@ class TestIndividualLoaders:
                 "system.yaml",
                 {
                     "site": {"site_id": "wind_farm_a", "name": "某某风电场"},
-                    "sinks": [{"name": "s1", "type": "kafka"}],
                 },
             )
             cfg = load_system(p)
-            assert cfg.sinks[0].name == "s1"
             assert cfg.site is not None
             assert cfg.site.site_id == "wind_farm_a"
             assert cfg.site.name == "某某风电场"

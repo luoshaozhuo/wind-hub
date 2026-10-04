@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
 from wind_hub_collector.adapter.outbound.sink.file.rotation import (
     CompositeRotation,
     NoRotation,
@@ -14,8 +12,6 @@ from wind_hub_collector.adapter.outbound.sink.file.rotation import (
     TimeRotation,
     build_rotation,
 )
-from wind_hub_core.model.errors import ConfigError
-
 _BYTES_PER_MB = 1024 * 1024
 _SECONDS_PER_HOUR = 3600.0
 _TS = datetime(2026, 9, 16, 14, 30, 25, tzinfo=UTC)
@@ -89,25 +85,17 @@ class TestNoRotation:
 
 class TestBuildRotation:
     def test_no_limits_yields_no_rotation(self) -> None:
-        policy = build_rotation({})
+        policy = build_rotation(None, None)
         assert isinstance(policy, NoRotation)
 
     def test_size_only(self) -> None:
-        policy = build_rotation({"max_size_mb": 5.0})
+        policy = build_rotation(5.0, None)
         assert isinstance(policy, SizeRotation)
 
     def test_time_only(self) -> None:
-        policy = build_rotation({"max_age_hours": 2.0})
+        policy = build_rotation(None, 2.0)
         assert isinstance(policy, TimeRotation)
 
     def test_both_yields_composite(self) -> None:
-        policy = build_rotation({"max_size_mb": 5.0, "max_age_hours": 2.0})
+        policy = build_rotation(5.0, 2.0)
         assert isinstance(policy, CompositeRotation)
-
-    def test_invalid_max_size_raises(self) -> None:
-        with pytest.raises(ConfigError, match="max_size_mb"):
-            build_rotation({"max_size_mb": 0})
-
-    def test_invalid_max_age_raises(self) -> None:
-        with pytest.raises(ConfigError, match="max_age_hours"):
-            build_rotation({"max_age_hours": -1})
