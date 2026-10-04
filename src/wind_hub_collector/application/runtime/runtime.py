@@ -3,16 +3,15 @@
 架构位置：application 层。职责：
 
 - 设备子系统——委托 :class:`DeviceRuntime` 管理会话、连接状态与协议生命周期；
+- Task 子系统——委托 :class:`TaskRuntime` 管理 Task Definition 展开、实例
+  启停、采集句柄与采集执行状态；
 - Sink 生命周期（打开 / 队列 / 消费者任务 / 背压 / 关闭）；
-- 采集 Task：Task Definition（``tasks.yaml``）按设备展开为
-  :class:`CollectionTaskInstance`；显式 start 时经
-  ``CollectorDeviceSession.start_acquisition`` 获得 :class:`AcquisitionHandle`（底层是
-  fixed-rate polling 或协议订阅，CollectorRuntime 不感知），stop 时关闭句柄；
 - 设备与 Sink 的增删 / 重建，配置热重载时的运行时重构（:meth:`reconfigure`）；
 - CollectorRuntime 状态（running / health / 组件计数 / 点位统计）；
 - 整体 ``start()`` / ``stop()``。
 
-持有：``DeviceRuntime``（设备会话与连接状态的唯一权威）、
+持有：``DeviceRuntime``（设备会话与连接状态的唯一权威）、``TaskRuntime``
+（Task / TaskInstance / 采集句柄 / 采集执行状态的唯一权威）、
 :class:`~wind_hub_collector.domain.acquisition.AcquisitionEngine`
 （PointValue 数据流处理）。
 
@@ -35,15 +34,15 @@ from typing import Protocol
 
 from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
-from wind_hub_collector.application.runtime.device import AcquisitionHandle, CollectorDeviceSession
+from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
 from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
 from wind_hub_collector.application.runtime.lifecycle import RuntimeLifecycle
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
-    task_instance_id,
 )
+from wind_hub_collector.application.runtime.task_runtime import TaskRuntime
 from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
 from wind_hub_core.config.sinks import ResolvedSinkConfig
 from wind_hub_core.config.schema import (
@@ -97,14 +96,15 @@ class RuntimeMetricsPort(Protocol):
 
 
 class CollectorRuntime:
-    """Collector 整体生命周期协调器，暂持 Task 与 Sink 的运行状态。
+    """Collector 整体生命周期协调器，暂持 Sink 的运行状态。
 
     注入依赖（构造期均为纯内存装配，无网络 I/O）：
 
     - ``devices`` — 初始设备注册表，构造时把所有权交给 DeviceRuntime；
     - ``sinks`` — Sink 注册表；
     - ``engine`` — 采集引擎；本类构造时向其绑定 Sink 派发端口；
-    - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``）；
+    - ``tasks`` — 采集 Task Definition 注册表（``{task_id: config}``），
+      构造时把所有权交给 TaskRuntime；
     - ``config`` — ``RuntimeConfig``（队列容量、背压策略、超时）；
     - ``protocol_factory`` / ``sink_factory`` — 热重载重建组件用的工厂
       （由组合根注入；协议工厂仅转交 DeviceRuntime，不在本类保存）。
@@ -125,33 +125,16 @@ class CollectorRuntime:
         self._device_runtime = DeviceRuntime(
             devices, config, protocol_factory, clock, metrics_hook
         )
+        self._task_runtime = TaskRuntime(
+            tasks or {}, self._device_runtime, engine, clock, metrics_hook
+        )
         self._sinks = sinks
         self._engine = engine
         self._config = config
-        self._task_defs: dict[str, CollectionTaskConfig] = dict(tasks or {})
         self._sink_factory = sink_factory
         self._clock = clock
         # 运行时指标端口（可选）：组合根接 Prometheus；未注入时跳过计数。
         self._metrics = metrics_hook
-
-        # 采集 Task 运行时三簿记：
-        # - ``_task_instances``：展开后的 Task Instance 快照（不可变，热重载
-        #   整体替换）；
-        # - ``_instance_states``：实例生命周期状态（RUNNING/STOPPED，显式
-        #   簿记——acquisition handle 是否存在由它决定，不反向推断）；
-        # - ``_acquisition_handles``：运行中实例的采集句柄（polling 协程
-        #   或协议订阅，CollectorRuntime 不感知机制），不留 orphan 资源。
-        self._task_instances: dict[str, CollectionTaskInstance] = {}
-        self._instance_states: dict[str, TaskInstanceState] = {}
-        self._acquisition_handles: dict[str, AcquisitionHandle] = {}
-        # 热重载过程中需要恢复 RUNNING、但上一次重建失败的实例。
-        # 下一次 reload 会继续重试，直到成功或实例被显式停止/删除。
-        self._restart_pending: set[str] = set()
-
-        # 每个采集实例的业务执行状态——与设备连接状态、实例启停状态分维度。
-        # 实例注册时建立、注销时删除；引擎 collect 经 AcquisitionStatePort
-        # 上报演进。
-        self._acquisition_states: dict[str, AcquisitionRuntimeState] = {}
 
         self._lifecycle = RuntimeLifecycle(self)
         self._sink_dispatcher = SinkDispatcher(self)
@@ -162,8 +145,8 @@ class CollectorRuntime:
         # 重连，采集后上报 read 结果；设备端口直接绑定唯一 owner。
         self._engine.attach_device_state(self._device_runtime)
         # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
-        # （本类实现 AcquisitionStatePort）。
-        self._engine.attach_acquisition_state(self)
+        # （TaskRuntime 实现 AcquisitionStatePort）。
+        self._engine.attach_acquisition_state(self._task_runtime)
 
         # 每个 Sink 使用独立有界 queue，容量来自 RuntimeConfig。
         self._queues: dict[str, asyncio.Queue[list[PointValue]]] = {
@@ -204,11 +187,17 @@ class CollectorRuntime:
         """
         self._metrics = metrics_hook
         self._device_runtime.attach_metrics_hook(metrics_hook)
+        self._task_runtime.attach_metrics_hook(metrics_hook)
 
     @property
     def device_runtime(self) -> DeviceRuntime:
         """设备子系统；设备查询与连接状态端口的唯一入口。"""
         return self._device_runtime
+
+    @property
+    def task_runtime(self) -> TaskRuntime:
+        """Task 子系统；Task 查询、实例生命周期与采集执行状态的唯一入口。"""
+        return self._task_runtime
 
     @property
     def devices(self) -> dict[str, CollectorDeviceSession]:
@@ -295,231 +284,37 @@ class CollectorRuntime:
         return {name: queue.qsize() for name, queue in self._queues.items()}
 
     # ------------------------------------------------------------------
-    # 采集 Task——定义查询与实例生命周期（TaskUseCase 的操作面）
+    # 采集 Task——查询与实例生命周期委托（实现与簿记在 TaskRuntime）
     # ------------------------------------------------------------------
 
     def task_definitions(self) -> dict[str, CollectionTaskConfig]:
-        """当前 Task Definition 注册表（浅拷贝）。"""
-        return dict(self._task_defs)
+        """当前 Task Definition 注册表（浅拷贝，委托 TaskRuntime）。"""
+        return self._task_runtime.task_definitions()
 
     def task_instances(self) -> dict[str, CollectionTaskInstance]:
-        """当前展开后的 Task Instance 注册表（浅拷贝）。"""
-        return dict(self._task_instances)
+        """当前展开后的 Task Instance 注册表（浅拷贝，委托 TaskRuntime）。"""
+        return self._task_runtime.task_instances()
 
     def instance_states(self) -> dict[str, TaskInstanceState]:
-        """各 Task Instance 的生命周期状态（浅拷贝）。"""
-        return dict(self._instance_states)
+        """各 Task Instance 的生命周期状态（浅拷贝，委托 TaskRuntime）。"""
+        return self._task_runtime.instance_states()
 
     async def start_task_instance(self, instance_id: str) -> None:
-        """启动单个 Task Instance 的持续采集（经 CollectorDeviceSession 获取采集句柄）。
-
-        幂等：已 RUNNING 的实例不触碰——同一实例绝不会出现两份 handle。
-        采集机制（fixed-rate polling / 协议订阅）由 CollectorDeviceSession 按协议
-        capability 决定，本方法不感知。
+        """启动单个 Task Instance 的持续采集（委托 TaskRuntime）。
 
         Raises:
             KeyError: ``instance_id`` 不存在。
-            Exception: 采集启动失败（如订阅注册失败）——状态保持 STOPPED，
-                错误原样上抛给控制面调用方。
+            Exception: 采集启动失败——状态保持 STOPPED，错误原样上抛。
         """
-        instance = self._task_instances.get(instance_id)
-        if instance is None:
-            raise KeyError(instance_id)
-        if self._instance_states[instance_id] is TaskInstanceState.RUNNING:
-            return
-        device = self._device_runtime.devices.get(instance.device_id)
-        if device is None:
-            raise KeyError(f"device '{instance.device_id}' for instance '{instance_id}'")
-
-        async def acquire() -> None:
-            # POLL 型句柄的每 tick 执行体——实例快照现取，热重载替换
-            # targets 无需重启 handle。
-            current = self._task_instances.get(instance_id)
-            if current is None:
-                return
-            await self._engine.collect(
-                device,
-                current.point_group,
-                list(current.targets),
-                instance_id,
-            )
-
-        async def on_data(values: list[PointValue]) -> None:
-            # 订阅推送的数据落点——数据已到达，直接进入统一处理入口，
-            # 不绕回主动 collect。
-            current = self._task_instances.get(instance_id)
-            if current is None:
-                return
-            await self._engine.process(values, list(current.targets))
-
-        handle = await device.start_acquisition(
-            point_group=instance.point_group,
-            interval=instance.interval,
-            acquire=acquire,
-            on_data=on_data,
-            on_poll_stats=self._poll_stats_hook(instance),
-        )
-        self._acquisition_handles[instance_id] = handle
-        self._instance_states[instance_id] = TaskInstanceState.RUNNING
-        self._restart_pending.discard(instance_id)
+        await self._task_runtime.start_instance(instance_id)
 
     async def stop_task_instance(self, instance_id: str) -> None:
-        """停止单个 Task Instance 的持续采集（关闭采集句柄）。
-
-        幂等：已 STOPPED 的实例不触碰。不删除实例、不清理采集执行状态、
-        不关闭设备连接，也不影响其他实例（订阅型句柄只注销本实例的订阅）。
+        """停止单个 Task Instance 的持续采集（委托 TaskRuntime）。
 
         Raises:
             KeyError: ``instance_id`` 不存在。
         """
-        if instance_id not in self._task_instances:
-            raise KeyError(instance_id)
-        if self._instance_states[instance_id] is TaskInstanceState.STOPPED:
-            self._restart_pending.discard(instance_id)
-            return
-        self._instance_states[instance_id] = TaskInstanceState.STOPPED
-        self._restart_pending.discard(instance_id)
-        await self._close_acquisition_handle(instance_id)
-
-    def _poll_stats_hook(
-        self, instance: CollectionTaskInstance
-    ) -> Callable[[float, bool, int], None] | None:
-        """为 POLL 型采集构造指标回调；未注入指标端口时返回 ``None``。"""
-        if self._metrics is None:
-            return None
-        metrics = self._metrics
-        device_id = instance.device_id
-        group = instance.point_group
-
-        def _report(jitter: float, overrun: bool, missed: int) -> None:
-            metrics.acquisition_poll_stats(device_id, group, jitter, overrun, missed)
-
-        return _report
-
-    async def _close_acquisition_handle(self, instance_id: str) -> None:
-        """关闭并摘除实例的采集句柄（幂等）；关闭失败只记录不阻断。"""
-        handle = self._acquisition_handles.pop(instance_id, None)
-        if handle is None:
-            return
-        try:
-            await handle.close()
-        except Exception:
-            logger.warning(
-                "Task instance '%s' acquisition handle close failed",
-                instance_id,
-                exc_info=True,
-            )
-
-    async def _sync_task_instances(
-        self,
-        *,
-        restart_subscription_devices: set[str] | None = None,
-    ) -> None:
-        """把 Task Instance 注册表同步为「当前 Task 定义 × 当前设备」的展开
-        结果。
-
-        - 消失的实例：关闭采集句柄、删除实例与其生命周期/执行状态；
-        - 新增的实例：以 STOPPED 注册（与启动语义一致——显式 start 才运行）；
-        - 仍存在的实例：整体替换为最新快照；运行中实例的 interval /
-          point_group 变化会重建采集句柄（poll 重新对齐节拍、订阅重新
-          注册），targets 单独变化无需重建（回调每轮现取最新实例）。
-
-        本方法幂等，设备增删/重建/轻量更新与 Task diff 应用后都会调用。
-        """
-        desired = self._desired_instances()
-        restart_subscription_devices = restart_subscription_devices or set()
-
-        for iid in set(self._task_instances) - set(desired):
-            await self._close_acquisition_handle(iid)
-            self._task_instances.pop(iid, None)
-            self._instance_states.pop(iid, None)
-            self._acquisition_states.pop(iid, None)
-            self._restart_pending.discard(iid)
-            logger.info("Task instance '%s' unregistered", iid)
-
-        for iid, instance in desired.items():
-            old = self._task_instances.get(iid)
-            self._task_instances[iid] = instance
-            if old is None:
-                self._instance_states[iid] = TaskInstanceState.STOPPED
-                logger.info("Task instance '%s' registered (stopped)", iid)
-            else:
-                was_running = self._instance_states[iid] is TaskInstanceState.RUNNING
-                needs_restart = (
-                    iid in self._restart_pending
-                    or (
-                        was_running
-                        and (
-                            old.interval != instance.interval
-                            or old.point_group != instance.point_group
-                            or instance.device_id in restart_subscription_devices
-                        )
-                    )
-                )
-                if needs_restart:
-                    # 节拍、选点或订阅地址变化：重建采集句柄并恢复 RUNNING。
-                    # 失败时保留 pending，reconfigure 向上返回错误，下一次 reload
-                    # 继续重试，避免“reload 成功但实例永久 STOPPED”。
-                    self._restart_pending.add(iid)
-                    if was_running:
-                        self._instance_states[iid] = TaskInstanceState.STOPPED
-                        await self._close_acquisition_handle(iid)
-                    try:
-                        await self.start_task_instance(iid)
-                    except Exception:
-                        logger.warning(
-                            "Task instance '%s' failed to restart acquisition after reload",
-                            iid,
-                            exc_info=True,
-                        )
-                        raise
-                    else:
-                        self._restart_pending.discard(iid)
-            state = self._acquisition_states.get(iid)
-            if (
-                state is None
-                or state.task_id != instance.task_id
-                or state.point_group != instance.point_group
-            ):
-                self._acquisition_states[iid] = AcquisitionRuntimeState(
-                    instance_id=iid,
-                    task_id=instance.task_id,
-                    device_id=instance.device_id,
-                    point_group=instance.point_group,
-                )
-
-    def _desired_instances(self) -> dict[str, CollectionTaskInstance]:
-        """展开当前 Task 定义为 Task Instance 集。
-
-        - ``enabled: false`` 的 Task 不展开（不创建运行实例）；
-        - ``device`` Task 只在设备存在且 enabled 时展开；
-        - ``device_group`` Task 对每台 enabled 且 ``device_group`` 匹配的
-          设备展开一个实例（disabled 设备不参与周期采集）。
-        """
-        desired: dict[str, CollectionTaskInstance] = {}
-        for task in self._task_defs.values():
-            if not task.enabled:
-                continue
-            if task.device is not None:
-                dev = self._device_runtime.devices.get(task.device)
-                device_ids = [task.device] if dev is not None and dev.enabled else []
-            else:
-                device_ids = [
-                    d.device_id
-                    for d in self._device_runtime.devices.values()
-                    if d.enabled and d.device_group == task.device_group
-                ]
-            for device_id in device_ids:
-                iid = task_instance_id(task.task_id, device_id)
-                desired[iid] = CollectionTaskInstance(
-                    instance_id=iid,
-                    task_id=task.task_id,
-                    device_id=device_id,
-                    point_group=task.point_group,
-                    interval=task.interval,
-                    targets=tuple(t.sink for t in task.targets),
-                )
-        return desired
+        await self._task_runtime.stop_instance(instance_id)
 
     # ------------------------------------------------------------------
     # Sink 派发端口实现（AcquisitionEngine → CollectorRuntime 的落点）
@@ -530,54 +325,13 @@ class CollectorRuntime:
         await self._sink_dispatcher.dispatch(routed)
 
     # ------------------------------------------------------------------
-    # 采集执行状态端口实现（AcquisitionEngine → CollectorRuntime 的 collect 钩子）
+    # 采集执行状态（簿记在 TaskRuntime——引擎的 collect 钩子直接绑定它）
     # ------------------------------------------------------------------
-
-    def report_collect_started(self, execution_id: str, device_id: str, group: str) -> None:
-        """一次 collect 开始（实现 ``AcquisitionStatePort``）。"""
-        self._acq_state_for(execution_id, device_id, group).begin(self._clock())
-
-    def report_collect_success(
-        self, execution_id: str, device_id: str, group: str, *, partial: bool
-    ) -> None:
-        """一次 collect 成功（含 partial——GOOD/BAD 混合不计连续失败）。"""
-        state = self._acq_state_for(execution_id, device_id, group)
-        state.finish_success(self._clock())
-        if self._metrics is not None:
-            self._metrics.acquisition_run_finished(
-                device_id, group, "partial" if partial else "success", state.last_duration
-            )
-
-    def report_collect_failure(
-        self, execution_id: str, device_id: str, group: str, error: str
-    ) -> None:
-        """一次 collect 失败（读异常/读超时/断线跳过/无有效结果）。"""
-        state = self._acq_state_for(execution_id, device_id, group)
-        state.finish_failure(self._clock(), error)
-        if self._metrics is not None:
-            self._metrics.acquisition_run_finished(device_id, group, "failed", state.last_duration)
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，
-        QueryUseCase 用）。"""
-        return dict(self._acquisition_states)
-
-    def _acq_state_for(
-        self, execution_id: str, device_id: str, group: str
-    ) -> AcquisitionRuntimeState:
-        """取采集执行状态；缺失时按当前实例信息创建（引擎只对运行中实例
-        上报，实例必然已注册）。"""
-        state = self._acquisition_states.get(execution_id)
-        if state is None:
-            inst = self._task_instances[execution_id]
-            state = AcquisitionRuntimeState(
-                instance_id=execution_id,
-                task_id=inst.task_id,
-                device_id=device_id,
-                point_group=group,
-            )
-            self._acquisition_states[execution_id] = state
-        return state
+        委托 TaskRuntime，QueryUseCase 用）。"""
+        return self._task_runtime.acquisition_states()
 
     # ------------------------------------------------------------------
     # 热重载——设备管理
@@ -600,12 +354,12 @@ class CollectorRuntime:
             return
         await self._device_runtime.add_device(device_id, cfg, protocol, points)
         # 新设备或重放热增可能影响 device_group Task 的展开。
-        await self._sync_task_instances()
+        await self._task_runtime.sync_instances()
 
     async def remove_device(self, device_id: str) -> None:
         """运行时移除设备——停止并注销其全部采集实例并关闭连接。"""
         await self._device_runtime.remove_device(device_id)
-        await self._sync_task_instances()
+        await self._task_runtime.sync_instances()
         logger.info("Hot-reload: device '%s' removed", device_id)
 
     async def rebuild_device(
@@ -620,33 +374,15 @@ class CollectorRuntime:
         正在运行的相关 TaskInstance：先关闭旧采集句柄，CollectorDeviceSession 重建完成
         后重新启动原本 RUNNING 的实例，保持其原运行状态。
         """
-        was_running = [
-            iid
-            for iid, inst in self._task_instances.items()
-            if inst.device_id == device_id
-            and self._instance_states.get(iid) is TaskInstanceState.RUNNING
-        ]
-        for iid in was_running:
-            self._instance_states[iid] = TaskInstanceState.STOPPED
-            await self._close_acquisition_handle(iid)
+        was_running = await self._task_runtime.suspend_for_device_change(device_id)
 
         await self._device_runtime.rebuild_device(device_id, new_cfg, new_protocol, points)
 
         # device_group / enabled 可能随新配置变化——重新展开采集实例。
-        await self._sync_task_instances()
+        await self._task_runtime.sync_instances()
 
         # 恢复原本 RUNNING 的实例（仍存在于此设备的展开结果中）。
-        for iid in was_running:
-            if iid not in self._task_instances:
-                continue
-            try:
-                await self.start_task_instance(iid)
-            except Exception:
-                logger.warning(
-                    "Hot-reload: task instance '%s' failed to restart after device rebuild",
-                    iid,
-                    exc_info=True,
-                )
+        await self._task_runtime.resume_after_device_change(was_running)
 
     # ------------------------------------------------------------------
     # 热重载——sink 管理
@@ -842,7 +578,7 @@ class CollectorRuntime:
         )
 
         target_task_ids = {item.task_id for item in target.tasks.tasks}
-        actual_task_ids = set(self._task_defs)
+        actual_task_ids = set(self._task_runtime.task_definitions())
         tasks = TaskDiff(
             added=sorted(target_task_ids - actual_task_ids),
             removed=sorted(actual_task_ids - target_task_ids),
@@ -925,9 +661,9 @@ class CollectorRuntime:
                     restart_subscription_devices.add(did)
 
         try:
-            self._task_defs = {t.task_id: t for t in new_config.tasks.tasks}
-            await self._sync_task_instances(
-                restart_subscription_devices=restart_subscription_devices
+            await self._task_runtime.apply_definitions(
+                {t.task_id: t for t in new_config.tasks.tasks},
+                restart_subscription_devices=restart_subscription_devices,
             )
         except Exception as exc:
             logger.error("Task instance sync failed: %s", exc, exc_info=True)

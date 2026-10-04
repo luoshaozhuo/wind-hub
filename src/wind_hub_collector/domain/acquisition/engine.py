@@ -100,7 +100,7 @@ class DeviceStatePort(Protocol):
 class AcquisitionStatePort(Protocol):
     """采集执行状态端口——一次 collect 的开始/成功/失败上报。
 
-    由 Runtime 实现（持有 ``{execution_id: AcquisitionRuntimeState}``）。
+    由 TaskRuntime 实现（持有 ``{execution_id: AcquisitionRuntimeState}``）。
     与 :class:`DeviceStatePort` 分维度：本端口描述**业务执行**（这个采集
     执行最近跑得怎样），不描述设备连接。
 

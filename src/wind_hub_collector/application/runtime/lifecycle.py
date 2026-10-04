@@ -14,8 +14,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
-
 if TYPE_CHECKING:
     from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 
@@ -58,7 +56,7 @@ class RuntimeLifecycle:
 
             # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
             # 采集，只有 gRPC 控制面的显式 start 才启动 acquisition。
-            await self._runtime._sync_task_instances()
+            await self._runtime.task_runtime.sync_instances()
 
             self._runtime._started = True
 
@@ -75,13 +73,8 @@ class RuntimeLifecycle:
             self._runtime._started = False
 
             # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
-            # 避免遗留后台 task 或订阅。
-            for instance_id in list(self._runtime._acquisition_handles):
-                await self._runtime._close_acquisition_handle(instance_id)
-            # 停机后实例定义保留，统一标记 STOPPED——重启后需显式 start，
-            # 与启动语义一致。
-            for instance_id in self._runtime._instance_states:
-                self._runtime._instance_states[instance_id] = TaskInstanceState.STOPPED
+            # 后台 task 或订阅；实例定义保留并统一标记 STOPPED。
+            await self._runtime.task_runtime.stop_all()
 
             for queue in self._runtime._queues.values():
                 await queue.put([])

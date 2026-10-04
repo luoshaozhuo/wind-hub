@@ -16,6 +16,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     TaskInstanceState,
     task_instance_id,
 )
+from wind_hub_collector.application.runtime.task_runtime import TaskRuntime
 
 __all__ = [
     "AcquisitionHandle",
@@ -29,5 +30,6 @@ __all__ = [
     "RuntimeLifecycle",
     "SinkDispatcher",
     "TaskInstanceState",
+    "TaskRuntime",
     "task_instance_id",
 ]

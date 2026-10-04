@@ -144,18 +144,18 @@ async def test_status_reports_acquisition_execution_state() -> None:
     await runtime.start()
     usecase = QueryUseCase(runtime)
 
-    runtime.report_collect_started("task-1:d1", "d1", "g")
+    runtime.task_runtime.report_collect_started("task-1:d1", "d1", "g")
     running = (await usecase.status()).acquisitions[0]
     assert running.running is True
 
-    runtime.report_collect_failure("task-1:d1", "d1", "g", "read timeout")
+    runtime.task_runtime.report_collect_failure("task-1:d1", "d1", "g", "read timeout")
     failed = (await usecase.status()).acquisitions[0]
     assert failed.running is False
     assert failed.consecutive_failures == 1
     assert failed.last_error == "read timeout"
 
-    runtime.report_collect_started("task-1:d1", "d1", "g")
-    runtime.report_collect_success("task-1:d1", "d1", "g", partial=False)
+    runtime.task_runtime.report_collect_started("task-1:d1", "d1", "g")
+    runtime.task_runtime.report_collect_success("task-1:d1", "d1", "g", partial=False)
     recovered = (await usecase.status()).acquisitions[0]
     assert recovered.consecutive_failures == 0
     assert recovered.last_error is None

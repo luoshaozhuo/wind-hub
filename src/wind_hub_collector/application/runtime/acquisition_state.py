@@ -32,7 +32,7 @@ def _error_text(error: BaseException | str) -> str:
 
 @dataclass
 class AcquisitionRuntimeState:
-    """单个采集执行实例的运行状态（Runtime 持有，随 collect 演进）。"""
+    """单个采集执行实例的运行状态（TaskRuntime 持有，随 collect 演进）。"""
 
     instance_id: str
     """Task Instance 标识（``{task_id}:{device_id}``）。"""

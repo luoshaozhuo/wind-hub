@@ -9,8 +9,8 @@
 
 实例 ID 稳定且唯一：``{task_id}:{device_id}``。实例是**不可变快照**——
 热重载修改 interval / targets / point_group 时整体替换实例对象；运行中
-实例的采集回调每轮从 Runtime 注册表读取最新实例，interval / point_group
-变化时由 Runtime 重建对应的 acquisition handle。
+实例的采集回调每轮从 TaskRuntime 注册表读取最新实例，interval / point_group
+变化时由 TaskRuntime 重建对应的 acquisition handle。
 
 实例的实际执行机制（fixed-rate polling 或协议订阅）由 CollectorDeviceSession 按协议
 capability 决定——Task Instance 只是「Task Definition 在具体 Device 上
@@ -20,8 +20,8 @@ capability 决定——Task Instance 只是「Task Definition 在具体 Device �
 
 - :class:`AcquisitionRuntimeState`——业务执行状态（最近一次 collect 成功/
   失败/耗时），以 ``instance_id`` 为键；
-- 实例生命周期状态（RUNNING / STOPPED）——由 Runtime 显式簿记
-  （见 ``CollectorRuntime.instance_states``），决定实例的 acquisition handle
+- 实例生命周期状态（RUNNING / STOPPED）——由 TaskRuntime 显式簿记
+  （见 ``TaskRuntime.instance_states``），决定实例的 acquisition handle
   （fixed-rate polling 或协议订阅）是否存在。
 """
 

@@ -493,11 +493,11 @@ class TestStartStopInstance:
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
-            first = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            first = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             await rt.start_task_instance("t1:d1")
             await rt.start_task_instance("t1:d1")
-            assert rt._acquisition_handles["t1:d1"] is first  # noqa: SLF001
-            assert len(rt._acquisition_handles) == 1  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is first  # noqa: SLF001
+            assert len(rt.task_runtime._acquisition_handles) == 1  # noqa: SLF001
             assert len(_instance_coroutine_tasks()) == 1
             await _wait_for(lambda: len(eng.collect_calls) >= 2, what="polling continues")
         finally:
@@ -526,7 +526,7 @@ class TestStartStopInstance:
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
             await rt.stop_task_instance("t1:d1")
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" not in rt._acquisition_handles  # noqa: SLF001
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles  # noqa: SLF001
             assert _instance_coroutine_tasks() == []
             # stop 后不再 collect
             count = len(eng.collect_calls)
@@ -663,9 +663,9 @@ class TestPollingLoop:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
-            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             # 就地替换实例快照（reconfigure 的内部机制）——仅 targets 变化
-            rt._task_instances["t1:d1"] = CollectionTaskInstance(  # noqa: SLF001
+            rt.task_runtime._task_instances["t1:d1"] = CollectionTaskInstance(  # noqa: SLF001
                 instance_id="t1:d1",
                 task_id="t1",
                 device_id="d1",
@@ -677,7 +677,7 @@ class TestPollingLoop:
                 lambda: any(c[2] == ["s9"] for c in eng.collect_calls),
                 what="new snapshot picked up",
             )
-            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
         finally:
             await rt.stop()
 
@@ -703,7 +703,7 @@ class TestShutdown:
 
         await rt.stop()
 
-        assert rt._acquisition_handles == {}  # noqa: SLF001
+        assert rt.task_runtime._acquisition_handles == {}  # noqa: SLF001
         assert _instance_coroutine_tasks() == []
         assert set(rt.instance_states().values()) == {TaskInstanceState.STOPPED}
         assert rt.running is False
@@ -850,7 +850,7 @@ class TestReconfigure:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="polling")
-            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
 
             updated = _make_task("t1", device="d1", interval=0.02, sinks=("s2",))
             new_cfg = _full_config(devices=devices, tasks=[updated])
@@ -858,7 +858,7 @@ class TestReconfigure:
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
             assert inst.targets == ("s2",)
-            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             await _wait_for(
                 lambda: any(c[2] == ["s2"] for c in eng.collect_calls),
@@ -879,7 +879,7 @@ class TestReconfigure:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
-            old_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            old_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             # 长 interval——窗口内只有一轮
             await asyncio.sleep(0.05)
             assert len(eng.collect_calls) == 1
@@ -890,7 +890,7 @@ class TestReconfigure:
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
             assert inst.interval == 0.02
-            new_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            new_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             assert new_handle is not old_handle
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             # 旧句柄已关闭——无孤儿协程
@@ -982,7 +982,7 @@ class TestReconfigure:
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
-            first_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            first_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             assert proto.subscribe.await_count == 1
 
             new_tables = {
@@ -999,7 +999,7 @@ class TestReconfigure:
             assert errors == []
             assert first_subscription.close.await_count == 1
             assert proto.subscribe.await_count == 2
-            assert rt._acquisition_handles["t1:d1"] is not first_handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is not first_handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             assert proto.connect.await_count == 1
         finally:
@@ -1047,14 +1047,14 @@ class TestReconfigure:
             assert errors1
             assert "tasks:" in errors1[0]
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" in rt._restart_pending  # noqa: SLF001
+            assert "t1:d1" in rt.task_runtime._restart_pending  # noqa: SLF001
             assert proto.subscribe.await_count == 2
 
             errors2 = await rt.reconfigure(new_cfg, diff)
 
             assert errors2 == []
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
-            assert "t1:d1" not in rt._restart_pending  # noqa: SLF001
+            assert "t1:d1" not in rt.task_runtime._restart_pending  # noqa: SLF001
             assert proto.subscribe.await_count == 3
         finally:
             await rt.stop()
@@ -1326,17 +1326,17 @@ async def test_device_replacement_stops_handle_before_close_and_resumes_after_co
     await rt.start()
     try:
         await rt.start_task_instance("t1:d1")
-        old_handle = rt._acquisition_handles["t1:d1"]
+        old_handle = rt.task_runtime._acquisition_handles["t1:d1"]
         events: list[str] = []
 
         async def close_old() -> None:
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" not in rt._acquisition_handles
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles
             events.append("close old")
 
         async def connect_new() -> None:
             assert events == ["close old", "set mapping"]
-            assert "t1:d1" not in rt._acquisition_handles
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles
             events.append("connect new")
 
         protocols["d1"].close.side_effect = close_old
@@ -1351,7 +1351,7 @@ async def test_device_replacement_stops_handle_before_close_and_resumes_after_co
 
         assert events == ["close old", "set mapping", "connect new"]
         assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
-        assert rt._acquisition_handles["t1:d1"] is not old_handle
+        assert rt.task_runtime._acquisition_handles["t1:d1"] is not old_handle
         assert rt.device_runtime.devices["d1"].protocol is new_protocol
         protocols["d1"].close.assert_awaited_once()
     finally:
