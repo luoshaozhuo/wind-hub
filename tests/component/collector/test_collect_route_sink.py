@@ -14,7 +14,7 @@ from .runtime_helpers import start_task_instance
 
 
 def _null_sink(runtime: CollectorApp) -> NullSink:
-    sink = runtime.sinks["null_sink"]
+    sink = runtime.runtime.sinks["null_sink"]
     assert isinstance(sink, NullSink)
     return sink
 

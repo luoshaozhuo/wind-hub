@@ -71,7 +71,7 @@ class TestGracefulStop:
 
             # 等采集链路真实跑起来（engine 计数递增）。
             await wait_until(
-                lambda: rt.engine.points_collected >= 4 or None,
+                lambda: rt.runtime.engine.points_collected >= 4 or None,
                 timeout=5.0,
                 description="acquisition engine collects points",
             )
@@ -103,7 +103,7 @@ class TestGracefulStop:
         await start_runtime(rt)
         await rt.tasks.start_instance("modbus-telemetry:modbus-1")
         await wait_until(
-            lambda: rt.engine.points_collected >= 1 or None,
+            lambda: rt.runtime.engine.points_collected >= 1 or None,
             timeout=5.0,
             description="engine collects before shutdown",
         )

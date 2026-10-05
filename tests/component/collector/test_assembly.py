@@ -96,10 +96,9 @@ def test_assemble_builds_minimal_collector_graph() -> None:
         assert isinstance(assembled.runtime, CollectorRuntime)
         assert isinstance(assembled.tasks, CollectorTaskService)
         assert isinstance(assembled.config, CollectorConfigService)
-        assert assembled.runtime.engine is assembled.engine
         assert isinstance(assembled.runtime._config, RuntimeConfig)  # noqa: SLF001
         assert set(assembled.runtime.devices) == {"d1"}
-        assert set(assembled.sinks) == {"archive"}
+        assert set(assembled.runtime.sinks) == {"archive"}
         assert set(assembled.runtime.task_definitions()) == {"fast"}
 
 
@@ -111,8 +110,6 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
         expected = {
             "boot_config",
             "runtime",
-            "engine",
-            "sinks",
             "tasks",
             "query",
             "config",

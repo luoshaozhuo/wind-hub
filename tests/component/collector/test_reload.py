@@ -306,7 +306,7 @@ class TestSinkChanges:
             assert result.success, result.errors
             assert result.diff is not None
             assert result.diff.sinks.added == ["file_sink"]
-            assert "file_sink" in ctx.rt.sinks
+            assert "file_sink" in ctx.rt.runtime.sinks
 
     async def test_update_sink_rebuilds_sink_instance(
         self, runtime_factory, tmp_path
@@ -324,7 +324,7 @@ class TestSinkChanges:
             update_yaml(ctx.config_dir, SINKS, add_sink)
             result = await ctx.rt.config.reload()
             assert result.success, result.errors
-            before = ctx.rt.sinks["file_sink"]
+            before = ctx.rt.runtime.sinks["file_sink"]
 
             def move_sink(data: dict[str, Any]) -> None:
                 data["sinks"][1]["connection"]["path"] = str(tmp_path / "v2" / "data.jsonl")
@@ -334,7 +334,7 @@ class TestSinkChanges:
             assert result.success, result.errors
             assert result.diff is not None
             assert result.diff.sinks.updated == ["file_sink"]
-            assert ctx.rt.sinks["file_sink"] is not before
+            assert ctx.rt.runtime.sinks["file_sink"] is not before
 
 
 class TestReloadFailureRecovery:

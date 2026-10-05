@@ -303,7 +303,7 @@ async def run_benchmark(
 
             rt = assemble(config_dir, sink_factory=lambda _cfg: NullSink())
             runtime = rt.runtime
-            rt.engine.add_observer(_make_latency_observer(collector))
+            runtime.engine.add_observer(_make_latency_observer(collector))
 
             await start_runtime(rt)
             # 实例注册为 STOPPED，压测需显式启动全部 Task Instance

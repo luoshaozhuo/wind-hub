@@ -41,19 +41,17 @@ class CollectorApp:
 
     Attributes:
         boot_config: 进程启动时加载的配置快照；仅表示启动基线。
-        runtime: Collector 运行时聚合根。
-        engine: 采集执行引擎。
-        sinks: 已装配的 Sink 实例注册表。
+        runtime: Collector 运行时聚合根——设备/Sink 注册表与采集引擎经其
+            只读视图观察，不在本对象重复暴露第二份引用。
         tasks: Task / Task Instance 控制服务。
         query: 只读查询服务。
         config: 本地 YAML 增量热重载服务。
         sink_service: 运行 Sink 检查与诊断写服务。
+        metrics_state: 采集指标聚合状态（gRPC 控制面快照数据源）。
     """
 
     boot_config: Config
     runtime: CollectorRuntime
-    engine: AcquisitionEngine
-    sinks: dict[str, SinkPort]
     tasks: CollectorTaskService
     query: CollectorQueryService
     config: CollectorConfigService
@@ -123,8 +121,6 @@ def assemble(
     return CollectorApp(
         boot_config=cfg,
         runtime=runtime,
-        engine=engine,
-        sinks=sinks,
         tasks=tasks,
         query=query,
         config=config,
