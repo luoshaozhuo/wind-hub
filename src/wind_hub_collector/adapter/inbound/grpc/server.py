@@ -15,7 +15,6 @@ from google.protobuf import empty_pb2, wrappers_pb2
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_collector.application.service.task import TaskInstanceDetail, TaskSummary
 from wind_hub_collector.assembly import CollectorApp
-from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
@@ -300,20 +299,18 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
     ) -> pb.ListSinksResponse:
         """列出当前 Runtime Sink 健康状态与队列深度。"""
         del request, context
-        health = self._runtime.runtime.health()
-        depths = self._runtime.runtime.sink_queue_depths()
-        response = pb.ListSinksResponse()
-        for name in self._runtime.runtime.sinks:
-            current = health.get(name)
-            response.items.append(
+        items = await self._runtime.sink_service.list_sinks()
+        return pb.ListSinksResponse(
+            items=[
                 pb.SinkInfoMessage(
-                    name=name,
-                    healthy=bool(current.healthy) if current is not None else False,
-                    message=(current.message or "") if current is not None else "",
-                    queue_depth=int(depths.get(name, 0)),
+                    name=item.name,
+                    healthy=item.healthy,
+                    message=item.message,
+                    queue_depth=item.queue_depth,
                 )
-            )
-        return response
+                for item in items
+            ]
+        )
 
     async def VerifySink(
         self,
@@ -322,19 +319,19 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
     ) -> pb.SinkOperationResponse:
         """返回当前运行 Sink 的真实 health 与队列深度。"""
         try:
-            name = _required(request.name, "name")
+            item = await self._runtime.sink_service.verify_sink(
+                _required(request.name, "name")
+            )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
-        sink = self._runtime.runtime.sinks.get(name)
-        if sink is None:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
-            raise AssertionError("context.abort must terminate the RPC")
-        health = sink.health()
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
+            raise AssertionError("context.abort must terminate the RPC") from exc
         return pb.SinkOperationResponse(
-            success=bool(health.healthy),
-            message=health.message or "",
-            queue_depth=int(self._runtime.runtime.sink_queue_depths().get(name, 0)),
+            success=item.healthy,
+            message=item.message,
+            queue_depth=item.queue_depth,
         )
 
     async def WriteTestSink(
@@ -344,25 +341,19 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
     ) -> pb.SinkOperationResponse:
         """向当前运行 Sink 写入一条明确标记的诊断 PointValue。"""
         try:
-            name = _required(request.name, "name")
+            result = await self._runtime.sink_service.write_test_sink(
+                _required(request.name, "name")
+            )
         except ValueError as exc:
             await _abort_invalid(context, str(exc))
             raise AssertionError("context.abort must terminate the RPC") from exc
-        sink = self._runtime.runtime.sinks.get(name)
-        if sink is None:
-            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {name}")
-            raise AssertionError("context.abort must terminate the RPC")
-        try:
-            await sink.write(
-                [PointValue(device_id="_diagnostic", point_id="_write_test", value=1)]
-            )
-            await sink.flush()
-        except Exception as exc:
-            return pb.SinkOperationResponse(
-                success=False,
-                message=str(exc) or type(exc).__name__,
-            )
-        return pb.SinkOperationResponse(success=True)
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown sink: {exc.args[0]}")
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        return pb.SinkOperationResponse(
+            success=result.success,
+            message=result.message,
+        )
 
 
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):

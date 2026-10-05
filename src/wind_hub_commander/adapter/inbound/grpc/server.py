@@ -13,8 +13,6 @@ from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub_commander.application.diagnostic import DeviceVerifyResult, PointVerifyResult
 from wind_hub_commander.assembly import CommanderApp
-from wind_hub_commander.config import load_commander_config
-from wind_hub_core.config import fingerprint_config_set
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.rpc import commander_pb2 as pb
 from wind_hub_core.rpc import commander_pb2_grpc as pb_grpc
@@ -153,20 +151,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
         try:
             revision_id = _required(request.revision_id, "revision_id")
             expected_hash = _required(request.config_hash, "config_hash")
-            before_hash = fingerprint_config_set(self._app.config_dir)
-            candidate = load_commander_config(self._app.config_dir)
-            actual_hash = fingerprint_config_set(self._app.config_dir)
-            if before_hash != actual_hash:
-                raise ValueError(
-                    "config changed while preparing: "
-                    f"before={before_hash} after={actual_hash}"
-                )
-            if actual_hash != expected_hash:
-                raise ValueError(
-                    "config hash mismatch: "
-                    f"expected={expected_hash} actual={actual_hash}"
-                )
-            await self._app.runtime.prepare_config(revision_id, candidate, actual_hash)
+            actual_hash = await self._app.config.prepare_config(
+                revision_id, expected_hash
+            )
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -184,10 +171,7 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
         """激活指定 prepared revision。"""
         try:
             revision_id = _required(request.revision_id, "revision_id")
-            try:
-                await self._app.runtime.activate_config(revision_id)
-            finally:
-                self._app.config = self._app.runtime.config
+            await self._app.config.activate_config(revision_id)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -205,7 +189,7 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
         """幂等撤销指定 prepared revision。"""
         try:
             revision_id = _required(request.revision_id, "revision_id")
-            aborted = await self._app.runtime.abort_config(revision_id)
+            aborted = await self._app.config.abort_config(revision_id)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc

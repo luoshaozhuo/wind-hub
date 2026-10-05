@@ -55,14 +55,23 @@ def _backend_pr_targets(path: str) -> set[str]:
     if (
         _starts(path, "src/wind_hub_core/rpc/", "tests/integration/rpc/")
         or "/grpc/" in path
-        or path == "src/wind_hub_server/adapter/outbound/collector_directory.py"
+        or path
+        in {
+            "src/wind_hub_server/adapter/outbound/collector_directory.py",
+            # Collector 只读查询 / Sink 控制面的应用服务——直接塑造 RPC 响应。
+            "src/wind_hub_collector/application/service/query.py",
+            "src/wind_hub_collector/application/service/sink.py",
+        }
     ):
         targets.add("integration-rpc")
 
-    if _starts(
-        path,
-        "src/wind_hub_collector/adapter/outbound/sink/",
-        "tests/integration/sinks/",
+    if (
+        _starts(
+            path,
+            "src/wind_hub_collector/adapter/outbound/sink/",
+            "tests/integration/sinks/",
+        )
+        or path == "src/wind_hub_collector/application/service/sink.py"
     ):
         targets.add("integration-sinks")
         if path.startswith("src/wind_hub_collector/adapter/outbound/sink/"):
@@ -100,6 +109,7 @@ def _backend_pr_targets(path: str) -> set[str]:
         "src/wind_hub_server/application/config/files.py",
         "src/wind_hub_collector/application/service/config.py",
         "src/wind_hub_commander/runtime.py",
+        "src/wind_hub_commander/application/config.py",
     }:
         targets.add("system-reload")
 
@@ -115,13 +125,24 @@ def _backend_pr_targets(path: str) -> set[str]:
     }:
         targets.add("system-startup")
 
-    if _starts(path, "tests/system/task_control/") or path in {
-        "src/wind_hub_collector/application/service/task.py",
-        "src/wind_hub_server/application/task/placement.py",
-        "src/wind_hub_server/application/task/control.py",
-        "src/wind_hub_ctl/client.py",
-        "src/wind_hub_ctl/main.py",
-    }:
+    if (
+        _starts(
+            path,
+            "tests/system/task_control/",
+            # worker 权威状态是 placement safety 判定的输入。
+            "src/wind_hub_server/application/worker/",
+        )
+        or path in {
+            "src/wind_hub_collector/application/service/task.py",
+            "src/wind_hub_server/application/task/placement.py",
+            # reconciler 负责 placement 收敛，collector 身份校验是其安全前提。
+            "src/wind_hub_server/application/task/reconcile.py",
+            "src/wind_hub_server/application/task/collector.py",
+            "src/wind_hub_server/application/task/control.py",
+            "src/wind_hub_ctl/client.py",
+            "src/wind_hub_ctl/main.py",
+        }
+    ):
         targets.add("system-task-control")
 
     if _starts(
