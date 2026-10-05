@@ -8,8 +8,8 @@ import pytest
 from wind_hub_collector.adapter.inbound.grpc.server import build_grpc_server
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
-from wind_hub_collector.application.usecase.query import SystemStatus
-from wind_hub_collector.application.usecase.task import TaskInstanceDetail, TaskSummary
+from wind_hub_collector.application.service.query import SystemStatus
+from wind_hub_collector.application.service.task import TaskInstanceDetail, TaskSummary
 from wind_hub_collector.domain.model.device import DeviceInfo
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc

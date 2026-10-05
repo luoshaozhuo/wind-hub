@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from wind_hub_collector.application.usecase.task import TaskInstanceDetail
+from wind_hub_collector.application.service.task import TaskInstanceDetail
 from wind_hub_collector.assembly import CollectorApp
 
 

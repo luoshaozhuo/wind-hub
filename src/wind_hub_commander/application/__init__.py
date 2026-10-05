@@ -1,7 +1,7 @@
-"""Commander 应用用例。"""
+"""Commander 应用服务。"""
 
-from wind_hub_commander.application.command import CommandUseCase
-from wind_hub_commander.application.diagnostic import DiagnosticUseCase
-from wind_hub_commander.application.read import ReadUseCase
+from wind_hub_commander.application.command import CommanderCommandService
+from wind_hub_commander.application.diagnostic import CommanderDiagnosticService
+from wind_hub_commander.application.read import CommanderReadService
 
-__all__ = ["CommandUseCase", "ReadUseCase", "DiagnosticUseCase"]
+__all__ = ["CommanderCommandService", "CommanderDiagnosticService", "CommanderReadService"]

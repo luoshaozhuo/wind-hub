@@ -77,7 +77,7 @@ class TaskRuntime:
         self._acquisition_states: dict[str, AcquisitionRuntimeState] = {}
 
     # ------------------------------------------------------------------
-    # 只读视图（TaskUseCase / QueryUseCase 经此读取，热重载安全）
+    # 只读视图（CollectorTaskService / CollectorQueryService 经此读取，热重载安全）
     # ------------------------------------------------------------------
 
     def attach_metrics_hook(self, metrics_hook: RuntimeMetricsPort | None) -> None:
@@ -98,11 +98,11 @@ class TaskRuntime:
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，
-        QueryUseCase 用）。"""
+        CollectorQueryService 用）。"""
         return dict(self._acquisition_states)
 
     # ------------------------------------------------------------------
-    # 实例生命周期（TaskUseCase 的操作面）
+    # 实例生命周期（CollectorTaskService 的操作面）
     # ------------------------------------------------------------------
 
     async def start_instance(self, instance_id: str) -> None:

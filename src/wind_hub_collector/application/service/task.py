@@ -1,4 +1,4 @@
-"""Task use case——采集 Task / Task Instance 显式生命周期控制的应用编排。
+"""Task 服务——采集 Task / Task Instance 显式生命周期控制的应用编排。
 
 基于 :class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime`，供 Collector gRPC
 控制面管理采集任务：查询 Task 定义与展开后的实例，以及显式 start/stop
@@ -7,12 +7,12 @@ Task 或单个 Task Instance。
 核心语义：
 
 - 配置决定「有哪些 Task 与实例」——定义与实例的创建/删除只发生在启动
-  装配与配置热重载；本用例的 start/stop 只翻转实例生命周期状态
+  装配与配置热重载；本服务的 start/stop 只翻转实例生命周期状态
   （RUNNING / STOPPED），不增删实例；
 - 实例状态只有两态——采集执行状态（failed/partial）与设备连接状态
-  （disconnected）是另外的维度，不由本用例呈现或修改。
+  （disconnected）是另外的维度，不由本服务呈现或修改。
 
-职责边界：本用例只管 Task / Task Instance 粒度操作。CollectorRuntime 整体
+职责边界：本服务只管 Task / Task Instance 粒度操作。CollectorRuntime 整体
 ``start()``/``stop()``（CollectorRuntime 生命周期）与进程启停（process 生命周期）
 是另外两层语义，不在此暴露——三者不得混用。
 """
@@ -63,10 +63,10 @@ class TaskSummary(BaseModel):
     """最近采集连续失败大于 0 的实例数；不改变生命周期状态。"""
 
 
-class TaskUseCase:
-    """采集 Task 管理用例——实例启停直接委托给 CollectorRuntime。
+class CollectorTaskService:
+    """采集 Task 管理服务——实例启停直接委托给 CollectorRuntime。
 
-    未知 ``instance_id`` 的 ``KeyError`` 由本用例统一抛出，调用方
+    未知 ``instance_id`` 的 ``KeyError`` 由本服务统一抛出，调用方
     （适配层）据此映射为 404 / 非零退出。
     """
 

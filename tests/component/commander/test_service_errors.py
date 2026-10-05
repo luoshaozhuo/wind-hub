@@ -1,4 +1,4 @@
-"""Commander 用例错误路径组件测试。
+"""Commander 应用服务错误路径组件测试。
 
 在真实 CommanderApp（未连接设备）上验证命令/读取/诊断的错误收敛语义：
 未知设备、未知点、空点列表、设备未连接——全部收敛为 CommandError 或
@@ -24,7 +24,7 @@ def _command(command_id: str = "cmd-1", device_id: str = "modbus-1") -> Command:
     )
 
 
-class TestCommandUseCase:
+class TestCommanderCommandService:
     async def test_unknown_device_returns_failed_result(
         self, commander_app: CommanderApp
     ) -> None:
@@ -54,7 +54,7 @@ class TestCommandUseCase:
         assert "ghost" in (results[0].error or "")
 
 
-class TestReadUseCase:
+class TestCommanderReadService:
     async def test_unknown_device_raises_command_error(
         self, commander_app: CommanderApp
     ) -> None:
@@ -80,7 +80,7 @@ class TestReadUseCase:
             await commander_app.read.read_point("modbus-1", "rotor.speed")
 
 
-class TestDiagnosticUseCase:
+class TestCommanderDiagnosticService:
     async def test_verify_unknown_device_raises_command_error(
         self, commander_app: CommanderApp
     ) -> None:

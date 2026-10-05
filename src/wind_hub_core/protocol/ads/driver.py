@@ -95,8 +95,8 @@ class ADSDriver:
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
-        self._cfg = cfg
         self._config: ADSConfig = from_device_config(cfg)
+        self._device_id = cfg.device_id
         self._host = cfg.endpoint.host
         self._lock = asyncio.Lock()
 
@@ -531,7 +531,7 @@ class ADSDriver:
             )
         if interval is None or interval <= 0:
             raise ConfigError(
-                f"ADS subscription on device '{self._cfg.device_id}' requires "
+                f"ADS subscription on device '{self._device_id}' requires "
                 f"interval > 0 (used as notification cycle_time), got {interval}"
             )
         if not self._connected or self._connection is None:
@@ -541,7 +541,7 @@ class ADSDriver:
         await self._resolve_points_once()
         subscription = ADSSubscription(
             config=self._config,
-            device_id=self._cfg.device_id,
+            device_id=self._device_id,
             host=self._host,
             loop=asyncio.get_running_loop(),
             on_data=callback,

@@ -4,7 +4,7 @@
 需要的对象图：
 
 Protocol / CollectorDeviceSession / Sink -> AcquisitionEngine -> CollectorRuntime
-                           -> TaskUseCase / QueryUseCase / ConfigUseCase
+                           -> CollectorTaskService / CollectorQueryService / CollectorConfigService
 
 Admin、Overview、Quality、Web API、即时设备通信、现场协议诊断、长期日志与
 System Health 不属于 Collector；运行时配置 reload 属于 Collector 核心控制面。
@@ -23,9 +23,9 @@ import wind_hub_core.protocol  # noqa: F401
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import CollectorDeviceSession, CollectorRuntime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
-from wind_hub_collector.application.usecase.config import ConfigUseCase
-from wind_hub_collector.application.usecase.query import QueryUseCase
-from wind_hub_collector.application.usecase.task import TaskUseCase
+from wind_hub_collector.application.service.config import CollectorConfigService
+from wind_hub_collector.application.service.query import CollectorQueryService
+from wind_hub_collector.application.service.task import CollectorTaskService
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config import Config, DeviceConfig, ResolvedSinkConfig, load_config
 from wind_hub_core.model.errors import ConfigError
@@ -44,18 +44,18 @@ class CollectorApp:
         runtime: Collector 运行时聚合根。
         engine: 采集执行引擎。
         sinks: 已装配的 Sink 实例注册表。
-        tasks: Task / Task Instance 控制用例。
-        query: 只读查询用例。
-        config: 本地 YAML 增量热重载用例。
+        tasks: Task / Task Instance 控制服务。
+        query: 只读查询服务。
+        config: 本地 YAML 增量热重载服务。
     """
 
     boot_config: Config
     runtime: CollectorRuntime
     engine: AcquisitionEngine
     sinks: dict[str, SinkPort]
-    tasks: TaskUseCase
-    query: QueryUseCase
-    config: ConfigUseCase
+    tasks: CollectorTaskService
+    query: CollectorQueryService
+    config: CollectorConfigService
     metrics_state: CollectorMetricsState
 
 
@@ -112,9 +112,9 @@ def assemble(
         metrics_hook=metrics_state,
     )
 
-    tasks = TaskUseCase(runtime)
-    query = QueryUseCase(runtime)
-    config = ConfigUseCase(config_dir, runtime, cfg)
+    tasks = CollectorTaskService(runtime)
+    query = CollectorQueryService(runtime)
+    config = CollectorConfigService(config_dir, runtime, cfg)
 
     return CollectorApp(
         boot_config=cfg,

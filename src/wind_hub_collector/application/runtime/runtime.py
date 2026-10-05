@@ -18,7 +18,7 @@
 （PointValue 数据流处理）。
 
 不负责：协议实现细节（ProtocolPort 适配器）、配置加载与 diff
-（ConfigUseCase）、采集时序（acquisition handle）、Sink 交付细节
+（CollectorConfigService）、采集时序（acquisition handle）、Sink 交付细节
 （SinkRuntime）。
 
 失败语义：设备连接与 sink 打开均为 best-effort——单个失败记录日志并跳过，
@@ -150,7 +150,7 @@ class CollectorRuntime:
         self._started = False
 
     # ------------------------------------------------------------------
-    # 组件只读视图（QueryUseCase / 适配器经此读取当前实例，热重载安全）
+    # 组件只读视图（CollectorQueryService / 适配器经此读取当前实例，热重载安全）
     # ------------------------------------------------------------------
 
     def attach_metrics_hook(
@@ -332,7 +332,7 @@ class CollectorRuntime:
 
     def acquisition_states(self) -> dict[str, AcquisitionRuntimeState]:
         """当前采集实例执行状态簿（``{instance_id: state}`` 浅拷贝，
-        委托 TaskRuntime，QueryUseCase 用）。"""
+        委托 TaskRuntime，CollectorQueryService 用）。"""
         return self._task_runtime.acquisition_states()
 
     # ------------------------------------------------------------------
@@ -387,13 +387,13 @@ class CollectorRuntime:
         await self._task_runtime.resume_after_device_change(was_running)
 
     # ------------------------------------------------------------------
-    # 热重载编排（ConfigUseCase 的唯一入口）
+    # 热重载编排（CollectorConfigService 的唯一入口）
     # ------------------------------------------------------------------
 
     def convergence_diff(self, target: Config) -> ConfigDiff:
         """基于真实 CollectorRuntime 注册表生成强制收敛 diff。
 
-        用于失败回滚或 revision reconciliation。它不依赖 ConfigUseCase 的
+        用于失败回滚或 revision reconciliation。它不依赖 CollectorConfigService 的
         current_config 基线，而是按当前实际设备/Sink/Task 注册表与目标配置
         生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
         收敛到目标配置。
@@ -439,12 +439,12 @@ class CollectorRuntime:
 
         各阶段相互隔离：单阶段失败记录到返回的错误列表，其余阶段继续执行。
         本方法不修改配置快照——``current_config`` 的提交时机由
-        ConfigUseCase 决定。本类只负责跨子系统顺序与点表重注入；设备/sink
+        CollectorConfigService 决定。本类只负责跨子系统顺序与点表重注入；设备/sink
         子系统内部细节分别在 DeviceRuntime / SinkRuntime。
 
         Args:
             new_config: 已加载并通过校验的新配置。
-            diff: 新旧配置的 diff（由 ConfigUseCase 计算）。
+            diff: 新旧配置的 diff（由 CollectorConfigService 计算）。
 
         Returns:
             错误描述列表；空列表表示全部阶段成功。

@@ -1,4 +1,4 @@
-"""Commander 独立现场诊断用例。
+"""Commander 独立现场诊断服务。
 
 诊断由控制面显式触发，不参与 Collector 启动、周期采集或配置热重载。
 它复用当前 Runtime 的设备对象和 wind-hub-core 主动探测能力，分别验证
@@ -83,7 +83,7 @@ class PointsVerifyResult(BaseModel):
     points: list[PointVerifyResult]
 
 
-class DiagnosticUseCase:
+class CommanderDiagnosticService:
     """Commander 的按需现场诊断入口。"""
 
     def __init__(self, runtime: CommanderRuntime) -> None:

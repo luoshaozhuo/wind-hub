@@ -54,16 +54,16 @@ class TestDriverConfig:
     def test_default_config(self) -> None:
         cfg = _make_device_config()
         driver = IEC104Driver(cfg)
-        iece_cfg = driver._cfg
-        assert iece_cfg.host == "127.0.0.1"
-        assert iece_cfg.port == 2404
-        assert iece_cfg.common_addr == 1
-        assert iece_cfg.k == 12
-        assert iece_cfg.w == 8
-        assert iece_cfg.t0 == 30.0
-        assert iece_cfg.t1 == 15.0
-        assert iece_cfg.t2 == 10.0
-        assert iece_cfg.t3 == 20.0
+        iece_config = driver._config
+        assert iece_config.host == "127.0.0.1"
+        assert iece_config.port == 2404
+        assert iece_config.common_addr == 1
+        assert iece_config.k == 12
+        assert iece_config.w == 8
+        assert iece_config.t0 == 30.0
+        assert iece_config.t1 == 15.0
+        assert iece_config.t2 == 10.0
+        assert iece_config.t3 == 20.0
 
     def test_custom_config(self) -> None:
         cfg = _make_device_config(
@@ -76,14 +76,14 @@ class TestDriverConfig:
             t3=10.0,
         )
         driver = IEC104Driver(cfg)
-        iece_cfg = driver._cfg
-        assert iece_cfg.common_addr == 10
-        assert iece_cfg.k == 8
-        assert iece_cfg.w == 6
-        assert iece_cfg.t0 == 5.0
-        assert iece_cfg.t1 == 3.0
-        assert iece_cfg.t2 == 2.0
-        assert iece_cfg.t3 == 10.0
+        iece_config = driver._config
+        assert iece_config.common_addr == 10
+        assert iece_config.k == 8
+        assert iece_config.w == 6
+        assert iece_config.t0 == 5.0
+        assert iece_config.t1 == 3.0
+        assert iece_config.t2 == 2.0
+        assert iece_config.t3 == 10.0
 
 
 
@@ -238,8 +238,8 @@ class TestSelfRegistration:
         cfg = _make_device_config()
         driver = _create_iec104(cfg)
         assert isinstance(driver, IEC104Driver)
-        assert driver._cfg.host == "127.0.0.1"
-        assert driver._cfg.port == 2404
+        assert driver._config.host == "127.0.0.1"
+        assert driver._config.port == 2404
 
 
 # ===========================================================================

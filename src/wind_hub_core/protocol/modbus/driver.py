@@ -122,7 +122,6 @@ class ModbusDriver:
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
-        self._cfg = cfg
         self._config: ModbusConfig = from_device_config(cfg)
         self._lock = asyncio.Lock()
 

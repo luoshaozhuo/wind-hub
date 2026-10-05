@@ -262,6 +262,28 @@ type = "forbidden"
 source_modules = ["wind_hub_collector.application"]
 forbidden_modules = ["wind_hub_collector.adapter"]
 
+# ---- commander 内部分层 ----
+
+[[tool.importlinter.contracts]]
+name = "commander application 不得依赖 adapter"
+type = "forbidden"
+source_modules = ["wind_hub_commander.application"]
+forbidden_modules = ["wind_hub_commander.adapter"]
+
+# ---- generated protobuf 边界 ----
+# pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
+# 与 ctl client；application/domain 不感知 wire 形态。
+
+[[tool.importlinter.contracts]]
+name = "collector/commander application 与 domain 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = [
+    "wind_hub_collector.application",
+    "wind_hub_collector.domain",
+    "wind_hub_commander.application",
+]
+forbidden_modules = ["wind_hub_core.rpc"]
+
 # ---- server application 内部分层 ----
 # 依赖方向：adapter → application capability → application port → outbound adapter/infra。
 # capability 之间只允许单向依赖（见 layers contract），禁止反向或环。

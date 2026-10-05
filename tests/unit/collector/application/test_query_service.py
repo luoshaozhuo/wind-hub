@@ -7,7 +7,7 @@ import pytest
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
-from wind_hub_collector.application.usecase.query import QueryUseCase
+from wind_hub_collector.application.service.query import CollectorQueryService
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config import (
     CollectionTaskConfig,
@@ -96,14 +96,14 @@ def _runtime(
 
 
 async def test_list_devices_reports_current_runtime_health() -> None:
-    usecase = QueryUseCase(
+    service = CollectorQueryService(
         _runtime(
             devices={"d1": _device("d1", "modbus"), "d2": _device("d2", "iec104")},
             protocols={"d1": _protocol(True), "d2": _protocol(False)},
         )
     )
 
-    infos = await usecase.list_devices()
+    infos = await service.list_devices()
 
     by_id = {item.device_id: item for item in infos}
     assert set(by_id) == {"d1", "d2"}
@@ -113,7 +113,7 @@ async def test_list_devices_reports_current_runtime_health() -> None:
 
 
 async def test_status_aggregates_runtime_snapshot() -> None:
-    usecase = QueryUseCase(
+    service = CollectorQueryService(
         _runtime(
             devices={"d1": _device("d1"), "d2": _device("d2")},
             protocols={"d1": _protocol(True), "d2": _protocol(False)},
@@ -121,7 +121,7 @@ async def test_status_aggregates_runtime_snapshot() -> None:
         )
     )
 
-    status = await usecase.status()
+    status = await service.status()
 
     assert status.running is False
     assert status.device_count == 2
@@ -142,21 +142,21 @@ async def test_status_reports_acquisition_execution_state() -> None:
         tasks={"task-1": _task()},
     )
     await runtime.start()
-    usecase = QueryUseCase(runtime)
+    service = CollectorQueryService(runtime)
 
     runtime.task_runtime.report_collect_started("task-1:d1", "d1", "g")
-    running = (await usecase.status()).acquisitions[0]
+    running = (await service.status()).acquisitions[0]
     assert running.running is True
 
     runtime.task_runtime.report_collect_failure("task-1:d1", "d1", "g", "read timeout")
-    failed = (await usecase.status()).acquisitions[0]
+    failed = (await service.status()).acquisitions[0]
     assert failed.running is False
     assert failed.consecutive_failures == 1
     assert failed.last_error == "read timeout"
 
     runtime.task_runtime.report_collect_started("task-1:d1", "d1", "g")
     runtime.task_runtime.report_collect_success("task-1:d1", "d1", "g", partial=False)
-    recovered = (await usecase.status()).acquisitions[0]
+    recovered = (await service.status()).acquisitions[0]
     assert recovered.consecutive_failures == 0
     assert recovered.last_error is None
 
@@ -165,12 +165,12 @@ async def test_status_reports_acquisition_execution_state() -> None:
 
 async def test_device_registry_changes_are_visible_immediately() -> None:
     runtime = _runtime(devices={"d1": _device("d1")}, protocols={"d1": _protocol()})
-    usecase = QueryUseCase(runtime)
+    service = CollectorQueryService(runtime)
 
-    assert {item.device_id for item in await usecase.list_devices()} == {"d1"}
+    assert {item.device_id for item in await service.list_devices()} == {"d1"}
 
     await runtime.add_device("d2", _device("d2"), _protocol(), [_point("p2")])
-    assert {item.device_id for item in await usecase.list_devices()} == {"d1", "d2"}
+    assert {item.device_id for item in await service.list_devices()} == {"d1", "d2"}
 
     await runtime.remove_device("d1")
-    assert {item.device_id for item in await usecase.list_devices()} == {"d2"}
+    assert {item.device_id for item in await service.list_devices()} == {"d2"}

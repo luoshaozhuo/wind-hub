@@ -75,7 +75,7 @@ def _backend_pr_targets(path: str) -> set[str]:
     ) or path in {
         "src/wind_hub_collector/assembly.py",
         "src/wind_hub_collector/main.py",
-        "src/wind_hub_collector/application/usecase/task.py",
+        "src/wind_hub_collector/application/service/task.py",
     }:
         targets.add("system-acquisition")
 
@@ -83,23 +83,23 @@ def _backend_pr_targets(path: str) -> set[str]:
         "src/wind_hub_commander/dispatcher.py",
         "src/wind_hub_commander/runtime.py",
         "src/wind_hub_commander/application/command.py",
-        "src/wind_hub_server/application/usecase/device_control.py",
+        "src/wind_hub_server/application/device/command.py",
     }:
         targets.add("system-command")
 
     if (
         _starts(path, "tests/system/diagnostics/")
         or path.endswith("/application/diagnostic.py")
-        or path.endswith("/application/usecase/diagnostic.py")
+        or path.endswith("/application/device/diagnostic.py")
         or path == "src/wind_hub_server/infra/network_probe.py"
     ):
         targets.add("system-diagnostics")
 
     if _starts(path, "tests/system/reload/") or path in {
-        "src/wind_hub_server/config_validation.py",
-        "src/wind_hub_server/application/usecase/config.py",
-        "src/wind_hub_server/application/usecase/config_admin.py",
-        "src/wind_hub_collector/application/usecase/config.py",
+        "src/wind_hub_server/application/config/service.py",
+        "src/wind_hub_server/application/config/files.py",
+        "src/wind_hub_collector/application/service/config.py",
+        "src/wind_hub_commander/runtime.py",
     }:
         targets.add("system-reload")
 
@@ -116,9 +116,9 @@ def _backend_pr_targets(path: str) -> set[str]:
         targets.add("system-startup")
 
     if _starts(path, "tests/system/task_control/") or path in {
-        "src/wind_hub_collector/application/usecase/task.py",
-        "src/wind_hub_server/application/usecase/task_assignment.py",
-        "src/wind_hub_server/application/usecase/worker_tasks.py",
+        "src/wind_hub_collector/application/service/task.py",
+        "src/wind_hub_server/application/task/placement.py",
+        "src/wind_hub_server/application/task/control.py",
         "src/wind_hub_ctl/client.py",
         "src/wind_hub_ctl/main.py",
     }:

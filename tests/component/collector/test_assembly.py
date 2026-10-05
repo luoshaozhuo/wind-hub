@@ -7,8 +7,8 @@ from pathlib import Path
 
 from tests.support.config_helper import write_config_tree
 from wind_hub_collector.application.runtime import CollectorRuntime
-from wind_hub_collector.application.usecase.config import ConfigUseCase
-from wind_hub_collector.application.usecase.task import TaskUseCase
+from wind_hub_collector.application.service.config import CollectorConfigService
+from wind_hub_collector.application.service.task import CollectorTaskService
 from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 from wind_hub_core.config import ResolvedSinkConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
@@ -94,8 +94,8 @@ def test_assemble_builds_minimal_collector_graph() -> None:
 
         assert isinstance(assembled, CollectorApp)
         assert isinstance(assembled.runtime, CollectorRuntime)
-        assert isinstance(assembled.tasks, TaskUseCase)
-        assert isinstance(assembled.config, ConfigUseCase)
+        assert isinstance(assembled.tasks, CollectorTaskService)
+        assert isinstance(assembled.config, CollectorConfigService)
         assert assembled.runtime.engine is assembled.engine
         assert isinstance(assembled.runtime._config, RuntimeConfig)  # noqa: SLF001
         assert set(assembled.runtime.devices) == {"d1"}

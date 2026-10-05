@@ -1,4 +1,4 @@
-"""Commander 即时读取用例。"""
+"""Commander 即时读取服务。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from wind_hub_core.model.errors import CommandError
 from wind_hub_core.model.point import PointRef, PointValue
 
 
-class ReadUseCase:
+class CommanderReadService:
     """按设备和 point_id 执行即时读取。"""
 
     def __init__(self, runtime: CommanderRuntime) -> None:

@@ -1,10 +1,10 @@
-"""Config use case——配置加载、校验、diff 与热重载的应用编排。
+"""Config 服务——配置加载、校验、diff 与热重载的应用编排。
 
-职责边界：本用例只做「load → validate → diff → runtime.reconfigure →
+职责边界：本服务只做「load → validate → diff → runtime.reconfigure →
 commit current config」的编排；具体的设备/sink 增删重建、Task Instance
 重新展开与点表重注入全部由
 :class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime` 的
-:meth:`CollectorRuntime.reconfigure` 执行——本用例不直接触碰任何运行时组件。
+:meth:`CollectorRuntime.reconfigure` 执行——本服务不直接触碰任何运行时组件。
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from wind_hub_core.model.reload import ConfigDiff, ReloadResult
 logger = logging.getLogger(__name__)
 
 
-class ConfigUseCase:
-    """配置热重载用例编排。
+class CollectorConfigService:
+    """配置热重载编排服务。
 
     ``reload()`` 编排热重载，``current_config`` 暴露当前配置。
 

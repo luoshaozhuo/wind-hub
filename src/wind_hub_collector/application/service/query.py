@@ -1,11 +1,11 @@
-"""Query use case——只读查询的应用编排。
+"""Query 服务——只读查询的应用编排。
 
 基于 :class:`~wind_hub_collector.application.runtime.runtime.CollectorRuntime` 提供：
 
 - 当前设备注册表与连接状态；
 - CollectorRuntime 聚合状态快照（``status()``）。
 
-即时设备读写与现场协议诊断由独立 wind-hub-commander 负责；本用例只暴露
+即时设备读写与现场协议诊断由独立 wind-hub-commander 负责；本服务只暴露
 Collector 自身运行事实。所有查询都穿透 CollectorRuntime 当前状态，热重载后立即可见。
 """
 
@@ -51,7 +51,7 @@ class AcquisitionInfo(BaseModel):
 
 
 class SystemStatus(BaseModel):
-    """QueryUseCase.status 返回的 CollectorRuntime 聚合状态快照。"""
+    """CollectorQueryService.status 返回的 CollectorRuntime 聚合状态快照。"""
 
     running: bool
     """Runtime 已启动时为 True。"""
@@ -81,8 +81,8 @@ class SystemStatus(BaseModel):
     """各采集实例的业务执行状态（按 Task Instance 粒度）。"""
 
 
-class QueryUseCase:
-    """Collector 运行事实查询用例——所有读取都穿透 CollectorRuntime 当前状态。"""
+class CollectorQueryService:
+    """Collector 运行事实查询服务——所有读取都穿透 CollectorRuntime 当前状态。"""
 
     def __init__(self, runtime: CollectorRuntime) -> None:
         self._runtime = runtime

@@ -8,7 +8,7 @@ add/remove/rebuild 全部由本对象持有；同时实现
 
 不负责：设备会话（DeviceRuntime）、Task/采集状态（TaskRuntime）、
 Sink 实例从配置的创建（组合根注入的工厂）、ConfigDiff 计算
-（ConfigUseCase）与跨子系统的启停顺序（CollectorRuntime）。
+（CollectorConfigService）与跨子系统的启停顺序（CollectorRuntime）。
 协议实现细节隔离在 ``adapter.outbound.sink`` 的 SinkPort 实现内。
 """
 
@@ -66,7 +66,7 @@ class SinkRuntime:
         self._dispatcher = SinkDispatcher(self)
 
     # ------------------------------------------------------------------
-    # 只读视图（CollectorRuntime 聚合 / QueryUseCase 经此读取）
+    # 只读视图（CollectorRuntime 聚合 / CollectorQueryService 经此读取）
     # ------------------------------------------------------------------
 
     @property

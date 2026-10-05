@@ -1,7 +1,7 @@
 """Commander gRPC Server。
 
 本适配器实现由 commander.proto 生成的 CommanderService Servicer。
-Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp 用例。
+Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp 应用服务。
 """
 
 from __future__ import annotations

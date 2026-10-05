@@ -13,7 +13,7 @@ import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
-from wind_hub_collector.application.usecase.task import TaskInstanceDetail, TaskSummary
+from wind_hub_collector.application.service.task import TaskInstanceDetail, TaskSummary
 from wind_hub_collector.assembly import CollectorApp
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import ConfigDiff

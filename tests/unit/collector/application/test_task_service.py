@@ -1,9 +1,9 @@
-"""TaskUseCase 的单元测试。
+"""CollectorTaskService 的单元测试。
 
-验证对象：``application/usecase/task.py``——采集 Task / Task Instance
+验证对象：``application/service/task.py``——采集 Task / Task Instance
 显式生命周期的应用编排。
 
-Runtime 用最小 Fake（按 ``TaskUseCase`` 实际调用的五个方法桩出真实状态
+Runtime 用最小 Fake（按 ``CollectorTaskService`` 实际调用的五个方法桩出真实状态
 迁移：``task_definitions`` / ``task_instances`` / ``instance_states`` /
 ``start_task_instance`` / ``stop_task_instance``）——不做 fake OK：
 每个断言都落到 Fake 簿记的真实状态翻转与调用记录上。
@@ -23,19 +23,19 @@ from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
 )
-from wind_hub_collector.application.usecase.task import TaskUseCase
+from wind_hub_collector.application.service.task import CollectorTaskService
 from wind_hub_core.config import CollectionTaskConfig, TaskTarget
 
 pytestmark = pytest.mark.asyncio
 
 
 # ---------------------------------------------------------------------------
-# 最小 Fake Runtime——只实现 TaskUseCase 实际调用的方法，状态迁移真实簿记
+# 最小 Fake Runtime——只实现 CollectorTaskService 实际调用的方法，状态迁移真实簿记
 # ---------------------------------------------------------------------------
 
 
 class _FakeCollectorRuntime:
-    """按 TaskUseCase 调用面做的最小 Runtime 桩。
+    """按 CollectorTaskService 调用面做的最小 Runtime 桩。
 
     与生产 Runtime 一致的状态语义：start/stop 翻转 ``_states`` 簿记；
     未知 instance_id 抛 ``KeyError``；调用记录用于断言批量操作不触碰
@@ -122,10 +122,10 @@ def _instance(
     )
 
 
-def _usecase(
+def _service(
     *,
     initial_states: dict[str, TaskInstanceState] | None = None,
-) -> tuple[TaskUseCase, _FakeCollectorRuntime]:
+) -> tuple[CollectorTaskService, _FakeCollectorRuntime]:
     tasks = {
         "t1": _task("t1", device="dev-a", sinks=["s1", "s2"]),
         "t2": _task("t2", device=None, device_group="turbine", interval=5.0, enabled=False),
@@ -135,7 +135,7 @@ def _usecase(
         "t2:dev-b": _instance("t2", "dev-b", interval=5.0),
     }
     runtime = _FakeCollectorRuntime(tasks, instances, initial_states)
-    return TaskUseCase(runtime), runtime
+    return CollectorTaskService(runtime), runtime
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +144,9 @@ def _usecase(
 
 
 async def test_list_instances_merges_definition_and_state() -> None:
-    usecase, _ = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
+    service, _ = _service(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
 
-    details = await usecase.list_instances()
+    details = await service.list_instances()
 
     by_id = {d.instance_id: d for d in details}
     assert set(by_id) == {"t1:dev-a", "t2:dev-b"}
@@ -161,9 +161,9 @@ async def test_list_instances_merges_definition_and_state() -> None:
 
 
 async def test_get_instance_returns_single_detail() -> None:
-    usecase, _ = _usecase()
+    service, _ = _service()
 
-    detail = await usecase.get_instance("t2:dev-b")
+    detail = await service.get_instance("t2:dev-b")
 
     assert detail.instance_id == "t2:dev-b"
     assert detail.task_id == "t2"
@@ -171,10 +171,10 @@ async def test_get_instance_returns_single_detail() -> None:
 
 
 async def test_get_instance_unknown_raises_key_error() -> None:
-    usecase, _ = _usecase()
+    service, _ = _service()
 
     with pytest.raises(KeyError):
-        await usecase.get_instance("nope:dev-x")
+        await service.get_instance("nope:dev-x")
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +183,9 @@ async def test_get_instance_unknown_raises_key_error() -> None:
 
 
 async def test_start_instance_flips_state_to_running() -> None:
-    usecase, runtime = _usecase()
+    service, runtime = _service()
 
-    detail = await usecase.start_instance("t1:dev-a")
+    detail = await service.start_instance("t1:dev-a")
 
     assert detail.state is TaskInstanceState.RUNNING
     assert runtime.instance_states()["t1:dev-a"] is TaskInstanceState.RUNNING
@@ -193,25 +193,25 @@ async def test_start_instance_flips_state_to_running() -> None:
 
 
 async def test_start_instance_is_idempotent() -> None:
-    usecase, runtime = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
+    service, runtime = _service(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
 
-    detail = await usecase.start_instance("t1:dev-a")
+    detail = await service.start_instance("t1:dev-a")
 
     assert detail.state is TaskInstanceState.RUNNING
     assert runtime.instance_states()["t1:dev-a"] is TaskInstanceState.RUNNING
 
 
 async def test_start_instance_unknown_raises_key_error() -> None:
-    usecase, _ = _usecase()
+    service, _ = _service()
 
     with pytest.raises(KeyError):
-        await usecase.start_instance("nope:dev-x")
+        await service.start_instance("nope:dev-x")
 
 
 async def test_stop_instance_flips_state_to_stopped() -> None:
-    usecase, runtime = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
+    service, runtime = _service(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
 
-    detail = await usecase.stop_instance("t1:dev-a")
+    detail = await service.stop_instance("t1:dev-a")
 
     assert detail.state is TaskInstanceState.STOPPED
     assert runtime.instance_states()["t1:dev-a"] is TaskInstanceState.STOPPED
@@ -219,19 +219,19 @@ async def test_stop_instance_flips_state_to_stopped() -> None:
 
 
 async def test_stop_instance_is_idempotent() -> None:
-    usecase, runtime = _usecase()
+    service, runtime = _service()
 
-    detail = await usecase.stop_instance("t1:dev-a")
+    detail = await service.stop_instance("t1:dev-a")
 
     assert detail.state is TaskInstanceState.STOPPED
     assert runtime.instance_states()["t1:dev-a"] is TaskInstanceState.STOPPED
 
 
 async def test_stop_instance_unknown_raises_key_error() -> None:
-    usecase, _ = _usecase()
+    service, _ = _service()
 
     with pytest.raises(KeyError):
-        await usecase.stop_instance("nope:dev-x")
+        await service.stop_instance("nope:dev-x")
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +241,9 @@ async def test_stop_instance_unknown_raises_key_error() -> None:
 
 async def test_task_summary_reports_running_instances() -> None:
     """聚合状态应保持生命周期与采集失败两个维度分离。"""
-    usecase, _ = _usecase(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
+    service, _ = _service(initial_states={"t1:dev-a": TaskInstanceState.RUNNING})
 
-    summary = await usecase.get_task_summary("t1")
+    summary = await service.get_task_summary("t1")
 
     assert summary.runtime_state == "running"
     assert summary.instance_count == 1
@@ -253,20 +253,20 @@ async def test_task_summary_reports_running_instances() -> None:
 
 async def test_start_task_rejects_disabled_definition() -> None:
     """禁用 Task 不允许通过 Task 级入口启动。"""
-    usecase, runtime = _usecase()
+    service, runtime = _service()
 
     with pytest.raises(ValueError, match="disabled"):
-        await usecase.start_task("t2")
+        await service.start_task("t2")
 
     assert runtime.start_calls == []
 
 
 async def test_start_and_stop_task_operate_only_its_instances() -> None:
     """Task 级启停只影响该定义展开出的实例。"""
-    usecase, runtime = _usecase()
+    service, runtime = _service()
 
-    started = await usecase.start_task("t1")
-    stopped = await usecase.stop_task("t1")
+    started = await service.start_task("t1")
+    stopped = await service.stop_task("t1")
 
     assert started.runtime_state == "running"
     assert stopped.runtime_state == "stopped"

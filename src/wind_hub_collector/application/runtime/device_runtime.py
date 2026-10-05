@@ -283,7 +283,7 @@ class DeviceRuntime:
         )
 
     def device_state(self, device_id: str) -> DeviceRuntimeState | None:
-        """返回设备当前运行状态（QueryUseCase 聚合 status 用）。"""
+        """返回设备当前运行状态（CollectorQueryService 聚合 status 用）。"""
         return self._device_states.get(device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
