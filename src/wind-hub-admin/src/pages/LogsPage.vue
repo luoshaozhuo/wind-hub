@@ -1,44 +1,56 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { useViewport } from '../composables/useViewport'
-import { api } from '../api/client'
-import { queryLogs } from '../api/runtime'
-import type { RuntimeLogEntry } from '../api/runtime'
+import { fetchLogSources, fetchLogs } from '../api/monitoring'
+import { qk } from '../api/queryKeys'
 
-type Entry = RuntimeLogEntry
-const rows=ref<Entry[]>([])
-const sources=ref<string[]>([])
-const total=ref(0)
-const loading=ref(false)
-const level=ref<'All'|Entry['level']>('ERROR')
-const source=ref('All')
-const keyword=ref('')
-const page=ref(1)
-const pageSize=ref(20)
-const {isMobile,isTablet}=useViewport()
+interface Entry {
+  time: string
+  level: 'ERROR' | 'WARN' | 'INFO'
+  source: string
+  object: string
+  message: string
+}
 
-async function load(){
-  if(loading.value)return
-  loading.value=true
-  try{
-    const result=await queryLogs({
-      page:page.value,pageSize:pageSize.value,
-      level:level.value,source:source.value,keyword:keyword.value,
-    })
-    rows.value=result.items.map(entry=>({
-      time:entry.timestamp.replace('T',' ').replace('Z','').slice(0,19),
-      level:(entry.level==='WARNING'?'WARN':entry.level) as Entry['level'],
-      source:entry.source,object:entry.object,message:entry.message,
-    }))
-    total.value=result.page.total
-  }finally{loading.value=false}
-}
-async function loadSources(){
-  sources.value=await api<string[]>('/logs/sources')
-}
-watch([level,source,keyword,pageSize],()=>{page.value=1;void load()})
-watch(page,()=>{void load()})
-onMounted(()=>{void Promise.all([load(),loadSources()])})
+const level = ref<'All' | Entry['level']>('ERROR')
+const source = ref('All')
+const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+const { isMobile, isTablet } = useViewport()
+
+const params = computed(() => ({
+  page: page.value,
+  pageSize: pageSize.value,
+  level: level.value,
+  source: source.value,
+  keyword: keyword.value,
+}))
+
+const logsQuery = useQuery({
+  queryKey: computed(() => qk.logs(params.value)),
+  queryFn: () => fetchLogs(params.value),
+  placeholderData: keepPreviousData,
+})
+const sourcesQuery = useQuery({ queryKey: qk.logSources, queryFn: fetchLogSources })
+
+const rows = computed<Entry[]>(() =>
+  (logsQuery.data.value?.items || []).map((entry) => ({
+    time: entry.timestamp.replace('T', ' ').replace('Z', '').slice(0, 19),
+    level: (entry.level === 'WARNING' ? 'WARN' : entry.level) as Entry['level'],
+    source: entry.source,
+    object: entry.object,
+    message: entry.message,
+  })),
+)
+const total = computed(() => logsQuery.data.value?.page.total || 0)
+const loading = computed(() => logsQuery.isFetching.value)
+const sources = computed(() => sourcesQuery.data.value || [])
+
+watch([level, source, keyword, pageSize], () => {
+  page.value = 1
+})
 </script>
 
 <template>
@@ -55,7 +67,12 @@ onMounted(()=>{void Promise.all([load(),loadSources()])})
         <div class="row"><b>Log Stream</b><el-tag type="success">live</el-tag></div>
         <div class="logs-filters">
           <el-select v-model="level" aria-label="Log level">
-            <el-option v-for="item in ['ERROR','WARN','INFO','All']" :key="item" :label="item" :value="item" />
+            <el-option
+              v-for="item in ['ERROR', 'WARN', 'INFO', 'All']"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
           </el-select>
           <el-select v-model="source" aria-label="Log source">
             <el-option label="All Sources" value="All" />
@@ -65,11 +82,19 @@ onMounted(()=>{void Promise.all([load(),loadSources()])})
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="rows" height="var(--app-table-viewport-height)" empty-text="No logs match current filters">
+      <el-table
+        v-loading="loading"
+        :data="rows"
+        height="var(--app-table-viewport-height)"
+        empty-text="No logs match current filters"
+      >
         <el-table-column v-if="!isMobile" prop="time" label="Time" width="180" />
         <el-table-column label="Level" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.level === 'ERROR' ? 'danger' : row.level === 'WARN' ? 'warning' : 'info'">{{ row.level }}</el-tag>
+            <el-tag
+              :type="row.level === 'ERROR' ? 'danger' : row.level === 'WARN' ? 'warning' : 'info'"
+              >{{ row.level }}</el-tag
+            >
           </template>
         </el-table-column>
         <el-table-column v-if="!isTablet && !isMobile" prop="source" label="Source" width="110" />
@@ -91,8 +116,33 @@ onMounted(()=>{void Promise.all([load(),loadSources()])})
 </template>
 
 <style scoped>
-.logs-toolbar{display:flex;align-items:center;justify-content:space-between;gap:var(--app-space-4);margin-bottom:var(--app-space-3)}
-.logs-filters{display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,.8fr) minmax(0,1.5fr);gap:var(--app-space-2)}
-@media(max-width:1199px){.logs-toolbar{align-items:stretch;flex-direction:column}.logs-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.logs-filters .el-input{grid-column:1/-1}}
-@media(max-width:767px){.logs-filters{grid-template-columns:1fr}}
+.logs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-4);
+  margin-bottom: var(--app-space-3);
+}
+.logs-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 1.5fr);
+  gap: var(--app-space-2);
+}
+@media (max-width: 1199px) {
+  .logs-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .logs-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .logs-filters .el-input {
+    grid-column: 1/-1;
+  }
+}
+@media (max-width: 767px) {
+  .logs-filters {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

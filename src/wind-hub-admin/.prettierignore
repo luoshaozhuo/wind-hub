@@ -7,28 +7,3 @@ package-lock.json
 src/api/generated
 # Round 2 未触碰的纯样式文件；Round 3 随页面组件化逐步收敛
 src/styles/**
-
-# Round 2 待迁移的 legacy 文件：迁移到 Pinia/Vue Query 时逐文件 prettier --write 并从此列表移除；
-# api/data|service|runtime|quality|yaml|types.ts 将在迁移完成后删除。
-# 禁止一次性格式化未迁移旧文件（避免纯格式 diff）。
-src/api/client.ts
-src/api/data.ts
-src/api/health.ts
-src/api/service.ts
-src/api/runtime.ts
-src/api/quality.ts
-src/api/yaml.ts
-src/api/types.ts
-src/App.vue
-src/components/DeviceMetadataManager.vue
-src/pages/ConfigPage.vue
-src/pages/DebugPage.vue
-src/pages/DevicesPage.vue
-src/pages/LogsPage.vue
-src/pages/OverviewPage.vue
-src/pages/PointsPage.vue
-src/pages/QualityPage.vue
-src/pages/SettingsPage.vue
-src/pages/SinksPage.vue
-src/pages/SystemHealthPage.vue
-src/pages/TasksPage.vue

@@ -1,29 +1,30 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { protocolRead } from '../api/diagnostics'
+import { tableOfDevice, unitSymbol } from '../domain/devices'
 import {
   addressText,
-  affectedByPointTables,
   descendantTableIds,
   isDefaultPointGroup,
   isDefaultPointTable,
   pointOrigin,
   pointsOfTable,
-  refreshTaskValidity,
-  store,
   tableProtocol,
-  unitSymbol,
   validateAddress,
-} from '../api/data'
+} from '../domain/points'
+import { affectedByPointTables, refreshTaskValidity } from '../domain/tasks'
 import { useViewport } from '../composables/useViewport'
-import { testPointRead } from '../api/service'
-import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../api/types'
-import type { PointAddress, PointDef, Protocol } from '../api/types'
+import { useConfigStore } from '../stores/config'
+import { DATA_TYPES, MODBUS_REGISTER_TYPES, PROTOCOLS } from '../domain/types'
+import type { DeviceInst, PointAddress, PointDef, Protocol } from '../domain/types'
+
+const configStore = useConfigStore()
 
 const pointTable = ref('beckhoff_wtg_v1')
-const protocol = computed(() => tableProtocol(pointTable.value) || 'ads')
-const tableDef = computed(() => store.pointTables.find(t => t.id === pointTable.value))
-const rows = computed<PointDef[]>(() => pointsOfTable(pointTable.value))
+const protocol = computed(() => tableProtocol(configStore, pointTable.value) || 'ads')
+const tableDef = computed(() => configStore.pointTables.find((t) => t.id === pointTable.value))
+const rows = computed<PointDef[]>(() => pointsOfTable(configStore, pointTable.value))
 const pointPage = ref(1)
 const pointPageSize = ref(50)
 const pointSearch = ref('')
@@ -31,11 +32,12 @@ const pointSearch = ref('')
 const filteredRows = computed(() => {
   const q = pointSearch.value.trim().toLowerCase()
   if (!q) return rows.value
-  return rows.value.filter(p =>
-    p.point_id.toLowerCase().includes(q) ||
-    p.variable_name.toLowerCase().includes(q) ||
-    addressOf(p).toLowerCase().includes(q) ||
-    p.point_groups.some(g => g.toLowerCase().includes(q)),
+  return rows.value.filter(
+    (p) =>
+      p.point_id.toLowerCase().includes(q) ||
+      p.variable_name.toLowerCase().includes(q) ||
+      addressOf(p).toLowerCase().includes(q) ||
+      p.point_groups.some((g) => g.toLowerCase().includes(q)),
   )
 })
 const pagedRows = computed(() => {
@@ -52,43 +54,61 @@ watch([filteredRows, pointPageSize], () => {
 })
 const { isMobile, isTablet } = useViewport()
 const addrLabel = computed(() =>
-  protocol.value === 'ads' ? 'Symbol / Index' : protocol.value === 'modbus' ? 'Type / Address' : 'IOA',
+  protocol.value === 'ads'
+    ? 'Symbol / Index'
+    : protocol.value === 'modbus'
+      ? 'Type / Address'
+      : 'IOA',
 )
 const addressOf = (p: PointDef) => addressText(protocol.value, p)
-const originOf = (p: PointDef) => pointOrigin(pointTable.value, p.point_id)
+const originOf = (p: PointDef) => pointOrigin(configStore, pointTable.value, p.point_id)
+const unitSymbolOf = (unit: string) => unitSymbol(configStore, unit)
 
 function tableImpact(tableId: string) {
-  const tables = [tableId, ...descendantTableIds(tableId)]
-  return affectedByPointTables(tables)
+  const tables = [tableId, ...descendantTableIds(configStore, tableId)]
+  return affectedByPointTables(configStore, tables)
 }
 
 async function confirmTableImpact(tableId: string, title: string, action: string) {
   const impact = tableImpact(tableId)
-  const running = impact.tasks.filter(t => t.runtime === 'RUNNING')
+  const running = impact.tasks.filter((t) => t.runtime === 'RUNNING')
   if (!impact.devices.length && !impact.tasks.length && impact.tables.length === 1) return true
   try {
     await ElMessageBox.confirm(
-      '<b>' + action + '</b><br><br>' +
-      impact.tables.length + ' Point Table(s) affected.<br>' +
-      impact.devices.length + ' Device(s) affected.<br>' +
-      impact.tasks.length + ' Task(s) affected; ' + running.length + ' currently running.<br><br>' +
-      'Affected running tasks will be stopped while the change is applied and restored if they remain valid.',
+      '<b>' +
+        action +
+        '</b><br><br>' +
+        impact.tables.length +
+        ' Point Table(s) affected.<br>' +
+        impact.devices.length +
+        ' Device(s) affected.<br>' +
+        impact.tasks.length +
+        ' Task(s) affected; ' +
+        running.length +
+        ' currently running.<br><br>' +
+        'Affected running tasks will be stopped while the change is applied and restored if they remain valid.',
       title,
       { type: 'warning', confirmButtonText: 'Apply Changes', dangerouslyUseHTMLString: true },
     )
-  } catch { return false }
+  } catch {
+    return false
+  }
   return true
 }
 
 function withAffectedTasksStopped(tableId: string, apply: () => void) {
-  const impact = tableImpact(tableId)
-  const runningIds = new Set(impact.tasks.filter(t => t.runtime === 'RUNNING').map(t => t.task_id))
-  for (const t of impact.tasks) if (runningIds.has(t.task_id)) t.runtime = 'STOPPED'
-  apply()
-  refreshTaskValidity()
-  for (const t of impact.tasks) {
-    if (runningIds.has(t.task_id) && t.valid !== false && t.enabled) t.runtime = 'RUNNING'
-  }
+  configStore.mutate(() => {
+    const impact = tableImpact(tableId)
+    const runningIds = new Set(
+      impact.tasks.filter((t) => t.runtime === 'RUNNING').map((t) => t.task_id),
+    )
+    for (const t of impact.tasks) if (runningIds.has(t.task_id)) t.runtime = 'STOPPED'
+    apply()
+    refreshTaskValidity(configStore)
+    for (const t of impact.tasks) {
+      if (runningIds.has(t.task_id) && t.valid !== false && t.enabled) t.runtime = 'RUNNING'
+    }
+  })
 }
 
 // ---- Point metadata management ----
@@ -104,41 +124,71 @@ const tableDraft = reactive({ id: '', protocol: 'modbus' as Protocol, extends: '
 const groupDraft = reactive({ id: '', name: '' })
 
 const parentTables = computed(() => {
-  const blocked = new Set(tableEditingId.value ? [tableEditingId.value, ...descendantTableIds(tableEditingId.value)] : [])
-  return store.pointTables.filter(t =>
-    !t.system &&
-    t.protocol === tableDraft.protocol &&
-    !blocked.has(t.id),
+  const blocked = new Set(
+    tableEditingId.value
+      ? [tableEditingId.value, ...descendantTableIds(configStore, tableEditingId.value)]
+      : [],
+  )
+  return configStore.pointTables.filter(
+    (t) => !t.system && t.protocol === tableDraft.protocol && !blocked.has(t.id),
   )
 })
 
-const editingTable = computed(() => store.pointTables.find(t => t.id === tableEditingId.value))
-const tableDirty = computed(() => !!tableEditingId.value && JSON.stringify(tableDraft) !== tableSnapshot.value)
-const groupDirty = computed(() => !!groupEditingId.value && JSON.stringify(groupDraft) !== groupSnapshot.value)
-const manageDirty = computed(() => manageSection.value === 'table' ? tableDirty.value : groupDirty.value)
+const editingTable = computed(() =>
+  configStore.pointTables.find((t) => t.id === tableEditingId.value),
+)
+const tableDirty = computed(
+  () => !!tableEditingId.value && JSON.stringify(tableDraft) !== tableSnapshot.value,
+)
+const groupDirty = computed(
+  () => !!groupEditingId.value && JSON.stringify(groupDraft) !== groupSnapshot.value,
+)
+const manageDirty = computed(() =>
+  manageSection.value === 'table' ? tableDirty.value : groupDirty.value,
+)
 
-async function beforeManageClose(done:()=>void){
-  if(!manageDirty.value){done();return}
-  try{
-    await ElMessageBox.confirm('Discard unsaved metadata changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+async function beforeManageClose(done: () => void) {
+  if (!manageDirty.value) {
     done()
-  }catch{}
+    return
+  }
+  try {
+    await ElMessageBox.confirm('Discard unsaved metadata changes?', 'Unsaved Changes', {
+      type: 'warning',
+      confirmButtonText: 'Discard',
+    })
+    done()
+  } catch {}
 }
 const currentTableIsSystem = computed(() => !!tableDef.value?.system)
 
 const testDeviceId = ref('')
 const testLoading = ref(false)
 const testError = ref('')
-const TEST_CANDIDATE_TYPES = ['bool', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'float32', 'float64']
-const testCandidates = ref(TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' })))
+const TEST_CANDIDATE_TYPES = [
+  'bool',
+  'int8',
+  'uint8',
+  'int16',
+  'uint16',
+  'int32',
+  'uint32',
+  'float32',
+  'float64',
+]
+const testCandidates = ref(TEST_CANDIDATE_TYPES.map((type) => ({ type, value: '—' })))
 const testLatency = ref(0)
 
-const testDevices = computed(() => store.devices.filter(d => {
-  const model = store.deviceModels.find(m => m.id === d.model)
-  return model?.protocol === protocol.value
-}))
+const testDevices = computed(() =>
+  configStore.devices.filter((d) => {
+    const model = configStore.deviceModels.find((m) => m.id === d.model)
+    return model?.protocol === protocol.value
+  }),
+)
 
-const selectedTestDevice = computed(() => store.devices.find(d => d.device_id === testDeviceId.value))
+const selectedTestDevice = computed(() =>
+  configStore.devices.find((d) => d.device_id === testDeviceId.value),
+)
 
 const testRequest = computed(() => {
   if (protocol.value === 'ads') {
@@ -152,16 +202,19 @@ const testRequest = computed(() => {
 function resetPointTest() {
   testLoading.value = false
   testError.value = ''
-  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
+  testCandidates.value = TEST_CANDIDATE_TYPES.map((type) => ({ type, value: '—' }))
   testLatency.value = 0
-  const preferred = testDevices.value.find(d => d.online && d.enabled) || testDevices.value[0]
+  const preferred = testDevices.value.find((d) => d.online && d.enabled) || testDevices.value[0]
   testDeviceId.value = preferred?.device_id || ''
 }
 
 // 原始字节候选解码仅在后端协议适配器返回 raw bytes 时启用。
 function decodeCandidates(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer)
-  const format = (v: number) => Number.isFinite(v) ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6))) : String(v)
+  const format = (v: number) =>
+    Number.isFinite(v)
+      ? String(Math.abs(v) >= 1e6 ? v.toExponential(6) : Number(v.toFixed(6)))
+      : String(v)
   return [
     { type: 'bool', value: bytes[0] ? 'true' : 'false' },
     { type: 'int8', value: String(view.getInt8(0)) },
@@ -173,6 +226,46 @@ function decodeCandidates(bytes: Uint8Array) {
     { type: 'float32', value: format(view.getFloat32(0, true)) },
     { type: 'float64', value: format(view.getFloat64(0, true)) },
   ]
+}
+
+interface PointTestOutcome {
+  ok: boolean
+  error: string
+  errorCode: string
+  latency: number
+  bytes?: Uint8Array
+}
+// Raw-address test 未由协议适配器暴露时，回落到按 requestText 匹配已配置点后的协议读（与旧 testPointRead 语义一致）。
+async function testPointRead(device: DeviceInst, requestText: string): Promise<PointTestOutcome> {
+  const points = pointsOfTable(configStore, tableOfDevice(configStore, device))
+  const point = points.find(
+    (p) => requestText.includes(p.point_id) || requestText.includes(p.address.symbol || ''),
+  )
+  if (!point)
+    return {
+      ok: false,
+      error:
+        'Raw-address test is not exposed by the configured protocol adapter; select a configured point',
+      errorCode: 'RAW_READ_UNAVAILABLE',
+      latency: 0,
+    }
+  const started = performance.now()
+  try {
+    const row = await protocolRead(device.device_id, point.point_id)
+    return {
+      ok: row.quality !== 'bad',
+      error: '',
+      errorCode: row.quality === 'bad' ? 'BAD_QUALITY' : '',
+      latency: Math.round(performance.now() - started),
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      errorCode: 'READ_FAILED',
+      latency: Math.round(performance.now() - started),
+    }
+  }
 }
 
 async function runPointTest() {
@@ -191,14 +284,16 @@ async function runPointTest() {
 
   testLoading.value = true
   testError.value = ''
-  testCandidates.value = TEST_CANDIDATE_TYPES.map(type => ({ type, value: '—' }))
+  testCandidates.value = TEST_CANDIDATE_TYPES.map((type) => ({ type, value: '—' }))
   const started = performance.now()
   // Test Read（§9.4）：成败与错误码由 backend service 按设备场景决定；
   // 页面只负责把确定性原始字节做多种类型解码展示。
-  const outcome = await testPointRead(device, protocol.value, testRequest.value)
+  const outcome = await testPointRead(device, testRequest.value)
   testLatency.value = Math.round(performance.now() - started)
   if (!outcome.ok || !outcome.bytes) {
-    testError.value = outcome.errorCode ? outcome.error + ' (' + outcome.errorCode + ')' : outcome.error
+    testError.value = outcome.errorCode
+      ? outcome.error + ' (' + outcome.errorCode + ')'
+      : outcome.error
     testLoading.value = false
     return
   }
@@ -206,22 +301,30 @@ async function runPointTest() {
   testLoading.value = false
 }
 
-const tableRows = computed(() => store.pointTables.map(t => {
-  const modelIds = store.deviceModels.filter(m => m.point_table === t.id).map(m => m.id)
-  const childTableIds = store.pointTables.filter(x => x.extends === t.id).map(x => x.id)
-  const devices = store.devices.filter(d => modelIds.includes(d.model)).length
-  return {
-    ...t,
-    points: pointsOfTable(t.id).length,
-    localPoints: (store.points[t.id] || []).length,
-    inheritedPoints: t.extends ? pointsOfTable(t.extends).filter(p => !(store.points[t.id] || []).some(x => x.point_id === p.point_id) && !(t.remove_points || []).includes(p.point_id)).length : 0,
-    models: modelIds.length,
-    modelIds,
-    devices,
-    childTables: childTableIds.length,
-    childTableIds,
-  }
-}))
+const tableRows = computed(() =>
+  configStore.pointTables.map((t) => {
+    const modelIds = configStore.deviceModels.filter((m) => m.point_table === t.id).map((m) => m.id)
+    const childTableIds = configStore.pointTables.filter((x) => x.extends === t.id).map((x) => x.id)
+    const devices = configStore.devices.filter((d) => modelIds.includes(d.model)).length
+    return {
+      ...t,
+      points: pointsOfTable(configStore, t.id).length,
+      localPoints: (configStore.points[t.id] || []).length,
+      inheritedPoints: t.extends
+        ? pointsOfTable(configStore, t.extends).filter(
+            (p) =>
+              !(configStore.points[t.id] || []).some((x) => x.point_id === p.point_id) &&
+              !(t.remove_points || []).includes(p.point_id),
+          ).length
+        : 0,
+      models: modelIds.length,
+      modelIds,
+      devices,
+      childTables: childTableIds.length,
+      childTableIds,
+    }
+  }),
+)
 
 type TableRow = (typeof tableRows.value)[number]
 
@@ -230,7 +333,8 @@ function tableDeleteBlocked(row: TableRow) {
 }
 
 function tableDeleteBlockerText(row: TableRow) {
-  if (row.system || isDefaultPointTable(row.id)) return 'System default Point Tables cannot be deleted'
+  if (row.system || isDefaultPointTable(row.id))
+    return 'System default Point Tables cannot be deleted'
   const reasons: string[] = []
   if (row.childTableIds.length) reasons.push('Child Table: ' + row.childTableIds.join(', '))
   if (row.modelIds.length) reasons.push('Device Model: ' + row.modelIds.join(', '))
@@ -240,16 +344,23 @@ function tableDeleteBlockerText(row: TableRow) {
 const editingTableReferences = computed(() => {
   if (!tableEditingId.value) return { childTables: [] as string[], models: [] as string[] }
   return {
-    childTables: store.pointTables.filter(t => t.extends === tableEditingId.value).map(t => t.id),
-    models: store.deviceModels.filter(m => m.point_table === tableEditingId.value).map(m => m.id),
+    childTables: configStore.pointTables
+      .filter((t) => t.extends === tableEditingId.value)
+      .map((t) => t.id),
+    models: configStore.deviceModels
+      .filter((m) => m.point_table === tableEditingId.value)
+      .map((m) => m.id),
   }
 })
 
 const groupRows = computed(() =>
-  store.pointGroups.map(g => ({
+  configStore.pointGroups.map((g) => ({
     ...g,
-    points: Object.values(store.points).reduce((sum, list) => sum + list.filter(p => p.point_groups.includes(g.id)).length, 0),
-    tasks: store.tasks.filter(t => t.point_group === g.id).length,
+    points: Object.values(configStore.points).reduce(
+      (sum, list) => sum + list.filter((p) => p.point_groups.includes(g.id)).length,
+      0,
+    ),
+    tasks: configStore.tasks.filter((t) => t.point_group === g.id).length,
   })),
 )
 
@@ -282,7 +393,7 @@ function newTable() {
 }
 
 function editTable(id: string) {
-  const t = store.pointTables.find(x => x.id === id)
+  const t = configStore.pointTables.find((x) => x.id === id)
   if (!t) return
   tableEditingId.value = t.id
   tableDraft.id = t.id
@@ -298,26 +409,28 @@ async function saveTable() {
     return
   }
 
-  const duplicate = store.pointTables.some(t => t.id === id && t.id !== tableEditingId.value)
+  const duplicate = configStore.pointTables.some(
+    (t) => t.id === id && t.id !== tableEditingId.value,
+  )
   if (duplicate) {
     ElMessage.error('Point table "' + id + '" already exists')
     return
   }
 
   if (tableDraft.extends) {
-    const parent = store.pointTables.find(t => t.id === tableDraft.extends)
+    const parent = configStore.pointTables.find((t) => t.id === tableDraft.extends)
     if (!parent || parent.protocol !== tableDraft.protocol) {
       ElMessage.error('Parent table must use the same protocol')
       return
     }
-    if (descendantTableIds(id).includes(tableDraft.extends)) {
+    if (descendantTableIds(configStore, id).includes(tableDraft.extends)) {
       ElMessage.error('Point table inheritance cycle is not allowed')
       return
     }
   }
 
   if (tableEditingId.value) {
-    const target = store.pointTables.find(t => t.id === tableEditingId.value)
+    const target = configStore.pointTables.find((t) => t.id === tableEditingId.value)
     if (!target) return
     if (target.system) {
       ElMessage.warning('System default Point Tables cannot be modified')
@@ -332,26 +445,35 @@ async function saveTable() {
     const parentChanged = target.extends !== tableDraft.extends
 
     if (protocolChanged) {
-      const childCount = store.pointTables.filter(t => t.extends === target.id).length
-      const modelCount = store.deviceModels.filter(m => m.point_table === target.id).length
-      if (childCount || modelCount || pointsOfTable(target.id).length) {
-        ElMessage.warning('Protocol cannot be changed while the table has points, child tables, or Device Model references')
+      const childCount = configStore.pointTables.filter((t) => t.extends === target.id).length
+      const modelCount = configStore.deviceModels.filter((m) => m.point_table === target.id).length
+      if (childCount || modelCount || pointsOfTable(configStore, target.id).length) {
+        ElMessage.warning(
+          'Protocol cannot be changed while the table has points, child tables, or Device Model references',
+        )
         return
       }
     }
 
     if (parentChanged && tableDraft.extends) {
-      const parentIds = new Set(pointsOfTable(tableDraft.extends).map(p => p.point_id))
-      const invalidRemoved = (target.remove_points || []).filter(pid => !parentIds.has(pid))
+      const parentIds = new Set(
+        pointsOfTable(configStore, tableDraft.extends).map((p) => p.point_id),
+      )
+      const invalidRemoved = (target.remove_points || []).filter((pid) => !parentIds.has(pid))
       if (invalidRemoved.length) {
-        ElMessage.error('New parent does not contain removed point(s): ' + invalidRemoved.join(', '))
+        ElMessage.error(
+          'New parent does not contain removed point(s): ' + invalidRemoved.join(', '),
+        )
         return
       }
     }
 
     if (protocolChanged || parentChanged) {
-      const ok = await confirmTableImpact(target.id, 'Point Table Change Impact',
-        protocolChanged ? 'Change Point Table protocol?' : 'Change parent Point Table?')
+      const ok = await confirmTableImpact(
+        target.id,
+        'Point Table Change Impact',
+        protocolChanged ? 'Change Point Table protocol?' : 'Change parent Point Table?',
+      )
       if (!ok) return
     }
 
@@ -362,52 +484,75 @@ async function saveTable() {
     tableSnapshot.value = JSON.stringify(tableDraft)
     ElMessage.success('Point table updated ')
   } else {
-    store.pointTables.push({
-      id,
-      protocol: tableDraft.protocol,
-      extends: tableDraft.extends,
-      remove_points: [],
+    configStore.mutate(() => {
+      configStore.pointTables.push({
+        id,
+        protocol: tableDraft.protocol,
+        extends: tableDraft.extends,
+        remove_points: [],
+      })
+      configStore.points[id] = []
     })
-    store.points[id] = []
     pointTable.value = id
     ElMessage.success('Point table created ')
     newTable()
   }
 }
 
-async function deleteTable(row: { id: string; protocol: Protocol; points: number; models: number; devices: number; childTables: number; system?: boolean }) {
+async function deleteTable(row: {
+  id: string
+  protocol: Protocol
+  points: number
+  models: number
+  devices: number
+  childTables: number
+  system?: boolean
+}) {
   if (row.system || isDefaultPointTable(row.id)) {
     ElMessage.warning('System default Point Tables cannot be deleted')
     return
   }
 
-  const children = store.pointTables.filter(t => t.extends === row.id)
-  const models = store.deviceModels.filter(m => m.point_table === row.id)
+  const children = configStore.pointTables.filter((t) => t.extends === row.id)
+  const models = configStore.deviceModels.filter((m) => m.point_table === row.id)
   if (children.length || models.length) {
     ElMessage.warning(
-      'Cannot delete: referenced by ' + children.length + ' child table(s) and ' +
-      models.length + ' Device Model(s)',
+      'Cannot delete: referenced by ' +
+        children.length +
+        ' child table(s) and ' +
+        models.length +
+        ' Device Model(s)',
     )
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      '<b>Delete Point Table "' + row.id + '"?</b><br><br>' +
-      row.points + ' effective point(s) will no longer be available.<br>' +
-      'No references will be migrated automatically.',
+      '<b>Delete Point Table "' +
+        row.id +
+        '"?</b><br><br>' +
+        row.points +
+        ' effective point(s) will no longer be available.<br>' +
+        'No references will be migrated automatically.',
       'Delete Point Table',
       { type: 'warning', confirmButtonText: 'Delete', dangerouslyUseHTMLString: true },
     )
-  } catch { return }
+  } catch {
+    return
+  }
 
-  store.pointTables.splice(store.pointTables.findIndex(t => t.id === row.id), 1)
-  delete store.points[row.id]
+  configStore.mutate(() => {
+    configStore.pointTables.splice(
+      configStore.pointTables.findIndex((t) => t.id === row.id),
+      1,
+    )
+    delete configStore.points[row.id]
+  })
   if (pointTable.value === row.id) {
-    pointTable.value = store.pointTables.find(t => !t.system)?.id || store.pointTables[0]?.id || ''
+    pointTable.value =
+      configStore.pointTables.find((t) => !t.system)?.id || configStore.pointTables[0]?.id || ''
   }
   if (tableEditingId.value === row.id) newTable()
-  refreshTaskValidity()
   ElMessage.success('Point table deleted ')
 }
 
@@ -418,7 +563,7 @@ function newGroup() {
 }
 
 function editGroup(id: string) {
-  const g = store.pointGroups.find(x => x.id === id)
+  const g = configStore.pointGroups.find((x) => x.id === id)
   if (!g) return
   groupEditingId.value = g.id
   groupDraft.id = g.id
@@ -433,14 +578,16 @@ function saveGroup() {
     return
   }
 
-  const duplicate = store.pointGroups.some(g => g.id === id && g.id !== groupEditingId.value)
+  const duplicate = configStore.pointGroups.some(
+    (g) => g.id === id && g.id !== groupEditingId.value,
+  )
   if (duplicate) {
     ElMessage.error('Point group "' + id + '" already exists')
     return
   }
 
   if (groupEditingId.value) {
-    const target = store.pointGroups.find(g => g.id === groupEditingId.value)
+    const target = configStore.pointGroups.find((g) => g.id === groupEditingId.value)
     if (!target) return
     if (target.system) {
       ElMessage.warning('System default Point Group cannot be modified')
@@ -450,10 +597,14 @@ function saveGroup() {
       ElMessage.warning('Point Group ID is stable after creation')
       return
     }
-    target.name = groupDraft.name.trim() || target.id
+    configStore.mutate(() => {
+      target.name = groupDraft.name.trim() || target.id
+    })
     groupSnapshot.value = JSON.stringify(groupDraft)
   } else {
-    store.pointGroups.push({ id, name: groupDraft.name.trim() || id })
+    configStore.mutate(() => {
+      configStore.pointGroups.push({ id, name: groupDraft.name.trim() || id })
+    })
     newGroup()
   }
 
@@ -466,14 +617,18 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
     return
   }
 
-  const referencedPoints = Object.values(store.points).reduce(
-    (sum, list) => sum + list.filter(p => p.point_groups.includes(row.id)).length, 0,
+  const referencedPoints = Object.values(configStore.points).reduce(
+    (sum, list) => sum + list.filter((p) => p.point_groups.includes(row.id)).length,
+    0,
   )
-  const tasks = store.tasks.filter(t => t.point_group === row.id)
+  const tasks = configStore.tasks.filter((t) => t.point_group === row.id)
   if (referencedPoints || tasks.length) {
     ElMessage.warning(
-      'Cannot delete: referenced by ' + referencedPoints + ' local point definition(s) and ' +
-      tasks.length + ' Task(s)',
+      'Cannot delete: referenced by ' +
+        referencedPoints +
+        ' local point definition(s) and ' +
+        tasks.length +
+        ' Task(s)',
     )
     return
   }
@@ -484,8 +639,15 @@ async function deleteGroup(row: { id: string; points: number; tasks: number; sys
       'Delete Point Group',
       { type: 'warning', confirmButtonText: 'Delete' },
     )
-  } catch { return }
-  store.pointGroups.splice(store.pointGroups.findIndex(g => g.id === row.id), 1)
+  } catch {
+    return
+  }
+  configStore.mutate(() => {
+    configStore.pointGroups.splice(
+      configStore.pointGroups.findIndex((g) => g.id === row.id),
+      1,
+    )
+  })
   if (groupEditingId.value === row.id) newGroup()
   ElMessage.success('Point group deleted ')
 }
@@ -544,19 +706,31 @@ function openAdd() {
 const pointDraftState = computed(() => JSON.stringify(draft))
 const pointDirty = computed(() => !!editing.value && pointDraftState.value !== pointSnapshot.value)
 
-async function beforePointClose(done:()=>void){
-  if(!pointDirty.value){done();return}
-  try{
-    await ElMessageBox.confirm('Discard unsaved Point changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
+async function beforePointClose(done: () => void) {
+  if (!pointDirty.value) {
     done()
-  }catch{}
+    return
+  }
+  try {
+    await ElMessageBox.confirm('Discard unsaved Point changes?', 'Unsaved Changes', {
+      type: 'warning',
+      confirmButtonText: 'Discard',
+    })
+    done()
+  } catch {}
 }
-async function closePointEditor(){
-  if(!pointDirty.value){pointEdit.value=false;return}
-  try{
-    await ElMessageBox.confirm('Discard unsaved Point changes?','Unsaved Changes',{type:'warning',confirmButtonText:'Discard'})
-    pointEdit.value=false
-  }catch{}
+async function closePointEditor() {
+  if (!pointDirty.value) {
+    pointEdit.value = false
+    return
+  }
+  try {
+    await ElMessageBox.confirm('Discard unsaved Point changes?', 'Unsaved Changes', {
+      type: 'warning',
+      confirmButtonText: 'Discard',
+    })
+    pointEdit.value = false
+  } catch {}
 }
 
 function openEdit(p: PointDef) {
@@ -571,7 +745,7 @@ function openEdit(p: PointDef) {
   draft.register_type = p.address.type || 'holding'
   draft.address = p.address.address
   draft.ioa = p.address.ioa
-  draft.ioa_type = protocol.value === 'iec104' ? (p.address.type || '') : ''
+  draft.ioa_type = protocol.value === 'iec104' ? p.address.type || '' : ''
   draft.data_type = p.data_type
   draft.scale = p.scale
   draft.offset = p.offset
@@ -596,7 +770,7 @@ function draftAddress(): PointAddress {
 
 async function savePoint() {
   const id = draft.point_id.trim()
-  const list = store.points[pointTable.value]
+  const list = configStore.points[pointTable.value]
   if (!list) return
   if (!id) {
     ElMessage.error('Point ID is required')
@@ -606,7 +780,10 @@ async function savePoint() {
     ElMessage.warning('Point ID is stable after creation')
     return
   }
-  if (!editing.value && pointsOfTable(pointTable.value).some(p => p.point_id === id)) {
+  if (
+    !editing.value &&
+    pointsOfTable(configStore, pointTable.value).some((p) => p.point_id === id)
+  ) {
     ElMessage.error('Point ID "' + id + '" already exists in this Point Table')
     return
   }
@@ -624,7 +801,7 @@ async function savePoint() {
     ElMessage.error('Invalid data_type')
     return
   }
-  if (!store.units[draft.unit]) {
+  if (!configStore.units[draft.unit]) {
     ElMessage.error('Invalid unit')
     return
   }
@@ -642,19 +819,22 @@ async function savePoint() {
   }
 
   if (editing.value) {
-    const ok = await confirmTableImpact(pointTable.value, 'Point Change Impact',
+    const ok = await confirmTableImpact(
+      pointTable.value,
+      'Point Change Impact',
       originOf({ ...row, point_id: editing.value }) === 'inherited'
         ? 'Create an override for this inherited point?'
-        : 'Update this point definition?')
+        : 'Update this point definition?',
+    )
     if (!ok) return
   }
 
   withAffectedTasksStopped(pointTable.value, () => {
-    const i = list.findIndex(p => p.point_id === editing.value)
+    const i = list.findIndex((p) => p.point_id === editing.value)
     if (i >= 0) list.splice(i, 1, row)
     else list.push(row)
-    const table = store.pointTables.find(t => t.id === pointTable.value)
-    if (table) table.remove_points = (table.remove_points || []).filter(pid => pid !== id)
+    const table = configStore.pointTables.find((t) => t.id === pointTable.value)
+    if (table) table.remove_points = (table.remove_points || []).filter((pid) => pid !== id)
   })
 
   pointEdit.value = false
@@ -663,19 +843,27 @@ async function savePoint() {
 
 async function delPoint(p: PointDef) {
   const origin = originOf(p)
-  const ok = await confirmTableImpact(pointTable.value, 'Point Delete Impact',
-    origin === 'inherited' ? 'Exclude this inherited point from the child table?' : 'Delete this point from the effective table?')
+  const ok = await confirmTableImpact(
+    pointTable.value,
+    'Point Delete Impact',
+    origin === 'inherited'
+      ? 'Exclude this inherited point from the child table?'
+      : 'Delete this point from the effective table?',
+  )
   if (!ok) return
 
   withAffectedTasksStopped(pointTable.value, () => {
-    const list = store.points[pointTable.value]
-    const localIndex = list.findIndex(x => x.point_id === p.point_id)
+    const list = configStore.points[pointTable.value]
+    const localIndex = list.findIndex((x) => x.point_id === p.point_id)
     if (localIndex >= 0) list.splice(localIndex, 1)
 
-    const table = store.pointTables.find(t => t.id === pointTable.value)
+    const table = configStore.pointTables.find((t) => t.id === pointTable.value)
     if (table?.extends) {
-      const parentHasPoint = pointsOfTable(table.extends).some(x => x.point_id === p.point_id)
-      if (parentHasPoint && !table.remove_points.includes(p.point_id)) table.remove_points.push(p.point_id)
+      const parentHasPoint = pointsOfTable(configStore, table.extends).some(
+        (x) => x.point_id === p.point_id,
+      )
+      if (parentHasPoint && !table.remove_points.includes(p.point_id))
+        table.remove_points.push(p.point_id)
     }
   })
   ElMessage.success(origin === 'inherited' ? 'Inherited point excluded ' : 'Point deleted ')
@@ -683,24 +871,30 @@ async function delPoint(p: PointDef) {
 
 async function resetOverride(p: PointDef) {
   if (originOf(p) !== 'override') return
-  const ok = await confirmTableImpact(pointTable.value, 'Reset Override Impact', 'Restore the parent definition for this point?')
+  const ok = await confirmTableImpact(
+    pointTable.value,
+    'Reset Override Impact',
+    'Restore the parent definition for this point?',
+  )
   if (!ok) return
   withAffectedTasksStopped(pointTable.value, () => {
-    const list = store.points[pointTable.value]
-    const i = list.findIndex(x => x.point_id === p.point_id)
+    const list = configStore.points[pointTable.value]
+    const i = list.findIndex((x) => x.point_id === p.point_id)
     if (i >= 0) list.splice(i, 1)
-    const table = store.pointTables.find(t => t.id === pointTable.value)
-    if (table) table.remove_points = table.remove_points.filter(id => id !== p.point_id)
+    const table = configStore.pointTables.find((t) => t.id === pointTable.value)
+    if (table) table.remove_points = table.remove_points.filter((id) => id !== p.point_id)
   })
   ElMessage.success('Override reset to parent definition ')
 }
-
 </script>
 
 <template>
   <div class="points-page">
     <div class="head">
-      <div><h1>Points</h1><p>Point Table、Point Group 与具体点定义</p></div>
+      <div>
+        <h1>Points</h1>
+        <p>Point Table、Point Group 与具体点定义</p>
+      </div>
     </div>
 
     <el-card shadow="never">
@@ -709,11 +903,18 @@ async function resetOverride(p: PointDef) {
           <div class="table-label">Point Table</div>
           <div class="table-line">
             <el-select v-model="pointTable" class="point-table-select">
-              <el-option v-for="t in store.pointTables" :key="t.id" :label="t.id" :value="t.id" />
+              <el-option
+                v-for="t in configStore.pointTables"
+                :key="t.id"
+                :label="t.id"
+                :value="t.id"
+              />
             </el-select>
             <span class="table-meta">{{ protocol.toUpperCase() }}</span>
             <span v-if="tableDef?.extends" class="table-meta">extends {{ tableDef.extends }}</span>
-            <span class="muted">{{ pointSearch ? filteredRows.length + ' / ' : '' }}{{ rows.length }} points</span>
+            <span class="muted"
+              >{{ pointSearch ? filteredRows.length + ' / ' : '' }}{{ rows.length }} points</span
+            >
           </div>
         </div>
 
@@ -725,7 +926,9 @@ async function resetOverride(p: PointDef) {
             placeholder="Search point / variable / address / group"
             aria-label="Search points"
           />
-          <el-button type="primary" :disabled="currentTableIsSystem" @click="openAdd">+ Add Point</el-button>
+          <el-button type="primary" :disabled="currentTableIsSystem" @click="openAdd"
+            >+ Add Point</el-button
+          >
           <el-dropdown trigger="click">
             <el-button>Actions</el-button>
             <template #dropdown>
@@ -738,18 +941,55 @@ async function resetOverride(p: PointDef) {
       </div>
 
       <el-table :data="pagedRows" height="590">
-        <el-table-column label="Point" min-width="140"><template #default="s"><el-button link @click="openEdit(s.row)"><b>{{ s.row.point_id }}</b></el-button></template></el-table-column>
+        <el-table-column label="Point" min-width="140"
+          ><template #default="s"
+            ><el-button link @click="openEdit(s.row)"
+              ><b>{{ s.row.point_id }}</b></el-button
+            ></template
+          ></el-table-column
+        >
         <el-table-column prop="variable_name" label="Variable" />
-        <el-table-column :label="addrLabel"><template #default="s">{{ addressOf(s.row) }}</template></el-table-column>
-        <el-table-column v-if="!isMobile" label="Source" width="105"><template #default="s"><el-tag size="small" :type="originOf(s.row)==='inherited'?'info':originOf(s.row)==='override'?'warning':undefined">{{ originOf(s.row) }}</el-tag></template></el-table-column>
+        <el-table-column :label="addrLabel"
+          ><template #default="s">{{ addressOf(s.row) }}</template></el-table-column
+        >
+        <el-table-column v-if="!isMobile" label="Source" width="105"
+          ><template #default="s"
+            ><el-tag
+              size="small"
+              :type="
+                originOf(s.row) === 'inherited'
+                  ? 'info'
+                  : originOf(s.row) === 'override'
+                    ? 'warning'
+                    : undefined
+              "
+              >{{ originOf(s.row) }}</el-tag
+            ></template
+          ></el-table-column
+        >
         <el-table-column v-if="!isMobile" prop="data_type" label="Data Type" />
-        <el-table-column v-if="!isMobile" label="Groups"><template #default="s"><el-tag v-for="g in s.row.point_groups" :key="g" class="group-tag">{{ g }}</el-tag></template></el-table-column>
+        <el-table-column v-if="!isMobile" label="Groups"
+          ><template #default="s"
+            ><el-tag v-for="g in s.row.point_groups" :key="g" class="group-tag">{{
+              g
+            }}</el-tag></template
+          ></el-table-column
+        >
         <el-table-column v-if="!isTablet" prop="scale" label="Scale" />
         <el-table-column v-if="!isTablet" prop="offset" label="Offset" />
-        <el-table-column v-if="!isMobile" label="Unit"><template #default="s">{{ unitSymbol(s.row.unit) || s.row.unit }}</template></el-table-column>
+        <el-table-column v-if="!isMobile" label="Unit"
+          ><template #default="s">{{
+            unitSymbolOf(s.row.unit) || s.row.unit
+          }}</template></el-table-column
+        >
         <el-table-column label="Operation" :width="isMobile ? 108 : 170">
           <template #default="s">
-            <el-button v-if="originOf(s.row)==='override'" size="small" @click="resetOverride(s.row)">Reset to Parent</el-button>
+            <el-button
+              v-if="originOf(s.row) === 'override'"
+              size="small"
+              @click="resetOverride(s.row)"
+              >Reset to Parent</el-button
+            >
             <el-button size="small" type="danger" plain @click="delPoint(s.row)">Delete</el-button>
           </template>
         </el-table-column>
@@ -796,9 +1036,18 @@ async function resetOverride(p: PointDef) {
                 <div class="metadata-object-info">
                   <template v-if="manageSection === 'table'">
                     <b>{{ row.id }}</b>
-                    <small>{{ row.protocol.toUpperCase() }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small>
-                    <small>{{ row.points }} effective · {{ row.localPoints }} local · {{ row.inheritedPoints }} inherited</small>
-                    <small>{{ row.models }} models · {{ row.devices }} devices · {{ row.childTables }} child tables</small>
+                    <small
+                      >{{ row.protocol.toUpperCase()
+                      }}<template v-if="row.extends"> · extends {{ row.extends }}</template></small
+                    >
+                    <small
+                      >{{ row.points }} effective · {{ row.localPoints }} local ·
+                      {{ row.inheritedPoints }} inherited</small
+                    >
+                    <small
+                      >{{ row.models }} models · {{ row.devices }} devices ·
+                      {{ row.childTables }} child tables</small
+                    >
                   </template>
                   <template v-else>
                     <b>{{ row.name }}</b>
@@ -823,16 +1072,14 @@ async function resetOverride(p: PointDef) {
                         type="danger"
                         :disabled="tableDeleteBlocked(row)"
                         @click.stop="deleteTable(row)"
-                      >Delete</el-button>
+                        >Delete</el-button
+                      >
                     </span>
                   </el-tooltip>
                 </template>
-                <el-button
-                  v-else
-                  link
-                  type="danger"
-                  @click.stop="deleteGroup(row)"
-                >Delete</el-button>
+                <el-button v-else link type="danger" @click.stop="deleteGroup(row)"
+                  >Delete</el-button
+                >
               </template>
             </el-table-column>
           </el-table>
@@ -840,27 +1087,51 @@ async function resetOverride(p: PointDef) {
 
         <div class="metadata-editor-main">
           <div class="metadata-editor-title">
-            <h3>{{ manageSection === 'table' ? (tableEditingId ? 'Edit Table' : 'New Table') : (groupEditingId ? 'Edit Group' : 'New Group') }}</h3>
+            <h3>
+              {{
+                manageSection === 'table'
+                  ? tableEditingId
+                    ? 'Edit Table'
+                    : 'New Table'
+                  : groupEditingId
+                    ? 'Edit Group'
+                    : 'New Group'
+              }}
+            </h3>
             <p>{{ manageSection === 'table' ? tableEditingId : groupEditingId }}</p>
           </div>
 
           <el-form v-if="manageSection === 'table'" label-position="top">
-            <el-form-item label="Table ID"><el-input v-model="tableDraft.id" :disabled="!!tableEditingId" /></el-form-item>
+            <el-form-item label="Table ID"
+              ><el-input v-model="tableDraft.id" :disabled="!!tableEditingId"
+            /></el-form-item>
             <el-form-item label="Protocol">
-              <el-select v-model="tableDraft.protocol" :disabled="!!editingTable?.system" @change="tableDraft.extends = ''" class="app-full-width">
+              <el-select
+                v-model="tableDraft.protocol"
+                :disabled="!!editingTable?.system"
+                @change="tableDraft.extends = ''"
+                class="app-full-width"
+              >
                 <el-option v-for="p in PROTOCOLS" :key="p" :label="p.toUpperCase()" :value="p" />
               </el-select>
-              <div v-if="editingTable?.system" class="field-note">System default Point Tables are fixed placeholders.</div>
+              <div v-if="editingTable?.system" class="field-note">
+                System default Point Tables are fixed placeholders.
+              </div>
             </el-form-item>
             <el-form-item label="Extends">
               <el-select v-model="tableDraft.extends" class="app-full-width">
                 <el-option label="No Base Table" value="" />
                 <el-option v-for="t in parentTables" :key="t.id" :label="t.id" :value="t.id" />
               </el-select>
-              <div class="field-note">Only protocol-compatible parents that cannot create an inheritance cycle are shown.</div>
+              <div class="field-note">
+                Only protocol-compatible parents that cannot create an inheritance cycle are shown.
+              </div>
             </el-form-item>
             <el-alert
-              v-if="tableEditingId && (editingTableReferences.childTables.length || editingTableReferences.models.length)"
+              v-if="
+                tableEditingId &&
+                (editingTableReferences.childTables.length || editingTableReferences.models.length)
+              "
               type="warning"
               :closable="false"
               class="table-reference-alert"
@@ -875,16 +1146,28 @@ async function resetOverride(p: PointDef) {
             </el-alert>
             <div class="metadata-editor-actions">
               <el-button v-if="!tableEditingId" @click="newTable">Clear</el-button>
-              <el-button type="primary" :disabled="!!tableEditingId && !tableDirty" @click="saveTable">{{ tableEditingId ? 'Save' : 'Create' }}</el-button>
+              <el-button
+                type="primary"
+                :disabled="!!tableEditingId && !tableDirty"
+                @click="saveTable"
+                >{{ tableEditingId ? 'Save' : 'Create' }}</el-button
+              >
             </div>
           </el-form>
 
           <el-form v-else label-position="top">
-            <el-form-item label="Group ID"><el-input v-model="groupDraft.id" :disabled="!!groupEditingId" /></el-form-item>
+            <el-form-item label="Group ID"
+              ><el-input v-model="groupDraft.id" :disabled="!!groupEditingId"
+            /></el-form-item>
             <el-form-item label="Name"><el-input v-model="groupDraft.name" /></el-form-item>
             <div class="metadata-editor-actions">
               <el-button v-if="!groupEditingId" @click="newGroup">Clear</el-button>
-              <el-button type="primary" :disabled="!!groupEditingId && !groupDirty" @click="saveGroup">{{ groupEditingId ? 'Save' : 'Create' }}</el-button>
+              <el-button
+                type="primary"
+                :disabled="!!groupEditingId && !groupDirty"
+                @click="saveGroup"
+                >{{ groupEditingId ? 'Save' : 'Create' }}</el-button
+              >
             </div>
           </el-form>
         </div>
@@ -910,29 +1193,85 @@ async function resetOverride(p: PointDef) {
             </div>
             <el-form label-position="top">
               <div class="point-definition-grid">
-                <el-form-item label="Point ID"><el-input v-model="draft.point_id" :disabled="!!editing" /></el-form-item>
-                <el-form-item label="Variable Name"><el-input v-model="draft.variable_name" /></el-form-item>
+                <el-form-item label="Point ID"
+                  ><el-input v-model="draft.point_id" :disabled="!!editing"
+                /></el-form-item>
+                <el-form-item label="Variable Name"
+                  ><el-input v-model="draft.variable_name"
+                /></el-form-item>
 
                 <template v-if="protocol === 'ads'">
-                  <el-form-item label="Symbol" class="span-2"><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed" /></el-form-item>
-                  <el-form-item label="Index Group"><el-input v-model="draft.index_group" placeholder="0x4020" /></el-form-item>
-                  <el-form-item label="Index Offset"><el-input v-model="draft.index_offset" placeholder="0x1234" /></el-form-item>
+                  <el-form-item label="Symbol" class="span-2"
+                    ><el-input v-model="draft.symbol" placeholder="MAIN.rotorSpeed"
+                  /></el-form-item>
+                  <el-form-item label="Index Group"
+                    ><el-input v-model="draft.index_group" placeholder="0x4020"
+                  /></el-form-item>
+                  <el-form-item label="Index Offset"
+                    ><el-input v-model="draft.index_offset" placeholder="0x1234"
+                  /></el-form-item>
                 </template>
                 <template v-else-if="protocol === 'modbus'">
-                  <el-form-item label="Register Type"><el-select v-model="draft.register_type" class="app-full-width"><el-option v-for="r in MODBUS_REGISTER_TYPES" :key="r" :label="r" :value="r" /></el-select></el-form-item>
-                  <el-form-item label="Address (0-based)"><el-input-number v-model="draft.address" :min="0" :controls="false" class="app-full-width" /></el-form-item>
+                  <el-form-item label="Register Type"
+                    ><el-select v-model="draft.register_type" class="app-full-width"
+                      ><el-option
+                        v-for="r in MODBUS_REGISTER_TYPES"
+                        :key="r"
+                        :label="r"
+                        :value="r" /></el-select
+                  ></el-form-item>
+                  <el-form-item label="Address (0-based)"
+                    ><el-input-number
+                      v-model="draft.address"
+                      :min="0"
+                      :controls="false"
+                      class="app-full-width"
+                  /></el-form-item>
                 </template>
                 <template v-else>
-                  <el-form-item label="IOA"><el-input-number v-model="draft.ioa" :min="0" :max="16777215" :controls="false" class="app-full-width" /></el-form-item>
-                  <el-form-item label="ASDU Type"><el-input v-model="draft.ioa_type" /></el-form-item>
+                  <el-form-item label="IOA"
+                    ><el-input-number
+                      v-model="draft.ioa"
+                      :min="0"
+                      :max="16777215"
+                      :controls="false"
+                      class="app-full-width"
+                  /></el-form-item>
+                  <el-form-item label="ASDU Type"
+                    ><el-input v-model="draft.ioa_type"
+                  /></el-form-item>
                 </template>
 
-                <el-form-item label="Data Type"><el-select v-model="draft.data_type" class="app-full-width"><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select></el-form-item>
-                <el-form-item label="Unit"><el-select v-model="draft.unit" class="app-full-width"><el-option v-for="(u, id) in store.units" :key="id" :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')" :value="id" /></el-select></el-form-item>
-                <el-form-item label="Scale"><el-input-number v-model="draft.scale" class="app-full-width" /></el-form-item>
-                <el-form-item label="Offset"><el-input-number v-model="draft.offset" class="app-full-width" /></el-form-item>
-                <el-form-item label="Point Groups" class="span-2"><el-select v-model="draft.point_groups" multiple class="app-full-width"><el-option v-for="g in store.pointGroups" :key="g.id" :label="g.name + ' · ' + g.id" :value="g.id" :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select></el-form-item>
-                <el-form-item label="Description" class="span-2"><el-input v-model="draft.description" /></el-form-item>
+                <el-form-item label="Data Type"
+                  ><el-select v-model="draft.data_type" class="app-full-width"
+                    ><el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" /></el-select
+                ></el-form-item>
+                <el-form-item label="Unit"
+                  ><el-select v-model="draft.unit" class="app-full-width"
+                    ><el-option
+                      v-for="(u, id) in configStore.units"
+                      :key="id"
+                      :label="id + (u.symbol ? ' (' + u.symbol + ')' : '')"
+                      :value="id" /></el-select
+                ></el-form-item>
+                <el-form-item label="Scale"
+                  ><el-input-number v-model="draft.scale" class="app-full-width"
+                /></el-form-item>
+                <el-form-item label="Offset"
+                  ><el-input-number v-model="draft.offset" class="app-full-width"
+                /></el-form-item>
+                <el-form-item label="Point Groups" class="span-2"
+                  ><el-select v-model="draft.point_groups" multiple class="app-full-width"
+                    ><el-option
+                      v-for="g in configStore.pointGroups"
+                      :key="g.id"
+                      :label="g.name + ' · ' + g.id"
+                      :value="g.id"
+                      :disabled="!!g.system && !draft.point_groups.includes(g.id)" /></el-select
+                ></el-form-item>
+                <el-form-item label="Description" class="span-2"
+                  ><el-input v-model="draft.description"
+                /></el-form-item>
               </div>
             </el-form>
           </section>
@@ -942,12 +1281,20 @@ async function resetOverride(p: PointDef) {
           <el-card shadow="never" class="point-test-card">
             <div class="point-editor-heading">
               <h3>Connectivity Test</h3>
-              <p>Select a {{ protocol.toUpperCase() }} device and test the current unsaved definition.</p>
+              <p>
+                Select a {{ protocol.toUpperCase() }} device and test the current unsaved
+                definition.
+              </p>
             </div>
 
             <el-form label-position="top">
               <el-form-item label="Device">
-                <el-select v-model="testDeviceId" :disabled="testLoading" placeholder="Select device" class="app-full-width">
+                <el-select
+                  v-model="testDeviceId"
+                  :disabled="testLoading"
+                  placeholder="Select device"
+                  class="app-full-width"
+                >
                   <el-option
                     v-for="d in testDevices"
                     :key="d.device_id"
@@ -962,7 +1309,9 @@ async function resetOverride(p: PointDef) {
             </el-form>
 
             <el-descriptions :column="1" size="small" border class="test-request">
-              <el-descriptions-item label="Protocol">{{ protocol.toUpperCase() }}</el-descriptions-item>
+              <el-descriptions-item label="Protocol">{{
+                protocol.toUpperCase()
+              }}</el-descriptions-item>
               <el-descriptions-item label="Request">{{ testRequest }}</el-descriptions-item>
               <el-descriptions-item v-if="selectedTestDevice" label="Target">
                 {{ selectedTestDevice.host }}:{{ selectedTestDevice.port || '—' }}
@@ -970,13 +1319,24 @@ async function resetOverride(p: PointDef) {
             </el-descriptions>
 
             <div class="test-actions">
-              <el-button type="primary" :loading="testLoading" :disabled="!testDeviceId" @click="runPointTest">
+              <el-button
+                type="primary"
+                :loading="testLoading"
+                :disabled="!testDeviceId"
+                @click="runPointTest"
+              >
                 Test Read
               </el-button>
               <span v-if="testLatency && !testLoading" class="muted">{{ testLatency }} ms</span>
             </div>
 
-            <el-alert v-if="testError" :title="testError" type="error" :closable="false" show-icon />
+            <el-alert
+              v-if="testError"
+              :title="testError"
+              type="error"
+              :closable="false"
+              show-icon
+            />
 
             <div class="test-results-title">Interpretations</div>
             <el-table :data="testCandidates" size="small" class="test-results-table">
@@ -986,42 +1346,185 @@ async function resetOverride(p: PointDef) {
           </el-card>
         </el-col>
       </el-row>
-      <template #footer><el-button @click="closePointEditor">Cancel</el-button><el-button type="primary" :disabled="!!editing && !pointDirty" @click="savePoint">Save</el-button></template>
+      <template #footer
+        ><el-button @click="closePointEditor">Cancel</el-button
+        ><el-button type="primary" :disabled="!!editing && !pointDirty" @click="savePoint"
+          >Save</el-button
+        ></template
+      >
     </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.point-table-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--app-toolbar-gap);margin-bottom:var(--app-space-3)}
-.table-label{margin-bottom:var(--app-space-2);color:var(--app-text-secondary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
-.table-line,.table-actions,.metadata-editor-actions{display:flex;align-items:center;gap:var(--app-space-2)}
-.table-actions{flex-wrap:wrap;justify-content:flex-end}
-.table-meta{color:var(--app-text-regular);font-size:var(--app-font-label)}
-.muted,.field-note{color:var(--app-text-muted);font-size:var(--app-font-label)}
-.group-tag{margin-right:var(--app-space-1);margin-bottom:var(--app-space-1)}
-.metadata-tabs{margin-top:calc(-1 * var(--app-space-2))}
-.metadata-layout{display:grid;grid-template-columns:var(--app-master-pane-width) minmax(0,1fr);min-height:var(--app-master-detail-min-height)}
-.metadata-list-pane{min-width:0;padding-right:var(--app-space-3);border-right:1px solid var(--app-border-soft)}
-.metadata-editor-main{min-width:0;padding:var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6)}
-.metadata-editor-title{margin-bottom:var(--app-space-4)}.metadata-editor-title h3{margin:0;font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
-.metadata-editor-title p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption)}
-.metadata-editor-actions{justify-content:flex-end;margin-top:var(--app-space-2)}
-.point-editor-section,.point-test-card{min-width:0}
-.point-definition-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--app-space-4)}
-.point-definition-grid .span-2{grid-column:1/-1}
-.point-definition-grid :deep(.el-form-item){margin-bottom:var(--app-space-3)}
-.point-editor-heading{margin-bottom:var(--app-space-4)}
-.point-editor-heading h3{margin:0;color:var(--app-text-primary);font-size:var(--app-font-section-title);font-weight:var(--app-font-weight-semibold)}
-.point-editor-heading p{margin:var(--app-space-1) 0 0;color:var(--app-text-muted);font-size:var(--app-font-caption);line-height:var(--app-line-height-compact)}
-.point-test-card{height:auto}
-.test-request{margin-top:var(--app-space-2)}
-.test-actions{display:flex;align-items:center;gap:var(--app-space-2);margin-top:var(--app-space-3);margin-bottom:var(--app-space-3)}
-.test-results-title{margin:var(--app-space-3) 0 var(--app-space-2);color:var(--app-text-primary);font-size:var(--app-font-body);font-weight:var(--app-font-weight-semibold)}
-.test-results-table{width:100%}
-.device-state{float:right;margin-left:var(--app-space-3);color:var(--app-text-muted);font-size:var(--app-font-caption)}
-@media(max-width:1199px){.point-test-card{margin-top:var(--app-space-4)}.point-table-toolbar{align-items:flex-start;flex-direction:column}.table-actions{justify-content:flex-start}.metadata-layout{grid-template-columns:1fr}.metadata-list-pane{border-right:0;border-bottom:1px solid var(--app-border-soft);padding:0 0 var(--app-space-3)}.metadata-editor-main{padding:var(--app-space-4) 0 0}}
-@media(max-width:767px){.point-definition-grid{grid-template-columns:1fr}.point-definition-grid .span-2{grid-column:auto}.point-search{width:100%}}
+.point-table-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--app-toolbar-gap);
+  margin-bottom: var(--app-space-3);
+}
+.table-label {
+  margin-bottom: var(--app-space-2);
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
+  font-weight: var(--app-font-weight-semibold);
+}
+.table-line,
+.table-actions,
+.metadata-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+.table-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.table-meta {
+  color: var(--app-text-regular);
+  font-size: var(--app-font-label);
+}
+.muted,
+.field-note {
+  color: var(--app-text-muted);
+  font-size: var(--app-font-label);
+}
+.group-tag {
+  margin-right: var(--app-space-1);
+  margin-bottom: var(--app-space-1);
+}
+.metadata-tabs {
+  margin-top: calc(-1 * var(--app-space-2));
+}
+.metadata-layout {
+  display: grid;
+  grid-template-columns: var(--app-master-pane-width) minmax(0, 1fr);
+  min-height: var(--app-master-detail-min-height);
+}
+.metadata-list-pane {
+  min-width: 0;
+  padding-right: var(--app-space-3);
+  border-right: 1px solid var(--app-border-soft);
+}
+.metadata-editor-main {
+  min-width: 0;
+  padding: var(--app-space-1) var(--app-space-2) var(--app-space-1) var(--app-space-6);
+}
+.metadata-editor-title {
+  margin-bottom: var(--app-space-4);
+}
+.metadata-editor-title h3 {
+  margin: 0;
+  font-size: var(--app-font-section-title);
+  font-weight: var(--app-font-weight-semibold);
+}
+.metadata-editor-title p {
+  margin: var(--app-space-1) 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+.metadata-editor-actions {
+  justify-content: flex-end;
+  margin-top: var(--app-space-2);
+}
+.point-editor-section,
+.point-test-card {
+  min-width: 0;
+}
+.point-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--app-space-4);
+}
+.point-definition-grid .span-2 {
+  grid-column: 1/-1;
+}
+.point-definition-grid :deep(.el-form-item) {
+  margin-bottom: var(--app-space-3);
+}
+.point-editor-heading {
+  margin-bottom: var(--app-space-4);
+}
+.point-editor-heading h3 {
+  margin: 0;
+  color: var(--app-text-primary);
+  font-size: var(--app-font-section-title);
+  font-weight: var(--app-font-weight-semibold);
+}
+.point-editor-heading p {
+  margin: var(--app-space-1) 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+  line-height: var(--app-line-height-compact);
+}
+.point-test-card {
+  height: auto;
+}
+.test-request {
+  margin-top: var(--app-space-2);
+}
+.test-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-3);
+  margin-bottom: var(--app-space-3);
+}
+.test-results-title {
+  margin: var(--app-space-3) 0 var(--app-space-2);
+  color: var(--app-text-primary);
+  font-size: var(--app-font-body);
+  font-weight: var(--app-font-weight-semibold);
+}
+.test-results-table {
+  width: 100%;
+}
+.device-state {
+  float: right;
+  margin-left: var(--app-space-3);
+  color: var(--app-text-muted);
+  font-size: var(--app-font-caption);
+}
+@media (max-width: 1199px) {
+  .point-test-card {
+    margin-top: var(--app-space-4);
+  }
+  .point-table-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .table-actions {
+    justify-content: flex-start;
+  }
+  .metadata-layout {
+    grid-template-columns: 1fr;
+  }
+  .metadata-list-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border-soft);
+    padding: 0 0 var(--app-space-3);
+  }
+  .metadata-editor-main {
+    padding: var(--app-space-4) 0 0;
+  }
+}
+@media (max-width: 767px) {
+  .point-definition-grid {
+    grid-template-columns: 1fr;
+  }
+  .point-definition-grid .span-2 {
+    grid-column: auto;
+  }
+  .point-search {
+    width: 100%;
+  }
+}
 
-.point-table-select{width:var(--app-field-width-lg)}
-.point-search{width:var(--app-field-width-lg)}
+.point-table-select {
+  width: var(--app-field-width-lg);
+}
+.point-search {
+  width: var(--app-field-width-lg);
+}
 </style>

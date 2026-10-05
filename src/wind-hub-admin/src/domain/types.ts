@@ -6,10 +6,18 @@ export type Protocol = 'ads' | 'modbus' | 'iec104'
 export const PROTOCOLS: Protocol[] = ['ads', 'modbus', 'iec104']
 
 export const DATA_TYPES = [
-  'float32', 'float64',
-  'int8', 'int16', 'int32', 'int64',
-  'uint8', 'uint16', 'uint32', 'uint64',
-  'bool', 'str',
+  'float32',
+  'float64',
+  'int8',
+  'int16',
+  'int32',
+  'int64',
+  'uint8',
+  'uint16',
+  'uint32',
+  'uint64',
+  'bool',
+  'str',
 ]
 
 export const MODBUS_REGISTER_TYPES = ['holding', 'input', 'coil', 'discrete_input']
