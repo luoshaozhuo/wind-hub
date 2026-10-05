@@ -16,16 +16,23 @@ from uuid import uuid4
 from wind_hub_core.config import Config, compute_diff, fingerprint_config_set, load_config
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort, CommanderPort
+from wind_hub_server.application.port.worker import (
+    CollectorInfo,
+    CollectorPort,
+    CommanderPort,
+    CommanderStatus,
+    ConfigAbortAck,
+    ConfigActivateAck,
+    ConfigPrepareAck,
+)
 from wind_hub_server.application.worker.model import COMMANDER_WORKER_ID
 
 
-def _remote_errors(payload: dict[str, object]) -> list[str]:
-    """提取参与者响应中的 errors 字段（缺失或非列表时返回空列表）。"""
-    raw = payload.get("errors")
-    if not isinstance(raw, list):
-        return []
-    return [str(item) for item in raw]
+def _active_config_hash(status: CommanderStatus | CollectorInfo) -> str:
+    """取参与者当前生效配置 hash；Collector 未激活时回落到启动 hash。"""
+    if isinstance(status, CollectorInfo):
+        return status.active_config_hash or status.config_hash
+    return status.active_config_hash
 
 
 class ConfigService:
@@ -203,8 +210,8 @@ class ConfigService:
                 )
                 prepare_ok.append(False)
                 continue
-            success = bool(result.get("success"))
-            remote_hash = str(result.get("config_hash") or "")
+            success = result.success
+            remote_hash = result.config_hash
             if success and remote_hash != config_hash:
                 success = False
                 errors.append(
@@ -213,8 +220,7 @@ class ConfigService:
                 )
             prepare_ok.append(success)
             if not success:
-                remote_errors = _remote_errors(result)
-                errors.extend(remote_errors or [f"{name} prepare failed"])
+                errors.extend(result.errors or [f"{name} prepare failed"])
 
         if not all(prepare_ok):
             errors.extend(await self._abort_prepared_revision(revision_id))
@@ -234,8 +240,8 @@ class ConfigService:
             return_exceptions=True,
         )
         activate_ok: list[bool] = []
-        for name, result in zip(participant_ids, activated, strict=True):
-            if isinstance(result, BaseException):
+        for name, outcome in zip(participant_ids, activated, strict=True):
+            if isinstance(outcome, BaseException):
                 confirmed, confirm_error = await self._confirm_active_config(
                     name,
                     revision_id,
@@ -243,7 +249,7 @@ class ConfigService:
                 )
                 activate_ok.append(confirmed)
                 if not confirmed:
-                    detail = str(result) or type(result).__name__
+                    detail = str(outcome) or type(outcome).__name__
                     if confirm_error is None:
                         errors.append(f"{name} activate failed after RPC error: {detail}")
                     else:
@@ -253,8 +259,8 @@ class ConfigService:
                         )
                 continue
 
-            success = bool(result.get("success"))
-            remote_hash = str(result.get("active_config_hash") or "")
+            success = outcome.success
+            remote_hash = outcome.active_config_hash
             if success and remote_hash and remote_hash != config_hash:
                 success = False
                 errors.append(
@@ -263,8 +269,7 @@ class ConfigService:
                 )
             activate_ok.append(success)
             if not success:
-                remote_errors = _remote_errors(result)
-                errors.extend(remote_errors or [f"{name} activate failed"])
+                errors.extend(outcome.errors or [f"{name} activate failed"])
 
         success = all(activate_ok)
         if success:
@@ -364,9 +369,8 @@ class ConfigService:
                     f"{name} abort failed: {str(result) or type(result).__name__}"
                 )
                 continue
-            if not bool(result.get("success", False)):
-                remote_errors = _remote_errors(result)
-                errors.extend(remote_errors or [f"{name} abort failed"])
+            if not result.success:
+                errors.append(f"{name} abort failed")
         return errors
 
     async def reconcile_workers(self) -> dict[str, str]:
@@ -405,12 +409,8 @@ class ConfigService:
                         "status-error:" + (str(status) or type(status).__name__)
                     )
                     continue
-                active_revision = str(status.get("active_revision") or "")
-                active_hash = str(
-                    status.get("active_config_hash")
-                    or status.get("config_hash")
-                    or ""
-                )
+                active_revision = status.active_revision
+                active_hash = _active_config_hash(status)
                 if active_revision == revision_id and active_hash == config_hash:
                     outcomes[name] = "already-current"
                     continue
@@ -438,11 +438,10 @@ class ConfigService:
         except Exception as exc:
             return "prepare-error:" + (str(exc) or type(exc).__name__)
 
-        if not bool(prepared.get("success")):
-            errors = _remote_errors(prepared)
-            return "prepare-failed:" + ("; ".join(errors) or "unknown")
-        if str(prepared.get("config_hash") or "") != config_hash:
-            return "prepare-hash-mismatch:" + str(prepared.get("config_hash") or "")
+        if not prepared.success:
+            return "prepare-failed:" + ("; ".join(prepared.errors) or "unknown")
+        if prepared.config_hash != config_hash:
+            return "prepare-hash-mismatch:" + prepared.config_hash
 
         try:
             activated = await self._activate_participant(worker, revision_id)
@@ -461,14 +460,13 @@ class ConfigService:
                 )
             return "activate-failed:" + (str(exc) or type(exc).__name__)
 
-        if bool(activated.get("success")):
-            active_hash = str(activated.get("active_config_hash") or "")
+        if activated.success:
+            active_hash = activated.active_config_hash
             if not active_hash or active_hash == config_hash:
                 return "reconciled"
             return f"activate-hash-mismatch:{active_hash}"
 
-        errors = _remote_errors(activated)
-        return "activate-failed:" + ("; ".join(errors) or "unknown")
+        return "activate-failed:" + ("; ".join(activated.errors) or "unknown")
 
     async def _confirm_active_config(
         self,
@@ -482,13 +480,10 @@ class ConfigService:
         except Exception as exc:
             return False, str(exc) or type(exc).__name__
 
-        active_revision = str(status.get("active_revision") or "")
-        active_hash = str(
-            status.get("active_config_hash")
-            or status.get("config_hash")
-            or ""
-        )
-        return active_revision == revision_id and active_hash == config_hash, None
+        return (
+            status.active_revision == revision_id
+            and _active_config_hash(status) == config_hash
+        ), None
 
     def _participant_ids(self) -> list[str]:
         """返回稳定排序的配置事务参与者 ID。"""
@@ -503,7 +498,7 @@ class ConfigService:
         """返回身份与逻辑 worker_id 一致的 Collector。"""
         collector = self._collectors.get(worker)
         status = await collector.config_status()
-        reported_id = str(status.get("collector_id") or "")
+        reported_id = status.collector_id
         if reported_id != worker:
             raise RuntimeError(
                 f"collector identity mismatch: expected={worker} "
@@ -518,7 +513,7 @@ class ConfigService:
         config_hash: str,
         *,
         force_workers: bool,
-    ) -> dict[str, object]:
+    ) -> ConfigPrepareAck:
         """Prepare 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.prepare_config(revision_id, config_hash)
@@ -533,7 +528,7 @@ class ConfigService:
         self,
         worker: str,
         revision_id: str,
-    ) -> dict[str, object]:
+    ) -> ConfigActivateAck:
         """Activate 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.activate_config(revision_id)
@@ -544,14 +539,17 @@ class ConfigService:
         self,
         worker: str,
         revision_id: str,
-    ) -> dict[str, object]:
+    ) -> ConfigAbortAck:
         """Abort 单个配置事务参与者。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.abort_config(revision_id)
         collector = await self._collector_participant(worker)
         return await collector.abort_config(revision_id)
 
-    async def _status_participant(self, worker: str) -> dict[str, object]:
+    async def _status_participant(
+        self,
+        worker: str,
+    ) -> CommanderStatus | CollectorInfo:
         """读取单个配置事务参与者当前配置状态。"""
         if worker == COMMANDER_WORKER_ID:
             return await self._commander.status()

@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
+from wind_hub_server.application.port.monitoring import TaskRuntimeSnapshot
+from wind_hub_server.application.port.worker import (
+    CollectorInfo,
+    CollectorPlacementRejectedError,
+    CollectorTaskInstance,
+    CollectorTaskSummary,
+    PlacementAck,
+)
 from wind_hub_server.application.task.collector import TaskWorkerUnavailableError
 from wind_hub_server.application.task.control import TaskControlService
 from wind_hub_server.application.task.placement import (
@@ -41,21 +48,55 @@ class _Config:
 
 
 class _Monitoring:
-    def __init__(self, runtime_rows: list[dict[str, object]] | None = None) -> None:
+    def __init__(self, runtime_rows: list[TaskRuntimeSnapshot] | None = None) -> None:
         self.runtime_rows = runtime_rows or []
         self.refreshes = 0
 
-    def tasks_snapshot(self) -> list[dict[str, object]]:
-        return [dict(row) for row in self.runtime_rows]
+    def tasks_snapshot(self) -> list[TaskRuntimeSnapshot]:
+        return list(self.runtime_rows)
 
     async def refresh_now(self) -> None:
         self.refreshes += 1
 
 
+def _collector_info(reported_id: str) -> CollectorInfo:
+    return CollectorInfo(
+        component="collector",
+        collector_id=reported_id,
+        boot_id="boot-1",
+        config_hash="hash",
+        active_config_hash="hash",
+        prepared_config_hash=None,
+        boot_config_hash="hash",
+        config_revision=None,
+        active_revision="",
+        prepared_revision=None,
+        runtime_running=True,
+    )
+
+
+def _task_summary(task_id: str, runtime_state: str) -> CollectorTaskSummary:
+    running = runtime_state == "running"
+    return CollectorTaskSummary(
+        task_id=task_id,
+        device="d1",
+        device_group=None,
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        enabled=True,
+        runtime_state=runtime_state,
+        instance_count=1,
+        running_instances=1 if running else 0,
+        stopped_instances=0 if running else 1,
+        failed_instances=0,
+    )
+
+
 class _Collector:
-    def __init__(self, worker_id: str, instances: list[dict[str, object]]) -> None:
+    def __init__(self, worker_id: str, instances: list[CollectorTaskInstance]) -> None:
         self.worker_id = worker_id
-        self.instances = [dict(row) for row in instances]
+        self.instances = list(instances)
         self.reported_id = worker_id
         self.unavailable = False
         self.reject_placement_start = False
@@ -64,72 +105,72 @@ class _Collector:
         self.started_instances: list[tuple[str, int]] = []
         self.stopped_instances: list[str] = []
 
-    async def config_status(self) -> dict[str, object]:
+    async def config_status(self) -> CollectorInfo:
         if self.unavailable:
             raise ConnectionError("unreachable")
-        return {"collector_id": self.reported_id}
+        return _collector_info(self.reported_id)
 
     async def apply_task_placement(
         self,
         worker_id: str,
         generation: int,
         task_ids: list[str],
-    ) -> dict[str, object]:
+    ) -> PlacementAck:
         assert worker_id == self.worker_id
-        return {"success": True, "generation": generation, "task_count": len(task_ids)}
+        return PlacementAck(
+            success=True,
+            generation=generation,
+            task_count=len(task_ids),
+        )
 
-    async def list_task_instances(self) -> list[dict[str, object]]:
-        return [dict(row) for row in self.instances]
+    async def list_task_instances(self) -> list[CollectorTaskInstance]:
+        return list(self.instances)
 
-    async def start_task(self, task_id: str, placement_generation: int) -> dict[str, object]:
+    async def start_task(
+        self,
+        task_id: str,
+        placement_generation: int,
+    ) -> CollectorTaskSummary:
         if self.reject_placement_start:
             raise CollectorPlacementRejectedError("stale placement generation")
         self.started_tasks.append((task_id, placement_generation))
-        return {
-            "task_id": task_id,
-            "point_group": "fast",
-            "targets": ["archive"],
-            "enabled": True,
-            "runtime_state": "running",
-            "instance_count": 1,
-            "running_instances": 1,
-            "stopped_instances": 0,
-            "failed_instances": 0,
-        }
+        return _task_summary(task_id, "running")
 
-    async def stop_task(self, task_id: str) -> dict[str, object]:
+    async def stop_task(self, task_id: str) -> CollectorTaskSummary:
         self.stopped_tasks.append(task_id)
-        return {
-            "task_id": task_id,
-            "point_group": "fast",
-            "targets": ["archive"],
-            "enabled": True,
-            "runtime_state": "stopped",
-            "instance_count": 1,
-            "running_instances": 0,
-            "stopped_instances": 1,
-            "failed_instances": 0,
-        }
+        return _task_summary(task_id, "stopped")
+
+    def _replace_instance(
+        self,
+        instance_id: str,
+        state: str,
+    ) -> CollectorTaskInstance:
+        for index, row in enumerate(self.instances):
+            if row.instance_id == instance_id:
+                updated = CollectorTaskInstance(
+                    instance_id=row.instance_id,
+                    task_id=row.task_id,
+                    device_id=row.device_id,
+                    point_group=row.point_group,
+                    interval=row.interval,
+                    targets=row.targets,
+                    state=state,
+                )
+                self.instances[index] = updated
+                return updated
+        raise KeyError(instance_id)
 
     async def start_task_instance(
         self,
         instance_id: str,
         placement_generation: int,
-    ) -> dict[str, object]:
+    ) -> CollectorTaskInstance:
         self.started_instances.append((instance_id, placement_generation))
-        for row in self.instances:
-            if row.get("instance_id") == instance_id:
-                row["state"] = "running"
-                return dict(row)
-        raise KeyError(instance_id)
+        return self._replace_instance(instance_id, "running")
 
-    async def stop_task_instance(self, instance_id: str) -> dict[str, object]:
+    async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         self.stopped_instances.append(instance_id)
-        for row in self.instances:
-            if row.get("instance_id") == instance_id:
-                row["state"] = "stopped"
-                return dict(row)
-        raise KeyError(instance_id)
+        return self._replace_instance(instance_id, "stopped")
 
 
 class _Directory:
@@ -143,16 +184,21 @@ class _Directory:
         return sorted(self.collectors)
 
 
-def _instance(instance_id: str, task_id: str, *, state: str = "stopped") -> dict[str, object]:
-    return {
-        "instance_id": instance_id,
-        "task_id": task_id,
-        "device_id": "d1",
-        "point_group": "fast",
-        "interval": 1.0,
-        "targets": ["archive"],
-        "state": state,
-    }
+def _instance(
+    instance_id: str,
+    task_id: str,
+    *,
+    state: str = "stopped",
+) -> CollectorTaskInstance:
+    return CollectorTaskInstance(
+        instance_id=instance_id,
+        task_id=task_id,
+        device_id="d1",
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        state=state,
+    )
 
 
 def _setup(
@@ -286,20 +332,21 @@ def test_task_summary_merges_monitoring_runtime(tmp_path) -> None:
     """配置字段以 Server 基线为权威，运行态来自 Monitoring 快照。"""
     monitoring = _Monitoring(
         [
-            {
-                "task_id": "task-a",
-                "device": "stale-device",
-                "device_group": None,
-                "point_group": "stale",
-                "interval": 9.0,
-                "targets": ["stale"],
-                "enabled": False,
-                "runtime_state": "running",
-                "instance_count": 2,
-                "running_instances": 1,
-                "stopped_instances": 0,
-                "failed_instances": 1,
-            }
+            TaskRuntimeSnapshot(
+                task_id="task-a",
+                device="stale-device",
+                device_group=None,
+                point_group="stale",
+                interval=9.0,
+                targets=["stale"],
+                enabled=False,
+                runtime_state="running",
+                instance_count=2,
+                running_instances=1,
+                stopped_instances=0,
+                failed_instances=1,
+                assigned_worker_id="collector-a",
+            )
         ]
     )
     _, placements, _, control, _ = _setup(

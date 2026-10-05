@@ -81,11 +81,10 @@ class DiagnosticService:
     async def protocol_check(self, device_id: str) -> bool:
         """由 Commander 验证网络/TCP/协议会话，返回协议阶段结果。"""
         result = await self._commander.verify_device(device_id)
-        stages = result.get("stages") or []
-        for stage in stages:
-            if isinstance(stage, dict) and stage.get("name") == "protocol":
-                return bool(stage.get("ok"))
-        return bool(result.get("ok"))
+        for stage in result.stages:
+            if stage.name == "protocol":
+                return stage.ok
+        return result.ok
 
     async def read(self, device_id: str, point_id: str) -> PointValue:
         """通过 Commander 即时读取单点，绕过采集缓存。"""
@@ -165,16 +164,16 @@ class DiagnosticService:
         for index, point_id in enumerate(point_ids, start=1):
             try:
                 result = await self._commander.verify_point(device_id, point_id)
-                success = bool(result.get("ok"))
+                success = result.ok
                 if not success:
                     failures += 1
                 rows.append(
                     {
                         "point_id": point_id,
                         "success": success,
-                        "quality": result.get("quality"),
-                        "value": result.get("engineering_value"),
-                        "error": result.get("error"),
+                        "quality": result.quality,
+                        "value": result.engineering_value,
+                        "error": result.error,
                     }
                 )
             except Exception as exc:

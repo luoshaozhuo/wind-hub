@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from wind_hub_server.application.port.monitoring import CollectorSnapshot
 
 
 class CollectorQueryPort(Protocol):
     """MonitoringService 所需的一次性 Collector 聚合快照。"""
 
-    async def snapshot(self) -> dict[str, Any]: ...
+    async def snapshot(self) -> CollectorSnapshot: ...

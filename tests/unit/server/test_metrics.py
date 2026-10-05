@@ -4,30 +4,34 @@ from __future__ import annotations
 
 from prometheus_client import REGISTRY
 
+from wind_hub_server.application.port.monitoring import (
+    CounterSnapshot,
+    RuntimeStatusSnapshot,
+)
 from wind_hub_server.infra import metrics
 
 
 def test_update_runtime_gauges_sets_cached_collector_values() -> None:
     metrics.update_runtime_gauges(
-        {
-            "device_count": 3,
-            "devices_connected": 2,
-            "sink_count": 4,
-            "sinks_healthy": 1,
-            "points_collected": 100,
-            "points_routed": 90,
-            "points_dropped": 10,
-        },
-        {
-            "points_bad": 2,
-            "acquisition_runs": 8,
-            "acquisition_failures": 1,
-            "acquisition_partial": 1,
-            "missed_cycles": 3,
-            "poll_overruns": 2,
-            "connect_failures": 4,
-            "reconnects": 5,
-        },
+        RuntimeStatusSnapshot(
+            device_count=3,
+            devices_connected=2,
+            sink_count=4,
+            sinks_healthy=1,
+            points_collected=100,
+            points_routed=90,
+            points_dropped=10,
+        ),
+        CounterSnapshot(
+            points_bad=2,
+            acquisition_runs=8,
+            acquisition_failures=1,
+            acquisition_partial=1,
+            missed_cycles=3,
+            poll_overruns=2,
+            connect_failures=4,
+            reconnects=5,
+        ),
     )
 
     assert REGISTRY.get_sample_value("wind_hub_devices_total") == 3.0

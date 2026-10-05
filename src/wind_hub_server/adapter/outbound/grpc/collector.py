@@ -1,11 +1,12 @@
 """Collector gRPC 出站适配器。
 
 全部调用使用 collector.proto 生成的 Runtime/Control Stub；本模块只负责把
-Protobuf 转换为 Server 应用层既有 Python DTO/dict 边界。
+Protobuf（经 core codec 的 JSON 兼容中间形）转换为 Server 应用层 DTO 边界。
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, cast
 
 import grpc
@@ -23,7 +24,26 @@ from wind_hub_core.rpc.collector_codec import (
     task_summary_to_dict,
 )
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
-from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
+from wind_hub_server.application.port.monitoring import (
+    AcquisitionStatus,
+    CounterSnapshot,
+    MetricsSnapshot,
+    MonitoringEvent,
+)
+from wind_hub_server.application.port.worker import (
+    CollectorInfo,
+    CollectorPlacementRejectedError,
+    CollectorRuntimeStatus,
+    CollectorTaskInstance,
+    CollectorTaskSummary,
+    ConfigAbortAck,
+    ConfigActivateAck,
+    ConfigPrepareAck,
+    DeviceRuntimeInfo,
+    PlacementAck,
+    SinkOperationResult,
+    SinkRuntimeInfo,
+)
 
 
 def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
@@ -44,6 +64,39 @@ def _placement_error(exc: grpc.aio.AioRpcError) -> Exception:
     return cast(Exception, exc)
 
 
+def _runtime_status_dto(payload: dict[str, Any]) -> CollectorRuntimeStatus:
+    """codec 字典 → CollectorRuntimeStatus（嵌套 acquisitions 逐条建模）。"""
+    return CollectorRuntimeStatus(
+        running=bool(payload["running"]),
+        device_count=int(payload["device_count"]),
+        sink_count=int(payload["sink_count"]),
+        devices_connected=int(payload["devices_connected"]),
+        sinks_healthy=int(payload["sinks_healthy"]),
+        points_collected=int(payload["points_collected"]),
+        points_routed=int(payload["points_routed"]),
+        points_dropped=int(payload["points_dropped"]),
+        acquisitions=[AcquisitionStatus(**item) for item in payload["acquisitions"]],
+    )
+
+
+def _metrics_snapshot_dto(payload: dict[str, Any]) -> MetricsSnapshot:
+    """codec 字典 → MetricsSnapshot；事件时间戳从 ISO 文本解析为 datetime。"""
+    return MetricsSnapshot(
+        counters=CounterSnapshot(**payload["counters"]),
+        device_connect_failures=dict(payload["device_connect_failures"]),
+        device_reconnects=dict(payload["device_reconnects"]),
+        events=[
+            MonitoringEvent(
+                timestamp=datetime.fromisoformat(str(item["timestamp"])),
+                kind=str(item["kind"]),
+                object=str(item["object"]),
+                message=str(item["message"]),
+            )
+            for item in payload["events"]
+        ],
+    )
+
+
 class CollectorGrpcClient(GrpcClientBase):
     """通过 generated Collector Stub 查询和控制独立 Collector。"""
 
@@ -52,92 +105,95 @@ class CollectorGrpcClient(GrpcClientBase):
         self._runtime_stub = pb_grpc.CollectorRuntimeServiceStub(self._channel)
         self._control_stub = pb_grpc.CollectorControlServiceStub(self._channel)
 
-    async def config_status(self) -> dict[str, Any]:
+    async def config_status(self) -> CollectorInfo:
         """返回 Collector 配置与进程身份状态。"""
         response = await self._runtime_stub.GetCollectorInfo(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return collector_info_to_dict(response)
+        return CollectorInfo(**collector_info_to_dict(response))
 
-    async def runtime_status(self) -> dict[str, Any]:
+    async def runtime_status(self) -> CollectorRuntimeStatus:
         """返回 Collector Runtime 聚合状态。"""
         response = await self._runtime_stub.GetRuntimeStatus(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return runtime_status_to_dict(response)
+        return _runtime_status_dto(runtime_status_to_dict(response))
 
-    async def metrics_snapshot(self) -> dict[str, Any]:
+    async def metrics_snapshot(self) -> MetricsSnapshot:
         """返回 Collector 本地采集指标快照。"""
         response = await self._runtime_stub.GetMetricsSnapshot(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return metrics_snapshot_to_dict(response)
+        return _metrics_snapshot_dto(metrics_snapshot_to_dict(response))
 
-    async def list_devices(self) -> list[dict[str, Any]]:
+    async def list_devices(self) -> list[DeviceRuntimeInfo]:
         """列出 Collector 当前设备状态。"""
         response = await self._runtime_stub.ListDevices(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [device_info_to_dict(item) for item in response.items]
+        return [DeviceRuntimeInfo(**device_info_to_dict(item)) for item in response.items]
 
-    async def list_sinks(self) -> list[dict[str, Any]]:
+    async def list_sinks(self) -> list[SinkRuntimeInfo]:
         """列出 Collector 当前 Sink 状态。"""
         response = await self._runtime_stub.ListSinks(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [sink_info_to_dict(item) for item in response.items]
+        return [SinkRuntimeInfo(**sink_info_to_dict(item)) for item in response.items]
 
-    async def verify_sink(self, name: str) -> dict[str, Any]:
+    async def verify_sink(self, name: str) -> SinkOperationResult:
         """检查指定 Sink 健康状态。"""
         response = await self._runtime_stub.VerifySink(
             pb.SinkRequest(name=name),
             timeout=self.default_timeout,
         )
-        return {
-            "success": response.success,
-            "message": response.message or None,
-            "queue_depth": response.queue_depth,
-        }
+        return SinkOperationResult(
+            success=response.success,
+            message=response.message or None,
+            queue_depth=response.queue_depth,
+        )
 
-    async def write_test_sink(self, name: str) -> dict[str, Any]:
+    async def write_test_sink(self, name: str) -> SinkOperationResult:
         """执行指定 Sink 的诊断写入。"""
         response = await self._runtime_stub.WriteTestSink(
             pb.SinkRequest(name=name),
             timeout=self.default_timeout,
         )
-        return {
-            "success": response.success,
-            "message": response.message or None,
-            "queue_depth": response.queue_depth,
-        }
+        return SinkOperationResult(
+            success=response.success,
+            message=response.message or None,
+            queue_depth=response.queue_depth,
+        )
 
-    async def list_tasks(self) -> list[dict[str, Any]]:
+    async def list_tasks(self) -> list[CollectorTaskSummary]:
         """列出 Task Definition 聚合状态。"""
         response = await self._runtime_stub.ListTasks(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [task_summary_to_dict(item) for item in response.items]
+        return [CollectorTaskSummary(**task_summary_to_dict(item)) for item in response.items]
 
-    async def list_task_instances(self) -> list[dict[str, Any]]:
+    async def list_task_instances(self) -> list[CollectorTaskInstance]:
         """列出全部 Task Instance。"""
         response = await self._runtime_stub.ListTaskInstances(
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [task_instance_to_dict(item) for item in response.items]
+        return [
+            CollectorTaskInstance(**task_instance_to_dict(item))
+            for item in response.items
+        ]
 
     async def apply_task_placement(
         self,
         worker_id: str,
         generation: int,
         task_ids: list[str],
-    ) -> dict[str, Any]:
+    ) -> PlacementAck:
         """向 Collector 下发当前 placement 快照（Start 的前置栅栏）。
 
         Raises:
@@ -155,13 +211,17 @@ class CollectorGrpcClient(GrpcClientBase):
             )
         except grpc.aio.AioRpcError as exc:
             raise _placement_error(exc) from exc
-        return {
-            "success": response.success,
-            "generation": response.generation,
-            "task_count": response.task_count,
-        }
+        return PlacementAck(
+            success=response.success,
+            generation=response.generation,
+            task_count=response.task_count,
+        )
 
-    async def start_task(self, task_id: str, placement_generation: int) -> dict[str, Any]:
+    async def start_task(
+        self,
+        task_id: str,
+        placement_generation: int,
+    ) -> CollectorTaskSummary:
         """启动指定 Task 的全部实例（受 placement 栅栏保护）。
 
         Raises:
@@ -178,21 +238,21 @@ class CollectorGrpcClient(GrpcClientBase):
             )
         except grpc.aio.AioRpcError as exc:
             raise _placement_error(exc) from exc
-        return task_summary_to_dict(response)
+        return CollectorTaskSummary(**task_summary_to_dict(response))
 
-    async def stop_task(self, task_id: str) -> dict[str, Any]:
+    async def stop_task(self, task_id: str) -> CollectorTaskSummary:
         """停止指定 Task 的全部实例。"""
         response = await self._control_stub.StopTask(
             pb.TaskIdRequest(task_id=task_id),
             timeout=self.default_timeout,
         )
-        return task_summary_to_dict(response)
+        return CollectorTaskSummary(**task_summary_to_dict(response))
 
     async def start_task_instance(
         self,
         instance_id: str,
         placement_generation: int,
-    ) -> dict[str, Any]:
+    ) -> CollectorTaskInstance:
         """启动单个 Task Instance（受 placement 栅栏保护）。
 
         Raises:
@@ -209,15 +269,15 @@ class CollectorGrpcClient(GrpcClientBase):
             )
         except grpc.aio.AioRpcError as exc:
             raise _placement_error(exc) from exc
-        return task_instance_to_dict(response)
+        return CollectorTaskInstance(**task_instance_to_dict(response))
 
-    async def stop_task_instance(self, instance_id: str) -> dict[str, Any]:
+    async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         """停止单个 Task Instance。"""
         response = await self._control_stub.StopTaskInstance(
             pb.InstanceIdRequest(instance_id=instance_id),
             timeout=self.default_timeout,
         )
-        return task_instance_to_dict(response)
+        return CollectorTaskInstance(**task_instance_to_dict(response))
 
     async def prepare_config(
         self,
@@ -225,7 +285,7 @@ class CollectorGrpcClient(GrpcClientBase):
         config_hash: str,
         *,
         force_reconfigure: bool = False,
-    ) -> dict[str, Any]:
+    ) -> ConfigPrepareAck:
         """准备 Collector 指定配置 revision。"""
         response = await self._control_stub.PrepareConfig(
             pb.PrepareConfigRequest(
@@ -235,36 +295,36 @@ class CollectorGrpcClient(GrpcClientBase):
             ),
             timeout=30.0,
         )
-        return {
-            "success": response.success,
-            "revision_id": response.revision_id,
-            "config_hash": response.config_hash,
-            "errors": list(response.errors),
-            "duration_ms": response.duration_ms,
-        }
+        return ConfigPrepareAck(
+            success=response.success,
+            revision_id=response.revision_id,
+            config_hash=response.config_hash,
+            errors=list(response.errors),
+            duration_ms=response.duration_ms,
+        )
 
-    async def activate_config(self, revision_id: str) -> dict[str, Any]:
+    async def activate_config(self, revision_id: str) -> ConfigActivateAck:
         """激活 Collector 指定 prepared revision。"""
         response = await self._control_stub.ActivateConfig(
             pb.ActivateConfigRequest(revision_id=revision_id),
             timeout=30.0,
         )
-        return {
-            "success": response.success,
-            "revision_id": response.revision_id,
-            "active_config_hash": response.active_config_hash,
-            "errors": list(response.errors),
-            "duration_ms": response.duration_ms,
-        }
+        return ConfigActivateAck(
+            success=response.success,
+            revision_id=response.revision_id,
+            active_config_hash=response.active_config_hash,
+            errors=list(response.errors),
+            duration_ms=response.duration_ms,
+        )
 
-    async def abort_config(self, revision_id: str) -> dict[str, Any]:
+    async def abort_config(self, revision_id: str) -> ConfigAbortAck:
         """撤销 Collector 指定 prepared revision。"""
         response = await self._control_stub.AbortConfig(
             pb.AbortConfigRequest(revision_id=revision_id),
             timeout=30.0,
         )
-        return {
-            "success": response.success,
-            "revision_id": response.revision_id,
-            "aborted": response.aborted,
-        }
+        return ConfigAbortAck(
+            success=response.success,
+            revision_id=response.revision_id,
+            aborted=response.aborted,
+        )

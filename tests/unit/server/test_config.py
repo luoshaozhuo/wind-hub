@@ -21,6 +21,13 @@ from tests.support.config_helper import write_config_tree
 from wind_hub_core.config import Config
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_server.application.config.service import ConfigService
+from wind_hub_server.application.port.worker import (
+    CollectorInfo,
+    CommanderStatus,
+    ConfigAbortAck,
+    ConfigActivateAck,
+    ConfigPrepareAck,
+)
 from wind_hub_server.application.worker.model import COMMANDER_WORKER_ID
 
 COLLECTOR_ID = "collector-1"
@@ -57,24 +64,41 @@ class _FakeWorker:
     def _pop(queue: deque[Any], default: dict[str, Any]) -> Any:
         return queue.popleft() if queue else default
 
-    async def config_status(self) -> dict[str, Any]:
+    async def config_status(self) -> CollectorInfo:
         if self.status_error is not None:
             raise self.status_error
-        return {
-            "collector_id": self.worker_id,
-            "active_revision": self.active_revision,
-            "active_config_hash": self.active_hash,
-        }
+        active_hash = self.active_hash or ""
+        return CollectorInfo(
+            component="collector",
+            collector_id=self.worker_id,
+            boot_id="boot-1",
+            config_hash=active_hash,
+            active_config_hash=active_hash,
+            prepared_config_hash=None,
+            boot_config_hash=active_hash,
+            config_revision=None,
+            active_revision=self.active_revision or "",
+            prepared_revision=None,
+            runtime_running=True,
+        )
 
-    # CommanderPort.status 与 CollectorPort.config_status 同构。
-    status = config_status
+    async def status(self) -> CommanderStatus:
+        if self.status_error is not None:
+            raise self.status_error
+        return CommanderStatus(
+            running=True,
+            device_count=0,
+            active_revision=self.active_revision or "",
+            active_config_hash=self.active_hash or "",
+            prepared_revision=None,
+        )
 
     async def prepare_config(
         self,
         revision_id: str,
         config_hash: str,
         force_reconfigure: bool = False,
-    ) -> dict[str, Any]:
+    ) -> ConfigPrepareAck:
         self.prepare_calls.append((revision_id, config_hash, force_reconfigure))
         outcome = self._pop(self.prepare_outcomes, {"success": True})
         if isinstance(outcome, BaseException):
@@ -83,9 +107,14 @@ class _FakeWorker:
         result.setdefault("config_hash", config_hash)
         if result.get("success"):
             self._last_prepared_hash = str(result["config_hash"])
-        return result
+        return ConfigPrepareAck(
+            success=bool(result.get("success")),
+            revision_id=revision_id,
+            config_hash=str(result["config_hash"]),
+            errors=[str(item) for item in result.get("errors", [])],
+        )
 
-    async def activate_config(self, revision_id: str) -> dict[str, Any]:
+    async def activate_config(self, revision_id: str) -> ConfigActivateAck:
         self.activate_calls.append(revision_id)
         outcome = self._pop(self.activate_outcomes, {"success": True})
         if isinstance(outcome, BaseException):
@@ -95,14 +124,24 @@ class _FakeWorker:
         if result.get("success"):
             self.active_revision = revision_id
             self.active_hash = str(result["active_config_hash"])
-        return result
+        return ConfigActivateAck(
+            success=bool(result.get("success")),
+            revision_id=revision_id,
+            active_config_hash=str(result["active_config_hash"]),
+            errors=[str(item) for item in result.get("errors", [])],
+        )
 
-    async def abort_config(self, revision_id: str) -> dict[str, Any]:
+    async def abort_config(self, revision_id: str) -> ConfigAbortAck:
         self.abort_calls.append(revision_id)
         outcome = self._pop(self.abort_outcomes, {"success": True})
         if isinstance(outcome, BaseException):
             raise outcome
-        return dict(outcome)
+        success = bool(outcome.get("success"))
+        return ConfigAbortAck(
+            success=success,
+            revision_id=revision_id,
+            aborted=success,
+        )
 
 
 class _FakeDirectory:

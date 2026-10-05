@@ -29,37 +29,13 @@ async def metrics_endpoint() -> Response:
         sinks = monitoring.sinks_snapshot()
 
         counters = monitoring.counters_snapshot()
-        metrics.update_runtime_gauges(
-            status,
-            {
-                "points_bad": counters.points_bad,
-                "acquisition_runs": counters.acquisition_runs,
-                "acquisition_failures": counters.acquisition_failures,
-                "acquisition_partial": counters.acquisition_partial,
-                "missed_cycles": counters.missed_cycles,
-                "poll_overruns": counters.poll_overruns,
-                "connect_failures": counters.connect_failures,
-                "reconnects": counters.reconnects,
-            },
-        )
+        metrics.update_runtime_gauges(status, counters)
         metrics.update_device_gauges(
-            [
-                (
-                    str(row.get("device_id") or ""),
-                    str(row.get("protocol") or ""),
-                    bool(row.get("connected")),
-                )
-                for row in devices
-            ]
+            [(row.device_id, row.protocol, row.connected) for row in devices]
         )
-        queue_depths: dict[str, int] = {}
-        for row in sinks:
-            sink_name = row.get("name")
-            depth = row.get("queue_depth")
-            if sink_name is None or not isinstance(depth, int):
-                continue
-            queue_depths[str(sink_name)] = depth
-        metrics.update_sink_queue_depths(queue_depths)
+        metrics.update_sink_queue_depths(
+            {row.name: row.queue_depth for row in sinks}
+        )
         body = metrics.render()
     except Exception as exc:
         raise APIError(

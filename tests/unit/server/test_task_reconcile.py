@@ -6,6 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from wind_hub_server.application.port.worker import (
+    CollectorInfo,
+    CollectorTaskInstance,
+    PlacementAck,
+)
 from wind_hub_server.application.task.placement import TaskPlacementRegistry
 from wind_hub_server.application.task.reconcile import (
     TaskPlacementReconciler,
@@ -27,9 +32,9 @@ class _Config:
 
 
 class _Collector:
-    def __init__(self, worker_id: str, instances: list[dict[str, object]]) -> None:
+    def __init__(self, worker_id: str, instances: list[CollectorTaskInstance]) -> None:
         self.worker_id = worker_id
-        self.instances = [dict(row) for row in instances]
+        self.instances = list(instances)
         self.stopped: list[str] = []
         self.applied_generation = 0
         self.assigned_task_ids: list[str] = []
@@ -38,39 +43,60 @@ class _Collector:
         self.task_count_ack: int | None = None
         self.unavailable = False
 
-    async def config_status(self) -> dict[str, object]:
+    async def config_status(self) -> CollectorInfo:
         if self.unavailable:
             raise ConnectionError("unreachable")
-        return {"collector_id": self.reported_id}
+        return CollectorInfo(
+            component="collector",
+            collector_id=self.reported_id,
+            boot_id="boot-1",
+            config_hash="hash",
+            active_config_hash="hash",
+            prepared_config_hash=None,
+            boot_config_hash="hash",
+            config_revision=None,
+            active_revision="",
+            prepared_revision=None,
+            runtime_running=True,
+        )
 
     async def apply_task_placement(
         self,
         worker_id: str,
         generation: int,
         task_ids: list[str],
-    ) -> dict[str, object]:
+    ) -> PlacementAck:
         assert worker_id == self.worker_id
         self.applied_generation = generation
         self.assigned_task_ids = list(task_ids)
-        return {
-            "success": True,
-            "generation": (
+        return PlacementAck(
+            success=True,
+            generation=(
                 generation if self.generation_ack is None else self.generation_ack
             ),
-            "task_count": (
+            task_count=(
                 len(task_ids) if self.task_count_ack is None else self.task_count_ack
             ),
-        }
+        )
 
-    async def list_task_instances(self) -> list[dict[str, object]]:
-        return [dict(row) for row in self.instances]
+    async def list_task_instances(self) -> list[CollectorTaskInstance]:
+        return list(self.instances)
 
-    async def stop_task_instance(self, instance_id: str) -> dict[str, object]:
+    async def stop_task_instance(self, instance_id: str) -> CollectorTaskInstance:
         self.stopped.append(instance_id)
-        for row in self.instances:
-            if row.get("instance_id") == instance_id:
-                row["state"] = "stopped"
-                return dict(row)
+        for index, row in enumerate(self.instances):
+            if row.instance_id == instance_id:
+                updated = CollectorTaskInstance(
+                    instance_id=row.instance_id,
+                    task_id=row.task_id,
+                    device_id=row.device_id,
+                    point_group=row.point_group,
+                    interval=row.interval,
+                    targets=row.targets,
+                    state="stopped",
+                )
+                self.instances[index] = updated
+                return updated
         raise KeyError(instance_id)
 
 
@@ -90,16 +116,16 @@ def _instance(
     task_id: str,
     *,
     state: str = "running",
-) -> dict[str, object]:
-    return {
-        "instance_id": instance_id,
-        "task_id": task_id,
-        "device_id": "d1",
-        "point_group": "fast",
-        "interval": 1.0,
-        "targets": ["archive"],
-        "state": state,
-    }
+) -> CollectorTaskInstance:
+    return CollectorTaskInstance(
+        instance_id=instance_id,
+        task_id=task_id,
+        device_id="d1",
+        point_group="fast",
+        interval=1.0,
+        targets=["archive"],
+        state=state,
+    )
 
 
 def _setup(

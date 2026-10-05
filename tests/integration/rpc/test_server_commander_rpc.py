@@ -42,18 +42,18 @@ class TestQueryRoundTrip:
         grpc_client, _, _ = client
         status = await grpc_client.status()
 
-        assert status["running"] is True
-        assert status["device_count"] == 1
-        assert status["active_config_hash"]
+        assert status.running is True
+        assert status.device_count == 1
+        assert status.active_config_hash
 
     async def test_verify_device_diagnoses_real_link(self, client) -> None:
         grpc_client, _, _ = client
         result = await grpc_client.verify_device("modbus-1", timeout=2.0)
 
-        assert result["device_id"] == "modbus-1"
-        assert result["ok"] is True
-        assert result["stages"], "diagnostic stages must not be empty"
-        assert all(stage["ok"] for stage in result["stages"])
+        assert result.device_id == "modbus-1"
+        assert result.ok is True
+        assert result.stages, "diagnostic stages must not be empty"
+        assert all(stage.ok for stage in result.stages)
 
 
 class TestReadWriteRoundTrip:
@@ -104,15 +104,15 @@ class TestConfigTransactionRoundTrip:
         config_hash = fingerprint_config_set(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-1", config_hash)
-        assert prepared["success"] is True
-        assert prepared["config_hash"] == config_hash
+        assert prepared.success is True
+        assert prepared.config_hash == config_hash
 
         activated = await grpc_client.activate_config("rev-cmd-1")
-        assert activated["success"] is True
-        assert activated["active_config_hash"] == config_hash
+        assert activated.success is True
+        assert activated.active_config_hash == config_hash
 
         status = await grpc_client.status()
-        assert status["active_revision"] == "rev-cmd-1"
+        assert status.active_revision == "rev-cmd-1"
 
     async def test_abort_discards_prepared_revision(self, client) -> None:
         grpc_client, config_dir, _ = client
@@ -131,11 +131,11 @@ class TestConfigTransactionRoundTrip:
         config_hash = fingerprint_config_set(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-cmd-abort", config_hash)
-        assert prepared["success"] is True
+        assert prepared.success is True
 
         aborted = await grpc_client.abort_config("rev-cmd-abort")
-        assert aborted["success"] is True
-        assert aborted["aborted"] is True
+        assert aborted.success is True
+        assert aborted.aborted is True
 
         # Abort 后同 revision 不能再 Activate——Commander 以 INVALID_ARGUMENT
         # RPC 错误拒绝（契约：prepared revision 不匹配是调用方错误）。

@@ -39,17 +39,6 @@ class SinkTestResult(BaseModel):
     steps: list[dict[str, object]] = Field(default_factory=list)
 
 
-def _as_int(value: object) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int | float | str):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-    return 0
-
-
 class SinkService:
     """Sink 页面后端入口。"""
 
@@ -69,12 +58,7 @@ class SinkService:
 
     def list_sinks(self) -> list[SinkSnapshot]:
         """返回配置与最近一次 Collector Sink 运行态。"""
-        runtime_rows = self._monitoring.sinks_snapshot()
-        runtime = {
-            str(row.get("name")): row
-            for row in runtime_rows
-            if row.get("name") is not None
-        }
+        runtime = {row.name: row for row in self._monitoring.sinks_snapshot()}
         rows: list[SinkSnapshot] = []
         for cfg in self._config.current_config.sinks.sinks:
             current = runtime.get(cfg.name)
@@ -90,20 +74,16 @@ class SinkService:
                     ],
                     point_count=len(cfg.points),
                     healthy=(
-                        bool(current.get("healthy"))
+                        current.healthy
                         if current is not None and cfg.enabled
                         else False
                     ),
                     message=(
-                        str(current.get("message"))
-                        if current is not None and current.get("message")
+                        current.message
+                        if current is not None and current.message
                         else ("disabled" if not cfg.enabled else "not loaded")
                     ),
-                    queue_depth=(
-                        _as_int(current.get("queue_depth"))
-                        if current is not None
-                        else 0
-                    ),
+                    queue_depth=current.queue_depth if current is not None else 0,
                 )
             )
         return rows
@@ -129,24 +109,20 @@ class SinkService:
         results = await asyncio.gather(
             *(self._collectors.get(worker_id).verify_sink(name) for worker_id in worker_ids)
         )
-        steps = [
+        steps: list[dict[str, object]] = [
             {
                 "stage": "health",
                 "worker_id": worker_id,
-                "success": bool(result.get("success")),
-                "message": result.get("message"),
+                "success": result.success,
+                "message": result.message,
             }
             for worker_id, result in zip(worker_ids, results, strict=True)
         ]
         return SinkTestResult(
-            success=all(bool(result.get("success")) for result in results),
+            success=all(result.success for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
             message=next(
-                (
-                    str(result.get("message"))
-                    for result in results
-                    if result.get("message")
-                ),
+                (result.message for result in results if result.message),
                 None,
             ),
             steps=steps,
@@ -169,24 +145,20 @@ class SinkService:
                 for worker_id in worker_ids
             )
         )
-        steps = [
+        steps: list[dict[str, object]] = [
             {
                 "stage": "write",
                 "worker_id": worker_id,
-                "success": bool(result.get("success")),
-                "message": result.get("message"),
+                "success": result.success,
+                "message": result.message,
             }
             for worker_id, result in zip(worker_ids, results, strict=True)
         ]
         return SinkTestResult(
-            success=all(bool(result.get("success")) for result in results),
+            success=all(result.success for result in results),
             latency_ms=(time.monotonic() - started) * 1000,
             message=next(
-                (
-                    str(result.get("message"))
-                    for result in results
-                    if result.get("message")
-                ),
+                (result.message for result in results if result.message),
                 None,
             ),
             steps=steps,
