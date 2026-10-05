@@ -2,7 +2,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  DEFAULT_POINT_GROUP_ID,
   addressText,
   affectedByPointTables,
   descendantTableIds,
@@ -125,7 +124,6 @@ async function beforeManageClose(done:()=>void){
     done()
   }catch{}
 }
-const editingGroup = computed(() => store.pointGroups.find(g => g.id === groupEditingId.value))
 const currentTableIsSystem = computed(() => !!tableDef.value?.system)
 
 const testDeviceId = ref('')

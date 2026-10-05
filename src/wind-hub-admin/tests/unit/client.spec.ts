@@ -18,12 +18,18 @@ afterEach(() => {
 
 describe('api 成功路径', () => {
   it('2xx 返回解析后的 JSON 体', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { ok: 1 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(200, { ok: 1 })),
+    )
     await expect(api<{ ok: number }>('/x')).resolves.toEqual({ ok: 1 })
   })
 
   it('204 返回 undefined', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    )
     await expect(api('/x')).resolves.toBeUndefined()
   })
 
@@ -42,7 +48,11 @@ describe('api 错误信封', () => {
       'fetch',
       vi.fn(async () =>
         jsonResponse(503, {
-          error: { code: 'PROTOCOL_ERROR', message: 'device unreachable', details: { device: 'd1' } },
+          error: {
+            code: 'PROTOCOL_ERROR',
+            message: 'device unreachable',
+            details: { device: 'd1' },
+          },
         }),
       ),
     )

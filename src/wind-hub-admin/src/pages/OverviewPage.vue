@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { protocolOfDevice, refreshRuntimeState, store } from '../api/data'
 import { healthRisks, hostCurrent, loadHealth, syncHealthPresentation } from '../api/health'

@@ -13,7 +13,7 @@ interface BackendQualityChannel {
   latency_ms:number|null;timeouts:number;reconnects:number;issue:string|null
 }
 interface BackendMetric {key:string;label:string;value:number;hint:string;status:string}
-interface BackendDimension extends QualityDimensionRow {}
+type BackendDimension = QualityDimensionRow
 interface BackendIssue {
   level:'Fault'|'Warning';object:string;kind:'Task'|'Device'|'Point'|'Sink';
   dimension:string;issue:string;duration_seconds:number|null;error:string|null

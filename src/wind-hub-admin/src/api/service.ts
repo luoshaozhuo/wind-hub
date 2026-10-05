@@ -1,6 +1,6 @@
 import { ApiError, api, apiBlob, jsonBody } from './client'
 import {
-  pointsOfTable, protocolOfDevice, refreshTaskValidity, store, tableOfDevice, unitSymbol,
+  pointsOfTable, store, tableOfDevice, unitSymbol,
 } from './data'
 import type {
   DeviceInst, DeviceVerification, PointDef, SinkDef, SinkVerificationCheck, TaskDef,
@@ -118,7 +118,7 @@ function pointKey(deviceId:string,pointId:string){return deviceId+'::'+pointId}
 export async function refreshDeviceData(deviceId:string){
   let pageNumber=1
   let loaded=0
-  let total=0
+  let total:number
   do{
     const page=await api<DataPage>(
       '/devices/'+encodeURIComponent(deviceId)+'/data?page='+pageNumber+'&page_size=200',

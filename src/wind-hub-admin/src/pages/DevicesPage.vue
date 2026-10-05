@@ -181,26 +181,12 @@ function stepText(step: VerifyStepState) {
   return 'Not tested'
 }
 
-function stepIcon(step: VerifyStepState) {
-  if (step === 'success') return '✓'
-  if (step === 'partial') return '△'
-  if (step === 'failed') return '✕'
-  if (step === 'checking') return '…'
-  return '—'
-}
-
 function stepClass(step: VerifyStepState) {
   return `step-${step}`
 }
 
 function timestampAt(offsetMs = 0) {
   return formatTimestamp(new Date(Date.now() - offsetMs))
-}
-
-function extraConnectionInfo(d: DeviceInst) {
-  const protocol = modelOf(d)?.protocol
-  if (protocol === 'ads') return `AMS Net ID ${d.host}.1.1`
-  return ''
 }
 
 function protocolDescription(d: DeviceInst) {
@@ -667,36 +653,7 @@ function onEditModelChange() {
   }
 }
 
-function onEditTypeChange() {
-  if (!store.deviceModels.some(
-    m => m.id === editForm.value.model && m.device_type === editForm.value.device_type,
-  )) {
-    const next = store.deviceModels.find(m => m.device_type === editForm.value.device_type)
-    if (next) {
-      editForm.value.model = next.id
-      onEditModelChange()
-    }
-  }
 
-  if (!store.deviceGroups.some(
-    g => g.id === editForm.value.device_group && g.device_type === editForm.value.device_type,
-  )) {
-    editForm.value.device_group =
-      store.deviceGroups.find(g => g.device_type === editForm.value.device_type)?.id || ''
-  }
-}
-
-function onEditProtocolChange() {
-  if (!store.pointTables.some(
-    t => t.id === editForm.value.point_table && t.protocol === editForm.value.protocol,
-  )) {
-    editForm.value.point_table =
-      store.pointTables.find(t => t.protocol === editForm.value.protocol)?.id || ''
-  }
-  if (editForm.value.protocol === 'ads' && !editForm.value.read_mode) {
-    editForm.value.read_mode = 'sum'
-  }
-}
 
 function affectedTasksForDevice(d: DeviceInst, nextGroup = d.device_group) {
   const groups = new Set([d.device_group, nextGroup].filter(Boolean))
@@ -895,10 +852,6 @@ function overrideKeys(d: DeviceInst): string[] {
 function connValue(d: DeviceInst, key: string, fallback: unknown = '') {
   const value = mergedConnection(d)[key]
   return value === undefined || value === null || value === '' ? fallback : value
-}
-
-function boolValue(value: unknown, fallback = false) {
-  return value === undefined || value === null ? fallback : Boolean(value)
 }
 
 const selectedVerify = computed(() => selected.value ? verifyOf(selected.value) : emptyVerification())

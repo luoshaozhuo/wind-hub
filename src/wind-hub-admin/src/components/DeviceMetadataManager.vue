@@ -130,10 +130,6 @@ function onItemRowClick(row: { id: string }) {
   }
 }
 
-function newItem() {
-  resetForm()
-}
-
 function openEditModel(row: DeviceModelDef) {
   resetForm()
   editingId.value = row.id
