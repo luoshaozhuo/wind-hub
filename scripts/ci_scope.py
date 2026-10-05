@@ -47,7 +47,6 @@ def _backend_pr_targets(path: str) -> set[str]:
     if _starts(
         path,
         "src/wind_hub_core/protocol/",
-        "src/wind_hub_collector/adapter/inbound/iec104_slave/",
         "tests/integration/protocols/",
     ):
         targets.add("integration-protocol")
