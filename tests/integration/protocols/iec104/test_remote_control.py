@@ -83,7 +83,7 @@ class TestRemoteControlIntegration:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("switch.on", 100, data_type="bool"),
+                _make_point_config("switch.on", 1001, data_type="bool"),
             ]
         )
 
@@ -116,7 +116,7 @@ class TestRemoteControlIntegration:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("switch.off", 100, data_type="uint16"),
+                _make_point_config("switch.off", 1001, data_type="uint16"),
             ]
         )
 
@@ -147,7 +147,7 @@ class TestRemoteControlIntegration:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("breaker.cmd", 200, data_type="uint16"),
+                _make_point_config("breaker.cmd", 1002, data_type="uint16"),
             ]
         )
 
@@ -178,7 +178,7 @@ class TestRemoteControlIntegration:
         driver = IEC104Driver(cfg)
         driver.set_points_mapping(
             [
-                _make_point_config("setpoint.val", 300, data_type="float32"),
+                _make_point_config("setpoint.val", 1003, data_type="float32"),
             ]
         )
 
@@ -245,31 +245,6 @@ class TestRemoteControlIntegration:
                     ),
                 ]
             )
-
-    async def test_close_with_pending_send_queue(
-        self,
-        control_server: IEC104ControlServer,
-    ) -> None:
-        """close() completes even when the session's send queue still holds
-        undrained frames (regression for the step 7b-3 close() reorder)."""
-        cfg = _make_device_config(control_server.port)
-        driver = IEC104Driver(cfg)
-        driver.set_points_mapping(
-            [
-                _make_point_config("switch.on", 100, data_type="bool"),
-            ]
-        )
-
-        await driver.connect()
-        assert driver._session is not None
-
-        # Queue an undrained frame so close() must tear down a send task
-        # that still has work pending (send queue non-empty at close time).
-        driver._session._enqueue_frame_nowait(b"\x68\x04\x43\x00\x00\x00")
-
-        # Must return promptly instead of hanging on the send task.
-        await asyncio.wait_for(driver.close(), timeout=5.0)
-
 
 class TestSpontaneousUpdateIntegration:
     """End-to-end spontaneous update via driver subscription."""

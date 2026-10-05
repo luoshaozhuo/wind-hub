@@ -2,12 +2,9 @@
 
 - **Modbus**：pymodbus ``ModbusTcpServer``，预置 ``num_registers`` 个保持
   寄存器（静态值——客户端每次轮询都由驱动盖上新时间戳，延迟语义不受影响）。
-- **IEC104**：复用 step12 的 ``IEC104SlaveSession`` / ``IEC104SlaveHandlers``
-  / ``DataSnapshot`` 装配**压测专用从站**。``IEC104SlaveServer`` 本体把
-  session 藏在私有集合里、且代理协议本身不含变化上送（spontaneous），
-  无法直接满足「总召 + 变化上送」的压测模型（决策 5）——因此这里用同一
-  套 step12 构件自行组 session 循环，外加一个周期推送任务；**不修改
-  src 下任何代理代码**。
+- **IEC104**：基于 c104/lib60870-C 装配**压测专用从站**——c104.Server
+  承担 STARTDT/TESTFR 握手与总召应答，压测层只做点表预置与周期
+  变化上送（SPONTANEOUS transmit 推送任务）。
 - **ADS**：``pyads.testserver.AdsTestServer`` + ``AdvancedHandler``，
   预置 ``MAIN.var0..n``（REAL / float32，符号寻址，配 Sum 批量读）。
 
@@ -23,6 +20,7 @@ import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import c104
 from pymodbus.datastore import (
     ModbusDeviceContext,
     ModbusSequentialDataBlock,
@@ -30,36 +28,10 @@ from pymodbus.datastore import (
 )
 from pymodbus.server import ModbusTcpServer
 
-from wind_hub_collector.adapter.inbound.iec104_slave import (
-    DataSnapshot,
-    IEC104SlaveHandlers,
-)
-from wind_hub_collector.adapter.inbound.iec104_slave.handlers import (
-    MAX_ASDU_PAYLOAD_BYTES,
-    OBJECT_SIZE_BYTES,
-)
-from wind_hub_collector.adapter.inbound.iec104_slave.session import IEC104SlaveSession
-from wind_hub_collector.application.sink_export import SinkReferenceExporter
-from wind_hub_core.config import IEC104SinkAddress, ResolvedSinkPoint, SinkSource
-from wind_hub_core.model.point import PointValue
-from wind_hub_core.protocol.iec104.codec import (
-    ASDU,
-    CauseOfTransmission,
-    MeasuredValueShort,
-    QualityFlag,
-    TypeID,
-)
-
 logger = logging.getLogger(__name__)
 
 # IEC104 压测点的 IOA 基址（避开 0，贴合现场习惯）。
 IEC104_IOA_BASE = 1001
-# 变化上送的单 ASDU 对象数。总召应答由 step23 修复后的 handlers 按
-# APDU 字节上限自动切分（batch_size 用生产默认 50 即可）；但本从站的
-# 推送循环自建 ASDU、绕过 handlers，需自己遵守 253 字节 APDU 上限：
-# M_ME_NC_1 每对象 8B → 单帧最多 (253-6)//8 = 30 个对象。
-IEC104_BATCH_SIZE = 50
-_PUSH_OBJECTS_PER_ASDU = MAX_ASDU_PAYLOAD_BYTES // OBJECT_SIZE_BYTES["M_ME_NC_1"]
 
 
 # ---------------------------------------------------------------------------
@@ -141,21 +113,17 @@ class ModbusServerHandle:
 
 
 # ---------------------------------------------------------------------------
-# IEC104（step12 构件 + 变化上送推送器）
+# IEC104（c104 从站 + 变化上送推送器）
 # ---------------------------------------------------------------------------
 
 
 class _PerfIEC104Slave:
-    """压测专用 IEC104 从站：step12 session/handlers + 周期变化上送。
+    """压测专用 IEC104 从站：c104.Server + 周期变化上送。
 
-    与生产 :class:`IEC104SlaveServer` 的差异只有两个，且都在压测层实现：
-    1. 自持 session 集合（生产 server 把 session 藏在私有集合里，外部
-       拿不到句柄，无法做变化上送）；
-    2. 一个后台推送任务，按 ``push_interval_s`` 把全部点以 SPONTANEOUS
-       原因码广播给每个已 STARTDT 的 session（决策 5 的「变化上送」）。
-
-    总召应答、STARTDT/TESTFR 握手、命令处理完全复用 step12 的
-    :class:`IEC104SlaveSession` / :class:`IEC104SlaveHandlers`。
+    STARTDT/TESTFR 握手、总召应答与 ASDU 组帧全部由 c104/lib60870-C
+    承担；压测层只预置点表（M_ME_NC_1，IOA 自 ``IEC104_IOA_BASE`` 起
+    连续编号）并运行一个推送任务：按 ``push_interval_s`` 用正弦波刷新
+    全部点的值并以 SPONTANEOUS transmit（决策 5 的「变化上送」）。
     """
 
     def __init__(
@@ -172,40 +140,27 @@ class _PerfIEC104Slave:
         self._device_id = device_id
         self._push_interval_s = push_interval_s
 
-        self._snapshot = DataSnapshot()
-        self._point_ids = [f"mv.{i:04d}" for i in range(num_points)]
-        definitions = [
-            ResolvedSinkPoint(
-                source=SinkSource(device_id=device_id, point_id=pid),
-                ref=f"{device_id}.{pid}",
-                source_data_type="float32",
-                source_unit="none",
-                datatype="float32",
-                unit="none",
-                address=IEC104SinkAddress(
-                    ioa=IEC104_IOA_BASE + i,
-                    type_id="M_ME_NC_1",
-                ),
-            )
-            for i, pid in enumerate(self._point_ids)
-        ]
-        self._exporter = SinkReferenceExporter(definitions)
-        self._handlers = IEC104SlaveHandlers(
-            snapshot=self._snapshot,
-            common_address=1,
-            batch_size=IEC104_BATCH_SIZE,
-        )
-
-        self._server: asyncio.AbstractServer | None = None
-        self._sessions: set[IEC104SlaveSession] = set()
-        self._session_tasks: set[asyncio.Task[None]] = set()
+        self._server: c104.Server | None = None
+        self._points: list[c104.Point] = []
         self._push_task: asyncio.Task[None] | None = None
         self._tick = 0
 
     async def start(self) -> None:
-        """监听端口、填充初始快照、启动变化上送任务。"""
-        self._refresh_snapshot()
-        self._server = await asyncio.start_server(self._on_client, host=self._host, port=self._port)
+        """构建点表、启动监听与变化上送任务。"""
+        server = c104.Server(ip=self._host, port=self._port)
+        station = server.add_station(common_address=1)
+        if station is None:
+            raise RuntimeError("perf IEC104: cannot add station")
+        for i in range(self._num_points):
+            point = station.add_point(
+                io_address=IEC104_IOA_BASE + i, type=c104.Type.M_ME_NC_1
+            )
+            if point is None:
+                raise RuntimeError(f"perf IEC104: cannot add point {i}")
+            point.value = 100.0
+            self._points.append(point)
+        await asyncio.get_running_loop().run_in_executor(None, server.start)
+        self._server = server
         self._push_task = asyncio.create_task(self._push_loop())
         logger.info(
             "perf IEC104 slave listening on %s:%d (%d points)",
@@ -215,84 +170,35 @@ class _PerfIEC104Slave:
         )
 
     async def stop(self) -> None:
-        """停推送任务 → 断所有 session → 关监听（幂等）。"""
+        """停推送任务 → 停 c104 server（断开全部主站连接；幂等）。"""
         if self._push_task is not None:
             self._push_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._push_task
             self._push_task = None
-        for task in list(self._session_tasks):
-            task.cancel()
-        if self._session_tasks:
-            await asyncio.gather(*self._session_tasks, return_exceptions=True)
-        self._session_tasks.clear()
-        self._sessions.clear()
-        if self._server is not None:
-            self._server.close()
+        server, self._server = self._server, None
+        self._points.clear()
+        if server is not None:
             with contextlib.suppress(Exception):
-                await self._server.wait_closed()
-            self._server = None
-
-    async def _on_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        session = IEC104SlaveSession(reader, writer, self._handlers, common_address=1)
-        self._sessions.add(session)
-        task = asyncio.current_task()
-        if task is not None:
-            self._session_tasks.add(task)
-        try:
-            await session.run()
-        except Exception:
-            logger.warning("perf IEC104 session terminated with error", exc_info=True)
-        finally:
-            self._sessions.discard(session)
-            if task is not None:
-                self._session_tasks.discard(task)
-            writer.close()
-            with contextlib.suppress(Exception):
-                await writer.wait_closed()
-
-    def _refresh_snapshot(self) -> None:
-        """用正弦波刷新全部点的值（变化上送才有「变化」可送）。"""
-        self._tick += 1
-        values = [
-            PointValue(
-                device_id=self._device_id,
-                point_id=pid,
-                value=100.0 + 50.0 * math.sin((self._tick + i) / 10.0),
-            )
-            for i, pid in enumerate(self._point_ids)
-        ]
-        self._snapshot.update(self._exporter.export(values))
+                await asyncio.get_running_loop().run_in_executor(None, server.stop)
 
     async def _push_loop(self) -> None:
-        """周期推送：刷新快照 → 对每个已启动的 session 广播 SPONTANEOUS。"""
+        """周期推送：正弦波刷新全部点的值并逐点 SPONTANEOUS transmit。
+
+        c104 的 Point 更新与 transmit 是线程安全的，可直接在事件循环
+        线程调用；监视方向 transmit 无确认语义、不阻塞。
+        """
         while True:
             await asyncio.sleep(self._push_interval_s)
-            self._refresh_snapshot()
-            snapshot = self._snapshot.get_all()
-            for session in list(self._sessions):
-                # session._started 无公开访问器（step12 只暴露 run/send_asdu）；
-                # 压测层持有 session 本体，读私有标记避免向未 STARTDT 的
-                # 对端乱发 I 帧。
-                if not session._started:
-                    continue
-                for i in range(0, len(snapshot), _PUSH_OBJECTS_PER_ASDU):
-                    chunk = snapshot[i : i + _PUSH_OBJECTS_PER_ASDU]
-                    asdu = ASDU(
-                        type_id=TypeID.M_ME_NC_1,
-                        cause=CauseOfTransmission.SPONTANEOUS,
-                        common_address=1,
-                        objects=[
-                            MeasuredValueShort(
-                                ioa=ioa, value=float(pv.value), quality=QualityFlag(0)
-                            )
-                            for ioa, pv in chunk
-                        ],
+            self._tick += 1
+            for i, point in enumerate(self._points):
+                point.value = 100.0 + 50.0 * math.sin((self._tick + i) / 10.0)
+                try:
+                    point.transmit(c104.Cot.SPONTANEOUS)
+                except Exception:
+                    logger.warning(
+                        "perf IEC104 spontaneous push failed", exc_info=True
                     )
-                    try:
-                        await session.send_asdu(asdu)
-                    except Exception:
-                        logger.warning("perf IEC104 spontaneous push failed", exc_info=True)
 
 
 @asynccontextmanager
