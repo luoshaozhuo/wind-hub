@@ -17,7 +17,6 @@ packages = [
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-typer = ">=0.15,<1.0"
 fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
 structlog = "^24.0"
@@ -79,11 +78,9 @@ extend-exclude = ["*_pb2.py", "*_pb2_grpc.py", "*_pb2.pyi", "*_pb2_grpc.pyi"]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-# ``typer.Option``/``typer.Argument`` 与 ``fastapi.Query``/``Path``/``Body``/``Depends``
-# 默认值是声明 CLI/HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
+# ``fastapi.Query``/``Path``/``Body``/``Depends``
+# 默认值是声明 HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
 extend-immutable-calls = [
-    "typer.Argument",
-    "typer.Option",
     "fastapi.Query",
     "fastapi.Path",
     "fastapi.Body",

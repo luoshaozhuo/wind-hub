@@ -36,9 +36,9 @@ class AppContext:
 
     所有字段都可选：缺失服务由适配器上报 503 / 非零退出而非崩溃。
 
-    三类启停语义在本容器中各有归属：Runtime 生命周期经 ``runtime``
-    （组合根/进程入口编排），采集 Task Instance 生命周期经 ``tasks``，
-    进程生命周期由 ``main.py`` 信号处理负责。
+    启停语义归属：Worker/Collector Runtime 生命周期由组合根/进程入口编排，
+    采集 Task Instance 生命周期经 ``tasks``，进程生命周期由 ``main.py``
+    信号处理负责。
     """
 
     monitoring: MonitoringSnapshotPort | None = None
