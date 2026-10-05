@@ -15,8 +15,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from wind_hub_commander.config import CommanderConfig
-from wind_hub_core.device.session import DeviceSession
-from wind_hub_core.protocol import protocol_registry
+from wind_hub_core.device.session import DeviceSession, create_device_session
+from wind_hub_core.protocol.registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,14 @@ class _Generation:
 class CommanderRuntime:
     """Commander 设备会话注册表与 generation 生命周期管理器。"""
 
-    def __init__(self, config: CommanderConfig, *, config_hash: str) -> None:
+    def __init__(
+        self,
+        config: CommanderConfig,
+        *,
+        config_hash: str,
+        protocol_registry: ProtocolRegistry,
+    ) -> None:
+        self._protocol_registry = protocol_registry
         self._reload_lock = asyncio.Lock()
         self._operation_generation: ContextVar[_Generation | None] = ContextVar(
             "commander_operation_generation",
@@ -85,11 +92,11 @@ class CommanderRuntime:
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
         for device_config in config.devices.devices:
-            protocol = protocol_registry.create(device_config.protocol, device_config)
-            devices[device_config.device_id] = DeviceSession(
-                config=device_config,
-                points=config.points_for_device(device_config.device_id),
-                protocol=protocol,
+            devices[device_config.device_id] = create_device_session(
+                device_config,
+                config.points_for_device(device_config.device_id),
+                self._protocol_registry,
+                session_type=DeviceSession,
             )
             locks[device_config.device_id] = asyncio.Lock()
         return _Generation(config=config, devices=devices, connect_locks=locks)

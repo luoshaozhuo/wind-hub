@@ -189,8 +189,8 @@ async def test_collector_runtime_lifecycle_without_web_components() -> None:
 
 
 
-def test_create_sink_supports_modbus() -> None:
-    import wind_hub_collector.assembly as assembly_module
+def test_sink_registry_supports_modbus() -> None:
+    from wind_hub_collector.adapter.outbound.sink import build_sink_registry
     from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
 
     cfg = ResolvedSinkConfig(
@@ -214,6 +214,6 @@ def test_create_sink_supports_modbus() -> None:
         ],
     )
 
-    sink = assembly_module._create_sink(cfg)  # noqa: SLF001
+    sink = build_sink_registry().create(cfg)
     assert isinstance(sink, ModbusSink)
     assert sink.exclusive_open is True

@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import wind_hub_core.protocol  # noqa: F401 — 触发内置 Driver 注册
 from wind_hub_commander.application import (
     CommanderCommandService,
     CommanderConfigService,
@@ -20,6 +19,7 @@ from wind_hub_commander.config import CommanderConfig, load_commander_config
 from wind_hub_commander.dispatcher import CommandDispatcher
 from wind_hub_commander.runtime import CommanderRuntime
 from wind_hub_core.config import fingerprint_config_set
+from wind_hub_core.protocol import build_protocol_registry
 
 
 @dataclass(slots=True)
@@ -58,7 +58,11 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
             "config changed while assembling Commander: "
             f"before={before_hash} after={config_hash}"
         )
-    runtime = CommanderRuntime(config, config_hash=config_hash)
+    runtime = CommanderRuntime(
+        config,
+        config_hash=config_hash,
+        protocol_registry=build_protocol_registry(),
+    )
     dispatcher = CommandDispatcher(
         runtime,
         default_timeout=config.write_timeout,

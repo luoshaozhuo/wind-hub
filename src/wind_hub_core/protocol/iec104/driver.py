@@ -36,7 +36,6 @@ from wind_hub_core.protocol.iec104.mapping import (
 )
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
-    ProtocolPort,
     SubscriptionHandle,
 )
 
@@ -749,16 +748,3 @@ class IEC104Driver:
             return
         self._received_ioas.add(ioa)
         asyncio.ensure_future(self._subscriptions.dispatch(pv, ioa))
-
-
-# ---------------------------------------------------------------------------
-# 协议自注册
-# ---------------------------------------------------------------------------
-
-# 注册必须发生在 Driver 类定义完成后；若注册机制改为组合根显式注入，可移除 E402 抑制。
-from wind_hub_core.protocol.registry import register_protocol  # noqa: E402
-
-
-@register_protocol("iec104")
-def _create_iec104(cfg: DeviceConfig) -> ProtocolPort:
-    return IEC104Driver(cfg)

@@ -19,8 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-# 导入模块以触发内置协议驱动注册；若注册机制改为显式装配，可删除该副作用导入与抑制。
-import wind_hub_core.protocol  # noqa: F401
+from wind_hub_collector.adapter.outbound.sink import build_sink_registry
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import CollectorDeviceSession, CollectorRuntime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
@@ -29,10 +28,9 @@ from wind_hub_collector.application.service.query import CollectorQueryService
 from wind_hub_collector.application.service.sink import CollectorSinkService
 from wind_hub_collector.application.service.task import CollectorTaskService
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config import Config, DeviceConfig, ResolvedSinkConfig, load_config
-from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.protocol.port import ProtocolPort
-from wind_hub_core.protocol.registry import protocol_registry
+from wind_hub_core.config import Config, ResolvedSinkConfig, load_config
+from wind_hub_core.device import create_device_session
+from wind_hub_core.protocol import build_protocol_registry
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +83,17 @@ def assemble(
         start_runtime 阶段发生。
     """
     cfg = load_config(config_dir)
-    make_sink = sink_factory or _create_sink
+    protocols = build_protocol_registry()
+    sinks_registry = build_sink_registry()
+    make_sink = sink_factory or sinks_registry.create
 
     devices: dict[str, CollectorDeviceSession] = {}
     for device_cfg in cfg.devices.devices:
-        protocol = _create_protocol(device_cfg)
-        points = cfg.points_for_device(device_cfg.device_id)
-        devices[device_cfg.device_id] = CollectorDeviceSession(
-            config=device_cfg,
-            points=points,
-            protocol=protocol,
+        devices[device_cfg.device_id] = create_device_session(
+            device_cfg,
+            cfg.points_for_device(device_cfg.device_id),
+            protocols,
+            session_type=CollectorDeviceSession,
         )
 
     sinks = {sink.name: make_sink(sink) for sink in cfg.sinks.sinks if sink.enabled}
@@ -111,7 +110,7 @@ def assemble(
         engine=engine,
         config=cfg.system.runtime,
         tasks={task.task_id: task for task in cfg.tasks.tasks},
-        protocol_factory=_create_protocol,
+        protocol_factory=protocols.create_for,
         sink_factory=make_sink,
         metrics_hook=metrics_state,
     )
@@ -168,40 +167,3 @@ async def stop_runtime(
 ) -> None:
     """在硬超时内优雅停止 CollectorRuntime。"""
     await asyncio.wait_for(rt.runtime.stop(), timeout=timeout)
-
-
-def _create_protocol(cfg: DeviceConfig) -> ProtocolPort:
-    """按协议注册表创建设备驱动。"""
-    return protocol_registry.create(cfg.protocol, cfg)
-
-
-def _create_sink(cfg: ResolvedSinkConfig) -> SinkPort:
-    """按配置类型懒加载并创建 Collector Sink。
-
-    可选 Sink 依赖只在配置实际使用该类型时导入，File-only 部署无需安装
-    aiokafka/asyncpg。
-    """
-    if cfg.type == "file":
-        from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
-
-        return FileSink(cfg)
-    if cfg.type == "kafka":
-        from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
-
-        return KafkaSink(cfg)
-    if cfg.type == "db":
-        from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
-
-        return DBSink(cfg)
-    if cfg.type == "iec104":
-        from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
-
-        return IEC104Sink(cfg)
-    if cfg.type == "modbus":
-        from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
-
-        return ModbusSink(cfg)
-    raise ConfigError(
-        f"Unknown sink type '{cfg.type}' "
-        "(available: kafka, file, db, iec104, modbus)"
-    )

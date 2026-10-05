@@ -35,7 +35,6 @@ from wind_hub_core.protocol.ads.mapping import ADSPoint, parse_point
 from wind_hub_core.protocol.ads.subscription import ADSSubscription
 from wind_hub_core.protocol.port import (
     AcquisitionMode,
-    ProtocolPort,
     SubscriptionHandle,
 )
 
@@ -583,16 +582,3 @@ class _ADSSubscriptionHandle:
     async def close(self) -> None:
         self._driver._subscriptions.discard(self._subscription)
         await self._subscription.close()
-
-
-# ---------------------------------------------------------------------------
-# 协议自注册
-# ---------------------------------------------------------------------------
-
-# 注册必须发生在 Driver 类定义完成后；若注册机制改为组合根显式注入，可移除 E402 抑制。
-from wind_hub_core.protocol.registry import register_protocol  # noqa: E402
-
-
-@register_protocol("ads")
-def _create_ads(cfg: DeviceConfig) -> ProtocolPort:
-    return ADSDriver(cfg)

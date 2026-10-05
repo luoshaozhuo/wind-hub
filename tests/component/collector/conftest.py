@@ -71,9 +71,9 @@ def functional_sink_factory(cfg: ResolvedSinkConfig) -> SinkPort:
     if cfg.name == "null_sink":
         return NullSink()
     # 复用组合根的适配器装配，避免在测试侧复制第二套 sink 接线。
-    from wind_hub_collector.assembly import _create_sink
+    from wind_hub_collector.adapter.outbound.sink import build_sink_registry
 
-    return _create_sink(cfg)
+    return build_sink_registry().create(cfg)
 
 
 def modbus_device_dict(port: int, **overrides: Any) -> dict[str, Any]:
