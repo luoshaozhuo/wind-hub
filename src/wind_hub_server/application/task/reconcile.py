@@ -59,11 +59,12 @@ class TaskPlacementReconciler:
 
     @property
     def placement_safe(self) -> bool:
-        """当前 placement 代次是否已完成安全收敛。"""
+        """当前 placement 代次是否已完成安全收敛（纯读取，不做同步）。"""
         return self._reconciled_generation == self._placements.generation
 
     def require_safe_start(self) -> None:
         """仅在当前 placement 代次完成安全收敛后允许新的 start。"""
+        self._placements.sync()
         if not self.placement_safe:
             raise TaskPlacementUnsafeError(
                 "task placement is not safely reconciled"
@@ -75,6 +76,7 @@ class TaskPlacementReconciler:
 
     async def reconcile(self) -> TaskPlacementReconcileResult:
         """停止跑在错误 Collector 上的实例，并建立当前 placement 安全栅栏。"""
+        self._placements.sync()
         generation = self._placements.generation
         placements = {
             row.task_id: row

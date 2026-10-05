@@ -313,6 +313,7 @@ async def test_placement_safe_only_for_current_generation(tmp_path) -> None:
     config.current_config.tasks.tasks.append(
         SimpleNamespace(task_id="task-b", enabled=True)
     )
+    placements.sync()
     assert placements.generation > result.generation
     assert reconciler.placement_safe is False
     with pytest.raises(TaskPlacementUnsafeError):

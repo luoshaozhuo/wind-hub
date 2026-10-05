@@ -154,6 +154,7 @@ class TaskControlService:
         current = await self.get_instance(instance_id)
         collector = await verified_collector(self._collectors, current.assigned_worker_id)
         try:
+            self._placements.sync()
             data = await collector.start_task_instance(
                 instance_id,
                 self._placements.generation,
@@ -182,6 +183,7 @@ class TaskControlService:
         worker_id = self._placements.worker_for_task(task_id)
         collector = await verified_collector(self._collectors, worker_id)
         try:
+            self._placements.sync()
             data = await collector.start_task(
                 task_id,
                 self._placements.generation,
