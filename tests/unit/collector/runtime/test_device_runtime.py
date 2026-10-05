@@ -45,8 +45,10 @@ def test_collector_transfers_registry_and_engine_device_port_to_one_owner() -> N
 
     devices = collector.device_runtime
     assert isinstance(devices, DeviceRuntime)
-    assert collector.devices is devices.devices
-    assert devices.devices == {"d1": session}
+    assert collector.devices == devices.devices == {"d1": session}
+    # 注册表对外只读——变更必须经 owner 的行为接口，不能绕过。
+    with pytest.raises(TypeError):
+        collector.devices["d2"] = session  # type: ignore[index]
     assert devices.device_state("d1") is not None
     assert devices.device_state("d1").connected is False
     assert devices.device_state("missing") is None

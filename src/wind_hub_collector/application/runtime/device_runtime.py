@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
@@ -76,9 +77,13 @@ class DeviceRuntime:
         self._metrics = metrics_hook
 
     @property
-    def devices(self) -> dict[str, CollectorDeviceSession]:
-        """当前会话注册表；调用方只读，生命周期变更经本对象的方法执行。"""
-        return self._devices
+    def devices(self) -> Mapping[str, CollectorDeviceSession]:
+        """当前会话注册表的只读视图（随热重载就地反映最新内容）。
+
+        本对象是注册表的唯一 owner——外部只能观察，生命周期变更必须经
+        本对象的方法执行。
+        """
+        return MappingProxyType(self._devices)
 
     def attach_metrics_hook(self, metrics_hook: RuntimeMetricsPort | None) -> None:
         """与 Collector 的指标 observer 同步替换，不改变连接状态。"""

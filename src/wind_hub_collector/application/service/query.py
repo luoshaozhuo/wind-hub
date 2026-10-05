@@ -95,7 +95,7 @@ class CollectorQueryService:
         """
         return [
             self._device_info(device_id, device.config)
-            for device_id, device in self._runtime.device_runtime.devices.items()
+            for device_id, device in self._runtime.devices.items()
         ]
 
     async def status(self) -> SystemStatus:
@@ -113,10 +113,10 @@ class CollectorQueryService:
           分维度。
         """
         devices_connected = sum(
-            1 for h in self._runtime.device_runtime.health().values() if h.healthy
+            1 for h in self._runtime.device_health().values() if h.healthy
         )
         sinks_healthy = sum(
-            1 for h in self._runtime.sink_runtime.health().values() if h.healthy
+            1 for h in self._runtime.sink_health().values() if h.healthy
         )
 
         return SystemStatus(
@@ -150,8 +150,8 @@ class CollectorQueryService:
         ``last_seen`` 暂无逐设备读取墙钟时间戳追踪，恒为 ``None``（诚实
         空缺）；连接健康与重连计数来自 DeviceRuntime 的 DeviceRuntimeState。
         """
-        device = self._runtime.device_runtime.devices.get(device_id)
-        state = self._runtime.device_runtime.device_state(device_id)
+        device = self._runtime.devices.get(device_id)
+        state = self._runtime.device_state(device_id)
         # connected 以驱动实时 health 为准（驱动自带重连监控时比 CollectorRuntime
         # 的记账更新）；consecutive_failures/last_error 来自 DeviceRuntime 的
         # 重连节流状态。

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from wind_hub_commander.config import CommanderConfig
 from wind_hub_core.device.session import DeviceSession, create_device_session
@@ -59,8 +60,15 @@ class CommanderRuntime:
         self._prepared_generation: _Generation | None = None
         self._retirement_tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
-        self.devices: dict[str, DeviceSession] = {}
-        self.devices.update(self._current.devices)
+
+    @property
+    def devices(self) -> Mapping[str, DeviceSession]:
+        """当前激活 generation 的设备会话只读视图。
+
+        会话注册表的唯一 owner 是各 generation；外部只能观察，配置激活
+        时本视图随 ``_current`` 切换原子更新。
+        """
+        return MappingProxyType(self._current.devices)
 
     @property
     def config(self) -> CommanderConfig:
@@ -185,8 +193,6 @@ class CommanderRuntime:
             self._prepared_revision = None
             self._prepared_config_hash = None
             self._prepared_generation = None
-            self.devices.clear()
-            self.devices.update(new_generation.devices)
             self._schedule_retirement(old_generation, reason="activate")
 
         await asyncio.shield(self.start())
