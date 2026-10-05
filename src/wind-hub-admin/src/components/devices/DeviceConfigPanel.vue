@@ -9,7 +9,13 @@ import {
   verifyStepText,
 } from '../../composables/useDeviceVerification'
 import type { DeviceEditorFeature } from '../../composables/useDeviceEditor'
-import { deviceConnectionOverrides, modelOf, tableOfDevice } from '../../domain/devices'
+import {
+  deviceConnectionOverrides,
+  effectiveConnection,
+  modelOf,
+  tableOfDevice,
+} from '../../domain/devices'
+import { PROTOCOL_DEFAULT_PORTS } from '../../domain/deviceConnection'
 import { useConfigStore } from '../../stores/config'
 import type { DeviceInst } from '../../domain/types'
 
@@ -36,17 +42,23 @@ function overrideKeys(d: DeviceInst): string[] {
 
 function protocolDescription(d: DeviceInst) {
   const model = modelOf(configStore, d)
-  if (model?.protocol === 'ads') {
+  const protocol = model?.protocol
+  const port =
+    effectiveConnection(configStore, d).port ??
+    (protocol && protocol in PROTOCOL_DEFAULT_PORTS
+      ? PROTOCOL_DEFAULT_PORTS[protocol as keyof typeof PROTOCOL_DEFAULT_PORTS]
+      : undefined)
+  if (protocol === 'ads') {
     const ams = `${d.host}.1.1`
-    return `ADS · AMS ${ams} · Port 801`
+    return `ADS · AMS ${ams} · Port ${port}`
   }
-  if (model?.protocol === 'modbus') {
-    return `Modbus TCP · ${d.host}:${d.port || 502}`
+  if (protocol === 'modbus') {
+    return `Modbus TCP · ${d.host}:${port}`
   }
-  if (model?.protocol === 'iec104') {
-    return `IEC 60870-5-104 · ${d.host}:${d.port || 2404}`
+  if (protocol === 'iec104') {
+    return `IEC 60870-5-104 · ${d.host}:${port}`
   }
-  return model?.protocol || 'Unknown'
+  return protocol || 'Unknown'
 }
 </script>
 
