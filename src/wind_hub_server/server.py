@@ -13,7 +13,6 @@ import signal
 import uvicorn
 
 from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.app_context import clear_context, set_context
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.task.reconcile import TaskPlacementReconciler
 from wind_hub_server.application.worker.registry import WorkerRegistry
@@ -28,7 +27,7 @@ def build_api_server(
     settings: ServerSettings,
 ) -> uvicorn.Server:
     """Build the Server-owned FastAPI/uvicorn host."""
-    app = build_api()
+    app = build_api(runtime.context)
     config = uvicorn.Config(
         app,
         host=settings.host,
@@ -234,7 +233,6 @@ async def run_server(settings: ServerSettings) -> int:
     runtime.config.initialize_desired_revision()
 
     runtime.log_store.install()
-    set_context(runtime.context)
 
     shutdown_event = asyncio.Event()
     reload_event = asyncio.Event()
@@ -360,7 +358,6 @@ async def run_server(settings: ServerSettings) -> int:
                 runtime.commander_client.close(),
                 return_exceptions=True,
             )
-            clear_context()
             runtime.log_store.uninstall()
 
     logger.info("wind-hub-server 已干净退出")

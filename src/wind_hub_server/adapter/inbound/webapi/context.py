@@ -1,31 +1,27 @@
-"""Web API access to the shared :class:`AppContext`.
+"""Web API 的 :class:`AppContext` 显式注入入口。
 
-The context itself lives in the application layer
-(:mod:`wind_hub_server.application.app_context`) and is shared by the CLI and Web
-API adapters.  This module adds ``get_ctx``, which turns a missing context
-into a 503 rather than a ``RuntimeError``.
+context 由组合根装配后经 ``build_api(context)`` 挂到 FastAPI ``app.state``；
+本模块提供请求级依赖 ``get_ctx``，把缺失上下文映射为 HTTP 503。application
+层不感知 FastAPI；进程级 global service locator 已移除。
 """
 
 from __future__ import annotations
 
+from fastapi import Request
+
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
-from wind_hub_server.application.app_context import (
-    AppContext,
-    clear_context,
-    get_context,
-    set_context,
-)
+from wind_hub_server.application.app_context import AppContext
 
-__all__ = ["AppContext", "set_context", "get_context", "clear_context", "get_ctx"]
+__all__ = ["AppContext", "get_ctx"]
 
 
-def get_ctx() -> AppContext:
+def get_ctx(request: Request) -> AppContext:
     """Return the application context, or raise a 503 ``APIError`` when unset."""
-    try:
-        return get_context()
-    except RuntimeError as exc:
+    ctx: AppContext | None = getattr(request.app.state, "app_context", None)
+    if ctx is None:
         raise APIError(
             "SERVICE_UNAVAILABLE",
             "Application context is not set — the engine has not started",
             status_code=503,
-        ) from exc
+        )
+    return ctx

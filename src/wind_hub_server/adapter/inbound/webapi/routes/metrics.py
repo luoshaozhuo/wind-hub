@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Response
 
 from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
+from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.infra import metrics
 
 router = APIRouter(tags=["metrics"])
 
 
 @router.get("/metrics")
-async def metrics_endpoint() -> Response:
+async def metrics_endpoint(ctx: AppContext = Depends(get_ctx)) -> Response:
     """从 MonitoringService 最近一次低频快照更新 gauge 并渲染 Prometheus。"""
-    ctx = get_ctx()
     monitoring = ctx.monitoring
     if monitoring is None:
         raise APIError(

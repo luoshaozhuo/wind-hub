@@ -24,25 +24,15 @@ from wind_hub_core.model.errors import (
     SinkError,
 )
 from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.app_context import (
-    AppContext,
-    clear_context,
-    set_context,
-)
-
-
-@pytest.fixture(autouse=True)
-def _clean_context() -> None:
-    clear_context()
-    yield
-    clear_context()
+from wind_hub_server.application.app_context import AppContext
 
 
 def _client_with_overview(side_effect: BaseException) -> TestClient:
     overview = MagicMock()
     overview.snapshot.side_effect = side_effect
-    set_context(AppContext(overview=overview))
-    return TestClient(build_api(), raise_server_exceptions=False)
+    return TestClient(
+        build_api(AppContext(overview=overview)), raise_server_exceptions=False
+    )
 
 
 def _assert_envelope(payload: dict[str, Any], code: str) -> None:
@@ -99,8 +89,7 @@ class TestValidationErrorEnvelope:
     def test_missing_request_body_is_422_with_machine_readable_details(
         self,
     ) -> None:
-        set_context(AppContext())
-        client = TestClient(build_api(), raise_server_exceptions=False)
+        client = TestClient(build_api(AppContext()), raise_server_exceptions=False)
 
         response = client.post("/api/v1/config/validate", json={})
 
@@ -112,8 +101,7 @@ class TestValidationErrorEnvelope:
         assert all({"loc", "msg", "type"} <= set(e) for e in errors)
 
     def test_wrong_field_type_is_422(self) -> None:
-        set_context(AppContext())
-        client = TestClient(build_api(), raise_server_exceptions=False)
+        client = TestClient(build_api(AppContext()), raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/config/validate",
@@ -128,8 +116,9 @@ class TestEnvelopeStability:
     def test_404_unknown_task_uses_unified_envelope(self) -> None:
         tasks = MagicMock()
         tasks.get_task_summary.side_effect = KeyError("ghost")
-        set_context(AppContext(tasks=tasks))
-        client = TestClient(build_api(), raise_server_exceptions=False)
+        client = TestClient(
+            build_api(AppContext(tasks=tasks)), raise_server_exceptions=False
+        )
 
         response = client.get("/api/v1/tasks/ghost")
 

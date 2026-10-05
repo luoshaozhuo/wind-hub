@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.v1 import common
 from wind_hub_server.adapter.inbound.webapi.v1.models import (
@@ -21,13 +22,17 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     ProtocolWriteRequest,
     SubnetScanRequest,
 )
+from wind_hub_server.application.app_context import AppContext
 
 router = APIRouter()
 
 
 @router.post("/diagnostics/ping", response_model=PingResponse, tags=["v1-diagnostics"])
-async def diagnostic_ping(request: PingRequest) -> PingResponse:
-    result = await common.diagnostics().ping(request.host, request.timeout)
+async def diagnostic_ping(
+    request: PingRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> PingResponse:
+    result = await common.diagnostics(ctx).ping(request.host, request.timeout)
     return PingResponse(**result.model_dump())
 
 
@@ -36,15 +41,21 @@ async def diagnostic_ping(request: PingRequest) -> PingResponse:
     response_model=list[PortProbeResponse],
     tags=["v1-diagnostics"],
 )
-async def diagnostic_ports(request: PortsRequest) -> list[PortProbeResponse]:
-    rows = await common.diagnostics().ports(request.host, request.ports, request.timeout)
+async def diagnostic_ports(
+    request: PortsRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> list[PortProbeResponse]:
+    rows = await common.diagnostics(ctx).ports(request.host, request.ports, request.timeout)
     return [PortProbeResponse(**row.model_dump()) for row in rows]
 
 
 @router.post("/diagnostics/subnet-scan", response_model=OperationResponse, tags=["v1-diagnostics"])
-async def diagnostic_subnet_scan(request: SubnetScanRequest) -> OperationResponse:
+async def diagnostic_subnet_scan(
+    request: SubnetScanRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> OperationResponse:
     try:
-        operation = common.diagnostics().start_subnet_scan(
+        operation = common.diagnostics(ctx).start_subnet_scan(
             request.network, timeout=request.timeout, ports=request.ports
         )
     except ValueError as exc:
@@ -59,9 +70,10 @@ async def diagnostic_subnet_scan(request: SubnetScanRequest) -> OperationRespons
 )
 async def diagnostic_protocol_check(
     request: ProtocolCheckRequest,
+    ctx: AppContext = Depends(get_ctx),
 ) -> ProtocolCheckResponse:
     try:
-        connected = await common.diagnostics().protocol_check(request.device_id)
+        connected = await common.diagnostics(ctx).protocol_check(request.device_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown device '{request.device_id}'", 404) from None
     return ProtocolCheckResponse(device_id=request.device_id, connected=connected)
@@ -72,9 +84,12 @@ async def diagnostic_protocol_check(
     response_model=ProtocolReadResponse,
     tags=["v1-diagnostics"],
 )
-async def diagnostic_protocol_read(request: ProtocolReadRequest) -> ProtocolReadResponse:
+async def diagnostic_protocol_read(
+    request: ProtocolReadRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> ProtocolReadResponse:
     try:
-        value = await common.diagnostics().read(request.device_id, request.point_id)
+        value = await common.diagnostics(ctx).read(request.device_id, request.point_id)
     except Exception as exc:
         raise APIError("PROTOCOL_READ_FAILED", str(exc), 503) from exc
     return ProtocolReadResponse(
@@ -92,9 +107,12 @@ async def diagnostic_protocol_read(request: ProtocolReadRequest) -> ProtocolRead
     response_model=OperationResponse,
     tags=["v1-diagnostics"],
 )
-async def diagnostic_point_table(request: PointTableTestRequest) -> OperationResponse:
+async def diagnostic_point_table(
+    request: PointTableTestRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> OperationResponse:
     try:
-        operation = common.diagnostics().start_point_table_test(request.device_id)
+        operation = common.diagnostics(ctx).start_point_table_test(request.device_id)
     except KeyError:
         raise APIError(
             "NOT_FOUND", f"unknown device '{request.device_id}'", 404
@@ -109,8 +127,9 @@ async def diagnostic_point_table(request: PointTableTestRequest) -> OperationRes
 )
 async def diagnostic_protocol_write(
     request: ProtocolWriteRequest,
+    ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
-    result = await common.diagnostics().write(
+    result = await common.diagnostics(ctx).write(
         request.device_id, request.point_id, request.value
     )
     return DeviceCommandResponse(**result.model_dump())

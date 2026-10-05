@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.v1 import common
 from wind_hub_server.adapter.inbound.webapi.v1.models import (
@@ -15,6 +16,7 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     DeviceResponse,
     TrendSeriesResponse,
 )
+from wind_hub_server.application.app_context import AppContext
 
 router = APIRouter()
 
@@ -24,9 +26,10 @@ async def list_devices(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: str | None = Query(None),
+    ctx: AppContext = Depends(get_ctx),
 ) -> DevicePageResponse:
     """分页查询设备；搜索作用于完整结果集后再分页。"""
-    rows = common.devices().list_devices(search)
+    rows = common.devices(ctx).list_devices(search)
     paged, meta = common.page(rows, page, page_size)
     return DevicePageResponse(
         items=[common.device_response(row) for row in paged],
@@ -35,10 +38,10 @@ async def list_devices(
 
 
 @router.get("/devices/{device_id}", response_model=DeviceResponse, tags=["v1-devices"])
-async def get_device(device_id: str) -> DeviceResponse:
+async def get_device(device_id: str, ctx: AppContext = Depends(get_ctx)) -> DeviceResponse:
     """查询单设备静态配置与实时连接状态。"""
     try:
-        row = common.devices().get_device(device_id)
+        row = common.devices(ctx).get_device(device_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown device '{device_id}'", 404) from None
     return common.device_response(row)
@@ -55,10 +58,11 @@ async def get_device_data(
     page_size: int = Query(100, ge=1, le=200),
     search: str | None = Query(None),
     point_group: str | None = Query(None),
+    ctx: AppContext = Depends(get_ctx),
 ) -> DeviceDataPageResponse:
     """经 Commander 即时读取设备当前点值，并返回点定义 metadata。"""
     try:
-        rows = await common.device_data().list_data(
+        rows = await common.device_data(ctx).list_data(
             device_id, search=search, point_group=point_group
         )
     except KeyError:
@@ -88,10 +92,11 @@ async def get_device_trend(
     point_id: list[str] = Query(...),
     window_seconds: int = Query(600, ge=1, le=604800),
     limit_per_point: int = Query(600, ge=1, le=3600),
+    ctx: AppContext = Depends(get_ctx),
 ) -> list[TrendSeriesResponse]:
     """即时补采当前值并查询 Server 进程内短期趋势；不访问历史数据库。"""
     try:
-        series = await common.device_data().trend(
+        series = await common.device_data(ctx).trend(
             device_id,
             point_id,
             window_seconds=window_seconds,
@@ -108,10 +113,11 @@ async def get_device_trend(
     tags=["v1-devices"],
 )
 async def send_device_command(
-    device_id: str, request: DeviceCommandRequest
+    device_id: str, request: DeviceCommandRequest,
+    ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
     """真实写入设备；写成功后即时回读并追加短期 Trend 样本。"""
-    result = await common.device_control().send(
+    result = await common.device_control(ctx).send(
         device_id,
         request.point_id,
         request.value,

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from wind_hub_server.adapter.inbound.webapi.context import get_ctx
 from wind_hub_server.adapter.inbound.webapi.errors import APIError
 from wind_hub_server.adapter.inbound.webapi.v1 import common
 from wind_hub_server.adapter.inbound.webapi.v1.models import (
@@ -11,6 +12,7 @@ from wind_hub_server.adapter.inbound.webapi.v1.models import (
     TaskPageResponse,
     TaskResponse,
 )
+from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.task.collector import TaskWorkerUnavailableError
 from wind_hub_server.application.task.placement import TaskPlacementError
 from wind_hub_server.application.task.reconcile import TaskPlacementUnsafeError
@@ -23,9 +25,10 @@ async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: str | None = Query(None),
+    ctx: AppContext = Depends(get_ctx),
 ) -> TaskPageResponse:
     """分页查询 Task Definition 与实例聚合运行状态。"""
-    rows = common.tasks().list_task_summaries()
+    rows = common.tasks(ctx).list_task_summaries()
     query = (search or "").strip().lower()
     if query:
         rows = [
@@ -45,10 +48,10 @@ async def list_tasks(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse, tags=["v1-tasks"])
-async def get_task(task_id: str) -> TaskResponse:
+async def get_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskResponse:
     """查询单个 Task 的聚合运行状态。"""
     try:
-        row = common.tasks().get_task_summary(task_id)
+        row = common.tasks(ctx).get_task_summary(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     return common.task_response(row)
@@ -59,20 +62,23 @@ async def get_task(task_id: str) -> TaskResponse:
     response_model=list[TaskInstanceResponse],
     tags=["v1-tasks"],
 )
-async def list_task_instances(task_id: str) -> list[TaskInstanceResponse]:
+async def list_task_instances(
+    task_id: str,
+    ctx: AppContext = Depends(get_ctx),
+) -> list[TaskInstanceResponse]:
     """查询指定 Task 展开的实例。"""
     try:
-        rows = await common.tasks().list_task_instances(task_id)
+        rows = await common.tasks(ctx).list_task_instances(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     return [common.instance_response(row) for row in rows]
 
 
 @router.post("/tasks/{task_id}/start", response_model=TaskResponse, tags=["v1-tasks"])
-async def start_task(task_id: str) -> TaskResponse:
+async def start_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskResponse:
     """启动 Task 的全部实例；禁用 Task 返回 409。"""
     try:
-        row = await common.tasks().start_task(task_id)
+        row = await common.tasks(ctx).start_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     except TaskPlacementError as exc:
@@ -87,10 +93,10 @@ async def start_task(task_id: str) -> TaskResponse:
 
 
 @router.post("/tasks/{task_id}/stop", response_model=TaskResponse, tags=["v1-tasks"])
-async def stop_task(task_id: str) -> TaskResponse:
+async def stop_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskResponse:
     """停止 Task 的全部实例；不停止 Runtime 或设备连接。"""
     try:
-        row = await common.tasks().stop_task(task_id)
+        row = await common.tasks(ctx).stop_task(task_id)
     except KeyError:
         raise APIError("NOT_FOUND", f"unknown task '{task_id}'", 404) from None
     except TaskPlacementError as exc:
