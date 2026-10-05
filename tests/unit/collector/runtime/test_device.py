@@ -24,8 +24,9 @@ from wind_hub_collector.application.runtime.device import (
     CollectorDeviceSession,
     PollingAcquisitionHandle,
 )
-from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.config import DeviceConfig, PointAddress, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointRef, PointValue, Quality

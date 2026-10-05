@@ -21,8 +21,7 @@ from collections.abc import Callable
 
 from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
-from wind_hub_core.config.schema import RuntimeConfig
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.model.reload import SinkDiff

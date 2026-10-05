@@ -61,8 +61,7 @@ async def test_verify_preserves_per_worker_results() -> None:
 
 
 def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
-    from wind_hub_core.config.schema import Config
-    from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
+    from wind_hub_core.config import Config, ResolvedSinkConfig, ResolvedSinksConfig
     from wind_hub_server.application.sink.service import SinkService
 
     config = MagicMock()

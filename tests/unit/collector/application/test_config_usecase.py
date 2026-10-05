@@ -34,12 +34,12 @@ from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.sinks import SinkConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     DeviceConfig,
     PointAddress,
     PointConfig,
+    SinkConfig,
     TaskTarget,
 )
 from wind_hub_core.model.device import Endpoint

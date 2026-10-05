@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
 

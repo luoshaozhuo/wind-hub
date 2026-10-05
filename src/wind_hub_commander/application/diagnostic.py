@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from wind_hub_commander.runtime import CommanderRuntime
-from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.config import PointConfig
 from wind_hub_core.device.session import DeviceSession
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.model.point import PointRef, Quality

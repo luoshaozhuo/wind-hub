@@ -39,7 +39,7 @@ from tests.performance.servers import (
     start_modbus_server,
 )
 from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.port import ProtocolPort

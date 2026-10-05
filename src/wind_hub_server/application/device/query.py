@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_core.config import DeviceConfig
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
 

@@ -1,4 +1,4 @@
-"""Point Table 继承解析（``config/point_table_resolver.py``）的单元测试。
+"""Point Table 继承解析（``config/resolver/point_table.py``）的单元测试。
 
 验证对象：Raw 点表（``PointTableConfig`` + ``PointPatch``）经
 ``resolve_point_tables`` 展开为完整 ``PointConfig`` 集的全部规则——
@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub_core.config.point_table_resolver import resolve_point_tables
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     PointAddress,
     PointConfig,
     PointPatch,
     PointTableConfig,
     PointTablesConfig,
+    resolve_point_tables,
 )
 from wind_hub_core.model.errors import ConfigError
 

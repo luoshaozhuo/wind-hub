@@ -16,8 +16,8 @@ import pytest
 from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.process import free_port
+from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, Quality

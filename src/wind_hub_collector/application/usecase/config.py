@@ -15,10 +15,7 @@ import time
 from pathlib import Path
 
 from wind_hub_collector.application.runtime.runtime import CollectorRuntime
-from wind_hub_core.config.diff import compute_diff
-from wind_hub_core.config.fingerprint import fingerprint_config_set
-from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.schema import Config
+from wind_hub_core.config import Config, compute_diff, fingerprint_config_set, load_config
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
 
 logger = logging.getLogger(__name__)

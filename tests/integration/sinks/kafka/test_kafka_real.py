@@ -15,7 +15,7 @@ import pytest
 
 from tests.support.wait import wait_kafka_messages
 from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config import SinkConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.point import PointValue
 

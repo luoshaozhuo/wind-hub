@@ -27,9 +27,7 @@ from wind_hub_collector.application.usecase.config import ConfigUseCase
 from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.application.usecase.task import TaskUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.loader import load_config
-from wind_hub_core.config.schema import Config, DeviceConfig
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import Config, DeviceConfig, ResolvedSinkConfig, load_config
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.port import ProtocolPort
 from wind_hub_core.protocol.registry import protocol_registry

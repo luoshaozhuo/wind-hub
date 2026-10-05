@@ -1,12 +1,11 @@
-"""Unit tests for pydantic config schema validation."""
+"""Unit tests for pydantic config domain model validation."""
 
 from __future__ import annotations  # noqa: I001
 
 import pytest
 from pydantic import ValidationError
 
-from wind_hub_core.config.sinks import SinkConfig, SinksConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     ApiConfig,
     CollectionTaskConfig,
     DeviceConfig,
@@ -18,6 +17,8 @@ from wind_hub_core.config.schema import (
     PointTablesConfig,
     ResolvedPointTable,
     RuntimeConfig,
+    SinkConfig,
+    SinksConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,

@@ -16,7 +16,7 @@ from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointRef, PointValue
 
 if TYPE_CHECKING:
-    from wind_hub_core.config.schema import PointConfig
+    from wind_hub_core.config import PointConfig
 
 
 class AcquisitionMode(str, Enum):

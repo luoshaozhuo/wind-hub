@@ -45,12 +45,12 @@ from wind_hub_collector.application.runtime.task_instance import (
 )
 from wind_hub_collector.application.runtime.task_runtime import TaskRuntime
 from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
-from wind_hub_core.config.sinks import ResolvedSinkConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
     PointConfig,
+    ResolvedSinkConfig,
     RuntimeConfig,
 )
 from wind_hub_core.model.health import HealthStatus

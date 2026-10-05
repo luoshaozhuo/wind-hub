@@ -1,7 +1,9 @@
 """统一 Sink 外部接口契约模型。
 
 本模块定义 sinks.yaml 的强类型模型。sinks.yaml 是 Sink 配置、Runtime 装配
-与对外接口契约的唯一配置来源；本模块本身不创建任何运行时资源。
+与对外接口契约的唯一配置来源；本模块本身不创建任何运行时资源。Raw
+:class:`SinkPoint` 到 :class:`ResolvedSinkPoint` 的 source 引用解析由
+``config/resolver/sink.py`` 完成。
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ import asyncpg
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub_core.config.sinks import SinkConfig
+from wind_hub_core.config import SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.point import PointValue
 

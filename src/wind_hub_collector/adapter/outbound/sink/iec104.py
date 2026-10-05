@@ -12,7 +12,7 @@ from wind_hub_collector.adapter.inbound.iec104_slave.handlers import IEC104Slave
 from wind_hub_collector.adapter.inbound.iec104_slave.server import IEC104SlaveServer
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.sink_export import SinkReferenceExporter
-from wind_hub_core.config.sinks import (
+from wind_hub_core.config import (
     IEC104SinkAddress,
     IEC104SinkConnection,
     ResolvedSinkConfig,

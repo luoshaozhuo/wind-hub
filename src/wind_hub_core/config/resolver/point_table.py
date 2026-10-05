@@ -1,10 +1,10 @@
 """Point Table 继承解析——Raw PointTables → Resolved PointTables。
 
 职责边界：本模块只负责把 ``points.yaml`` 的 Raw 点表（
-:class:`~wind_hub_core.config.schema.PointTableConfig`，含 ``extends`` /
-``remove_points`` / :class:`~wind_hub_core.config.schema.PointPatch`）展开为
-完整 :class:`~wind_hub_core.config.schema.PointConfig` 集。设备绑定交叉校验、
-路由编译、运行时注入都在本模块之外，且只接触 resolved 结果。
+:class:`~wind_hub_core.config.model.point.PointTableConfig`，含 ``extends`` /
+``remove_points`` / :class:`~wind_hub_core.config.model.point.PointPatch`）
+展开为完整 :class:`~wind_hub_core.config.model.point.PointConfig` 集。设备
+绑定交叉校验、路由编译、运行时注入都在本模块之外，且只接触 resolved 结果。
 
 解析流程（对每张表，带 cache 与 cycle 检测）::
 
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from wind_hub_core.config.schema import (
+from wind_hub_core.config.model.point import (
     PointConfig,
     PointPatch,
     PointTableConfig,
@@ -182,3 +182,6 @@ def _validate_resolved_point(data: dict[str, Any], table: str) -> PointConfig:
         raise ConfigError(
             f"Point table '{table}': resolved point " f"'{data.get('point_id')}' is invalid: {exc}"
         ) from exc
+
+
+__all__ = ["resolve_point_tables"]

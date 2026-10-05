@@ -15,7 +15,7 @@ from wind_hub_collector.application.runtime import CollectorDeviceSession, Colle
 from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.schema import DeviceConfig, RuntimeConfig
+from wind_hub_core.config import DeviceConfig, RuntimeConfig
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.protocol.port import ProtocolPort

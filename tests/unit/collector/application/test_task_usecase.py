@@ -24,7 +24,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     TaskInstanceState,
 )
 from wind_hub_collector.application.usecase.task import TaskUseCase
-from wind_hub_core.config.schema import CollectionTaskConfig, TaskTarget
+from wind_hub_core.config import CollectionTaskConfig, TaskTarget
 
 pytestmark = pytest.mark.asyncio
 

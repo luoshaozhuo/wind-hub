@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.config import PointConfig
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.point_store import TrendStore

@@ -12,8 +12,7 @@
 from __future__ import annotations  # noqa: I001
 
 from wind_hub_core.config.diff import compute_diff
-from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -22,6 +21,8 @@ from wind_hub_core.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
+    ResolvedSinkConfig,
+    ResolvedSinksConfig,
     SystemConfig,
     TasksConfig,
     TaskTarget,

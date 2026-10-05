@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from wind_hub_core.config.schema import PointAddress, PointConfig
+from wind_hub_core.config import PointAddress, PointConfig
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.protocol.ads.mapping import (
     ADSPoint,

@@ -30,7 +30,7 @@ from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.sinks.null_sink import NullSink
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 
 FIXTURE_CONFIGS = Path(__file__).resolve().parent / "fixtures" / "configs"

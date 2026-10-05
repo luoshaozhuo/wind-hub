@@ -9,7 +9,7 @@ from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.usecase.query import QueryUseCase
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     DeviceConfig,
     PointAddress,

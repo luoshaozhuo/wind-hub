@@ -33,7 +33,7 @@ from wind_hub_collector.adapter.outbound.sink.file.compression import (
 )
 from wind_hub_collector.adapter.outbound.sink.file.rotation import build_rotation
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.sinks import FileSinkConnection, SinkConfig
+from wind_hub_core.config import FileSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue

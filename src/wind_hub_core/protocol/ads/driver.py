@@ -25,7 +25,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
 
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import ConfigError, ProtocolError
 from wind_hub_core.model.health import HealthStatus

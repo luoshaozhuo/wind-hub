@@ -23,7 +23,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition.engine import AcquisitionEngine
-from wind_hub_core.config.schema import CollectionTaskConfig
+from wind_hub_core.config import CollectionTaskConfig
 from wind_hub_core.model.point import PointValue
 
 if TYPE_CHECKING:

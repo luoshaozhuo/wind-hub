@@ -203,6 +203,45 @@ type = "forbidden"
 source_modules = ["wind_hub_ctl"]
 forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_server"]
 
+# ---- wind_hub_core.config 内部结构 ----
+# 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
+# 不反向依赖。fingerprint 无包内依赖，不参与分层。
+
+[[tool.importlinter.contracts]]
+name = "config 内部分层：loader → resolver/validation/diff → model"
+type = "layers"
+layers = [
+    "wind_hub_core.config.loader",
+    "wind_hub_core.config.resolver | wind_hub_core.config.validation | wind_hub_core.config.diff",
+    "wind_hub_core.config.model",
+]
+
+# ---- config public façade ----
+# 进程包与 core 其它子包只经 `wind_hub_core.config` façade 访问配置，禁止
+# 直接 import config 内部物理模块（model / resolver / validation / loader /
+# diff / fingerprint）。仅约束直接 import；façade 自身对内部模块的传导合法。
+
+[[tool.importlinter.contracts]]
+name = "生产代码只经 config façade 访问配置"
+type = "forbidden"
+source_modules = [
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+    "wind_hub_core.protocol",
+    "wind_hub_core.device",
+]
+forbidden_modules = [
+    "wind_hub_core.config.model",
+    "wind_hub_core.config.resolver",
+    "wind_hub_core.config.validation",
+    "wind_hub_core.config.loader",
+    "wind_hub_core.config.diff",
+    "wind_hub_core.config.fingerprint",
+]
+allow_indirect_imports = true
+
 # ---- collector 内部分层 ----
 
 [[tool.importlinter.contracts]]

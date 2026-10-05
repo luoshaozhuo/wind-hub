@@ -17,7 +17,7 @@ from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
 from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
 from wind_hub_collector.application.runtime.task_runtime import TaskRuntime
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     DeviceConfig,
     RuntimeConfig,

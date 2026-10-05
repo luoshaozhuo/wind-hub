@@ -14,7 +14,7 @@ from typing import Any, Protocol
 
 from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
 from wind_hub_collector.application.sink_export import ExportedSinkPointValue
-from wind_hub_core.config.sinks import IEC104SinkAddress
+from wind_hub_core.config import IEC104SinkAddress
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import Quality
 from wind_hub_core.protocol.iec104.codec import (

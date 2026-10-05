@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from wind_hub_core.config.schema import PointConfig
+from wind_hub_core.config import PointConfig
 from wind_hub_core.model.errors import ConfigError
 
 # Wind Hub data_type 到 ADS 类型名的规范映射；输入统一转大写后查表。

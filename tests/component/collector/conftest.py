@@ -24,7 +24,7 @@ from tests.support.config_helper import write_config_tree
 from tests.support.process import free_port
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: list[dict[str, Any]] = [

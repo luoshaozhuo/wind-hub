@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 import wind_hub_core.protocol  # noqa: F401 — trigger protocol registration
-from wind_hub_core.config.schema import DeviceConfig, Endpoint
+from wind_hub_core.config import DeviceConfig
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.protocol.registry import (

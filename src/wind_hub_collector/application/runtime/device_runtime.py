@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
-from wind_hub_core.config.schema import DeviceConfig, PointConfig, RuntimeConfig
+from wind_hub_core.config import DeviceConfig, PointConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.protocol.port import ProtocolPort
 

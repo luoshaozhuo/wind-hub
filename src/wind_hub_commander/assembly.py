@@ -14,7 +14,7 @@ from wind_hub_commander.application import CommandUseCase, DiagnosticUseCase, Re
 from wind_hub_commander.config import CommanderConfig, load_commander_config
 from wind_hub_commander.dispatcher import CommandDispatcher
 from wind_hub_commander.runtime import CommanderRuntime
-from wind_hub_core.config.fingerprint import fingerprint_config_set
+from wind_hub_core.config import fingerprint_config_set
 
 
 @dataclass(slots=True)

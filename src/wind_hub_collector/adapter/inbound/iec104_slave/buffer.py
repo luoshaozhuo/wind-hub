@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from wind_hub_collector.application.sink_export import ExportedSinkPointValue
-from wind_hub_core.config.sinks import IEC104SinkAddress
+from wind_hub_core.config import IEC104SinkAddress
 
 
 class DataSnapshot:

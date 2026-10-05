@@ -2,7 +2,7 @@
 
 from wind_hub_collector.adapter.outbound.sink.modbus_codec import EncodedModbusValue
 from wind_hub_collector.adapter.outbound.sink.modbus_store import ModbusSinkStore
-from wind_hub_core.config.sinks import ModbusSinkAddress, ResolvedSinkPoint, SinkSource
+from wind_hub_core.config import ModbusSinkAddress, ResolvedSinkPoint, SinkSource
 
 
 def _point(

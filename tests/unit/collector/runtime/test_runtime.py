@@ -42,8 +42,7 @@ from wind_hub_collector.application.runtime.task_instance import (
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -52,6 +51,8 @@ from wind_hub_core.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
+    ResolvedSinkConfig,
+    ResolvedSinksConfig,
     RuntimeConfig,
     SystemConfig,
     TasksConfig,

@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from wind_hub_core.config.sinks import ResolvedSinkConfig, SinkConfig
+from wind_hub_core.config import ResolvedSinkConfig, SinkConfig
 from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory

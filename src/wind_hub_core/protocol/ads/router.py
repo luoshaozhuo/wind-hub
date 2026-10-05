@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any
 
-from wind_hub_core.config.schema import ADSSystemConfig
+from wind_hub_core.config import ADSSystemConfig
 
 logger = logging.getLogger(__name__)
 

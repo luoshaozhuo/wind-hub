@@ -10,7 +10,8 @@ import asyncio
 
 import pytest
 
-from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.config import DeviceConfig, PointAddress, PointConfig
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.point import PointRef, PointValue
 from wind_hub_core.protocol.iec104.driver import IEC104Driver
 

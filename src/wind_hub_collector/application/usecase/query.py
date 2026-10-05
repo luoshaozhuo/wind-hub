@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from wind_hub_collector.application.runtime.runtime import CollectorRuntime
 from wind_hub_collector.domain.model.device import DeviceInfo
-from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_core.config import DeviceConfig
 
 
 class AcquisitionInfo(BaseModel):

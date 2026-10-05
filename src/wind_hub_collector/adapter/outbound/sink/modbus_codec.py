@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 
 from wind_hub_collector.application.sink_export import ExportedSinkPointValue
-from wind_hub_core.config.sinks import ModbusSinkAddress
+from wind_hub_core.config import ModbusSinkAddress
 
 
 _STRUCT_FORMAT: dict[str, str] = {

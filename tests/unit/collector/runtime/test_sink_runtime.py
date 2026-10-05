@@ -25,8 +25,7 @@ import pytest
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.application.runtime.sink_runtime import SinkRuntime
-from wind_hub_core.config.schema import RuntimeConfig
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 

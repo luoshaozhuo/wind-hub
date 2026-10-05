@@ -25,7 +25,7 @@ from tests.support.process import free_port
 from tests.support.wait import wait_until
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.errors import ConfigError
 
 INSTANCE_ID = "modbus-telemetry:modbus-1"

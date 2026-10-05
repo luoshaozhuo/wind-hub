@@ -5,29 +5,24 @@
 实时 PointValue。
 """
 
-from __future__ import annotations  # noqa: I001
+from __future__ import annotations
 
-from wind_hub_core.config.schema import (
-    DeviceConfig,
-    DevicesConfig,
-    PointConfig,
-    ResolvedPointTables,
-    UnitsConfig,
-)
-from wind_hub_core.config.sinks import (
-    IEC104SinkAddress,
+from wind_hub_core.config.model.device import DeviceConfig, DevicesConfig
+from wind_hub_core.config.model.point import PointConfig, ResolvedPointTables
+from wind_hub_core.config.model.sink import (
     MODBUS_WORD_WIDTH,
+    SINK_NUMERIC_DATA_TYPES,
+    IEC104SinkAddress,
     ModbusSinkAddress,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
     ResolvedSinksConfig,
-    SINK_NUMERIC_DATA_TYPES,
     SinkConfig,
     SinkPoint,
     SinksConfig,
 )
+from wind_hub_core.config.model.unit import UnitsConfig
 from wind_hub_core.model.errors import ConfigError
-
 
 _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 

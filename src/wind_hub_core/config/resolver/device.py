@@ -7,7 +7,7 @@ DeviceConfig；实例 endpoint/extensions 覆盖型号 connection_defaults。本
 
 from __future__ import annotations
 
-from wind_hub_core.config.schema import (
+from wind_hub_core.config.model.device import (
     DeviceConfig,
     DeviceInstanceConfig,
     DeviceInstancesConfig,
@@ -99,3 +99,6 @@ def _merge_endpoint(
         )
     extensions = {**defaults, **endpoint.extensions}
     return Endpoint(host=endpoint.host, port=int(port), extensions=extensions)
+
+
+__all__ = ["resolve_devices"]

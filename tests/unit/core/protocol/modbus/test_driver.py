@@ -8,8 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import wind_hub_core.protocol.modbus.driver as modbus_driver_module
-from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.config import DeviceConfig, PointAddress, PointConfig
 from wind_hub_core.model.command import Command
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ProtocolError
 from wind_hub_core.model.point import PointRef, Quality
 from wind_hub_core.protocol.modbus.driver import ModbusDriver
