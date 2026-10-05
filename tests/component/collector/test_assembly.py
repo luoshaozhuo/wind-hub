@@ -116,6 +116,7 @@ def test_assembled_runtime_exposes_only_collector_core() -> None:
             "tasks",
             "query",
             "config",
+            "sink_service",
             "metrics_state",
         }
         assert set(assembled.__dataclass_fields__) == expected

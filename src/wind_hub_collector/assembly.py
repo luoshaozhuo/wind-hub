@@ -4,7 +4,8 @@
 需要的对象图：
 
 Protocol / CollectorDeviceSession / Sink -> AcquisitionEngine -> CollectorRuntime
-                           -> CollectorTaskService / CollectorQueryService / CollectorConfigService
+                           -> CollectorTaskService / CollectorQueryService
+                           -> CollectorConfigService / CollectorSinkService
 
 Admin、Overview、Quality、Web API、即时设备通信、现场协议诊断、长期日志与
 System Health 不属于 Collector；运行时配置 reload 属于 Collector 核心控制面。
@@ -25,6 +26,7 @@ from wind_hub_collector.application.runtime import CollectorDeviceSession, Colle
 from wind_hub_collector.application.runtime.metrics_state import CollectorMetricsState
 from wind_hub_collector.application.service.config import CollectorConfigService
 from wind_hub_collector.application.service.query import CollectorQueryService
+from wind_hub_collector.application.service.sink import CollectorSinkService
 from wind_hub_collector.application.service.task import CollectorTaskService
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
 from wind_hub_core.config import Config, DeviceConfig, ResolvedSinkConfig, load_config
@@ -47,6 +49,7 @@ class CollectorApp:
         tasks: Task / Task Instance 控制服务。
         query: 只读查询服务。
         config: 本地 YAML 增量热重载服务。
+        sink_service: 运行 Sink 检查与诊断写服务。
     """
 
     boot_config: Config
@@ -56,6 +59,7 @@ class CollectorApp:
     tasks: CollectorTaskService
     query: CollectorQueryService
     config: CollectorConfigService
+    sink_service: CollectorSinkService
     metrics_state: CollectorMetricsState
 
 
@@ -115,6 +119,7 @@ def assemble(
     tasks = CollectorTaskService(runtime)
     query = CollectorQueryService(runtime)
     config = CollectorConfigService(config_dir, runtime, cfg)
+    sink_service = CollectorSinkService(runtime)
 
     return CollectorApp(
         boot_config=cfg,
@@ -124,6 +129,7 @@ def assemble(
         tasks=tasks,
         query=query,
         config=config,
+        sink_service=sink_service,
         metrics_state=metrics_state,
     )
 
