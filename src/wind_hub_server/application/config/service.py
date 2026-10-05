@@ -154,17 +154,10 @@ class ConfigService:
             return await self._reload_locked(force_workers=force_workers)
 
     async def _reload_locked(self, *, force_workers: bool) -> ReloadResult:
-        """在配置事务锁内执行一次完整 prepare/activate。"""
+        """在配置事务锁内编排一次完整 prepare/activate 事务。"""
         started = time.monotonic()
         try:
-            before_hash = fingerprint_config_set(self._config_dir)
-            candidate = self.load_disk()
-            config_hash = fingerprint_config_set(self._config_dir)
-            if before_hash != config_hash:
-                raise ValueError(
-                    "config changed while loading candidate: "
-                    f"before={before_hash} after={config_hash}"
-                )
+            candidate, config_hash = self._load_candidate()
         except Exception as exc:
             load_errors = [str(exc) or type(exc).__name__]
             load_errors.extend(self._restore_applied_files())
@@ -189,6 +182,63 @@ class ConfigService:
 
         revision_id = uuid4().hex
         participant_ids = self._participant_ids()
+        errors, prepare_ok = await self._prepare_revision(
+            participant_ids,
+            revision_id,
+            config_hash,
+            force_workers=force_workers,
+        )
+        if not all(prepare_ok):
+            errors.extend(await self._abort_prepared_revision(revision_id))
+            errors.extend(self._restore_applied_files())
+            return ReloadResult(
+                success=False,
+                diff=diff,
+                errors=errors,
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
+
+        activate_errors, activate_ok = await self._activate_revision(
+            participant_ids,
+            revision_id,
+            config_hash,
+        )
+        errors.extend(activate_errors)
+
+        success = all(activate_ok)
+        if success:
+            self._commit_revision(candidate, revision_id, config_hash)
+        else:
+            errors.extend(await self._abort_prepared_revision(revision_id))
+            errors.extend(await self._rollback_to_applied_config())
+        return ReloadResult(
+            success=success,
+            diff=diff,
+            errors=errors,
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+
+    def _load_candidate(self) -> tuple[Config, str]:
+        """加载候选配置集并校验加载期间磁盘内容稳定。"""
+        before_hash = fingerprint_config_set(self._config_dir)
+        candidate = self.load_disk()
+        config_hash = fingerprint_config_set(self._config_dir)
+        if before_hash != config_hash:
+            raise ValueError(
+                "config changed while loading candidate: "
+                f"before={before_hash} after={config_hash}"
+            )
+        return candidate, config_hash
+
+    async def _prepare_revision(
+        self,
+        participant_ids: list[str],
+        revision_id: str,
+        config_hash: str,
+        *,
+        force_workers: bool,
+    ) -> tuple[list[str], list[bool]]:
+        """向全部参与者扇出 Prepare 并评估应答与远端 hash。"""
         prepared = await asyncio.gather(
             *(
                 self._prepare_participant(
@@ -221,17 +271,15 @@ class ConfigService:
             prepare_ok.append(success)
             if not success:
                 errors.extend(result.errors or [f"{name} prepare failed"])
+        return errors, prepare_ok
 
-        if not all(prepare_ok):
-            errors.extend(await self._abort_prepared_revision(revision_id))
-            errors.extend(self._restore_applied_files())
-            return ReloadResult(
-                success=False,
-                diff=diff,
-                errors=errors,
-                duration_ms=(time.monotonic() - started) * 1000,
-            )
-
+    async def _activate_revision(
+        self,
+        participant_ids: list[str],
+        revision_id: str,
+        config_hash: str,
+    ) -> tuple[list[str], list[bool]]:
+        """向全部参与者扇出 Activate；RPC 异常经状态回查区分失败与未知。"""
         activated = await asyncio.gather(
             *(
                 self._activate_participant(participant_id, revision_id)
@@ -239,6 +287,7 @@ class ConfigService:
             ),
             return_exceptions=True,
         )
+        errors: list[str] = []
         activate_ok: list[bool] = []
         for name, outcome in zip(participant_ids, activated, strict=True):
             if isinstance(outcome, BaseException):
@@ -270,23 +319,20 @@ class ConfigService:
             activate_ok.append(success)
             if not success:
                 errors.extend(outcome.errors or [f"{name} activate failed"])
+        return errors, activate_ok
 
-        success = all(activate_ok)
-        if success:
-            self._current = candidate
-            self._desired_revision = revision_id
-            self._desired_config_hash = config_hash
-            self._applied_files = self._snapshot_config_files()
-            self._applied_config_hash = config_hash
-        else:
-            errors.extend(await self._abort_prepared_revision(revision_id))
-            errors.extend(await self._rollback_to_applied_config())
-        return ReloadResult(
-            success=success,
-            diff=diff,
-            errors=errors,
-            duration_ms=(time.monotonic() - started) * 1000,
-        )
+    def _commit_revision(
+        self,
+        candidate: Config,
+        revision_id: str,
+        config_hash: str,
+    ) -> None:
+        """提交已激活 revision 为 Server 成功基线并刷新磁盘快照。"""
+        self._current = candidate
+        self._desired_revision = revision_id
+        self._desired_config_hash = config_hash
+        self._applied_files = self._snapshot_config_files()
+        self._applied_config_hash = config_hash
 
     def _snapshot_config_files(self) -> dict[Path, bytes]:
         """保存当前已接受配置集的 YAML 文件快照。"""
