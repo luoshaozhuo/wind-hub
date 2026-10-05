@@ -62,7 +62,12 @@ def _seconds_to_int(value: float, name: str) -> int:
 
 
 class _Subscription:
-    """一次订阅的句柄——close 只注销本次订阅，不影响同设备的其他订阅。"""
+    """一次订阅的句柄——close 只注销本次订阅，不影响同设备的其他订阅。
+
+    close 契约：返回后本订阅的 callback 不再开始新的调用，且已开始的调用
+    都已执行完毕（in-flight drain barrier）。快照与注册表操作都发生在事件
+    循环线程，因此注销与分发之间不存在交错。
+    """
 
     def __init__(
         self,
@@ -74,21 +79,42 @@ class _Subscription:
         self._callback = callback
         self._ioas = ioas
         self._closed = False
+        self._in_flight = 0
+        self._idle: asyncio.Event | None = None
 
     async def close(self) -> None:
-        """注销本次订阅（幂等）——只移除本句柄的回调，不触碰连接。"""
+        """注销本次订阅（幂等）——移除回调并等待在途调用完成，不触碰连接。"""
         if self._closed:
             return
         self._closed = True
-        self._registry.unsubscribe(self._callback, self._ioas)
+        self._registry.unsubscribe(self)
+        # 等待 close 前已分发的 callback 调用完成；此后注册表不再持有本句柄，
+        # 不会有新调用入队。
+        while self._in_flight:
+            self._idle = asyncio.Event()
+            await self._idle.wait()
+            self._idle = None
+
+    def _track(self) -> bool:
+        """分发前登记一次在途调用；已关闭时返回 False 不分发。"""
+        if self._closed:
+            return False
+        self._in_flight += 1
+        return True
+
+    def _untrack(self) -> None:
+        """一次在途调用完成；close 等待中时唤醒 drain。"""
+        self._in_flight -= 1
+        if self._in_flight == 0 and self._idle is not None:
+            self._idle.set()
 
 
 class _SubscriptionRegistry:
-    """全局 + 按 IOA 的 PointValue callback 注册表（仅在事件循环线程访问）。"""
+    """全局 + 按 IOA 的订阅注册表（仅在事件循环线程访问）。"""
 
     def __init__(self) -> None:
-        self._global: list[Callable[[PointValue], Awaitable[None]]] = []
-        self._ioa: dict[int, list[Callable[[PointValue], Awaitable[None]]]] = {}
+        self._global: list[_Subscription] = []
+        self._ioa: dict[int, list[_Subscription]] = {}
 
     def subscribe(
         self,
@@ -98,8 +124,9 @@ class _SubscriptionRegistry:
     ) -> _Subscription:
         """注册订阅并返回独立句柄；空 points 表示接收全部 PointValue。"""
         if not points:
-            self._global.append(callback)
-            return _Subscription(self, callback, None)
+            subscription = _Subscription(self, callback, None)
+            self._global.append(subscription)
+            return subscription
 
         ioas: list[int] = []
         for ref in points:
@@ -110,31 +137,38 @@ class _SubscriptionRegistry:
                     ref.point_id,
                 )
                 continue
-            self._ioa.setdefault(ioa, []).append(callback)
             ioas.append(ioa)
-        return _Subscription(self, callback, ioas)
-
-    def unsubscribe(
-        self,
-        callback: Callable[[PointValue], Awaitable[None]],
-        ioas: list[int] | None,
-    ) -> None:
-        """移除一个全局或按 IOA 的 callback 注册。"""
-        if ioas is None:
-            with contextlib.suppress(ValueError):
-                self._global.remove(callback)
-            return
+        subscription = _Subscription(self, callback, ioas)
         for ioa in ioas:
-            callbacks = self._ioa.get(ioa)
-            if callbacks is None:
+            self._ioa.setdefault(ioa, []).append(subscription)
+        return subscription
+
+    def unsubscribe(self, subscription: _Subscription) -> None:
+        """移除一个全局或按 IOA 的订阅注册。"""
+        if subscription._ioas is None:
+            with contextlib.suppress(ValueError):
+                self._global.remove(subscription)
+            return
+        for ioa in subscription._ioas:
+            subscriptions = self._ioa.get(ioa)
+            if subscriptions is None:
                 continue
             with contextlib.suppress(ValueError):
-                callbacks.remove(callback)
-            if not callbacks:
+                subscriptions.remove(subscription)
+            if not subscriptions:
                 del self._ioa[ioa]
 
     def clear(self) -> None:
-        """清空全部订阅；用于 Driver 整体关闭。"""
+        """清空全部订阅并标记关闭；用于 Driver 整体关闭。
+
+        Driver 关闭后到达的 dispatch 不再向任何订阅投递；已在途的 callback
+        调用允许完成（Driver 生命周期由 CollectorRuntime 统一编排）。
+        """
+        for subscription in self._global:
+            subscription._closed = True
+        for subscriptions in self._ioa.values():
+            for subscription in subscriptions:
+                subscription._closed = True
         self._global.clear()
         self._ioa.clear()
 
@@ -144,26 +178,37 @@ class _SubscriptionRegistry:
         return bool(self._global) or bool(self._ioa)
 
     async def dispatch(self, pv: PointValue, ioa: int) -> None:
-        """把 PointValue 分发给全部匹配订阅者；每个 callback 独立 task。"""
-        callbacks = [*self._global, *self._ioa.get(ioa, [])]
-        for cb in callbacks:
-            asyncio.ensure_future(self._invoke(cb, pv, ioa))
+        """把 PointValue 分发给全部匹配订阅者；每个 callback 独立 task。
+
+        快照与 in-flight 登记在同一事件循环临界区内完成：close 与 dispatch
+        不会交错——先 close 则订阅不在快照中，先 dispatch 则 close 会等待
+        本次调用完成。
+        """
+        subscriptions = [
+            sub
+            for sub in [*self._global, *self._ioa.get(ioa, [])]
+            if sub._track()
+        ]
+        for sub in subscriptions:
+            asyncio.ensure_future(self._invoke(sub, pv, ioa))
 
     async def _invoke(
         self,
-        cb: Callable[[PointValue], Awaitable[None]],
+        subscription: _Subscription,
         pv: PointValue,
         ioa: int,
     ) -> None:
         """调用单个 callback 并隔离异常，避免破坏分发循环。"""
         try:
-            await cb(pv)
+            await subscription._callback(pv)
         except Exception:
             logger.exception(
                 "IEC104: subscriber callback raised (IOA %d, point '%s')",
                 ioa,
                 pv.point_id,
             )
+        finally:
+            subscription._untrack()
 
 
 class IEC104Driver:
