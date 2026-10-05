@@ -3,6 +3,7 @@
 // Server State 一律由 Vue Query 持有；useServerSnapshot 把查询结果同步进来。
 // 持久化只经由 mutate() → markDirty → scheduleSave → save() 显式触发，
 // 不存在 watch(store) 的隐式持久化。
+import { markRaw } from 'vue'
 import { defineStore } from 'pinia'
 import { useDebounceFn } from '@vueuse/core'
 import { ElMessage } from 'element-plus'
@@ -254,7 +255,9 @@ export const useConfigStore = defineStore('config', {
         properties: { ...asObject(value.properties) },
         connection_defaults: { ...asObject(value.connection_defaults) },
       }))
-      this.rawPointTables = structuredClone(defs.point_tables)
+      // markRaw：raw 透传基线只参与序列化（structuredClone），不能成为
+      // 响应式代理（Proxy 不可克隆，会导致保存路径抛 DataCloneError）。
+      this.rawPointTables = markRaw(structuredClone(defs.point_tables))
       const tables: PointTableDef[] = [
         {
           id: DEFAULT_POINT_TABLE_ID,
@@ -438,9 +441,11 @@ export const useConfigStore = defineStore('config', {
           throw new Error(result.errors.join('; ') || 'Configuration apply failed')
         }
         if (pointProjection(this) !== this.baselinePointProjection) {
-          this.rawPointTables = structuredClone(
-            buildDefinitionsPayload(this, this.rawPointTables, this.baselinePointProjection)
-              .point_tables,
+          this.rawPointTables = markRaw(
+            structuredClone(
+              buildDefinitionsPayload(this, this.rawPointTables, this.baselinePointProjection)
+                .point_tables,
+            ),
           )
           this.baselinePointProjection = pointProjection(this)
         }
