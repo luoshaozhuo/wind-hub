@@ -72,6 +72,18 @@ export function refreshTaskValidity(snapshot: TasksSnapshot): void {
   }
 }
 
+/** 受单台设备影响的 Task 集合：直接绑定设备，或绑定其当前/目标 Device Group。 */
+export function tasksAffectedByDevice(
+  snapshot: Pick<TasksSnapshot, 'tasks'>,
+  d: DeviceInst,
+  nextGroup = d.device_group,
+): TaskDef[] {
+  const groups = new Set([d.device_group, nextGroup].filter(Boolean))
+  return snapshot.tasks.filter(
+    (t) => (t.device && t.device === d.device_id) || (t.device_group && groups.has(t.device_group)),
+  )
+}
+
 /** 受一组 Point Table 影响的 model / device / task 集合（PointsPage 影响面确认用）。 */
 export function affectedByPointTables(snapshot: TasksSnapshot, tableIds: string[]) {
   const tables = [...new Set(tableIds)]
