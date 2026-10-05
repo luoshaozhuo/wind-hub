@@ -164,7 +164,6 @@ class IEC104SinkConnection(BaseModel):
     host: str = "0.0.0.0"
     port: int = Field(default=2404, ge=1, le=65535)
     common_address: int = Field(default=1, ge=0, le=0xFFFF)
-    batch_size: int = Field(default=50, ge=1)
 
 
 class OPCUASinkConnection(BaseModel):

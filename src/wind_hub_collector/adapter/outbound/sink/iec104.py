@@ -1,15 +1,14 @@
 """IEC104 从站型 Sink。
 
 采集数据从 Runtime 经标准 SinkPort.write 进入本对象；写入时先经过
-SinkReferenceExporter，再保存为按 IOA 索引的最新值快照。IEC104 主站通过
-内置 server/session 执行 STARTDT、总召和只读访问。控制方向请求仍统一否定。
+SinkReferenceExporter 完成 source/ref/scale/offset 解析，再转换为 c104
+Information 更新到从站点。IEC104 主站连接、STARTDT、总召响应与点维护由
+wind_hub_core.protocol.iec104.server.IEC104SlaveServer（c104/lib60870-C）
+承担；本 Sink 只做 SinkPort 适配。
 """
 
 from __future__ import annotations
 
-from wind_hub_collector.adapter.inbound.iec104_slave.buffer import DataSnapshot
-from wind_hub_collector.adapter.inbound.iec104_slave.handlers import IEC104SlaveHandlers
-from wind_hub_collector.adapter.inbound.iec104_slave.server import IEC104SlaveServer
 from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.sink_export import SinkReferenceExporter
 from wind_hub_core.config import (
@@ -20,6 +19,11 @@ from wind_hub_core.config import (
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
+from wind_hub_core.protocol.iec104.mapping import (
+    build_monitor_info,
+    sink_point_type,
+)
+from wind_hub_core.protocol.iec104.server import IEC104SlaveServer
 
 
 class IEC104Sink(SinkPort):
@@ -42,16 +46,9 @@ class IEC104Sink(SinkPort):
                 )
 
         self._exporter = SinkReferenceExporter(config.points)
-        self._snapshot = DataSnapshot()
-        self._handlers = IEC104SlaveHandlers(
-            snapshot=self._snapshot,
-            common_address=connection.common_address,
-            batch_size=connection.batch_size,
-        )
         self._server = IEC104SlaveServer(
             host=connection.host,
             port=connection.port,
-            handlers=self._handlers,
             common_address=connection.common_address,
         )
 
@@ -60,17 +57,25 @@ class IEC104Sink(SinkPort):
         await self._server.start()
 
     async def close(self) -> None:
-        """停止监听并关闭全部主站 session。"""
+        """停止监听并断开全部主站连接。"""
         await self._server.stop()
 
     async def write(self, batch: list[PointValue]) -> None:
-        """更新本 Sink 配置点的最新值快照。"""
+        """把本 Sink 配置点的最新值更新到从站点表。"""
         if not batch:
             return
-        self._snapshot.update(self._exporter.export(batch))
+        for pv in self._exporter.export(batch):
+            address = pv.definition.address
+            if not isinstance(address, IEC104SinkAddress):
+                continue
+            self._server.update_point(
+                address.ioa,
+                sink_point_type(address.type_id),
+                build_monitor_info(address.type_id, pv.value, pv.quality, pv.timestamp),
+            )
 
     async def flush(self) -> None:
-        """IEC104 快照为内存状态，无额外 flush 动作。"""
+        """IEC104 从站点为内存状态，无额外 flush 动作。"""
 
     def health(self) -> HealthStatus:
         """返回 IEC104 server 当前监听状态。"""
@@ -78,13 +83,8 @@ class IEC104Sink(SinkPort):
 
     @property
     def port(self) -> int:
-        """返回实际监听端口，主要用于诊断与组件测试。"""
+        """返回配置监听端口，主要用于诊断与组件测试。"""
         return self._server.port
-
-    @property
-    def snapshot(self) -> DataSnapshot:
-        """返回只读用途的最新值快照对象。"""
-        return self._snapshot
 
 
 __all__ = ["IEC104Sink"]
