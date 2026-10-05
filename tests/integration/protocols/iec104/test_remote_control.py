@@ -14,8 +14,9 @@ from typing import Any
 import pytest
 
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
-from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.config import DeviceConfig, PointAddress, PointConfig
 from wind_hub_core.model.command import Command
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_core.protocol.iec104.driver import IEC104Driver
 

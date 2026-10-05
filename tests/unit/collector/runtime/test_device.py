@@ -1,4 +1,4 @@
-"""运行时 Device（``application/runtime/device.py``）的单元测试。
+"""运行时 CollectorDeviceSession（``application/runtime/device.py``）的单元测试。
 
 覆盖点（对应重构简报 spec §34）：
 
@@ -21,11 +21,12 @@ from collections.abc import Awaitable, Callable
 import pytest
 
 from wind_hub_collector.application.runtime.device import (
-    Device,
+    CollectorDeviceSession,
     PollingAcquisitionHandle,
 )
-from wind_hub_core.config.schema import DeviceConfig, Endpoint, PointAddress, PointConfig
+from wind_hub_core.config import DeviceConfig, PointAddress, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
+from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.errors import ConfigError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointRef, PointValue, Quality
@@ -144,8 +145,8 @@ def _make_device(
     proto: _FakeProtocol,
     points: list[PointConfig] | None = None,
     config: DeviceConfig | None = None,
-) -> Device:
-    return Device(
+) -> CollectorDeviceSession:
+    return CollectorDeviceSession(
         config if config is not None else _device_config(),
         points if points is not None else [_point("p1"), _point("p2")],
         proto,  # type: ignore[arg-type]  # 结构化替身
@@ -365,7 +366,7 @@ class TestNormalizeValues:
         assert values[0].value == 1.0
 
     async def test_subscribe_normalizes_same_as_read(self) -> None:
-        """订阅回调同样经 Device normalize——与轮询同语义。"""
+        """订阅回调同样经 CollectorDeviceSession normalize——与轮询同语义。"""
         proto = _FakeProtocol(mode=AcquisitionMode.SUBSCRIBE)
         device = _make_device(
             proto,

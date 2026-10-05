@@ -1,13 +1,13 @@
-"""Unit tests for device_resolver — DeviceInstance + DeviceModel → DeviceConfig."""
+"""Unit tests for resolver/device — DeviceInstance + DeviceModel → DeviceConfig."""
 
 from __future__ import annotations
 
 import pytest
 
-from wind_hub_core.config.device_resolver import resolve_devices
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     DeviceInstancesConfig,
     DeviceModelsConfig,
+    resolve_devices,
 )
 from wind_hub_core.model.errors import ConfigError
 

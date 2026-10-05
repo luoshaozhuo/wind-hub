@@ -9,9 +9,9 @@ import pytest
 import yaml
 
 from tests.support.config_helper import write_config_tree
+from wind_hub_core.config import SinkConfig
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_core.config.loader import load_config, load_sinks
-from wind_hub_core.config.sinks import SinkConfig
 from wind_hub_core.model.errors import ConfigError
 
 

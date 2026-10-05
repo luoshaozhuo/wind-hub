@@ -203,6 +203,45 @@ type = "forbidden"
 source_modules = ["wind_hub_ctl"]
 forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_server"]
 
+# ---- wind_hub_core.config 内部结构 ----
+# 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
+# 不反向依赖。fingerprint 无包内依赖，不参与分层。
+
+[[tool.importlinter.contracts]]
+name = "config 内部分层：loader → resolver/validation/diff → model"
+type = "layers"
+layers = [
+    "wind_hub_core.config.loader",
+    "wind_hub_core.config.resolver | wind_hub_core.config.validation | wind_hub_core.config.diff",
+    "wind_hub_core.config.model",
+]
+
+# ---- config public façade ----
+# 进程包与 core 其它子包只经 `wind_hub_core.config` façade 访问配置，禁止
+# 直接 import config 内部物理模块（model / resolver / validation / loader /
+# diff / fingerprint）。仅约束直接 import；façade 自身对内部模块的传导合法。
+
+[[tool.importlinter.contracts]]
+name = "生产代码只经 config façade 访问配置"
+type = "forbidden"
+source_modules = [
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+    "wind_hub_core.protocol",
+    "wind_hub_core.device",
+]
+forbidden_modules = [
+    "wind_hub_core.config.model",
+    "wind_hub_core.config.resolver",
+    "wind_hub_core.config.validation",
+    "wind_hub_core.config.loader",
+    "wind_hub_core.config.diff",
+    "wind_hub_core.config.fingerprint",
+]
+allow_indirect_imports = true
+
 # ---- collector 内部分层 ----
 
 [[tool.importlinter.contracts]]
@@ -222,3 +261,53 @@ name = "Application 不得依赖 Adapter"
 type = "forbidden"
 source_modules = ["wind_hub_collector.application"]
 forbidden_modules = ["wind_hub_collector.adapter"]
+
+# ---- commander 内部分层 ----
+
+[[tool.importlinter.contracts]]
+name = "commander application 不得依赖 adapter"
+type = "forbidden"
+source_modules = ["wind_hub_commander.application"]
+forbidden_modules = ["wind_hub_commander.adapter"]
+
+# ---- generated protobuf 边界 ----
+# pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
+# 与 ctl client；application/domain 不感知 wire 形态。
+
+[[tool.importlinter.contracts]]
+name = "collector/commander application 与 domain 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = [
+    "wind_hub_collector.application",
+    "wind_hub_collector.domain",
+    "wind_hub_commander.application",
+]
+forbidden_modules = ["wind_hub_core.rpc"]
+
+# ---- server application 内部分层 ----
+# 依赖方向：adapter → application capability → application port → outbound adapter/infra。
+# capability 之间只允许单向依赖（见 layers contract），禁止反向或环。
+
+[[tool.importlinter.contracts]]
+name = "server application 不得依赖 adapter / infra"
+type = "forbidden"
+source_modules = ["wind_hub_server.application"]
+forbidden_modules = ["wind_hub_server.adapter", "wind_hub_server.infra"]
+
+[[tool.importlinter.contracts]]
+name = "server application 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = ["wind_hub_server.application"]
+forbidden_modules = ["wind_hub_core.rpc"]
+
+[[tool.importlinter.contracts]]
+name = "server application capability 分层"
+type = "layers"
+layers = [
+    "wind_hub_server.application.app_context",
+    "wind_hub_server.application.monitoring | wind_hub_server.application.device | wind_hub_server.application.sink",
+    "wind_hub_server.application.task",
+    "wind_hub_server.application.config",
+    "wind_hub_server.application.worker | wind_hub_server.application.operation",
+    "wind_hub_server.application.port",
+]

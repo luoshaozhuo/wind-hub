@@ -1,6 +1,6 @@
-"""Runtime（``application/runtime``）的单元测试——Task / Task Instance 模型。
+"""CollectorRuntime（``application/runtime``）的单元测试——Task / Task Instance 模型。
 
-验证对象：:class:`Runtime`（组件生命周期、Task Instance 展开与启停、
+验证对象：:class:`CollectorRuntime`（组件生命周期、Task Instance 展开与启停、
 acquisition handle 管理、热重载、Sink 背压/派发）。
 
 覆盖点（对应重构简报 spec §30）：
@@ -16,10 +16,13 @@ acquisition handle 管理、热重载、Sink 背压/派发）。
 - 停机：``stop()`` 关闭全部采集句柄、无孤儿协程；
 - 热重载 ``reconfigure``：Task 增删 / device_group 成员变化 / interval
   变化重建句柄、targets 快照替换（句柄不重启）/ 点表重注入 / 连接不重建；
-- Sink 派发与背压：targets fan-out、未知 sink 跳过、drop_old / drop_new。
+- Sink 协调路径：reconfigure 的 sink diff 委托 SinkRuntime 收敛注册表；
+  真实引擎 fan-out 经 SinkRuntime 派发到全部 target sink。
 
-引擎侧循环测试使用内存 ``_FakeEngine``（只实现 Runtime 依赖的装配缝与
-``collect``），Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
+SinkRuntime 自身的注册表/queue/消费者/背压/exclusive-open 归属与资源
+不变量由 ``test_sink_runtime.py`` 直接验证。引擎侧循环测试使用内存
+``_FakeEngine``（只实现 CollectorRuntime 依赖的装配缝与 ``collect``），
+Sink fan-out 使用真实 :class:`AcquisitionEngine` 验证。
 """
 
 from __future__ import annotations  # noqa: I001
@@ -31,16 +34,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Runtime
-from wind_hub_collector.application.runtime.device import Device
+from wind_hub_collector.application.runtime import CollectorRuntime
+from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
     task_instance_id,
 )
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.sinks import ResolvedSinkConfig, ResolvedSinksConfig
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
@@ -49,6 +51,8 @@ from wind_hub_core.config.schema import (
     PointConfig,
     ResolvedPointTable,
     ResolvedPointTables,
+    ResolvedSinkConfig,
+    ResolvedSinksConfig,
     RuntimeConfig,
     SystemConfig,
     TasksConfig,
@@ -120,7 +124,7 @@ def _mock_protocol() -> ProtocolPort:
     proto.read = AsyncMock(return_value=[])
     proto.write = AsyncMock()
     proto.health = MagicMock(return_value=HealthStatus(healthy=True))
-    # 默认主动轮询型设备（Modbus 语义）——经 Device.start_acquisition
+    # 默认主动轮询型设备（Modbus 语义）——经 CollectorDeviceSession.start_acquisition
     # 走 PollingAcquisitionHandle。
     proto.acquisition_mode = AcquisitionMode.POLL
     return proto
@@ -151,7 +155,7 @@ def _runtime_config(backpressure: str = "drop_old", queue_maxsize: int = 10) -> 
 
 
 class _FakeEngine:
-    """``AcquisitionEngine`` 的内存替身——只实现 Runtime 依赖的接口面。
+    """``AcquisitionEngine`` 的内存替身——只实现 CollectorRuntime 依赖的接口面。
 
     记录每次 ``collect`` 调用的完整参数；``fail_next`` 让下一次 collect
     抛异常（验证 polling 循环的异常韧性）；``collect_gate`` 可阻塞 collect
@@ -181,7 +185,7 @@ class _FakeEngine:
 
     async def collect(
         self,
-        device: Device,
+        device: CollectorDeviceSession,
         point_group: str,
         targets: list[str],
         execution_id: str,
@@ -201,13 +205,13 @@ def _build_devices(
     configs: list[DeviceConfig],
     protos: dict[str, ProtocolPort],
     points: dict[str, list[PointConfig]],
-) -> dict[str, Device]:
-    """按装配语义构建运行时 Device：构造期注入点映射并聚合配置/点表/协议。"""
-    devices: dict[str, Device] = {}
+) -> dict[str, CollectorDeviceSession]:
+    """按装配语义构建运行时 CollectorDeviceSession：构造期注入点映射并聚合配置/点表/协议。"""
+    devices: dict[str, CollectorDeviceSession] = {}
     for cfg in configs:
         proto = protos[cfg.device_id]
         device_points = points.get(cfg.device_id, [])
-        devices[cfg.device_id] = Device(cfg, device_points, proto)
+        devices[cfg.device_id] = CollectorDeviceSession(cfg, device_points, proto)
     return devices
 
 
@@ -222,15 +226,15 @@ def _build_runtime(
     queue_maxsize: int = 10,
     protocol_factory=None,
     sink_factory=None,
-) -> tuple[Runtime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
+) -> tuple[CollectorRuntime, dict[str, ProtocolPort], dict[str, SinkPort], _FakeEngine]:
     protos = {d.device_id: _mock_protocol() for d in devices}
     sinks = {name: _mock_sink() for name in sink_names}
     eng = engine if engine is not None else _FakeEngine()
     device_map = _build_devices(devices, protos, points if points is not None else {})
-    rt = Runtime(
+    rt = CollectorRuntime(
         devices=device_map,
         sinks=sinks,
-        engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 Runtime 依赖面
+        engine=eng,  # type: ignore[arg-type]  # 鸭子类型替身，仅实现 CollectorRuntime 依赖面
         config=_runtime_config(backpressure, queue_maxsize),
         tasks={t.task_id: t for t in tasks},
         protocol_factory=protocol_factory,
@@ -295,7 +299,7 @@ def _instance_coroutine_tasks() -> list[asyncio.Task]:
 
 class TestEnsureConnected:
     async def test_force_checks_driver_health_before_fast_path(self) -> None:
-        """Runtime 显示 connected 但 Driver unhealthy 时，force=True 必须重连。"""
+        """CollectorRuntime 显示 connected 但 Driver unhealthy 时，force=True 必须重连。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -303,8 +307,8 @@ class TestEnsureConnected:
         await rt.start()
         try:
             proto = protos["d1"]
-            assert rt.device_state("d1") is not None
-            assert rt.device_state("d1").connected is True
+            assert rt.device_runtime.device_state("d1") is not None
+            assert rt.device_runtime.device_state("d1").connected is True
 
             proto.connect.reset_mock()
             proto.health.return_value = HealthStatus(
@@ -312,16 +316,16 @@ class TestEnsureConnected:
                 message="driver disconnected",
             )
 
-            assert await rt.ensure_connected("d1", force=True) is True
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is True
 
             proto.health.assert_called_once()
             proto.connect.assert_awaited_once()
-            assert rt.device_state("d1").connected is True
+            assert rt.device_runtime.device_state("d1").connected is True
         finally:
             await rt.stop()
 
     async def test_force_healthy_driver_keeps_zero_io_fast_path(self) -> None:
-        """Runtime 与 Driver 都健康时，force=True 不重复 connect。"""
+        """CollectorRuntime 与 Driver 都健康时，force=True 不重复 connect。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -332,7 +336,7 @@ class TestEnsureConnected:
             proto.connect.reset_mock()
             proto.health.return_value = HealthStatus(healthy=True)
 
-            assert await rt.ensure_connected("d1", force=True) is True
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is True
 
             proto.health.assert_called_once()
             proto.connect.assert_not_awaited()
@@ -340,7 +344,7 @@ class TestEnsureConnected:
             await rt.stop()
 
     async def test_force_unhealthy_driver_connect_failure_marks_disconnected(self) -> None:
-        """强制重连失败必须把 Runtime 状态同步为 disconnected。"""
+        """强制重连失败必须把 CollectorRuntime 状态同步为 disconnected。"""
         rt, protos, _, _ = _build_runtime(
             devices=[_make_device_config("d1")],
             tasks=[],
@@ -355,10 +359,10 @@ class TestEnsureConnected:
             )
             proto.connect.side_effect = OSError("connection refused")
 
-            assert await rt.ensure_connected("d1", force=True) is False
+            assert await rt.device_runtime.ensure_connected("d1", force=True) is False
 
             proto.connect.assert_awaited_once()
-            state = rt.device_state("d1")
+            state = rt.device_runtime.device_state("d1")
             assert state is not None
             assert state.connected is False
             assert "connection refused" in (state.last_error or "")
@@ -493,11 +497,11 @@ class TestStartStopInstance:
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
-            first = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            first = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             await rt.start_task_instance("t1:d1")
             await rt.start_task_instance("t1:d1")
-            assert rt._acquisition_handles["t1:d1"] is first  # noqa: SLF001
-            assert len(rt._acquisition_handles) == 1  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is first  # noqa: SLF001
+            assert len(rt.task_runtime._acquisition_handles) == 1  # noqa: SLF001
             assert len(_instance_coroutine_tasks()) == 1
             await _wait_for(lambda: len(eng.collect_calls) >= 2, what="polling continues")
         finally:
@@ -526,7 +530,7 @@ class TestStartStopInstance:
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
             await rt.stop_task_instance("t1:d1")
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" not in rt._acquisition_handles  # noqa: SLF001
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles  # noqa: SLF001
             assert _instance_coroutine_tasks() == []
             # stop 后不再 collect
             count = len(eng.collect_calls)
@@ -663,9 +667,9 @@ class TestPollingLoop:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
-            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             # 就地替换实例快照（reconfigure 的内部机制）——仅 targets 变化
-            rt._task_instances["t1:d1"] = CollectionTaskInstance(  # noqa: SLF001
+            rt.task_runtime._task_instances["t1:d1"] = CollectionTaskInstance(  # noqa: SLF001
                 instance_id="t1:d1",
                 task_id="t1",
                 device_id="d1",
@@ -677,7 +681,7 @@ class TestPollingLoop:
                 lambda: any(c[2] == ["s9"] for c in eng.collect_calls),
                 what="new snapshot picked up",
             )
-            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
         finally:
             await rt.stop()
 
@@ -703,7 +707,7 @@ class TestShutdown:
 
         await rt.stop()
 
-        assert rt._acquisition_handles == {}  # noqa: SLF001
+        assert rt.task_runtime._acquisition_handles == {}  # noqa: SLF001
         assert _instance_coroutine_tasks() == []
         assert set(rt.instance_states().values()) == {TaskInstanceState.STOPPED}
         assert rt.running is False
@@ -850,7 +854,7 @@ class TestReconfigure:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="polling")
-            handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
 
             updated = _make_task("t1", device="d1", interval=0.02, sinks=("s2",))
             new_cfg = _full_config(devices=devices, tasks=[updated])
@@ -858,7 +862,7 @@ class TestReconfigure:
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
             assert inst.targets == ("s2",)
-            assert rt._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             await _wait_for(
                 lambda: any(c[2] == ["s2"] for c in eng.collect_calls),
@@ -879,7 +883,7 @@ class TestReconfigure:
         try:
             await rt.start_task_instance("t1:d1")
             await _wait_for(lambda: len(eng.collect_calls) >= 1, what="first collect")
-            old_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            old_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             # 长 interval——窗口内只有一轮
             await asyncio.sleep(0.05)
             assert len(eng.collect_calls) == 1
@@ -890,7 +894,7 @@ class TestReconfigure:
             assert errors == []
             inst = rt.task_instances()["t1:d1"]
             assert inst.interval == 0.02
-            new_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            new_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             assert new_handle is not old_handle
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             # 旧句柄已关闭——无孤儿协程
@@ -982,7 +986,7 @@ class TestReconfigure:
         await rt.start()
         try:
             await rt.start_task_instance("t1:d1")
-            first_handle = rt._acquisition_handles["t1:d1"]  # noqa: SLF001
+            first_handle = rt.task_runtime._acquisition_handles["t1:d1"]  # noqa: SLF001
             assert proto.subscribe.await_count == 1
 
             new_tables = {
@@ -999,7 +1003,7 @@ class TestReconfigure:
             assert errors == []
             assert first_subscription.close.await_count == 1
             assert proto.subscribe.await_count == 2
-            assert rt._acquisition_handles["t1:d1"] is not first_handle  # noqa: SLF001
+            assert rt.task_runtime._acquisition_handles["t1:d1"] is not first_handle  # noqa: SLF001
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
             assert proto.connect.await_count == 1
         finally:
@@ -1047,14 +1051,14 @@ class TestReconfigure:
             assert errors1
             assert "tasks:" in errors1[0]
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
-            assert "t1:d1" in rt._restart_pending  # noqa: SLF001
+            assert "t1:d1" in rt.task_runtime._restart_pending  # noqa: SLF001
             assert proto.subscribe.await_count == 2
 
             errors2 = await rt.reconfigure(new_cfg, diff)
 
             assert errors2 == []
             assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
-            assert "t1:d1" not in rt._restart_pending  # noqa: SLF001
+            assert "t1:d1" not in rt.task_runtime._restart_pending  # noqa: SLF001
             assert proto.subscribe.await_count == 3
         finally:
             await rt.stop()
@@ -1099,37 +1103,8 @@ class TestReconfigure:
 
 
 # ---------------------------------------------------------------------------
-# Sink 热重载生命周期
+# Sink 热重载协调（CollectorRuntime.reconfigure → SinkRuntime.apply_diff）
 # ---------------------------------------------------------------------------
-class _ExclusiveSink:
-    def __init__(self, events: list[str], name: str, fail_open: bool = False) -> None:
-        self.events = events
-        self.name = name
-        self.fail_open = fail_open
-
-    @property
-    def exclusive_open(self) -> bool:
-        return True
-
-    async def open(self) -> None:
-        self.events.append(f"{self.name}:open")
-        if self.fail_open:
-            raise OSError("bind failed")
-
-    async def close(self) -> None:
-        self.events.append(f"{self.name}:close")
-
-    async def write(self, batch: list[PointValue]) -> None:
-        del batch
-
-    async def flush(self) -> None:
-        self.events.append(f"{self.name}:flush")
-
-    def health(self) -> HealthStatus:
-        return HealthStatus(healthy=True)
-
-
-
 class TestSinkReloadLifecycle:
     async def test_enabled_to_disabled_removes_runtime_sink(self) -> None:
         rt, _, sinks, _ = _build_runtime(devices=[], tasks=[], sink_names=("s1",))
@@ -1175,60 +1150,9 @@ class TestSinkReloadLifecycle:
         finally:
             await rt.stop()
 
-    async def test_exclusive_sink_closes_old_before_opening_new(self) -> None:
-        events: list[str] = []
-        old_sink = _ExclusiveSink(events, "old")
-        new_sink = _ExclusiveSink(events, "new")
-        rt = Runtime(
-            devices={},
-            sinks={"s1": old_sink},
-            engine=_FakeEngine(),  # type: ignore[arg-type]
-            config=_runtime_config(),
-            tasks={},
-        )
-
-        await rt.rebuild_sink(
-            "s1",
-            ResolvedSinkConfig(
-                name="s1",
-                type="file",
-                connection={"path": "/tmp/s1.jsonl"},
-            ),
-            new_sink,
-        )
-
-        assert events[:3] == ["old:flush", "old:close", "new:open"]
-        assert rt.sinks["s1"] is new_sink
-
-    async def test_exclusive_sink_open_failure_restores_old_instance(self) -> None:
-        events: list[str] = []
-        old_sink = _ExclusiveSink(events, "old")
-        new_sink = _ExclusiveSink(events, "new", fail_open=True)
-        rt = Runtime(
-            devices={},
-            sinks={"s1": old_sink},
-            engine=_FakeEngine(),  # type: ignore[arg-type]
-            config=_runtime_config(),
-            tasks={},
-        )
-
-        with pytest.raises(OSError, match="bind failed"):
-            await rt.rebuild_sink(
-                "s1",
-                ResolvedSinkConfig(
-                    name="s1",
-                    type="file",
-                    connection={"path": "/tmp/s1.jsonl"},
-                ),
-                new_sink,
-            )
-
-        assert events == ["old:flush", "old:close", "new:open", "old:open"]
-        assert rt.sinks["s1"] is old_sink
-
 
 # ---------------------------------------------------------------------------
-# Sink 派发与背压
+# Sink 派发（真实引擎 fan-out 经 CollectorRuntime → SinkRuntime）
 # ---------------------------------------------------------------------------
 
 
@@ -1242,7 +1166,7 @@ class TestSinkDispatch:
         points = {"d1": [_make_point("p1", groups=("g1",))]}
         device_map = _build_devices(devices, protos, points)
         engine = AcquisitionEngine(read_timeout=None)
-        rt = Runtime(
+        rt = CollectorRuntime(
             devices=device_map,
             sinks=sinks,
             engine=engine,
@@ -1263,33 +1187,6 @@ class TestSinkDispatch:
         finally:
             await rt.stop()
 
-    async def test_dispatch_to_unknown_sink_skipped(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
-        await rt.dispatch({"ghost": [_value()]})
-        assert rt.points_routed == 0
-        assert rt.points_dropped == 0
-
-    async def test_backpressure_drop_old_evicts_oldest(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_old", queue_maxsize=1)
-        await rt.dispatch({"s1": [_value(point_id="p1")]})
-        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
-        assert rt.points_dropped == 1  # 最旧批次被驱逐
-        assert rt.points_routed == 3
-        assert rt.sink_queue_depths() == {"s1": 1}
-
-    async def test_backpressure_drop_new_discards_incoming(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[], backpressure="drop_new", queue_maxsize=1)
-        await rt.dispatch({"s1": [_value(point_id="p1")]})
-        await rt.dispatch({"s1": [_value(point_id="p2"), _value(point_id="p3")]})
-        assert rt.points_dropped == 2  # 新批次整体丢弃
-        assert rt.points_routed == 1
-        assert rt.sink_queue_depths() == {"s1": 1}
-
-    async def test_empty_batch_ignored(self) -> None:
-        rt, _, _, _ = _build_runtime(devices=[], tasks=[])
-        await rt.dispatch({"s1": []})
-        assert rt.points_routed == 0
-        assert rt.sink_queue_depths() == {"s1": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -1312,3 +1209,66 @@ class TestHealth:
             assert rt.running is True  # 单组件失败不阻塞整体启动
         finally:
             await rt.stop()
+
+
+@pytest.mark.parametrize("via_add", [False, True])
+async def test_device_replacement_stops_handle_before_close_and_resumes_after_connect(
+    via_add: bool,
+) -> None:
+    """设备替换仍由 Collector 协调采集；重复热增的 rebuild 分支顺序也必须一致。"""
+    cfg = _make_device_config("d1")
+    rt, protocols, _, _ = _build_runtime(
+        devices=[cfg], tasks=[_make_task("t1", device="d1")],
+    )
+    await rt.start()
+    try:
+        await rt.start_task_instance("t1:d1")
+        old_handle = rt.task_runtime._acquisition_handles["t1:d1"]
+        events: list[str] = []
+
+        async def close_old() -> None:
+            assert rt.instance_states()["t1:d1"] is TaskInstanceState.STOPPED
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles
+            events.append("close old")
+
+        async def connect_new() -> None:
+            assert events == ["close old", "set mapping"]
+            assert "t1:d1" not in rt.task_runtime._acquisition_handles
+            events.append("connect new")
+
+        protocols["d1"].close.side_effect = close_old
+        new_protocol = _mock_protocol()
+        new_protocol.set_points_mapping.side_effect = lambda _: events.append("set mapping")
+        new_protocol.connect.side_effect = connect_new
+        updated = cfg.model_copy(update={"enabled": True, "device_group": "new-group"})
+        if via_add:
+            await rt.add_device("d1", updated, new_protocol, [])
+        else:
+            await rt.rebuild_device("d1", updated, new_protocol, [])
+
+        assert events == ["close old", "set mapping", "connect new"]
+        assert rt.instance_states()["t1:d1"] is TaskInstanceState.RUNNING
+        assert rt.task_runtime._acquisition_handles["t1:d1"] is not old_handle
+        assert rt.device_runtime.devices["d1"].protocol is new_protocol
+        protocols["d1"].close.assert_awaited_once()
+    finally:
+        await rt.stop()
+    new_protocol.close.assert_awaited_once()
+    assert _instance_coroutine_tasks() == []
+
+
+async def test_missing_protocol_factory_fails_before_removing_existing_device() -> None:
+    """工厂前置检查迁入 DeviceRuntime 后，原有 diff 的失败边界保持不变。"""
+    rt, protocols, _, _ = _build_runtime(devices=[_make_device_config("d1")], tasks=[])
+    await rt.start()
+    try:
+        errors = await rt.reconfigure(
+            _full_config(devices=[_make_device_config("d2")], tasks=[]),
+            ConfigDiff(devices=DeviceDiff(removed=["d1"], added=["d2"])),
+        )
+        assert errors == ["device: protocol factory is not wired into Runtime"]
+        assert set(rt.device_runtime.devices) == {"d1"}
+        assert rt.device_runtime.device_state("d1").connected is True
+        protocols["d1"].close.assert_not_awaited()
+    finally:
+        await rt.stop()

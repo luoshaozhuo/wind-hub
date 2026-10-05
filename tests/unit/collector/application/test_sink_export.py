@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from wind_hub_collector.application.sink_export import SinkReferenceExporter
-from wind_hub_core.config.sinks import IEC104SinkAddress, ResolvedSinkPoint, SinkSource
+from wind_hub_core.config import IEC104SinkAddress, ResolvedSinkPoint, SinkSource
 from wind_hub_core.model.point import PointValue, Quality
 
 

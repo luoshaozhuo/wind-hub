@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from wind_hub_collector.adapter.outbound.sink.modbus_codec import EncodedModbusValue
-from wind_hub_core.config.sinks import (
+from wind_hub_core.config import (
     MODBUS_WORD_WIDTH,
     ModbusSinkAddress,
     ResolvedSinkPoint,

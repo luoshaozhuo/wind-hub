@@ -1,7 +1,7 @@
 """Commander gRPC Server。
 
 本适配器实现由 commander.proto 生成的 CommanderService Servicer。
-Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp 用例。
+Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp 应用服务。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from google.protobuf import empty_pb2, wrappers_pb2
 from wind_hub_commander.application.diagnostic import DeviceVerifyResult, PointVerifyResult
 from wind_hub_commander.assembly import CommanderApp
 from wind_hub_commander.config import load_commander_config
-from wind_hub_core.config.fingerprint import fingerprint_config_set
+from wind_hub_core.config import fingerprint_config_set
 from wind_hub_core.model.errors import CommandError
 from wind_hub_core.rpc import commander_pb2 as pb
 from wind_hub_core.rpc import commander_pb2_grpc as pb_grpc

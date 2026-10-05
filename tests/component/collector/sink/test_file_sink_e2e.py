@@ -23,7 +23,7 @@ import yaml
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.config_helper import write_config_tree
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 
 _CSV_HEADER = ["device_id", "point_id", "value", "quality", "timestamp", "source"]
 
@@ -167,7 +167,7 @@ async def test_file_sink_csv_full_runtime(tmp_path: Path, server: ModbusMockServ
     """csv 落盘：表头正确、行字段正确，停机后文件完整。"""
     sink_path = tmp_path / "archive.csv"
     cfg_dir = _write_config(tmp_path, sink_path, format="csv", buffer_size=1)
-    rt: AssembledRuntime = assemble(cfg_dir)
+    rt: CollectorApp = assemble(cfg_dir)
     await start_runtime(rt)
     for instance in rt.runtime.task_instances().values():
         await rt.runtime.start_task_instance(instance.instance_id)

@@ -8,7 +8,7 @@ import pytest
 
 from tests.support.iec104_master import IEC104MasterClient
 from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.iec104.codec import (
     CauseOfTransmission,

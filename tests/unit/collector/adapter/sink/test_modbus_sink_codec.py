@@ -6,7 +6,7 @@ import pytest
 
 from wind_hub_collector.adapter.outbound.sink.modbus_codec import encode_modbus_value
 from wind_hub_collector.application.sink_export import ExportedSinkPointValue
-from wind_hub_core.config.sinks import ModbusSinkAddress, ResolvedSinkPoint, SinkSource
+from wind_hub_core.config import ModbusSinkAddress, ResolvedSinkPoint, SinkSource
 from wind_hub_core.model.point import Quality
 
 

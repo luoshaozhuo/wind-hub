@@ -12,9 +12,7 @@ from typing import Any, cast
 
 import yaml
 
-from wind_hub_core.config.device_resolver import resolve_devices
-from wind_hub_core.config.point_table_resolver import resolve_point_tables
-from wind_hub_core.config.schema import (
+from wind_hub_core.config import (
     ADSSystemConfig,
     DeviceInstancesConfig,
     DeviceModelsConfig,
@@ -22,6 +20,8 @@ from wind_hub_core.config.schema import (
     PointConfig,
     PointTablesConfig,
     ResolvedPointTables,
+    resolve_devices,
+    resolve_point_tables,
 )
 from wind_hub_core.model.errors import ConfigError
 

@@ -9,7 +9,7 @@
 - ``connected`` — 当前是否可用（最近一次 connect/read 成功）；
 - ``consecutive_failures`` — 连续 connect 失败次数，驱动 backoff；
 - ``next_retry_at`` — 单调时钟语义的重连节流点：未到该时刻
-  :meth:`Runtime.ensure_connected` 直接返回 ``False``，不发起
+  :meth:`DeviceRuntime.ensure_connected` 直接返回 ``False``，不发起
   connect——避免 1 Hz 轮询打满重连（连接风暴）。
 
 Backoff（无 jitter，与驱动内部 reconnect 退避同族）：
@@ -51,7 +51,7 @@ def _error_text(error: BaseException) -> str:
 
 @dataclass
 class DeviceRuntimeState:
-    """单台设备的运行状态（Runtime 持有，随采集/重连演进）。"""
+    """单台设备的运行状态（DeviceRuntime 持有，随采集/重连演进）。"""
 
     connected: bool = False
     """当前是否已连接（最近一次 connect / read 成功）。"""

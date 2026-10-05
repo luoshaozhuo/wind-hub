@@ -32,7 +32,7 @@ from typing import Any
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.sinks import KafkaSinkConnection, SinkConfig
+from wind_hub_core.config import KafkaSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue

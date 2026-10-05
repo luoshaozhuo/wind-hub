@@ -8,8 +8,8 @@ import pytest
 from wind_hub_collector.adapter.inbound.grpc.server import build_grpc_server
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
 from wind_hub_collector.application.runtime.task_instance import TaskInstanceState
-from wind_hub_collector.application.usecase.query import SystemStatus
-from wind_hub_collector.application.usecase.task import TaskInstanceDetail, TaskSummary
+from wind_hub_collector.application.service.query import SystemStatus
+from wind_hub_collector.application.service.task import TaskInstanceDetail, TaskSummary
 from wind_hub_collector.domain.model.device import DeviceInfo
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
@@ -45,7 +45,7 @@ def _instance_detail(instance_id: str) -> TaskInstanceDetail:
     )
 
 
-class _RuntimeCore:
+class _CollectorRuntimeCore:
     running = True
     sinks: dict[str, object] = {}
 
@@ -116,8 +116,8 @@ class _Metrics:
         }
 
 
-class _AssembledRuntime:
-    runtime = _RuntimeCore()
+class _CollectorApp:
+    runtime = _CollectorRuntimeCore()
     query = _Query()
     tasks = _Tasks()
     config = _Config()
@@ -132,7 +132,7 @@ async def test_ctl_collector_read_only_grpc_roundtrip() -> None:
         config_hash="hash-test",
     )
     server = build_grpc_server(
-        _AssembledRuntime(),  # type: ignore[arg-type]
+        _CollectorApp(),  # type: ignore[arg-type]
         identity,
         host="127.0.0.1",
         port=0,
@@ -173,7 +173,7 @@ async def test_collector_start_requires_current_task_placement() -> None:
         config_hash="hash-test",
     )
     server = build_grpc_server(
-        _AssembledRuntime(),  # type: ignore[arg-type]
+        _CollectorApp(),  # type: ignore[arg-type]
         identity,
         host="127.0.0.1",
         port=0,

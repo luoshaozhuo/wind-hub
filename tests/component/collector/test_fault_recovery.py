@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from wind_hub_collector.assembly import AssembledRuntime
+from wind_hub_collector.assembly import CollectorApp
 
 
 async def _wait_until(coro_factory, timeout: float = 15.0) -> None:
@@ -19,7 +19,7 @@ async def _wait_until(coro_factory, timeout: float = 15.0) -> None:
     raise AssertionError(f"condition not met within {timeout}s")
 
 
-def _modbus_healthy(runtime: AssembledRuntime, expected: bool):
+def _modbus_healthy(runtime: CollectorApp, expected: bool):
     async def _check() -> bool:
         return runtime.runtime.devices["modbus-1"].protocol.health().healthy is expected
 
@@ -27,7 +27,7 @@ def _modbus_healthy(runtime: AssembledRuntime, expected: bool):
 
 
 async def test_fault_recovery_reconnects(
-    runtime: AssembledRuntime,
+    runtime: CollectorApp,
     modbus_server: ModbusMockServer,
 ) -> None:
     """从站宕机 → 不健康；从站恢复 → 驱动自动重连恢复健康。"""

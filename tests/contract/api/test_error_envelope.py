@@ -5,7 +5,7 @@
 409/500/503/504/502）不得漂移，500 不得泄漏 traceback。前端与第三方
 集成依赖该信封做错误分派——这是 API 契约测试，不是单条路由的单元测试。
 
-用 in-process ASGI 客户端 + 可编程假 UseCase 触发各域异常，不监听端口。
+用 in-process ASGI 客户端 + 可编程假 Service 触发各域异常，不监听端口。
 """
 
 from __future__ import annotations

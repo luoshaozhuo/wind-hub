@@ -23,8 +23,8 @@ from tests.fixtures.sinks.null_sink import NullSink
 from tests.support.config_helper import write_config_tree
 from tests.support.process import free_port
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
+from wind_hub_core.config import ResolvedSinkConfig
 
 #: 与 ModbusMockServer 默认寄存器布局一致的点表。
 MODBUS_POINTS: list[dict[str, Any]] = [
@@ -157,7 +157,7 @@ def update_yaml(config_dir: Path, name: str, mutate: Callable[[dict[str, Any]], 
 class FunctionalContext:
     """一个已启动的 functional 运行时及其依赖。"""
 
-    rt: AssembledRuntime
+    rt: CollectorApp
     config_dir: Path
     server: ModbusMockServer | None
     port: int
@@ -240,7 +240,7 @@ async def runtime(
     sink_factory: Callable[[ResolvedSinkConfig], SinkPort],
     modbus_server: ModbusMockServer,
     iec104_server: IEC104MockServer,
-) -> AsyncIterator[AssembledRuntime]:
+) -> AsyncIterator[CollectorApp]:
     """基于共享 fixture 配置集（Modbus + IEC104 设备）的已启动运行时。
 
     供 collect→route→sink 全链路与故障恢复测试使用；所有 Task Instance

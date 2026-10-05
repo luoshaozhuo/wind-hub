@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from wind_hub_core.config.sinks import ResolvedSinkPoint
+from wind_hub_core.config import ResolvedSinkPoint
 from wind_hub_core.model.point import PointValue, Quality
 
 

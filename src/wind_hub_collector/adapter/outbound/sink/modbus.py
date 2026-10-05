@@ -9,7 +9,7 @@ from __future__ import annotations
 from wind_hub_collector.adapter.outbound.sink.modbus_pipeline import ModbusSinkDataPath
 from wind_hub_collector.adapter.outbound.sink.modbus_server import ModbusTcpSinkServer
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config.sinks import (
+from wind_hub_core.config import (
     ModbusSinkAddress,
     ModbusSinkConnection,
     ResolvedSinkConfig,

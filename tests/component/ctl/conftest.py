@@ -2,7 +2,7 @@
 
 ``wind_hub_ctl.main.main()`` 内部调用 ``asyncio.run``，因此 ctl 的
 functional 测试必须是**同步**函数；被控侧（Modbus fixture server、
-真实 AssembledRuntime、真实 gRPC Server）运行在独立线程的事件循环上，
+真实 CollectorApp、真实 gRPC Server）运行在独立线程的事件循环上，
 通过 ``asyncio.run_coroutine_threadsafe`` 从测试线程驱动。
 
 被控侧与 collector functional 的唯一差别是多了 gRPC 控制面——
@@ -33,7 +33,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.process import free_port
 from wind_hub_collector.adapter.inbound.grpc.server import CollectorGrpcServer, build_grpc_server
 from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 from wind_hub_ctl.main import main as ctl_main
 
 T = TypeVar("T")
@@ -69,7 +69,7 @@ class CtlEnvironment:
     target: str
     """gRPC endpoint（``host:port``），即 ``--target`` 的值。"""
     config_dir: Path
-    rt: AssembledRuntime
+    rt: CollectorApp
     server: ModbusMockServer
     grpc_server: CollectorGrpcServer
     _loop_thread: _LoopThread
@@ -91,7 +91,7 @@ def ctl_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[CtlEnvironment
     loop_thread.start()
     server = ModbusMockServer(port=modbus_port)
 
-    async def _start() -> tuple[AssembledRuntime, CollectorGrpcServer]:
+    async def _start() -> tuple[CollectorApp, CollectorGrpcServer]:
         await server.start()
         rt = assemble(config_dir, sink_factory=functional_sink_factory)
         await start_runtime(rt)

@@ -1,4 +1,4 @@
-"""ConfigUseCase 配置事务编排单元测试。
+"""ConfigService 配置事务编排单元测试。
 
 Server 是全系统配置事务的唯一编排者：加载/校验/diff → 全参与者 Prepare →
 全参与者 Activate → 失败时 Abort + 磁盘回滚 + Worker 强制收敛。这里用
@@ -18,10 +18,10 @@ import yaml
 
 from tests.component.collector.conftest import update_yaml
 from tests.support.config_helper import write_config_tree
+from wind_hub_core.config import Config
 from wind_hub_core.config.diff import compute_diff
-from wind_hub_core.config.schema import Config
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.worker_model import COMMANDER_WORKER_ID
+from wind_hub_server.application.config.service import ConfigService
+from wind_hub_server.application.worker.model import COMMANDER_WORKER_ID
 
 COLLECTOR_ID = "collector-1"
 
@@ -119,7 +119,7 @@ class _FakeDirectory:
 
 
 # ---------------------------------------------------------------------------
-# 配置现场与 UseCase 工厂
+# 配置现场与 Service 工厂
 # ---------------------------------------------------------------------------
 
 
@@ -161,18 +161,18 @@ def _write_site(base: Path, *, interval: float = 0.2) -> Path:
 
 
 class _Fixture:
-    """一套 UseCase + 假 Worker + 配置目录的组合。"""
+    """一套 Service + 假 Worker + 配置目录的组合。"""
 
     def __init__(self, tmp_path: Path) -> None:
         self.config_dir = _write_site(tmp_path / "cfg")
         self.collector = _FakeWorker(COLLECTOR_ID)
         self.commander = _FakeWorker(COMMANDER_WORKER_ID)
         self.directory = _FakeDirectory({COLLECTOR_ID: self.collector})
-        self.usecase = ConfigUseCase(
+        self.service = ConfigService(
             self.config_dir,
             self.directory,
             self.commander,
-            ConfigUseCase.load_directory(self.config_dir),
+            ConfigService.load_directory(self.config_dir),
         )
 
     @property
@@ -207,21 +207,21 @@ class TestConstruction:
     def test_requires_at_least_one_collector(self, tmp_path: Path) -> None:
         config_dir = _write_site(tmp_path / "cfg")
         with pytest.raises(ValueError, match="at least one collector"):
-            ConfigUseCase(
+            ConfigService(
                 config_dir,
                 _FakeDirectory({}),
                 _FakeWorker(COMMANDER_WORKER_ID),
-                ConfigUseCase.load_directory(config_dir),
+                ConfigService.load_directory(config_dir),
             )
 
     def test_commander_id_conflict_rejected(self, tmp_path: Path) -> None:
         config_dir = _write_site(tmp_path / "cfg")
         with pytest.raises(ValueError, match="conflicts with commander"):
-            ConfigUseCase(
+            ConfigService(
                 config_dir,
                 _FakeDirectory({COMMANDER_WORKER_ID: _FakeWorker(COMMANDER_WORKER_ID)}),
                 _FakeWorker(COMMANDER_WORKER_ID),
-                ConfigUseCase.load_directory(config_dir),
+                ConfigService.load_directory(config_dir),
             )
 
 
@@ -235,7 +235,7 @@ class TestReloadSuccess:
         self, fx: _Fixture
     ) -> None:
         _set_interval(fx.config_dir, 0.5)
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is True, result.errors
         assert result.diff.tasks.updated == ["modbus-telemetry"]
@@ -243,19 +243,19 @@ class TestReloadSuccess:
         for worker in fx.workers:
             assert len(worker.prepare_calls) == 1
             assert worker.activate_calls == [worker.prepare_calls[0][0]]
-        assert fx.usecase.desired_revision == fx.collector.activate_calls[0]
-        assert fx.usecase.desired_config_hash is not None
+        assert fx.service.desired_revision == fx.collector.activate_calls[0]
+        assert fx.service.desired_config_hash is not None
 
     async def test_unchanged_config_short_circuits_without_rpc(
         self, fx: _Fixture
     ) -> None:
-        first = await fx.usecase.reload()
+        first = await fx.service.reload()
         assert first.success is True, first.errors
         for worker in fx.workers:
             worker.prepare_calls.clear()
             worker.activate_calls.clear()
 
-        second = await fx.usecase.reload()
+        second = await fx.service.reload()
 
         assert second.success is True, second.errors
         assert second.diff.has_any_changes is False
@@ -267,14 +267,14 @@ class TestReloadSuccess:
         self, fx: _Fixture
     ) -> None:
         """磁盘配置与基线一致时，首次 reload 同样短路（幂等 bootstrap）。"""
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is True, result.errors
         for worker in fx.workers:
             assert worker.prepare_calls == []
 
     async def test_force_workers_bypasses_short_circuit(self, fx: _Fixture) -> None:
-        result = await fx.usecase.reload(force_workers=True)
+        result = await fx.service.reload(force_workers=True)
 
         assert result.success is True, result.errors
         # force_reconfigure 必须透传到 Collector 侧 prepare（Commander 端口
@@ -301,7 +301,7 @@ class TestReloadInvalidDiskConfig:
         )
         ghost.write_text("ghost: true\n", encoding="utf-8")
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert result.errors
@@ -328,7 +328,7 @@ class TestPrepareFailures:
             {"success": False, "errors": ["collector rejected"]}
         )
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert any("collector rejected" in e for e in result.errors)
@@ -338,7 +338,7 @@ class TestPrepareFailures:
             assert worker.activate_calls == []
         # 磁盘回滚到最近成功基线。
         assert _task_interval(fx.config_dir) == 0.2
-        assert fx.usecase.desired_revision is None
+        assert fx.service.desired_revision is None
 
     async def test_prepare_hash_mismatch_treated_as_failure(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.9)
@@ -346,7 +346,7 @@ class TestPrepareFailures:
             {"success": True, "config_hash": "tampered-hash"}
         )
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert any("prepare hash mismatch" in e for e in result.errors)
@@ -358,7 +358,7 @@ class TestPrepareFailures:
         _set_interval(fx.config_dir, 0.9)
         fx.collector.worker_id = "someone-else"
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert any("identity mismatch" in e for e in result.errors)
@@ -374,7 +374,7 @@ class TestActivateFailures:
         _set_interval(fx.config_dir, 0.7)
         fx.commander.activate_outcomes.append({"success": False, "errors": ["boom"]})
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert any("boom" in e for e in result.errors)
@@ -385,7 +385,7 @@ class TestActivateFailures:
         assert _task_interval(fx.config_dir) == 0.2
         assert any(force for _, _, force in fx.collector.prepare_calls[1:])
         assert len(fx.commander.prepare_calls) >= 2
-        assert fx.usecase.desired_revision is None
+        assert fx.service.desired_revision is None
 
     async def test_activate_rpc_error_confirmed_by_status_is_success(
         self, fx: _Fixture
@@ -401,17 +401,17 @@ class TestActivateFailures:
 
         fx.commander.activate_config = _activate_then_lose  # type: ignore[method-assign]
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is True, result.errors
-        assert fx.usecase.desired_revision is not None
+        assert fx.service.desired_revision is not None
 
     async def test_activate_rpc_error_unconfirmed_rolls_back(self, fx: _Fixture) -> None:
         """Activate RPC 异常且状态回查未生效 → 失败并回滚。"""
         _set_interval(fx.config_dir, 0.7)
         fx.commander.activate_outcomes.append(TimeoutError("activate response lost"))
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert any("activate failed after RPC error" in e for e in result.errors)
@@ -425,9 +425,9 @@ class TestActivateFailures:
 
 class TestShutdownSemantics:
     async def test_reload_rejected_after_transactions_closed(self, fx: _Fixture) -> None:
-        fx.usecase.stop_accepting_transactions()
+        fx.service.stop_accepting_transactions()
 
-        result = await fx.usecase.reload()
+        result = await fx.service.reload()
 
         assert result.success is False
         assert result.errors == ["config transactions are shutting down"]
@@ -437,7 +437,7 @@ class TestShutdownSemantics:
     async def test_wait_for_transactions_returns_true_when_idle(
         self, fx: _Fixture
     ) -> None:
-        assert await fx.usecase.wait_for_transactions(timeout=1.0) is True
+        assert await fx.service.wait_for_transactions(timeout=1.0) is True
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +447,7 @@ class TestShutdownSemantics:
 
 class TestReconcileWorkers:
     async def test_no_desired_revision_reports_for_all(self, fx: _Fixture) -> None:
-        outcomes = await fx.usecase.reconcile_workers()
+        outcomes = await fx.service.reconcile_workers()
 
         assert outcomes == {
             COLLECTOR_ID: "no-desired-revision",
@@ -456,11 +456,11 @@ class TestReconcileWorkers:
 
     async def test_already_current_after_successful_reload(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
-        assert (await fx.usecase.reload()).success is True
+        assert (await fx.service.reload()).success is True
         for worker in fx.workers:
             worker.prepare_calls.clear()
 
-        outcomes = await fx.usecase.reconcile_workers()
+        outcomes = await fx.service.reconcile_workers()
 
         assert outcomes == {
             COLLECTOR_ID: "already-current",
@@ -471,26 +471,26 @@ class TestReconcileWorkers:
 
     async def test_drifted_worker_is_reconciled_with_force(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
-        assert (await fx.usecase.reload()).success is True
+        assert (await fx.service.reload()).success is True
         # 模拟 Worker 偏离：active 状态落后（如 Worker 重启丢了配置）。
         fx.collector.active_revision = "stale"
         fx.collector.active_hash = "stale"
         fx.collector.prepare_calls.clear()
 
-        outcomes = await fx.usecase.reconcile_workers()
+        outcomes = await fx.service.reconcile_workers()
 
         assert outcomes[COLLECTOR_ID] == "reconciled"
         assert outcomes[COMMANDER_WORKER_ID] == "already-current"
         revision, _, force = fx.collector.prepare_calls[0]
-        assert revision == fx.usecase.desired_revision
+        assert revision == fx.service.desired_revision
         assert force is True
 
     async def test_status_error_reported_per_worker(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 0.6)
-        assert (await fx.usecase.reload()).success is True
+        assert (await fx.service.reload()).success is True
         fx.collector.status_error = ConnectionError("unreachable")
 
-        outcomes = await fx.usecase.reconcile_workers()
+        outcomes = await fx.service.reconcile_workers()
 
         assert outcomes[COLLECTOR_ID].startswith("status-error:")
         assert outcomes[COMMANDER_WORKER_ID] == "already-current"
@@ -498,9 +498,9 @@ class TestReconcileWorkers:
     async def test_reconcile_rejected_after_transactions_closed(
         self, fx: _Fixture
     ) -> None:
-        fx.usecase.stop_accepting_transactions()
+        fx.service.stop_accepting_transactions()
 
-        outcomes = await fx.usecase.reconcile_workers()
+        outcomes = await fx.service.reconcile_workers()
 
         assert set(outcomes.values()) == {"transactions-closed"}
 
@@ -512,17 +512,17 @@ class TestReconcileWorkers:
 
 class TestInitializeDesiredRevision:
     def test_bootstrap_revision_from_stable_disk(self, fx: _Fixture) -> None:
-        fx.usecase.initialize_desired_revision()
+        fx.service.initialize_desired_revision()
 
-        assert fx.usecase.desired_revision is not None
-        assert fx.usecase.desired_revision.startswith("bootstrap-")
-        assert fx.usecase.desired_config_hash is not None
+        assert fx.service.desired_revision is not None
+        assert fx.service.desired_revision.startswith("bootstrap-")
+        assert fx.service.desired_config_hash is not None
 
     def test_disk_diverged_from_baseline_raises(self, fx: _Fixture) -> None:
         _set_interval(fx.config_dir, 3.3)
 
         with pytest.raises(ValueError, match="differs from disk"):
-            fx.usecase.initialize_desired_revision()
+            fx.service.initialize_desired_revision()
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ class TestInitializeDesiredRevision:
 
 
 def _load(config_dir: Path) -> Config:
-    return ConfigUseCase.load_directory(config_dir)
+    return ConfigService.load_directory(config_dir)
 
 
 class TestComputeDiff:

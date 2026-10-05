@@ -1,8 +1,8 @@
-"""ConfigAdminUseCase 的最小纯文件测试。"""
+"""ConfigFileService 的最小纯文件测试。"""
 
 from unittest.mock import MagicMock
 
-from wind_hub_server.application.usecase.config_admin import CONFIG_FILES, ConfigAdminUseCase
+from wind_hub_server.application.config.files import CONFIG_FILES, ConfigFileService
 
 
 def test_config_file_set_is_stable() -> None:
@@ -18,7 +18,7 @@ def test_config_file_set_is_stable() -> None:
 def test_unknown_config_file_is_rejected(tmp_path) -> None:
     config = MagicMock()
     config.config_dir = tmp_path
-    admin = ConfigAdminUseCase(config)
+    admin = ConfigFileService(config)
 
     try:
         admin.read_file("../secret")
@@ -30,7 +30,7 @@ def test_unknown_config_file_is_rejected(tmp_path) -> None:
 def test_history_starts_empty(tmp_path) -> None:
     config = MagicMock()
     config.config_dir = tmp_path
-    admin = ConfigAdminUseCase(config)
+    admin = ConfigFileService(config)
 
     assert admin.history() == []
 
@@ -41,13 +41,13 @@ async def test_mutate_yaml_files_reads_under_apply_lock(tmp_path) -> None:
     path.write_text("site:\n  site_id: old\nsinks: []\n", encoding="utf-8")
     config = MagicMock()
     config.config_dir = tmp_path
-    admin = ConfigAdminUseCase(config)
+    admin = ConfigFileService(config)
 
     captured: dict[str, str] = {}
 
     async def fake_apply(files, *, source, comment):
         captured.update(files)
-        from wind_hub_server.application.usecase.config_admin import ConfigApplyResult
+        from wind_hub_server.application.config.files import ConfigApplyResult
         return ConfigApplyResult(success=True)
 
     admin._apply_files_locked = fake_apply  # type: ignore[method-assign]

@@ -1,6 +1,6 @@
 """跨进程共享的配置差异计算。"""
 
-from wind_hub_core.config.schema import Config
+from wind_hub_core.config.model.config import Config
 from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
 
 

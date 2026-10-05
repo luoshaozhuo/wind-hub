@@ -1,19 +1,16 @@
-"""Task placement 持久化与收敛单元测试。"""
+"""TaskPlacementRegistry 持久化与 placement 状态单元测试。"""
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
 
-from wind_hub_server.application.usecase.task_assignment import (
-    TaskAssignmentUseCase,
+from wind_hub_server.application.task.placement import (
     TaskPlacementError,
+    TaskPlacementRegistry,
     TaskPlacementState,
-)
-from wind_hub_server.application.usecase.worker_tasks import (
-    CollectorTaskUseCase,
-    TaskPlacementUnsafeError,
 )
 
 
@@ -30,75 +27,125 @@ class _Config:
         )
 
 
-class _Collector:
-    def __init__(self, worker_id: str, instances: list[dict[str, object]]) -> None:
-        self.worker_id = worker_id
-        self.instances = [dict(row) for row in instances]
-        self.stopped: list[str] = []
-        self.applied_generation = 0
-        self.assigned_task_ids: list[str] = []
-
-    async def config_status(self) -> dict[str, object]:
-        return {"collector_id": self.worker_id}
-
-    async def apply_task_placement(
-        self,
-        worker_id: str,
-        generation: int,
-        task_ids: list[str],
-    ) -> dict[str, object]:
-        assert worker_id == self.worker_id
-        self.applied_generation = generation
-        self.assigned_task_ids = list(task_ids)
-        return {
-            "success": True,
-            "generation": generation,
-            "task_count": len(task_ids),
-        }
-
-    async def list_task_instances(self) -> list[dict[str, object]]:
-        return [dict(row) for row in self.instances]
-
-    async def stop_task_instance(self, instance_id: str) -> dict[str, object]:
-        self.stopped.append(instance_id)
-        for row in self.instances:
-            if row.get("instance_id") == instance_id:
-                row["state"] = "stopped"
-                return dict(row)
-        raise KeyError(instance_id)
-
-
 class _Directory:
-    def __init__(self, collectors: dict[str, _Collector]) -> None:
-        self.collectors = collectors
+    def __init__(self, worker_ids: list[str]) -> None:
+        self.worker_ids = sorted(worker_ids)
 
-    def get(self, worker_id: str) -> _Collector:
-        return self.collectors[worker_id]
+    def get(self, worker_id: str) -> object:
+        if worker_id not in self.worker_ids:
+            raise KeyError(worker_id)
+        return object()
 
     def list_worker_ids(self) -> list[str]:
-        return sorted(self.collectors)
+        return list(self.worker_ids)
+
+
+def test_rendezvous_placement_is_stable(tmp_path) -> None:
+    """rendezvous hashing 结果不随重构变化。"""
+    config = _Config(tmp_path, ["task-a", "task-b", "task-c", "task-d"])
+    directory = _Directory(["collector-a", "collector-b"])
+    registry = TaskPlacementRegistry(config, directory)
+
+    placements = {
+        row.task_id: row.worker_id for row in registry.list_placements()
+    }
+    assert placements == {
+        "task-a": "collector-a",
+        "task-b": "collector-a",
+        "task-c": "collector-b",
+        "task-d": "collector-b",
+    }
+
+
+def test_persist_load_roundtrip(tmp_path) -> None:
+    """状态文件重载后 placement 与 generation 完全一致。"""
+    config = _Config(tmp_path, ["task-a", "task-c"])
+    directory = _Directory(["collector-a", "collector-b"])
+    first = TaskPlacementRegistry(config, directory)
+    expected = {
+        row.task_id: (row.worker_id, row.state) for row in first.list_placements()
+    }
+
+    reloaded = TaskPlacementRegistry(config, directory)
+
+    assert reloaded.generation == first.generation
+    assert {
+        row.task_id: (row.worker_id, row.state) for row in reloaded.list_placements()
+    } == expected
+
+
+def test_legacy_state_file_loads(tmp_path) -> None:
+    """既有 v2 状态文件（重构前写入格式）仍可加载。"""
+    state_dir = tmp_path / ".state"
+    state_dir.mkdir()
+    (state_dir / "task-placement.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "generation": 7,
+                "workers": ["collector-a", "collector-b"],
+                "placements": {"task-a": "collector-b"},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config = _Config(tmp_path, ["task-a"])
+    directory = _Directory(["collector-a", "collector-b"])
+
+    registry = TaskPlacementRegistry(config, directory)
+
+    placement = registry.placement_for_task("task-a")
+    assert placement.worker_id == "collector-b"
+    assert placement.state is TaskPlacementState.ASSIGNED
+    assert registry.generation == 7
+    assert registry.worker_for_task("task-a") == "collector-b"
+
+
+def test_worker_set_change_keeps_assigned_and_orphaned(tmp_path) -> None:
+    """Worker 集合变化不迁移已有 Owner：ASSIGNED 不变，移除的 Owner 变 ORPHANED。"""
+    config = _Config(tmp_path, ["task-a", "task-c"])
+    first = TaskPlacementRegistry(
+        config, _Directory(["collector-a", "collector-b"])
+    )
+    original = {
+        row.task_id: row.worker_id for row in first.list_placements()
+    }
+    assert original["task-a"] == "collector-a"
+    assert original["task-c"] == "collector-b"
+    original_generation = first.generation
+
+    restarted = TaskPlacementRegistry(config, _Directory(["collector-a"]))
+    placements = {
+        row.task_id: row for row in restarted.list_placements()
+    }
+
+    assert placements["task-a"].worker_id == "collector-a"
+    assert placements["task-a"].state is TaskPlacementState.ASSIGNED
+    assert placements["task-c"].worker_id == "collector-b"
+    assert placements["task-c"].state is TaskPlacementState.ORPHANED
+    assert restarted.generation > original_generation
+    with pytest.raises(TaskPlacementError, match="orphaned"):
+        restarted.worker_for_task("task-c")
 
 
 def test_removed_owner_stays_orphaned_after_restart(tmp_path) -> None:
     config = _Config(tmp_path, ["task-a"])
-    first_directory = _Directory(
-        {
-            "collector-a": _Collector("collector-a", []),
-            "collector-b": _Collector("collector-b", []),
-        }
+    first = TaskPlacementRegistry(
+        config, _Directory(["collector-a", "collector-b"])
     )
-    first = TaskAssignmentUseCase(config, first_directory)
-    original = first.assignment_for_task("task-a")
+    original = first.placement_for_task("task-a")
     original_generation = first.generation
     assert original.worker_id is not None
 
-    remaining = {
-        worker_id: collector
-        for worker_id, collector in first_directory.collectors.items()
+    remaining = [
+        worker_id
+        for worker_id in ("collector-a", "collector-b")
         if worker_id != original.worker_id
-    }
-    restarted = TaskAssignmentUseCase(config, _Directory(remaining))
-    restored = restarted.assignment_for_task("task-a")
+    ]
+    restarted = TaskPlacementRegistry(config, _Directory(remaining))
+    restored = restarted.placement_for_task("task-a")
 
     assert restored.worker_id == original.worker_id
     assert restored.state is TaskPlacementState.ORPHANED
@@ -107,43 +154,27 @@ def test_removed_owner_stays_orphaned_after_restart(tmp_path) -> None:
         restarted.worker_for_task("task-a")
 
 
-@pytest.mark.asyncio
-async def test_reconcile_stops_wrong_running_instance_and_opens_start_gate(
-    tmp_path,
-) -> None:
+def test_generation_stable_without_topology_change(tmp_path) -> None:
+    """Worker 集合与 Task 集合不变时 generation 不增长。"""
     config = _Config(tmp_path, ["task-a"])
-    collectors = {
-        "collector-a": _Collector("collector-a", []),
-        "collector-b": _Collector("collector-b", []),
-    }
-    directory = _Directory(collectors)
-    assignments = TaskAssignmentUseCase(config, directory)
-    owner = assignments.worker_for_task("task-a")
-    wrong_worker = next(worker for worker in collectors if worker != owner)
-    collectors[wrong_worker].instances.append(
-        {
-            "instance_id": "task-a:d1",
-            "task_id": "task-a",
-            "device_id": "d1",
-            "point_group": "fast",
-            "interval": 1.0,
-            "targets": ["archive"],
-            "state": "running",
-        }
-    )
+    directory = _Directory(["collector-a", "collector-b"])
+    registry = TaskPlacementRegistry(config, directory)
+    assert registry.generation == 1
 
-    monitoring = SimpleNamespace(tasks_snapshot=lambda: [])
-    tasks = CollectorTaskUseCase(directory, assignments, config, monitoring)
-    assert tasks.placement_safe is False
-    with pytest.raises(TaskPlacementUnsafeError):
-        tasks._require_safe_start()
+    registry.sync()
+    registry.list_placements()
+    registry.placement_for_task("task-a")
 
-    result = await tasks.reconcile_placement()
+    assert registry.generation == 1
 
-    assert result.safe is True
-    assert result.wrong_running_instances == 1
-    assert result.stopped_instances == 1
-    assert collectors[wrong_worker].stopped == ["task-a:d1"]
-    assert collectors[owner].applied_generation == assignments.generation
-    assert collectors[owner].assigned_task_ids == ["task-a"]
-    assert tasks.placement_safe is True
+
+def test_unassigned_task_has_no_worker(tmp_path) -> None:
+    """没有可用 Collector 时 placement 为 UNASSIGNED。"""
+    config = _Config(tmp_path, ["task-a"])
+    registry = TaskPlacementRegistry(config, _Directory([]))
+
+    placement = registry.placement_for_task("task-a")
+    assert placement.worker_id is None
+    assert placement.state is TaskPlacementState.UNASSIGNED
+    with pytest.raises(TaskPlacementError, match="unassigned"):
+        registry.worker_for_task("task-a")

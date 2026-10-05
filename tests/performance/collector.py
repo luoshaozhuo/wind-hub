@@ -54,7 +54,7 @@ def _read_fd_count() -> int:
 
 
 class RuntimeStats(Protocol):
-    """构建指标所需的运行时计数切片（与 ``Runtime`` 同名属性结构对齐）。"""
+    """构建指标所需的运行时计数切片（与 ``CollectorRuntime`` 同名属性结构对齐）。"""
 
     @property
     def points_collected(self) -> int: ...

@@ -2,7 +2,7 @@
 
 Server 是独立管理/控制面：不装配、不启动 Collector Runtime。设备即时操作经
 Commander gRPC，采集 Task/运行态/Sink 状态经 Collector gRPC；Server 只持有
-配置管理、读模型、监控历史与 Web/Admin 用例。
+配置管理、读模型、监控历史与 Web/Admin 服务。
 """
 
 from __future__ import annotations
@@ -14,32 +14,33 @@ from wind_hub_server.adapter.outbound.collector_directory import StaticCollector
 from wind_hub_server.adapter.outbound.grpc.collector import CollectorGrpcClient
 from wind_hub_server.adapter.outbound.grpc.commander import CommanderGrpcClient
 from wind_hub_server.application.app_context import AppContext
-from wind_hub_server.application.operation import OperationManager
+from wind_hub_server.application.config.admin_state import AdminStateService
+from wind_hub_server.application.config.definitions import DefinitionQueryService
+from wind_hub_server.application.config.files import ConfigFileService
+from wind_hub_server.application.config.service import ConfigService
+from wind_hub_server.application.config.settings import SettingsService
+from wind_hub_server.application.device.command import DeviceCommandService
+from wind_hub_server.application.device.data import DeviceDataService
+from wind_hub_server.application.device.diagnostic import DiagnosticService
+from wind_hub_server.application.device.query import DeviceQueryService
+from wind_hub_server.application.monitoring.aggregate import CollectorStatusAggregator
+from wind_hub_server.application.monitoring.health import SystemHealthService
+from wind_hub_server.application.monitoring.logs import LogQueryService
+from wind_hub_server.application.monitoring.overview import OverviewService
+from wind_hub_server.application.monitoring.quality import QualityService
+from wind_hub_server.application.operation.registry import OperationRegistry
 from wind_hub_server.application.port.worker import CollectorPort
-from wind_hub_server.application.usecase.admin_state import AdminStateUseCase
-from wind_hub_server.application.usecase.collector_aggregate import CollectorAggregateUseCase
-from wind_hub_server.application.usecase.config import ConfigUseCase
-from wind_hub_server.application.usecase.config_admin import ConfigAdminUseCase
-from wind_hub_server.application.usecase.definitions import DefinitionsUseCase
-from wind_hub_server.application.usecase.device import DeviceUseCase
-from wind_hub_server.application.usecase.device_control import DeviceControlUseCase
-from wind_hub_server.application.usecase.device_data import DeviceDataUseCase
-from wind_hub_server.application.usecase.diagnostic import DiagnosticUseCase
-from wind_hub_server.application.usecase.logs import LogsUseCase
-from wind_hub_server.application.usecase.overview import OverviewUseCase
-from wind_hub_server.application.usecase.quality import QualityUseCase
-from wind_hub_server.application.usecase.settings import SettingsUseCase
-from wind_hub_server.application.usecase.sink import SinkUseCase
-from wind_hub_server.application.usecase.system_health import SystemHealthUseCase
-from wind_hub_server.application.usecase.task_assignment import TaskAssignmentUseCase
-from wind_hub_server.application.usecase.worker_registry import WorkerRegistryUseCase
-from wind_hub_server.application.usecase.worker_tasks import CollectorTaskUseCase
-from wind_hub_server.application.worker_model import (
+from wind_hub_server.application.sink.service import SinkService
+from wind_hub_server.application.task.control import TaskControlService
+from wind_hub_server.application.task.placement import TaskPlacementRegistry
+from wind_hub_server.application.task.reconcile import TaskPlacementReconciler
+from wind_hub_server.application.worker.model import (
     COMMANDER_WORKER_ID,
     WorkerCapability,
     WorkerDefinition,
     WorkerRole,
 )
+from wind_hub_server.application.worker.registry import WorkerRegistry
 from wind_hub_server.infra.log_store import LogStore
 from wind_hub_server.infra.monitoring import MonitoringMetrics, MonitoringService
 from wind_hub_server.infra.network_probe import NetworkProbe
@@ -47,19 +48,20 @@ from wind_hub_server.infra.point_store import InMemoryTrendStore
 
 
 @dataclass(slots=True)
-class ServerRuntime:
+class ServerApp:
     """Server 独立对象图。"""
 
     context: AppContext
-    config: ConfigUseCase
+    config: ConfigService
     monitoring: MonitoringService
     log_store: LogStore
     collector_clients: dict[str, CollectorGrpcClient]
     commander_client: CommanderGrpcClient
-    worker_registry: WorkerRegistryUseCase
+    worker_registry: WorkerRegistry
     collector_directory: StaticCollectorDirectory
-    task_assignments: TaskAssignmentUseCase
-    tasks: CollectorTaskUseCase
+    task_placements: TaskPlacementRegistry
+    task_reconciler: TaskPlacementReconciler
+    tasks: TaskControlService
 
 
 def assemble_server(
@@ -67,7 +69,7 @@ def assemble_server(
     *,
     collectors: dict[str, str],
     commander: str,
-) -> ServerRuntime:
+) -> ServerApp:
     """装配独立 Server，不创建任何 Collector/Commander Runtime。"""
     endpoints = dict(collectors)
     if not endpoints:
@@ -82,7 +84,7 @@ def assemble_server(
     monitoring_metrics = MonitoringMetrics()
     log_store = LogStore(capacity=2000)
 
-    startup_config = ConfigUseCase.load_directory(config_dir)
+    startup_config = ConfigService.load_directory(config_dir)
 
     collector_definitions = [
         WorkerDefinition(
@@ -112,77 +114,83 @@ def assemble_server(
     # Directory 面向端口协议；collector_clients 保留具体类型以便 close() 生命周期管理。
     collector_ports: dict[str, CollectorPort] = dict(collector_clients)
     collector_directory = StaticCollectorDirectory(collector_ports)
-    config = ConfigUseCase(
+    config = ConfigService(
         config_dir=config_dir,
         collectors=collector_directory,
         commander=commander_client,
         current_config=startup_config,
     )
-    worker_registry = WorkerRegistryUseCase(
+    worker_registry = WorkerRegistry(
         collector_directory,
         commander_client,
         definitions=[*collector_definitions, commander_definition],
     )
-    task_assignments = TaskAssignmentUseCase(config, collector_directory)
-    collector_aggregate = CollectorAggregateUseCase(
+    task_placements = TaskPlacementRegistry(config, collector_directory)
+    collector_status = CollectorStatusAggregator(
         collector_directory,
-        task_assignments,
+        task_placements,
         config,
     )
     monitoring = MonitoringService(
-        collector_aggregate,
+        collector_status,
         monitoring_metrics,
     )
-    worker_tasks = CollectorTaskUseCase(
+    task_reconciler = TaskPlacementReconciler(
         collector_directory,
-        task_assignments,
+        task_placements,
+        config,
+    )
+    task_control = TaskControlService(
+        collector_directory,
+        task_placements,
+        task_reconciler,
         config,
         monitoring,
     )
-    devices = DeviceUseCase(monitoring, config)
-    device_data = DeviceDataUseCase(
+    devices = DeviceQueryService(monitoring, config)
+    device_data = DeviceDataService(
         config,
         commander_client,
         trend,
     )
-    device_control = DeviceControlUseCase(
+    device_control = DeviceCommandService(
         commander_client,
         trend,
     )
-    overview = OverviewUseCase(
+    overview = OverviewService(
         monitoring=monitoring,
-        tasks=worker_tasks,
+        tasks=task_control,
         config=config,
     )
-    operations = OperationManager()
-    config_admin = ConfigAdminUseCase(config)
-    admin_state = AdminStateUseCase(config_admin)
-    settings = SettingsUseCase(config, config_admin)
-    definitions = DefinitionsUseCase(config, config_admin)
-    sink_ops = SinkUseCase(
+    operations = OperationRegistry()
+    config_admin = ConfigFileService(config)
+    admin_state = AdminStateService(config_admin)
+    settings = SettingsService(config, config_admin)
+    definitions = DefinitionQueryService(config, config_admin)
+    sink_ops = SinkService(
         collector_directory,
         monitoring,
-        task_assignments,
+        task_placements,
         config,
         config_admin,
     )
-    diagnostics = DiagnosticUseCase(
+    diagnostics = DiagnosticService(
         commander_client,
         device_control,
         config,
         operations,
         NetworkProbe(),
     )
-    quality = QualityUseCase(
+    quality = QualityService(
         config,
         monitoring,
     )
-    logs = LogsUseCase(log_store)
-    system_health = SystemHealthUseCase(monitoring)
+    logs = LogQueryService(log_store)
+    system_health = SystemHealthService(monitoring)
 
     context = AppContext(
         config=config,
-        tasks=worker_tasks,
+        tasks=task_control,
         monitoring=monitoring,
         devices=devices,
         device_data=device_data,
@@ -200,7 +208,7 @@ def assemble_server(
         system_health=system_health,
         workers=worker_registry,
     )
-    return ServerRuntime(
+    return ServerApp(
         context=context,
         config=config,
         monitoring=monitoring,
@@ -209,6 +217,7 @@ def assemble_server(
         commander_client=commander_client,
         worker_registry=worker_registry,
         collector_directory=collector_directory,
-        task_assignments=task_assignments,
-        tasks=worker_tasks,
+        task_placements=task_placements,
+        task_reconciler=task_reconciler,
+        tasks=task_control,
     )

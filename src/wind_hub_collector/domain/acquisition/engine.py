@@ -4,20 +4,20 @@
 
     把一次获得的 PointValue 批次经过 Observer 和 targets 投递到 Sink
     并维护采集执行状态/统计；对于主动采集，也提供
-    ``Device.read → process`` 的薄封装（:meth:`collect`）。
+    ``CollectorDeviceSession.read → process`` 的薄封装（:meth:`collect`）。
 
 数据在 ``PointValue[]`` 这一层汇合——主动轮询（Modbus / ADS Sum）与
 订阅推送（ADS notification / IEC104 spontaneous）最终都进入
 :meth:`process`：
 
-    主动轮询：Device.read()        → engine.collect()（内含 process）
+    主动轮询：CollectorDeviceSession.read()        → engine.collect()（内含 process）
     订阅推送：协议 callback        → engine.process()
 
 不负责：
 
 - 「什么时候执行」——那是 application/runtime 的 acquisition handle
   （fixed-rate polling / subscription）的职责；
-- Protocol / Device 的创建、连接与关闭——那是 Runtime 的生命周期职责；
+- Protocol / Device 的创建、连接与关闭——那是 DeviceRuntime 的生命周期职责；
 - Sink 队列、背压与消费者任务——经 :class:`SinkDispatchPort` 端口委托给
   实现方（Runtime）。
 
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 class ReadableDevice(Protocol):
     """主动读取路径对运行时设备的结构化依赖（避免 domain → application 反向依赖）。
 
-    由 application/runtime 的 ``Device`` 结构化满足；引擎只依赖这三件
+    由 application/runtime 的 ``CollectorDeviceSession`` 结构化满足；引擎只依赖这三件
     事：设备身份、按 point_group 选点、按 point_group 批量读。
     """
 
@@ -78,7 +78,7 @@ class SinkDispatchPort(Protocol):
 class DeviceStatePort(Protocol):
     """设备连接状态端口——采集前确保连接、采集后上报结果。
 
-    由 Runtime 实现：引擎**不管理 Protocol 生命周期**（不重连、不计
+    由 DeviceRuntime 实现：引擎**不管理 Protocol 生命周期**（不重连、不计
     失败次数），只在「读之前问一句能否读、读之后如实报告结果」。
     :meth:`ensure_connected` 返回 ``False``（断线且重连节流中）时本次
     采集直接跳过——断线设备不再发起注定失败的 read，也不形成连接风暴。
@@ -100,7 +100,7 @@ class DeviceStatePort(Protocol):
 class AcquisitionStatePort(Protocol):
     """采集执行状态端口——一次 collect 的开始/成功/失败上报。
 
-    由 Runtime 实现（持有 ``{execution_id: AcquisitionRuntimeState}``）。
+    由 TaskRuntime 实现（持有 ``{execution_id: AcquisitionRuntimeState}``）。
     与 :class:`DeviceStatePort` 分维度：本端口描述**业务执行**（这个采集
     执行最近跑得怎样），不描述设备连接。
 
@@ -202,7 +202,7 @@ class AcquisitionEngine:
 
         绑定后 :meth:`collect` 在读之前经 :meth:`DeviceStatePort.ensure_connected`
         确认设备可用（断线设备在此完成带节流的重连），读之后上报结果；
-        协议实例的生命周期仍完全属于 Runtime。
+        协议实例的生命周期完全属于 DeviceRuntime。
         """
         self._device_state = device_state
 
@@ -222,7 +222,7 @@ class AcquisitionEngine:
         self._observers.append(callback)
 
     # ------------------------------------------------------------------
-    # 主动采集（薄封装：Device.read → process）
+    # 主动采集（薄封装：CollectorDeviceSession.read → process）
     # ------------------------------------------------------------------
 
     async def collect(

@@ -1,4 +1,4 @@
-"""Commander 即时写入用例。"""
+"""Commander 即时写入服务。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from wind_hub_commander.dispatcher import CommandDispatcher
 from wind_hub_core.model.command import Command, CommandResult
 
 
-class CommandUseCase:
+class CommanderCommandService:
     """Commander 即时设备写入入口。"""
 
     def __init__(self, dispatcher: CommandDispatcher) -> None:

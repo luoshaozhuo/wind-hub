@@ -37,7 +37,7 @@ def _install_overview(side_effect: object) -> None:
     set_context(AppContext(overview=overview))
 
 
-def test_missing_usecase_returns_unified_format() -> None:
+def test_missing_service_returns_unified_format() -> None:
     """未配置的用例经 APIError 映射为 503 标准包络。"""
     set_context(AppContext())
     resp = _client().get("/api/v1/overview")

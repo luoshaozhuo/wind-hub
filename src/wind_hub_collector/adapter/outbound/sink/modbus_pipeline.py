@@ -9,7 +9,7 @@ from __future__ import annotations
 from wind_hub_collector.adapter.outbound.sink.modbus_codec import encode_modbus_value
 from wind_hub_collector.adapter.outbound.sink.modbus_store import ModbusSinkStore
 from wind_hub_collector.application.sink_export import SinkReferenceExporter
-from wind_hub_core.config.sinks import ResolvedSinkPoint
+from wind_hub_core.config import ResolvedSinkPoint
 from wind_hub_core.model.point import PointValue, Quality
 
 

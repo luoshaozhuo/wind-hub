@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from wind_hub_core.config.schema import DeviceConfig
+from wind_hub_core.config import DeviceConfig
 
 
 @dataclass(frozen=True)

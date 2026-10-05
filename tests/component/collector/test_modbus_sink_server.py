@@ -10,7 +10,7 @@ from pymodbus.client import AsyncModbusTcpClient
 from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.modbus_pipeline import ModbusSinkDataPath
 from wind_hub_collector.adapter.outbound.sink.modbus_server import ModbusTcpSinkServer
-from wind_hub_core.config.sinks import (
+from wind_hub_core.config import (
     ModbusSinkAddress,
     ModbusSinkConnection,
     ResolvedSinkPoint,

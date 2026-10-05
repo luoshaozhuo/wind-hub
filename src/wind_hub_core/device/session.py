@@ -7,7 +7,7 @@ DeviceSession 聚合单台设备的静态配置、resolved 点表与 ProtocolPor
 
 from __future__ import annotations
 
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointRef, PointValue

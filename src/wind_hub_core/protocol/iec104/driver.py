@@ -16,7 +16,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
-from wind_hub_core.config.schema import DeviceConfig, PointConfig
+from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.errors import CommandError, ProtocolError
 from wind_hub_core.model.health import HealthStatus
@@ -114,7 +114,7 @@ class IEC104Driver:
     """
 
     def __init__(self, cfg: DeviceConfig) -> None:
-        self._cfg = IEC104Config.from_device_config(cfg)
+        self._config = IEC104Config.from_device_config(cfg)
         self._lock = asyncio.Lock()
 
         self._session: IEC104Session | None = None
@@ -178,7 +178,7 @@ class IEC104Driver:
         logger.info(
             "IEC104: mapped %d points for device %s",
             len(ioa_to_point_id),
-            self._cfg.host,
+            self._config.host,
         )
 
     def _resolve_ioa(self, ref: PointRef) -> int | None:
@@ -205,14 +205,14 @@ class IEC104Driver:
             self._shutdown = False
 
             session = IEC104Session(
-                host=self._cfg.host,
-                port=self._cfg.port,
-                common_addr=self._cfg.common_addr,
-                k=self._cfg.k,
-                w=self._cfg.w,
-                t1=self._cfg.t1,
-                t2=self._cfg.t2,
-                t3=self._cfg.t3,
+                host=self._config.host,
+                port=self._config.port,
+                common_addr=self._config.common_addr,
+                k=self._config.k,
+                w=self._config.w,
+                t1=self._config.t1,
+                t2=self._config.t2,
+                t3=self._config.t3,
             )
             session.set_points_mapping(
                 self._ioa_to_point_id,
@@ -375,7 +375,7 @@ class IEC104Driver:
 
             # 3. 注册在途命令，确保同 IOA 不并发。
             future: asyncio.Future[CommandResult] = asyncio.Future()
-            timeout = self._cfg.t1 * 2
+            timeout = self._config.t1 * 2
             pending = PendingCommand(
                 command=cmd,
                 ioa=ioa,
@@ -449,7 +449,7 @@ class IEC104Driver:
             return ASDU(
                 type_id=TypeID.C_SC_NA_1,
                 cause=CauseOfTransmission.ACTIVATION,
-                common_address=self._cfg.common_addr,
+                common_address=self._config.common_addr,
                 objects=[SingleCommand(ioa=ioa, value=bool(val), select=False)],
             )
 
@@ -458,7 +458,7 @@ class IEC104Driver:
             return ASDU(
                 type_id=TypeID.C_SE_NC_1,
                 cause=CauseOfTransmission.ACTIVATION,
-                common_address=self._cfg.common_addr,
+                common_address=self._config.common_addr,
                 objects=[SetpointCommandShort(ioa=ioa, value=float(val), select=False)],
             )
 
@@ -470,21 +470,21 @@ class IEC104Driver:
                 return ASDU(
                     type_id=TypeID.C_DC_NA_1,
                     cause=CauseOfTransmission.ACTIVATION,
-                    common_address=self._cfg.common_addr,
+                    common_address=self._config.common_addr,
                     objects=[DoubleCommand(ioa=ioa, value=val, select=False)],
                 )
             if val in (0, 1):
                 return ASDU(
                     type_id=TypeID.C_SC_NA_1,
                     cause=CauseOfTransmission.ACTIVATION,
-                    common_address=self._cfg.common_addr,
+                    common_address=self._config.common_addr,
                     objects=[SingleCommand(ioa=ioa, value=bool(val), select=False)],
                 )
             # Large int → set-point.
             return ASDU(
                 type_id=TypeID.C_SE_NC_1,
                 cause=CauseOfTransmission.ACTIVATION,
-                common_address=self._cfg.common_addr,
+                common_address=self._config.common_addr,
                 objects=[SetpointCommandShort(ioa=ioa, value=float(val), select=False)],
             )
 
@@ -519,7 +519,7 @@ class IEC104Driver:
         """发送一次 General Interrogation（C_IC_NA_1，QOI=20，master 侧）。
 
         总召响应经既有 ASDU 接收链进入各订阅回调，不另设返回通道。
-        由 ``Device.start_acquisition`` 在订阅建立后触发一次；不做周期
+        由 ``CollectorDeviceSession.start_acquisition`` 在订阅建立后触发一次；不做周期
         总召。
         """
         session = self._session
@@ -528,11 +528,15 @@ class IEC104Driver:
         asdu = ASDU(
             type_id=TypeID.C_IC_NA_1,
             cause=CauseOfTransmission.ACTIVATION,
-            common_address=self._cfg.common_addr,
+            common_address=self._config.common_addr,
             objects=[InterrogationCommand(ioa=0)],
         )
         session.send_asdu(asdu)
-        logger.info("IEC104: general interrogation sent to %s:%d", self._cfg.host, self._cfg.port)
+        logger.info(
+            "IEC104: general interrogation sent to %s:%d",
+            self._config.host,
+            self._config.port,
+        )
 
     # ==================================================================
     # ProtocolPort — health
@@ -546,7 +550,7 @@ class IEC104Driver:
         if session.is_started:
             return HealthStatus(
                 healthy=True,
-                message=f"connected to {self._cfg.host}:{self._cfg.port}",
+                message=f"connected to {self._config.host}:{self._config.port}",
             )
         return HealthStatus(
             healthy=False,
@@ -648,8 +652,8 @@ class IEC104Driver:
                     return
                 logger.warning(
                     "IEC104: session to %s:%d closed — reconnecting",
-                    self._cfg.host,
-                    self._cfg.port,
+                    self._config.host,
+                    self._config.port,
                 )
                 self._session = None
                 self._fail_all_pending("connection lost")
@@ -662,21 +666,21 @@ class IEC104Driver:
             logger.info(
                 "IEC104: reconnect attempt %d to %s:%d (backoff=%.1fs)",
                 attempt,
-                self._cfg.host,
-                self._cfg.port,
+                self._config.host,
+                self._config.port,
                 backoff,
             )
 
             try:
                 new_session = IEC104Session(
-                    host=self._cfg.host,
-                    port=self._cfg.port,
-                    common_addr=self._cfg.common_addr,
-                    k=self._cfg.k,
-                    w=self._cfg.w,
-                    t1=self._cfg.t1,
-                    t2=self._cfg.t2,
-                    t3=self._cfg.t3,
+                    host=self._config.host,
+                    port=self._config.port,
+                    common_addr=self._config.common_addr,
+                    k=self._config.k,
+                    w=self._config.w,
+                    t1=self._config.t1,
+                    t2=self._config.t2,
+                    t3=self._config.t3,
                 )
                 new_session.set_points_mapping(
                     self._ioa_to_point_id,
@@ -687,8 +691,8 @@ class IEC104Driver:
             except TimeoutError:
                 logger.warning(
                     "IEC104: reconnect timed out for %s:%d",
-                    self._cfg.host,
-                    self._cfg.port,
+                    self._config.host,
+                    self._config.port,
                 )
                 backoff = min(backoff * _RECONNECT_BACKOFF_MULTIPLIER, _RECONNECT_BACKOFF_CAP)
                 continue
@@ -696,14 +700,14 @@ class IEC104Driver:
                 if _is_timeout_related(exc):
                     logger.warning(
                         "IEC104: reconnect timed out for %s:%d",
-                        self._cfg.host,
-                        self._cfg.port,
+                        self._config.host,
+                        self._config.port,
                     )
                 else:
                     logger.exception(
                         "IEC104: reconnect failed for %s:%d",
-                        self._cfg.host,
-                        self._cfg.port,
+                        self._config.host,
+                        self._config.port,
                     )
                 backoff = min(backoff * _RECONNECT_BACKOFF_MULTIPLIER, _RECONNECT_BACKOFF_CAP)
                 continue
@@ -713,8 +717,8 @@ class IEC104Driver:
             attempt = 0
             logger.info(
                 "IEC104: reconnected to %s:%d",
-                self._cfg.host,
-                self._cfg.port,
+                self._config.host,
+                self._config.port,
             )
 
             if self._subscriptions.global_count or self._subscriptions.ioa_count:
@@ -723,8 +727,8 @@ class IEC104Driver:
                 except ProtocolError:
                     logger.warning(
                         "IEC104: post-reconnect general interrogation failed for %s:%d",
-                        self._cfg.host,
-                        self._cfg.port,
+                        self._config.host,
+                        self._config.port,
                         exc_info=True,
                     )
 

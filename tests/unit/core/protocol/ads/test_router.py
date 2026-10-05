@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from wind_hub_core.config.schema import ADSSystemConfig
+from wind_hub_core.config import ADSSystemConfig
 from wind_hub_core.protocol.ads import router
 
 

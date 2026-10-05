@@ -14,7 +14,7 @@ from pymodbus.server import ModbusTcpServer
 
 from wind_hub_collector.adapter.outbound.sink.modbus_pipeline import ModbusSinkDataPath
 from wind_hub_collector.adapter.outbound.sink.modbus_store import ModbusSinkStore
-from wind_hub_core.config.sinks import ModbusSinkConnection
+from wind_hub_core.config import ModbusSinkConnection
 from wind_hub_core.model.health import HealthStatus
 
 

@@ -6,7 +6,7 @@ task 的话，长期运行的现场网关会在数十次 reload 后耗尽 FD。
 
 SINK-05：SCADA 客户端反复断开/重连（含 RST 异常掉线）不得打挂
 listener——listener 保持可服务、已服务的值正确，且同进程的其它
-sink 经 Runtime 派发路径收数不受影响。
+sink 经 CollectorRuntime 派发路径收数不受影响。
 
 配置/helper 与 test_listener_sink_reload.py 同型（ModbusSink 监听
 127.0.0.1:<port>，wt01.power → holding 100，float32）。
@@ -24,10 +24,9 @@ from pymodbus.client import AsyncModbusTcpClient
 from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
 from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_collector.application.runtime import Runtime
+from wind_hub_collector.application.runtime import CollectorRuntime
 from wind_hub_collector.domain.acquisition import AcquisitionEngine
-from wind_hub_core.config.schema import RuntimeConfig
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 
@@ -62,8 +61,8 @@ def _modbus_config(port: int) -> ResolvedSinkConfig:
     )
 
 
-def _runtime(sinks: dict[str, SinkPort]) -> Runtime:
-    return Runtime(
+def _runtime(sinks: dict[str, SinkPort]) -> CollectorRuntime:
+    return CollectorRuntime(
         devices={},
         sinks=sinks,
         engine=AcquisitionEngine(read_timeout=None),
@@ -147,14 +146,14 @@ class TestListenerRebuildResourceStability:
         rt = _runtime({"modbus_scada": first})
         await rt.start()
         try:
-            await rt.rebuild_sink("modbus_scada", cfg, await _next_sink(cfg, 1.0))
+            await rt.sink_runtime.rebuild_sink("modbus_scada", cfg, await _next_sink(cfg, 1.0))
             assert await _read_listener_value(port) == pytest.approx(1.0)
 
             tasks_baseline = len(asyncio.all_tasks())
             fds_baseline = _fd_count()
 
             for cycle in range(2, REBUILD_CYCLES + 1):
-                await rt.rebuild_sink(
+                await rt.sink_runtime.rebuild_sink(
                     "modbus_scada", cfg, await _next_sink(cfg, float(cycle))
                 )
                 assert await _read_listener_value(port) == pytest.approx(
@@ -193,8 +192,8 @@ class TestListenerClientFlapIsolation:
         rt = _runtime({"modbus_scada": listener, "rec": recording})
         await rt.start()
         try:
-            # 初始值经 Runtime 派发路径送达两个 sink。
-            await rt.dispatch({"modbus_scada": [_point(1.0)], "rec": [_point(1.0)]})
+            # 初始值经 CollectorRuntime 派发路径送达两个 sink。
+            await rt.sink_runtime.dispatch({"modbus_scada": [_point(1.0)], "rec": [_point(1.0)]})
             await _wait_listener_value(port, 1.0)
 
             tasks_baseline = len(asyncio.all_tasks())
@@ -203,7 +202,7 @@ class TestListenerClientFlapIsolation:
             # ---- 客户端抖动：10 次正常断连 + 5 次 RST 异常掉线 ----
             for cycle in range(10):
                 value = float(cycle + 2)
-                await rt.dispatch(
+                await rt.sink_runtime.dispatch(
                     {"modbus_scada": [_point(value)], "rec": [_point(value)]}
                 )
                 await _wait_listener_value(port, value)

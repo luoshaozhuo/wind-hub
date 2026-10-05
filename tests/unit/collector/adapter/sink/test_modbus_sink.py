@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wind_hub_collector.adapter.outbound.sink.modbus import ModbusSink
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.point import PointValue
 
 pytestmark = pytest.mark.asyncio

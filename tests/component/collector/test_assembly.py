@@ -6,12 +6,11 @@ import tempfile
 from pathlib import Path
 
 from tests.support.config_helper import write_config_tree
-from wind_hub_collector.application.runtime import Runtime
-from wind_hub_collector.application.usecase.config import ConfigUseCase
-from wind_hub_collector.application.usecase.task import TaskUseCase
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.schema import RuntimeConfig
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_collector.application.runtime import CollectorRuntime
+from wind_hub_collector.application.service.config import CollectorConfigService
+from wind_hub_collector.application.service.task import CollectorTaskService
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
+from wind_hub_core.config import ResolvedSinkConfig, RuntimeConfig
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointValue
 
@@ -93,10 +92,10 @@ def test_assemble_builds_minimal_collector_graph() -> None:
         site = _write_minimal_config(Path(td))
         assembled = assemble(site)
 
-        assert isinstance(assembled, AssembledRuntime)
-        assert isinstance(assembled.runtime, Runtime)
-        assert isinstance(assembled.tasks, TaskUseCase)
-        assert isinstance(assembled.config, ConfigUseCase)
+        assert isinstance(assembled, CollectorApp)
+        assert isinstance(assembled.runtime, CollectorRuntime)
+        assert isinstance(assembled.tasks, CollectorTaskService)
+        assert isinstance(assembled.config, CollectorConfigService)
         assert assembled.runtime.engine is assembled.engine
         assert isinstance(assembled.runtime._config, RuntimeConfig)  # noqa: SLF001
         assert set(assembled.runtime.devices) == {"d1"}
@@ -170,7 +169,7 @@ async def test_collector_runtime_lifecycle_without_web_components() -> None:
         site = _write_minimal_config(Path(td))
         assembled = assemble(site, sink_factory=_null_sink_factory)
 
-        # 避免测试真实连接 Modbus 设备；生命周期本身仍走 Runtime。
+        # 避免测试真实连接 Modbus 设备；生命周期本身仍走 CollectorRuntime。
         device = assembled.runtime.devices["d1"]
         original_connect = device.connect
 

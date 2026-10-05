@@ -28,8 +28,8 @@ from tests.performance.netem import NetemController, NetemScenario
 from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.reliability.soak.sinks import RecordingSink, percentile
-from wind_hub_collector.assembly import AssembledRuntime, assemble, start_runtime, stop_runtime
-from wind_hub_core.config.sinks import ResolvedSinkConfig
+from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
+from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.command import Command
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.protocol.port import ProtocolPort
@@ -526,7 +526,7 @@ async def _health_watch(
             states[idx] = healthy
 
 
-async def _write_loop(rt: AssembledRuntime, profile: SoakProfile, stats: WriteStats) -> None:
+async def _write_loop(rt: CollectorApp, profile: SoakProfile, stats: WriteStats) -> None:
     """混合读写：按 write_interval_s 轮询向各设备下发写命令（值确定性轮换）。
 
     命令路径与 Commander 一致：经 DeviceSession.write 直达协议 Driver。

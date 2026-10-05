@@ -7,13 +7,13 @@ import asyncio
 import pytest
 
 from tests.fixtures.sinks.null_sink import NullSink
-from wind_hub_collector.assembly import AssembledRuntime
+from wind_hub_collector.assembly import CollectorApp
 from wind_hub_core.model.point import PointValue
 
 from .runtime_helpers import start_task_instance
 
 
-def _null_sink(runtime: AssembledRuntime) -> NullSink:
+def _null_sink(runtime: CollectorApp) -> NullSink:
     sink = runtime.sinks["null_sink"]
     assert isinstance(sink, NullSink)
     return sink
@@ -38,7 +38,7 @@ async def _wait_for_point(
     )
 
 
-async def test_task_instances_expanded_and_started(runtime: AssembledRuntime) -> None:
+async def test_task_instances_expanded_and_started(runtime: CollectorApp) -> None:
     """tasks.yaml 的 Task 按设备展开为实例，启动后处于 RUNNING。"""
     instances = await runtime.tasks.list_instances()
     by_id = {i.instance_id: i for i in instances}
@@ -48,7 +48,7 @@ async def test_task_instances_expanded_and_started(runtime: AssembledRuntime) ->
     assert by_id["modbus-telemetry:modbus-1"].state.value == "running"
 
 
-async def test_task_collect_targets_sink_roundtrip(runtime: AssembledRuntime) -> None:
+async def test_task_collect_targets_sink_roundtrip(runtime: CollectorApp) -> None:
     """modbus telemetry Task 采集到的点经 targets 落入 null sink，值正确。"""
     sink = _null_sink(runtime)
 
@@ -60,7 +60,7 @@ async def test_task_collect_targets_sink_roundtrip(runtime: AssembledRuntime) ->
     assert gen.value == pytest.approx(800.0)
 
 
-async def test_task_collects_all_modbus_points_to_null(runtime: AssembledRuntime) -> None:
+async def test_task_collects_all_modbus_points_to_null(runtime: CollectorApp) -> None:
     """modbus-1 的 telemetry 组全部点位（含可写点）都经 Task targets 落入 null sink。"""
     sink = _null_sink(runtime)
 
@@ -72,7 +72,7 @@ async def test_task_collects_all_modbus_points_to_null(runtime: AssembledRuntime
         assert ("modbus-1", point_id) in received_ids
 
 
-async def test_stopped_instance_stops_collection(runtime: AssembledRuntime) -> None:
+async def test_stopped_instance_stops_collection(runtime: CollectorApp) -> None:
     """stop 单个实例后不再有点落入 sink；重新 start 后恢复采集。"""
     sink = _null_sink(runtime)
     iid = "modbus-telemetry:modbus-1"

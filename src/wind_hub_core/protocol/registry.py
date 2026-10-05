@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from wind_hub_core.model.errors import ConfigError
 
 if TYPE_CHECKING:
-    from wind_hub_core.config.schema import DeviceConfig
+    from wind_hub_core.config import DeviceConfig
     from wind_hub_core.protocol.port import ProtocolPort
 
 
