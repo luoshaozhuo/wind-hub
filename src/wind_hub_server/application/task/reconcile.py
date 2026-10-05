@@ -8,13 +8,15 @@ TaskPlacementReconciler 是 placement safety 的唯一权威：它把期望 plac
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from pydantic import BaseModel
 
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
-from wind_hub_server.application.port.worker import CollectorPort
+from wind_hub_server.application.port.worker import (
+    CollectorPort,
+    CollectorTaskInstance,
+)
 from wind_hub_server.application.task.collector import verified_collector
 from wind_hub_server.application.task.model import TaskInstanceState
 from wind_hub_server.application.task.placement import (
@@ -57,11 +59,12 @@ class TaskPlacementReconciler:
 
     @property
     def placement_safe(self) -> bool:
-        """当前 placement 代次是否已完成安全收敛。"""
+        """当前 placement 代次是否已完成安全收敛（纯读取，不做同步）。"""
         return self._reconciled_generation == self._placements.generation
 
     def require_safe_start(self) -> None:
         """仅在当前 placement 代次完成安全收敛后允许新的 start。"""
+        self._placements.sync()
         if not self.placement_safe:
             raise TaskPlacementUnsafeError(
                 "task placement is not safely reconciled"
@@ -73,6 +76,7 @@ class TaskPlacementReconciler:
 
     async def reconcile(self) -> TaskPlacementReconcileResult:
         """停止跑在错误 Collector 上的实例，并建立当前 placement 安全栅栏。"""
+        self._placements.sync()
         generation = self._placements.generation
         placements = {
             row.task_id: row
@@ -100,22 +104,22 @@ class TaskPlacementReconciler:
             for worker_id in worker_ids
         }
 
-        async def fetch(worker_id: str) -> tuple[CollectorPort, list[dict[str, Any]]]:
+        async def fetch(
+            worker_id: str,
+        ) -> tuple[CollectorPort, list[CollectorTaskInstance]]:
             collector = await verified_collector(self._collectors, worker_id)
             placement = await collector.apply_task_placement(
                 worker_id,
                 generation,
                 assigned_by_worker[worker_id],
             )
-            if not bool(placement.get("success")):
+            if not placement.success:
                 raise RuntimeError("collector rejected task placement")
-            if int(placement.get("generation") or 0) != generation:
+            if placement.generation != generation:
                 raise RuntimeError(
                     "collector placement generation acknowledgment mismatch"
                 )
-            if int(placement.get("task_count") or 0) != len(
-                assigned_by_worker[worker_id]
-            ):
+            if placement.task_count != len(assigned_by_worker[worker_id]):
                 raise RuntimeError(
                     "collector placement task-count acknowledgment mismatch"
                 )
@@ -142,9 +146,9 @@ class TaskPlacementReconciler:
             collector, rows = result
             for row in rows:
                 examined_instances += 1
-                if str(row.get("state") or "") != TaskInstanceState.RUNNING.value:
+                if row.state != TaskInstanceState.RUNNING.value:
                     continue
-                task_id = str(row.get("task_id") or "")
+                task_id = row.task_id
                 placement = placements.get(task_id)
                 expected_worker = (
                     placement.worker_id
@@ -157,7 +161,7 @@ class TaskPlacementReconciler:
                     continue
 
                 wrong_running_instances += 1
-                instance_id = str(row.get("instance_id") or "")
+                instance_id = row.instance_id
                 if not instance_id:
                     errors.append(
                         f"{worker_id}: running task '{task_id}' has empty instance_id"

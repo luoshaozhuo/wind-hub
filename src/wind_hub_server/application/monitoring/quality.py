@@ -14,19 +14,6 @@ from pydantic import BaseModel, Field
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import HostSnapshot, MonitoringSnapshotPort
 
-
-def _list_field(payload: dict[str, object], name: str) -> list[object]:
-    """读取快照 dict 中的列表字段（缺失或非列表按空列表处理）。"""
-    value = payload.get(name)
-    return list(value) if isinstance(value, list) else []
-
-
-def _int_field(payload: dict[str, object], name: str) -> int:
-    """读取快照 dict 中的整型字段（缺失或非 int 按 0 处理）。"""
-    value = payload.get(name)
-    return value if isinstance(value, int) else 0
-
-
 QualityWindow = Literal["1h", "24h", "7d"]
 
 
@@ -292,59 +279,43 @@ class QualityService:
     def _acquisition_channels(self) -> list[QualityChannel]:
         devices = self._monitoring.devices_snapshot()
         status = self._monitoring.runtime_status()
-        acquisitions = _list_field(status, "acquisitions")
+        acquisitions = status.acquisitions
         rows: list[QualityChannel] = []
 
-        for device in sorted(
-            devices,
-            key=lambda item: str(item.get("device_id") or ""),
-        ):
-            device_id = str(device.get("device_id") or "")
+        for device in sorted(devices, key=lambda item: item.device_id):
+            device_id = device.device_id
             relevant = [
-                item
-                for item in acquisitions
-                if isinstance(item, dict)
-                and str(item.get("device_id") or "") == device_id
+                item for item in acquisitions if item.device_id == device_id
             ]
             durations = [
-                float(item["last_duration"])
+                item.last_duration
                 for item in relevant
-                if isinstance(item, dict)
-                and item.get("last_duration") is not None
+                if item.last_duration is not None
             ]
             failures, reconnects = self._monitoring.device_counts(device_id)
-            connected = bool(device.get("connected"))
             rows.append(
                 QualityChannel(
                     object=device_id,
                     source="Acquisition",
-                    protocol=str(device.get("protocol") or "").upper(),
-                    state="Healthy" if connected else "Interrupted",
+                    protocol=device.protocol.upper(),
+                    state="Healthy" if device.connected else "Interrupted",
                     target="configured device",
                     latency_ms=max(durations) * 1000 if durations else None,
                     timeouts=failures,
                     reconnects=reconnects,
-                    issue=(
-                        str(device.get("last_error"))
-                        if device.get("last_error")
-                        else None
-                    ),
+                    issue=device.last_error,
                 )
             )
         return rows
 
     def _delivery_channels(self) -> list[QualityChannel]:
-        runtime = {
-            str(item.get("name")): item
-            for item in self._monitoring.sinks_snapshot()
-            if item.get("name") is not None
-        }
+        runtime = {item.name: item for item in self._monitoring.sinks_snapshot()}
         rows: list[QualityChannel] = []
         for cfg in self._config.current_config.sinks.sinks:
             current = runtime.get(cfg.name)
             if not cfg.enabled:
                 state = "Disabled"
-            elif current is not None and bool(current.get("healthy")):
+            elif current is not None and current.healthy:
                 state = "Healthy"
             else:
                 state = "Interrupted"
@@ -357,12 +328,8 @@ class QualityService:
                 or connection.get("host")
                 or "configured"
             )
-            queue_depth = _int_field(current, "queue_depth") if current is not None else 0
-            issue = (
-                str(current.get("message"))
-                if current is not None and current.get("message")
-                else None
-            )
+            queue_depth = current.queue_depth if current is not None else 0
+            issue = current.message if current is not None else None
             if queue_depth > 0 and state == "Healthy":
                 state = "Degraded"
                 issue = f"queue depth {queue_depth}"
@@ -381,73 +348,57 @@ class QualityService:
     def _issues(self) -> list[QualityIssue]:
         issues: list[QualityIssue] = []
         status = self._monitoring.runtime_status()
-        acquisitions = _list_field(status, "acquisitions")
 
-        for worker_id in _list_field(status, "unavailable_workers"):
+        for worker_id in status.unavailable_workers:
             issues.append(
                 QualityIssue(
                     level="Fault",
-                    object=str(worker_id),
+                    object=worker_id,
                     kind="Worker",
                     dimension="Continuity",
                     issue="Collector unavailable or identity invalid",
                 )
             )
 
-        for item in acquisitions:
-            if not isinstance(item, dict):
-                continue
-            failures = int(item.get("consecutive_failures") or 0)
-            if failures <= 0:
+        for item in status.acquisitions:
+            if item.consecutive_failures <= 0:
                 continue
             issues.append(
                 QualityIssue(
                     level="Fault",
-                    object=str(item.get("task_id") or item.get("instance_id") or ""),
+                    object=item.task_id or item.instance_id,
                     kind="Task",
                     dimension="Continuity",
                     issue="Recent collection failures",
-                    error=(
-                        str(item.get("last_error"))
-                        if item.get("last_error")
-                        else None
-                    ),
+                    error=item.last_error,
                 )
             )
 
         for device in self._monitoring.devices_snapshot():
-            if bool(device.get("connected")):
+            if device.connected:
                 continue
             issues.append(
                 QualityIssue(
                     level="Fault",
-                    object=str(device.get("device_id") or ""),
+                    object=device.device_id,
                     kind="Device",
                     dimension="Continuity",
                     issue="Channel unhealthy",
-                    error=(
-                        str(device.get("last_error"))
-                        if device.get("last_error")
-                        else None
-                    ),
+                    error=device.last_error,
                 )
             )
 
         for sink in self._monitoring.sinks_snapshot():
-            if bool(sink.get("healthy")):
+            if sink.healthy:
                 continue
             issues.append(
                 QualityIssue(
                     level="Fault",
-                    object=str(sink.get("name") or ""),
+                    object=sink.name,
                     kind="Sink",
                     dimension="Delivery Integrity",
                     issue="Channel unhealthy",
-                    error=(
-                        str(sink.get("message"))
-                        if sink.get("message")
-                        else None
-                    ),
+                    error=sink.message,
                 )
             )
         return issues

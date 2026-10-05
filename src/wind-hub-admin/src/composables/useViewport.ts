@@ -22,7 +22,9 @@ export function useViewport() {
   })
 
   const isMobile = computed(() => width.value <= VIEWPORT.mobileMax)
-  const isTablet = computed(() => width.value > VIEWPORT.mobileMax && width.value <= VIEWPORT.tabletMax)
+  const isTablet = computed(
+    () => width.value > VIEWPORT.mobileMax && width.value <= VIEWPORT.tabletMax,
+  )
   const isDesktop = computed(() => width.value > VIEWPORT.tabletMax)
 
   return { width, isMobile, isTablet, isDesktop }

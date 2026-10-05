@@ -16,19 +16,16 @@ from pathlib import Path
 from wind_hub_server.application.port.collector_query import CollectorQueryPort
 from wind_hub_server.application.port.monitoring import (
     CounterSnapshot,
+    DeviceRuntimeSnapshot,
     HostSnapshot,
+    MetricsSnapshot,
     MonitoringEvent,
+    RuntimeStatusSnapshot,
+    SinkRuntimeSnapshot,
+    TaskRuntimeSnapshot,
 )
 
 logger = logging.getLogger(__name__)
-
-
-
-
-def _int_counter(payload: dict[str, object], name: str) -> int:
-    '''从 runtime_status 读取整型计数（缺失或非 int 按 0 计）。'''
-    value = payload.get(name)
-    return value if isinstance(value, int) else 0
 
 
 class MonitoringMetrics:
@@ -64,58 +61,27 @@ class MonitoringMetrics:
                 reconnects=self._reconnects,
             )
 
-    def apply_remote(self, snapshot: dict[str, object]) -> None:
+    def apply_remote(self, snapshot: MetricsSnapshot) -> None:
         """用 Collector 累计指标快照覆盖本地查询视图。"""
-        counters = snapshot.get("counters")
-        if not isinstance(counters, dict):
-            counters = {}
+        counters = snapshot.counters
         with self._lock:
-            self._points_total = int(counters.get("points_total") or 0)
-            self._points_bad = int(counters.get("points_bad") or 0)
-            self._runs = int(counters.get("acquisition_runs") or 0)
-            self._failures = int(counters.get("acquisition_failures") or 0)
-            self._partial = int(counters.get("acquisition_partial") or 0)
-            self._missed = int(counters.get("missed_cycles") or 0)
-            self._overruns = int(counters.get("poll_overruns") or 0)
-            self._connect_failures = int(counters.get("connect_failures") or 0)
-            self._reconnects = int(counters.get("reconnects") or 0)
+            self._points_total = counters.points_total
+            self._points_bad = counters.points_bad
+            self._runs = counters.acquisition_runs
+            self._failures = counters.acquisition_failures
+            self._partial = counters.acquisition_partial
+            self._missed = counters.missed_cycles
+            self._overruns = counters.poll_overruns
+            self._connect_failures = counters.connect_failures
+            self._reconnects = counters.reconnects
 
-            failures = snapshot.get("device_connect_failures")
-            reconnects = snapshot.get("device_reconnects")
             self._device_connect_failures = defaultdict(
-                int,
-                {
-                    str(key): int(value)
-                    for key, value in (failures.items() if isinstance(failures, dict) else [])
-                },
+                int, snapshot.device_connect_failures
             )
-            self._device_reconnects = defaultdict(
-                int,
-                {
-                    str(key): int(value)
-                    for key, value in (reconnects.items() if isinstance(reconnects, dict) else [])
-                },
-            )
+            self._device_reconnects = defaultdict(int, snapshot.device_reconnects)
 
-            events = snapshot.get("events")
             self._events.clear()
-            if isinstance(events, list):
-                for item in events:
-                    if not isinstance(item, dict):
-                        continue
-                    raw_time = item.get("timestamp")
-                    try:
-                        timestamp = datetime.fromisoformat(str(raw_time))
-                    except ValueError:
-                        continue
-                    self._events.append(
-                        MonitoringEvent(
-                            timestamp=timestamp,
-                            kind=str(item.get("kind") or ""),
-                            object=str(item.get("object") or ""),
-                            message=str(item.get("message") or ""),
-                        )
-                    )
+            self._events.extend(snapshot.events)
 
     def device_counts(self, device_id: str) -> tuple[int, int]:
         """返回设备 connect failure / reconnect 累计数。"""
@@ -145,10 +111,10 @@ class MonitoringService:
     ) -> None:
         self._collectors = collectors
         self._metrics = metrics
-        self._runtime_status: dict[str, object] = {}
-        self._devices: list[dict[str, object]] = []
-        self._sinks: list[dict[str, object]] = []
-        self._tasks: list[dict[str, object]] = []
+        self._runtime_status = RuntimeStatusSnapshot()
+        self._devices: list[DeviceRuntimeSnapshot] = []
+        self._sinks: list[SinkRuntimeSnapshot] = []
+        self._tasks: list[TaskRuntimeSnapshot] = []
         self._interval = interval
         max_samples = max(2, int(retention_days * 86400 / interval) + 2)
         self._history: deque[HostSnapshot] = deque(maxlen=max_samples)
@@ -179,43 +145,28 @@ class MonitoringService:
     async def refresh_now(self) -> HostSnapshot:
         """立即刷新一次 Collector 低频状态并记录 HostSnapshot。"""
         snapshot = await self._collectors.snapshot()
-        status = snapshot.get("runtime_status")
-        metrics = snapshot.get("metrics")
-        devices = snapshot.get("devices")
-        sinks = snapshot.get("sinks")
-        tasks = snapshot.get("tasks")
-        if not isinstance(status, dict):
-            raise TypeError("collector snapshot runtime_status must be a mapping")
-        if not isinstance(metrics, dict):
-            raise TypeError("collector snapshot metrics must be a mapping")
-        if not isinstance(devices, list):
-            raise TypeError("collector snapshot devices must be a list")
-        if not isinstance(sinks, list):
-            raise TypeError("collector snapshot sinks must be a list")
-        if not isinstance(tasks, list):
-            raise TypeError("collector snapshot tasks must be a list")
-        self._runtime_status = dict(status)
-        self._devices = [dict(item) for item in devices if isinstance(item, dict)]
-        self._sinks = [dict(item) for item in sinks if isinstance(item, dict)]
-        self._tasks = [dict(item) for item in tasks if isinstance(item, dict)]
-        self._metrics.apply_remote(dict(metrics))
+        self._runtime_status = snapshot.runtime_status
+        self._devices = snapshot.devices
+        self._sinks = snapshot.sinks
+        self._tasks = snapshot.tasks
+        self._metrics.apply_remote(snapshot.metrics)
         return self.capture_now()
 
-    def runtime_status(self) -> dict[str, object]:
+    def runtime_status(self) -> RuntimeStatusSnapshot:
         """返回最近一次 Collector Runtime 状态缓存。"""
-        return dict(self._runtime_status)
+        return self._runtime_status
 
-    def devices_snapshot(self) -> list[dict[str, object]]:
+    def devices_snapshot(self) -> list[DeviceRuntimeSnapshot]:
         """返回最近一次设备运行态缓存。"""
-        return [dict(item) for item in self._devices]
+        return list(self._devices)
 
-    def sinks_snapshot(self) -> list[dict[str, object]]:
+    def sinks_snapshot(self) -> list[SinkRuntimeSnapshot]:
         """返回最近一次 Sink 运行态缓存。"""
-        return [dict(item) for item in self._sinks]
+        return list(self._sinks)
 
-    def tasks_snapshot(self) -> list[dict[str, object]]:
+    def tasks_snapshot(self) -> list[TaskRuntimeSnapshot]:
         """返回最近一次 Task 聚合运行态缓存。"""
-        return [dict(item) for item in self._tasks]
+        return list(self._tasks)
 
     def counters_snapshot(self) -> CounterSnapshot:
         """返回最近一次 Collector 累计计数快照。"""
@@ -252,9 +203,9 @@ class MonitoringService:
             process_rss_gb=self._process_rss_gb(),
             disk_free_gb=disk.free / 1024**3,
             disk_total_gb=disk.total / 1024**3,
-            points_collected=_int_counter(self._runtime_status, "points_collected"),
-            points_routed=_int_counter(self._runtime_status, "points_routed"),
-            points_dropped=_int_counter(self._runtime_status, "points_dropped"),
+            points_collected=self._runtime_status.points_collected,
+            points_routed=self._runtime_status.points_routed,
+            points_dropped=self._runtime_status.points_dropped,
             counters=self._metrics.counters(),
         )
         self._history.append(snapshot)

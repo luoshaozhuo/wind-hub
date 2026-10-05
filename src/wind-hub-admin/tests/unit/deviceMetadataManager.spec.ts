@@ -1,21 +1,9 @@
 // DeviceMetadataManager 组件测试：触发形态（按钮/下拉项）与对话框打开。
-// 外部数据面（api/data store）整体 mock——这是组件行为测试，不是 API 集成测试。
+// 数据面由 Pinia config store 提供（空初始状态）——这是组件行为测试，不是 API 集成测试。
 import { mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('../../src/api/data', () => ({
-  store: {
-    devices: [],
-    deviceModels: [],
-    deviceTypes: [],
-    deviceGroups: [],
-    pointTables: [],
-  },
-  devicesForTask: vi.fn(() => []),
-  refreshTaskValidity: vi.fn(),
-  resetDeviceConnectionOverrides: vi.fn(),
-}))
+import { createPinia } from 'pinia'
+import { describe, expect, it } from 'vitest'
 
 import DeviceMetadataManager from '../../src/components/DeviceMetadataManager.vue'
 
@@ -23,7 +11,7 @@ function mountManager(props: Record<string, unknown> = {}) {
   return mount(DeviceMetadataManager, {
     props,
     global: {
-      plugins: [ElementPlus],
+      plugins: [ElementPlus, createPinia()],
       stubs: {
         // el-dropdown-item 依赖 el-dropdown 的注入上下文；组件仅以
         // dropdownItem 形态被宿主下拉消费，测试中以简单占位渲染。

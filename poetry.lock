@@ -55,18 +55,6 @@ snappy = ["cramjam"]
 zstd = ["cramjam"]
 
 [[package]]
-name = "annotated-doc"
-version = "0.0.5"
-description = "Document parameters, class attributes, return types, and variables inline, with Annotated."
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "annotated_doc-0.0.5-py3-none-any.whl", hash = "sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101"},
-    {file = "annotated_doc-0.0.5.tar.gz", hash = "sha256:c7e58ce09192557605d8bbd92836d7e1d520ac9580096042c0bfd197efacf1bb"},
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.8.0"
 description = "Reusable constraint types to use with typing.Annotated"
@@ -182,6 +170,42 @@ files = [
 gssauth = ["gssapi ; platform_system != \"Windows\"", "sspilib ; platform_system == \"Windows\""]
 
 [[package]]
+name = "c104"
+version = "2.2.1"
+description = "A Python module to simulate SCADA and RTU communication over protocol 60870-5-104 to research ICT behavior in power grids."
+optional = true
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "extra == \"iec104\" or extra == \"all\""
+files = [
+    {file = "c104-2.2.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:844cadea6d1c319bce3e271df28864ba33903b6d54fc5d90f6deadc0b12fca55"},
+    {file = "c104-2.2.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:58d557a620773977c00e3ed3f41a5d759379f50363bb244124ea0ee03fba3c69"},
+    {file = "c104-2.2.1-cp310-cp310-win_amd64.whl", hash = "sha256:a7e8b26f0c2303d8c9a4ba93de7ebccb76e545f5dfd1141ddedf8bd22f974c04"},
+    {file = "c104-2.2.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0dd076ca5fff56261026a155266cd74998ac9a83d79b9f6a6ef7e6802913644a"},
+    {file = "c104-2.2.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:afbe7698e75368bc83c8a476464f922403807eb3a259d9e074d4ce30738106b6"},
+    {file = "c104-2.2.1-cp311-cp311-win_amd64.whl", hash = "sha256:7bda72543cc196bb90798fac6ab6f0bf4441b7b6d1ec0b7e76c271da3c548b67"},
+    {file = "c104-2.2.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0b61171fbb8b672def2193cf0e728af7809b9684ddd3d3b062de7760aed9c947"},
+    {file = "c104-2.2.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0a91df4a1d746898a2ebb035da7e2d0a816a1446e4d6822f0a8b962aecc556a3"},
+    {file = "c104-2.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:115fb71c90701feaa9695e1fd16eda5940a7cd629e0add77376ae9e8b4e7abf1"},
+    {file = "c104-2.2.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:85f2abfa2f82d5287512a4aa04cfa59eb605ea67fca1aace0d0d8cdb50469f88"},
+    {file = "c104-2.2.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1d7c19d8462af153f5b6a4896d2ef824d4d724902e02f545ccb1de8de4831a4d"},
+    {file = "c104-2.2.1-cp313-cp313-win_amd64.whl", hash = "sha256:8ead38d5d9fcdd29e2114780f3a4d549608d671f759978d72826bb3248fc3211"},
+    {file = "c104-2.2.1-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fbbf53652e97283da1679bfb8f06ecf279ff0eb117ba8b67f95cf31a8016a31a"},
+    {file = "c104-2.2.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7618cbdc43c1af596cb5413cc3430f41d7e833f94e1245fcd73781e1410c7c34"},
+    {file = "c104-2.2.1-cp313-cp313t-win_amd64.whl", hash = "sha256:74ab55f32593f47f497696e566d5023538ddf15e2455e6290744c409335569dc"},
+    {file = "c104-2.2.1-cp37-cp37m-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:364e2fe1f8d2d7c72d36576889409469e6cd4d550280ac7a4f156fc4626b966c"},
+    {file = "c104-2.2.1-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ee569b34ff8e150ab7cf7af292a0d66fabbd4f52829077e5a4997eea8f741019"},
+    {file = "c104-2.2.1-cp37-cp37m-win_amd64.whl", hash = "sha256:2cee69f602a105ebf9b46c1306e06f6edaf4295b2ce967e3f0719814bc1ecf65"},
+    {file = "c104-2.2.1-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4694b1632803e75e3a20b6d71883d5da18b99767b7d886f78f6e01b8a0c802f9"},
+    {file = "c104-2.2.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:85ad306935d174927296039a8eb5e5adf3a72a9ff6cf7a01152df33ec32fcdc6"},
+    {file = "c104-2.2.1-cp38-cp38-win_amd64.whl", hash = "sha256:4f3c3caa86ccee085ac4d8c4304e48dac5d37c14b627e1cbf6768c2266312d89"},
+    {file = "c104-2.2.1-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cd3f4412859c44aa39dc2fbbe02068dc0dd5203e4bd1ea7829197bc74f3346f4"},
+    {file = "c104-2.2.1-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:71e2eed666dde24d736a8dba5f261ef1966b58afe5b4ac8c80a9af83fd9c8d97"},
+    {file = "c104-2.2.1-cp39-cp39-win_amd64.whl", hash = "sha256:05483a6f6bc5dac007b3b2393af59c6579fdbe712f9ec240922c7bf8082ed88f"},
+    {file = "c104-2.2.1.tar.gz", hash = "sha256:d1b427f94cd0eeef376020a250ea0e7deb97ac33df5ee4908c7b20452cc8bb23"},
+]
+
+[[package]]
 name = "certifi"
 version = "2026.7.22"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -213,11 +237,11 @@ description = "Cross-platform colored terminal text."
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
 groups = ["main", "dev"]
+markers = "sys_platform == \"win32\""
 files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\"", dev = "sys_platform == \"win32\""}
 
 [[package]]
 name = "fastapi"
@@ -851,7 +875,7 @@ version = "4.2.0"
 description = "Python port of markdown-it. Markdown parsing, done right!"
 optional = false
 python-versions = ">=3.10"
-groups = ["main", "dev"]
+groups = ["dev"]
 files = [
     {file = "markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a"},
     {file = "markdown_it_py-4.2.0.tar.gz", hash = "sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49"},
@@ -875,7 +899,7 @@ version = "0.1.2"
 description = "Markdown URL utilities"
 optional = false
 python-versions = ">=3.7"
-groups = ["main", "dev"]
+groups = ["dev"]
 files = [
     {file = "mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"},
     {file = "mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba"},
@@ -1247,7 +1271,7 @@ version = "2.21.0"
 description = "Pygments is a syntax highlighting package written in Python."
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "dev"]
+groups = ["dev"]
 files = [
     {file = "pygments-2.21.0-py3-none-any.whl", hash = "sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9"},
     {file = "pygments-2.21.0.tar.gz", hash = "sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c"},
@@ -1453,7 +1477,7 @@ version = "15.0.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
 optional = false
 python-versions = ">=3.9.0"
-groups = ["main", "dev"]
+groups = ["dev"]
 files = [
     {file = "rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb"},
     {file = "rich-15.0.0.tar.gz", hash = "sha256:edd07a4824c6b40189fb7ac9bc4c52536e9780fbbfbddf6f1e2502c31b068c36"},
@@ -1516,18 +1540,6 @@ test = ["build[virtualenv] (>=1.0.3)", "filelock (>=3.4.0)", "ini2toml[lite] (>=
 type = ["importlib_metadata (>=7.0.2) ; python_version < \"3.10\"", "jaraco.develop (>=7.21) ; sys_platform != \"cygwin\"", "mypy (==1.18.*)", "pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 
 [[package]]
-name = "shellingham"
-version = "1.5.4"
-description = "Tool to Detect Surrounding Shell"
-optional = false
-python-versions = ">=3.7"
-groups = ["main"]
-files = [
-    {file = "shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"},
-    {file = "shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de"},
-]
-
-[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -1575,24 +1587,6 @@ dev = ["freezegun (>=0.2.8)", "mypy (>=1.4)", "pretend", "pytest (>=6.0)", "pyte
 docs = ["cogapp", "furo", "myst-parser", "sphinx", "sphinx-notfound-page", "sphinxcontrib-mermaid", "sphinxext-opengraph", "twisted"]
 tests = ["freezegun (>=0.2.8)", "pretend", "pytest (>=6.0)", "pytest-asyncio (>=0.17)", "simplejson"]
 typing = ["mypy (>=1.4)", "rich", "twisted"]
-
-[[package]]
-name = "typer"
-version = "0.27.2"
-description = "Typer, build great CLIs. Easy to code. Based on Python type hints."
-optional = false
-python-versions = ">=3.10"
-groups = ["main"]
-files = [
-    {file = "typer-0.27.2-py3-none-any.whl", hash = "sha256:b3a5fc4342d5fc8fda8fc3010b1cf117e9249aab7fae800c2eff62fd3842d97d"},
-    {file = "typer-0.27.2.tar.gz", hash = "sha256:269b7eb9d3c202ca84b4bc9618cb04ebb43d3d4d1e567e4c768607232c05f945"},
-]
-
-[package.dependencies]
-annotated-doc = ">=0.0.2"
-colorama = {version = "*", markers = "platform_system == \"Windows\""}
-rich = ">=13.8.0"
-shellingham = ">=1.3.0"
 
 [[package]]
 name = "types-protobuf"
@@ -2035,13 +2029,13 @@ files = [
 
 [extras]
 ads = ["pyads"]
-all = ["aiokafka", "asyncpg", "influxdb-client", "pyads", "pymodbus"]
+all = ["aiokafka", "asyncpg", "c104", "influxdb-client", "pyads", "pymodbus"]
 db = ["asyncpg", "influxdb-client"]
-iec104 = []
+iec104 = ["c104"]
 kafka = ["aiokafka"]
 modbus = ["pymodbus"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "5c7ebfc53215dd65537f10d5ac99de37d14eff97e5abfc47acba08b634036a04"
+content-hash = "932f1597df50858142c74dbe0a7fddbe8ba99a0ae2a9dc6b6ecb1d22e4854933"

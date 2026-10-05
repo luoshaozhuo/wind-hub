@@ -134,6 +134,42 @@ async def test_status_aggregates_runtime_snapshot() -> None:
     assert status.acquisitions == []
 
 
+async def test_status_splits_device_and_sink_health_by_source_not_count() -> None:
+    """device/sink health 来自显式 runtime 来源，与两者数量差、插入顺序无关。"""
+    service = CollectorQueryService(
+        _runtime(
+            devices={"d1": _device("d1")},
+            protocols={"d1": _protocol(False)},
+            sinks={"s1": _sink(True), "s2": _sink(True), "s3": _sink(False)},
+        )
+    )
+
+    status = await service.status()
+
+    assert status.device_count == 1
+    assert status.sink_count == 3
+    assert status.devices_connected == 0
+    assert status.sinks_healthy == 2
+
+
+async def test_status_with_empty_devices_or_sinks() -> None:
+    only_sinks = CollectorQueryService(
+        _runtime(sinks={"s1": _sink(True), "s2": _sink(True)})
+    )
+    status = await only_sinks.status()
+    assert status.device_count == 0
+    assert status.devices_connected == 0
+    assert status.sinks_healthy == 2
+
+    only_devices = CollectorQueryService(
+        _runtime(devices={"d1": _device("d1")}, protocols={"d1": _protocol(True)})
+    )
+    status = await only_devices.status()
+    assert status.sink_count == 0
+    assert status.sinks_healthy == 0
+    assert status.devices_connected == 1
+
+
 async def test_status_reports_acquisition_execution_state() -> None:
     runtime = _runtime(
         devices={"d1": _device("d1")},

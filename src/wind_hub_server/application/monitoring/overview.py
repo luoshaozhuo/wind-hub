@@ -35,23 +35,6 @@ class OverviewSnapshot(BaseModel):
     points_dropped: int
 
 
-def _as_int(value: object) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int | float | str):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-    return 0
-
-
-def _as_str_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value]
-
-
 class OverviewService:
     """Overview 页的应用层 Read Model。"""
 
@@ -74,29 +57,28 @@ class OverviewService:
         return OverviewSnapshot(
             site_id=site.site_id if site is not None else None,
             site_name=site.name if site is not None else None,
-            runtime_running=bool(status.get("running")),
+            runtime_running=status.running,
             runtime_state=(
                 "degraded"
-                if bool(status.get("degraded"))
+                if status.degraded
                 else "running"
-                if bool(status.get("running"))
+                if status.running
                 else "stopped"
             ),
-            workers_unavailable=_as_str_list(status.get("unavailable_workers")),
-            device_count=_as_int(status.get("device_count")),
-            devices_connected=_as_int(status.get("devices_connected")),
+            workers_unavailable=list(status.unavailable_workers),
+            device_count=status.device_count,
+            devices_connected=status.devices_connected,
             devices_offline=max(
                 0,
-                _as_int(status.get("device_count"))
-                - _as_int(status.get("devices_connected")),
+                status.device_count - status.devices_connected,
             ),
-            sink_count=_as_int(status.get("sink_count")),
-            sinks_healthy=_as_int(status.get("sinks_healthy")),
+            sink_count=status.sink_count,
+            sinks_healthy=status.sinks_healthy,
             task_count=len(tasks),
             task_instances=sum(task.instance_count for task in tasks),
             task_instances_running=sum(task.running_instances for task in tasks),
             task_instances_failed=sum(task.failed_instances for task in tasks),
-            points_collected=_as_int(status.get("points_collected")),
-            points_routed=_as_int(status.get("points_routed")),
-            points_dropped=_as_int(status.get("points_dropped")),
+            points_collected=status.points_collected,
+            points_routed=status.points_routed,
+            points_dropped=status.points_dropped,
         )

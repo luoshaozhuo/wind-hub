@@ -63,10 +63,12 @@ class TaskPlacementRegistry:
 
     @property
     def generation(self) -> int:
-        """返回当前 placement 代次；placement 变化时单调递增。"""
-        self.sync()
-        return self._generation
+        """返回当前 placement 代次（纯读取）；placement 变化时单调递增。
 
+        本 getter 不做任何同步或持久化；需要与当前配置/Worker 集合对齐时，
+        调用方必须先显式调用 :meth:`sync`。
+        """
+        return self._generation
 
     def _initialize(self) -> None:
         """为首次启动时的 Task 建立稳定 placement。"""

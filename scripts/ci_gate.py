@@ -90,6 +90,12 @@ def fast_gate(part: str, targets: str) -> bool:
             ]
         )
 
+    if part == "openapi-drift":
+        return _run(
+            "openapi-drift",
+            _python(str(REPO_ROOT / "scripts" / "generate_api_contract.py"), "--check"),
+        )
+
     if part == "backend-tests":
         selected = [target.strip() for target in targets.split(",") if target.strip()]
         valid = {"unit", "component", "contract"}
@@ -109,6 +115,8 @@ def fast_gate(part: str, targets: str) -> bool:
     if part == "frontend":
         return _run_many(
             [
+                ("frontend-lint", _npm("--prefix", str(FRONTEND_DIR), "run", "lint")),
+                ("frontend-format", _npm("--prefix", str(FRONTEND_DIR), "run", "format:check")),
                 ("frontend-vitest", _npm("--prefix", str(FRONTEND_DIR), "test")),
                 ("frontend-build", _npm("--prefix", str(FRONTEND_DIR), "run", "build")),
             ]
@@ -224,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     fast = subparsers.add_parser("fast")
     fast.add_argument(
         "--part",
-        choices=("backend-static", "backend-tests", "frontend"),
+        choices=("backend-static", "backend-tests", "frontend", "openapi-drift"),
         required=True,
     )
     fast.add_argument("--targets", default="")

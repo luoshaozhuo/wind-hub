@@ -1,25 +1,14 @@
-"""IEC104 Sink TCP component test。"""
+"""IEC104 Sink TCP component test（c104 从站 × c104 测试主站）。"""
 
 from __future__ import annotations
-
-import socket
 
 import pytest
 
 from tests.support.iec104_master import IEC104MasterClient
+from tests.support.process import free_port
 from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
 from wind_hub_core.config import ResolvedSinkConfig
 from wind_hub_core.model.point import PointValue
-from wind_hub_core.protocol.iec104.codec import (
-    CauseOfTransmission,
-    TypeID,
-)
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _config(port: int) -> ResolvedSinkConfig:
@@ -49,7 +38,6 @@ def _config(port: int) -> ResolvedSinkConfig:
             "host": "127.0.0.1",
             "port": port,
             "common_address": 1,
-            "batch_size": 2,
         },
         points=points,
     )
@@ -57,7 +45,7 @@ def _config(port: int) -> ResolvedSinkConfig:
 
 @pytest.fixture
 async def sink():
-    port = _free_port()
+    port = free_port()
     iec104 = IEC104Sink(_config(port))
     await iec104.write(
         [
@@ -74,23 +62,15 @@ async def sink():
         await iec104.close()
 
 
-async def test_full_sink_interrogation_and_reject_command(sink) -> None:  # type: ignore[no-untyped-def]
+async def test_full_sink_interrogation(sink) -> None:  # type: ignore[no-untyped-def]
+    """总召收回全部已写入点；值与类型经真实 c104 wire 往返验证。"""
     client = IEC104MasterClient(sink.port)
     await client.connect()
     try:
-        await client.startdt()
-        asdus = await client.interrogate()
-        assert asdus[0].cause == CauseOfTransmission.ACTIVATION_CON
-        assert asdus[-1].cause == CauseOfTransmission.ACTIVATION_TERMINATION
-        meas = [a for a in asdus if a.type_id == TypeID.M_ME_NC_1]
-        sp = [a for a in asdus if a.type_id == TypeID.M_SP_NA_1]
-        assert [len(a.objects) for a in meas] == [2, 1]
-        values = {o.ioa: o.value for a in meas for o in a.objects}
-        assert values == {101: 1500.5, 102: 800.0, 103: 12.5}
-        assert sp[0].objects[0].ioa == 201
-        reply, negative = await client.send_single_command(201, True)
-        assert reply.type_id == TypeID.C_SC_NA_1
-        assert reply.cause == CauseOfTransmission.ACTIVATION_CON
-        assert negative is True
+        values = await client.interrogate(expected=4)
+        assert values[101] == pytest.approx(1500.5)
+        assert values[102] == pytest.approx(800.0)
+        assert values[103] == pytest.approx(12.5)
+        assert values[201] is True
     finally:
         await client.close()

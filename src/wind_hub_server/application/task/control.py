@@ -7,12 +7,16 @@ TaskControlService 负责 Task/Task Instance 的查询与显式 start/stop；pla
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 from typing import Any
 
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
-from wind_hub_server.application.port.worker import CollectorPlacementRejectedError
+from wind_hub_server.application.port.worker import (
+    CollectorPlacementRejectedError,
+    CollectorTaskInstance,
+)
 from wind_hub_server.application.task.collector import (
     TaskWorkerUnavailableError,
     verified_collector,
@@ -48,9 +52,7 @@ class TaskControlService:
     def list_task_summaries(self) -> list[TaskSummary]:
         """从 Monitoring 最近一次快照返回 Task placement 与运行状态。"""
         runtime_rows = {
-            str(row.get("task_id")): row
-            for row in self._monitoring.tasks_snapshot()
-            if row.get("task_id") is not None
+            row.task_id: row for row in self._monitoring.tasks_snapshot()
         }
         rows: list[TaskSummary] = []
         for cfg in self._config.current_config.tasks.tasks:
@@ -60,7 +62,7 @@ class TaskControlService:
                 rows.append(
                     TaskSummary.model_validate(
                         {
-                            **current,
+                            **asdict(current),
                             # 配置定义以 Server 当前成功基线为权威；Monitoring
                             # 仅提供运行态/实例计数，避免配置 Apply 后仍暴露旧值。
                             "device": cfg.device,
@@ -69,7 +71,7 @@ class TaskControlService:
                             "interval": cfg.interval,
                             "targets": [target.sink for target in cfg.targets],
                             "enabled": cfg.enabled,
-                            "assigned_worker_id": current.get("assigned_worker_id")
+                            "assigned_worker_id": current.assigned_worker_id
                             or placement.worker_id,
                             "placement_state": placement.state,
                         }
@@ -92,7 +94,7 @@ class TaskControlService:
             by_worker.setdefault(placement.worker_id, set()).add(placement.task_id)
 
         worker_ids = sorted(by_worker)
-        async def fetch(worker_id: str) -> list[dict[str, Any]]:
+        async def fetch(worker_id: str) -> list[CollectorTaskInstance]:
             collector = await verified_collector(self._collectors, worker_id)
             return await collector.list_task_instances()
 
@@ -107,10 +109,10 @@ class TaskControlService:
             assigned_task_ids = by_worker[worker_id]
             rows.extend(
                 TaskInstanceDetail.model_validate(
-                    {**row, "assigned_worker_id": worker_id}
+                    {**asdict(row), "assigned_worker_id": worker_id}
                 )
                 for row in worker_rows
-                if str(row.get("task_id") or "") in assigned_task_ids
+                if row.task_id in assigned_task_ids
             )
         return rows
 
@@ -141,10 +143,10 @@ class TaskControlService:
             return []
         return [
             TaskInstanceDetail.model_validate(
-                {**row, "assigned_worker_id": placement.worker_id}
+                {**asdict(row), "assigned_worker_id": placement.worker_id}
             )
             for row in rows
-            if str(row.get("task_id") or "") == task_id
+            if row.task_id == task_id
         ]
 
     async def start_instance(self, instance_id: str) -> TaskInstanceDetail:
@@ -152,6 +154,7 @@ class TaskControlService:
         current = await self.get_instance(instance_id)
         collector = await verified_collector(self._collectors, current.assigned_worker_id)
         try:
+            self._placements.sync()
             data = await collector.start_task_instance(
                 instance_id,
                 self._placements.generation,
@@ -160,7 +163,7 @@ class TaskControlService:
             self._reconciler.invalidate_safety()
             raise TaskPlacementUnsafeError(str(exc)) from exc
         result = TaskInstanceDetail.model_validate(
-            {**data, "assigned_worker_id": current.assigned_worker_id}
+            {**asdict(data), "assigned_worker_id": current.assigned_worker_id}
         )
         await self._monitoring.refresh_now()
         return result
@@ -170,7 +173,7 @@ class TaskControlService:
         collector = await verified_collector(self._collectors, current.assigned_worker_id)
         data = await collector.stop_task_instance(instance_id)
         result = TaskInstanceDetail.model_validate(
-            {**data, "assigned_worker_id": current.assigned_worker_id}
+            {**asdict(data), "assigned_worker_id": current.assigned_worker_id}
         )
         await self._monitoring.refresh_now()
         return result
@@ -180,6 +183,7 @@ class TaskControlService:
         worker_id = self._placements.worker_for_task(task_id)
         collector = await verified_collector(self._collectors, worker_id)
         try:
+            self._placements.sync()
             data = await collector.start_task(
                 task_id,
                 self._placements.generation,
@@ -189,7 +193,7 @@ class TaskControlService:
             raise TaskPlacementUnsafeError(str(exc)) from exc
         result = TaskSummary.model_validate(
             {
-                **data,
+                **asdict(data),
                 "assigned_worker_id": worker_id,
                 "placement_state": TaskPlacementState.ASSIGNED,
             }
@@ -203,7 +207,7 @@ class TaskControlService:
         data = await collector.stop_task(task_id)
         result = TaskSummary.model_validate(
             {
-                **data,
+                **asdict(data),
                 "assigned_worker_id": worker_id,
                 "placement_state": TaskPlacementState.ASSIGNED,
             }

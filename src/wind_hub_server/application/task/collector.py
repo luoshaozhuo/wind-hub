@@ -26,7 +26,7 @@ async def verified_collector(
         raise TaskWorkerUnavailableError(
             f"collector '{worker_id}' is unavailable"
         ) from exc
-    reported_id = str(status.get("collector_id") or "")
+    reported_id = status.collector_id
     if reported_id != worker_id:
         raise TaskWorkerUnavailableError(
             f"collector identity mismatch: expected={worker_id} "

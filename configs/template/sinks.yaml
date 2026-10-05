@@ -39,7 +39,6 @@ sinks:
       host: "0.0.0.0"
       port: 2404
       common_address: 1
-      batch_size: 50
     # 例：
     # points:
     #   - source: {device_id: wtg-001, point_id: active_power}

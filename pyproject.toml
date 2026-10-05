@@ -17,7 +17,6 @@ packages = [
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-typer = ">=0.15,<1.0"
 fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
 structlog = "^24.0"
@@ -25,6 +24,7 @@ prometheus-client = "^0.21"
 grpcio = "^1.75"
 protobuf = "^6.32"
 pymodbus = { version = "^3.6", optional = true }
+c104 = { version = "^2.2", optional = true }
 pyads = { version = "^3.4", optional = true }
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
@@ -33,13 +33,13 @@ influxdb-client = { version = "^1.48", optional = true }
 [tool.poetry.extras]
 ads = ["pyads"]
 modbus = ["pymodbus"]
-iec104 = []  # 暂无 Python 客户端依赖
+iec104 = ["c104"]
 kafka = ["aiokafka"]
 db = ["asyncpg", "influxdb-client"]
 all = [
     "pyads",
     "pymodbus",
-    # iec104: no dependencies yet
+    "c104",
     "aiokafka",
     "asyncpg",
     "influxdb-client",
@@ -78,11 +78,9 @@ extend-exclude = ["*_pb2.py", "*_pb2_grpc.py", "*_pb2.pyi", "*_pb2_grpc.pyi"]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-# ``typer.Option``/``typer.Argument`` 与 ``fastapi.Query``/``Path``/``Body``/``Depends``
-# 默认值是声明 CLI/HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
+# ``fastapi.Query``/``Path``/``Body``/``Depends``
+# 默认值是声明 HTTP 参数的框架惯用法；B008 不应将其判为默认值函数调用。
 extend-immutable-calls = [
-    "typer.Argument",
-    "typer.Option",
     "fastapi.Query",
     "fastapi.Path",
     "fastapi.Body",
@@ -90,9 +88,6 @@ extend-immutable-calls = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# IEC104 测试类名刻意对应协议类型 ID（如 M_SP_NA_1 / C_SC_NA_1），
-# 不是常规 CapWords 命名，N801 在此处无意义。
-"tests/unit/core/protocol/iec104/test_info_objects.py" = ["N801"]
 # gRPC servicer 方法名由 proto service 定义强制（如 StartTask），
 # 框架按方法名分发，无法改为 snake_case。
 "src/wind_hub_collector/adapter/inbound/grpc/server.py" = ["N802"]

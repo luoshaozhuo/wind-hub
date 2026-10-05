@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import OverviewPage from './pages/OverviewPage.vue'
 import DevicesPage from './pages/DevicesPage.vue'
 import PointsPage from './pages/PointsPage.vue'
@@ -11,35 +11,15 @@ import SystemHealthPage from './pages/SystemHealthPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
 import ConfigPage from './pages/ConfigPage.vue'
 import LogsPage from './pages/LogsPage.vue'
-import { store, initializeData } from './api/data'
+import { useConfigStore } from './stores/config'
+import { useServerSnapshot } from './composables/useServerSnapshot'
 import { useViewport } from './composables/useViewport'
-import { loadYamlFiles } from './api/yaml'
-import { loadLogs } from './api/runtime'
-import { loadQualityWindow } from './api/quality'
-import { loadHealth, syncHealthPresentation } from './api/health'
+
+const configStore = useConfigStore()
+const { booting, bootError, retry } = useServerSnapshot()
 
 const menu = ref('Devices')
 const mobileNavOpen = ref(false)
-const booting = ref(true)
-const bootError = ref('')
-async function boot(){
-  booting.value=true
-  bootError.value=''
-  try{
-    await initializeData()
-    await Promise.all([
-      loadYamlFiles(),
-      loadLogs(),
-      loadQualityWindow('24 h'),
-      loadHealth('24 h').then(syncHealthPresentation),
-    ])
-  }catch(error){
-    bootError.value=error instanceof Error?error.message:String(error)
-  }finally{
-    booting.value=false
-  }
-}
-onMounted(()=>{void boot()})
 
 const { isMobile } = useViewport()
 
@@ -63,7 +43,9 @@ function selectMenu(key: string) {
       <div class="brand"><b>WH</b><span>Wind Hub</span></div>
       <el-menu :default-active="menu" class="app-menu" @select="selectMenu">
         <el-menu-item-group title="运行">
-          <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>
+          <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{
+            m.label
+          }}</el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="工程">
           <el-menu-item index="Quality">Quality</el-menu-item>
@@ -82,25 +64,47 @@ function selectMenu(key: string) {
 
     <el-container class="app-main-shell">
       <el-header class="app-header">
-        <el-button v-if="isMobile" text class="mobile-menu-button" aria-label="Open navigation" @click="mobileNavOpen = true">☰</el-button>
+        <el-button
+          v-if="isMobile"
+          text
+          class="mobile-menu-button"
+          aria-label="Open navigation"
+          @click="mobileNavOpen = true"
+          >☰</el-button
+        >
         <div class="header-title">
           <b>Wind Hub Admin</b>
-          <span>{{ store.systemInfo.siteName }} · 采集系统管理控制台</span>
+          <span>{{ configStore.systemInfo.siteName }} · 采集系统管理控制台</span>
         </div>
         <div class="header-spacer" />
         <div class="version-summary">
-          <span class="version-item"><span class="version-label">Collector</span><b>{{ store.systemInfo.collectorVersion }}</b></span>
+          <span class="version-item"
+            ><span class="version-label">Collector</span
+            ><b>{{ configStore.systemInfo.collectorVersion }}</b></span
+          >
           <span class="version-separator">·</span>
-          <span class="version-item"><span class="version-label">Admin</span><b>{{ store.systemInfo.adminVersion }}</b></span>
+          <span class="version-item"
+            ><span class="version-label">Admin</span
+            ><b>{{ configStore.systemInfo.adminVersion }}</b></span
+          >
         </div>
-        <el-tag type="success">{{ store.systemInfo.runtimeStatus }}</el-tag>
-        <el-tag :type="bootError ? 'danger' : booting ? 'warning' : 'success'">{{ bootError ? 'API ERROR' : booting ? 'CONNECTING' : 'LIVE' }}</el-tag>
+        <el-tag type="success">{{ configStore.systemInfo.runtimeStatus }}</el-tag>
+        <el-tag :type="bootError ? 'danger' : booting ? 'warning' : 'success'">{{
+          bootError ? 'API ERROR' : booting ? 'CONNECTING' : 'LIVE'
+        }}</el-tag>
       </el-header>
 
       <el-main class="app-main">
-        <el-alert v-if="bootError" :title="bootError" type="error" show-icon :closable="false" class="app-api-error">
+        <el-alert
+          v-if="bootError"
+          :title="bootError"
+          type="error"
+          show-icon
+          :closable="false"
+          class="app-api-error"
+        >
           <template #default>
-            <el-button size="small" @click="boot">Retry</el-button>
+            <el-button size="small" @click="retry">Retry</el-button>
           </template>
         </el-alert>
         <section v-if="!booting && !bootError" class="content">
@@ -120,7 +124,13 @@ function selectMenu(key: string) {
     </el-container>
   </el-container>
 
-  <el-drawer v-model="mobileNavOpen" direction="ltr" size="var(--app-mobile-nav-width)" title="Wind Hub" class="mobile-nav-drawer">
+  <el-drawer
+    v-model="mobileNavOpen"
+    direction="ltr"
+    size="var(--app-mobile-nav-width)"
+    title="Wind Hub"
+    class="mobile-nav-drawer"
+  >
     <el-menu :default-active="menu" @select="selectMenu">
       <el-menu-item-group title="运行">
         <el-menu-item v-for="m in runMenu" :key="m.key" :index="m.key">{{ m.label }}</el-menu-item>

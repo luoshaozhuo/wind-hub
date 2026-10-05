@@ -168,6 +168,27 @@ def test_generation_stable_without_topology_change(tmp_path) -> None:
     assert registry.generation == 1
 
 
+def test_generation_getter_is_pure_read(tmp_path) -> None:
+    """读取 generation 不触发 sync/persist：配置变化后 getter 仍返回旧代次。"""
+    config = _Config(tmp_path, ["task-a"])
+    directory = _Directory(["collector-a", "collector-b"])
+    registry = TaskPlacementRegistry(config, directory)
+    state_path = tmp_path / ".state" / "task-placement.json"
+    persisted_before = state_path.read_text(encoding="utf-8")
+
+    config.current_config.tasks.tasks.append(
+        SimpleNamespace(task_id="task-b", enabled=True)
+    )
+    directory.worker_ids.append("collector-c")
+
+    assert registry.generation == 1
+    assert state_path.read_text(encoding="utf-8") == persisted_before
+
+    registry.sync()
+    assert registry.generation > 1
+    assert state_path.read_text(encoding="utf-8") != persisted_before
+
+
 def test_unassigned_task_has_no_worker(tmp_path) -> None:
     """没有可用 Collector 时 placement 为 UNASSIGNED。"""
     config = _Config(tmp_path, ["task-a"])

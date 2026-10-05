@@ -104,20 +104,20 @@ class CollectorQueryService:
         从 CollectorRuntime 聚合：
         - ``running``：运行时就绪标志。
         - ``device_count`` / ``sink_count``：CollectorRuntime 持有的组件总数。
-        - ``devices_connected`` / ``sinks_healthy``：按 ``health()`` 返回的
-          「设备优先、随后 sink」顺序，依 ``device_count`` 切分后统计健康数。
+        - ``devices_connected`` / ``sinks_healthy``：分别从 DeviceRuntime /
+          SinkRuntime 的显式 ``health()`` 统计健康数，不依赖聚合顺序。
         - 点位统计：采集计数经 CollectorRuntime 透传自 AcquisitionEngine，路由/丢弃
           计数来自 CollectorRuntime 的 Sink 派发侧。
         - ``acquisitions``：各采集实例的业务执行状态（CollectorRuntime 的
           AcquisitionRuntimeState 快照）——与设备连接状态、实例启停状态
           分维度。
         """
-        health_values = list(self._runtime.health().values())
-        device_health = health_values[: self._runtime.device_count]
-        sink_health = health_values[self._runtime.device_count :]
-
-        devices_connected = sum(1 for h in device_health if h.healthy)
-        sinks_healthy = sum(1 for h in sink_health if h.healthy)
+        devices_connected = sum(
+            1 for h in self._runtime.device_runtime.health().values() if h.healthy
+        )
+        sinks_healthy = sum(
+            1 for h in self._runtime.sink_runtime.health().values() if h.healthy
+        )
 
         return SystemStatus(
             running=self._runtime.running,

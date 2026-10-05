@@ -1,0 +1,9 @@
+dist
+node_modules
+.vite
+test-results
+playwright-report
+package-lock.json
+src/api/generated
+# Round 2 未触碰的纯样式文件；Round 3 随页面组件化逐步收敛
+src/styles/**

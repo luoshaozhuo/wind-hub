@@ -41,7 +41,13 @@ const STATUS_TAG: Record<string, TagType> = {
 export function statusTagType(state: string | null | undefined): TagType | undefined {
   if (!state) return undefined
   const key = state.trim().toLowerCase()
-  if (key === 'checking' || key === 'testing' || key === 'starting' || key === 'stopping' || key === 'verifying') {
+  if (
+    key === 'checking' ||
+    key === 'testing' ||
+    key === 'starting' ||
+    key === 'stopping' ||
+    key === 'verifying'
+  ) {
     return undefined
   }
   return STATUS_TAG[key] ?? 'info'

@@ -70,29 +70,29 @@ class TestQueryRoundTrip:
         grpc_client, _, _ = client
         status = await grpc_client.config_status()
 
-        assert status["collector_id"] == WORKER_ID
-        assert status["runtime_running"] is True
-        assert status["config_hash"]
-        assert status["active_config_hash"]
+        assert status.collector_id == WORKER_ID
+        assert status.runtime_running is True
+        assert status.config_hash
+        assert status.active_config_hash
 
     async def test_runtime_status_and_metrics(self, client) -> None:
         grpc_client, _, _ = client
         runtime = await grpc_client.runtime_status()
-        assert runtime["running"] is True
+        assert runtime.running is True
 
         metrics = await grpc_client.metrics_snapshot()
-        assert isinstance(metrics, dict)
+        assert metrics.counters is not None
 
     async def test_inventory_queries(self, client) -> None:
         grpc_client, _, _ = client
         devices = await grpc_client.list_devices()
-        assert [d["device_id"] for d in devices] == ["modbus-1"]
+        assert [d.device_id for d in devices] == ["modbus-1"]
 
         tasks = await grpc_client.list_tasks()
-        assert [t["task_id"] for t in tasks] == [TASK_ID]
+        assert [t.task_id for t in tasks] == [TASK_ID]
 
         instances = await grpc_client.list_task_instances()
-        assert [i["instance_id"] for i in instances] == [INSTANCE_ID]
+        assert [i.instance_id for i in instances] == [INSTANCE_ID]
 
 
 class TestConfigTransactionRoundTrip:
@@ -106,19 +106,19 @@ class TestConfigTransactionRoundTrip:
         config_hash = fingerprint_config_set(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-it-1", config_hash)
-        assert prepared["success"] is True, prepared["errors"]
-        assert prepared["config_hash"] == config_hash
+        assert prepared.success is True, prepared.errors
+        assert prepared.config_hash == config_hash
 
         status = await grpc_client.config_status()
-        assert status["prepared_revision"] == "rev-it-1"
+        assert status.prepared_revision == "rev-it-1"
 
         activated = await grpc_client.activate_config("rev-it-1")
-        assert activated["success"] is True, activated["errors"]
-        assert activated["active_config_hash"] == config_hash
+        assert activated.success is True, activated.errors
+        assert activated.active_config_hash == config_hash
 
         status = await grpc_client.config_status()
-        assert status["active_revision"] == "rev-it-1"
-        assert status["active_config_hash"] == config_hash
+        assert status.active_revision == "rev-it-1"
+        assert status.active_config_hash == config_hash
 
     async def test_abort_discards_prepared_revision(self, client) -> None:
         grpc_client, config_dir, _ = client
@@ -130,21 +130,21 @@ class TestConfigTransactionRoundTrip:
         config_hash = fingerprint_config_set(config_dir)
 
         prepared = await grpc_client.prepare_config("rev-it-abort", config_hash)
-        assert prepared["success"] is True, prepared["errors"]
+        assert prepared.success is True, prepared.errors
 
         aborted = await grpc_client.abort_config("rev-it-abort")
-        assert aborted["success"] is True
-        assert aborted["aborted"] is True
+        assert aborted.success is True
+        assert aborted.aborted is True
 
         # Abort 后同 revision 不能再 Activate。
         activated = await grpc_client.activate_config("rev-it-abort")
-        assert activated["success"] is False
+        assert activated.success is False
 
     async def test_prepare_rejects_hash_mismatch(self, client) -> None:
         grpc_client, _, _ = client
         prepared = await grpc_client.prepare_config("rev-it-bad", "0" * 64)
-        assert prepared["success"] is False
-        assert prepared["errors"]
+        assert prepared.success is False
+        assert prepared.errors
 
 
 class TestPlacementGateRoundTrip:
@@ -157,18 +157,18 @@ class TestPlacementGateRoundTrip:
     async def test_apply_placement_then_start_stop_cycle(self, client) -> None:
         grpc_client, _, _ = client
         placement = await grpc_client.apply_task_placement(WORKER_ID, 1, [TASK_ID])
-        assert placement["success"] is True
-        assert placement["generation"] == 1
-        assert placement["task_count"] == 1
+        assert placement.success is True
+        assert placement.generation == 1
+        assert placement.task_count == 1
 
         started = await grpc_client.start_task_instance(INSTANCE_ID, 1)
-        assert started["state"] == "running"
+        assert started.state == "running"
 
         instances = await grpc_client.list_task_instances()
-        assert instances[0]["state"] == "running"
+        assert instances[0].state == "running"
 
         stopped = await grpc_client.stop_task_instance(INSTANCE_ID)
-        assert stopped["state"] == "stopped"
+        assert stopped.state == "stopped"
 
     async def test_start_with_stale_generation_is_rejected(self, client) -> None:
         """placement generation 前进后，旧 generation 的 Start 必须被拒绝。"""
@@ -179,7 +179,7 @@ class TestPlacementGateRoundTrip:
             await grpc_client.start_task_instance(INSTANCE_ID, 1)
 
         started = await grpc_client.start_task(TASK_ID, 2)
-        assert started["task_id"] == TASK_ID
+        assert started.task_id == TASK_ID
 
     async def test_placement_for_wrong_worker_is_rejected(self, client) -> None:
         """worker_id 与 Collector 身份不一致的快照必须被拒绝。"""

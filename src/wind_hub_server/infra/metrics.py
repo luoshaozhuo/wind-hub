@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from prometheus_client import Gauge, generate_latest
 
+from wind_hub_server.application.port.monitoring import (
+    CounterSnapshot,
+    RuntimeStatusSnapshot,
+)
+
 devices_total = Gauge("wind_hub_devices_total", "Number of configured devices.")
 devices_connected = Gauge(
     "wind_hub_devices_connected",
@@ -78,37 +83,26 @@ _device_gauge_labels: set[tuple[str, str]] = set()
 _sink_depth_labels: set[str] = set()
 
 
-def _as_int(value: object) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int | float | str):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-    return 0
-
-
 def update_runtime_gauges(
-    status: dict[str, object],
-    counters: dict[str, int],
+    status: RuntimeStatusSnapshot,
+    counters: CounterSnapshot,
 ) -> None:
     """用 Monitoring 缓存覆盖 Server 暴露的 Collector 聚合指标。"""
-    devices_total.set(_as_int(status.get("device_count")))
-    devices_connected.set(_as_int(status.get("devices_connected")))
-    sinks_total.set(_as_int(status.get("sink_count")))
-    sinks_healthy.set(_as_int(status.get("sinks_healthy")))
-    points_collected_total.set(_as_int(status.get("points_collected")))
-    points_routed_total.set(_as_int(status.get("points_routed")))
-    points_dropped_total.set(_as_int(status.get("points_dropped")))
-    points_bad_total.set(counters.get("points_bad", 0))
-    acquisition_runs_total.set(counters.get("acquisition_runs", 0))
-    acquisition_failures_total.set(counters.get("acquisition_failures", 0))
-    acquisition_partial_total.set(counters.get("acquisition_partial", 0))
-    poll_overrun_total.set(counters.get("poll_overruns", 0))
-    poll_missed_cycles_total.set(counters.get("missed_cycles", 0))
-    device_connect_failures_total.set(counters.get("connect_failures", 0))
-    device_reconnect_total.set(counters.get("reconnects", 0))
+    devices_total.set(status.device_count)
+    devices_connected.set(status.devices_connected)
+    sinks_total.set(status.sink_count)
+    sinks_healthy.set(status.sinks_healthy)
+    points_collected_total.set(status.points_collected)
+    points_routed_total.set(status.points_routed)
+    points_dropped_total.set(status.points_dropped)
+    points_bad_total.set(counters.points_bad)
+    acquisition_runs_total.set(counters.acquisition_runs)
+    acquisition_failures_total.set(counters.acquisition_failures)
+    acquisition_partial_total.set(counters.acquisition_partial)
+    poll_overrun_total.set(counters.poll_overruns)
+    poll_missed_cycles_total.set(counters.missed_cycles)
+    device_connect_failures_total.set(counters.connect_failures)
+    device_reconnect_total.set(counters.reconnects)
 
 
 def update_device_gauges(devices: list[tuple[str, str, bool]]) -> None:

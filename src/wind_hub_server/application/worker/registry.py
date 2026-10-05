@@ -120,7 +120,7 @@ class WorkerRegistry:
             status = await collector.config_status()
         except Exception as exc:
             return self._offline(previous, now, exc)
-        reported_id = _optional_text(status.get("collector_id"))
+        reported_id = _optional_text(status.collector_id)
         if reported_id != worker_id:
             return WorkerRecord(
                 worker_id=previous.worker_id,
@@ -136,9 +136,9 @@ class WorkerRegistry:
                     f"reported={reported_id or '<empty>'}"
                 ),
                 runtime_running=None,
-                active_revision=_optional_text(status.get("active_revision")),
-                active_config_hash=_optional_text(status.get("active_config_hash")),
-                boot_id=_optional_text(status.get("boot_id")),
+                active_revision=_optional_text(status.active_revision),
+                active_config_hash=_optional_text(status.active_config_hash),
+                boot_id=_optional_text(status.boot_id),
             )
         return WorkerRecord(
             worker_id=previous.worker_id,
@@ -150,10 +150,10 @@ class WorkerRegistry:
             last_probe_at=now,
             last_seen_at=now,
             last_error=None,
-            runtime_running=bool(status.get("runtime_running")),
-            active_revision=_optional_text(status.get("active_revision")),
-            active_config_hash=_optional_text(status.get("active_config_hash")),
-            boot_id=_optional_text(status.get("boot_id")),
+            runtime_running=status.runtime_running,
+            active_revision=_optional_text(status.active_revision),
+            active_config_hash=_optional_text(status.active_config_hash),
+            boot_id=_optional_text(status.boot_id),
         )
 
     async def _probe_commander(self) -> WorkerRecord:
@@ -174,9 +174,9 @@ class WorkerRegistry:
             last_probe_at=now,
             last_seen_at=now,
             last_error=None,
-            runtime_running=bool(status.get("running")),
-            active_revision=_optional_text(status.get("active_revision")),
-            active_config_hash=_optional_text(status.get("active_config_hash")),
+            runtime_running=status.running,
+            active_revision=_optional_text(status.active_revision),
+            active_config_hash=_optional_text(status.active_config_hash),
             boot_id=None,
         )
 

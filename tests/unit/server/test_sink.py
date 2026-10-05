@@ -3,22 +3,23 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from wind_hub_server.application.port.worker import SinkOperationResult
 from wind_hub_server.application.sink.service import SinkService
 
 
 async def test_verify_preserves_per_worker_results() -> None:
     collector_a = AsyncMock()
-    collector_a.verify_sink.return_value = {
-        "success": True,
-        "message": None,
-        "queue_depth": 0,
-    }
+    collector_a.verify_sink.return_value = SinkOperationResult(
+        success=True,
+        message=None,
+        queue_depth=0,
+    )
     collector_b = AsyncMock()
-    collector_b.verify_sink.return_value = {
-        "success": False,
-        "message": "broker unavailable",
-        "queue_depth": 0,
-    }
+    collector_b.verify_sink.return_value = SinkOperationResult(
+        success=False,
+        message="broker unavailable",
+        queue_depth=0,
+    )
 
     directory = MagicMock()
     directory.get.side_effect = {

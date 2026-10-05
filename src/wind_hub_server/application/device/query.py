@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 from wind_hub_core.config import DeviceConfig
 from wind_hub_server.application.config.service import ConfigService
-from wind_hub_server.application.port.monitoring import MonitoringSnapshotPort
+from wind_hub_server.application.port.monitoring import (
+    DeviceRuntimeSnapshot,
+    MonitoringSnapshotPort,
+)
 
 
 class DeviceSnapshot(BaseModel):
@@ -48,12 +49,7 @@ class DeviceQueryService:
 
     def list_devices(self, search: str | None = None) -> list[DeviceSnapshot]:
         """返回配置与最近一次 Collector 运行状态合并后的设备快照。"""
-        runtime_rows = self._monitoring.devices_snapshot()
-        runtime = {
-            str(row.get("device_id")): row
-            for row in runtime_rows
-            if row.get("device_id") is not None
-        }
+        runtime = {row.device_id: row for row in self._monitoring.devices_snapshot()}
         rows = [
             self._snapshot(cfg, runtime.get(cfg.device_id))
             for cfg in self._config.current_config.devices.devices
@@ -89,12 +85,11 @@ class DeviceQueryService:
         )
         if cfg is None:
             raise KeyError(device_id)
-        runtime_rows = self._monitoring.devices_snapshot()
         runtime = next(
             (
                 row
-                for row in runtime_rows
-                if str(row.get("device_id")) == device_id
+                for row in self._monitoring.devices_snapshot()
+                if row.device_id == device_id
             ),
             None,
         )
@@ -103,7 +98,7 @@ class DeviceQueryService:
     def _snapshot(
         self,
         cfg: DeviceConfig,
-        runtime: dict[str, Any] | None,
+        runtime: DeviceRuntimeSnapshot | None,
     ) -> DeviceSnapshot:
         port_override, extension_overrides = self._connection_overrides(cfg)
         return DeviceSnapshot(
@@ -119,17 +114,11 @@ class DeviceQueryService:
             port_override=port_override,
             extension_overrides=extension_overrides,
             enabled=cfg.enabled,
-            connected=bool(runtime.get("connected")) if runtime is not None else False,
+            connected=runtime.connected if runtime is not None else False,
             consecutive_failures=(
-                int(runtime.get("consecutive_failures") or 0)
-                if runtime is not None
-                else 0
+                runtime.consecutive_failures if runtime is not None else 0
             ),
-            last_error=(
-                str(runtime.get("last_error"))
-                if runtime is not None and runtime.get("last_error")
-                else None
-            ),
+            last_error=runtime.last_error if runtime is not None else None,
         )
 
     def _connection_overrides(

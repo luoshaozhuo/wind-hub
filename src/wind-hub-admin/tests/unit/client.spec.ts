@@ -1,81 +1,79 @@
 // client.ts 单元测试：统一错误信封解析与网络错误语义。
 // 后端契约：失败响应为 {"error": {"code","message","details"}}——前端必须
 // 按信封提取稳定 code（错误分派依据），不得退化成裸 HTTP 状态文本。
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { api, ApiError, jsonBody } from '../../src/api/client'
+import { ApiError, call, normalizeApiError } from '../../src/api/client'
 
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
+describe('normalizeApiError', () => {
+  it('解析统一错误包络并保留 code/details', () => {
+    const error = normalizeApiError(
+      {
+        error: { code: 'DEVICE_NOT_FOUND', message: 'device missing', details: { id: 'wtg-001' } },
+      },
+      404,
+    )
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(404)
+    expect(error.code).toBe('DEVICE_NOT_FOUND')
+    expect(error.message).toBe('device missing')
+    expect(error.details).toEqual({ id: 'wtg-001' })
   })
-}
 
-afterEach(() => {
-  vi.unstubAllGlobals()
+  it('FastAPI detail 对象兜底', () => {
+    const error = normalizeApiError(
+      { detail: { code: 'VALIDATION_FAILED', message: 'bad payload' } },
+      422,
+    )
+    expect(error.code).toBe('VALIDATION_FAILED')
+    expect(error.message).toBe('bad payload')
+    expect(error.status).toBe(422)
+  })
+
+  it('FastAPI detail 字符串兜底', () => {
+    const error = normalizeApiError({ detail: 'Not Found' }, 404)
+    expect(error.message).toBe('Not Found')
+    expect(error.status).toBe(404)
+  })
+
+  it('Error 实例归为 NETWORK_ERROR 且 status 0', () => {
+    const error = normalizeApiError(new TypeError('fetch failed'), 0)
+    expect(error.code).toBe('NETWORK_ERROR')
+    expect(error.status).toBe(0)
+    expect(error.message).toBe('fetch failed')
+  })
+
+  it('已是 ApiError 时原样返回', () => {
+    const original = new ApiError('boom', 500, 'X')
+    expect(normalizeApiError(original, 200)).toBe(original)
+  })
+
+  it('未知值兜底为 HTTP_ERROR', () => {
+    const error = normalizeApiError('weird', 500)
+    expect(error.code).toBe('HTTP_ERROR')
+    expect(error.message).toBe('weird')
+  })
 })
 
-describe('api 成功路径', () => {
-  it('2xx 返回解析后的 JSON 体', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { ok: 1 })))
-    await expect(api<{ ok: number }>('/x')).resolves.toEqual({ ok: 1 })
+describe('call', () => {
+  it('成功时解包 data', async () => {
+    await expect(
+      call(Promise.resolve({ data: { ok: 1 }, response: new Response(null, { status: 200 }) })),
+    ).resolves.toEqual({ ok: 1 })
   })
 
-  it('204 返回 undefined', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
-    await expect(api('/x')).resolves.toBeUndefined()
-  })
-
-  it('带 body 的请求自动设置 JSON Content-Type', async () => {
-    const spy = vi.fn(async () => jsonResponse(200, {}))
-    vi.stubGlobal('fetch', spy)
-    await api('/x', { method: 'POST', body: jsonBody({ a: 1 }) })
-    const headers = new Headers((spy.mock.calls[0][1] as RequestInit).headers)
-    expect(headers.get('Content-Type')).toBe('application/json')
-  })
-})
-
-describe('api 错误信封', () => {
-  it('按统一信封提取 code/message/details', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        jsonResponse(503, {
-          error: { code: 'PROTOCOL_ERROR', message: 'device unreachable', details: { device: 'd1' } },
-        }),
-      ),
-    )
-    const err = await api('/x').catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(ApiError)
-    const apiErr = err as ApiError
-    expect(apiErr.status).toBe(503)
-    expect(apiErr.code).toBe('PROTOCOL_ERROR')
-    expect(apiErr.message).toBe('device unreachable')
-    expect(apiErr.details).toEqual({ device: 'd1' })
-  })
-
-  it('非 JSON 错误响应退化为 HTTP 状态文本', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('Bad Gateway', { status: 502, statusText: 'Bad Gateway' })),
-    )
-    const err = (await api('/x').catch((e: unknown) => e)) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.status).toBe(502)
-    expect(err.code).toBe('HTTP_ERROR')
-  })
-
-  it('fetch 抛异常映射为 NETWORK_ERROR（status 0）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw new TypeError('Failed to fetch')
+  it('业务错误按响应状态归一化抛出', async () => {
+    const promise = call(
+      Promise.resolve({
+        error: { error: { code: 'TASK_RUNNING', message: 'task is running' } },
+        response: new Response(null, { status: 409 }),
       }),
     )
-    const err = (await api('/x').catch((e: unknown) => e)) as ApiError
-    expect(err).toBeInstanceOf(ApiError)
-    expect(err.status).toBe(0)
-    expect(err.code).toBe('NETWORK_ERROR')
+    await expect(promise).rejects.toMatchObject({ status: 409, code: 'TASK_RUNNING' })
+  })
+
+  it('网络层 reject 归为 status 0 NETWORK_ERROR', async () => {
+    const promise = call(Promise.reject(new TypeError('connection refused')))
+    await expect(promise).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
   })
 })
