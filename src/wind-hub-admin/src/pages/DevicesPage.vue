@@ -5,11 +5,20 @@ import { useEventListener, useIntervalFn } from '@vueuse/core'
 import { useQuery } from '@tanstack/vue-query'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceMetadataManager from '../components/DeviceMetadataManager.vue'
+import ProtocolConnectionFields from '../components/devices/ProtocolConnectionFields.vue'
 import { useViewport } from '../composables/useViewport'
 import { protocolRead } from '../api/diagnostics'
 import { fetchAllDeviceData, fetchDeviceTrend, sendDeviceCommand } from '../api/devices'
 import { queryClient } from '../api/queryClient'
 import { qk } from '../api/queryKeys'
+import {
+  amsNetIdFromHost,
+  applyModelDefaults,
+  connectionOverridesFromForm,
+  defaultConnectionForm,
+  formFromConnection,
+  validateConnectionForm,
+} from '../domain/deviceConnection'
 import {
   deviceConnectionOverrides,
   effectiveConnection,
@@ -21,7 +30,13 @@ import {
 import { pointsOfTable } from '../domain/points'
 import { refreshTaskValidity } from '../domain/tasks'
 import { useConfigStore } from '../stores/config'
-import type { DeviceInst, DeviceVerification, PointDef, VerifyStepState } from '../domain/types'
+import type {
+  DeviceInst,
+  DeviceVerification,
+  PointDef,
+  Protocol,
+  VerifyStepState,
+} from '../domain/types'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { EMPTY, formatTimestamp } from '../utils/format'
 import { statusTagType } from '../utils/status'
@@ -413,22 +428,8 @@ const newDev = ref({
   group: 'turbine_modbus',
   model: 'modbus_wtg',
   host: '',
-  port: 502,
   enabled: true,
-  target_net_id: '',
-  twincat_version: '2',
-  timeout: 3,
-  unit_id: 1,
-  mode: 'tcp',
-  word_order: 'little_endian',
-  iec_common_addr: 1,
-  iec_k: 12,
-  iec_w: 8,
-  iec_t0: 30,
-  iec_t1: 15,
-  iec_t2: 10,
-  iec_t3: 20,
-  iec_max_reconnect_retries: 5,
+  connection: defaultConnectionForm('modbus'),
 })
 
 const newDevModel = computed(() =>
@@ -439,30 +440,8 @@ function applyNewModelDefaults() {
   const model = newDevModel.value
   if (!model) return
 
-  const defaults = model.connection_defaults || {}
   newDev.value.type = model.device_type
-  newDev.value.port = Number(
-    defaults.port || (model.protocol === 'ads' ? 801 : model.protocol === 'iec104' ? 2404 : 502),
-  )
-  newDev.value.timeout = Number(defaults.timeout || 3)
-
-  if (model.protocol === 'ads') {
-    newDev.value.twincat_version = String(defaults.twincat_version || '2')
-    if (newDev.value.host) newDev.value.target_net_id = `${newDev.value.host}.1.1`
-  } else if (model.protocol === 'modbus') {
-    newDev.value.unit_id = Number(defaults.unit_id || 1)
-    newDev.value.mode = String(defaults.mode || 'tcp')
-    newDev.value.word_order = String(defaults.word_order || 'little_endian')
-  } else if (model.protocol === 'iec104') {
-    newDev.value.iec_common_addr = Number(defaults.common_addr ?? 1)
-    newDev.value.iec_k = Number(defaults.k ?? 12)
-    newDev.value.iec_w = Number(defaults.w ?? 8)
-    newDev.value.iec_t0 = Number(defaults.t0 ?? 30)
-    newDev.value.iec_t1 = Number(defaults.t1 ?? 15)
-    newDev.value.iec_t2 = Number(defaults.t2 ?? 10)
-    newDev.value.iec_t3 = Number(defaults.t3 ?? 20)
-    newDev.value.iec_max_reconnect_retries = Number(defaults.max_reconnect_retries ?? 5)
-  }
+  applyModelDefaults(newDev.value.connection, model, newDev.value.host)
 
   const validGroup = configStore.deviceGroups.some(
     (g) => g.id === newDev.value.group && g.device_type === model.device_type,
@@ -491,7 +470,7 @@ function onNewModel() {
 
 function onNewHostChange() {
   if (newDevModel.value?.protocol === 'ads' && newDev.value.host.trim()) {
-    newDev.value.target_net_id = `${newDev.value.host.trim()}.1.1`
+    newDev.value.connection.target_net_id = amsNetIdFromHost(newDev.value.host)
   }
 }
 
@@ -503,22 +482,8 @@ function openAdd() {
     group: 'turbine_modbus',
     model: 'modbus_wtg',
     host: '',
-    port: 502,
     enabled: true,
-    target_net_id: '',
-    twincat_version: '2',
-    timeout: 3,
-    unit_id: 1,
-    mode: 'tcp',
-    word_order: 'little_endian',
-    iec_common_addr: 1,
-    iec_k: 12,
-    iec_w: 8,
-    iec_t0: 30,
-    iec_t1: 15,
-    iec_t2: 10,
-    iec_t3: 20,
-    iec_max_reconnect_retries: 5,
+    connection: defaultConnectionForm('modbus'),
   }
   applyNewModelDefaults()
   addOpen.value = true
@@ -550,38 +515,12 @@ function addDevice() {
     return
   }
 
-  const defaults = model.connection_defaults || {}
-  const extensions: Record<string, unknown> = {}
-  let port: number | undefined
-  const setOverride = (key: string, value: unknown) => {
-    if (defaults[key] !== value) extensions[key] = value
+  const connError = validateConnectionForm(newDev.value.connection, model.protocol)
+  if (connError) {
+    ElMessage.error(connError)
+    return
   }
-  if (Number(defaults.port || 0) !== Number(newDev.value.port || 0))
-    port = newDev.value.port || undefined
-
-  if (model.protocol === 'ads') {
-    if (!newDev.value.target_net_id.trim()) {
-      ElMessage.error('Target AMS Net ID is required for ADS')
-      return
-    }
-    extensions.target_net_id = newDev.value.target_net_id.trim()
-    setOverride('twincat_version', newDev.value.twincat_version)
-    setOverride('timeout', newDev.value.timeout)
-  } else if (model.protocol === 'modbus') {
-    setOverride('unit_id', newDev.value.unit_id)
-    setOverride('mode', newDev.value.mode)
-    setOverride('timeout', newDev.value.timeout)
-    setOverride('word_order', newDev.value.word_order)
-  } else {
-    setOverride('common_addr', newDev.value.iec_common_addr)
-    setOverride('k', newDev.value.iec_k)
-    setOverride('w', newDev.value.iec_w)
-    setOverride('t0', newDev.value.iec_t0)
-    setOverride('t1', newDev.value.iec_t1)
-    setOverride('t2', newDev.value.iec_t2)
-    setOverride('t3', newDev.value.iec_t3)
-    setOverride('max_reconnect_retries', newDev.value.iec_max_reconnect_retries)
-  }
+  const { extensions, port } = connectionOverridesFromForm(newDev.value.connection, model)
 
   configStore.mutate(() => {
     configStore.devices.push({
@@ -607,26 +546,12 @@ const editForm = ref({
   model: '',
   manufacturer: '',
   hardware_model: '',
-  protocol: 'modbus',
+  protocol: 'modbus' as Protocol,
   point_table: '',
   read_mode: '',
   device_group: '',
   host: '',
-  port: 0,
-  target_net_id: '',
-  twincat_version: '2',
-  timeout: 3,
-  unit_id: 1,
-  mode: 'tcp',
-  word_order: 'little_endian',
-  common_addr: 1,
-  k: 12,
-  w: 8,
-  t0: 30,
-  t1: 15,
-  t2: 10,
-  t3: 20,
-  max_reconnect_retries: 5,
+  connection: defaultConnectionForm('modbus'),
 })
 const deviceFormState = computed(() => JSON.stringify(editForm.value))
 const deviceDirty = computed(
@@ -674,34 +599,20 @@ async function closeDeviceDrawer() {
 
 function loadEditForm() {
   if (!selected.value) return
-  const conn = mergedConnection(selected.value)
   const model = modelOf(configStore, selected.value)
+  const protocol = model?.protocol || 'modbus'
   editForm.value = {
     device_id: selected.value.device_id,
     device_type: model?.device_type || '',
     model: selected.value.model,
     manufacturer: model?.manufacturer || '',
     hardware_model: model?.model || '',
-    protocol: model?.protocol || 'modbus',
+    protocol,
     point_table: model?.point_table || '',
     read_mode: model?.read_mode || '',
     device_group: selected.value.device_group,
     host: selected.value.host,
-    port: Number(conn.port || selected.value.port || 0),
-    target_net_id: String(conn.target_net_id || ''),
-    twincat_version: String(conn.twincat_version || '2'),
-    timeout: Number(conn.timeout || 3),
-    unit_id: Number(conn.unit_id || 1),
-    mode: String(conn.mode || 'tcp'),
-    word_order: String(conn.word_order || 'little_endian'),
-    common_addr: Number(conn.common_addr ?? 1),
-    k: Number(conn.k ?? 12),
-    w: Number(conn.w ?? 8),
-    t0: Number(conn.t0 ?? 30),
-    t1: Number(conn.t1 ?? 15),
-    t2: Number(conn.t2 ?? 10),
-    t3: Number(conn.t3 ?? 20),
-    max_reconnect_retries: Number(conn.max_reconnect_retries ?? 5),
+    connection: formFromConnection(protocol, mergedConnection(selected.value)),
   }
   deviceSnapshot.value = JSON.stringify(editForm.value)
 }
@@ -725,30 +636,7 @@ function onEditModelChange() {
       configStore.deviceGroups.find((g) => g.device_type === model.device_type)?.id || ''
   }
 
-  const defaults = model.connection_defaults || {}
-  editForm.value.port = Number(defaults.port || editForm.value.port || 0)
-
-  if (model.protocol === 'ads') {
-    editForm.value.twincat_version = String(defaults.twincat_version || '2')
-    editForm.value.timeout = Number(defaults.timeout || 3)
-    if (!editForm.value.target_net_id && editForm.value.host) {
-      editForm.value.target_net_id = `${editForm.value.host}.1.1`
-    }
-  } else if (model.protocol === 'modbus') {
-    editForm.value.unit_id = Number(defaults.unit_id || 1)
-    editForm.value.mode = String(defaults.mode || 'tcp')
-    editForm.value.timeout = Number(defaults.timeout || 3)
-    editForm.value.word_order = String(defaults.word_order || 'little_endian')
-  } else if (model.protocol === 'iec104') {
-    editForm.value.common_addr = Number(defaults.common_addr ?? 1)
-    editForm.value.k = Number(defaults.k ?? 12)
-    editForm.value.w = Number(defaults.w ?? 8)
-    editForm.value.t0 = Number(defaults.t0 ?? 30)
-    editForm.value.t1 = Number(defaults.t1 ?? 15)
-    editForm.value.t2 = Number(defaults.t2 ?? 10)
-    editForm.value.t3 = Number(defaults.t3 ?? 20)
-    editForm.value.max_reconnect_retries = Number(defaults.max_reconnect_retries ?? 5)
-  }
+  applyModelDefaults(editForm.value.connection, model, editForm.value.host)
 }
 
 function affectedTasksForDevice(d: DeviceInst, nextGroup = d.device_group) {
@@ -816,34 +704,7 @@ async function saveConfig() {
     return
   }
 
-  const defaults = model.connection_defaults || {}
-  const extensions: Record<string, unknown> = {}
-  let port: number | undefined
-  const setOverride = (key: string, value: unknown) => {
-    if (defaults[key] !== value) extensions[key] = value
-  }
-  if (Number(defaults.port || 0) !== Number(editForm.value.port || 0))
-    port = editForm.value.port || undefined
-
-  if (model.protocol === 'ads') {
-    extensions.target_net_id = editForm.value.target_net_id.trim()
-    setOverride('twincat_version', editForm.value.twincat_version)
-    setOverride('timeout', editForm.value.timeout)
-  } else if (model.protocol === 'modbus') {
-    setOverride('unit_id', editForm.value.unit_id)
-    setOverride('mode', editForm.value.mode)
-    setOverride('timeout', editForm.value.timeout)
-    setOverride('word_order', editForm.value.word_order)
-  } else {
-    setOverride('common_addr', editForm.value.common_addr)
-    setOverride('k', editForm.value.k)
-    setOverride('w', editForm.value.w)
-    setOverride('t0', editForm.value.t0)
-    setOverride('t1', editForm.value.t1)
-    setOverride('t2', editForm.value.t2)
-    setOverride('t3', editForm.value.t3)
-    setOverride('max_reconnect_retries', editForm.value.max_reconnect_retries)
-  }
+  const { extensions, port } = connectionOverridesFromForm(editForm.value.connection, model)
 
   const modelChanged = device.model !== model.id
   const groupChanged = device.device_group !== editForm.value.device_group
@@ -1715,7 +1576,7 @@ async function sendCommand() {
               /></el-form-item>
               <el-form-item label="Port"
                 ><el-input-number
-                  v-model="newDev.port"
+                  v-model="newDev.connection.port"
                   :min="1"
                   :max="65535"
                   class="app-full-width"
@@ -1723,85 +1584,12 @@ async function sendCommand() {
               <el-form-item label="Enabled"><el-switch v-model="newDev.enabled" /></el-form-item>
             </div>
 
-            <div v-if="newDevModel?.protocol === 'ads'" class="form-grid add-device-grid">
-              <el-form-item label="Target AMS Net ID"
-                ><el-input v-model="newDev.target_net_id"
-              /></el-form-item>
-              <el-form-item label="TwinCAT Version"
-                ><el-select
-                  v-model="newDev.twincat_version"
-                  class="app-full-width"
-                  @change="newDev.port = $event === '3' ? 851 : 801"
-                  ><el-option label="TwinCAT 2" value="2" /><el-option
-                    label="TwinCAT 3"
-                    value="3" /></el-select
-              ></el-form-item>
-              <el-form-item label="Timeout (s)"
-                ><el-input-number
-                  v-model="newDev.timeout"
-                  :min="0.1"
-                  :step="0.5"
-                  class="app-full-width"
-              /></el-form-item>
-            </div>
-            <div v-else-if="newDevModel?.protocol === 'modbus'" class="form-grid add-device-grid">
-              <el-form-item label="Unit ID"
-                ><el-input-number
-                  v-model="newDev.unit_id"
-                  :min="0"
-                  :max="255"
-                  class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="Mode"
-                ><el-select v-model="newDev.mode" class="app-full-width"
-                  ><el-option label="TCP" value="tcp" /></el-select
-              ></el-form-item>
-              <el-form-item label="Timeout (s)"
-                ><el-input-number
-                  v-model="newDev.timeout"
-                  :min="0.1"
-                  :step="0.5"
-                  class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="Word Order"
-                ><el-select v-model="newDev.word_order" class="app-full-width"
-                  ><el-option label="little_endian" value="little_endian" /><el-option
-                    label="big_endian"
-                    value="big_endian" /></el-select
-              ></el-form-item>
-            </div>
-            <div v-else class="form-grid add-device-grid">
-              <el-form-item label="Common Address"
-                ><el-input-number
-                  v-model="newDev.iec_common_addr"
-                  :min="1"
-                  :max="65535"
-                  class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="K Window"
-                ><el-input-number v-model="newDev.iec_k" :min="1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="W Window"
-                ><el-input-number v-model="newDev.iec_w" :min="1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="T0 (s)"
-                ><el-input-number v-model="newDev.iec_t0" :min="0.1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="T1 (s)"
-                ><el-input-number v-model="newDev.iec_t1" :min="0.1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="T2 (s)"
-                ><el-input-number v-model="newDev.iec_t2" :min="0.1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="T3 (s)"
-                ><el-input-number v-model="newDev.iec_t3" :min="0.1" class="app-full-width"
-              /></el-form-item>
-              <el-form-item label="Max Reconnect Retries"
-                ><el-input-number
-                  v-model="newDev.iec_max_reconnect_retries"
-                  :min="0"
-                  class="app-full-width"
-              /></el-form-item>
+            <div v-if="newDevModel" class="form-grid add-device-grid">
+              <ProtocolConnectionFields
+                v-model="newDev.connection"
+                :protocol="newDevModel.protocol"
+                show-target-net-id
+              />
             </div>
           </el-form>
         </el-tab-pane>
@@ -2022,7 +1810,7 @@ async function sendCommand() {
                       ><el-input v-model="editForm.host"
                     /></el-form-item>
                     <el-form-item v-if="editForm.protocol === 'ads'" label="Target AMS Net ID"
-                      ><el-input v-model="editForm.target_net_id"
+                      ><el-input v-model="editForm.connection.target_net_id"
                     /></el-form-item>
                   </div>
 
@@ -2030,90 +1818,16 @@ async function sendCommand() {
                   <div class="form-grid config-edit-grid">
                     <el-form-item label="Port"
                       ><el-input-number
-                        v-model="editForm.port"
+                        v-model="editForm.connection.port"
                         :min="1"
                         :max="65535"
                         class="app-full-width"
                     /></el-form-item>
-                    <template v-if="editForm.protocol === 'ads'">
-                      <el-form-item label="TwinCAT Version"
-                        ><el-select
-                          v-model="editForm.twincat_version"
-                          class="app-full-width"
-                          @change="editForm.port = $event === '3' ? 851 : 801"
-                          ><el-option label="TwinCAT 2" value="2" /><el-option
-                            label="TwinCAT 3"
-                            value="3" /></el-select
-                      ></el-form-item>
-                      <el-form-item label="Timeout (s)"
-                        ><el-input-number
-                          v-model="editForm.timeout"
-                          :min="0.1"
-                          :step="0.5"
-                          class="app-full-width"
-                      /></el-form-item>
-                    </template>
-                    <template v-else-if="editForm.protocol === 'modbus'">
-                      <el-form-item label="Unit ID"
-                        ><el-input-number
-                          v-model="editForm.unit_id"
-                          :min="0"
-                          :max="255"
-                          class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="Mode"
-                        ><el-select v-model="editForm.mode" class="app-full-width"
-                          ><el-option label="TCP" value="tcp" /><el-option
-                            label="RTU"
-                            value="rtu" /></el-select
-                      ></el-form-item>
-                      <el-form-item label="Timeout (s)"
-                        ><el-input-number
-                          v-model="editForm.timeout"
-                          :min="0.1"
-                          :step="0.5"
-                          class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="Word Order"
-                        ><el-select v-model="editForm.word_order" class="app-full-width"
-                          ><el-option label="Little endian" value="little_endian" /><el-option
-                            label="Big endian"
-                            value="big_endian" /></el-select
-                      ></el-form-item>
-                    </template>
-                    <template v-else-if="editForm.protocol === 'iec104'">
-                      <el-form-item label="Common Address"
-                        ><el-input-number
-                          v-model="editForm.common_addr"
-                          :min="1"
-                          :max="65535"
-                          class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="K Window"
-                        ><el-input-number v-model="editForm.k" :min="1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="W Window"
-                        ><el-input-number v-model="editForm.w" :min="1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="T0 (s)"
-                        ><el-input-number v-model="editForm.t0" :min="0.1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="T1 (s)"
-                        ><el-input-number v-model="editForm.t1" :min="0.1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="T2 (s)"
-                        ><el-input-number v-model="editForm.t2" :min="0.1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="T3 (s)"
-                        ><el-input-number v-model="editForm.t3" :min="0.1" class="app-full-width"
-                      /></el-form-item>
-                      <el-form-item label="Max Reconnect Retries"
-                        ><el-input-number
-                          v-model="editForm.max_reconnect_retries"
-                          :min="0"
-                          class="app-full-width"
-                      /></el-form-item>
-                    </template>
+                    <ProtocolConnectionFields
+                      v-model="editForm.connection"
+                      :protocol="editForm.protocol"
+                      :modbus-modes="['tcp', 'rtu']"
+                    />
                   </div>
 
                   <el-alert

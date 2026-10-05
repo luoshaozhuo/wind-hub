@@ -5,6 +5,13 @@ const props = withDefaults(defineProps<{ dropdownItem?: boolean }>(), {
   dropdownItem: false,
 })
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ProtocolConnectionFields from './devices/ProtocolConnectionFields.vue'
+import {
+  connectionDefaultsFromForm,
+  defaultConnectionForm,
+  formFromModelDefaults,
+  resetFormForProtocol,
+} from '../domain/deviceConnection'
 import { resetDeviceConnectionOverrides } from '../domain/devices'
 import { devicesForTask, refreshTaskValidity } from '../domain/tasks'
 import { useConfigStore } from '../stores/config'
@@ -31,22 +38,7 @@ const form = reactive({
   protocol: 'modbus' as Protocol,
   point_table: '',
   read_mode: 'sum',
-  port: 502,
-  timeout: 3,
-  unit_id: 1,
-  mode: 'tcp',
-  word_order: 'little_endian',
-  twincat_version: '2',
-  reconnect_max_retries: 5,
-  reconnect_backoff_max: 30,
-  common_addr: 1,
-  k: 12,
-  w: 8,
-  t0: 30,
-  t1: 15,
-  t2: 10,
-  t3: 20,
-  max_reconnect_retries: 5,
+  connection: defaultConnectionForm('modbus'),
 })
 
 const metadataDirty = computed(
@@ -104,22 +96,7 @@ function resetForm() {
   form.protocol = 'modbus'
   form.point_table = configStore.pointTables.find((t) => t.protocol === 'modbus')?.id || ''
   form.read_mode = 'sum'
-  form.port = 502
-  form.timeout = 3
-  form.unit_id = 1
-  form.mode = 'tcp'
-  form.word_order = 'little_endian'
-  form.twincat_version = '2'
-  form.reconnect_max_retries = 5
-  form.reconnect_backoff_max = 30
-  form.common_addr = 1
-  form.k = 12
-  form.w = 8
-  form.t0 = 30
-  form.t1 = 15
-  form.t2 = 10
-  form.t3 = 20
-  form.max_reconnect_retries = 5
+  form.connection = defaultConnectionForm('modbus')
 }
 
 function openManager() {
@@ -160,25 +137,7 @@ function openEditModel(row: DeviceModelDef) {
   form.protocol = row.protocol
   form.point_table = row.point_table
   form.read_mode = row.read_mode || 'sum'
-  const c = row.connection_defaults || {}
-  form.port = Number(
-    c.port ?? (row.protocol === 'iec104' ? 2404 : row.protocol === 'ads' ? 801 : 502),
-  )
-  form.timeout = Number(c.timeout ?? 3)
-  form.unit_id = Number(c.unit_id ?? 1)
-  form.mode = String(c.mode ?? 'tcp')
-  form.word_order = String(c.word_order ?? 'little_endian')
-  form.twincat_version = String(c.twincat_version ?? '2')
-  form.reconnect_max_retries = Number(c.reconnect_max_retries ?? 5)
-  form.reconnect_backoff_max = Number(c.reconnect_backoff_max ?? 30)
-  form.common_addr = Number(c.common_addr ?? 1)
-  form.k = Number(c.k ?? 12)
-  form.w = Number(c.w ?? 8)
-  form.t0 = Number(c.t0 ?? 30)
-  form.t1 = Number(c.t1 ?? 15)
-  form.t2 = Number(c.t2 ?? 10)
-  form.t3 = Number(c.t3 ?? 20)
-  form.max_reconnect_retries = Number(c.max_reconnect_retries ?? 5)
+  form.connection = formFromModelDefaults(row)
   metadataSnapshot.value = JSON.stringify(form)
 }
 
@@ -200,14 +159,7 @@ function openEditGroup(row: { id: string; device_type: string }) {
 
 function onProtocolChange() {
   form.point_table = configStore.pointTables.find((t) => t.protocol === form.protocol)?.id || ''
-  if (form.protocol === 'ads') {
-    form.port = 801
-    form.twincat_version = '2'
-  } else if (form.protocol === 'iec104') {
-    form.port = 2404
-  } else {
-    form.port = 502
-  }
+  resetFormForProtocol(form.connection, form.protocol)
 }
 
 function ensureId(id: string, exists: boolean, label: string) {
@@ -223,37 +175,7 @@ function ensureId(id: string, exists: boolean, label: string) {
 }
 
 function connectionDefaults(): Record<string, unknown> {
-  if (form.protocol === 'ads') {
-    return {
-      port: form.port,
-      timeout: form.timeout,
-      twincat_version: form.twincat_version,
-      reconnect_max_retries: form.reconnect_max_retries,
-      reconnect_backoff_max: form.reconnect_backoff_max,
-    }
-  }
-  if (form.protocol === 'modbus') {
-    return {
-      port: form.port,
-      timeout: form.timeout,
-      unit_id: form.unit_id,
-      mode: form.mode,
-      word_order: form.word_order,
-      reconnect_max_retries: form.reconnect_max_retries,
-      reconnect_backoff_max: form.reconnect_backoff_max,
-    }
-  }
-  return {
-    port: form.port,
-    common_addr: form.common_addr,
-    k: form.k,
-    w: form.w,
-    t0: form.t0,
-    t1: form.t1,
-    t2: form.t2,
-    t3: form.t3,
-    max_reconnect_retries: form.max_reconnect_retries,
-  }
+  return connectionDefaultsFromForm(form.connection, form.protocol)
 }
 
 async function saveModel() {
@@ -746,80 +668,18 @@ async function deleteGroup(row: { id: string }) {
             <el-divider content-position="left">Connection Defaults</el-divider>
             <div class="metadata-form-grid">
               <el-form-item label="Port"
-                ><el-input-number v-model="form.port" :min="1" :max="65535" :controls="false"
+                ><el-input-number
+                  v-model="form.connection.port"
+                  :min="1"
+                  :max="65535"
+                  :controls="false"
               /></el-form-item>
-              <template v-if="form.protocol === 'ads'">
-                <el-form-item label="TwinCAT Version"
-                  ><el-select
-                    v-model="form.twincat_version"
-                    @change="form.port = $event === '3' ? 851 : 801"
-                    ><el-option label="TwinCAT 2" value="2" /><el-option
-                      label="TwinCAT 3"
-                      value="3" /></el-select
-                ></el-form-item>
-                <el-form-item label="Timeout (s)"
-                  ><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Reconnect Max Retries"
-                  ><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Reconnect Backoff Max (s)"
-                  ><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false"
-                /></el-form-item>
-              </template>
-              <template v-else-if="form.protocol === 'modbus'">
-                <el-form-item label="Unit ID"
-                  ><el-input-number v-model="form.unit_id" :min="0" :max="255" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Mode"
-                  ><el-select v-model="form.mode"><el-option label="TCP" value="tcp" /></el-select
-                ></el-form-item>
-                <el-form-item label="Timeout (s)"
-                  ><el-input-number v-model="form.timeout" :min="0.1" :step="0.5" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Word Order"
-                  ><el-select v-model="form.word_order"
-                    ><el-option label="little_endian" value="little_endian" /><el-option
-                      label="big_endian"
-                      value="big_endian" /></el-select
-                ></el-form-item>
-                <el-form-item label="Reconnect Max Retries"
-                  ><el-input-number v-model="form.reconnect_max_retries" :min="0" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Reconnect Backoff Max (s)"
-                  ><el-input-number v-model="form.reconnect_backoff_max" :min="0" :controls="false"
-                /></el-form-item>
-              </template>
-              <template v-else>
-                <el-form-item label="Common Address"
-                  ><el-input-number
-                    v-model="form.common_addr"
-                    :min="1"
-                    :max="65535"
-                    :controls="false"
-                /></el-form-item>
-                <el-form-item label="K Window"
-                  ><el-input-number v-model="form.k" :min="1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="W Window"
-                  ><el-input-number v-model="form.w" :min="1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="T0 (s)"
-                  ><el-input-number v-model="form.t0" :min="0.1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="T1 (s)"
-                  ><el-input-number v-model="form.t1" :min="0.1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="T2 (s)"
-                  ><el-input-number v-model="form.t2" :min="0.1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="T3 (s)"
-                  ><el-input-number v-model="form.t3" :min="0.1" :controls="false"
-                /></el-form-item>
-                <el-form-item label="Max Reconnect Retries"
-                  ><el-input-number v-model="form.max_reconnect_retries" :min="0" :controls="false"
-                /></el-form-item>
-              </template>
+              <ProtocolConnectionFields
+                v-model="form.connection"
+                :protocol="form.protocol"
+                show-reconnect
+                :controls="false"
+              />
             </div>
           </template>
           <template v-else-if="section === 'type'">
