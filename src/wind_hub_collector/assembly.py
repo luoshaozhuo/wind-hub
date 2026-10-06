@@ -81,7 +81,7 @@ def assemble(
         start_runtime 阶段发生。
     """
     cfg = load_config(config_dir)
-    protocols = build_protocol_registry()
+    protocol_registry = build_protocol_registry()
     sinks_registry = build_sink_registry()
     make_sink = sink_factory or sinks_registry.create
 
@@ -90,7 +90,7 @@ def assemble(
         devices[device_cfg.device_id] = create_device_session(
             device_cfg,
             cfg.points_for_device(device_cfg.device_id),
-            protocols,
+            protocol_registry,
             session_type=CollectorDeviceSession,
         )
 
@@ -108,7 +108,7 @@ def assemble(
         engine=engine,
         config=cfg.system.runtime,
         tasks={task.task_id: task for task in cfg.tasks.tasks},
-        protocol_factory=protocols.create_for,
+        protocol_factory=protocol_registry.create_for,
         sink_factory=make_sink,
         metrics_hook=metrics_state,
     )
@@ -129,20 +129,20 @@ def assemble(
     )
 
 
-async def start_runtime(rt: CollectorApp) -> None:
+async def start_runtime(app: CollectorApp) -> None:
     """启动 CollectorRuntime。"""
-    await _maybe_init_ads_local(rt)
-    await rt.runtime.start()
+    await _maybe_init_ads_local(app)
+    await app.runtime.start()
 
 
-async def _maybe_init_ads_local(rt: CollectorApp) -> None:
+async def _maybe_init_ads_local(app: CollectorApp) -> None:
     """存在 ADS 设备时执行一次进程级本机 AMS 初始化。"""
-    ads_cfg = rt.boot_config.system.ads
+    ads_cfg = app.boot_config.system.ads
     if ads_cfg is None:
         return
     if not any(
         device.protocol == "ads"
-        for device in rt.boot_config.devices.devices
+        for device in app.boot_config.devices.devices
     ):
         return
 
@@ -158,8 +158,8 @@ async def _maybe_init_ads_local(rt: CollectorApp) -> None:
 
 
 async def stop_runtime(
-    rt: CollectorApp,
+    app: CollectorApp,
     timeout: float = 30.0,
 ) -> None:
     """在硬超时内优雅停止 CollectorRuntime。"""
-    await asyncio.wait_for(rt.runtime.stop(), timeout=timeout)
+    await asyncio.wait_for(app.runtime.stop(), timeout=timeout)

@@ -29,6 +29,7 @@ pyads = { version = "^3.4", optional = true }
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
+aiofiles = "^25.1.0"
 
 [tool.poetry.extras]
 ads = ["pyads"]
@@ -60,6 +61,7 @@ types-protobuf = "^7.0"
 types-PyYAML = "^6.0"
 ruff = "^0.8"
 import-linter = "^2.0"
+types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
 wind-hub-collector = "wind_hub_collector.main:main"

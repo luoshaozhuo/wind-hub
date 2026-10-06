@@ -99,8 +99,11 @@ class LogStore:
         """按级别/来源/关键字过滤，保持最新在前。"""
         level_norm = level.upper() if level else None
         keyword_norm = keyword.lower().strip() if keyword else None
+        # 锁内只取容器快照；LogEntry 仍为可变模型，深拷贝放到锁外，
+        # 避免调用方通过返回值修改内部缓存。
         with self._lock:
-            rows = [entry.model_copy(deep=True) for entry in self._entries]
+            snapshot = list(self._entries)
+        rows = [entry.model_copy(deep=True) for entry in snapshot]
         if level_norm and level_norm != "ALL":
             rows = [row for row in rows if row.level == level_norm]
         if source and source != "All":
