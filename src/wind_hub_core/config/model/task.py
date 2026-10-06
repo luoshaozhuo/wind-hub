@@ -78,7 +78,11 @@ class CollectionTaskConfig(BaseModel):
 
 
 class TasksConfig(BaseModel):
-    """tasks.yaml 顶层 Task Definition 集。"""
+    """Raw YAML root model——``tasks.yaml`` 顶层 Task Definition 集（文件级 wrapper）。
+
+    ``task_id`` 唯一性在此校验；最终 resolved ``Config.tasks`` 是扁平的
+    ``dict[task_id, CollectionTaskConfig]``，不经过本类型。
+    """
 
     model_config = ConfigDict(extra="forbid")
 

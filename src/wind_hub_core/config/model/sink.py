@@ -410,7 +410,11 @@ class ResolvedSinkConfig(SinkConfig):
 
 
 class SinksConfig(BaseModel):
-    """sinks.yaml 顶层配置。"""
+    """Raw YAML root model——``sinks.yaml`` 顶层配置（文件级 wrapper）。
+
+    Sink name 唯一性在此校验；resolve 阶段保持 name 不变，因此 resolved
+    Sink 集可直接按 name 索引为 ``dict[name, ResolvedSinkConfig]``。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -418,21 +422,6 @@ class SinksConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_unique_names(self) -> SinksConfig:
-        names = [sink.name for sink in self.sinks]
-        if len(names) != len(set(names)):
-            raise ConfigError(f"Duplicate sink names: {names}")
-        return self
-
-
-class ResolvedSinksConfig(BaseModel):
-    """完成跨文件解析后的 Sink 配置集。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    sinks: list[ResolvedSinkConfig] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def _validate_unique_names(self) -> ResolvedSinksConfig:
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
@@ -475,5 +464,4 @@ __all__ = [
     "SinkConfig",
     "ResolvedSinkConfig",
     "SinksConfig",
-    "ResolvedSinksConfig",
 ]

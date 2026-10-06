@@ -417,7 +417,7 @@ class CollectorRuntime:
         生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
         收敛到目标配置。
         """
-        target_devices = {item.device_id: item for item in target.devices.devices}
+        target_devices = target.devices
         actual_device_ids = set(self._device_runtime.devices)
         target_device_ids = set(target_devices)
         devices = DeviceDiff(
@@ -426,7 +426,7 @@ class CollectorRuntime:
             updated=sorted(target_device_ids & actual_device_ids),
         )
 
-        target_sinks = {item.name: item for item in target.sinks.sinks if item.enabled}
+        target_sinks = {name: sink for name, sink in target.sinks.items() if sink.enabled}
         actual_sink_ids = set(self._sink_runtime.sinks)
         target_sink_ids = set(target_sinks)
         sinks = SinkDiff(
@@ -435,7 +435,7 @@ class CollectorRuntime:
             updated=sorted(target_sink_ids & actual_sink_ids),
         )
 
-        target_task_ids = {item.task_id for item in target.tasks.tasks}
+        target_task_ids = set(target.tasks)
         actual_task_ids = set(self._task_runtime.task_definitions())
         tasks = TaskDiff(
             added=sorted(target_task_ids - actual_task_ids),
@@ -443,7 +443,7 @@ class CollectorRuntime:
             updated=sorted(target_task_ids & actual_task_ids),
         )
 
-        changed_tables = sorted(target.point_tables.tables)
+        changed_tables = sorted(target.point_tables)
         return ConfigDiff(
             devices=devices,
             sinks=sinks,
@@ -473,7 +473,7 @@ class CollectorRuntime:
         # 在设备配置被就地更新前记录“point_table 绑定发生变化”的订阅设备。
         # 这类变化即使两张表内容本身都未修改，也必须重新注册 notification。
         restart_subscription_devices: set[str] = set()
-        new_devices = {d.device_id: d for d in new_config.devices.devices}
+        new_devices = new_config.devices
         for did in diff.devices.updated:
             old_device = self._device_runtime.devices.get(did)
             new_device = new_devices.get(did)
@@ -493,9 +493,7 @@ class CollectorRuntime:
             errors.append(f"device: {exc}")
 
         try:
-            await self._sink_runtime.apply_diff(
-                diff.sinks, {s.name: s for s in new_config.sinks.sinks}
-            )
+            await self._sink_runtime.apply_diff(diff.sinks, new_config.sinks)
         except Exception as exc:
             logger.error("Sink diff apply failed: %s", exc, exc_info=True)
             errors.append(f"sink: {exc}")
@@ -523,7 +521,7 @@ class CollectorRuntime:
 
         try:
             await self._task_runtime.apply_definitions(
-                {t.task_id: t for t in new_config.tasks.tasks},
+                new_config.tasks,
                 restart_subscription_devices=restart_subscription_devices,
             )
         except Exception as exc:
@@ -543,7 +541,7 @@ class CollectorRuntime:
         changed_tables = set(diff.point_tables_changed)
         removed = set(diff.devices.removed)
         added = set(diff.devices.added)
-        target_devices = {d.device_id: d for d in new_config.devices.devices}
+        target_devices = new_config.devices
 
         for did, device in self._device_runtime.devices.items():
             if did in removed or did in added:
@@ -565,7 +563,7 @@ class CollectorRuntime:
         仅 ``point_table`` / ``device_group`` 变化的设备走轻量路径——就地
         更新配置、按需重注入点映射，不重建 Protocol 连接。
         """
-        new_devices = {d.device_id: d for d in new_cfg.devices.devices}
+        new_devices = new_cfg.devices
 
         lightweight: set[str] = set()
         for did in diff.devices.updated:

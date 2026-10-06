@@ -84,7 +84,7 @@ class TaskPlacementReconciler:
         }
         enabled_tasks = {
             task.task_id
-            for task in self._config.current_config.tasks.tasks
+            for task in self._config.current_config.tasks.values()
             if task.enabled
         }
         orphaned_tasks = sorted(

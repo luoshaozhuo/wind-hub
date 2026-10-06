@@ -30,7 +30,7 @@ async def test_verify_preserves_per_worker_results() -> None:
     placements = MagicMock()
     placements.worker_ids_for_sink.return_value = ["collector-a", "collector-b"]
     config = MagicMock()
-    config.current_config.sinks.sinks = [SimpleNamespace(name="archive")]
+    config.current_config.sinks = {"archive": SimpleNamespace(name="archive")}
 
     service = SinkService(
         directory,
@@ -62,14 +62,13 @@ async def test_verify_preserves_per_worker_results() -> None:
 
 
 def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
-    from wind_hub_core.config import Config, ResolvedSinkConfig, ResolvedSinksConfig
+    from wind_hub_core.config import Config, ResolvedSinkConfig
     from wind_hub_server.application.sink.service import SinkService
 
     config = MagicMock()
     config.current_config = MagicMock(spec=Config)
-    config.current_config.sinks = ResolvedSinksConfig(
-        sinks=[
-            ResolvedSinkConfig(
+    config.current_config.sinks = {
+        "modbus_scada": ResolvedSinkConfig(
                 name="modbus_scada",
                 type="modbus",
                 enabled=False,
@@ -90,8 +89,7 @@ def test_list_sinks_preserves_resolved_points_for_admin_roundtrip() -> None:
                     }
                 ],
             )
-        ]
-    )
+    }
     monitoring = MagicMock()
     monitoring.sinks_snapshot.return_value = []
     service = SinkService(

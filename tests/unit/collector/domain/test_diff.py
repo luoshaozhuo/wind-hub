@@ -16,18 +16,13 @@ from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
-    DevicesConfig,
     PointAddress,
     PointConfig,
     ResolvedPointTable,
-    ResolvedPointTables,
     ResolvedSinkConfig,
-    ResolvedSinksConfig,
     SystemConfig,
-    TasksConfig,
     TaskTarget,
     UnitConfig,
-    UnitsConfig,
 )
 from wind_hub_core.model.device import Endpoint
 
@@ -52,11 +47,11 @@ def _make_config(
 ) -> Config:
     return Config(
         system=SystemConfig(),
-        sinks=ResolvedSinksConfig(sinks=sinks or []),
-        units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
-        devices=DevicesConfig(devices=devices or []),
-        point_tables=ResolvedPointTables(tables=tables or {}),
-        tasks=TasksConfig(tasks=tasks or []),
+        sinks={s.name: s for s in sinks or []},
+        units={"none": UnitConfig(symbol="")},
+        devices={d.device_id: d for d in devices or []},
+        point_tables=tables or {},
+        tasks={t.task_id: t for t in tasks or []},
     )
 
 

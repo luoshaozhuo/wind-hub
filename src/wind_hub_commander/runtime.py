@@ -99,7 +99,7 @@ class CommanderRuntime:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
-        for device_config in config.devices.devices:
+        for device_config in config.devices.values():
             devices[device_config.device_id] = create_device_session(
                 device_config,
                 config.points_for_device(device_config.device_id),

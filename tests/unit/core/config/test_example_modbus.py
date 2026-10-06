@@ -47,7 +47,7 @@ class TestSiteConfigLoading:
         assert site_config.system.site.site_id == "example_modbus"
 
     def test_devices_all_present(self, site_config) -> None:
-        ids = {d.device_id for d in site_config.devices.devices}
+        ids = set(site_config.devices)
         assert ids == EXPECTED_DEVICE_IDS
 
     def test_devices_resolved_from_model(self, site_config) -> None:
@@ -56,7 +56,7 @@ class TestSiteConfigLoading:
         assert model.protocol == "modbus"
         assert model.point_table == "wtg_modbus_site_v1"
         assert model.device_type == "turbine"
-        for d in site_config.devices.devices:
+        for d in site_config.devices.values():
             assert d.model == "wtg_modbus_site"
             assert d.device_type == "turbine"
             assert d.protocol == "modbus"
@@ -69,9 +69,9 @@ class TestSiteConfigLoading:
             assert d.endpoint.extensions["word_order"] == "little_endian"
 
     def test_single_task(self, site_config) -> None:
-        tasks = site_config.tasks.tasks
+        tasks = site_config.tasks
         assert len(tasks) == 1
-        task = tasks[0]
+        task = tasks["turbine-modbus-all"]
         assert task.task_id == "turbine-modbus-all"
         assert task.device_group == "turbine_modbus"
         assert task.point_group == "all"
@@ -81,16 +81,16 @@ class TestSiteConfigLoading:
 
     def test_task_expands_to_all_devices(self, site_config) -> None:
         """device_group Task 展开数量 = 命中的 enabled 设备数（Runtime 语义）。"""
-        task = site_config.tasks.tasks[0]
+        task = site_config.tasks["turbine-modbus-all"]
         matched = [
             d
-            for d in site_config.devices.devices
+            for d in site_config.devices.values()
             if d.enabled and d.device_group == task.device_group
         ]
         assert len(matched) == len(EXPECTED_DEVICE_IDS)
 
     def test_all_group_has_only_8_acquisition_points(self, site_config) -> None:
-        points = site_config.point_tables.tables["wtg_modbus_site_v1"].points
+        points = site_config.point_tables["wtg_modbus_site_v1"].points
         all_group = {p.point_id for p in points if "all" in p.point_groups}
         assert all_group == ACQUISITION_POINTS
         # 控制点不得进入 all 组（否则周期任务会去读控制寄存器）
@@ -99,7 +99,7 @@ class TestSiteConfigLoading:
         assert control_group == CONTROL_POINTS
 
     def test_file_archive_sink_enabled(self, site_config) -> None:
-        sinks = {s.name: s for s in site_config.sinks.sinks}
+        sinks = site_config.sinks
         assert sinks["file_archive"].enabled is True
         assert sinks["file_archive"].connection.path == "/var/tmp/wind-hub/archive.jsonl"
         assert sinks["kafka_main"].enabled is False
@@ -113,7 +113,7 @@ class TestSitePointMapping:
     """FC04 → input；S32 → 2 registers；S16 → 1 register；scale 正确。"""
 
     def test_fc04_points_parse_as_input(self, site_config) -> None:
-        points = site_config.point_tables.tables["wtg_modbus_site_v1"].points
+        points = site_config.point_tables["wtg_modbus_site_v1"].points
         for p in points:
             if p.point_id not in ACQUISITION_POINTS:
                 continue
@@ -121,7 +121,7 @@ class TestSitePointMapping:
             assert mp.register_type == "input", p.point_id
 
     def test_control_points_parse_as_holding(self, site_config) -> None:
-        points = site_config.point_tables.tables["wtg_modbus_site_v1"].points
+        points = site_config.point_tables["wtg_modbus_site_v1"].points
         for p in points:
             if p.point_id not in CONTROL_POINTS:
                 continue
@@ -129,7 +129,7 @@ class TestSitePointMapping:
             assert mp.register_type == "holding", p.point_id
 
     def test_int32_occupies_2_registers(self, site_config) -> None:
-        points = site_config.point_tables.tables["wtg_modbus_site_v1"].points
+        points = site_config.point_tables["wtg_modbus_site_v1"].points
         for p in points:
             mp = parse_point(p)
             if p.data_type == "int32":
@@ -139,7 +139,7 @@ class TestSitePointMapping:
 
     def test_scales(self, site_config) -> None:
         points = {
-            p.point_id: p for p in site_config.point_tables.tables["wtg_modbus_site_v1"].points
+            p.point_id: p for p in site_config.point_tables["wtg_modbus_site_v1"].points
         }
         for pid in ("active_power", "active_power_1min", "reactive_power"):
             assert points[pid].scale == pytest.approx(0.001), pid
@@ -151,7 +151,7 @@ class TestSitePointMapping:
     def test_addresses(self, site_config) -> None:
         points = {
             p.point_id: parse_point(p)
-            for p in site_config.point_tables.tables["wtg_modbus_site_v1"].points
+            for p in site_config.point_tables["wtg_modbus_site_v1"].points
         }
         expected = {
             "active_power": 178,

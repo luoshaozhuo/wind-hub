@@ -22,12 +22,10 @@ class _Config:
     def __init__(self, config_dir, task_ids: list[str]) -> None:
         self.config_dir = config_dir
         self.current_config = SimpleNamespace(
-            tasks=SimpleNamespace(
-                tasks=[
-                    SimpleNamespace(task_id=task_id, enabled=True)
-                    for task_id in task_ids
-                ]
-            )
+            tasks={
+                task_id: SimpleNamespace(task_id=task_id, enabled=True)
+                for task_id in task_ids
+            }
         )
 
 
@@ -310,8 +308,8 @@ async def test_placement_safe_only_for_current_generation(tmp_path) -> None:
     assert result.safe is True
     assert reconciler.placement_safe is True
 
-    config.current_config.tasks.tasks.append(
-        SimpleNamespace(task_id="task-b", enabled=True)
+    config.current_config.tasks["task-b"] = SimpleNamespace(
+        task_id="task-b", enabled=True
     )
     placements.sync()
     assert placements.generation > result.generation

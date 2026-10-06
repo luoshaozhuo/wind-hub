@@ -2,8 +2,9 @@
 
 覆盖 ``points.yaml`` 的 Raw 点表（可单继承的 :class:`PointTableConfig` +
 :class:`PointPatch`）与继承展开后的 resolved 点表
-（:class:`ResolvedPointTable` / :class:`ResolvedPointTables`）。继承解析由
-``config/resolver/point_table.py`` 完成。
+（:class:`ResolvedPointTable`）。继承解析由
+``config/resolver/point_table.py`` 完成；resolved 点表集是扁平的
+``dict[表名, ResolvedPointTable]``，不再有文件级 wrapper。
 """
 
 from __future__ import annotations
@@ -203,29 +204,16 @@ class ResolvedPointTable(BaseModel):
 
 
 class PointTablesConfig(BaseModel):
-    """Top-level points configuration (``points.yaml``)——全部命名 Raw 点表。
+    """Raw YAML root model——``points.yaml`` 全部命名 Raw 点表。
 
     仅作为 ``points.yaml`` 的解析目标与继承解析的输入；运行链路使用
-    :class:`ResolvedPointTables`。
+    扁平的 ``dict[表名, ResolvedPointTable]``。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     tables: dict[str, PointTableConfig] = Field(default_factory=dict)
     """``{点表名: Raw 点表}``。"""
-
-
-class ResolvedPointTables(BaseModel):
-    """继承解析完成后的全部命名点表（运行模型）。
-
-    ``Config.point_tables`` 持有本类型：父表变更在 diff 时体现为全部
-    受影响子孙表的 resolved 内容变化，热重载据此精确重注入设备点映射。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    tables: dict[str, ResolvedPointTable] = Field(default_factory=dict)
-    """``{点表名: 解析后点表}``；设备经 ``DeviceConfig.point_table`` 引用。"""
 
 
 __all__ = [
@@ -237,5 +225,4 @@ __all__ = [
     "PointTableConfig",
     "PointTablesConfig",
     "ResolvedPointTable",
-    "ResolvedPointTables",
 ]

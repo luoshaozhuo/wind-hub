@@ -137,8 +137,8 @@ async def test_initial_load_exposes_current_config(tmp_path: Path) -> None:
     service = _service(tmp_path, _mock_runtime())
 
     cfg = service.current_config
-    assert [d.device_id for d in cfg.devices.devices] == ["d1"]
-    assert cfg.tasks.tasks == []
+    assert list(cfg.devices) == ["d1"]
+    assert cfg.tasks == {}
 
 
 async def test_initial_load_invalid_config_raises(tmp_path: Path) -> None:
@@ -252,7 +252,7 @@ async def test_reload_calls_runtime_reconfigure_with_new_config_and_diff(
     runtime.reconfigure.assert_awaited_once()
     new_cfg, diff = runtime.reconfigure.await_args.args
     assert diff.devices.added == ["d2"]
-    assert [d.device_id for d in new_cfg.devices.devices] == ["d1", "d2"]
+    assert list(new_cfg.devices) == ["d1", "d2"]
     # 成功后提交新快照
     assert service.current_config is new_cfg
 
@@ -277,7 +277,7 @@ async def test_reload_partial_failure_keeps_success_baseline_for_retry(tmp_path:
     assert result2.success is True
     assert result2.diff.devices.added == ["d2"]
     assert runtime.reconfigure.await_count == 2
-    assert [d.device_id for d in service.current_config.devices.devices] == ["d1", "d2"]
+    assert list(service.current_config.devices) == ["d1", "d2"]
 
 
 async def test_reload_propagates_diff_details(tmp_path: Path) -> None:
@@ -494,7 +494,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     _write_inheritance_configs(tmp_path, base_unit="rpm")
     runtime = _mock_runtime()
     service = _service(tmp_path, runtime)
-    assert service.current_config.point_tables.tables["child"].points[0].unit == "rpm"
+    assert service.current_config.point_tables["child"].points[0].unit == "rpm"
 
     _write_inheritance_configs(tmp_path, base_unit="celsius")  # 只改父表
     result = await service.reload()
@@ -506,7 +506,7 @@ async def test_reload_parent_table_change_propagates_to_child_tables(tmp_path: P
     # 设备重新注入点映射（_reinject_changed_tables 路径）
     assert diff.points_changed is True
     assert diff.point_tables_changed == ["base", "child"]
-    child_points = {p.point_id: p for p in new_cfg.point_tables.tables["child"].points}
+    child_points = {p.point_id: p for p in new_cfg.point_tables["child"].points}
     assert child_points["p1"].unit == "celsius"
     # 无关表与无关设备不受影响
     assert "other" not in diff.point_tables_changed

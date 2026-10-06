@@ -129,8 +129,8 @@ class CollectorStatusAggregator:
 
         return RuntimeStatusSnapshot(
             running=running,
-            device_count=len(self._config.current_config.devices.devices),
-            sink_count=len(self._config.current_config.sinks.sinks),
+            device_count=len(self._config.current_config.devices),
+            sink_count=len(self._config.current_config.sinks),
             devices_connected=sum(1 for row in devices if row.connected),
             sinks_healthy=sum(1 for row in sinks if row.healthy),
             points_collected=points_collected,
@@ -151,7 +151,7 @@ class CollectorStatusAggregator:
         }
 
         rows: list[DeviceRuntimeSnapshot] = []
-        for cfg in self._config.current_config.devices.devices:
+        for cfg in self._config.current_config.devices.values():
             owners = self._placements.worker_ids_for_device(cfg.device_id)
             states = [
                 worker_devices.get(worker_id, {}).get(cfg.device_id)
@@ -193,7 +193,7 @@ class CollectorStatusAggregator:
         }
 
         rows: list[SinkRuntimeSnapshot] = []
-        for cfg in self._config.current_config.sinks.sinks:
+        for cfg in self._config.current_config.sinks.values():
             owners = self._placements.worker_ids_for_sink(cfg.name)
             states = [
                 worker_sinks.get(worker_id, {}).get(cfg.name)

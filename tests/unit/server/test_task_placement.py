@@ -18,12 +18,10 @@ class _Config:
     def __init__(self, config_dir, task_ids: list[str]) -> None:
         self.config_dir = config_dir
         self.current_config = SimpleNamespace(
-            tasks=SimpleNamespace(
-                tasks=[
-                    SimpleNamespace(task_id=task_id, enabled=True)
-                    for task_id in task_ids
-                ]
-            )
+            tasks={
+                task_id: SimpleNamespace(task_id=task_id, enabled=True)
+                for task_id in task_ids
+            }
         )
 
 
@@ -176,8 +174,8 @@ def test_generation_getter_is_pure_read(tmp_path) -> None:
     state_path = tmp_path / ".state" / "task-placement.json"
     persisted_before = state_path.read_text(encoding="utf-8")
 
-    config.current_config.tasks.tasks.append(
-        SimpleNamespace(task_id="task-b", enabled=True)
+    config.current_config.tasks["task-b"] = SimpleNamespace(
+        task_id="task-b", enabled=True
     )
     directory.worker_ids.append("collector-c")
 

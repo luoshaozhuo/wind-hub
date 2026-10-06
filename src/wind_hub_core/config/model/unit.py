@@ -25,9 +25,11 @@ class UnitConfig(BaseModel):
 
 
 class UnitsConfig(BaseModel):
-    """units.yaml 顶层单位定义。
+    """Raw YAML root model——``units.yaml`` 顶层单位定义（文件级 wrapper）。
 
-    unit ID 唯一性由 dict 键自然保证；ID 非空在此校验。
+    unit ID 唯一性由 dict 键自然保证；ID 非空与 ``none`` 单位存在性在此
+    校验。最终 resolved ``Config.units`` 是扁平的
+    ``dict[unit_id, UnitConfig]``，不经过本类型。
     """
 
     model_config = ConfigDict(extra="forbid")

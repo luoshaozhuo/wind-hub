@@ -74,8 +74,8 @@ async def iec104_driver(tmp_path: Path) -> AsyncIterator[tuple[IEC104Driver, IEC
         tasks=[],
     )
     config = load_config(config_dir)
-    device_cfg = config.devices.devices[0]
-    points = list(config.point_tables.tables["iec104"].points)
+    device_cfg = next(iter(config.devices.values()))
+    points = list(config.point_tables["iec104"].points)
     await server.start()
     driver = IEC104Driver(device_cfg)
     driver.set_points_mapping(points)

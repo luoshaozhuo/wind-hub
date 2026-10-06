@@ -42,7 +42,6 @@ EXPECTED_FACADE_EXPORTS = frozenset(
         "DeviceInstanceConfig",
         "DeviceInstancesConfig",
         "DeviceConfig",
-        "DevicesConfig",
         # point domain
         "PointAddress",
         "PointConfig",
@@ -50,7 +49,6 @@ EXPECTED_FACADE_EXPORTS = frozenset(
         "PointTableConfig",
         "PointTablesConfig",
         "ResolvedPointTable",
-        "ResolvedPointTables",
         # task domain
         "TaskTarget",
         "CollectionTaskConfig",
@@ -76,7 +74,6 @@ EXPECTED_FACADE_EXPORTS = frozenset(
         "SinkConfig",
         "ResolvedSinkConfig",
         "SinksConfig",
-        "ResolvedSinksConfig",
         # 顶层聚合
         "Config",
         # 解析 / 加载 / 差异 / 指纹入口

@@ -60,7 +60,7 @@ class SinkService:
         """返回配置与最近一次 Collector Sink 运行态。"""
         runtime = {row.name: row for row in self._monitoring.sinks_snapshot()}
         rows: list[SinkSnapshot] = []
-        for cfg in self._config.current_config.sinks.sinks:
+        for cfg in self._config.current_config.sinks.values():
             current = runtime.get(cfg.name)
             rows.append(
                 SinkSnapshot(
@@ -212,7 +212,7 @@ class SinkService:
 
     def _config_for(self, name: str) -> ResolvedSinkConfig:
         """从当前 resolved Config 取 Sink 定义。"""
-        for cfg in self._config.current_config.sinks.sinks:
+        for cfg in self._config.current_config.sinks.values():
             if cfg.name == name:
                 return cfg
         raise KeyError(name)

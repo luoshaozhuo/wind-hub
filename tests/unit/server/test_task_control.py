@@ -30,20 +30,18 @@ class _Config:
     def __init__(self, config_dir, task_ids: list[str]) -> None:
         self.config_dir = config_dir
         self.current_config = SimpleNamespace(
-            tasks=SimpleNamespace(
-                tasks=[
-                    SimpleNamespace(
-                        task_id=task_id,
-                        device="d1",
-                        device_group=None,
-                        point_group="fast",
-                        interval=1.0,
-                        targets=[SimpleNamespace(sink="archive")],
-                        enabled=True,
-                    )
-                    for task_id in task_ids
-                ]
-            )
+            tasks={
+                task_id: SimpleNamespace(
+                    task_id=task_id,
+                    device="d1",
+                    device_group=None,
+                    point_group="fast",
+                    interval=1.0,
+                    targets=[SimpleNamespace(sink="archive")],
+                    enabled=True,
+                )
+                for task_id in task_ids
+            }
         )
 
 

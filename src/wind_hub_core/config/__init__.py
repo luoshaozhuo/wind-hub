@@ -15,7 +15,6 @@ from wind_hub_core.config.model.device import (
     DeviceInstancesConfig,
     DeviceModelConfig,
     DeviceModelsConfig,
-    DevicesConfig,
     DeviceTypeConfig,
     InstanceEndpoint,
 )
@@ -26,7 +25,6 @@ from wind_hub_core.config.model.point import (
     PointTableConfig,
     PointTablesConfig,
     ResolvedPointTable,
-    ResolvedPointTables,
 )
 from wind_hub_core.config.model.protocol import SUPPORTED_PROTOCOLS
 from wind_hub_core.config.model.sink import (
@@ -45,7 +43,6 @@ from wind_hub_core.config.model.sink import (
     OPCUASinkConnection,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
-    ResolvedSinksConfig,
     SinkConfig,
     SinkPoint,
     SinksConfig,
@@ -87,14 +84,12 @@ __all__ = [
     "DeviceInstanceConfig",
     "DeviceInstancesConfig",
     "DeviceConfig",
-    "DevicesConfig",
     "PointAddress",
     "PointConfig",
     "PointPatch",
     "PointTableConfig",
     "PointTablesConfig",
     "ResolvedPointTable",
-    "ResolvedPointTables",
     "TaskTarget",
     "CollectionTaskConfig",
     "TasksConfig",
@@ -118,7 +113,6 @@ __all__ = [
     "SinkConfig",
     "ResolvedSinkConfig",
     "SinksConfig",
-    "ResolvedSinksConfig",
     "Config",
     "resolve_devices",
     "resolve_point_tables",

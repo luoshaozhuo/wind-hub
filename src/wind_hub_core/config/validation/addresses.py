@@ -7,14 +7,14 @@ adapter 层。
 
 from __future__ import annotations
 
-from wind_hub_core.config.model.point import PointConfig, ResolvedPointTables
+from wind_hub_core.config.model.point import PointConfig, ResolvedPointTable
 from wind_hub_core.model.errors import ConfigError
 
 
-def validate_table_addresses(point_tables: ResolvedPointTables) -> None:
+def validate_table_addresses(point_tables: dict[str, ResolvedPointTable]) -> None:
     """按点表 protocol 校验全部 resolved 点的地址形式（配置期失败，不等
     运行时读失败）。"""
-    for table_name, table in point_tables.tables.items():
+    for table_name, table in point_tables.items():
         for p in table.points:
             if table.protocol == "ads":
                 _validate_ads_address(table_name, p)

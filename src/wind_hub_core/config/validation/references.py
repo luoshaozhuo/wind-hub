@@ -7,23 +7,23 @@ resolved 配置模型，校验失败一律抛 :class:`ConfigError`。
 from __future__ import annotations
 
 from wind_hub_core.config.model.device import DeviceConfig, DeviceModelsConfig
-from wind_hub_core.config.model.point import ResolvedPointTables
+from wind_hub_core.config.model.point import ResolvedPointTable
 from wind_hub_core.config.model.unit import UnitsConfig
 from wind_hub_core.model.errors import ConfigError
 
 
 def validate_model_point_tables(
     device_models: DeviceModelsConfig,
-    point_tables: ResolvedPointTables,
+    point_tables: dict[str, ResolvedPointTable],
 ) -> None:
     """校验全部型号引用的点表存在、且型号协议与点表协议一致（未被实例
     引用的型号同样校验——型号定义自身必须自洽）。"""
     for model_id, m in device_models.device_models.items():
-        table = point_tables.tables.get(m.point_table)
+        table = point_tables.get(m.point_table)
         if table is None:
             raise ConfigError(
                 f"Device model '{model_id}' references unknown point_table "
-                f"'{m.point_table}' (available: {sorted(point_tables.tables)})"
+                f"'{m.point_table}' (available: {sorted(point_tables)})"
             )
         if m.protocol != table.protocol:
             raise ConfigError(
@@ -33,11 +33,11 @@ def validate_model_point_tables(
 
 
 def validate_point_units(
-    point_tables: ResolvedPointTables,
+    point_tables: dict[str, ResolvedPointTable],
     units: UnitsConfig,
 ) -> None:
     """校验继承展开后全部点的 ``unit`` 是已定义的 unit ID。"""
-    for table_name, table in point_tables.tables.items():
+    for table_name, table in point_tables.items():
         for p in table.points:
             if p.unit not in units.units:
                 raise ConfigError(
@@ -48,7 +48,7 @@ def validate_point_units(
 
 def validate_device_binding(
     device: DeviceConfig,
-    point_tables: ResolvedPointTables,
+    point_tables: dict[str, ResolvedPointTable],
 ) -> None:
     """校验单台设备的点表绑定与 read_mode 组合约束。
 
@@ -58,11 +58,11 @@ def validate_device_binding(
     Raises:
         ConfigError: 点表缺失或 read_mode 组合非法。
     """
-    table = point_tables.tables.get(device.point_table)
+    table = point_tables.get(device.point_table)
     if table is None:
         raise ConfigError(
             f"Device '{device.device_id}' references unknown point_table "
-            f"'{device.point_table}' (available: {sorted(point_tables.tables)})"
+            f"'{device.point_table}' (available: {sorted(point_tables)})"
         )
 
     if device.protocol == "ads" and device.read_mode == "sum":

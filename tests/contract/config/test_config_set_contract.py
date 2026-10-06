@@ -148,8 +148,8 @@ class TestRequiredFilesContract:
     def test_complete_set_loads(self, tmp_path: Path) -> None:
         config = load_config(_site(tmp_path / "cfg"))
 
-        assert [d.device_id for d in config.devices.devices] == ["modbus-1"]
-        assert [t.task_id for t in config.tasks.tasks] == ["modbus-telemetry"]
+        assert list(config.devices) == ["modbus-1"]
+        assert list(config.tasks) == ["modbus-telemetry"]
 
 
 class TestSchemaStrictnessContract:

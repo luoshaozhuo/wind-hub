@@ -33,8 +33,8 @@ def _decode_float32(registers: list[int]) -> float:
 
 def _load_device(config_dir: Path) -> tuple[DeviceConfig, list[PointConfig]]:
     config = load_config(config_dir)
-    device = config.devices.devices[0]
-    points = list(config.point_tables.tables["modbus"].points)
+    device = next(iter(config.devices.values()))
+    points = list(config.point_tables["modbus"].points)
     return device, points
 
 

@@ -311,7 +311,7 @@ class QualityService:
     def _delivery_channels(self) -> list[QualityChannel]:
         runtime = {item.name: item for item in self._monitoring.sinks_snapshot()}
         rows: list[QualityChannel] = []
-        for cfg in self._config.current_config.sinks.sinks:
+        for cfg in self._config.current_config.sinks.values():
             current = runtime.get(cfg.name)
             if not cfg.enabled:
                 state = "Disabled"

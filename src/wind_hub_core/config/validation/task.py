@@ -6,16 +6,16 @@ Task 引用的 device / device_group / point_group / target sink 与命中设备
 
 from __future__ import annotations
 
-from wind_hub_core.config.model.device import DeviceConfig, DevicesConfig
-from wind_hub_core.config.model.point import ResolvedPointTables
+from wind_hub_core.config.model.device import DeviceConfig
+from wind_hub_core.config.model.point import ResolvedPointTable
 from wind_hub_core.config.model.task import CollectionTaskConfig
 from wind_hub_core.model.errors import ConfigError
 
 
 def validate_task_targets(
     task: CollectionTaskConfig,
-    devices: DevicesConfig,
-    point_tables: ResolvedPointTables,
+    devices: dict[str, DeviceConfig],
+    point_tables: dict[str, ResolvedPointTable],
     sink_names: set[str],
 ) -> None:
     """校验单个采集 Task 的跨文件引用。
@@ -36,13 +36,15 @@ def validate_task_targets(
             )
 
     if task.device is not None:
-        device = next((d for d in devices.devices if d.device_id == task.device), None)
+        device = devices.get(task.device)
         if device is None:
             raise ConfigError(f"Task '{task.task_id}' references unknown device '{task.device}'")
         matched = [device] if device.enabled else []
     else:
-        matched = [d for d in devices.devices if d.enabled and d.device_group == task.device_group]
-        if not any(d.device_group == task.device_group for d in devices.devices):
+        matched = [
+            d for d in devices.values() if d.enabled and d.device_group == task.device_group
+        ]
+        if not any(d.device_group == task.device_group for d in devices.values()):
             raise ConfigError(
                 f"Task '{task.task_id}': device_group '{task.device_group}' " "matches no device"
             )
@@ -71,7 +73,7 @@ def validate_task_targets(
         d.device_id
         for d in matched
         if task.point_group
-        not in {g for p in point_tables.tables[d.point_table].points for g in p.point_groups}
+        not in {g for p in point_tables[d.point_table].points for g in p.point_groups}
     ]
     if missing:
         raise ConfigError(

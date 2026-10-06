@@ -86,7 +86,7 @@ def assemble(
     make_sink = sink_factory or sinks_registry.create
 
     devices: dict[str, CollectorDeviceSession] = {}
-    for device_cfg in cfg.devices.devices:
+    for device_cfg in cfg.devices.values():
         devices[device_cfg.device_id] = create_device_session(
             device_cfg,
             cfg.points_for_device(device_cfg.device_id),
@@ -94,7 +94,7 @@ def assemble(
             session_type=CollectorDeviceSession,
         )
 
-    sinks = {sink.name: make_sink(sink) for sink in cfg.sinks.sinks if sink.enabled}
+    sinks = {name: make_sink(sink) for name, sink in cfg.sinks.items() if sink.enabled}
 
     metrics_state = CollectorMetricsState()
     engine = AcquisitionEngine(
@@ -107,7 +107,7 @@ def assemble(
         sinks=sinks,
         engine=engine,
         config=cfg.system.runtime,
-        tasks={task.task_id: task for task in cfg.tasks.tasks},
+        tasks=dict(cfg.tasks),
         protocol_factory=protocol_registry.create_for,
         sink_factory=make_sink,
         metrics_hook=metrics_state,
@@ -142,7 +142,7 @@ async def _maybe_init_ads_local(app: CollectorApp) -> None:
         return
     if not any(
         device.protocol == "ads"
-        for device in app.boot_config.devices.devices
+        for device in app.boot_config.devices.values()
     ):
         return
 

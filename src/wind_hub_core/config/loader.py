@@ -223,22 +223,25 @@ def load_config(config_dir: str | Path) -> Config:
     validate_point_units(point_tables, units)
     sinks = resolve_sinks(raw_sinks, devices, point_tables, units)
     validate_table_addresses(point_tables)
-    for device in devices.devices:
+    for device in devices.values():
         validate_device_binding(device, point_tables)
 
-    sink_names = {s.name for s in sinks.sinks if s.enabled}
+    sink_names = {name for name, sink in sinks.items() if sink.enabled}
     for task in tasks.tasks:
         validate_task_targets(task, devices, point_tables, sink_names)
 
+    # Raw 文件级 wrapper 到此为止；Config 快照只持有按稳定业务身份索引的
+    # 扁平 dict。device_id / sink name 唯一性已由 raw/resolver 层校验，
+    # dict 推导不会静默覆盖。
     return Config(
         system=system,
+        devices=devices,
         sinks=sinks,
-        units=units,
+        tasks={task.task_id: task for task in tasks.tasks},
+        point_tables=point_tables,
+        units=units.units,
         device_types=device_models.device_types,
         device_models=device_models.device_models,
-        devices=devices,
-        point_tables=point_tables,
-        tasks=tasks,
     )
 
 

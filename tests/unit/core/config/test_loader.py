@@ -108,14 +108,14 @@ class TestLoadConfig:
         """configs/template 是完整自包含配置集，可独立加载。"""
         cfg = load_config("configs/template")
         assert cfg.system.site is not None
-        assert "none" in cfg.units.units
-        assert cfg.units.units["kilowatt"].symbol == "kW"
-        assert len(cfg.devices.devices) == 2
+        assert "none" in cfg.units
+        assert cfg.units["kilowatt"].symbol == "kW"
+        assert len(cfg.devices) == 2
         # 点表 protocol 进入 resolved 结果
-        assert cfg.point_tables.tables["modbus_wtg_v1"].protocol == "modbus"
-        assert cfg.point_tables.tables["beckhoff_wtg_v1"].protocol == "ads"
+        assert cfg.point_tables["modbus_wtg_v1"].protocol == "modbus"
+        assert cfg.point_tables["beckhoff_wtg_v1"].protocol == "ads"
         # 继承展开：子表带父表点 + 新增点
-        child = cfg.point_tables.tables["beckhoff_wtg_v1"].points
+        child = cfg.point_tables["beckhoff_wtg_v1"].points
         assert {p.point_id for p in child} == {"rotor_speed", "gen_power", "converter_temp"}
 
     def test_load_example_modbus_config_dir(self) -> None:
@@ -123,16 +123,16 @@ class TestLoadConfig:
         cfg = load_config("configs/example_modbus")
         assert cfg.system.site is not None
         assert cfg.system.site.site_id == "example_modbus"
-        assert {d.device_id for d in cfg.devices.devices} == {"wtg-002", "wtg-003"}
-        assert cfg.point_tables.tables["wtg_modbus_site_v1"].protocol == "modbus"
+        assert set(cfg.devices) == {"wtg-002", "wtg-003"}
+        assert cfg.point_tables["wtg_modbus_site_v1"].protocol == "modbus"
 
     def test_load_example_ads_config_dir(self) -> None:
         """configs/example_ads 可独立加载。"""
         cfg = load_config("configs/example_ads")
         assert cfg.system.site is not None
         assert cfg.system.site.site_id == "example_ads"
-        assert len(cfg.devices.devices) == 34
-        assert cfg.point_tables.tables["wtg_ads_site_v1"].protocol == "ads"
+        assert len(cfg.devices) == 34
+        assert cfg.point_tables["wtg_ads_site_v1"].protocol == "ads"
 
     def test_load_minimal_valid_config(self) -> None:
         """A minimal valid configuration loads without error."""
@@ -144,9 +144,9 @@ class TestLoadConfig:
                 tasks=[_task()],
             )
             cfg = load_config(site)
-            assert len(cfg.devices.devices) == 1
+            assert len(cfg.devices) == 1
             assert cfg.points_for_device("d1")[0].point_id == "p1"
-            assert cfg.tasks.tasks[0].task_id == "task1"
+            assert cfg.tasks["task1"].task_id == "task1"
 
     def test_config_without_tasks_is_valid(self) -> None:
         """tasks.yaml 为空 tasks 列表：合法，只是不做周期采集。"""
@@ -157,7 +157,7 @@ class TestLoadConfig:
                 point_tables=_table([_modbus_point()]),
             )
             cfg = load_config(site)
-            assert cfg.tasks.tasks == []
+            assert cfg.tasks == {}
 
 
 
@@ -377,7 +377,7 @@ class TestModelValidation:
                 point_tables=_table([_modbus_point()]),
             )
             cfg = load_config(site)
-            ep = cfg.devices.devices[0].endpoint
+            ep = cfg.devices["d1"].endpoint
             assert ep.host == "10.0.0.9"
             assert ep.port == 1502  # 实例覆盖型号默认 502
             assert ep.extensions == {"unit_id": 7, "timeout": 3.0}  # 同名键实例优先
@@ -401,7 +401,7 @@ class TestModelValidation:
                 point_tables=_table([_modbus_point()]),
             )
             cfg = load_config(site)
-            assert cfg.devices.devices[0].endpoint.port == 502
+            assert cfg.devices["d1"].endpoint.port == 502
 
     def test_endpoint_missing_port_everywhere_raises(self) -> None:
         """实例与型号都没有 port → 报错并指出设备。"""
@@ -526,7 +526,7 @@ class TestCrossFileValidation:
                 tasks=[_task(interval=None)],
             )
             cfg = load_config(site)
-            assert cfg.tasks.tasks[0].interval is None
+            assert cfg.tasks["task1"].interval is None
 
     def test_task_without_interval_on_mixed_group_raises(self) -> None:
         """device_group 同时命中 IEC104 与 Modbus → interval 必填。"""
@@ -586,7 +586,7 @@ class TestCrossFileValidation:
                 tasks=[_task(interval=5.0)],
             )
             cfg = load_config(site)
-            assert cfg.tasks.tasks[0].interval == 5.0
+            assert cfg.tasks["task1"].interval == 5.0
 
     def test_task_point_group_missing_in_device_table_raises(self) -> None:
         """task.point_group 必须存在于命中设备的点表——报错信息列出缺失设备。"""
@@ -692,7 +692,7 @@ class TestCrossFileValidation:
                 tasks=[_task()],
             )
             cfg = load_config(site)
-            assert cfg.tasks.tasks[0].device == "d1"
+            assert cfg.tasks["task1"].device == "d1"
 
     def test_disabled_task_skips_cross_validation_of_point_group(self) -> None:
         """加载期校验不看 enabled 标志——disabled Task 同样校验 point_group。"""
@@ -815,7 +815,7 @@ class TestADSReadMode:
                 ),
             )
             cfg = load_config(site)
-            assert cfg.devices.devices[0].read_mode == "sequential"
+            assert cfg.devices["d1"].read_mode == "sequential"
 
     def test_sum_point_without_symbol_rejected(self) -> None:
         """sum 按 Symbol 批量读——绑定表的每个点都必须配置 symbol。"""
@@ -1054,7 +1054,7 @@ class TestUnitValidation:
             )
             cfg = load_config(site)
             assert cfg.points_for_device("d1")[0].unit == "kilowatt"
-            assert cfg.units.units["kilowatt"].symbol == "kW"
+            assert cfg.units["kilowatt"].symbol == "kW"
 
     def test_unit_validated_after_inheritance_override(self) -> None:
         """继承 override 后的最终 unit 同样校验。"""
