@@ -75,7 +75,7 @@ class TaskPlacementRegistry:
         worker_ids = self._collectors.list_worker_ids()
         self._placements = {
             task.task_id: self._select_worker(task.task_id, worker_ids)
-            for task in self._config.current_config.tasks.tasks
+            for task in self._config.current_config.tasks.values()
         }
         self._persisted_workers = tuple(sorted(worker_ids))
         self._generation = 1
@@ -161,7 +161,7 @@ class TaskPlacementRegistry:
         self._sync_worker_set()
         task_ids = {
             task.task_id
-            for task in self._config.current_config.tasks.tasks
+            for task in self._config.current_config.tasks.values()
         }
         changed = False
 
@@ -247,8 +247,7 @@ class TaskPlacementRegistry:
 
     def worker_ids_for_device(self, device_id: str) -> list[str]:
         """返回实际承载指定设备采集 Task 的当前 Collector。"""
-        devices = self._config.current_config.devices.devices
-        device = next((item for item in devices if item.device_id == device_id), None)
+        device = self._config.current_config.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
 
@@ -259,7 +258,7 @@ class TaskPlacementRegistry:
             and row.worker_id is not None
         }
         workers: set[str] = set()
-        for task in self._config.current_config.tasks.tasks:
+        for task in self._config.current_config.tasks.values():
             if not task.enabled or task.task_id not in placements:
                 continue
             matches = (
@@ -273,10 +272,7 @@ class TaskPlacementRegistry:
 
     def worker_ids_for_sink(self, sink_name: str) -> list[str]:
         """返回实际向指定 Sink 写入的当前 Collector。"""
-        if not any(
-            sink.name == sink_name
-            for sink in self._config.current_config.sinks.sinks
-        ):
+        if sink_name not in self._config.current_config.sinks:
             raise KeyError(sink_name)
 
         placements = {
@@ -287,7 +283,7 @@ class TaskPlacementRegistry:
         }
         workers = {
             placements[task.task_id]
-            for task in self._config.current_config.tasks.tasks
+            for task in self._config.current_config.tasks.values()
             if (
                 task.enabled
                 and task.task_id in placements

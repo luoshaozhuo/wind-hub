@@ -127,15 +127,12 @@ class DiagnosticService:
     def start_point_table_test(self, device_id: str) -> OperationRecord:
         """按当前 Server 配置取得点表，逐点通过 Commander 在线验证。"""
         cfg = self._config.current_config
-        device = next(
-            (item for item in cfg.devices.devices if item.device_id == device_id),
-            None,
-        )
+        device = cfg.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
         point_ids = [
             point.point_id
-            for point in cfg.point_tables.tables[device.point_table].points
+            for point in cfg.point_tables[device.point_table].points
         ]
         operation = self._operations.create(
             "diagnostics.point_table",

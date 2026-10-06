@@ -14,12 +14,12 @@ import yaml
 
 from wind_hub_core.config import (
     ADSSystemConfig,
+    DeviceConfig,
     DeviceInstancesConfig,
     DeviceModelsConfig,
-    DevicesConfig,
     PointConfig,
     PointTablesConfig,
-    ResolvedPointTables,
+    ResolvedPointTable,
     resolve_devices,
     resolve_point_tables,
 )
@@ -31,15 +31,17 @@ class CommanderConfig:
     """Commander 启动所需的最小 resolved 配置。"""
 
     ads: ADSSystemConfig | None
-    devices: DevicesConfig
-    point_tables: ResolvedPointTables
+    devices: dict[str, DeviceConfig]
+    """resolved 设备索引——``{device_id: DeviceConfig}``。"""
+    point_tables: dict[str, ResolvedPointTable]
+    """resolved 点表索引——``{点表名: ResolvedPointTable}``。"""
     connect_timeout: float = 10.0
     write_timeout: float = 5.0
 
     def points_for_device(self, device_id: str) -> list[PointConfig]:
         """返回设备绑定点表的浅拷贝。"""
-        device = next(d for d in self.devices.devices if d.device_id == device_id)
-        return list(self.point_tables.tables[device.point_table].points)
+        device = self.devices[device_id]
+        return list(self.point_tables[device.point_table].points)
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -83,7 +85,7 @@ def load_commander_config(config_dir: str | Path) -> CommanderConfig:
         raise ConfigError(f"Invalid commander configuration: {exc}") from exc
 
     for model_id, model in models.device_models.items():
-        table = point_tables.tables.get(model.point_table)
+        table = point_tables.get(model.point_table)
         if table is None:
             raise ConfigError(
                 f"Device model '{model_id}' references unknown point_table '{model.point_table}'"

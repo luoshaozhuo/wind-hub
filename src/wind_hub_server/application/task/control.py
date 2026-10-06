@@ -55,7 +55,7 @@ class TaskControlService:
             row.task_id: row for row in self._monitoring.tasks_snapshot()
         }
         rows: list[TaskSummary] = []
-        for cfg in self._config.current_config.tasks.tasks:
+        for cfg in self._config.current_config.tasks.values():
             placement = self._placements.placement_for_task(cfg.task_id)
             current = runtime_rows.get(cfg.task_id)
             if current is not None:

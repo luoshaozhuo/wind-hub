@@ -46,19 +46,14 @@ from wind_hub_core.config import (
     CollectionTaskConfig,
     Config,
     DeviceConfig,
-    DevicesConfig,
     PointAddress,
     PointConfig,
     ResolvedPointTable,
-    ResolvedPointTables,
     ResolvedSinkConfig,
-    ResolvedSinksConfig,
     RuntimeConfig,
     SystemConfig,
-    TasksConfig,
     TaskTarget,
     UnitConfig,
-    UnitsConfig,
 )
 from wind_hub_core.model.device import Endpoint
 from wind_hub_core.model.health import HealthStatus
@@ -255,21 +250,19 @@ def _full_config(
         tables = {"t1": ResolvedPointTable(protocol="modbus", points=[_make_point("p1")])}
     return Config(
         system=SystemConfig(runtime=_runtime_config()),
-        sinks=ResolvedSinksConfig(
-            sinks=[
-                ResolvedSinkConfig(
-                    name=n,
-                    type="file",
-                    connection={"path": f"/tmp/{n}.jsonl"},
-                    enabled=(sink_enabled or {}).get(n, True),
-                )
-                for n in sink_names
-            ]
-        ),
-        units=UnitsConfig(units={"none": UnitConfig(symbol="")}),
-        devices=DevicesConfig(devices=list(devices)),
-        point_tables=ResolvedPointTables(tables=tables),
-        tasks=TasksConfig(tasks=list(tasks)),
+        sinks={
+            n: ResolvedSinkConfig(
+                name=n,
+                type="file",
+                connection={"path": f"/tmp/{n}.jsonl"},
+                enabled=(sink_enabled or {}).get(n, True),
+            )
+            for n in sink_names
+        },
+        units={"none": UnitConfig(symbol="")},
+        devices={d.device_id: d for d in devices},
+        point_tables=tables,
+        tasks={t.task_id: t for t in tasks},
     )
 
 

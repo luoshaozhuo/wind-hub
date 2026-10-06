@@ -153,15 +153,12 @@ class DeviceDataService:
     def _points_or_raise(self, device_id: str) -> list[PointConfig]:
         """从当前配置快照返回设备绑定的 resolved 点表。"""
         cfg = self._config.current_config
-        device = next(
-            (item for item in cfg.devices.devices if item.device_id == device_id),
-            None,
-        )
+        device = cfg.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        return list(cfg.point_tables.tables[device.point_table].points)
+        return list(cfg.point_tables[device.point_table].points)
 
     def _unit_symbol(self, unit_id: str) -> str:
         """由当前配置快照解析单位显示符号。"""
-        unit = self._config.current_config.units.units.get(unit_id)
+        unit = self._config.current_config.units.get(unit_id)
         return unit.symbol if unit is not None else unit_id

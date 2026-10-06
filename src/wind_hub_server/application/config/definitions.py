@@ -34,7 +34,7 @@ class DefinitionQueryService:
         groups = sorted(
             {
                 group
-                for table in cfg.point_tables.tables.values()
+                for table in cfg.point_tables.values()
                 for point in table.points
                 for group in point.point_groups
             }
@@ -49,7 +49,7 @@ class DefinitionQueryService:
             device_groups=sorted(
                 {
                     device.device_group
-                    for device in cfg.devices.devices
+                    for device in cfg.devices.values()
                     if device.device_group is not None
                 }
             ),

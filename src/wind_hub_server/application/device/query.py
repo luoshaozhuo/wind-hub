@@ -52,7 +52,7 @@ class DeviceQueryService:
         runtime = {row.device_id: row for row in self._monitoring.devices_snapshot()}
         rows = [
             self._snapshot(cfg, runtime.get(cfg.device_id))
-            for cfg in self._config.current_config.devices.devices
+            for cfg in self._config.current_config.devices.values()
         ]
         query = (search or "").strip().lower()
         if query:
@@ -78,7 +78,7 @@ class DeviceQueryService:
         cfg = next(
             (
                 item
-                for item in self._config.current_config.devices.devices
+                for item in self._config.current_config.devices.values()
                 if item.device_id == device_id
             ),
             None,
