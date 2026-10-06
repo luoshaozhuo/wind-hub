@@ -20,7 +20,7 @@ INSTANCE_ID = "modbus-telemetry:modbus-1"
 
 
 def _sink(ctx: FunctionalContext) -> NullSink:
-    sink = ctx.rt.sinks["null_sink"]
+    sink = ctx.rt.runtime.sinks["null_sink"]
     assert isinstance(sink, NullSink)
     return sink
 

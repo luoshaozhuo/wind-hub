@@ -361,7 +361,7 @@ async def run_soak(
 
             rt = assemble(config_dir, sink_factory=_sink_factory)
             runtime = rt.runtime
-            rt.engine.add_observer(_make_cycle_observer(collector))
+            runtime.engine.add_observer(_make_cycle_observer(collector))
             collector.set_queue_depth_provider(runtime.sink_queue_depths)
 
             await start_runtime(rt)

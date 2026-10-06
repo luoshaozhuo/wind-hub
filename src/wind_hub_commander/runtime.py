@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from wind_hub_commander.config import CommanderConfig
-from wind_hub_core.device.session import DeviceSession
-from wind_hub_core.protocol import protocol_registry
+from wind_hub_core.device.session import DeviceSession, create_device_session
+from wind_hub_core.protocol.registry import ProtocolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,14 @@ class _Generation:
 class CommanderRuntime:
     """Commander 设备会话注册表与 generation 生命周期管理器。"""
 
-    def __init__(self, config: CommanderConfig, *, config_hash: str) -> None:
+    def __init__(
+        self,
+        config: CommanderConfig,
+        *,
+        config_hash: str,
+        protocol_registry: ProtocolRegistry,
+    ) -> None:
+        self._protocol_registry = protocol_registry
         self._reload_lock = asyncio.Lock()
         self._operation_generation: ContextVar[_Generation | None] = ContextVar(
             "commander_operation_generation",
@@ -52,8 +60,15 @@ class CommanderRuntime:
         self._prepared_generation: _Generation | None = None
         self._retirement_tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
-        self.devices: dict[str, DeviceSession] = {}
-        self.devices.update(self._current.devices)
+
+    @property
+    def devices(self) -> Mapping[str, DeviceSession]:
+        """当前激活 generation 的设备会话只读视图。
+
+        会话注册表的唯一 owner 是各 generation；外部只能观察，配置激活
+        时本视图随 ``_current`` 切换原子更新。
+        """
+        return MappingProxyType(self._current.devices)
 
     @property
     def config(self) -> CommanderConfig:
@@ -85,11 +100,11 @@ class CommanderRuntime:
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
         for device_config in config.devices.devices:
-            protocol = protocol_registry.create(device_config.protocol, device_config)
-            devices[device_config.device_id] = DeviceSession(
-                config=device_config,
-                points=config.points_for_device(device_config.device_id),
-                protocol=protocol,
+            devices[device_config.device_id] = create_device_session(
+                device_config,
+                config.points_for_device(device_config.device_id),
+                self._protocol_registry,
+                session_type=DeviceSession,
             )
             locks[device_config.device_id] = asyncio.Lock()
         return _Generation(config=config, devices=devices, connect_locks=locks)
@@ -178,8 +193,6 @@ class CommanderRuntime:
             self._prepared_revision = None
             self._prepared_config_hash = None
             self._prepared_generation = None
-            self.devices.clear()
-            self.devices.update(new_generation.devices)
             self._schedule_retirement(old_generation, reason="activate")
 
         await asyncio.shield(self.start())

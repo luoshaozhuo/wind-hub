@@ -7,11 +7,15 @@ DeviceSession 聚合单台设备的静态配置、resolved 点表与 ProtocolPor
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from wind_hub_core.config import DeviceConfig, PointConfig
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.health import HealthStatus
 from wind_hub_core.model.point import PointRef, PointValue
 from wind_hub_core.protocol.port import AcquisitionMode, ProtocolPort
+from wind_hub_core.protocol.registry import ProtocolRegistry
 
 
 class DeviceSession:
@@ -191,3 +195,30 @@ class DeviceSession:
             与 Driver 返回顺序一致的 CommandResult 列表。
         """
         return await self._protocol.write(commands)
+
+
+_SessionT = TypeVar("_SessionT", bound=DeviceSession)
+
+
+def create_device_session(
+    config: DeviceConfig,
+    points: list[PointConfig],
+    protocols: ProtocolRegistry,
+    *,
+    session_type: Callable[[DeviceConfig, list[PointConfig], ProtocolPort], _SessionT],
+) -> _SessionT:
+    """按显式注册表创建一台设备的通信会话——Collector 与 Commander 共用的
+    唯一构造路径（protocol factory 选择 + 点表注入 + session 实例化）。
+
+    Args:
+        config: resolved 设备配置。
+        points: 当前设备 resolved 点表。
+        protocols: 组合根显式构造的协议注册表。
+        session_type: 会话构造器；Collector 传入带采集生命周期的子类，
+            Commander 传入 :class:`DeviceSession`。
+
+    Returns:
+        已注入点表映射、尚未建立连接的设备会话。
+    """
+    protocol = protocols.create_for(config)
+    return session_type(config, points, protocol)

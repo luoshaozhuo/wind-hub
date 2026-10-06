@@ -1,7 +1,8 @@
-"""Wind Hub 公共设备协议能力与内置 Driver 注册入口。
+"""Wind Hub 公共设备协议能力。
 
-导入本模块会加载内置 ADS、Modbus、IEC104 Driver 并完成进程级协议工厂注册；
-Driver 构造阶段不建立网络连接，可选第三方库均在实际使用时延迟导入。
+内置 ADS、Modbus、IEC104 Driver 在此导出；注册不发生在这里——组合根经
+:func:`build_protocol_registry` 显式构造注册表。Driver 构造阶段不建立网络
+连接，可选第三方库均在实际使用时延迟导入。
 """
 
 from wind_hub_core.protocol.ads.driver import ADSDriver
@@ -13,7 +14,7 @@ from wind_hub_core.protocol.port import (
     ProtocolPort,
     SubscriptionHandle,
 )
-from wind_hub_core.protocol.registry import ProtocolRegistry, protocol_registry, register_protocol
+from wind_hub_core.protocol.registry import ProtocolRegistry, build_protocol_registry
 
 __all__ = [
     "ADSDriver",
@@ -24,6 +25,5 @@ __all__ = [
     "ProtocolPort",
     "SubscriptionHandle",
     "ProtocolRegistry",
-    "protocol_registry",
-    "register_protocol",
+    "build_protocol_registry",
 ]

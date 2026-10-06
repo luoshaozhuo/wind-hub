@@ -17,7 +17,8 @@ from __future__ import annotations  # noqa: I001
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 
 from wind_hub_collector.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from wind_hub_collector.application.runtime.dispatcher import SinkDispatcher
@@ -70,9 +71,13 @@ class SinkRuntime:
     # ------------------------------------------------------------------
 
     @property
-    def sinks(self) -> dict[str, SinkPort]:
-        """当前 Sink 注册表；调用方只读，生命周期变更经本对象的方法执行。"""
-        return self._sinks
+    def sinks(self) -> Mapping[str, SinkPort]:
+        """当前 Sink 注册表的只读视图（随热重载就地反映最新内容）。
+
+        本对象是注册表的唯一 owner——外部只能观察，生命周期变更必须经
+        本对象的方法执行。
+        """
+        return MappingProxyType(self._sinks)
 
     def health(self) -> dict[str, HealthStatus]:
         """各 Sink 健康状态——open 失败的 Sink 以 unhealthy 覆盖其实现自报值。"""

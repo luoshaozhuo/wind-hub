@@ -193,7 +193,10 @@ class TestOwnership:
             tasks={},
         )
 
-        assert rt.sinks is rt.sink_runtime.sinks
+        assert rt.sinks == rt.sink_runtime.sinks
+        # 注册表对外只读——变更必须经 owner 的行为接口，不能绕过。
+        with pytest.raises(TypeError):
+            rt.sinks["s2"] = _mock_sink()  # type: ignore[index]
         assert rt.sink_count == 1
         assert rt.sink_queue_depths() == rt.sink_runtime.queue_depths()
         assert rt.points_routed == rt.sink_runtime.points_routed

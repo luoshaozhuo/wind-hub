@@ -30,7 +30,7 @@ from __future__ import annotations  # noqa: I001
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Protocol
 
@@ -38,6 +38,7 @@ from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_collector.application.runtime.acquisition_state import AcquisitionRuntimeState
 from wind_hub_collector.application.runtime.device import CollectorDeviceSession
 from wind_hub_collector.application.runtime.device_runtime import DeviceRuntime
+from wind_hub_collector.application.runtime.device_state import DeviceRuntimeState
 from wind_hub_collector.application.runtime.sink_runtime import SinkRuntime
 from wind_hub_collector.application.runtime.task_instance import (
     CollectionTaskInstance,
@@ -184,14 +185,32 @@ class CollectorRuntime:
         return self._sink_runtime
 
     @property
-    def devices(self) -> dict[str, CollectorDeviceSession]:
-        """供现有组件观察者读取的设备视图；所有权与变更均在 DeviceRuntime。"""
+    def devices(self) -> Mapping[str, CollectorDeviceSession]:
+        """当前设备注册表的只读视图（随热重载就地反映最新内容）。
+
+        所有权与变更均在 DeviceRuntime；外部只能观察，不得绕过 owner 修改。
+        """
         return self._device_runtime.devices
 
     @property
-    def sinks(self) -> dict[str, SinkPort]:
-        """当前 Sink 注册表（热重载后就地反映最新内容）；所有权在 SinkRuntime。"""
+    def sinks(self) -> Mapping[str, SinkPort]:
+        """当前 Sink 注册表的只读视图（随热重载就地反映最新内容）。
+
+        所有权与变更均在 SinkRuntime；外部只能观察，不得绕过 owner 修改。
+        """
         return self._sink_runtime.sinks
+
+    def device_state(self, device_id: str) -> DeviceRuntimeState | None:
+        """单台设备的连接/重连簿记状态（委托 DeviceRuntime）。"""
+        return self._device_runtime.device_state(device_id)
+
+    def device_health(self) -> dict[str, HealthStatus]:
+        """全部设备的健康状态（委托 DeviceRuntime）。"""
+        return self._device_runtime.health()
+
+    def sink_health(self) -> dict[str, HealthStatus]:
+        """全部 Sink 的健康状态（委托 SinkRuntime）。"""
+        return self._sink_runtime.health()
 
     @property
     def engine(self) -> AcquisitionEngine:

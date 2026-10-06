@@ -1,8 +1,9 @@
-"""跨进程共享的协议 Driver 注册表。
+"""协议 Driver 注册表。
 
-各协议 Driver 通过 register_protocol 注册工厂；Collector、Commander、Server
-只按 DeviceConfig.protocol 创建 ProtocolPort。注册表不建立连接、不持有 Driver
-实例，也不包含任何进程 Runtime 状态。
+``ProtocolRegistry`` 只保存「协议名 → ProtocolPort factory」，不建立连接、
+不持有 Driver 实例，也不包含任何进程 Runtime 状态。内置 Driver 的注册发生在
+组合根显式调用的 :func:`build_protocol_registry`，不依赖 import side effect
+或 decorator 副作用。
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class ProtocolRegistry:
-    """协议名到 ProtocolPort factory 的进程内注册表。"""
+    """协议名到 ProtocolPort factory 的注册表。"""
 
     def __init__(self) -> None:
         self._factories: dict[str, Callable[[DeviceConfig], ProtocolPort]] = {}
@@ -41,6 +42,10 @@ class ProtocolRegistry:
             raise ConfigError(f"Protocol driver '{name}' is already registered")
         self._factories[name] = factory
 
+    def registered_names(self) -> tuple[str, ...]:
+        """返回已注册协议名（排序后快照）。"""
+        return tuple(sorted(self._factories))
+
     def create(self, name: str, cfg: DeviceConfig) -> ProtocolPort:
         """按协议名创建 Driver。
 
@@ -62,34 +67,24 @@ class ProtocolRegistry:
             )
         return factory(cfg)
 
+    def create_for(self, cfg: DeviceConfig) -> ProtocolPort:
+        """按 ``cfg.protocol`` 创建 Driver——DeviceConfig 驱动的标准入口。"""
+        return self.create(cfg.protocol, cfg)
 
 
-# ---------------------------------------------------------------------------
-# 进程级注册表实例
-# ---------------------------------------------------------------------------
+def build_protocol_registry() -> ProtocolRegistry:
+    """构造注册好全部内置 Driver 的注册表。
 
-protocol_registry = ProtocolRegistry()
-
-
-def register_protocol(
-    name: str,
-) -> Callable[
-    [Callable[[DeviceConfig], ProtocolPort]],
-    Callable[[DeviceConfig], ProtocolPort],
-]:
-    """创建协议自注册 decorator。
-
-    Args:
-        name: 协议名。
-
-    Returns:
-        保持原 factory 不变、同时将其注册到全局 registry 的 decorator。
+    这是内置协议注册的唯一入口；Collector / Commander 组合根各持有一份实例，
+    进程间、进程内均不存在共享全局注册表。可选第三方依赖仍在 Driver 实际
+    使用时延迟导入，注册本身不建立网络连接。
     """
+    from wind_hub_core.protocol.ads.driver import ADSDriver
+    from wind_hub_core.protocol.iec104.driver import IEC104Driver
+    from wind_hub_core.protocol.modbus.driver import ModbusDriver
 
-    def _decorator(
-        factory: Callable[[DeviceConfig], ProtocolPort],
-    ) -> Callable[[DeviceConfig], ProtocolPort]:
-        protocol_registry.register(name, factory)
-        return factory
-
-    return _decorator
+    registry = ProtocolRegistry()
+    registry.register("ads", ADSDriver)
+    registry.register("modbus", ModbusDriver)
+    registry.register("iec104", IEC104Driver)
+    return registry

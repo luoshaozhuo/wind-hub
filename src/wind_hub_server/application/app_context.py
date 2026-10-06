@@ -1,13 +1,13 @@
-"""Server 进程级 application context。
+"""Server application context。
 
-``AppContext`` 由组合根装配后注入 Web API inbound adapter。上下文只持有
-Server 应用层服务/注册表/端口，不暴露 Collector 或 Commander Runtime 对象。
-缺失上下文由 Web API 统一映射为 HTTP 503。
+``AppContext`` 由组合根装配后显式注入 inbound adapter（Web API 经
+``build_api(context)`` 挂到 ``app.state``）。上下文只持有 Server 应用层
+服务/注册表/端口，不暴露 Collector 或 Commander Runtime 对象。缺失上下文
+由 Web API 统一映射为 HTTP 503。
 """
 
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass
 
 from wind_hub_server.application.config.admin_state import AdminStateService
@@ -32,7 +32,7 @@ from wind_hub_server.application.worker.registry import WorkerRegistry
 
 @dataclass
 class AppContext:
-    """进程级共享 application context——应用层服务与 Runtime 的依赖容器。
+    """Server 应用层服务与端口的依赖容器——由组合根构造并显式注入 adapter。
 
     所有字段都可选：缺失服务由适配器上报 503 / 非零退出而非崩溃。
 
@@ -97,35 +97,4 @@ class AppContext:
     """Worker Registry 只读状态与探测。"""
 
 
-_context: AppContext | None = None
-_lock = threading.Lock()
-
-
-def set_context(ctx: AppContext) -> None:
-    """Set the global application context (called by ``main.py`` or tests)."""
-    global _context
-    with _lock:
-        _context = ctx
-
-
-def get_context() -> AppContext:
-    """Return the global application context.
-
-    Raises:
-        RuntimeError: If no context has been set yet.
-    """
-    with _lock:
-        ctx = _context
-    if ctx is None:
-        raise RuntimeError("AppContext is not set — call set_context() first")
-    return ctx
-
-
-def clear_context() -> None:
-    """Clear the global context (used by tests for isolation)."""
-    global _context
-    with _lock:
-        _context = None
-
-
-__all__ = ["AppContext", "set_context", "get_context", "clear_context"]
+__all__ = ["AppContext"]

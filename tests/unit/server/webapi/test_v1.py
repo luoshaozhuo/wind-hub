@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from wind_hub_core.model.point import PointValue, Quality
 from wind_hub_server.adapter.inbound.webapi.app import build_api
-from wind_hub_server.application.app_context import AppContext, clear_context, set_context
+from wind_hub_server.application.app_context import AppContext
 from wind_hub_server.application.device.command import DeviceCommandResult
 from wind_hub_server.application.device.data import DeviceDataItem, TrendSeries
 from wind_hub_server.application.device.query import DeviceSnapshot
@@ -23,18 +22,9 @@ from wind_hub_server.application.sink.service import SinkSnapshot
 from wind_hub_server.application.task.model import TaskSummary
 
 
-@pytest.fixture(autouse=True)
-def _clean_context() -> None:
-    """隔离进程级 AppContext。"""
-    clear_context()
-    yield
-    clear_context()
-
-
 def _client(ctx: AppContext) -> TestClient:
-    """安装上下文并创建 in-process FastAPI 客户端。"""
-    set_context(ctx)
-    return TestClient(build_api())
+    """创建注入指定上下文的 in-process FastAPI 客户端。"""
+    return TestClient(build_api(ctx))
 
 
 def _task_summary(task_id: str = "t1", *, enabled: bool = True) -> TaskSummary:

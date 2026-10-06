@@ -26,8 +26,10 @@ SCHEMA_TS = GENERATED_DIR / "schema.d.ts"
 def export_openapi() -> None:
     """从 FastAPI 应用导出确定性 OpenAPI JSON。"""
     from wind_hub_server.adapter.inbound.webapi.app import build_api
+    from wind_hub_server.application.app_context import AppContext
 
-    schema = build_api().openapi()
+    # OpenAPI schema 只由路由/DTO 决定，与 context 内容无关——注入空 context。
+    schema = build_api(AppContext()).openapi()
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     OPENAPI_JSON.write_text(
         json.dumps(schema, indent=2, sort_keys=True) + "\n",
