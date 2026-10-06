@@ -2,11 +2,19 @@
 
 实现 :class:`~wind_hub_collector.application.port.sink.SinkPort` 的真实文件走向：把一批
 :class:`~wind_hub_core.model.point.PointValue` 序列化成 ``csv`` 或 ``jsonl``
-行，追加写入本地文件；滚动判断委托给 :class:`~.rotation.RotationPolicy`（由
-``connection`` 里的 ``max_size_mb`` / ``max_age_hours`` 构建），滚动把当前文件改名
-成 ``{base}.{suffix}.{ext}`` 后另开新文件，并对旧分片异步压缩（``compress`` 参数
-开启时）；``buffer_size`` / ``flush_interval`` 控制刷盘时机，``close`` 时强制
-flush。
+行字节，交给 :class:`~.async_writer.AsyncRotatingFileWriter` 异步落盘；滚动判断
+委托给 :class:`~.rotation.RotationPolicy`（由 ``connection`` 里的
+``max_size_mb`` / ``max_age_hours`` 构建），``buffer_size`` / ``flush_interval``
+控制刷盘时机，``close`` 时强制 flush 并在锁外等待后台压缩完成。
+
+职责划分：
+
+- ``FileSink``：SinkPort 契约、``PointValue`` → 行字节序列化、健康/错误映射，
+  并用一把 ``asyncio.Lock`` 串行化 writer 的文件生命周期状态机
+  （open / append / flush / rollover / close）。序列化是纯 CPU 操作，
+  在拿锁之前完成。
+- ``AsyncRotatingFileWriter``：基于 ``aiofiles`` 的异步文件 I/O、缓冲、
+  刷盘、滚动、归档改名与后台压缩调度。
 
 所有文件级参数从 ``FileSinkConnection`` 读取并在**构造时**校验；写文件失败
 （磁盘满、权限不足等）抛 :class:`~wind_hub_core.model.errors.SinkError`，
@@ -21,11 +29,11 @@ import csv
 import io
 import json
 import logging
-import time
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
 
+from wind_hub_collector.adapter.outbound.sink.file.async_writer import (
+    AsyncRotatingFileWriter,
+)
 from wind_hub_collector.adapter.outbound.sink.file.compression import (
     Compressor,
     GzipCompressor,
@@ -36,11 +44,11 @@ from wind_hub_collector.application.port.sink import SinkPort
 from wind_hub_core.config import FileSinkConnection, SinkConfig
 from wind_hub_core.model.errors import ConfigError, SinkError
 from wind_hub_core.model.health import HealthStatus
-from wind_hub_core.model.point import PointValue
+from wind_hub_core.model.point import PointScalar, PointValue
 
 logger = logging.getLogger(__name__)
 
-# CSV 表头固定列序，与 `_serialize` 的 CSV 行一致。
+# CSV 表头固定列序，与 `_serialize_row` 的 CSV 行一致。
 _CSV_HEADER = ["device_id", "point_id", "value", "quality", "timestamp", "source"]
 
 # 连续写/刷盘失败达到该次数后，sink 标记为 unhealthy（决策 8）。
@@ -69,25 +77,29 @@ class FileSink(SinkPort):
             raise ConfigError("FileSink requires FileSinkConnection")
         self._path = Path(connection.path)
         self._format = connection.format
-        self._rotation = build_rotation(connection.max_size_mb, connection.max_age_hours)
-        self._buffer_size = connection.buffer_size
-        self._flush_interval = connection.flush_interval
-        self._write_header = connection.write_header
-        self._compressor: Compressor = (
+        compressor: Compressor = (
             GzipCompressor(level=connection.compress_level)
             if connection.compress
             else NoCompressor()
         )
-        self._file: BinaryIO | None = None
-        self._buffer: list[str] = []
-        self._current_size = 0
-        self._opened_at = 0.0
-        self._last_flush = 0.0
+        header = (
+            (",".join(_CSV_HEADER) + "\n").encode("utf-8")
+            if connection.format == "csv" and connection.write_header
+            else None
+        )
+        self._writer = AsyncRotatingFileWriter(
+            self._path,
+            rotation=build_rotation(connection.max_size_mb, connection.max_age_hours),
+            compressor=compressor,
+            header=header,
+            buffer_size=connection.buffer_size,
+            flush_interval=connection.flush_interval,
+        )
+        # 只保护 writer 的文件生命周期状态机一致性，不用于"让 I/O 变异步"。
         self._lock = asyncio.Lock()
         self._healthy = True
         self._error_message: str | None = None
         self._consecutive_failures = 0
-        self._compress_tasks: set[asyncio.Task[None]] = set()
 
     # -- SinkPort 契约 ----------------------------------------------------
 
@@ -98,38 +110,45 @@ class FileSink(SinkPort):
             SinkError: 路径不可写（父目录无法创建、权限不足等）时抛出。
         """
         async with self._lock:
-            if self._file is not None:
+            if self._writer.is_open:
                 return
             try:
-                self._open_file()
+                await self._writer.open()
             except OSError as exc:
                 self._record_failure(f"open failed: {exc}")
                 raise SinkError(f"FileSink open failed for {self._path}: {exc}") from exc
 
     async def close(self) -> None:
-        """强制 flush 缓冲后关闭文件并等待后台压缩完成；幂等，已关闭时无操作。
+        """强制 flush 缓冲后关闭文件；幂等，已关闭时无操作。
+
+        后台压缩 task 与活动文件状态无关：锁内只 flush/close 并取走 task
+        快照，等待在锁外完成，避免持锁等待无关后台任务。
 
         Raises:
             SinkError: 冲刷或关闭文件失败时抛出（文件句柄仍被释放）。
         """
         async with self._lock:
-            if self._file is None:
-                await self._await_compression()
-                return
             try:
-                self._flush_locked()
+                await self._writer.close()
             except OSError as exc:
-                self._file.close()
-                self._file = None
                 self._record_failure(f"close flush failed: {exc}")
-                await self._await_compression()
-                raise SinkError(f"FileSink close failed for {self._path}: {exc}") from exc
-            self._file.close()
-            self._file = None
-            await self._await_compression()
+                tasks = self._writer.detach_compression_tasks()
+                error: SinkError | None = SinkError(
+                    f"FileSink close failed for {self._path}: {exc}"
+                )
+                # 等待压缩在锁外进行，见下文。
+            else:
+                tasks = self._writer.detach_compression_tasks()
+                error = None
+        await self._await_compression(tasks)
+        if error is not None:
+            raise error
 
     async def write(self, batch: list[PointValue]) -> None:
         """序列化整批点值进缓冲区，达到阈值/间隔时刷盘，随后检查滚动。
+
+        序列化是纯 CPU 内存操作，在拿锁之前完成；锁内只做缓冲、
+        刷盘与滚动的文件状态转移。
 
         Args:
             batch: 待落盘的点值（由路由已分配到本 sink 的数据）。
@@ -139,16 +158,12 @@ class FileSink(SinkPort):
         """
         if not batch:
             return
+        payload = b"".join(self._serialize_row(pv) for pv in batch)
         async with self._lock:
-            if self._file is None:
+            if not self._writer.is_open:
                 raise SinkError("FileSink.write() called before open()")
             try:
-                for pv in batch:
-                    self._buffer.append(self._serialize(pv))
-                if self._should_flush():
-                    self._flush_locked()
-                if self._check_rollover():
-                    self._rollover()
+                await self._writer.append(payload, lines=len(batch))
             except OSError as exc:
                 self._record_failure(f"write failed: {exc}")
                 raise SinkError(f"FileSink write failed for {self._path}: {exc}") from exc
@@ -161,25 +176,24 @@ class FileSink(SinkPort):
             SinkError: 刷盘失败（磁盘满、权限不足）时抛出。
         """
         async with self._lock:
-            if self._file is None:
-                return
             try:
-                self._flush_locked()
+                await self._writer.flush()
             except OSError as exc:
                 self._record_failure(f"flush failed: {exc}")
                 raise SinkError(f"FileSink flush failed for {self._path}: {exc}") from exc
-            self._mark_healthy()
+            if self._writer.is_open:
+                self._mark_healthy()
 
     def health(self) -> HealthStatus:
         """返回缓存的健康状态；连续写失败达到阈值后报告 unhealthy。"""
         return HealthStatus(healthy=self._healthy, message=self._error_message)
 
-    # -- 内部：序列化 / 刷盘 / 滚动 ---------------------------------------
+    # -- 内部：序列化（纯 CPU，无锁） --------------------------------------
 
-    def _serialize(self, pv: PointValue) -> str:
-        """把一个点值序列化为一行（不带末尾换行符）。"""
+    def _serialize_row(self, pv: PointValue) -> bytes:
+        """把一个点值序列化为一行字节（含末尾换行符）。"""
         if self._format == "jsonl":
-            return json.dumps(
+            line = json.dumps(
                 {
                     "device_id": pv.device_id,
                     "point_id": pv.point_id,
@@ -190,6 +204,7 @@ class FileSink(SinkPort):
                 },
                 ensure_ascii=False,
             )
+            return (line + "\n").encode("utf-8")
         buf = io.StringIO()
         writer = csv.writer(buf, lineterminator="\n")
         writer.writerow(
@@ -202,96 +217,22 @@ class FileSink(SinkPort):
                 pv.source or "",
             ]
         )
-        return buf.getvalue().rstrip("\n")
+        return buf.getvalue().encode("utf-8")
 
     @staticmethod
-    def _value_str(value: Any) -> str:
+    def _value_str(value: PointScalar) -> str:
         """CSV 单元格值转换：``None`` 写空串，其余用 ``str`` 表示。"""
         if value is None:
             return ""
         return str(value)
 
-    def _should_flush(self) -> bool:
-        """缓冲行数达到阈值，或距上次刷盘超过 ``flush_interval`` 秒。"""
-        if len(self._buffer) >= self._buffer_size:
-            return True
-        if self._flush_interval > 0:
-            return time.monotonic() - self._last_flush >= self._flush_interval
-        return False
+    # -- 内部：后台压缩等待（锁外） -----------------------------------------
 
-    def _flush_locked(self) -> None:
-        """把缓冲区写入文件并冲刷；调用方须已持有锁且文件已打开。"""
-        if not self._buffer:
-            return
-        assert self._file is not None
-        payload = ("\n".join(self._buffer) + "\n").encode("utf-8")
-        self._file.write(payload)
-        self._file.flush()
-        self._current_size += len(payload)
-        self._buffer.clear()
-        self._last_flush = time.monotonic()
-
-    def _check_rollover(self) -> bool:
-        """当前文件是否达到滚动条件（委托给滚动策略）。"""
-        return self._rotation.should_rotate(self._current_size, time.monotonic() - self._opened_at)
-
-    def _rollover(self) -> None:
-        """关闭当前文件、改名归档、异步压缩旧分片、重开新文件。
-
-        调用方须已持有锁且文件已打开。
-        """
-        assert self._file is not None
-        self._file.close()
-        self._file = None
-        rolled = self._rolled_path()
-        self._path.rename(rolled)
-        self._schedule_compression(rolled)
-        self._open_file()
-
-    def _rolled_path(self) -> Path:
-        """滚动文件名 ``{base}.{suffix}.{ext}``，后缀由滚动策略生成。"""
-        ts = self._rotation.rotation_suffix(datetime.now(UTC))
-        return self._path.with_name(f"{self._path.stem}.{ts}{self._path.suffix}")
-
-    def _open_file(self) -> None:
-        """创建父目录、以追加模式打开文件；空 CSV 文件补写表头。"""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._current_size = self._path.stat().st_size if self._path.exists() else 0
-        # 文件句柄在此后整个 sink 生命周期内保持打开（追加 + 显式 flush/close），
-        # 不在 with 块内，故此处豁免 SIM115；若生命周期改为单次上下文打开/关闭，删除抑制。
-        self._file = open(self._path, "ab")  # noqa: SIM115
-        if self._format == "csv" and self._write_header and self._current_size == 0:
-            header = (",".join(_CSV_HEADER) + "\n").encode("utf-8")
-            self._file.write(header)
-            self._current_size += len(header)
-        self._opened_at = time.monotonic()
-        self._last_flush = time.monotonic()
-
-    # -- 内部：后台压缩 ---------------------------------------------------
-
-    def _schedule_compression(self, path: Path) -> None:
-        """把旧分片交给后台 task 压缩，不阻塞写入路径。"""
-        if isinstance(self._compressor, NoCompressor):
-            return
-        task = asyncio.create_task(self._compress_async(path))
-        self._compress_tasks.add(task)
-        task.add_done_callback(self._compress_tasks.discard)
-
-    async def _compress_async(self, path: Path) -> None:
-        """在独立 task 里压缩；文件 I/O 放到线程池，失败仅记录日志。"""
-        try:
-            await asyncio.to_thread(self._compressor.compress, path)
-            logger.info("compressed archived file %s", path)
-        except Exception as exc:
-            # 压缩是采集主流程之外的 best-effort 增强：失败只记录日志，
-            # 不得让后台 task 的异常中断滚动/写入。
-            logger.warning("compression failed for %s: %s", path, exc)
-
-    async def _await_compression(self) -> None:
-        """等待所有后台压缩 task 完成（``close`` 时调用）。"""
-        if self._compress_tasks:
-            await asyncio.gather(*list(self._compress_tasks), return_exceptions=True)
-            self._compress_tasks.clear()
+    @staticmethod
+    async def _await_compression(tasks: list[asyncio.Task[None]]) -> None:
+        """等待后台压缩 task 完成；压缩 task 自身已吞掉异常并记录日志。"""
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # -- 内部：健康跟踪 ---------------------------------------------------
 

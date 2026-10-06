@@ -48,8 +48,16 @@ def _pv(
     )
 
 
-def _raise_oserror(*args: object, **kwargs: object) -> None:
+async def _raise_oserror(*args: object, **kwargs: object) -> None:
     raise OSError("permission denied")
+
+
+# open 失败的注入缝：aiofiles.open 在 async_writer 模块命名空间内被调用，
+# monkeypatch 该属性即可让异步打开抛 OSError（aiofiles 在 import 时绑定了
+# builtins.open，patch builtins 不再生效）。
+_AIO_OPEN = (
+    "wind_hub_collector.adapter.outbound.sink.file.async_writer.aiofiles.open"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +128,7 @@ class TestLifecycle:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         sink = FileSink(_cfg(str(tmp_path / "out.jsonl")))
-        monkeypatch.setattr("builtins.open", _raise_oserror)
+        monkeypatch.setattr(_AIO_OPEN, _raise_oserror)
         with pytest.raises(SinkError, match="open failed"):
             await sink.open()
 
@@ -325,7 +333,7 @@ class TestHealth:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         sink = FileSink(_cfg(str(tmp_path / "out.jsonl")))
-        monkeypatch.setattr("builtins.open", _raise_oserror)
+        monkeypatch.setattr(_AIO_OPEN, _raise_oserror)
         with pytest.raises(SinkError):
             await sink.open()
         assert sink.health().healthy is True
@@ -334,9 +342,68 @@ class TestHealth:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         sink = FileSink(_cfg(str(tmp_path / "out.jsonl")))
-        monkeypatch.setattr("builtins.open", _raise_oserror)
+        monkeypatch.setattr(_AIO_OPEN, _raise_oserror)
         for _ in range(5):
             with pytest.raises(SinkError):
                 await sink.open()
         assert sink.health().healthy is False
         assert "open failed" in (sink.health().message or "")
+
+
+# ---------------------------------------------------------------------------
+# 事件循环非阻塞（aiofiles 架构属性）
+# ---------------------------------------------------------------------------
+
+
+class TestEventLoopNonBlocking:
+    async def test_slow_file_io_still_yields_to_other_tasks(
+        self, tmp_path: Path
+    ) -> None:
+        """底层写盘变慢时，FileSink 写路径不得阻塞事件循环。
+
+        用一个人为延迟的 async 文件包装替换 writer 内部句柄，验证
+        写入期间独立的 probe task 仍能被事件循环调度——这是架构属性
+        （I/O 经 aiofiles 线程池 + await 让出），不依赖真实磁盘性能阈值。
+        """
+        p = tmp_path / "out.jsonl"
+        sink = FileSink(_cfg(str(p), buffer_size=1, flush_interval=1000))
+        await sink.open()
+        real_file = sink._writer._file
+        assert real_file is not None
+
+        class _SlowFile:
+            """每次 write/flush 先让出事件循环再委托真实句柄。"""
+
+            def __init__(self, inner: object) -> None:
+                self._inner = inner
+
+            async def write(self, data: bytes) -> object:
+                await asyncio.sleep(0.02)
+                return await self._inner.write(data)  # type: ignore[attr-defined]
+
+            async def flush(self) -> object:
+                await asyncio.sleep(0.02)
+                return await self._inner.flush()  # type: ignore[attr-defined]
+
+        sink._writer._file = _SlowFile(real_file)
+
+        probe_ticks = 0
+        stop = False
+
+        async def probe() -> None:
+            nonlocal probe_ticks
+            while not stop:
+                probe_ticks += 1
+                await asyncio.sleep(0)
+
+        probe_task = asyncio.create_task(probe())
+        try:
+            await sink.write([_pv()])  # buffer_size=1 → 立即触发慢速刷盘
+        finally:
+            stop = True
+            await probe_task
+            sink._writer._file = real_file
+
+        # 慢速 I/O 约 40ms；若事件循环被阻塞，probe 至多执行 1-2 次。
+        assert probe_ticks >= 3
+        await sink.close()
