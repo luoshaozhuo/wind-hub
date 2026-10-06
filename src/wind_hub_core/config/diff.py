@@ -6,8 +6,7 @@ from wind_hub_core.model.reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDif
 
 def compute_diff(old: Config, new: Config) -> ConfigDiff:
     """计算两个完整配置快照的结构化差异。"""
-    old_devices = {item.device_id: item for item in old.devices.devices}
-    new_devices = {item.device_id: item for item in new.devices.devices}
+    old_devices, new_devices = old.devices, new.devices
     old_ids, new_ids = set(old_devices), set(new_devices)
     devices = DeviceDiff(
         added=sorted(new_ids - old_ids),
@@ -20,8 +19,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     )
     devices.unchanged = sorted((old_ids & new_ids) - set(devices.updated))
 
-    old_sinks = {item.name: item for item in old.sinks.sinks}
-    new_sinks = {item.name: item for item in new.sinks.sinks}
+    old_sinks, new_sinks = old.sinks, new.sinks
     old_sink_ids, new_sink_ids = set(old_sinks), set(new_sinks)
     sinks = SinkDiff(
         added=sorted(new_sink_ids - old_sink_ids),
@@ -34,8 +32,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     )
     sinks.unchanged = sorted((old_sink_ids & new_sink_ids) - set(sinks.updated))
 
-    old_tasks = {item.task_id: item for item in old.tasks.tasks}
-    new_tasks = {item.task_id: item for item in new.tasks.tasks}
+    old_tasks, new_tasks = old.tasks, new.tasks
     old_task_ids, new_task_ids = set(old_tasks), set(new_tasks)
     tasks = TaskDiff(
         added=sorted(new_task_ids - old_task_ids),
@@ -48,8 +45,7 @@ def compute_diff(old: Config, new: Config) -> ConfigDiff:
     )
     tasks.unchanged = sorted((old_task_ids & new_task_ids) - set(tasks.updated))
 
-    old_tables = old.point_tables.tables
-    new_tables = new.point_tables.tables
+    old_tables, new_tables = old.point_tables, new.point_tables
     table_names = set(old_tables) | set(new_tables)
     changed_tables = sorted(
         name

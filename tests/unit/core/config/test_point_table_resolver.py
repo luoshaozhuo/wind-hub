@@ -48,7 +48,7 @@ def _raw(tables: dict[str, PointTableConfig]) -> PointTablesConfig:
 
 def _resolve_points(tables: dict[str, PointTableConfig], name: str) -> dict[str, PointConfig]:
     resolved = resolve_point_tables(_raw(tables))
-    return {p.point_id: p for p in resolved.tables[name].points}
+    return {p.point_id: p for p in resolved[name].points}
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +96,8 @@ class TestInheritance:
             "child2": PointTableConfig(extends="base"),
         }
         resolved = resolve_point_tables(_raw(tables))
-        assert [p.point_id for p in resolved.tables["child1"].points] == ["p001"]
-        assert [p.point_id for p in resolved.tables["child2"].points] == ["p001"]
+        assert [p.point_id for p in resolved["child1"].points] == ["p001"]
+        assert [p.point_id for p in resolved["child2"].points] == ["p001"]
 
     def test_field_override_keeps_other_fields(self) -> None:
         """普通字段 override：只覆盖写出的字段，其余继承。"""
@@ -367,7 +367,7 @@ class TestResolvedSemantics:
             ),
         }
         resolved = resolve_point_tables(_raw(tables))
-        points = resolved.tables["child"].points
+        points = resolved["child"].points
         selected = [p.point_id for p in points if "fast" in p.point_groups]
         assert selected == ["p003"]
         assert all("slow" not in p.point_groups for p in points)
@@ -392,8 +392,8 @@ class TestProtocolResolution:
             "child": PointTableConfig(extends="base"),
         }
         resolved = resolve_point_tables(_raw(tables))
-        assert resolved.tables["base"].protocol == "ads"
-        assert resolved.tables["child"].protocol == "ads"
+        assert resolved["base"].protocol == "ads"
+        assert resolved["child"].protocol == "ads"
 
     def test_child_explicit_same_protocol_accepted(self) -> None:
         """子表显式写与父表一致的 protocol：允许。"""
@@ -401,7 +401,7 @@ class TestProtocolResolution:
             "base": PointTableConfig(protocol="modbus", points=[_full_patch("p001")]),
             "child": PointTableConfig(extends="base", protocol="modbus"),
         }
-        assert resolve_point_tables(_raw(tables)).tables["child"].protocol == "modbus"
+        assert resolve_point_tables(_raw(tables))["child"].protocol == "modbus"
 
     def test_cross_protocol_inheritance_rejected(self) -> None:
         """子表显式写与父表不同的 protocol → 配置错误（禁止跨协议继承）。"""

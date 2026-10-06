@@ -79,7 +79,7 @@ def test_load_config_resolves_ref_datatype_and_unit_from_source() -> None:
         raw["points"][0].pop("datatype", None)  # type: ignore[index]
         raw["points"][0].pop("unit", None)  # type: ignore[index]
         cfg = load_config(_site(Path(td), contracts=[raw]))
-        point = cfg.sinks.sinks[0].points[0]
+        point = cfg.sinks["iec104_scada"].points[0]
         assert point.ref == "wt01.wind_speed"
         assert point.source_data_type == "float32"
         assert point.source_unit == "meter_per_second"
@@ -147,7 +147,7 @@ def test_sink_metadata_override_is_resolved_explicitly() -> None:
         raw["points"][0]["ref"] = "wind.speed"  # type: ignore[index]
         raw["points"][0]["datatype"] = "float64"  # type: ignore[index]
         cfg = load_config(_site(Path(td), contracts=[raw]))
-        point = cfg.sinks.sinks[0].points[0]
+        point = cfg.sinks["iec104_scada"].points[0]
         assert point.ref == "wind.speed"
         assert point.datatype == "float64"
 
@@ -203,8 +203,8 @@ def test_inherited_source_metadata_change_updates_sink_diff() -> None:
         new = load_config(make_site(root / "new", "float64"))
         diff = compute_diff(old, new)
         assert diff.sinks.updated == ["iec104_scada"]
-        assert old.sinks.sinks[0].points[0].datatype == "float32"
-        assert new.sinks.sinks[0].points[0].datatype == "float64"
+        assert old.sinks["iec104_scada"].points[0].datatype == "float32"
+        assert new.sinks["iec104_scada"].points[0].datatype == "float64"
 
 
 def test_duplicate_canonical_ref_rejected_after_resolve() -> None:
@@ -234,7 +234,7 @@ def test_iec104_single_point_accepts_bool_datatype() -> None:
         raw["points"][0]["datatype"] = "bool"  # type: ignore[index]
         raw["points"][0]["address"] = {"ioa": 40101, "type_id": "M_SP_NA_1"}  # type: ignore[index]
         cfg = load_config(_site(Path(td), contracts=[raw]))
-        assert cfg.sinks.sinks[0].points[0].datatype == "bool"
+        assert cfg.sinks["iec104_scada"].points[0].datatype == "bool"
 
 def test_contract_change_appears_in_diff() -> None:
     with tempfile.TemporaryDirectory() as td:
@@ -361,7 +361,7 @@ def test_modbus_adjacent_ranges_are_valid() -> None:
             ],
         )
         cfg = load_config(site)
-        assert len(cfg.sinks.sinks[0].points) == 2
+        assert len(cfg.sinks["modbus_scada"].points) == 2
 
 
 def test_modbus_register_range_must_fit_address_space() -> None:

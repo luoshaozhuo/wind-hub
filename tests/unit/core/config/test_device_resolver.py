@@ -49,7 +49,7 @@ class TestResolveDevices:
             }
         )
         devices = resolve_devices(instances, models)
-        d = devices.devices[0]
+        d = devices["wtg-001"]
         assert d.device_id == "wtg-001"
         assert d.device_type == "turbine"
         assert d.model == "beckhoff_2mw"
@@ -88,7 +88,7 @@ class TestResolveDevices:
                 "endpoint": {"host": "h", "port": 1502, "extensions": {"unit_id": 9}},
             }
         )
-        ep = resolve_devices(instances, models).devices[0].endpoint
+        ep = resolve_devices(instances, models)["d1"].endpoint
         assert ep.port == 1502
         assert ep.extensions == {"unit_id": 9, "timeout": 3.0}
 
@@ -101,7 +101,7 @@ class TestResolveDevices:
             }
         )
         instances = _instances({"device_id": "d1", "model": "m1", "endpoint": {"host": "h"}})
-        assert resolve_devices(instances, models).devices[0].endpoint.port == 502
+        assert resolve_devices(instances, models)["d1"].endpoint.port == 502
 
     def test_missing_port_everywhere_raises(self) -> None:
         models = _models(m1={"protocol": "modbus", "point_table": "t1"})
@@ -114,7 +114,7 @@ class TestResolveDevices:
         instances = _instances(
             {"device_id": "d1", "model": "m1", "endpoint": {"host": "h", "port": 801}}
         )
-        assert resolve_devices(instances, models).devices[0].read_mode == "sum"
+        assert resolve_devices(instances, models)["d1"].read_mode == "sum"
 
 
 class TestDeviceModelsConfigValidation:

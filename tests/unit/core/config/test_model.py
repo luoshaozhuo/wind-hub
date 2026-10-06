@@ -9,7 +9,6 @@ from wind_hub_core.config import (
     ApiConfig,
     CollectionTaskConfig,
     DeviceConfig,
-    DevicesConfig,
     PointAddress,
     PointConfig,
     PointPatch,
@@ -83,47 +82,29 @@ class TestRuntimeConfig:
 
 
 # ---------------------------------------------------------------------------
-# DevicesConfig
+# DeviceConfig
 # ---------------------------------------------------------------------------
 
 
-class TestDevicesConfig:
+class TestDeviceConfig:
     def test_protocol_whitelist_rejects_bad_value(self) -> None:
         with pytest.raises(ConfigError, match="opcua"):
-            DevicesConfig(
-                devices=[
-                    DeviceConfig(
-                        device_id="d1",
-                        point_table="t1",
-                        protocol="opcua",
-                        endpoint=Endpoint(host="10.0.0.1", port=4840),
-                    )
-                ]
+            DeviceConfig(
+                device_id="d1",
+                point_table="t1",
+                protocol="opcua",
+                endpoint=Endpoint(host="10.0.0.1", port=4840),
             )
 
     def test_allowed_protocols_accepted(self) -> None:
         for proto in ("ads", "modbus", "iec104"):
-            cfg = DevicesConfig(
-                devices=[
-                    DeviceConfig(
-                        device_id="d1",
-                        point_table="t1",
-                        protocol=proto,
-                        endpoint=Endpoint(host="10.0.0.1", port=502),
-                    )
-                ]
+            cfg = DeviceConfig(
+                device_id="d1",
+                point_table="t1",
+                protocol=proto,
+                endpoint=Endpoint(host="10.0.0.1", port=502),
             )
-            assert cfg.devices[0].protocol == proto
-
-    def test_duplicate_device_id_raises(self) -> None:
-        ep = Endpoint(host="10.0.0.1", port=502)
-        with pytest.raises(ConfigError, match="Duplicate"):
-            DevicesConfig(
-                devices=[
-                    DeviceConfig(device_id="d1", point_table="t1", protocol="modbus", endpoint=ep),
-                    DeviceConfig(device_id="d1", point_table="t1", protocol="ads", endpoint=ep),
-                ]
-            )
+            assert cfg.protocol == proto
 
     def test_invalid_read_mode_raises(self) -> None:
         with pytest.raises(ConfigError, match="read_mode"):

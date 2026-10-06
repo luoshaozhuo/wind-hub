@@ -13,7 +13,6 @@ from wind_hub_core.config.model.device import (
     DeviceInstancesConfig,
     DeviceModelConfig,
     DeviceModelsConfig,
-    DevicesConfig,
     InstanceEndpoint,
 )
 from wind_hub_core.model.device import Endpoint
@@ -23,26 +22,28 @@ from wind_hub_core.model.errors import ConfigError
 def resolve_devices(
     instances: DeviceInstancesConfig,
     device_models: DeviceModelsConfig,
-) -> DevicesConfig:
-    """合并全部设备实例与型号定义，返回 resolved :class:`DevicesConfig`。
+) -> dict[str, DeviceConfig]:
+    """合并全部设备实例与型号定义，返回 resolved 设备索引。
 
-    ``device_id`` 唯一性已在 :class:`DeviceInstancesConfig` 解析时校验。
+    ``device_id`` 唯一性已在 :class:`DeviceInstancesConfig` 解析时校验，
+    因此按 ``device_id`` 构造 dict 不会静默覆盖。
 
     Args:
         instances: 现场设备实例配置。
         device_models: 设备类型/型号定义集。
 
     Returns:
-        Runtime 可直接消费的 resolved DevicesConfig。
+        Runtime 可直接消费的 ``{device_id: DeviceConfig}``。
 
     Raises:
         ConfigError: 实例引用未知型号，或端点合并后缺少 ``port``。
     """
-    resolved = [
-        _resolve_one(inst, _lookup_model(inst.device_id, inst.model, device_models))
+    return {
+        inst.device_id: _resolve_one(
+            inst, _lookup_model(inst.device_id, inst.model, device_models)
+        )
         for inst in instances.devices
-    ]
-    return DevicesConfig(devices=resolved)
+    }
 
 
 def _lookup_model(

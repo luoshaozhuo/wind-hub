@@ -76,7 +76,7 @@ class DeviceModelConfig(BaseModel):
 
 
 class DeviceModelsConfig(BaseModel):
-    """device_models.yaml 顶层设备类型与型号定义。"""
+    """Raw YAML root model——``device_models.yaml`` 顶层设备类型与型号定义。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -129,7 +129,11 @@ class DeviceInstanceConfig(BaseModel):
 
 
 class DeviceInstancesConfig(BaseModel):
-    """Top-level device instances configuration（``devices.yaml`` 的解析目标）。"""
+    """Raw YAML root model——``devices.yaml`` 的解析目标（文件级 wrapper）。
+
+    仅用于文件解析与 resolver 输入；最终 resolved ``Config.devices`` 是
+    扁平的 ``dict[device_id, DeviceConfig]``，不经过本类型。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -191,33 +195,16 @@ class DeviceConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_acquisition(self) -> DeviceConfig:
+        if self.protocol not in SUPPORTED_PROTOCOLS:
+            raise ConfigError(
+                f"Device '{self.device_id}': protocol '{self.protocol}' must be one of "
+                f"{sorted(SUPPORTED_PROTOCOLS)}"
+            )
         if self.read_mode not in ("sum", "sequential"):
             raise ConfigError(
                 f"Device '{self.device_id}': read_mode must be 'sum' or 'sequential', "
                 f"got '{self.read_mode}'"
             )
-        return self
-
-
-class DevicesConfig(BaseModel):
-    """devices.yaml 顶层现场设备实例定义。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    devices: list[DeviceConfig]
-
-    @model_validator(mode="after")
-    def _validate_devices(self) -> DevicesConfig:
-        seen: set[str] = set()
-        for d in self.devices:
-            if d.protocol not in SUPPORTED_PROTOCOLS:
-                raise ConfigError(
-                    f"Device '{d.device_id}': protocol '{d.protocol}' must be one of "
-                    f"{sorted(SUPPORTED_PROTOCOLS)}"
-                )
-            if d.device_id in seen:
-                raise ConfigError(f"Duplicate device_id: '{d.device_id}'")
-            seen.add(d.device_id)
         return self
 
 
@@ -230,5 +217,4 @@ __all__ = [
     "DeviceInstanceConfig",
     "DeviceInstancesConfig",
     "DeviceConfig",
-    "DevicesConfig",
 ]

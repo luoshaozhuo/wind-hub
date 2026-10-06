@@ -7,8 +7,8 @@
 
 from __future__ import annotations
 
-from wind_hub_core.config.model.device import DeviceConfig, DevicesConfig
-from wind_hub_core.config.model.point import PointConfig, ResolvedPointTables
+from wind_hub_core.config.model.device import DeviceConfig
+from wind_hub_core.config.model.point import PointConfig, ResolvedPointTable
 from wind_hub_core.config.model.sink import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
@@ -16,7 +16,6 @@ from wind_hub_core.config.model.sink import (
     ModbusSinkAddress,
     ResolvedSinkConfig,
     ResolvedSinkPoint,
-    ResolvedSinksConfig,
     SinkConfig,
     SinkPoint,
     SinksConfig,
@@ -29,48 +28,49 @@ _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 
 def resolve_sinks(
     raw: SinksConfig,
-    devices: DevicesConfig,
-    point_tables: ResolvedPointTables,
+    devices: dict[str, DeviceConfig],
+    point_tables: dict[str, ResolvedPointTable],
     units: UnitsConfig,
-) -> ResolvedSinksConfig:
-    """解析全部 Sink source 引用并补全稳定外部点元数据。"""
-    device_map = {device.device_id: device for device in devices.devices}
-    resolved: list[ResolvedSinkConfig] = []
+) -> dict[str, ResolvedSinkConfig]:
+    """解析全部 Sink source 引用并补全稳定外部点元数据。
+
+    Sink name 唯一性已在 :class:`SinksConfig` 解析时校验，resolve 保持
+    name 不变，因此按 name 构造 dict 不会静默覆盖。
+    """
+    resolved: dict[str, ResolvedSinkConfig] = {}
 
     for sink in raw.sinks:
         points = [
-            _resolve_point(sink, point, device_map, point_tables, units)
+            _resolve_point(sink, point, devices, point_tables, units)
             for point in sink.points
         ]
         _validate_modbus_layout(sink.name, points)
-        resolved.append(
-            ResolvedSinkConfig(
-                name=sink.name,
-                type=sink.type,
-                enabled=sink.enabled,
-                connection=sink.connection,
-                points=points,
-            )
+        resolved[sink.name] = ResolvedSinkConfig(
+            name=sink.name,
+            type=sink.type,
+            enabled=sink.enabled,
+            connection=sink.connection,
+            points=points,
         )
 
-    return ResolvedSinksConfig(sinks=resolved)
+    return resolved
 
 
 def _resolve_point(
     sink: SinkConfig,
     point: SinkPoint,
-    device_map: dict[str, DeviceConfig],
-    point_tables: ResolvedPointTables,
+    devices: dict[str, DeviceConfig],
+    point_tables: dict[str, ResolvedPointTable],
     units: UnitsConfig,
 ) -> ResolvedSinkPoint:
-    device = device_map.get(point.source.device_id)
+    device = devices.get(point.source.device_id)
     if device is None:
         raise ConfigError(
             f"Sink '{sink.name}' point '{_raw_ref(point)}' references unknown device "
             f"'{point.source.device_id}'"
         )
 
-    table = point_tables.tables.get(device.point_table)
+    table = point_tables.get(device.point_table)
     if table is None:
         raise ConfigError(
             f"Sink '{sink.name}' point '{_raw_ref(point)}' references device "

@@ -28,13 +28,12 @@ from wind_hub_core.config.model.point import (
     PointTableConfig,
     PointTablesConfig,
     ResolvedPointTable,
-    ResolvedPointTables,
 )
 from wind_hub_core.model.errors import ConfigError
 
 
-def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
-    """解析全部 Raw 点表，返回继承展开后的完整点表集。
+def resolve_point_tables(raw: PointTablesConfig) -> dict[str, ResolvedPointTable]:
+    """解析全部 Raw 点表，返回继承展开后的完整点表索引。
 
     每张表独立解析并缓存——多张子表共享同一父表时父表只解析一次。
     解析顺序：父表结果 → ``remove_points`` → 本表 points override/append。
@@ -43,7 +42,7 @@ def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
         raw: points.yaml 解析出的 Raw 点表集合。
 
     Returns:
-        完成继承展开与完整点校验的 ResolvedPointTables。
+        完成继承展开与完整点校验的 ``{点表名: ResolvedPointTable}``。
 
     Raises:
         ConfigError: 父表不存在、继承环、protocol 规则违反（基础表缺失 /
@@ -53,12 +52,10 @@ def resolve_point_tables(raw: PointTablesConfig) -> ResolvedPointTables:
     cache: dict[str, _ResolvedTable] = {}
     for name in raw.tables:
         _resolve_table(name, raw.tables, [], cache)
-    return ResolvedPointTables(
-        tables={
-            name: ResolvedPointTable(protocol=t.protocol, points=list(t.points.values()))
-            for name, t in cache.items()
-        }
-    )
+    return {
+        name: ResolvedPointTable(protocol=t.protocol, points=list(t.points.values()))
+        for name, t in cache.items()
+    }
 
 
 class _ResolvedTable:
