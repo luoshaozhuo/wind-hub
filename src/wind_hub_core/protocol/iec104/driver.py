@@ -472,8 +472,7 @@ class IEC104Driver:
                 )
             else:
                 pv = point_value_from_c104(point, ref.point_id)
-                pv.device_id = ref.device_id
-                results.append(pv)
+                results.append(pv.model_copy(update={"device_id": ref.device_id}))
         return results
 
     # ==================================================================

@@ -114,16 +114,17 @@ def value_from_c104(value: Any) -> Any:
 def point_value_from_c104(point: c104.Point, point_id: str) -> PointValue:
     """把 c104 客户端点当前状态转换为 PointValue（device_id 由上层补盖）。"""
     timestamp = timestamp_from_c104(point.recorded_at)
-    pv = PointValue(
+    kwargs: dict[str, Any] = {}
+    if timestamp is not None:
+        kwargs["timestamp"] = timestamp
+    return PointValue(
         device_id="",
         point_id=point_id,
         value=value_from_c104(point.value),
         quality=quality_from_c104(point.quality),
         source=SOURCE,
+        **kwargs,
     )
-    if timestamp is not None:
-        pv.timestamp = timestamp
-    return pv
 
 
 # ---------------------------------------------------------------------------

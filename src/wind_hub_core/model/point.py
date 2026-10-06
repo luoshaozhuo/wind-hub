@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+PointScalar = float | int | bool | str | None
+"""点值允许的标量类型；具体类型始终由 PointConfig.data_type 约束。"""
 
 
 class Quality(str, Enum):
@@ -31,12 +33,17 @@ class PointRef(BaseModel):
 
 
 class PointValue(BaseModel):
-    """系统内统一流转的单个点值。
+    """系统内统一流转的单个点值（不可变 Value Object）。
 
     ProtocolPort 产生 PointValue，Device 层应用 scale/offset，Runtime 再路由到
-    Sink。value 使用 Any 是因为点表允许 float/int/bool/str 等多种标量；具体类型
-    始终由 PointConfig.data_type 约束。
+    Sink。value 允许 float/int/bool/str 等标量；具体类型始终由
+    PointConfig.data_type 约束。
+
+    frozen 语义：任何"修改"点值的需求必须通过 ``model_copy(update=...)``
+    创建新实例，容器（趋势缓存、sink 缓冲等）可直接共享对象引用而无需深拷贝。
     """
+
+    model_config = ConfigDict(frozen=True)
 
     device_id: str
     """产生该点值的设备标识。"""
@@ -44,7 +51,7 @@ class PointValue(BaseModel):
     point_id: str
     """设备点表内的 point_id。"""
 
-    value: Any
+    value: PointScalar
     """点值本身；实际类型由点表 data_type 决定。"""
 
     quality: Quality = Quality.GOOD
