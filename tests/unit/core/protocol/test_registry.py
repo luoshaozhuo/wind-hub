@@ -55,8 +55,8 @@ class TestFreshRegistry:
 
     def test_create_for_uses_config_protocol(self) -> None:
         reg = ProtocolRegistry()
-        reg.register("test", lambda cfg: f"driver-{cfg.device_id}")
-        cfg = _make_device_cfg(protocol="test")
+        reg.register("ads", lambda cfg: f"driver-{cfg.device_id}")
+        cfg = _make_device_cfg(protocol="ads")
         assert reg.create_for(cfg) == "driver-test-dev"
 
     def test_create_unknown_lists_registered_names(self) -> None:
