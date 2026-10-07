@@ -8,17 +8,15 @@ import os
 import tempfile
 from pathlib import Path
 
-from core.application.config import (
+from core.application import (
     ConfigError,
     ConfigRevision,
     ConfigRevisionConflict,
     CoreConfigArtifact,
-    CoreConfigSnapshot,
     StoredCoreConfig,
-    validate_core_config,
 )
-
 from core.application.port import CoreConfigRepositoryPort
+from core.domain import CoreConfigSnapshot
 
 from .yaml_codec import YamlCoreConfigCodec
 
@@ -54,7 +52,6 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
         content = await asyncio.to_thread(self._read_bytes)
         artifact = _artifact_from_bytes(content)
         snapshot = self._codec.decode(artifact)
-        validate_core_config(snapshot)
         return StoredCoreConfig(
             snapshot=snapshot,
             revision=_revision(content),
@@ -67,7 +64,6 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
         expected_revision: ConfigRevision,
     ) -> StoredCoreConfig:
         """在 revision 未变化时原子替换配置文件。"""
-        validate_core_config(snapshot)
         artifact = self._codec.encode(snapshot)
 
         async with self._write_lock:
@@ -99,7 +95,6 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
             )
 
         snapshot = self._codec.decode(_artifact_from_bytes(content))
-        validate_core_config(snapshot)
 
         current_mode = self._path.stat().st_mode & 0o777
         self._atomic_replace(content, mode=current_mode)
