@@ -106,3 +106,48 @@ def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
                 violations.append(f"{path.name}: contains '{token}'")
 
     assert violations == []
+
+def test_infrastructure_imports_domain_types_from_domain() -> None:
+    """Infrastructure 不得通过 application.config 间接导入 Domain 类型。"""
+    domain_names = {
+        "BusinessPoint",
+        "BusinessPointId",
+        "ConnectionEndpoint",
+        "ConnectionId",
+        "Device",
+        "DeviceConnection",
+        "DeviceGroup",
+        "DeviceGroupId",
+        "DeviceId",
+        "DeviceModel",
+        "DeviceModelId",
+        "DeviceType",
+        "DeviceTypeId",
+        "PointAccess",
+        "PointTable",
+        "PointTableId",
+        "Protocol",
+        "ProtocolPoint",
+        "RawDataType",
+        "ValueType",
+    }
+    violations: list[str] = []
+
+    for path in _python_files(_CORE / "infrastructure"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "core.application.config":
+                continue
+            imported = {alias.name for alias in node.names}
+            leaked = imported & domain_names
+            if leaked:
+                relative = path.relative_to(_CORE)
+                violations.append(
+                    f"{relative}:{node.lineno} imports Domain types "
+                    f"from application.config: {sorted(leaked)}"
+                )
+
+    assert violations == []
+
