@@ -1,23 +1,28 @@
-"""Shared Core Application ports。"""
+"""Shared Core Application ports。
 
+本包只导出接口定义。
+"""
+
+from .config import (
+    CoreConfigCodecPort,
+    CoreConfigRepositoryPort,
+    CoreConfigValidatorPort,
+)
 from .protocol import (
-    ConnectionHealth,
     InterrogationCapableProtocolPort,
     ProtocolFactoryPort,
     ProtocolPort,
-    ProtocolWrite,
-    ProtocolWriteResult,
     SubscribableProtocolPort,
     SubscriptionHandle,
 )
 
 __all__ = [
-    "ConnectionHealth",
+    "CoreConfigCodecPort",
+    "CoreConfigRepositoryPort",
+    "CoreConfigValidatorPort",
     "InterrogationCapableProtocolPort",
     "ProtocolFactoryPort",
     "ProtocolPort",
-    "ProtocolWrite",
-    "ProtocolWriteResult",
     "SubscribableProtocolPort",
     "SubscriptionHandle",
 ]
