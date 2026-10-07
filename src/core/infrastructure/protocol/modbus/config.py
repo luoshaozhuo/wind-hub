@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import DeviceConnection
+from core.application.config import DeviceConnection, ProtocolOptions
 from core.application.errors import ConfigError
 
 _VALID_MODES = frozenset({"tcp"})
@@ -24,9 +24,11 @@ class ModbusConfig:
     word_order: str = "little_endian"
 
 
-def parse_modbus_config(connection: DeviceConnection) -> ModbusConfig:
+def parse_modbus_config(
+    connection: DeviceConnection,
+    options: ProtocolOptions,
+) -> ModbusConfig:
     """从共享 DeviceConnection 解析 Modbus 参数。"""
-    options = connection.endpoint.options
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
