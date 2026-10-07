@@ -1,6 +1,7 @@
 """Shared Core Application ports。"""
 
 from .protocol import (
+    ConnectionHealth,
     ProtocolFactoryPort,
     ProtocolPort,
     ProtocolWrite,
@@ -8,6 +9,7 @@ from .protocol import (
 )
 
 __all__ = [
+    "ConnectionHealth",
     "ProtocolFactoryPort",
     "ProtocolPort",
     "ProtocolWrite",
