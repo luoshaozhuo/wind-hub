@@ -1,13 +1,14 @@
 """Shared Core Application。
 
-仅保留 Collector、Commander、Server 共同依赖的应用级能力：
-共享配置、设备通信会话、协议端口以及协议值归一化。
+只保留 Collector、Commander、Server 稳定共享的配置用例、配置端口、
+最小设备协议 Port 与协议数据契约。
 """
 
 from .config import (
     ConfigRevision,
     ConfigRevisionConflict,
     ConnectionEndpoint,
+    ConnectionId,
     CoreConfigArtifact,
     CoreConfigDiff,
     CoreConfigSnapshot,
@@ -23,29 +24,21 @@ from .config.service import (
     CoreConfigUpdateResult,
 )
 from .errors import ConfigError, CoreError, ProtocolError
-from .interpretation import interpret_protocol_sample, prepare_protocol_write
-from .measurement import (
+from .port import (
+    CoreConfigCodecPort,
+    CoreConfigRepositoryPort,
+    CoreConfigValidatorPort,
+    ProtocolPort,
+)
+from .protocol_contract import (
     ConnectionHealth,
     PointScalar,
-    PointValue,
-    PointWrite,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
     WritableScalar,
 )
-from .port import (
-    CoreConfigCodecPort,
-    CoreConfigRepositoryPort,
-    CoreConfigValidatorPort,
-    InterrogationCapableProtocolPort,
-    ProtocolFactoryPort,
-    ProtocolPort,
-    SubscribableProtocolPort,
-    SubscriptionHandle,
-)
-from .session import DeviceSession, create_device_session
 
 __all__ = [
     "ConfigError",
@@ -53,9 +46,8 @@ __all__ = [
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "ConnectionHealth",
-    "InterrogationCapableProtocolPort",
+    "ConnectionId",
     "CoreConfigArtifact",
-    "CoreError",
     "CoreConfigCodecPort",
     "CoreConfigDiff",
     "CoreConfigPreview",
@@ -64,26 +56,18 @@ __all__ = [
     "CoreConfigSnapshot",
     "CoreConfigUpdateResult",
     "CoreConfigValidatorPort",
+    "CoreError",
     "DeviceConnection",
-    "DeviceSession",
     "IndexDiff",
     "PointScalar",
-    "PointValue",
-    "PointWrite",
     "ProtocolError",
-    "ProtocolFactoryPort",
     "ProtocolPort",
     "ProtocolSample",
     "ProtocolWrite",
     "ProtocolWriteResult",
-    "SubscribableProtocolPort",
-    "SubscriptionHandle",
     "Quality",
-    "WritableScalar",
     "StoredCoreConfig",
+    "WritableScalar",
     "compute_core_config_diff",
-    "create_device_session",
-    "interpret_protocol_sample",
-    "prepare_protocol_write",
     "validate_core_config",
 ]
