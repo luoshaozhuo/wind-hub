@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import DeviceConnection
+from core.application.config import DeviceConnection, ProtocolOptions
 from core.application.errors import ConfigError
 
 _ALLOWED_OPTIONS = frozenset(
@@ -38,9 +38,11 @@ class ADSConfig:
     max_notifications_per_connection: int = 550
 
 
-def parse_ads_config(connection: DeviceConnection) -> ADSConfig:
+def parse_ads_config(
+    connection: DeviceConnection,
+    options: ProtocolOptions,
+) -> ADSConfig:
     """从共享 DeviceConnection 解析并严格校验 ADS 参数。"""
-    options = connection.endpoint.options
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
