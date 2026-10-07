@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
 
-from core.domain.identities import ConnectionId, DeviceId, PointTableId
+from core.domain import ConnectionId, DeviceId, PointTableId
 
 ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 
