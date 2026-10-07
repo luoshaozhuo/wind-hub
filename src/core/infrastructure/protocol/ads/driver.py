@@ -489,14 +489,14 @@ class ADSDriver:
         )
 
     async def _disconnect_after_failure(self) -> None:
-        """传输失败后释放死 ADS connection 与关联订阅。"""
-        subscriptions = tuple(self._subscriptions)
-        self._subscriptions.clear()
-        for subscription in subscriptions:
-            await subscription.close()
+        """传输失败后立即摘除运行资源。
 
-        connection, self._connection = self._connection, None
-        self._connected = False
+        本方法可能在 Driver lock 内调用，因此不能等待订阅 callback drain；
+        订阅清理转为独立 task，避免 callback 反向等待 Driver lock 形成死锁。
+        """
+        connection, subscriptions = self._detach_runtime()
+        for subscription in subscriptions:
+            asyncio.create_task(subscription.close())
         if connection is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(connection.close)
