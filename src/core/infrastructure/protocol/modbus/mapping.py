@@ -20,7 +20,7 @@ _REGISTER_TYPE_ALIASES: dict[str, str] = {
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 _ALLOWED_POINT_OPTIONS = frozenset(
-    {"register_type", "type", "address", "count", "word_order"}
+    {"register_type", "type", "address", "count", "word_order", "data_type"}
 )
 _MAX_ADDRESS = 0xFFFF
 _MAX_REGISTER_READ = 125
@@ -80,7 +80,8 @@ def parse_modbus_point(
             f"0..{_MAX_ADDRESS}"
         )
 
-    expected_count = _count_for_data_type(register_type, point.raw_type.name)
+    data_type = _required_data_type(options.get("data_type"), point.point_id)
+    expected_count = _count_for_data_type(register_type, data_type)
     raw_count = options.get("count")
     count = (
         expected_count
@@ -92,7 +93,7 @@ def parse_modbus_point(
     if count != expected_count:
         raise ConfigError(
             f"Modbus point '{point.point_id}': count {count} does not match "
-            f"{point.raw_type.name} requirement {expected_count}"
+            f"{data_type} requirement {expected_count}"
         )
     if address + count > _MAX_ADDRESS + 1:
         raise ConfigError(
@@ -128,7 +129,7 @@ def parse_modbus_point(
         register_type=register_type,
         address=address,
         count=count,
-        data_type=point.raw_type.name,
+        data_type=data_type,
         word_order=word_order,
     )
 
@@ -187,6 +188,20 @@ def group_consecutive_reads(
             )
         groups.append(current)
     return groups
+
+
+
+def _required_data_type(value: object, point_id: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(
+            f"Modbus point '{point_id}': data_type must be a non-empty string"
+        )
+    data_type = value.strip().lower()
+    if data_type not in _REGISTER_COUNTS:
+        raise ConfigError(
+            f"Modbus point '{point_id}': unsupported data_type '{value}'"
+        )
+    return data_type
 
 
 def _normalize_register_type(value: object) -> str:
