@@ -3,6 +3,7 @@
 from .device_connection import ConnectionEndpoint, DeviceConnection
 from .identities import PointSetId, SinkId, TaskId
 from .point_set import PointSet
+from .sink import SinkDefinition
 from .snapshot import ConfigSnapshot
 from .task import CollectionTask
 
@@ -13,6 +14,7 @@ __all__ = [
     "DeviceConnection",
     "PointSet",
     "PointSetId",
+    "SinkDefinition",
     "SinkId",
     "TaskId",
 ]
