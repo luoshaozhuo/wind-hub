@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from core.application import ConnectionEndpoint, DeviceConnection, ConfigError
+import pytest
+
+from core.application import (
+    ConfigError,
+    ConnectionEndpoint,
+    DeviceConnection,
+    ProtocolWrite,
+)
 from core.domain import (
     PointAccess,
     PointTable,
@@ -10,7 +17,13 @@ from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
-from core.infrastructure import ADSDriver, parse_ads_config, parse_ads_point
+from core.infrastructure import (
+    ADSDriver,
+    ADSLocalConfig,
+    ADSLocalRouter,
+    parse_ads_config,
+    parse_ads_point,
+)
 
 
 def _connection(
@@ -134,3 +147,99 @@ def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
     driver = ADSDriver(_connection(), table)
 
     assert driver.health().healthy is False
+
+
+
+class _FakeADSConnection:
+    def __init__(self) -> None:
+        self.writes: list[tuple[int, int, object, object]] = []
+
+    def write(
+        self,
+        index_group: int,
+        index_offset: int,
+        value: object,
+        datatype: object,
+    ) -> None:
+        self.writes.append(
+            (index_group, index_offset, value, datatype)
+        )
+
+
+class _FakePyads:
+    PLCTYPE_DINT = object()
+
+    def __init__(self) -> None:
+        self.open_calls = 0
+        self.close_calls = 0
+        self.local_addresses: list[str] = []
+
+    def open_port(self) -> None:
+        self.open_calls += 1
+
+    def close_port(self) -> None:
+        self.close_calls += 1
+
+    def set_local_address(self, value: str) -> None:
+        self.local_addresses.append(value)
+
+
+@pytest.mark.asyncio
+async def test_ads_write_coerces_integral_float_for_integer_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    point = _point(
+        "setpoint",
+        raw_type="int32",
+        index_group=0x4020,
+        index_offset=12,
+    )
+    table = PointTable(
+        "ads_pt",
+        Protocol("ads"),
+        {"setpoint": point},
+    )
+    driver = ADSDriver(_connection(), table)
+    fake_connection = _FakeADSConnection()
+    driver._connection = fake_connection
+    driver._connected = True
+
+    import core.infrastructure.protocol.ads.driver as driver_module
+
+    fake_pyads = _FakePyads()
+    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
+
+    results = await driver.write(
+        (ProtocolWrite(point=point, value=10.0),)
+    )
+
+    assert results[0].success is True
+    assert fake_connection.writes[0][2] == 10
+    assert type(fake_connection.writes[0][2]) is int
+
+
+@pytest.mark.asyncio
+async def test_ads_local_router_initializes_once_and_rejects_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.infrastructure.protocol.ads.router as router_module
+
+    fake_pyads = _FakePyads()
+    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
+
+    router = ADSLocalRouter()
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+
+    await router.initialize(config)
+    await router.initialize(config)
+
+    assert fake_pyads.open_calls == 1
+    assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
+
+    with pytest.raises(ConfigError, match="different local identity"):
+        await router.initialize(
+            ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11")
+        )
+
+    await router.close()
+    assert fake_pyads.close_calls == 1
