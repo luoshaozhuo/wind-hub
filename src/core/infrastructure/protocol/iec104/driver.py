@@ -13,13 +13,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from core.application.config import (
-    DeviceConnection,
-    PointProtocolOptions,
-    PointTable,
-    ProtocolOptions,
-    ProtocolPoint,
-)
+from core.application.config import PointProtocolOptions, ProtocolOptions
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -28,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.application.config import PointAccess
+from core.domain import DeviceConnection, PointAccess, PointTable, ProtocolPoint
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
