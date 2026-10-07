@@ -58,13 +58,14 @@ class DeviceGroup:
 class DeviceModel:
     """可复用的设备型号聚合根。
 
-    point_table_ids 表达该型号支持的接入点表；具体现场设备实际启用哪些接入
-    方式，由 DeviceConnection 配置决定。
+    point_table_ids 表达该型号已经声明支持的接入点表；允许为空，表示型号已存在，
+    但当前尚未定义通信点表。具体现场设备实际启用哪些接入方式，由
+    DeviceConnection 配置决定。
     """
 
     device_model_id: DeviceModelId
     device_type_id: DeviceTypeId
-    point_table_ids: tuple[PointTableId, ...]
+    point_table_ids: tuple[PointTableId, ...] = ()
     name: str | None = None
     manufacturer: str | None = None
 
@@ -79,8 +80,6 @@ class DeviceModel:
             raise ValueError("device_model_id must not be empty")
         if not device_type_id:
             raise ValueError("device_type_id must not be empty")
-        if not point_table_ids:
-            raise ValueError("point_table_ids must not be empty")
         if any(not point_table_id for point_table_id in point_table_ids):
             raise ValueError("point_table_ids must not contain empty values")
         if len(point_table_ids) != len(set(point_table_ids)):
