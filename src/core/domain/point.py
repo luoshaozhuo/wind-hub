@@ -34,10 +34,10 @@ class BusinessPoint:
 
 @dataclass(frozen=True, slots=True)
 class Point:
-    """PointTable 内的一条稳定点定义。
+    """PointTable 内的一条设备点定义。
 
-    这里只表达跨协议稳定语义；设备侧数据类型、Modbus 地址、ADS symbol、
-    IEC104 IOA 等协议专有信息不属于 Domain。
+    稳定字段由 Domain 明确定义；协议专有字段仅作为不透明 ext 保存，
+    其含义、校验和转换全部由对应 Infrastructure Adapter 解释。
     """
 
     point_id: str
