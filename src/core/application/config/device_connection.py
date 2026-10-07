@@ -12,9 +12,10 @@ from math import isfinite
 from types import MappingProxyType
 from typing import TypeAlias
 
-from core.domain import ConnectionId, DeviceId
+from core.domain import DeviceId
 
 from ..errors import ConfigError
+from .identities import ConnectionId
 
 ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 
