@@ -378,3 +378,27 @@ async def test_ads_driver_exposes_notification_subscription(
 
     await handle.close()
     assert connection.is_open is False
+
+
+
+@pytest.mark.asyncio
+async def test_ads_local_router_has_single_process_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pyads = _FakePyads()
+    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
+
+    first = ADSLocalRouter()
+    second = ADSLocalRouter()
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+
+    await first.initialize(config)
+    with pytest.raises(ConfigError, match="another instance"):
+        await second.initialize(config)
+
+    await first.close()
+    await second.initialize(config)
+    await second.close()
+
+    assert fake_pyads.open_calls == 2
+    assert fake_pyads.close_calls == 2
