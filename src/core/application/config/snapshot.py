@@ -10,7 +10,9 @@ from typing import TypeVar
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
+    ConnectionId,
     Device,
+    DeviceConnection,
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
@@ -18,12 +20,17 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
+    PointTable,
+    PointTableId,
 )
 
 from ..errors import ConfigError
-from .device_connection import DeviceConnection
-from .identities import ConnectionId, PointTableId
-from .point_table import PointTable
+from .protocol_options import (
+    PointProtocolOptions,
+    ProtocolOptions,
+    freeze_point_protocol_options,
+    freeze_protocol_options,
+)
 
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
@@ -32,17 +39,12 @@ _ValueT = TypeVar("_ValueT")
 def _freeze_index(
     values: Mapping[_KeyT, _ValueT],
 ) -> Mapping[_KeyT, _ValueT]:
-    """返回索引的只读浅拷贝。"""
     return MappingProxyType(dict(values))
 
 
 @dataclass(frozen=True, slots=True)
 class CoreConfigSnapshot:
-    """Collector、Commander、Server 共享的不可变静态配置。
-
-    仅保存跨应用共享的设备、业务点、点表和通信接入定义。
-    CollectionTask、PointSet、Sink 等应用专有配置不得进入本快照。
-    """
+    """Collector、Commander、Server 共享的不可变静态配置。"""
 
     device_types: Mapping[DeviceTypeId, DeviceType] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
@@ -50,10 +52,13 @@ class CoreConfigSnapshot:
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
-    device_model_point_tables: Mapping[DeviceModelId, PointTableId] = field(
+    device_connections: Mapping[ConnectionId, DeviceConnection] = field(
         default_factory=dict
     )
-    device_connections: Mapping[ConnectionId, DeviceConnection] = field(
+    connection_options: Mapping[ConnectionId, ProtocolOptions] = field(
+        default_factory=dict
+    )
+    point_options: Mapping[PointTableId, PointProtocolOptions] = field(
         default_factory=dict
     )
 
@@ -65,24 +70,46 @@ class CoreConfigSnapshot:
             "devices": _freeze_index(self.devices),
             "business_points": _freeze_index(self.business_points),
             "point_tables": _freeze_index(self.point_tables),
-            "device_model_point_tables": _freeze_index(
-                self.device_model_point_tables
-            ),
             "device_connections": _freeze_index(self.device_connections),
+            "connection_options": MappingProxyType(
+                {
+                    connection_id: freeze_protocol_options(options)
+                    for connection_id, options in self.connection_options.items()
+                }
+            ),
+            "point_options": MappingProxyType(
+                {
+                    point_table_id: freeze_point_protocol_options(options)
+                    for point_table_id, options in self.point_options.items()
+                }
+            ),
         }
 
-        self._validate_identity(fields["device_types"], "device_types", "device_type_id")
-        self._validate_identity(fields["device_models"], "device_models", "device_model_id")
-        self._validate_identity(fields["device_groups"], "device_groups", "device_group_id")
+        self._validate_identity(
+            fields["device_types"],
+            "device_types",
+            "device_type_id",
+        )
+        self._validate_identity(
+            fields["device_models"],
+            "device_models",
+            "device_model_id",
+        )
+        self._validate_identity(
+            fields["device_groups"],
+            "device_groups",
+            "device_group_id",
+        )
         self._validate_identity(fields["devices"], "devices", "device_id")
         self._validate_identity(
             fields["business_points"],
             "business_points",
             "business_point_id",
         )
-        self._validate_identity(fields["point_tables"], "point_tables", "point_table_id")
-        self._validate_device_model_point_tables(
-            fields["device_model_point_tables"]
+        self._validate_identity(
+            fields["point_tables"],
+            "point_tables",
+            "point_table_id",
         )
         self._validate_identity(
             fields["device_connections"],
@@ -99,7 +126,6 @@ class CoreConfigSnapshot:
         index_name: str,
         identity_attr: str,
     ) -> None:
-        """校验索引键与对象内部稳定身份一致。"""
         for key, value in values.items():
             identity = getattr(value, identity_attr)
             if key != identity:
@@ -108,28 +134,11 @@ class CoreConfigSnapshot:
                     f"{identity_attr} '{identity}'"
                 )
 
-
-    @staticmethod
-    def _validate_device_model_point_tables(
-        values: Mapping[DeviceModelId, PointTableId],
-    ) -> None:
-        for model_id, point_table_id in values.items():
-            if not str(model_id).strip():
-                raise ConfigError(
-                    "device_model_point_tables keys must not be empty"
-                )
-            if not str(point_table_id).strip():
-                raise ConfigError(
-                    "device_model_point_tables values must not be empty"
-                )
-
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
-        """解析 Device -> DeviceModel -> PointTable 接入配置。"""
+        """解析 Device -> DeviceModel -> PointTable。"""
         device = self.devices[device_id]
-        point_table_id = self.device_model_point_tables[
-            device.device_model_id
-        ]
-        return self.point_tables[point_table_id]
+        model = self.device_models[device.device_model_id]
+        return self.point_tables[model.point_table_id]
 
     def connections_for_device(
         self,
@@ -137,10 +146,7 @@ class CoreConfigSnapshot:
         *,
         enabled_only: bool = True,
     ) -> tuple[DeviceConnection, ...]:
-        """返回设备的稳定排序通信接入定义。
-
-        本方法只解析候选连接，不决定主备、负载均衡、重试或 failover 策略。
-        """
+        """返回设备的稳定排序通信接入定义。"""
         connections = tuple(
             connection
             for connection in self.device_connections.values()
@@ -153,3 +159,24 @@ class CoreConfigSnapshot:
                 key=lambda connection: str(connection.connection_id),
             )
         )
+
+    def connection_options_for(
+        self,
+        connection_id: ConnectionId,
+    ) -> ProtocolOptions:
+        """返回指定 DeviceConnection 的协议专有配置。"""
+        return self.connection_options.get(
+            connection_id,
+            MappingProxyType({}),
+        )
+
+    def point_options_for(
+        self,
+        point_table_id: PointTableId,
+        point_id: str,
+    ) -> ProtocolOptions:
+        """返回指定协议点的协议专有配置。"""
+        table_options = self.point_options.get(point_table_id)
+        if table_options is None:
+            return MappingProxyType({})
+        return table_options.get(point_id, MappingProxyType({}))
