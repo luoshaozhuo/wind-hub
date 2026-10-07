@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import DeviceConnection
+from core.domain import ConnectionEndpoint
 
 _ALLOWED_OPTIONS = frozenset(
     {
@@ -25,7 +25,7 @@ _VALID_READ_MODES = frozenset({"sum", "sequential"})
 
 @dataclass(frozen=True, slots=True)
 class ADSConfig:
-    """单个 ADS DeviceConnection 的解析后参数。"""
+    """单个 ADS ConnectionEndpoint 的解析后参数。"""
 
     host: str
     target_net_id: str
@@ -40,14 +40,14 @@ class ADSConfig:
 
 
 def parse_ads_config(
-    connection: DeviceConnection,
+    endpoint: ConnectionEndpoint,
     options: ProtocolOptions,
 ) -> ADSConfig:
-    """从共享 DeviceConnection 解析并严格校验 ADS 参数。"""
+    """从 ConnectionEndpoint 解析并严格校验 ADS 参数。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
-            f"connection '{connection.connection_id}' has unknown ADS options: "
+            f"connection '{endpoint}' has unknown ADS options: "
             f"{sorted(unknown)}"
         )
 
@@ -59,7 +59,7 @@ def parse_ads_config(
     )
     if target_net_id and not _is_valid_ams_net_id(target_net_id):
         raise ConfigError(
-            f"connection '{connection.connection_id}': invalid target_net_id "
+            f"connection '{endpoint}': invalid target_net_id "
             f"'{target_net_id}'"
         )
 
@@ -70,7 +70,7 @@ def parse_ads_config(
     )
     if twincat_version not in {"2", "3"}:
         raise ConfigError(
-            f"connection '{connection.connection_id}': twincat_version must be "
+            f"connection '{endpoint}': twincat_version must be "
             "'2' or '3'"
         )
 
@@ -81,14 +81,14 @@ def parse_ads_config(
     ).lower()
     if read_mode not in _VALID_READ_MODES:
         raise ConfigError(
-            f"connection '{connection.connection_id}': invalid ADS read_mode "
+            f"connection '{endpoint}': invalid ADS read_mode "
             f"'{read_mode}'"
         )
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': timeout must be > 0"
+            f"connection '{endpoint}': timeout must be > 0"
         )
 
     max_subs = _int_option(
@@ -98,7 +98,7 @@ def parse_ads_config(
     )
     if max_subs <= 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': max_subs_per_sum must be > 0"
+            f"connection '{endpoint}': max_subs_per_sum must be > 0"
         )
 
     max_concurrent = _int_option(
@@ -108,7 +108,7 @@ def parse_ads_config(
     )
     if max_concurrent <= 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': "
+            f"connection '{endpoint}': "
             "max_concurrent_reads must be > 0"
         )
 
@@ -119,7 +119,7 @@ def parse_ads_config(
     )
     if max_delay < 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': max_delay must be >= 0"
+            f"connection '{endpoint}': max_delay must be >= 0"
         )
 
     max_notifications = _int_option(
@@ -129,15 +129,15 @@ def parse_ads_config(
     )
     if max_notifications <= 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': "
+            f"connection '{endpoint}': "
             "max_notifications_per_connection must be > 0"
         )
 
     default_port = 801 if twincat_version == "2" else 802
-    target_port = connection.endpoint.port or default_port
+    target_port = endpoint.port or default_port
 
     return ADSConfig(
-        host=connection.endpoint.host,
+        host=endpoint.host,
         target_net_id=target_net_id,
         target_port=target_port,
         timeout=timeout,
