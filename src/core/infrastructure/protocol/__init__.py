@@ -9,6 +9,7 @@ from .ads import (
     parse_ads_config,
     parse_ads_point,
 )
+from .builtins import build_protocol_registry
 from .iec104 import (
     IEC104Config,
     IEC104Driver,
@@ -44,6 +45,7 @@ __all__ = [
     "ProtocolRegistry",
     "ProtocolConfigValidator",
     "build_iec104_index",
+    "build_protocol_registry",
     "group_consecutive_reads",
     "parse_ads_config",
     "parse_ads_point",
