@@ -151,7 +151,7 @@ def create_device_session(
     model = snapshot.device_models[device.device_model_id]
     point_table = snapshot.point_tables[model.point_table_id]
 
-    protocol = protocols.create(connection, point_table.protocol)
+    protocol = protocols.create(connection, point_table)
     return DeviceSession(snapshot, connection, protocol)
 
 
