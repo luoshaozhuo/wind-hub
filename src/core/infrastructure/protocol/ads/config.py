@@ -104,7 +104,7 @@ def parse_ads_config(connection: DeviceConnection) -> ADSConfig:
             "max_concurrent_reads must be > 0"
         )
 
-    default_port = 801 if twincat_version == "2" else 851
+    default_port = 801 if twincat_version == "2" else 802
     target_port = connection.endpoint.port or default_port
 
     return ADSConfig(
