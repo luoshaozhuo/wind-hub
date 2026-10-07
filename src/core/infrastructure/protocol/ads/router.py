@@ -78,8 +78,8 @@ class ADSLocalRouter:
                 return
 
             _reserve_owner(self, config)
-            pyads = _pyads()
             try:
+                pyads = _pyads()
                 await asyncio.to_thread(pyads.open_port)
                 await asyncio.to_thread(
                     pyads.set_local_address,
@@ -102,8 +102,8 @@ class ADSLocalRouter:
         async with self._lock:
             if not self._initialized:
                 return
-            pyads = _pyads()
             try:
+                pyads = _pyads()
                 await asyncio.to_thread(pyads.close_port)
             finally:
                 self._initialized = False
