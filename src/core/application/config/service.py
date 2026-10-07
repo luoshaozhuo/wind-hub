@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .codec import CoreConfigArtifact, CoreConfigCodecPort
+from ..port import (
+    CoreConfigCodecPort,
+    CoreConfigRepositoryPort,
+    CoreConfigValidatorPort,
+)
+from .artifact import CoreConfigArtifact
 from .diff import CoreConfigDiff, compute_core_config_diff
-from .repository import (
+from .revision import (
     ConfigRevision,
     ConfigRevisionConflict,
-    CoreConfigRepositoryPort,
     StoredCoreConfig,
 )
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
-from .validator import CoreConfigValidatorPort
 
 
 @dataclass(frozen=True, slots=True)
