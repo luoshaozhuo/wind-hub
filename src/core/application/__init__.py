@@ -10,15 +10,17 @@ from .config import (
     ConnectionEndpoint,
     CoreConfigArtifact,
     CoreConfigDiff,
-    CoreConfigPreview,
-    CoreConfigService,
     CoreConfigSnapshot,
-    CoreConfigUpdateResult,
     DeviceConnection,
     IndexDiff,
     StoredCoreConfig,
     compute_core_config_diff,
     validate_core_config,
+)
+from .config.service import (
+    CoreConfigPreview,
+    CoreConfigService,
+    CoreConfigUpdateResult,
 )
 from .errors import ConfigError, CoreError, ProtocolError
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
