@@ -91,7 +91,6 @@ def test_modbus_point_mapping_and_grouping() -> None:
 def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
     point = _point(
         "readonly",
-        raw_type="int16",
         access=PointAccess.READ_WRITE,
     )
 
