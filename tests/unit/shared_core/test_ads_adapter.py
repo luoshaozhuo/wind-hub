@@ -13,6 +13,7 @@ from core.application import (
     ConfigError,
     ConnectionEndpoint,
     DeviceConnection,
+    ProtocolError,
     ProtocolSample,
     ProtocolWrite,
     SubscribableProtocolPort,
@@ -450,3 +451,25 @@ async def test_ads_subscription_can_close_itself_from_callback(
 
     await asyncio.wait_for(done.wait(), timeout=1.0)
     assert connection.is_open is False
+
+
+
+@pytest.mark.asyncio
+async def test_ads_local_router_releases_owner_when_pyads_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = ADSLocalRouter()
+    second = ADSLocalRouter()
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+
+    def unavailable() -> object:
+        raise ProtocolError("pyads unavailable")
+
+    monkeypatch.setattr(router_module, "_pyads", unavailable)
+    with pytest.raises(ProtocolError, match="unavailable"):
+        await first.initialize(config)
+
+    fake_pyads = _FakePyads()
+    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
+    await second.initialize(config)
+    await second.close()
