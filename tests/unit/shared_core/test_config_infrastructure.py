@@ -17,7 +17,6 @@ from core.domain import (
     PointTable,
     Protocol,
     PointDefinition,
-    RawDataType,
     BusinessPoint,
     Device,
     DeviceModel,
@@ -48,7 +47,6 @@ def _snapshot(
     protocol_point = PointDefinition(
         point_id="p",
         business_point_id=point.business_point_id,
-        raw_type=RawDataType("float32"),
         source_unit=UNIT_CATALOG[UnitCode.WATT],
         access=PointAccess.READ_WRITE,
     )
