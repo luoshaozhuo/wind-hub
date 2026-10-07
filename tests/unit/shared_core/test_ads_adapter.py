@@ -385,7 +385,7 @@ async def test_ads_driver_exposes_notification_subscription(
         received.append(sample)
 
     handle = await driver.subscribe(
-        (point,),
+        (point.point_id,),
         callback,
         interval=0.25,
     )
