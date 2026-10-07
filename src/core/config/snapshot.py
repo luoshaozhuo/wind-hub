@@ -31,8 +31,9 @@ from core.domain import (
 )
 
 from .device_connection import DeviceConnection
-from .identities import PointSetId, TaskId
+from .identities import PointSetId, SinkId, TaskId
 from .point_set import PointSet
+from .sink import SinkDefinition
 from .task import CollectionTask
 
 _KeyT = TypeVar("_KeyT")
@@ -62,6 +63,7 @@ class ConfigSnapshot:
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     point_sets: Mapping[PointSetId, PointSet] = field(default_factory=dict)
     tasks: Mapping[TaskId, CollectionTask] = field(default_factory=dict)
+    sinks: Mapping[SinkId, SinkDefinition] = field(default_factory=dict)
     device_connections: Mapping[ConnectionId, DeviceConnection] = field(
         default_factory=dict
     )
@@ -75,6 +77,7 @@ class ConfigSnapshot:
         point_tables = _freeze_index(self.point_tables)
         point_sets = _freeze_index(self.point_sets)
         tasks = _freeze_index(self.tasks)
+        sinks = _freeze_index(self.sinks)
         device_connections = _freeze_index(self.device_connections)
 
         self._validate_identity(device_types, "device_types", "device_type_id")
@@ -89,6 +92,7 @@ class ConfigSnapshot:
         self._validate_identity(point_tables, "point_tables", "point_table_id")
         self._validate_identity(point_sets, "point_sets", "point_set_id")
         self._validate_identity(tasks, "tasks", "task_id")
+        self._validate_identity(sinks, "sinks", "sink_id")
         self._validate_identity(
             device_connections,
             "device_connections",
@@ -103,6 +107,7 @@ class ConfigSnapshot:
         object.__setattr__(self, "point_tables", point_tables)
         object.__setattr__(self, "point_sets", point_sets)
         object.__setattr__(self, "tasks", tasks)
+        object.__setattr__(self, "sinks", sinks)
         object.__setattr__(self, "device_connections", device_connections)
 
     @staticmethod
