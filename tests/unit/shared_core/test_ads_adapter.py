@@ -17,7 +17,7 @@ from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
-from core.infrastructure import (
+from core.infrastructure.protocol.ads import (
     ADSDriver,
     ADSLocalConfig,
     ADSLocalRouter,
