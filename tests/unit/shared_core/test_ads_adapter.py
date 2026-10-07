@@ -65,7 +65,7 @@ def _point(
     )
 
 
-def _point_options(
+def _point_ext(
     *,
     data_type: str = "REAL",
     **options: object,
@@ -117,7 +117,7 @@ def test_ads_config_rejects_unknown_options() -> None:
 
 def test_ads_symbol_point_requires_session_resolution() -> None:
     mapped = parse_ads_point(
-        _point("speed", ext=_point_options(symbol="MAIN.speed")),
+        _point("speed", ext=_point_ext(symbol="MAIN.speed")),
     )
 
     assert mapped.symbol == "MAIN.speed"
@@ -130,7 +130,7 @@ def test_ads_index_point_is_resolved_without_network() -> None:
     mapped = parse_ads_point(
         _point(
             "power",
-            ext=_point_options(
+            ext=_point_ext(
                 data_type="DINT",
                 index_group=0x4020,
                 index_offset=100,
@@ -149,7 +149,7 @@ def test_ads_int64_mapping_is_supported() -> None:
     mapped = parse_ads_point(
         _point(
             "counter",
-            ext=_point_options(
+            ext=_point_ext(
                 data_type="LINT",
                 index_group=0x4020,
                 index_offset=0,
@@ -162,7 +162,7 @@ def test_ads_int64_mapping_is_supported() -> None:
 
 
 def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
-    point = _point("speed", ext=_point_options(symbol="MAIN.speed"))
+    point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
     driver = ADSDriver(
@@ -215,7 +215,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
 ) -> None:
     point = _point(
         "setpoint",
-        ext=_point_options(
+        ext=_point_ext(
             data_type="DINT",
             index_group=0x4020,
             index_offset=12,
@@ -356,7 +356,7 @@ async def test_ads_driver_exposes_notification_subscription(
 ) -> None:
     point = _point(
         "speed",
-        ext=_point_options(
+        ext=_point_ext(
             index_group=0x4020,
             index_offset=10,
         ),
@@ -438,7 +438,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
 ) -> None:
     point = _point(
         "speed",
-        ext=_point_options(
+        ext=_point_ext(
             index_group=0x4020,
             index_offset=10,
         ),
