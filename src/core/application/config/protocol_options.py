@@ -15,8 +15,6 @@ from ..errors import ConfigError
 
 ProtocolOptionValue: TypeAlias = str | int | float | bool | None
 ProtocolOptions: TypeAlias = Mapping[str, ProtocolOptionValue]
-PointProtocolOptions: TypeAlias = Mapping[str, ProtocolOptions]
-
 
 def freeze_protocol_options(
     values: Mapping[str, ProtocolOptionValue],
@@ -33,13 +31,3 @@ def freeze_protocol_options(
     return MappingProxyType(options)
 
 
-def freeze_point_protocol_options(
-    values: Mapping[str, Mapping[str, ProtocolOptionValue]],
-) -> PointProtocolOptions:
-    """冻结某张 PointTable 的协议专有点配置。"""
-    return MappingProxyType(
-        {
-            point_id: freeze_protocol_options(options)
-            for point_id, options in values.items()
-        }
-    )
