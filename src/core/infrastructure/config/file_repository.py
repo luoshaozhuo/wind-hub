@@ -3,35 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import tempfile
 from pathlib import Path
 
-from core.application import (
-    ConfigError,
-    ConfigRevision,
-    ConfigRevisionConflict,
-    CoreConfigArtifact,
-    StoredCoreConfig,
-)
-from core.application.port import CoreConfigRepositoryPort
-from core.domain import CoreConfigSnapshot
+from core.application import ConfigError
+from core.application.port import ConfigRepositoryPort
+from core.domain import CoreConfigSnapshot, validate_core_config
 
 from .yaml_codec import YamlCoreConfigCodec
 
 
-class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
-    """使用单个配置文件持久化 Shared Core 配置。
-
-    - revision 是文件内容的 SHA-256；
-    - save 使用 expected_revision 做乐观并发检查；
-    - 写入采用同目录临时文件 + fsync + os.replace，避免半写文件；
-    - 阻塞文件 I/O 通过 asyncio.to_thread 隔离出事件循环。
-
-    本实现假定唯一写入口通过本 Repository。跨主机共享文件系统上的分布式锁不在
-    本类职责内；如需多节点并发写入，应替换为数据库/Git 等 Repository Adapter。
-    """
+class YamlFileCoreConfigRepository(ConfigRepositoryPort):
+    """使用单个 YAML 文件加载与原子保存 Shared Core 配置。"""
 
     def __init__(
         self,
@@ -44,34 +28,20 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
 
     @property
     def path(self) -> Path:
-        """返回配置文件路径。"""
         return self._path
 
-    async def load(self) -> StoredCoreConfig:
-        """读取、解析并校验当前配置。"""
+    async def load(self) -> CoreConfigSnapshot:
         content = await asyncio.to_thread(self._read_bytes)
-        artifact = _artifact_from_bytes(content)
-        snapshot = self._codec.decode(artifact)
-        return StoredCoreConfig(
-            snapshot=snapshot,
-            revision=_revision(content),
-        )
+        snapshot = self._codec.decode(content)
+        validate_core_config(snapshot)
+        return snapshot
 
-    async def save(
-        self,
-        snapshot: CoreConfigSnapshot,
-        *,
-        expected_revision: ConfigRevision,
-    ) -> StoredCoreConfig:
-        """在 revision 未变化时原子替换配置文件。"""
-        artifact = self._codec.encode(snapshot)
+    async def save(self, snapshot: CoreConfigSnapshot) -> None:
+        validate_core_config(snapshot)
+        content = self._codec.encode(snapshot)
 
         async with self._write_lock:
-            return await asyncio.to_thread(
-                self._save_sync,
-                artifact.content,
-                expected_revision,
-            )
+            await asyncio.to_thread(self._save_sync, content)
 
     def _read_bytes(self) -> bytes:
         try:
@@ -81,27 +51,9 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
                 f"core config file not found: {self._path}"
             ) from exc
 
-    def _save_sync(
-        self,
-        content: bytes,
-        expected_revision: ConfigRevision,
-    ) -> StoredCoreConfig:
-        current = self._read_bytes()
-        current_revision = _revision(current)
-        if current_revision != expected_revision:
-            raise ConfigRevisionConflict(
-                f"config revision conflict: expected '{expected_revision}', "
-                f"current '{current_revision}'"
-            )
-
-        snapshot = self._codec.decode(_artifact_from_bytes(content))
-
-        current_mode = self._path.stat().st_mode & 0o777
-        self._atomic_replace(content, mode=current_mode)
-        return StoredCoreConfig(
-            snapshot=snapshot,
-            revision=_revision(content),
-        )
+    def _save_sync(self, content: bytes) -> None:
+        mode = self._path.stat().st_mode & 0o777 if self._path.exists() else 0o644
+        self._atomic_replace(content, mode=mode)
 
     def _atomic_replace(self, content: bytes, *, mode: int) -> None:
         parent = self._path.parent
@@ -126,19 +78,7 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
             raise
 
 
-def _artifact_from_bytes(content: bytes) -> CoreConfigArtifact:
-    return CoreConfigArtifact(
-        content=content,
-        media_type="application/x-yaml",
-    )
-
-
-def _revision(content: bytes) -> ConfigRevision:
-    return ConfigRevision(hashlib.sha256(content).hexdigest())
-
-
 def _fsync_directory(path: Path) -> None:
-    """尽力把目录项更新刷盘；不支持目录 fsync 的平台安全忽略。"""
     try:
         fd = os.open(path, os.O_RDONLY)
     except OSError:
