@@ -32,7 +32,7 @@ def _freeze_index(
     return MappingProxyType(dict(values))
 
 
-def _freeze_protocol_options(
+def _freeze_options(
     values: Mapping[str, ProtocolOptionValue],
 ) -> ProtocolOptions:
     options = dict(values)
@@ -66,7 +66,7 @@ class CoreConfigSnapshot:
             "point_tables": _freeze_index(self.point_tables),
             "device_options": MappingProxyType(
                 {
-                    device_id: _freeze_protocol_options(options)
+                    device_id: _freeze_options(options)
                     for device_id, options in self.device_options.items()
                 }
             ),
