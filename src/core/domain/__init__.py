@@ -1,6 +1,5 @@
 """Shared Core Domain 公共门面。"""
 
-from .connection import ConnectionEndpoint
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
@@ -12,7 +11,7 @@ from .identities import (
 )
 from .point import BusinessPoint, PointTable, PointDefinition
 from .unit import *
-from .value_objects import PointAccess, Protocol, RawDataType, ValueType
+from .value_objects import ConnectionEndpoint, PointAccess, Protocol, ValueType
 
 __all__ = [
     "BusinessPoint",
@@ -31,6 +30,5 @@ __all__ = [
     "PointTableId",
     "Protocol",
     "PointDefinition",
-    "RawDataType",
     "ValueType",
 ]
