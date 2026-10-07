@@ -13,3 +13,7 @@ class ConfigError(CoreError):
 
 class ProtocolError(CoreError):
     """协议建连、握手、读写或链路级失败。"""
+
+
+class ProtocolCapabilityError(ProtocolError):
+    """当前协议不支持调用方请求的协议能力。"""
