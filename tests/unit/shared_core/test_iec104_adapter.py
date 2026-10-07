@@ -211,3 +211,38 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
     )
     await asyncio.sleep(0)
     assert received == [42.0]
+
+
+
+@pytest.mark.asyncio
+async def test_iec104_subscription_can_close_itself_from_callback() -> None:
+    point = _point("power", ioa=100)
+    table = PointTable(
+        "iec_pt",
+        Protocol("iec104"),
+        {point.point_id: point},
+    )
+    driver = IEC104Driver(_connection(), table)
+    done = asyncio.Event()
+    handle_box: list[object] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        del sample
+        handle = handle_box[0]
+        await handle.close()
+        done.set()
+
+    handle = await driver.subscribe((point,), callback)
+    handle_box.append(handle)
+    driver._closed = False
+    driver._is_open = True
+    driver._store_sample(
+        100,
+        ProtocolSample(
+            point_id="power",
+            value=1.0,
+            quality=Quality.GOOD,
+        ),
+    )
+
+    await asyncio.wait_for(done.wait(), timeout=1.0)
