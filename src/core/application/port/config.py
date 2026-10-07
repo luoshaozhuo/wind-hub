@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from core.domain.config import CoreConfigSnapshot
+from core.domain import CoreConfigSnapshot
 
 from ..config_contract import (
     ConfigRevision,
