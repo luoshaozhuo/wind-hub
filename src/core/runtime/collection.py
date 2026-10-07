@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from core.application import (
     AcquisitionMode,
     CollectionAssignment,
+    InterrogationCapable,
     PointValue,
     ProtocolSample,
     SubscribableProtocolPort,
@@ -128,6 +129,12 @@ class CollectionRuntime:
             _on_sample,
             interval=assignment.interval,
         )
+        try:
+            if isinstance(protocol, InterrogationCapable):
+                await protocol.interrogate()
+        except Exception:
+            await handle.close()
+            raise
         self._subscriptions[key] = handle
 
     async def stop_assignment(self, task_id: TaskId, device_id: DeviceId) -> None:
