@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from core.application.config import (
+    ConfigError,
     ConfigRevision,
     ConfigRevisionConflict,
     CoreConfigArtifact,
@@ -79,7 +80,7 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
         try:
             return self._path.read_bytes()
         except FileNotFoundError as exc:
-            raise FileNotFoundError(
+            raise ConfigError(
                 f"core config file not found: {self._path}"
             ) from exc
 
@@ -96,10 +97,11 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
                 f"current '{current_revision}'"
             )
 
-        current_mode = self._path.stat().st_mode & 0o777
-        self._atomic_replace(content, mode=current_mode)
         snapshot = self._codec.decode(_artifact_from_bytes(content))
         validate_core_config(snapshot)
+
+        current_mode = self._path.stat().st_mode & 0o777
+        self._atomic_replace(content, mode=current_mode)
         return StoredCoreConfig(
             snapshot=snapshot,
             revision=_revision(content),
