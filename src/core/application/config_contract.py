@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NewType
 
-from core.domain.config import CoreConfigDiff, CoreConfigSnapshot
+from core.domain import CoreConfigDiff, CoreConfigSnapshot
 
 from .errors import ConfigError
 
