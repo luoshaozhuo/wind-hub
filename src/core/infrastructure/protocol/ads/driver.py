@@ -13,7 +13,7 @@ import struct
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from core.application.config import PointProtocolOptions, ProtocolOptions
+from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -62,7 +62,6 @@ class ADSDriver:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         device_options: ProtocolOptions,
-        point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError(
@@ -76,10 +75,7 @@ class ADSDriver:
             device_options,
         )
         self._points = {
-            point.point_id: parse_ads_point(
-                point,
-                point_options.get(point.point_id, {}),
-            )
+            point.point_id: parse_ads_point(point)
             for point in point_table.points.values()
         }
 
