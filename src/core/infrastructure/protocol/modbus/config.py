@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.application.config import ProtocolOptions
-from core.domain import DeviceConnection
+from core.domain import ConnectionEndpoint
 from core.application.errors import ConfigError
 
 _VALID_MODES = frozenset({"tcp"})
@@ -15,7 +15,7 @@ _ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order"})
 
 @dataclass(frozen=True, slots=True)
 class ModbusConfig:
-    """单个 Modbus DeviceConnection 的解析后配置。"""
+    """单个 Modbus ConnectionEndpoint 的解析后配置。"""
 
     host: str
     port: int = 502
@@ -26,34 +26,34 @@ class ModbusConfig:
 
 
 def parse_modbus_config(
-    connection: DeviceConnection,
+    endpoint: ConnectionEndpoint,
     options: ProtocolOptions,
 ) -> ModbusConfig:
-    """从共享 DeviceConnection 解析 Modbus 参数。"""
+    """从 ConnectionEndpoint 解析 Modbus 参数。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
-            f"connection '{connection.connection_id}' has unknown Modbus options: "
+            f"connection '{endpoint}' has unknown Modbus options: "
             f"{sorted(unknown)}"
         )
 
     mode = _string_option(options.get("mode"), "mode", default="tcp").lower()
     if mode not in _VALID_MODES:
         raise ConfigError(
-            f"connection '{connection.connection_id}': unsupported Modbus mode "
+            f"connection '{endpoint}': unsupported Modbus mode "
             f"'{mode}'; only TCP is currently supported"
         )
 
     unit_id = _int_option(options.get("unit_id"), "unit_id", default=1)
     if not 0 <= unit_id <= 255:
         raise ConfigError(
-            f"connection '{connection.connection_id}': unit_id must be in 0..255"
+            f"connection '{endpoint}': unit_id must be in 0..255"
         )
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
         raise ConfigError(
-            f"connection '{connection.connection_id}': timeout must be > 0"
+            f"connection '{endpoint}': timeout must be > 0"
         )
 
     word_order = _string_option(
@@ -63,13 +63,13 @@ def parse_modbus_config(
     ).lower()
     if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(
-            f"connection '{connection.connection_id}': invalid word_order "
+            f"connection '{endpoint}': invalid word_order "
             f"'{word_order}'"
         )
 
     return ModbusConfig(
-        host=connection.endpoint.host,
-        port=connection.endpoint.port or 502,
+        host=endpoint.host,
+        port=endpoint.port or 502,
         unit_id=unit_id,
         mode=mode,
         timeout=timeout,
