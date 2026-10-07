@@ -89,6 +89,8 @@ def test_domain_does_not_depend_on_application_or_infrastructure() -> None:
 def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
     forbidden_tokens = {
         "protocol_options",
+        "raw_type",
+        "data_type",
         "register_type",
         "word_order",
         "target_net_id",
