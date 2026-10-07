@@ -26,6 +26,7 @@ from .modbus import (
     parse_modbus_point,
 )
 from .registry import ProtocolFactory, ProtocolRegistry
+from .validator import ProtocolConfigValidator
 
 __all__ = [
     "ADSConfig",
@@ -41,6 +42,7 @@ __all__ = [
     "ModbusPoint",
     "ProtocolFactory",
     "ProtocolRegistry",
+    "ProtocolConfigValidator",
     "build_iec104_index",
     "group_consecutive_reads",
     "parse_ads_config",
