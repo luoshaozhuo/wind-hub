@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
-from core.domain import ConnectionEndpoint, PointTable, Protocol
+from core.domain import ConnectionEndpoint, PointTable, Protocol, ProtocolOptions
 
 ProtocolFactory = Callable[
     [ConnectionEndpoint, PointTable, ProtocolOptions],
