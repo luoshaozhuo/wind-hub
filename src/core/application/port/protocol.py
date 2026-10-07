@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from core.domain import PointTable, ProtocolPoint
 
-from ..config import DeviceConnection
+from ..config.device_connection import DeviceConnection
 from ..measurement import (
     ConnectionHealth,
     ProtocolSample,
