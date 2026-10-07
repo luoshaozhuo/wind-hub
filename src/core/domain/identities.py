@@ -13,6 +13,7 @@ DeviceId = NewType("DeviceId", str)
 DeviceModelId = NewType("DeviceModelId", str)
 DeviceTypeId = NewType("DeviceTypeId", str)
 PointTableId = NewType("PointTableId", str)
+UnitId = NewType("UnitId", str)
 
 __all__ = [
     "BusinessPointId",
@@ -22,4 +23,5 @@ __all__ = [
     "DeviceModelId",
     "DeviceTypeId",
     "PointTableId",
+    "UnitId",
 ]
