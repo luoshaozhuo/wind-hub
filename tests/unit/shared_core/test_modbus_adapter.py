@@ -101,3 +101,46 @@ def test_modbus_driver_precompiles_resolved_point_table() -> None:
     driver = ModbusDriver(connection, table)
 
     assert driver.health().healthy is False
+
+
+
+def test_modbus_grouping_uses_bit_limit_separately() -> None:
+    first = parse_modbus_point(
+        _point(
+            "b1",
+            address=0,
+            register_type="coil",
+            raw_type="bool",
+        ),
+        default_word_order="little_endian",
+    )
+    second = parse_modbus_point(
+        _point(
+            "b2",
+            address=1500,
+            register_type="coil",
+            raw_type="bool",
+        ),
+        default_word_order="little_endian",
+    )
+
+    groups = group_consecutive_reads(
+        [first, second],
+        max_gap=2000,
+    )
+
+    assert len(groups) == 1
+
+
+def test_modbus_point_rejects_address_span_overflow() -> None:
+    point = _point(
+        "overflow",
+        address=65535,
+        raw_type="float32",
+    )
+
+    with pytest.raises(ConfigError, match="address span exceeds"):
+        parse_modbus_point(
+            point,
+            default_word_order="little_endian",
+        )
