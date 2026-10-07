@@ -9,10 +9,9 @@ from .identities import (
     DeviceModelId,
     DeviceTypeId,
     PointTableId,
-    UnitId,
 )
 from .point import BusinessPoint, PointTable, ProtocolPoint
-from .unit import Unit
+from .unit import Quantity, Unit, UnitCode, UNIT_CATALOG, convert_value
 from .value_objects import PointAccess, Protocol, RawDataType, ValueType
 
 __all__ = [
@@ -32,8 +31,11 @@ __all__ = [
     "PointTableId",
     "Protocol",
     "ProtocolPoint",
+    "Quantity",
     "RawDataType",
+    "UNIT_CATALOG",
     "Unit",
-    "UnitId",
+    "UnitCode",
     "ValueType",
+    "convert_value",
 ]
