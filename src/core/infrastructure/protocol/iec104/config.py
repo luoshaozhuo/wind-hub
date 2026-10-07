@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application import ConfigError, DeviceConnection
+from core.application.config import DeviceConnection
+from core.application.errors import ConfigError
 
 _ALLOWED_OPTIONS = frozenset({"common_addr", "k", "w", "t0", "t1", "t2", "t3"})
 
