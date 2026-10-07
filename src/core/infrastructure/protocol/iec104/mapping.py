@@ -1,4 +1,4 @@
-"""IEC104 PointDefinition 的 IOA 与控制语义映射。"""
+"""IEC104 Point 的 IOA 与控制语义映射。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import PointDefinition
+from core.domain import Point
 
 _ALLOWED_OPTIONS = frozenset({"ioa", "type", "type_id"})
 _MAX_IOA = 0xFFFFFF
@@ -32,10 +32,10 @@ class IEC104Point:
 
 
 def parse_iec104_point(
-    point: PointDefinition,
+    point: Point,
     options: ProtocolOptions,
 ) -> IEC104Point:
-    """把 PointDefinition 解析为 IEC104 地址定义。"""
+    """把 Point 解析为 IEC104 地址定义。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
@@ -71,7 +71,7 @@ def parse_iec104_point(
 
 
 def build_iec104_index(
-    points: list[PointDefinition],
+    points: list[Point],
     point_options: Mapping[str, ProtocolOptions],
 ) -> tuple[dict[str, IEC104Point], dict[int, IEC104Point]]:
     """构建 point_id/IOA 双向索引，并拒绝重复 IOA。"""
