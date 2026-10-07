@@ -239,9 +239,15 @@ class ADSSubscription:
         connection: Any,
         point: ADSPoint,
     ) -> None:
+        if point.size <= 0:
+            raise ConfigError(
+                f"ADS notification point '{point.point_id}' requires a "
+                "resolved positive byte size"
+            )
+
         pyads = _pyads()
         attr = pyads.NotificationAttrib(
-            max(point.size, 1),
+            point.size,
             cycle_time=self._cycle_time,
             max_delay=self._config.max_delay,
         )
