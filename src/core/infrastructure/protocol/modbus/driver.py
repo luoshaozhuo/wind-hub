@@ -9,7 +9,11 @@ from collections.abc import Sequence
 from math import isfinite
 from typing import Any
 
-from core.application.config import DeviceConnection
+from core.application.config import (
+    DeviceConnection,
+    PointTable,
+    ProtocolPoint,
+)
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -18,7 +22,6 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import PointTable, ProtocolPoint
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
