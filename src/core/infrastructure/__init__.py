@@ -4,19 +4,11 @@
 """
 
 from .config import YamlFileCoreConfigRepository
-from .protocol import (
-    ADSLocalConfig,
-    ADSLocalRouter,
-    ProtocolConfigValidator,
-    ProtocolRegistry,
-    build_protocol_registry,
-)
+from .protocol import ADSLocalConfig, ADSLocalRouter, ProtocolRegistry
 
 __all__ = [
     "ADSLocalConfig",
     "ADSLocalRouter",
-    "ProtocolConfigValidator",
     "ProtocolRegistry",
     "YamlFileCoreConfigRepository",
-    "build_protocol_registry",
 ]
