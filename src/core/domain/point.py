@@ -33,7 +33,7 @@ class BusinessPoint:
 
 
 @dataclass(frozen=True, slots=True)
-class ProtocolPoint:
+class PointDefinition:
     """PointTable 内的一条协议点语义定义。
 
     这里只表达跨协议稳定语义；Modbus 地址、ADS symbol、IEC104 IOA 等
@@ -74,7 +74,7 @@ class PointTable:
 
     point_table_id: PointTableId
     protocol: Protocol
-    points: Mapping[str, ProtocolPoint]
+    points: Mapping[str, PointDefinition]
 
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
@@ -106,14 +106,14 @@ class PointTable:
             MappingProxyType(points),
         )
 
-    def point(self, point_id: str) -> ProtocolPoint:
+    def point(self, point_id: str) -> PointDefinition:
         """按本地点 ID 返回协议点。"""
         return self.points[point_id.strip()]
 
     def points_for_business(
         self,
         business_point_id: BusinessPointId,
-    ) -> tuple[ProtocolPoint, ...]:
+    ) -> tuple[PointDefinition, ...]:
         """返回映射到同一业务点的全部协议点。"""
         return tuple(
             point
