@@ -12,7 +12,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from core.application import ConfigError, ProtocolError
+from core.application.errors import ConfigError, ProtocolError
 
 
 @dataclass(frozen=True, slots=True)
