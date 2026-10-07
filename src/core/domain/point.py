@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
 
+from .identities import BusinessPointId, PointTableId
 from .value_objects import PointAccess, Protocol, RawDataType, Unit, ValueType
 
 ProtocolOptionValue: TypeAlias = str | int | float | bool | None
@@ -20,13 +21,13 @@ def _freeze_mapping(
 
 @dataclass(frozen=True, slots=True)
 class BusinessPoint:
-    """稳定业务点定义，回答“这个量是什么”。
+    """稳定业务点聚合根，回答“这个量是什么”。
 
     业务点与具体协议、地址和点表解耦。standard_unit 是系统内的标准单位，
     value_type 是转换后的标准业务值类型。
     """
 
-    business_point_id: str
+    business_point_id: BusinessPointId
     name: str
     value_type: ValueType
     standard_unit: Unit
@@ -39,7 +40,11 @@ class BusinessPoint:
             raise ValueError("business_point_id must not be empty")
         if not name:
             raise ValueError("business point name must not be empty")
-        object.__setattr__(self, "business_point_id", business_point_id)
+        object.__setattr__(
+            self,
+            "business_point_id",
+            BusinessPointId(business_point_id),
+        )
         object.__setattr__(self, "name", name)
 
 
@@ -47,6 +52,7 @@ class BusinessPoint:
 class ProtocolPoint:
     """PointTable 内部的协议点实体。
 
+    point_id 仅在所属 PointTable 聚合内具有身份意义，不是全局 ID。
     business_point_id 关联稳定业务点；raw_type、source_unit、scale、offset
     描述从协议原始量到标准业务量的解释规则；protocol_options 只保存协议
     专有标量字段，例如 Modbus 地址、ADS Symbol 或 IEC 104 IOA。
@@ -56,7 +62,7 @@ class ProtocolPoint:
     """
 
     point_id: str
-    business_point_id: str
+    business_point_id: BusinessPointId
     raw_type: RawDataType
     source_unit: Unit
     access: PointAccess
@@ -72,7 +78,11 @@ class ProtocolPoint:
         if not business_point_id:
             raise ValueError("business_point_id must not be empty")
         object.__setattr__(self, "point_id", point_id)
-        object.__setattr__(self, "business_point_id", business_point_id)
+        object.__setattr__(
+            self,
+            "business_point_id",
+            BusinessPointId(business_point_id),
+        )
         object.__setattr__(
             self,
             "protocol_options",
@@ -82,13 +92,13 @@ class ProtocolPoint:
 
 @dataclass(frozen=True, slots=True)
 class PointTable:
-    """单一协议下的一套可复用点表聚合。
+    """单一协议下的一套可复用点表聚合根。
 
     PointTable 是 ProtocolPoint 的一致性边界；表内 point_id 必须唯一。
     BusinessPoint 不属于本聚合，ProtocolPoint 仅通过 business_point_id 引用它。
     """
 
-    point_table_id: str
+    point_table_id: PointTableId
     name: str
     protocol: Protocol
     points: tuple[ProtocolPoint, ...]
@@ -108,7 +118,7 @@ class PointTable:
                 f"point table '{point_table_id}' contains duplicate point_id"
             )
 
-        object.__setattr__(self, "point_table_id", point_table_id)
+        object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "points", points)
 
@@ -119,7 +129,10 @@ class PointTable:
                 return point
         raise KeyError(point_id)
 
-    def points_for_business(self, business_point_id: str) -> tuple[ProtocolPoint, ...]:
+    def points_for_business(
+        self,
+        business_point_id: BusinessPointId,
+    ) -> tuple[ProtocolPoint, ...]:
         """返回映射到同一业务点的全部协议点。"""
         return tuple(
             point
