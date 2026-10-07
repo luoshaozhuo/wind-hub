@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from core.application.config import CoreConfigSnapshot
 from core.application.port import CoreConfigValidatorPort
+from core.domain import CoreConfigSnapshot
 
 from .registry import ProtocolRegistry
 
