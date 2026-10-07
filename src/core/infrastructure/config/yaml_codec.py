@@ -10,12 +10,12 @@ import yaml
 from core.application.config import (
     ConnectionEndpoint,
     CoreConfigArtifact,
-    CoreConfigCodecPort,
     CoreConfigSnapshot,
     DeviceConnection,
     validate_core_config,
 )
 from core.application.errors import ConfigError
+from core.application.port import CoreConfigCodecPort
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
