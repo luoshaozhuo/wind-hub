@@ -9,7 +9,6 @@ from collections.abc import Sequence
 from math import isfinite
 from typing import Any
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.port import ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
@@ -20,7 +19,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointTable
+from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
