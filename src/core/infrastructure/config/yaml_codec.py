@@ -349,6 +349,7 @@ def _decode_point(value: object) -> Point:
         ext=_scalar_mapping(item.get("ext"), "ext"),
     )
 
+
 def _decode_device_model(value: object) -> DeviceModel:
     item = _require_mapping(value, "device_models[]")
     _require_fields(
