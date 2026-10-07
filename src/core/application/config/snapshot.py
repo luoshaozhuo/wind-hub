@@ -23,12 +23,7 @@ from core.domain import (
 )
 
 from ..errors import ConfigError
-from .protocol_options import (
-    PointProtocolOptions,
-    ProtocolOptions,
-    freeze_point_protocol_options,
-    freeze_protocol_options,
-)
+from .protocol_options import ProtocolOptions, freeze_protocol_options
 
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
@@ -53,9 +48,6 @@ class CoreConfigSnapshot:
     device_options: Mapping[DeviceId, ProtocolOptions] = field(
         default_factory=dict
     )
-    point_options: Mapping[PointTableId, PointProtocolOptions] = field(
-        default_factory=dict
-    )
 
     def __post_init__(self) -> None:
         fields = {
@@ -69,12 +61,6 @@ class CoreConfigSnapshot:
                 {
                     device_id: freeze_protocol_options(options)
                     for device_id, options in self.device_options.items()
-                }
-            ),
-            "point_options": MappingProxyType(
-                {
-                    point_table_id: freeze_point_protocol_options(options)
-                    for point_table_id, options in self.point_options.items()
                 }
             ),
         }
@@ -138,13 +124,3 @@ class CoreConfigSnapshot:
             MappingProxyType({}),
         )
 
-    def point_options_for(
-        self,
-        point_table_id: PointTableId,
-        point_id: str,
-    ) -> ProtocolOptions:
-        """返回指定协议点的协议专有配置。"""
-        table_options = self.point_options.get(point_table_id)
-        if table_options is None:
-            return MappingProxyType({})
-        return table_options.get(point_id, MappingProxyType({}))
