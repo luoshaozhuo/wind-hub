@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
 from core.domain import Point
 
@@ -33,9 +31,9 @@ class IEC104Point:
 
 def parse_iec104_point(
     point: Point,
-    options: ProtocolOptions,
 ) -> IEC104Point:
     """把 Point 解析为 IEC104 地址定义。"""
+    options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
@@ -72,16 +70,12 @@ def parse_iec104_point(
 
 def build_iec104_index(
     points: list[Point],
-    point_options: Mapping[str, ProtocolOptions],
 ) -> tuple[dict[str, IEC104Point], dict[int, IEC104Point]]:
     """构建 point_id/IOA 双向索引，并拒绝重复 IOA。"""
     by_id: dict[str, IEC104Point] = {}
     by_ioa: dict[int, IEC104Point] = {}
     for point in points:
-        mapped = parse_iec104_point(
-            point,
-            point_options.get(point.point_id, {}),
-        )
+        mapped = parse_iec104_point(point)
         if mapped.ioa in by_ioa:
             other = by_ioa[mapped.ioa]
             raise ConfigError(
