@@ -8,7 +8,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    ProtocolPoint,
+    PointDefinition,
     RawDataType,
     UNIT_CATALOG,
     UnitCode,
@@ -26,8 +26,8 @@ def _point(
     *,
     raw_type: str = "float32",
     access: PointAccess = PointAccess.READ_WRITE,
-) -> ProtocolPoint:
-    return ProtocolPoint(
+) -> PointDefinition:
+    return PointDefinition(
         point_id=point_id,
         business_point_id=point_id,
         raw_type=RawDataType(raw_type),
