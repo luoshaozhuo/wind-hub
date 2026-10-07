@@ -14,6 +14,7 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
+    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceGroup,
@@ -31,7 +32,6 @@ from core.domain import (
     UNIT_CATALOG,
     Unit,
     UnitCode,
-    CoreConfigSnapshot,
     validate_core_config,
 )
 
