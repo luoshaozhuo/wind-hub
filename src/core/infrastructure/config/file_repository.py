@@ -11,6 +11,7 @@ from pathlib import Path
 from core.application.config import (
     ConfigRevision,
     ConfigRevisionConflict,
+    CoreConfigArtifact,
     CoreConfigCodecPort,
     CoreConfigRepositoryPort,
     CoreConfigSnapshot,
@@ -124,9 +125,7 @@ class FileCoreConfigRepository(CoreConfigRepositoryPort):
             raise
 
 
-def _artifact_from_bytes(content: bytes):
-    from core.application.config import CoreConfigArtifact
-
+def _artifact_from_bytes(content: bytes) -> CoreConfigArtifact:
     return CoreConfigArtifact(
         content=content,
         media_type="application/x-yaml",
