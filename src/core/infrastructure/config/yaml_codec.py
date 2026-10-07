@@ -8,17 +8,8 @@ from typing import TypeVar, cast
 import yaml
 
 from core.application.config import (
-    ConnectionEndpoint,
-    ConnectionId,
     CoreConfigArtifact,
     CoreConfigSnapshot,
-    DeviceConnection,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-    ProtocolPoint,
-    RawDataType,
     validate_core_config,
 )
 from core.application.errors import ConfigError
@@ -26,7 +17,10 @@ from core.application.port import CoreConfigCodecPort
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
+    ConnectionEndpoint,
+    ConnectionId,
     Device,
+    DeviceConnection,
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
@@ -34,6 +28,12 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
+    PointAccess,
+    PointTable,
+    PointTableId,
+    Protocol,
+    ProtocolPoint,
+    RawDataType,
     UNIT_CATALOG,
     Unit,
     UnitCode,
@@ -151,7 +151,12 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
                         "access": point.access.value,
                         "scale": point.scale,
                         "offset": point.offset,
-                        "protocol_options": dict(point.protocol_options),
+                        "protocol_options": dict(
+                            snapshot.point_options_for(
+                                table.point_table_id,
+                                point.point_id,
+                            )
+                        ),
                     }
                     for point in sorted(
                         table.points.values(),
@@ -165,9 +170,7 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
             {
                 "device_model_id": str(item.device_model_id),
                 "device_type_id": str(item.device_type_id),
-                "point_table_id": str(
-                    snapshot.device_model_point_tables[item.device_model_id]
-                ),
+                "point_table_id": str(item.point_table_id),
                 "name": item.name,
                 "manufacturer": item.manufacturer,
             }
@@ -190,7 +193,11 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
                 "endpoint": {
                     "host": item.endpoint.host,
                     "port": item.endpoint.port,
-                    "options": dict(item.endpoint.options),
+                    "options": dict(
+                        snapshot.connection_options_for(
+                            item.connection_id
+                        )
+                    ),
                 },
             }
             for item in _sorted_values(snapshot.device_connections)
@@ -220,27 +227,30 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
             for value in _require_list(root.get("business_points"), "business_points")
         )
     }
-    point_tables = {
-        item.point_table_id: item
-        for item in (
-            _decode_point_table(value)
-            for value in _require_list(root.get("point_tables"), "point_tables")
-        )
-    }
-    decoded_device_models = [
-        _decode_device_model(value)
+    decoded_point_tables = [
+        _decode_point_table(value)
         for value in _require_list(
-            root.get("device_models"),
-            "device_models",
+            root.get("point_tables"),
+            "point_tables",
         )
     ]
-    device_models = {
-        model.device_model_id: model
-        for model, _ in decoded_device_models
+    point_tables = {
+        table.point_table_id: table
+        for table, _ in decoded_point_tables
     }
-    device_model_point_tables = {
-        model.device_model_id: point_table_id
-        for model, point_table_id in decoded_device_models
+    point_options = {
+        table.point_table_id: options
+        for table, options in decoded_point_tables
+    }
+    device_models = {
+        item.device_model_id: item
+        for item in (
+            _decode_device_model(value)
+            for value in _require_list(
+                root.get("device_models"),
+                "device_models",
+            )
+        )
     }
     devices = {
         item.device_id: item
@@ -249,15 +259,20 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
             for value in _require_list(root.get("devices"), "devices")
         )
     }
-    connections = {
-        item.connection_id: item
-        for item in (
-            _decode_connection(value)
-            for value in _require_list(
-                root.get("device_connections"),
-                "device_connections",
-            )
+    decoded_connections = [
+        _decode_connection(value)
+        for value in _require_list(
+            root.get("device_connections"),
+            "device_connections",
         )
+    ]
+    connections = {
+        connection.connection_id: connection
+        for connection, _ in decoded_connections
+    }
+    connection_options = {
+        connection.connection_id: options
+        for connection, options in decoded_connections
     }
 
     _require_unique_count(root, "device_types", len(device_types))
@@ -275,8 +290,9 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
         devices=devices,
         business_points=business_points,
         point_tables=point_tables,
-        device_model_point_tables=device_model_point_tables,
         device_connections=connections,
+        connection_options=connection_options,
+        point_options=point_options,
     )
 
 
@@ -323,27 +339,48 @@ def _decode_business_point(value: object) -> BusinessPoint:
     )
 
 
-def _decode_point_table(value: object) -> PointTable:
+def _decode_point_table(
+    value: object,
+) -> tuple[
+    PointTable,
+    dict[str, dict[str, str | int | float | bool | None]],
+]:
     item = _require_mapping(value, "point_tables[]")
     _require_fields(
         item,
         {"point_table_id", "protocol", "points"},
         "point_tables[]",
     )
-    points = [_decode_protocol_point(raw) for raw in _require_list(item.get("points"), "points")]
+    decoded_points = [
+        _decode_protocol_point(raw)
+        for raw in _require_list(item.get("points"), "points")
+    ]
+    points = [point for point, _ in decoded_points]
     by_id = {point.point_id: point for point in points}
     if len(by_id) != len(points):
         raise ConfigError(
             f"point table '{_required_str(item, 'point_table_id')}' contains duplicate point_id"
         )
-    return PointTable(
+    table = PointTable(
         point_table_id=PointTableId(_required_str(item, "point_table_id")),
         protocol=Protocol(_required_str(item, "protocol")),
         points=by_id,
     )
+    return (
+        table,
+        {
+            point.point_id: options
+            for point, options in decoded_points
+        },
+    )
 
 
-def _decode_protocol_point(value: object) -> ProtocolPoint:
+def _decode_protocol_point(
+    value: object,
+) -> tuple[
+    ProtocolPoint,
+    dict[str, str | int | float | bool | None],
+]:
     item = _require_mapping(value, "points[]")
     _require_fields(
         item,
@@ -359,7 +396,7 @@ def _decode_protocol_point(value: object) -> ProtocolPoint:
         },
         "points[]",
     )
-    return ProtocolPoint(
+    point = ProtocolPoint(
         point_id=_required_str(item, "point_id"),
         business_point_id=BusinessPointId(
             _required_str(item, "business_point_id")
@@ -369,13 +406,17 @@ def _decode_protocol_point(value: object) -> ProtocolPoint:
         access=PointAccess(_required_str(item, "access")),
         scale=_number(item, "scale", default=1.0),
         offset=_number(item, "offset", default=0.0),
-        protocol_options=_scalar_mapping(item.get("protocol_options"), "protocol_options"),
+    )
+    return (
+        point,
+        _scalar_mapping(
+            item.get("protocol_options"),
+            "protocol_options",
+        ),
     )
 
 
-def _decode_device_model(
-    value: object,
-) -> tuple[DeviceModel, PointTableId]:
+def _decode_device_model(value: object) -> DeviceModel:
     item = _require_mapping(value, "device_models[]")
     _require_fields(
         item,
@@ -388,15 +429,14 @@ def _decode_device_model(
         },
         "device_models[]",
     )
-    model = DeviceModel(
+    return DeviceModel(
         device_model_id=DeviceModelId(_required_str(item, "device_model_id")),
         device_type_id=DeviceTypeId(_required_str(item, "device_type_id")),
+        point_table_id=PointTableId(
+            _required_str(item, "point_table_id")
+        ),
         name=_optional_str(item, "name"),
         manufacturer=_optional_str(item, "manufacturer"),
-    )
-    return (
-        model,
-        PointTableId(_required_str(item, "point_table_id")),
     )
 
 
@@ -418,7 +458,12 @@ def _decode_device(value: object) -> Device:
     )
 
 
-def _decode_connection(value: object) -> DeviceConnection:
+def _decode_connection(
+    value: object,
+) -> tuple[
+    DeviceConnection,
+    dict[str, str | int | float | bool | None],
+]:
     item = _require_mapping(value, "device_connections[]")
     _require_fields(
         item,
@@ -427,14 +472,20 @@ def _decode_connection(value: object) -> DeviceConnection:
     )
     endpoint = _require_mapping(item.get("endpoint"), "endpoint")
     _require_fields(endpoint, {"host", "port", "options"}, "endpoint")
-    return DeviceConnection(
+    connection = DeviceConnection(
         connection_id=ConnectionId(_required_str(item, "connection_id")),
         device_id=DeviceId(_required_str(item, "device_id")),
         enabled=_optional_bool(item, "enabled", default=True),
         endpoint=ConnectionEndpoint(
             host=_required_str(endpoint, "host"),
             port=_optional_int(endpoint, "port"),
-            options=_scalar_mapping(endpoint.get("options"), "endpoint.options"),
+        ),
+    )
+    return (
+        connection,
+        _scalar_mapping(
+            endpoint.get("options"),
+            "endpoint.options",
         ),
     )
 
