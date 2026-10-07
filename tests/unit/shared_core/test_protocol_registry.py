@@ -48,8 +48,9 @@ class _Protocol:
 
     async def read(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
+        del point_ids
         return ()
 
     async def write(
