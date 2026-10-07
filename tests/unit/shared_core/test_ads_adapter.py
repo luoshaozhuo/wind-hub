@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+
+import core.infrastructure.protocol.ads.driver as driver_module
+import core.infrastructure.protocol.ads.router as router_module
+import core.infrastructure.protocol.ads.subscription as subscription_module
 
 from core.application import (
     ConfigError,
     ConnectionEndpoint,
     DeviceConnection,
+    ProtocolSample,
     ProtocolWrite,
+    SubscribableProtocolPort,
 )
 from core.domain import (
     PointAccess,
@@ -204,8 +212,6 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     driver._connection = fake_connection
     driver._connected = True
 
-    import core.infrastructure.protocol.ads.driver as driver_module
-
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
 
@@ -222,8 +228,6 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
 async def test_ads_local_router_initializes_once_and_rejects_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import core.infrastructure.protocol.ads.router as router_module
-
     fake_pyads = _FakePyads()
     monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
 
@@ -243,3 +247,128 @@ async def test_ads_local_router_initializes_once_and_rejects_conflict(
 
     await router.close()
     assert fake_pyads.close_calls == 1
+
+
+
+class _FakeNotificationAttrib:
+    def __init__(
+        self,
+        length: int,
+        *,
+        cycle_time: float,
+        max_delay: float,
+    ) -> None:
+        self.length = length
+        self.cycle_time = cycle_time
+        self.max_delay = max_delay
+
+
+class _FakeNotificationConnection:
+    instances: list["_FakeNotificationConnection"] = []
+
+    def __init__(
+        self,
+        net_id: object,
+        port: int,
+        host: str,
+    ) -> None:
+        del net_id, port, host
+        self.is_open = False
+        self.callback: object | None = None
+        type(self).instances.append(self)
+
+    def set_timeout(self, timeout_ms: int) -> None:
+        del timeout_ms
+
+    def open(self) -> None:
+        self.is_open = True
+
+    def close(self) -> None:
+        self.is_open = False
+
+    def read_state(self) -> tuple[int, int]:
+        return (5, 0)
+
+    def notification(self, datatype: object):
+        del datatype
+
+        def decorator(callback: object) -> object:
+            self.callback = callback
+            return callback
+
+        return decorator
+
+    def add_device_notification(
+        self,
+        address: tuple[int, int],
+        attr: object,
+        callback: object,
+    ) -> tuple[object, object]:
+        del attr
+        self.callback = callback
+        return ((address, "handle"), None)
+
+    def del_device_notification(
+        self,
+        handle: object,
+        user_handle: object,
+    ) -> None:
+        del handle, user_handle
+
+
+class _FakeNotificationPyads:
+    PLCTYPE_REAL = object()
+    Connection = _FakeNotificationConnection
+    NotificationAttrib = _FakeNotificationAttrib
+
+
+@pytest.mark.asyncio
+async def test_ads_driver_exposes_notification_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    point = _point(
+        "speed",
+        index_group=0x4020,
+        index_offset=10,
+    )
+    table = PointTable(
+        "ads_pt",
+        Protocol("ads"),
+        {"speed": point},
+    )
+    driver = ADSDriver(_connection(), table)
+    driver._connected = True
+
+    _FakeNotificationConnection.instances = []
+    monkeypatch.setattr(
+        subscription_module,
+        "_pyads",
+        lambda: _FakeNotificationPyads,
+    )
+    received: list[ProtocolSample] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        received.append(sample)
+
+    assert isinstance(driver, SubscribableProtocolPort)
+    handle = await driver.subscribe(
+        (point,),
+        callback,
+        interval=0.25,
+    )
+    connection = _FakeNotificationConnection.instances[0]
+    assert connection.callback is not None
+
+    connection.callback(
+        None,
+        (0x4020, 10),
+        None,
+        12.5,
+    )
+    await asyncio.sleep(0)
+
+    assert received[0].point_id == "speed"
+    assert received[0].value == 12.5
+
+    await handle.close()
+    assert connection.is_open is False
