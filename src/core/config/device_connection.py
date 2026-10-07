@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
 
+from core.domain.identities import ConnectionId, DeviceId, PointTableId
+
 ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 
 
@@ -29,7 +31,8 @@ class ConnectionEndpoint:
     """现场通信端点。
 
     host/port 是各协议最常见的公共连接属性；options 保存协议专有的实例级
-    参数，例如 ADS target_net_id、Modbus unit_id、超时时间等。
+    参数，例如 ADS target_net_id、local_ams_net_id、Modbus unit_id、超时时间等。
+    不同 DeviceConnection 的 endpoint 可以相同，也可以不同。
     """
 
     host: str
@@ -62,9 +65,9 @@ class DeviceConnection:
     DeviceConnection；该集合级不变量由 validation 层校验。
     """
 
-    connection_id: str
-    device_id: str
-    point_table_id: str
+    connection_id: ConnectionId
+    device_id: DeviceId
+    point_table_id: PointTableId
     endpoint: ConnectionEndpoint
 
     def __post_init__(self) -> None:
@@ -79,6 +82,6 @@ class DeviceConnection:
         if not point_table_id:
             raise ValueError("point_table_id must not be empty")
 
-        object.__setattr__(self, "connection_id", connection_id)
-        object.__setattr__(self, "device_id", device_id)
-        object.__setattr__(self, "point_table_id", point_table_id)
+        object.__setattr__(self, "connection_id", ConnectionId(connection_id))
+        object.__setattr__(self, "device_id", DeviceId(device_id))
+        object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
