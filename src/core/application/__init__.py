@@ -9,14 +9,11 @@ from .config import (
     ConfigRevisionConflict,
     ConnectionEndpoint,
     CoreConfigArtifact,
-    CoreConfigCodecPort,
     CoreConfigDiff,
     CoreConfigPreview,
-    CoreConfigRepositoryPort,
     CoreConfigService,
     CoreConfigSnapshot,
     CoreConfigUpdateResult,
-    CoreConfigValidatorPort,
     DeviceConnection,
     IndexDiff,
     StoredCoreConfig,
@@ -26,6 +23,7 @@ from .config import (
 from .errors import ConfigError, CoreError, ProtocolError
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
 from .measurement import (
+    ConnectionHealth,
     PointScalar,
     PointValue,
     PointWrite,
@@ -34,7 +32,9 @@ from .measurement import (
     WritableScalar,
 )
 from .port import (
-    ConnectionHealth,
+    CoreConfigCodecPort,
+    CoreConfigRepositoryPort,
+    CoreConfigValidatorPort,
     InterrogationCapableProtocolPort,
     ProtocolFactoryPort,
     ProtocolPort,
