@@ -12,6 +12,7 @@ from core.application import (
     ProtocolSample,
     Quality,
     SubscribableProtocolPort,
+    SubscriptionHandle,
 )
 from core.domain import (
     PointAccess,
@@ -224,7 +225,7 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
     )
     driver = IEC104Driver(_connection(), table)
     done = asyncio.Event()
-    handle_box: list[object] = []
+    handle_box: list[SubscriptionHandle] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
