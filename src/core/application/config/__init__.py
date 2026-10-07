@@ -3,7 +3,6 @@
 from .artifact import CoreConfigArtifact
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
 from .protocol_options import (
-    PointProtocolOptions,
     ProtocolOptions,
     ProtocolOptionValue,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "CoreConfigDiff",
     "CoreConfigSnapshot",
     "IndexDiff",
-    "PointProtocolOptions",
     "ProtocolOptionValue",
     "ProtocolOptions",
     "StoredCoreConfig",
