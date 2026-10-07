@@ -6,13 +6,18 @@ from collections.abc import Callable
 
 from core.application.config import (
     DeviceConnection,
+    PointProtocolOptions,
     PointTable,
     Protocol,
+    ProtocolOptions,
 )
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
 
-ProtocolFactory = Callable[[DeviceConnection, PointTable], ProtocolPort]
+ProtocolFactory = Callable[
+    [DeviceConnection, PointTable, ProtocolOptions, PointProtocolOptions],
+    ProtocolPort,
+]
 
 
 class ProtocolRegistry:
@@ -44,6 +49,8 @@ class ProtocolRegistry:
         self,
         connection: DeviceConnection,
         point_table: PointTable,
+        connection_options: ProtocolOptions,
+        point_options: PointProtocolOptions,
     ) -> ProtocolPort:
         """为指定 DeviceConnection 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
@@ -53,7 +60,12 @@ class ProtocolRegistry:
                 f"unknown protocol driver '{protocol.name}'; "
                 f"registered={list(self.registered_names())}"
             )
-        return factory(connection, point_table)
+        return factory(
+            connection,
+            point_table,
+            connection_options,
+            point_options,
+        )
 
 
 def _protocol_name(protocol: Protocol | str) -> str:
