@@ -4,35 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from core.domain import (
-    BusinessPoint,
-    BusinessPointId,
-    PointTable,
-    PointTableId,
-    Unit,
-    UnitId,
-)
-
-
-def validate_business_points(
-    business_points: Mapping[BusinessPointId, BusinessPoint],
-    units: Mapping[UnitId, Unit],
-) -> None:
-    """校验 BusinessPoint 对标准单位的引用完整性。"""
-    for point in business_points.values():
-        if point.standard_unit_id not in units:
-            raise ValueError(
-                f"business point '{point.business_point_id}' references unknown unit "
-                f"'{point.standard_unit_id}'"
-            )
+from core.domain import BusinessPoint, BusinessPointId, PointTable, PointTableId
 
 
 def validate_point_tables(
     point_tables: Sequence[PointTable],
     business_points: Mapping[BusinessPointId, BusinessPoint],
-    units: Mapping[UnitId, Unit],
 ) -> None:
-    """校验 PointTable 内 ProtocolPoint 的跨聚合引用完整性。"""
+    """校验 PointTable 内 ProtocolPoint 的跨聚合引用与单位兼容性。
+
+    Args:
+        point_tables: 待校验的点表集合。
+        business_points: 可引用的稳定业务点映射。
+
+    Raises:
+        ValueError: 点表 ID 重复、业务点不存在或源单位与标准单位类别不兼容。
+    """
     seen_table_ids: set[PointTableId] = set()
 
     for table in point_tables:
@@ -41,13 +28,17 @@ def validate_point_tables(
         seen_table_ids.add(table.point_table_id)
 
         for point in table.points.values():
-            if point.business_point_id not in business_points:
+            business_point = business_points.get(point.business_point_id)
+            if business_point is None:
                 raise ValueError(
                     f"point table '{table.point_table_id}' point '{point.point_id}' "
                     f"references unknown business point '{point.business_point_id}'"
                 )
-            if point.source_unit_id not in units:
+
+            if point.source_unit.quantity != business_point.standard_unit.quantity:
                 raise ValueError(
                     f"point table '{table.point_table_id}' point '{point.point_id}' "
-                    f"references unknown source unit '{point.source_unit_id}'"
+                    f"uses source quantity '{point.source_unit.quantity}', but business point "
+                    f"'{business_point.business_point_id}' expects "
+                    f"'{business_point.standard_unit.quantity}'"
                 )
