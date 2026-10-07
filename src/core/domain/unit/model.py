@@ -81,7 +81,7 @@ class Unit:
 
     base_value = value * scale_to_base + offset_to_base
 
-    Unit 没有独立生命周期和实体身份；相同字段表示相同单位值。
+    code 已提供稳定语义名称，symbol 提供工程符号，因此不再保存重复 name 字段。
     """
 
     code: UnitCode
@@ -89,18 +89,13 @@ class Unit:
     quantity: Quantity
     scale_to_base: float = 1.0
     offset_to_base: float = 0.0
-    name: str | None = None
 
     def __post_init__(self) -> None:
         symbol = self.symbol.strip()
-        name = self.name.strip() if self.name is not None else None
 
         if not isfinite(self.scale_to_base) or self.scale_to_base <= 0.0:
             raise ValueError("scale_to_base must be finite and greater than zero")
         if not isfinite(self.offset_to_base):
             raise ValueError("offset_to_base must be finite")
-        if name == "":
-            name = None
 
         object.__setattr__(self, "symbol", symbol)
-        object.__setattr__(self, "name", name)
