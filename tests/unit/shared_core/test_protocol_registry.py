@@ -6,10 +6,8 @@ import pytest
 
 from core.application import (
     ConfigError,
-    ConnectionEndpoint,
     ConnectionHealth,
     CoreConfigSnapshot,
-    DeviceConnection,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -23,6 +21,7 @@ from core.application.config import (
 )
 from core.domain import (
     BusinessPoint,
+    ConnectionEndpoint,
     Device,
     DeviceModel,
     DeviceType,
@@ -67,16 +66,12 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
     registry.register(
         "Modbus",
-        lambda _connection, _point_table, _connection_options, _point_options: _Protocol(),
+        lambda _endpoint, _point_table, _device_options, _point_options: _Protocol(),
     )
 
-    connection = DeviceConnection(
-        "c1",
-        "d1",
-        ConnectionEndpoint("127.0.0.1", 502),
-    )
+    endpoint = ConnectionEndpoint("127.0.0.1", 502)
     point_table = PointTable("pt", Protocol("MODBUS"), {})
-    protocol = registry.create(connection, point_table, {}, {})
+    protocol = registry.create(endpoint, point_table, {}, {})
 
     assert registry.registered_names() == ("modbus",)
     assert protocol.health().healthy is True
@@ -121,10 +116,9 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
         device_type.device_type_id,
         table.point_table_id,
     )
-    device = Device("d1", model.device_model_id)
-    connection = DeviceConnection(
-        "c1",
-        device.device_id,
+    device = Device(
+        "d1",
+        model.device_model_id,
         ConnectionEndpoint("127.0.0.1", 502),
     )
     snapshot = CoreConfigSnapshot(
@@ -135,7 +129,6 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
             business_point.business_point_id: business_point,
         },
         point_tables={table.point_table_id: table},
-        device_connections={connection.connection_id: connection},
         point_options={
             table.point_table_id: {
                 protocol_point.point_id: {
