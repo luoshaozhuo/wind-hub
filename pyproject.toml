@@ -6,6 +6,7 @@ authors = ["luoshaozhuo <luoshaozhuo@example.com>"]
 readme = "README.md"
 license = "MIT"
 packages = [
+    { include = "core", from = "src" },
     { include = "wind_hub_collector", from = "src" },
     { include = "wind_hub_server", from = "src" },
     { include = "wind_hub_commander", from = "src" },
@@ -154,11 +155,36 @@ markers = [
 
 [tool.importlinter]
 root_packages = [
+    "core",
     "wind_hub_core",
     "wind_hub_collector",
     "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
+]
+
+
+# ---- new Shared Core boundary ----
+
+[[tool.importlinter.contracts]]
+name = "new core 不得依赖旧 core 或任何进程包"
+type = "forbidden"
+source_modules = ["core"]
+forbidden_modules = [
+    "wind_hub_core",
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+]
+
+[[tool.importlinter.contracts]]
+name = "new core 三层依赖方向"
+type = "layers"
+layers = [
+    "core.infrastructure",
+    "core.application",
+    "core.domain",
 ]
 
 # ---- 跨包边界（现行正式架构的固化，见各包文件头职责说明）----
