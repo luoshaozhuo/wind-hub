@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointTable, PointDefinition
+from core.domain import ConnectionEndpoint, PointTable, Point
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
@@ -152,7 +152,7 @@ class ADSDriver:
 
     async def subscribe(
         self,
-        points: Sequence[PointDefinition],
+        points: Sequence[Point],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
@@ -192,7 +192,7 @@ class ADSDriver:
 
     async def read(
         self,
-        points: Sequence[PointDefinition],
+        points: Sequence[Point],
     ) -> tuple[ProtocolSample, ...]:
         """按配置的 sum/sequential 策略读取点。"""
         if not points:
@@ -288,7 +288,7 @@ class ADSDriver:
 
     async def _read_sum(
         self,
-        points: Sequence[PointDefinition],
+        points: Sequence[Point],
     ) -> tuple[ProtocolSample, ...]:
         results: list[ProtocolSample | None] = [None] * len(points)
         fixed: list[tuple[int, ADSPoint]] = []
@@ -381,13 +381,13 @@ class ADSDriver:
 
     async def _read_sequential(
         self,
-        points: Sequence[PointDefinition],
+        points: Sequence[Point],
     ) -> tuple[ProtocolSample, ...]:
         semaphore = asyncio.Semaphore(
             self._config.max_concurrent_reads
         )
 
-        async def read_one(point: PointDefinition) -> ProtocolSample:
+        async def read_one(point: Point) -> ProtocolSample:
             mapped = self._mapped_point(point)
             if not mapped.address_resolved:
                 return _bad_sample(mapped.point_id)
@@ -462,7 +462,7 @@ class ADSDriver:
             for point_id, point in self._points.items()
         }
 
-    def _mapped_point(self, point: PointDefinition) -> ADSPoint:
+    def _mapped_point(self, point: Point) -> ADSPoint:
         mapped = self._points.get(point.point_id)
         if mapped is None:
             raise ConfigError(
