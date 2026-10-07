@@ -6,12 +6,19 @@ from collections.abc import Mapping, Sequence
 
 from core.config import DeviceConnection
 from core.domain import Device, DeviceGroup, DeviceModel, PointTable
+from core.domain.identities import (
+    ConnectionId,
+    DeviceGroupId,
+    DeviceId,
+    DeviceModelId,
+    PointTableId,
+)
 
 
 def validate_device_references(
     devices: Sequence[Device],
-    device_models: Mapping[str, DeviceModel],
-    device_groups: Mapping[str, DeviceGroup],
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    device_groups: Mapping[DeviceGroupId, DeviceGroup],
 ) -> None:
     """校验 Device 对 DeviceModel 与 DeviceGroup 的跨聚合引用完整性。"""
     for device in devices:
@@ -30,9 +37,9 @@ def validate_device_references(
 
 def validate_device_connections(
     connections: Sequence[DeviceConnection],
-    devices: Mapping[str, Device],
-    device_models: Mapping[str, DeviceModel],
-    point_tables: Mapping[str, PointTable],
+    devices: Mapping[DeviceId, Device],
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    point_tables: Mapping[PointTableId, PointTable],
 ) -> None:
     """校验设备通信接入配置与 Shared Domain 的一致性。
 
@@ -44,11 +51,11 @@ def validate_device_connections(
     5. DeviceConnection.point_table_id 必须存在，并属于该设备型号声明支持的点表。
 
     协议无需单独比较，因为 DeviceConnection 不保存 protocol；最终协议唯一来自
-    PointTable.protocol。Worker / Session 的一对一运行约束属于 Runtime，不在此
-    创建或管理运行对象。
+    PointTable.protocol。不同连接的 endpoint 不要求唯一。Worker / Session 的一对一
+    运行约束属于 Runtime，不在此创建或管理运行对象。
     """
-    seen_connection_ids: set[str] = set()
-    seen_bindings: set[tuple[str, str]] = set()
+    seen_connection_ids: set[ConnectionId] = set()
+    seen_bindings: set[tuple[DeviceId, PointTableId]] = set()
 
     for connection in connections:
         if connection.connection_id in seen_connection_ids:
