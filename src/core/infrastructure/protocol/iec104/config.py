@@ -6,14 +6,14 @@ from dataclasses import dataclass
 
 from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import DeviceConnection
+from core.domain import ConnectionEndpoint
 
 _ALLOWED_OPTIONS = frozenset({"common_addr", "k", "w", "t0", "t1", "t2", "t3"})
 
 
 @dataclass(frozen=True, slots=True)
 class IEC104Config:
-    """单个 IEC104 DeviceConnection 的解析后参数。"""
+    """单个 IEC104 ConnectionEndpoint 的解析后参数。"""
 
     host: str
     port: int
@@ -27,28 +27,28 @@ class IEC104Config:
 
 
 def parse_iec104_config(
-    connection: DeviceConnection,
+    endpoint: ConnectionEndpoint,
     options: ProtocolOptions,
 ) -> IEC104Config:
-    """从共享 DeviceConnection 解析 IEC104 参数。"""
+    """从 ConnectionEndpoint 解析 IEC104 参数。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
-            f"connection '{connection.connection_id}' has unknown IEC104 options: "
+            f"connection '{endpoint}' has unknown IEC104 options: "
             f"{sorted(unknown)}"
         )
 
     common_addr = _int_option(options.get("common_addr"), "common_addr", default=1)
     if not 0 <= common_addr <= 65535:
         raise ConfigError(
-            f"connection '{connection.connection_id}': common_addr must be in 0..65535"
+            f"connection '{endpoint}': common_addr must be in 0..65535"
         )
 
     k = _positive_int(options.get("k"), "k", default=12)
     w = _positive_int(options.get("w"), "w", default=8)
     if w > k:
         raise ConfigError(
-            f"connection '{connection.connection_id}': IEC104 w ({w}) must not exceed k ({k})"
+            f"connection '{endpoint}': IEC104 w ({w}) must not exceed k ({k})"
         )
 
     t0 = _positive_float(options.get("t0"), "t0", default=30.0)
@@ -57,12 +57,12 @@ def parse_iec104_config(
     t3 = _positive_float(options.get("t3"), "t3", default=20.0)
     if t2 > t1:
         raise ConfigError(
-            f"connection '{connection.connection_id}': IEC104 t2 ({t2}) must not exceed t1 ({t1})"
+            f"connection '{endpoint}': IEC104 t2 ({t2}) must not exceed t1 ({t1})"
         )
 
     return IEC104Config(
-        host=connection.endpoint.host,
-        port=connection.endpoint.port or 2404,
+        host=endpoint.host,
+        port=endpoint.port or 2404,
         common_addr=common_addr,
         k=k,
         w=w,
