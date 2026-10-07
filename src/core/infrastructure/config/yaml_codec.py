@@ -29,8 +29,7 @@ from core.domain import (
     Protocol,
     UNIT_CATALOG,
     Unit,
-    UnitCode,
-    validate_core_config,
+    UnitCode
 )
 
 _SCHEMA_VERSION = 4
@@ -49,10 +48,6 @@ class YamlCoreConfigCodec:
 
     def encode(self, snapshot: CoreConfigSnapshot) -> bytes:
         """编码为稳定 YAML bytes。"""
-        try:
-            validate_core_config(snapshot)
-        except ValueError as exc:
-            raise ConfigError(str(exc)) from exc
         payload = _encode_snapshot(snapshot)
         text = yaml.safe_dump(
             payload,
@@ -92,7 +87,6 @@ class YamlCoreConfigCodec:
 
         try:
             snapshot = _decode_snapshot(root)
-            validate_core_config(snapshot)
         except ConfigError:
             raise
         except (KeyError, TypeError, ValueError) as exc:
