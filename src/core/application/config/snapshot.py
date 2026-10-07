@@ -23,6 +23,7 @@ from core.domain import (
     PointTableId,
 )
 
+from ..errors import ConfigError
 from .device_connection import DeviceConnection
 
 _KeyT = TypeVar("_KeyT")
@@ -94,7 +95,7 @@ class CoreConfigSnapshot:
         for key, value in values.items():
             identity = getattr(value, identity_attr)
             if key != identity:
-                raise ValueError(
+                raise ConfigError(
                     f"{index_name} key '{key}' does not match "
                     f"{identity_attr} '{identity}'"
                 )
