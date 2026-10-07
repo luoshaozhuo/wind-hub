@@ -1,12 +1,12 @@
-"""共享设备协议 outbound port。
+"""共享设备协议 outbound ports。
 
-这里只定义 Collector 与 Commander 都需要的最小设备通信接口。
-协议订阅、总召等应用专有能力不在 Shared Core Application Port 中定义。
+基础 Port 只定义 Collector 与 Commander 都依赖的最小通信能力；订阅、总召等
+可选协议能力使用独立 capability Port 表达，避免基础接口要求所有协议实现。
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
 
 from ..protocol_contract import (
@@ -39,4 +39,34 @@ class ProtocolPort(Protocol):
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
+        ...
+
+
+class SubscriptionHandle(Protocol):
+    """协议订阅生命周期句柄。"""
+
+    async def close(self) -> None:
+        ...
+
+
+ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
+
+
+class SubscribableProtocolPort(ProtocolPort, Protocol):
+    """支持主动上送或设备通知订阅的协议能力。"""
+
+    async def subscribe(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
+        ...
+
+
+class InterrogatableProtocolPort(ProtocolPort, Protocol):
+    """支持显式总召或等价全站召唤的协议能力。"""
+
+    async def interrogate(self) -> None:
         ...
