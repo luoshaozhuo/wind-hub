@@ -33,17 +33,14 @@ from core.domain import (
 )
 
 _SCHEMA_VERSION = 4
-_MEDIA_TYPE = "application/x-yaml"
-
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
 
 
 class YamlCoreConfigCodec:
-    """CoreConfigSnapshot 与单一规范化 YAML 制品之间的转换器。
+    """CoreConfigSnapshot 与规范化 YAML bytes 之间的内部转换器。
 
-    YAML 是配置交换格式，不承担运行时继承或隐式默认值解析。decode 后立即构造
-    强类型 Shared Core 模型并执行跨对象一致性校验。
+    仅负责 YAML schema 与强类型模型之间的转换，不执行领域一致性校验。
     """
 
     def encode(self, snapshot: CoreConfigSnapshot) -> bytes:
@@ -58,7 +55,7 @@ class YamlCoreConfigCodec:
         return text.encode("utf-8")
 
     def decode(self, content: bytes) -> CoreConfigSnapshot:
-        """解析并校验规范化 YAML bytes。"""
+        """解析规范化 YAML bytes 并构造配置快照。"""
         try:
             raw = yaml.safe_load(content.decode("utf-8"))
         except (UnicodeDecodeError, yaml.YAMLError) as exc:
