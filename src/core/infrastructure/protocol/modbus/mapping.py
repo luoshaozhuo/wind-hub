@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
 from core.domain import PointAccess, Point
 
@@ -55,11 +54,11 @@ class ModbusPoint:
 
 def parse_modbus_point(
     point: Point,
-    options: ProtocolOptions,
     *,
     default_word_order: str,
 ) -> ModbusPoint:
     """把 Point 解析成 ModbusPoint，并尽早校验配置。"""
+    options = point.ext
     unknown = set(options) - _ALLOWED_POINT_OPTIONS
     if unknown:
         raise ConfigError(
