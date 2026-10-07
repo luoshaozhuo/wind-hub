@@ -1,6 +1,7 @@
 """Shared Core Application ports。"""
 
 from .protocol import (
+    AcquisitionMode,
     ProtocolPort,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -10,6 +11,7 @@ from .protocol import (
 from .sink import ExclusiveOpenSinkPort, SinkPort
 
 __all__ = [
+    "AcquisitionMode",
     "ExclusiveOpenSinkPort",
     "ProtocolPort",
     "ProtocolWrite",
