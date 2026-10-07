@@ -18,13 +18,12 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
-    PointTable,
-    PointTableId,
 )
 
 from ..errors import ConfigError
 from .device_connection import DeviceConnection
-from .identities import ConnectionId
+from .identities import ConnectionId, PointTableId
+from .point_table import PointTable
 
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
@@ -51,6 +50,9 @@ class CoreConfigSnapshot:
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
+    device_model_point_tables: Mapping[DeviceModelId, PointTableId] = field(
+        default_factory=dict
+    )
     device_connections: Mapping[ConnectionId, DeviceConnection] = field(
         default_factory=dict
     )
@@ -63,6 +65,9 @@ class CoreConfigSnapshot:
             "devices": _freeze_index(self.devices),
             "business_points": _freeze_index(self.business_points),
             "point_tables": _freeze_index(self.point_tables),
+            "device_model_point_tables": _freeze_index(
+                self.device_model_point_tables
+            ),
             "device_connections": _freeze_index(self.device_connections),
         }
 
@@ -76,6 +81,9 @@ class CoreConfigSnapshot:
             "business_point_id",
         )
         self._validate_identity(fields["point_tables"], "point_tables", "point_table_id")
+        self._validate_device_model_point_tables(
+            fields["device_model_point_tables"]
+        )
         self._validate_identity(
             fields["device_connections"],
             "device_connections",
@@ -101,11 +109,27 @@ class CoreConfigSnapshot:
                 )
 
 
+    @staticmethod
+    def _validate_device_model_point_tables(
+        values: Mapping[DeviceModelId, PointTableId],
+    ) -> None:
+        for model_id, point_table_id in values.items():
+            if not str(model_id).strip():
+                raise ConfigError(
+                    "device_model_point_tables keys must not be empty"
+                )
+            if not str(point_table_id).strip():
+                raise ConfigError(
+                    "device_model_point_tables values must not be empty"
+                )
+
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
-        """解析 Device -> DeviceModel -> PointTable。"""
+        """解析 Device -> DeviceModel -> PointTable 接入配置。"""
         device = self.devices[device_id]
-        model = self.device_models[device.device_model_id]
-        return self.point_tables[model.point_table_id]
+        point_table_id = self.device_model_point_tables[
+            device.device_model_id
+        ]
+        return self.point_tables[point_table_id]
 
     def connections_for_device(
         self,
