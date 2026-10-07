@@ -205,11 +205,26 @@ class ADSDriver:
                         )
                         continue
 
+                    try:
+                        raw_value = _coerce_write_value(
+                            write.value,
+                            mapped.data_type,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        results.append(
+                            ProtocolWriteResult(
+                                point_id=mapped.point_id,
+                                success=False,
+                                message=str(exc),
+                            )
+                        )
+                        continue
+
                     await asyncio.to_thread(
                         self._connection.write,
                         mapped.index_group,
                         mapped.index_offset,
-                        write.value,
+                        raw_value,
                         datatype,
                     )
                     results.append(
@@ -485,3 +500,52 @@ def _is_point_level_error(exc: BaseException) -> bool:
         and isinstance(exc, ads_error)
         and getattr(exc, "err_code", None) == _ADSERR_SYMBOL_NOT_FOUND
     )
+
+
+_ADS_INTEGER_RANGES: dict[str, tuple[int, int]] = {
+    "SINT": (-128, 127),
+    "USINT": (0, 255),
+    "INT": (-32768, 32767),
+    "UINT": (0, 65535),
+    "DINT": (-2147483648, 2147483647),
+    "UDINT": (0, 4294967295),
+    "LINT": (-9223372036854775808, 9223372036854775807),
+    "ULINT": (0, 18446744073709551615),
+}
+
+
+def _coerce_write_value(
+    value: object,
+    ads_type: str,
+) -> float | int | bool | str:
+    """把共享标量严格收敛到 ADS 基础类型。"""
+    if ads_type == "BOOL":
+        if type(value) is not bool:
+            raise TypeError("ADS BOOL requires bool value")
+        return value
+
+    if ads_type == "STRING":
+        if not isinstance(value, str):
+            raise TypeError("ADS STRING requires string value")
+        return value
+
+    integer_range = _ADS_INTEGER_RANGES.get(ads_type)
+    if integer_range is not None:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise TypeError(f"ADS {ads_type} requires integer-compatible value")
+        integer = int(value)
+        if float(value) != float(integer):
+            raise ValueError(f"ADS {ads_type} requires an integer value")
+        lower, upper = integer_range
+        if not lower <= integer <= upper:
+            raise ValueError(
+                f"ADS {ads_type} value {integer} outside range {lower}..{upper}"
+            )
+        return integer
+
+    if ads_type in {"REAL", "LREAL"}:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise TypeError(f"ADS {ads_type} requires numeric value")
+        return float(value)
+
+    raise ValueError(f"unsupported ADS type '{ads_type}'")
