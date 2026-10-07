@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from core.application import (
@@ -21,6 +21,7 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    SubscriptionHandle,
 )
 from core.domain import PointAccess, PointTable, ProtocolPoint
 
@@ -31,6 +32,114 @@ from .mapping import (
     build_iec104_index,
     validate_iec104_write_type,
 )
+
+
+
+class _Subscription:
+    """一次 IEC104 样本订阅，close 带 in-flight drain barrier。"""
+
+    def __init__(
+        self,
+        registry: "_SubscriptionRegistry",
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+        ioas: tuple[int, ...] | None,
+    ) -> None:
+        self._registry = registry
+        self._callback = callback
+        self._ioas = ioas
+        self._closed = False
+        self._in_flight = 0
+        self._idle: asyncio.Event | None = None
+
+    async def close(self) -> None:
+        """注销订阅并等待已开始 callback 完成。"""
+        if self._closed:
+            return
+        self._closed = True
+        self._registry.unsubscribe(self)
+        while self._in_flight:
+            self._idle = asyncio.Event()
+            await self._idle.wait()
+            self._idle = None
+
+    def _track(self) -> bool:
+        if self._closed:
+            return False
+        self._in_flight += 1
+        return True
+
+    def _untrack(self) -> None:
+        self._in_flight -= 1
+        if self._in_flight == 0 and self._idle is not None:
+            self._idle.set()
+
+
+class _SubscriptionRegistry:
+    """仅由 IEC104Driver 所属 asyncio loop 访问的订阅表。"""
+
+    def __init__(self) -> None:
+        self._global: list[_Subscription] = []
+        self._ioa: dict[int, list[_Subscription]] = {}
+
+    def subscribe(
+        self,
+        ioas: tuple[int, ...] | None,
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+    ) -> _Subscription:
+        subscription = _Subscription(self, callback, ioas)
+        if ioas is None:
+            self._global.append(subscription)
+            return subscription
+        for ioa in ioas:
+            self._ioa.setdefault(ioa, []).append(subscription)
+        return subscription
+
+    def unsubscribe(self, subscription: _Subscription) -> None:
+        if subscription._ioas is None:
+            with contextlib.suppress(ValueError):
+                self._global.remove(subscription)
+            return
+        for ioa in subscription._ioas:
+            subscriptions = self._ioa.get(ioa)
+            if subscriptions is None:
+                continue
+            with contextlib.suppress(ValueError):
+                subscriptions.remove(subscription)
+            if not subscriptions:
+                del self._ioa[ioa]
+
+    def clear(self) -> None:
+        for subscription in self._global:
+            subscription._closed = True
+        for subscriptions in self._ioa.values():
+            for subscription in subscriptions:
+                subscription._closed = True
+        self._global.clear()
+        self._ioa.clear()
+
+    async def dispatch(self, sample: ProtocolSample, ioa: int) -> None:
+        subscriptions = [
+            subscription
+            for subscription in [
+                *self._global,
+                *self._ioa.get(ioa, []),
+            ]
+            if subscription._track()
+        ]
+        for subscription in subscriptions:
+            asyncio.create_task(
+                self._invoke(subscription, sample)
+            )
+
+    async def _invoke(
+        self,
+        subscription: _Subscription,
+        sample: ProtocolSample,
+    ) -> None:
+        try:
+            await subscription._callback(sample)
+        finally:
+            subscription._untrack()
 
 
 def _c104() -> Any:
@@ -85,6 +194,7 @@ class IEC104Driver:
         self._samples: dict[int, ProtocolSample] = {}
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._receive_callback_factory: Any = None
+        self._subscriptions = _SubscriptionRegistry()
 
     async def connect(self) -> None:
         """创建 c104 client 并等待连接进入 OPEN。"""
@@ -179,6 +289,7 @@ class IEC104Driver:
             self._open_event = None
             self._receive_callback_factory = None
             self._samples.clear()
+            self._subscriptions.clear()
             self._loop = None
 
             if connection is not None:
@@ -243,6 +354,22 @@ class IEC104Driver:
                 *(self._execute_write(write) for write in writes)
             )
         )
+
+    async def subscribe(
+        self,
+        points: Sequence[ProtocolPoint],
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+    ) -> SubscriptionHandle:
+        """注册 IEC104 主动上送/总召响应的样本回调。
+
+        空 points 表示订阅本 PointTable 内的全部已知 IOA。生命周期由调用方
+        持有返回句柄；订阅不自动触发总召。
+        """
+        if points:
+            ioas = tuple(self._mapped_point(point).ioa for point in points)
+        else:
+            ioas = None
+        return self._subscriptions.subscribe(ioas, callback)
 
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
@@ -479,3 +606,6 @@ class IEC104Driver:
         if self._closed or not self._is_open:
             return
         self._samples[ioa] = sample
+        asyncio.create_task(
+            self._subscriptions.dispatch(sample, ioa)
+        )
