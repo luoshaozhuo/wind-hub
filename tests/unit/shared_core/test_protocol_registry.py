@@ -65,7 +65,10 @@ class _Protocol:
 
 def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
-    registry.register("Modbus", lambda _connection, _point_table: _Protocol())
+    registry.register(
+        "Modbus",
+        lambda _connection, _point_table, _connection_options, _point_options: _Protocol(),
+    )
 
     connection = DeviceConnection(
         "c1",
@@ -73,7 +76,7 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
         ConnectionEndpoint("127.0.0.1", 502),
     )
     point_table = PointTable("pt", Protocol("MODBUS"), {})
-    protocol = registry.create(connection, point_table)
+    protocol = registry.create(connection, point_table, {}, {})
 
     assert registry.registered_names() == ("modbus",)
     assert protocol.health().healthy is True
@@ -107,10 +110,6 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
         raw_type=RawDataType("float32"),
         source_unit=UNIT_CATALOG[UnitCode.KILOWATT],
         access=PointAccess.READ,
-        protocol_options={
-            "register_type": "input",
-            # address intentionally missing
-        },
     )
     table = PointTable(
         "pt",
@@ -120,6 +119,7 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
     model = DeviceModel(
         "m1",
         device_type.device_type_id,
+        table.point_table_id,
     )
     device = Device("d1", model.device_model_id)
     connection = DeviceConnection(
@@ -135,10 +135,15 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
             business_point.business_point_id: business_point,
         },
         point_tables={table.point_table_id: table},
-        device_model_point_tables={
-            model.device_model_id: table.point_table_id,
-        },
         device_connections={connection.connection_id: connection},
+        point_options={
+            table.point_table_id: {
+                protocol_point.point_id: {
+                    "register_type": "input",
+                    # address intentionally missing
+                },
+            },
+        },
     )
 
     with pytest.raises(ConfigError, match="address"):
