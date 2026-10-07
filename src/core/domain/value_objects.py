@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
+import struct
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,11 @@ class DataType(StrEnum):
         number = float(value)
         if not isfinite(number):
             raise ValueError(f"{self.value} data type requires finite value")
+        if self is DataType.FLOAT32:
+            try:
+                return struct.unpack(">f", struct.pack(">f", number))[0]
+            except OverflowError as exc:
+                raise ValueError("float32 value is outside finite range") from exc
         return number
 
 
