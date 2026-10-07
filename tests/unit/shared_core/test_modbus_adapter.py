@@ -3,12 +3,14 @@ from __future__ import annotations
 import pytest
 
 from core.application import ConnectionEndpoint, DeviceConnection, ConfigError
-from core.domain import (
+from core.application.config import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
+)
+from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
