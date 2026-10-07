@@ -17,7 +17,6 @@ from core.domain import (
     PointTable,
     Protocol,
     PointDefinition,
-    RawDataType,
     BusinessPoint,
     ConnectionEndpoint,
     Device,
@@ -100,7 +99,6 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
     protocol_point = PointDefinition(
         point_id="power",
         business_point_id=business_point.business_point_id,
-        raw_type=RawDataType("float32"),
         source_unit=UNIT_CATALOG[UnitCode.KILOWATT],
         access=PointAccess.READ,
     )
@@ -131,6 +129,7 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
             table.point_table_id: {
                 protocol_point.point_id: {
                     "register_type": "input",
+                    "data_type": "float32",
                     # address intentionally missing
                 },
             },
