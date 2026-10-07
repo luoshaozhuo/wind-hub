@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import DeviceConnection
+from core.application.config import DeviceConnection, ProtocolOptions
 from core.application.errors import ConfigError
 
 _ALLOWED_OPTIONS = frozenset({"common_addr", "k", "w", "t0", "t1", "t2", "t3"})
@@ -25,9 +25,11 @@ class IEC104Config:
     t3: float = 20.0
 
 
-def parse_iec104_config(connection: DeviceConnection) -> IEC104Config:
+def parse_iec104_config(
+    connection: DeviceConnection,
+    options: ProtocolOptions,
+) -> IEC104Config:
     """从共享 DeviceConnection 解析 IEC104 参数。"""
-    options = connection.endpoint.options
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
