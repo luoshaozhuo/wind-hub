@@ -13,7 +13,6 @@ from core.application.config import (
     ConfigRevision,
     ConfigRevisionConflict,
     CoreConfigArtifact,
-    CoreConfigRepositoryPort,
     CoreConfigSnapshot,
     StoredCoreConfig,
     validate_core_config,
