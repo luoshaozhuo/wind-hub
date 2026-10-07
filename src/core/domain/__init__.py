@@ -1,5 +1,15 @@
 """Shared Core Domain 公共门面。"""
 
+from .config import (
+    CoreConfigDiff,
+    CoreConfigSnapshot,
+    IndexDiff,
+    ProtocolOptions,
+    ProtocolOptionValue,
+    compute_core_config_diff,
+    freeze_protocol_options,
+    validate_core_config,
+)
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
@@ -17,6 +27,8 @@ __all__ = [
     "BusinessPoint",
     "BusinessPointId",
     "ConnectionEndpoint",
+    "CoreConfigDiff",
+    "CoreConfigSnapshot",
     "DataType",
     "Device",
     "DeviceGroup",
@@ -26,9 +38,15 @@ __all__ = [
     "DeviceModelId",
     "DeviceType",
     "DeviceTypeId",
+    "IndexDiff",
     "Point",
     "PointAccess",
     "PointTable",
     "PointTableId",
     "Protocol",
+    "ProtocolOptionValue",
+    "ProtocolOptions",
+    "compute_core_config_diff",
+    "freeze_protocol_options",
+    "validate_core_config",
 ]
