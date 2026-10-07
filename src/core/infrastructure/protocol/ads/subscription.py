@@ -101,7 +101,12 @@ class ADSSubscription:
         async with self._lock:
             await self._close_pool_locked()
 
-        tasks = tuple(self._tasks)
+        current = asyncio.current_task()
+        tasks = tuple(
+            task
+            for task in self._tasks
+            if task is not current
+        )
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
