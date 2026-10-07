@@ -5,7 +5,29 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from core.config import PointSet
-from core.domain import BusinessPoint, BusinessPointId, PointTable, PointTableId
+from core.domain import (
+    BusinessPoint,
+    BusinessPointId,
+    PointTable,
+    PointTableId,
+    Quantity,
+    ValueType,
+)
+
+
+def validate_business_points(
+    business_points: Mapping[BusinessPointId, BusinessPoint],
+) -> None:
+    """校验稳定业务点自身的跨值对象语义约束。"""
+    for point in business_points.values():
+        if (
+            point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
+            and point.standard_unit.quantity is not Quantity.DIMENSIONLESS
+        ):
+            raise ValueError(
+                f"business point '{point.business_point_id}' with value type "
+                f"'{point.value_type}' must use a dimensionless standard unit"
+            )
 
 
 def validate_point_tables(
@@ -42,6 +64,16 @@ def validate_point_tables(
                     f"uses source quantity '{point.source_unit.quantity}', but business point "
                     f"'{business_point.business_point_id}' expects "
                     f"'{business_point.standard_unit.quantity}'"
+                )
+
+            if (
+                business_point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
+                and (point.scale != 1.0 or point.offset != 0.0)
+            ):
+                raise ValueError(
+                    f"point table '{table.point_table_id}' point '{point.point_id}' "
+                    f"maps {business_point.value_type} business point "
+                    "with non-identity scale/offset"
                 )
 
 
