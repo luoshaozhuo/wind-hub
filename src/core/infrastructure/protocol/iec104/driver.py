@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import DeviceConnection, PointAccess, PointTable, ProtocolPoint
+from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolPoint
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
@@ -154,7 +154,7 @@ def _c104() -> Any:
 
 
 class IEC104Driver:
-    """单个 DeviceConnection 的 IEC104 主站 Driver。
+    """单个 Endpoint 的 IEC104 主站 Driver。
 
     c104 自己运行 APCI/ASDU 状态机和内部重连。本 Driver 只维护共享镜像，
     断线时立即清空镜像，避免 read 返回旧值。
@@ -162,9 +162,9 @@ class IEC104Driver:
 
     def __init__(
         self,
-        connection: DeviceConnection,
+        endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        connection_options: ProtocolOptions,
+        device_options: ProtocolOptions,
         point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "iec104":
@@ -173,10 +173,10 @@ class IEC104Driver:
                 f"'{point_table.protocol.name}', expected 'iec104'"
             )
 
-        self._connection_config = connection
+        self._point_table_id = point_table.point_table_id
         self._config: IEC104Config = parse_iec104_config(
-            connection,
-            connection_options,
+            endpoint,
+            device_options,
         )
         by_id, by_ioa = build_iec104_index(
             list(point_table.points.values()),
@@ -492,7 +492,7 @@ class IEC104Driver:
         if mapped is None:
             raise ConfigError(
                 f"point '{point.point_id}' is not part of connection "
-                f"'{self._connection_config.connection_id}' point table"
+                f"'{self._point_table_id}'"
             )
         return mapped
 
