@@ -13,18 +13,18 @@ from core.application import (
     ProtocolWriteResult,
 )
 from core.domain import (
-    PointAccess,
-    PointTable,
-    Protocol,
-    Point,
     BusinessPoint,
     ConnectionEndpoint,
+    DataType,
     Device,
     DeviceModel,
     DeviceType,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
     UNIT_CATALOG,
     UnitCode,
-    DataType,
 )
 from core.infrastructure import (
     ProtocolConfigValidator,
