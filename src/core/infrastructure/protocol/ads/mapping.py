@@ -1,4 +1,4 @@
-"""ADS PointDefinition 地址与类型映射。"""
+"""ADS Point 地址与类型映射。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 
 from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import PointDefinition
+from core.domain import Point
 
 _ALLOWED_OPTIONS = frozenset(
     {
@@ -89,10 +89,10 @@ class ADSPoint:
 
 
 def parse_ads_point(
-    point: PointDefinition,
+    point: Point,
     options: ProtocolOptions,
 ) -> ADSPoint:
-    """把 PointDefinition 解析为纯内存 ADSPoint。"""
+    """把 Point 解析为纯内存 ADSPoint。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
