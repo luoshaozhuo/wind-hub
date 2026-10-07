@@ -10,6 +10,7 @@ from core.application import (
     ConnectionEndpoint,
     CoreConfigSnapshot,
     DeviceConnection,
+    compute_core_config_diff,
     validate_core_config,
 )
 from core.application.config import (
@@ -171,8 +172,6 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
 
 
 def test_config_diff_detects_device_model_point_table_change() -> None:
-    from core.application import compute_core_config_diff
-
     current = _snapshot()
     table = next(iter(current.point_tables.values()))
     replacement = PointTable(
@@ -200,3 +199,20 @@ def test_config_diff_detects_device_model_point_table_change() -> None:
 
     assert diff.changed is True
     assert diff.device_model_point_tables.updated == ("m1",)
+
+
+
+def test_core_config_requires_point_table_mapping_for_every_model() -> None:
+    snapshot = _snapshot()
+    invalid = CoreConfigSnapshot(
+        device_types=snapshot.device_types,
+        device_models=snapshot.device_models,
+        devices=snapshot.devices,
+        business_points=snapshot.business_points,
+        point_tables=snapshot.point_tables,
+        device_model_point_tables={},
+        device_connections=snapshot.device_connections,
+    )
+
+    with pytest.raises(ConfigError, match="missing point table mapping"):
+        validate_core_config(invalid)
