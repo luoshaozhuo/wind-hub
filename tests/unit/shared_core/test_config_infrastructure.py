@@ -83,6 +83,19 @@ def _snapshot(
     )
 
 
+
+def test_data_type_coerces_standard_business_values() -> None:
+    assert DataType.INT16.coerce(12.0) == 12
+    assert DataType.FLOAT32.coerce(12) == 12.0
+    assert DataType.BOOL.coerce(True) is True
+
+    with pytest.raises(ValueError, match="outside range"):
+        DataType.UINT8.coerce(-1)
+    with pytest.raises(ValueError, match="integer value"):
+        DataType.INT16.coerce(12.5)
+    with pytest.raises(TypeError, match="requires bool"):
+        DataType.BOOL.coerce(1)
+
 def test_yaml_codec_round_trip_is_stable() -> None:
     codec = YamlCoreConfigCodec()
     snapshot = _snapshot()
