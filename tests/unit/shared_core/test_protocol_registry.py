@@ -8,10 +8,10 @@ from core.application import (
     ConfigError,
     ConnectionHealth,
     CoreConfigSnapshot,
-    InterrogatableProtocolPort,
+    ProtocolCapability,
+    ProtocolCapabilityError,
     ProtocolSample,
     ProtocolWrite,
-    SubscribableProtocolPort,
     ProtocolWriteResult,
 )
 from core.domain import (
@@ -39,6 +39,14 @@ from core.infrastructure.protocol.modbus import ModbusDriver
 
 
 class _Protocol:
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+            }
+        )
+
     async def connect(self) -> None:
         return None
 
@@ -59,7 +67,21 @@ class _Protocol:
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
+        del writes
         return ()
+
+    async def subscribe(
+        self,
+        point_ids: Sequence[str],
+        callback: object,
+        *,
+        interval: float | None = None,
+    ) -> object:
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError("not supported")
+
+    async def interrogate(self) -> None:
+        raise ProtocolCapabilityError("not supported")
 
 
 
@@ -150,7 +172,7 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
 
 
 
-def test_optional_protocol_capabilities_are_runtime_detectable() -> None:
+def test_protocol_drivers_declare_supported_capabilities() -> None:
     modbus = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
         PointTable("modbus_pt", Protocol("modbus"), {}),
@@ -167,11 +189,35 @@ def test_optional_protocol_capabilities_are_runtime_detectable() -> None:
         {},
     )
 
-    assert isinstance(ads, SubscribableProtocolPort)
-    assert isinstance(iec104, SubscribableProtocolPort)
-    assert isinstance(iec104, InterrogatableProtocolPort)
-    assert not isinstance(modbus, SubscribableProtocolPort)
-    assert not isinstance(modbus, InterrogatableProtocolPort)
+    assert modbus.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.WRITE,
+        }
+    )
+    assert ads.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.WRITE,
+            ProtocolCapability.SUBSCRIBE,
+        }
+    )
+    assert iec104.capabilities() == frozenset(ProtocolCapability)
+
+
+@pytest.mark.asyncio
+async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("modbus_pt", Protocol("modbus"), {}),
+        {},
+    )
+
+    with pytest.raises(ProtocolCapabilityError, match="subscription"):
+        await driver.subscribe((), lambda _sample: None)
+
+    with pytest.raises(ProtocolCapabilityError, match="interrogation"):
+        await driver.interrogate()
 
 def test_builtin_protocol_registry_has_all_shared_drivers() -> None:
     registry = build_protocol_registry()
