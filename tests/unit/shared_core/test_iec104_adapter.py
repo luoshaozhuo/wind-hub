@@ -118,3 +118,21 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
     driver = IEC104Driver(_connection(), table)
 
     assert driver.health().healthy is False
+
+
+
+def test_iec104_writable_point_rejects_monitoring_type() -> None:
+    point = _point(
+        "setpoint",
+        ioa=2001,
+        access=PointAccess.WRITE,
+        type_id="M_ME_NC_1",
+    )
+    table = PointTable(
+        "iec_pt",
+        Protocol("iec104"),
+        {point.point_id: point},
+    )
+
+    with pytest.raises(ConfigError, match="unsupported command type"):
+        IEC104Driver(_connection(), table)
