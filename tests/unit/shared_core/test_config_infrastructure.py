@@ -9,7 +9,6 @@ from core.application import (
     ConfigRevisionConflict,
     ConnectionEndpoint,
     CoreConfigSnapshot,
-    DeviceConnection,
     compute_core_config_diff,
     validate_core_config,
 )
@@ -41,7 +40,6 @@ from core.infrastructure import (
 def _snapshot(
     *,
     device_name: str = "WT01",
-    connection_enabled: bool = True,
 ) -> CoreConfigSnapshot:
     device_type = DeviceType("wind_turbine", "Wind Turbine")
     point = BusinessPoint(
@@ -66,12 +64,11 @@ def _snapshot(
         device_type.device_type_id,
         table.point_table_id,
     )
-    device = Device("wt01", model.device_model_id, name=device_name)
-    connection = DeviceConnection(
-        "wt01-main",
-        device.device_id,
+    device = Device(
+        "wt01",
+        model.device_model_id,
         ConnectionEndpoint("10.0.0.1", 502),
-        enabled=connection_enabled,
+        name=device_name,
     )
     return CoreConfigSnapshot(
         device_types={device_type.device_type_id: device_type},
@@ -79,9 +76,8 @@ def _snapshot(
         devices={device.device_id: device},
         business_points={point.business_point_id: point},
         point_tables={table.point_table_id: table},
-        device_connections={connection.connection_id: connection},
-        connection_options={
-            connection.connection_id: {"unit_id": 1},
+        device_options={
+            device.device_id: {"unit_id": 1},
         },
     )
 
@@ -132,14 +128,13 @@ async def test_yaml_file_repository_uses_revision_cas(tmp_path: Path) -> None:
 
 
 
-def test_snapshot_resolves_enabled_connections_only() -> None:
-    enabled = _snapshot(connection_enabled=True)
-    disabled = _snapshot(connection_enabled=False)
+def test_device_owns_single_endpoint_and_options_stay_outside_domain() -> None:
+    snapshot = _snapshot()
+    device = snapshot.devices["wt01"]
 
-    assert len(enabled.connections_for_device("wt01")) == 1
-    assert disabled.connections_for_device("wt01") == ()
-    assert len(disabled.connections_for_device("wt01", enabled_only=False)) == 1
-
+    assert device.endpoint == ConnectionEndpoint("10.0.0.1", 502)
+    assert not hasattr(device.endpoint, "options")
+    assert snapshot.device_options_for(device.device_id) == {"unit_id": 1}
 
 
 def test_core_config_rejects_noncanonical_unit_instance() -> None:
@@ -163,8 +158,7 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
             invalid_point.business_point_id: invalid_point,
         },
         point_tables=snapshot.point_tables,
-        device_connections=snapshot.device_connections,
-        connection_options=snapshot.connection_options,
+        device_options=snapshot.device_options,
         point_options=snapshot.point_options,
     )
 
@@ -200,8 +194,7 @@ def test_config_diff_detects_device_model_point_table_change() -> None:
             **current.point_tables,
             replacement.point_table_id: replacement,
         },
-        device_connections=current.device_connections,
-        connection_options=current.connection_options,
+        device_options=current.device_options,
         point_options=current.point_options,
     )
 
@@ -227,8 +220,7 @@ def test_core_config_rejects_unknown_model_point_table() -> None:
         devices=snapshot.devices,
         business_points=snapshot.business_points,
         point_tables=snapshot.point_tables,
-        device_connections=snapshot.device_connections,
-        connection_options=snapshot.connection_options,
+        device_options=snapshot.device_options,
         point_options=snapshot.point_options,
     )
 
@@ -242,8 +234,6 @@ def test_yaml_round_trip_preserves_protocol_options_outside_domain() -> None:
     artifact = codec.encode(snapshot)
     decoded = codec.decode(artifact)
 
-    connection = next(iter(decoded.device_connections.values()))
-    assert not hasattr(connection.endpoint, "options")
-    assert decoded.connection_options_for(connection.connection_id) == {
-        "unit_id": 1
-    }
+    device = decoded.devices["wt01"]
+    assert not hasattr(device.endpoint, "options")
+    assert decoded.device_options_for(device.device_id) == {"unit_id": 1}
