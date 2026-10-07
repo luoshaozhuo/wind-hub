@@ -9,7 +9,6 @@ from core.domain import (
     PointTable,
     Protocol,
     PointDefinition,
-    RawDataType,
     UNIT_CATALOG,
     UnitCode,
 )
@@ -24,13 +23,11 @@ from core.infrastructure.protocol.modbus import (
 def _point(
     point_id: str,
     *,
-    raw_type: str = "float32",
     access: PointAccess = PointAccess.READ_WRITE,
 ) -> PointDefinition:
     return PointDefinition(
         point_id=point_id,
         business_point_id=point_id,
-        raw_type=RawDataType(raw_type),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
     )
@@ -40,10 +37,12 @@ def _point_options(
     *,
     address: int,
     register_type: str = "holding",
+    data_type: str = "float32",
 ) -> dict[str, str | int]:
     return {
         "register_type": register_type,
         "address": address,
+        "data_type": data_type,
     }
 
 
@@ -99,7 +98,7 @@ def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
     with pytest.raises(ConfigError, match="read-only"):
         parse_modbus_point(
             point,
-            _point_options(address=1, register_type="input"),
+            _point_options(address=1, register_type="input", data_type="int16"),
             default_word_order="little_endian",
         )
 
@@ -121,13 +120,13 @@ def test_modbus_driver_precompiles_resolved_point_table() -> None:
 
 def test_modbus_grouping_uses_bit_limit_separately() -> None:
     first = parse_modbus_point(
-        _point("b1", raw_type="bool"),
-        _point_options(address=0, register_type="coil"),
+        _point("b1"),
+        _point_options(address=0, register_type="coil", data_type="bool"),
         default_word_order="little_endian",
     )
     second = parse_modbus_point(
-        _point("b2", raw_type="bool"),
-        _point_options(address=1500, register_type="coil"),
+        _point("b2"),
+        _point_options(address=1500, register_type="coil", data_type="bool"),
         default_word_order="little_endian",
     )
 
@@ -140,10 +139,7 @@ def test_modbus_grouping_uses_bit_limit_separately() -> None:
 
 
 def test_modbus_point_rejects_address_span_overflow() -> None:
-    point = _point(
-        "overflow",
-        raw_type="float32",
-    )
+    point = _point("overflow")
 
     with pytest.raises(ConfigError, match="address span exceeds"):
         parse_modbus_point(
