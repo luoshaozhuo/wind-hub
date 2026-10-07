@@ -14,16 +14,18 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
 )
-from core.domain import (
-    BusinessPoint,
-    Device,
-    DeviceModel,
-    DeviceType,
+from core.application.config import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
+)
+from core.domain import (
+    BusinessPoint,
+    Device,
+    DeviceModel,
+    DeviceType,
     UNIT_CATALOG,
     UnitCode,
     ValueType,
@@ -118,7 +120,6 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
     model = DeviceModel(
         "m1",
         device_type.device_type_id,
-        table.point_table_id,
     )
     device = Device("d1", model.device_model_id)
     connection = DeviceConnection(
@@ -134,6 +135,9 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
             business_point.business_point_id: business_point,
         },
         point_tables={table.point_table_id: table},
+        device_model_point_tables={
+            model.device_model_id: table.point_table_id,
+        },
         device_connections={connection.connection_id: connection},
     )
 
