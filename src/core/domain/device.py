@@ -2,14 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from types import MappingProxyType
-from typing import Any, Mapping
-
-
-def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    """返回映射的只读浅拷贝。"""
-    return MappingProxyType(dict(value))
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,43 +48,51 @@ class DeviceGroup:
 
 @dataclass(frozen=True, slots=True)
 class DeviceModel:
-    """可复用的设备型号定义。"""
+    """可复用的设备型号定义。
+
+    一个型号可以声明多张点表，从而表达同一型号通过不同协议暴露数据点的能力。
+    具体现场设备启用哪些通信接口不属于该领域对象。
+    """
 
     device_model_id: str
     device_type_id: str
-    point_table_id: str
+    point_table_ids: tuple[str, ...]
     name: str | None = None
     manufacturer: str | None = None
-    properties: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
         device_type_id = self.device_type_id.strip()
-        point_table_id = self.point_table_id.strip()
+        point_table_ids = tuple(point_table_id.strip() for point_table_id in self.point_table_ids)
+
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
         if not device_type_id:
             raise ValueError("device_type_id must not be empty")
-        if not point_table_id:
-            raise ValueError("point_table_id must not be empty")
+        if not point_table_ids:
+            raise ValueError("point_table_ids must not be empty")
+        if any(not point_table_id for point_table_id in point_table_ids):
+            raise ValueError("point_table_ids must not contain empty values")
+        if len(point_table_ids) != len(set(point_table_ids)):
+            raise ValueError("point_table_ids must not contain duplicates")
+
         object.__setattr__(self, "device_model_id", device_model_id)
         object.__setattr__(self, "device_type_id", device_type_id)
-        object.__setattr__(self, "point_table_id", point_table_id)
-        object.__setattr__(self, "properties", _freeze_mapping(self.properties))
+        object.__setattr__(self, "point_table_ids", point_table_ids)
 
 
 @dataclass(frozen=True, slots=True)
 class Device:
     """现场具体设备。
 
-    只表达设备业务身份和静态归属，不持有 Endpoint、连接或 DeviceSession。
+    只表达设备业务身份和静态归属，不持有启停配置、Endpoint、连接或
+    DeviceSession 等运行信息。
     """
 
     device_id: str
     device_model_id: str
     name: str | None = None
     device_group_ids: tuple[str, ...] = ()
-    enabled: bool = True
 
     def __post_init__(self) -> None:
         device_id = self.device_id.strip()
@@ -100,11 +101,13 @@ class Device:
             raise ValueError("device_id must not be empty")
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
+
         group_ids = tuple(group_id.strip() for group_id in self.device_group_ids)
         if any(not group_id for group_id in group_ids):
             raise ValueError("device_group_ids must not contain empty values")
         if len(group_ids) != len(set(group_ids)):
             raise ValueError("device_group_ids must not contain duplicates")
+
         object.__setattr__(self, "device_id", device_id)
         object.__setattr__(self, "device_model_id", device_model_id)
         object.__setattr__(self, "device_group_ids", group_ids)
