@@ -3,7 +3,6 @@
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
-    ConnectionId,
     DeviceGroupId,
     DeviceId,
     DeviceModelId,
@@ -17,7 +16,6 @@ from .value_objects import PointAccess, Protocol, RawDataType, ValueType
 __all__ = [
     "BusinessPoint",
     "BusinessPointId",
-    "ConnectionId",
     "Device",
     "DeviceGroup",
     "DeviceGroupId",
