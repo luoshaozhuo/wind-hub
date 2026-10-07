@@ -18,12 +18,19 @@ from core.application.config import (
 from core.application.errors import ConfigError
 from core.domain import (
     BusinessPoint,
+    BusinessPointId,
+    ConnectionId,
     Device,
     DeviceGroup,
+    DeviceGroupId,
+    DeviceId,
     DeviceModel,
+    DeviceModelId,
     DeviceType,
+    DeviceTypeId,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     ProtocolPoint,
     RawDataType,
@@ -270,7 +277,7 @@ def _decode_device_type(value: object) -> DeviceType:
         "device_types[]",
     )
     return DeviceType(
-        device_type_id=_required_str(item, "device_type_id"),
+        device_type_id=DeviceTypeId(_required_str(item, "device_type_id")),
         name=_required_str(item, "name"),
         description=_optional_str(item, "description"),
     )
@@ -284,7 +291,7 @@ def _decode_device_group(value: object) -> DeviceGroup:
         "device_groups[]",
     )
     return DeviceGroup(
-        device_group_id=_required_str(item, "device_group_id"),
+        device_group_id=DeviceGroupId(_required_str(item, "device_group_id")),
         name=_required_str(item, "name"),
         description=_optional_str(item, "description"),
     )
@@ -298,7 +305,7 @@ def _decode_business_point(value: object) -> BusinessPoint:
         "business_points[]",
     )
     return BusinessPoint(
-        business_point_id=_required_str(item, "business_point_id"),
+        business_point_id=BusinessPointId(_required_str(item, "business_point_id")),
         value_type=ValueType(_required_str(item, "value_type")),
         standard_unit=_unit(_required_str(item, "standard_unit")),
         description=_optional_str(item, "description"),
@@ -319,7 +326,7 @@ def _decode_point_table(value: object) -> PointTable:
             f"point table '{_required_str(item, 'point_table_id')}' contains duplicate point_id"
         )
     return PointTable(
-        point_table_id=_required_str(item, "point_table_id"),
+        point_table_id=PointTableId(_required_str(item, "point_table_id")),
         protocol=Protocol(_required_str(item, "protocol")),
         points=by_id,
     )
@@ -343,7 +350,9 @@ def _decode_protocol_point(value: object) -> ProtocolPoint:
     )
     return ProtocolPoint(
         point_id=_required_str(item, "point_id"),
-        business_point_id=_required_str(item, "business_point_id"),
+        business_point_id=BusinessPointId(
+            _required_str(item, "business_point_id")
+        ),
         raw_type=RawDataType(_required_str(item, "raw_type")),
         source_unit=_unit(_required_str(item, "source_unit")),
         access=PointAccess(_required_str(item, "access")),
@@ -367,9 +376,9 @@ def _decode_device_model(value: object) -> DeviceModel:
         "device_models[]",
     )
     return DeviceModel(
-        device_model_id=_required_str(item, "device_model_id"),
-        device_type_id=_required_str(item, "device_type_id"),
-        point_table_id=_required_str(item, "point_table_id"),
+        device_model_id=DeviceModelId(_required_str(item, "device_model_id")),
+        device_type_id=DeviceTypeId(_required_str(item, "device_type_id")),
+        point_table_id=PointTableId(_required_str(item, "point_table_id")),
         name=_optional_str(item, "name"),
         manufacturer=_optional_str(item, "manufacturer"),
     )
@@ -383,11 +392,11 @@ def _decode_device(value: object) -> Device:
         "devices[]",
     )
     return Device(
-        device_id=_required_str(item, "device_id"),
-        device_model_id=_required_str(item, "device_model_id"),
+        device_id=DeviceId(_required_str(item, "device_id")),
+        device_model_id=DeviceModelId(_required_str(item, "device_model_id")),
         name=_optional_str(item, "name"),
         device_group_ids=tuple(
-            _require_str(value, "device_group_ids[]")
+            DeviceGroupId(_require_str(value, "device_group_ids[]"))
             for value in _require_list(item.get("device_group_ids"), "device_group_ids")
         ),
     )
@@ -403,8 +412,8 @@ def _decode_connection(value: object) -> DeviceConnection:
     endpoint = _require_mapping(item.get("endpoint"), "endpoint")
     _require_fields(endpoint, {"host", "port", "options"}, "endpoint")
     return DeviceConnection(
-        connection_id=_required_str(item, "connection_id"),
-        device_id=_required_str(item, "device_id"),
+        connection_id=ConnectionId(_required_str(item, "connection_id")),
+        device_id=DeviceId(_required_str(item, "device_id")),
         enabled=_optional_bool(item, "enabled", default=True),
         endpoint=ConnectionEndpoint(
             host=_required_str(endpoint, "host"),
