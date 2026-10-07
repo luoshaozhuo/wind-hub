@@ -1,23 +1,11 @@
 """Shared Core Application 公共门面。
 
-Application 只暴露用例编排、应用契约、错误和 Ports。
+Application 只暴露流程边界、协议契约与应用错误。
 """
 
-from .config_contract import (
-    ConfigRevision,
-    ConfigRevisionConflict,
-    CoreConfigArtifact,
-    CoreConfigPreview,
-    CoreConfigUpdateResult,
-    StoredCoreConfig,
-)
-from .config_service import CoreConfigService
 from .errors import ConfigError, CoreError, ProtocolCapabilityError, ProtocolError
 from .port import (
-    CoreConfigCodecPort,
-    CoreConfigPort,
-    CoreConfigRepositoryPort,
-    CoreConfigValidatorPort,
+    ConfigRepositoryPort,
     ProtocolPort,
     ProtocolSampleCallback,
     SubscriptionHandle,
@@ -35,17 +23,8 @@ from .protocol_contract import (
 
 __all__ = [
     "ConfigError",
-    "ConfigRevision",
-    "ConfigRevisionConflict",
+    "ConfigRepositoryPort",
     "ConnectionHealth",
-    "CoreConfigArtifact",
-    "CoreConfigCodecPort",
-    "CoreConfigPort",
-    "CoreConfigPreview",
-    "CoreConfigRepositoryPort",
-    "CoreConfigService",
-    "CoreConfigUpdateResult",
-    "CoreConfigValidatorPort",
     "CoreError",
     "PointScalar",
     "ProtocolCapability",
@@ -57,7 +36,6 @@ __all__ = [
     "ProtocolWrite",
     "ProtocolWriteResult",
     "Quality",
-    "StoredCoreConfig",
     "SubscriptionHandle",
     "WritableScalar",
 ]
