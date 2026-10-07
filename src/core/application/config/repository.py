@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NewType, Protocol
 
+from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
 
 ConfigRevision = NewType("ConfigRevision", str)
 
 
-class ConfigRevisionConflict(RuntimeError):
+class ConfigRevisionConflict(ConfigError):
     """配置乐观并发冲突。"""
 
 
