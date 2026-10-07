@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from core.application import ConfigError
+from core.application import ConfigError, LoadConfig, SaveConfig
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
@@ -24,6 +24,19 @@ from core.domain import (
     validate_core_config,
 )
 from core.infrastructure import YamlFileCoreConfigRepository
+
+
+
+class _MemoryConfigRepository:
+    def __init__(self, snapshot: CoreConfigSnapshot) -> None:
+        self.snapshot = snapshot
+        self.saved: CoreConfigSnapshot | None = None
+
+    async def load(self) -> CoreConfigSnapshot:
+        return self.snapshot
+
+    async def save(self, snapshot: CoreConfigSnapshot) -> None:
+        self.saved = snapshot
 
 
 def _snapshot(
@@ -157,3 +170,69 @@ async def test_yaml_repository_rejects_unknown_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="unknown fields"):
         await repository.load()
+
+
+@pytest.mark.asyncio
+async def test_load_config_validates_loaded_snapshot() -> None:
+    snapshot = _snapshot()
+    point = next(iter(snapshot.business_points.values()))
+    invalid_point = BusinessPoint(
+        point.business_point_id,
+        point.data_type,
+        Unit(
+            UnitCode.KILOWATT,
+            "bad",
+            Quantity.TIME,
+            scale_to_base=2.0,
+        ),
+    )
+    invalid = CoreConfigSnapshot(
+        device_types=snapshot.device_types,
+        device_models=snapshot.device_models,
+        devices=snapshot.devices,
+        business_points={invalid_point.business_point_id: invalid_point},
+        point_tables=snapshot.point_tables,
+        device_options=snapshot.device_options,
+    )
+    use_case = LoadConfig(_MemoryConfigRepository(invalid))
+
+    with pytest.raises(ValueError, match="canonical built-in unit"):
+        await use_case.execute()
+
+
+@pytest.mark.asyncio
+async def test_save_config_validates_before_repository_write() -> None:
+    snapshot = _snapshot()
+    model = next(iter(snapshot.device_models.values()))
+    invalid_model = DeviceModel(
+        model.device_model_id,
+        model.device_type_id,
+        "missing_table",
+    )
+    invalid = CoreConfigSnapshot(
+        device_types=snapshot.device_types,
+        device_models={invalid_model.device_model_id: invalid_model},
+        devices=snapshot.devices,
+        business_points=snapshot.business_points,
+        point_tables=snapshot.point_tables,
+        device_options=snapshot.device_options,
+    )
+    repository = _MemoryConfigRepository(snapshot)
+    use_case = SaveConfig(repository)
+
+    with pytest.raises(ValueError, match="unknown point table"):
+        await use_case.execute(invalid)
+
+    assert repository.saved is None
+
+
+@pytest.mark.asyncio
+async def test_config_use_cases_round_trip_repository() -> None:
+    repository = _MemoryConfigRepository(_snapshot())
+    load = LoadConfig(repository)
+    save = SaveConfig(repository)
+
+    snapshot = await load.execute()
+    await save.execute(snapshot)
+
+    assert repository.saved == snapshot
