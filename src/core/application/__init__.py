@@ -5,9 +5,20 @@
 """
 
 from .config import (
+    ConfigRevision,
+    ConfigRevisionConflict,
     ConnectionEndpoint,
+    CoreConfigArtifact,
+    CoreConfigCodecPort,
+    CoreConfigDiff,
+    CoreConfigRepositoryPort,
+    CoreConfigService,
     CoreConfigSnapshot,
+    CoreConfigUpdateResult,
     DeviceConnection,
+    IndexDiff,
+    StoredCoreConfig,
+    compute_core_config_diff,
     validate_core_config,
 )
 from .interpretation import interpret_protocol_sample
@@ -21,10 +32,19 @@ from .port import (
 from .session import DeviceSession, create_device_session
 
 __all__ = [
+    "ConfigRevision",
+    "ConfigRevisionConflict",
     "ConnectionEndpoint",
+    "CoreConfigArtifact",
+    "CoreConfigCodecPort",
+    "CoreConfigDiff",
+    "CoreConfigRepositoryPort",
+    "CoreConfigService",
     "CoreConfigSnapshot",
+    "CoreConfigUpdateResult",
     "DeviceConnection",
     "DeviceSession",
+    "IndexDiff",
     "PointScalar",
     "PointValue",
     "ProtocolFactoryPort",
@@ -33,6 +53,8 @@ __all__ = [
     "ProtocolWrite",
     "ProtocolWriteResult",
     "Quality",
+    "StoredCoreConfig",
+    "compute_core_config_diff",
     "create_device_session",
     "interpret_protocol_sample",
     "validate_core_config",
