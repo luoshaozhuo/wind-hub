@@ -24,10 +24,10 @@ from core.application import (
 )
 from core.domain import (
     ConnectionEndpoint,
+    Point,
     PointAccess,
     PointTable,
     Protocol,
-    Point,
     UNIT_CATALOG,
     UnitCode,
 )
