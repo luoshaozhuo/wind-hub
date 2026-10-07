@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from core.application import ProtocolFactoryPort
-from core.application.config import CoreConfigSnapshot, CoreConfigValidatorPort
+from core.application.config import CoreConfigSnapshot
+from core.application.port import CoreConfigValidatorPort
 
 
 class ProtocolConfigValidator(CoreConfigValidatorPort):
