@@ -66,8 +66,8 @@ def parse_modbus_point(
             f"Modbus point '{point.point_id}' has unknown options: {sorted(unknown)}"
         )
 
-    raw_type = options.get("register_type", options.get("type"))
-    register_type = _normalize_register_type(raw_type)
+    raw_register_type = options.get("register_type", options.get("type"))
+    register_type = _normalize_register_type(raw_register_type)
 
     raw_address = options.get("address")
     address = _strict_int(
