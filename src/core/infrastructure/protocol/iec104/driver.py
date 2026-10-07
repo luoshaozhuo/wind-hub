@@ -13,7 +13,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from core.application.config import PointProtocolOptions, ProtocolOptions
+from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -165,7 +165,6 @@ class IEC104Driver:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         device_options: ProtocolOptions,
-        point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "iec104":
             raise ConfigError(
@@ -180,7 +179,6 @@ class IEC104Driver:
         )
         by_id, by_ioa = build_iec104_index(
             list(point_table.points.values()),
-            point_options,
         )
         self._points_by_id = by_id
         self._points_by_ioa = by_ioa
