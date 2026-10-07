@@ -18,7 +18,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, Point, PointTable
+from core.domain import ConnectionEndpoint, PointTable
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
@@ -140,17 +140,17 @@ class ModbusDriver:
 
     async def read(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """批量读取协议点，并合并相邻 Modbus 地址。"""
-        if not points:
+        if not point_ids:
             return ()
 
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("Modbus read requires an active connection")
 
-            mapped = [self._mapped_point(point) for point in points]
+            mapped = [self._mapped_point(point_id) for point_id in point_ids]
             try:
                 values: dict[str, object] = {}
                 for group in group_consecutive_reads(mapped):
@@ -162,12 +162,12 @@ class ModbusDriver:
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
             samples: list[ProtocolSample] = []
-            for point in points:
-                value = values.get(point.point_id, _DECODE_FAILED)
+            for point_id in point_ids:
+                value = values.get(point_id, _DECODE_FAILED)
                 if value is _DECODE_FAILED:
                     samples.append(
                         ProtocolSample(
-                            point_id=point.point_id,
+                            point_id=point_id,
                             value=None,
                             quality=Quality.BAD,
                         )
@@ -175,7 +175,7 @@ class ModbusDriver:
                 else:
                     samples.append(
                         ProtocolSample(
-                            point_id=point.point_id,
+                            point_id=point_id,
                             value=_as_point_scalar(value),
                             quality=Quality.GOOD,
                         )
@@ -197,7 +197,7 @@ class ModbusDriver:
             results: list[ProtocolWriteResult] = []
             try:
                 for write in writes:
-                    mapped = self._mapped_point(write.point)
+                    mapped = self._mapped_point(write.point_id)
                     if mapped.register_type in _READ_ONLY_TYPES:
                         results.append(
                             ProtocolWriteResult(
@@ -241,11 +241,11 @@ class ModbusDriver:
 
             return tuple(results)
 
-    def _mapped_point(self, point: Point) -> ModbusPoint:
-        mapped = self._points.get(point.point_id)
+    def _mapped_point(self, point_id: str) -> ModbusPoint:
+        mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point.point_id}' is not part of connection "
+                f"point '{point_id}' is not part of connection "
                 f"'{self._point_table_id}'"
             )
         return mapped
