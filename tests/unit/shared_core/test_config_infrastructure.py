@@ -24,10 +24,18 @@ from core.domain import (
     UnitCode,
     ValueType,
 )
-from core.infrastructure import YamlCoreConfigCodec, YamlFileCoreConfigRepository
+from core.infrastructure import (
+    YamlCoreConfigCodec,
+    YamlFileCoreConfigRepository,
+    fingerprint_core_config,
+)
 
 
-def _snapshot(*, device_name: str = "WT01") -> CoreConfigSnapshot:
+def _snapshot(
+    *,
+    device_name: str = "WT01",
+    connection_enabled: bool = True,
+) -> CoreConfigSnapshot:
     device_type = DeviceType("wind_turbine", "Wind Turbine")
     point = BusinessPoint(
         "active_power",
@@ -56,6 +64,7 @@ def _snapshot(*, device_name: str = "WT01") -> CoreConfigSnapshot:
         "wt01-main",
         device.device_id,
         ConnectionEndpoint("10.0.0.1", 502, {"unit_id": 1}),
+        enabled=connection_enabled,
     )
     return CoreConfigSnapshot(
         device_types={device_type.device_type_id: device_type},
@@ -76,6 +85,7 @@ def test_yaml_codec_round_trip_is_stable() -> None:
 
     assert decoded == snapshot
     assert codec.encode(decoded).content == artifact.content
+    assert fingerprint_core_config(decoded) == fingerprint_core_config(snapshot)
 
 
 def test_yaml_codec_rejects_unknown_fields() -> None:
@@ -109,3 +119,13 @@ async def test_yaml_file_repository_uses_revision_cas(tmp_path: Path) -> None:
             _snapshot(device_name="WT-02"),
             expected_revision=current.revision,
         )
+
+
+
+def test_snapshot_resolves_enabled_connections_only() -> None:
+    enabled = _snapshot(connection_enabled=True)
+    disabled = _snapshot(connection_enabled=False)
+
+    assert len(enabled.connections_for_device("wt01")) == 1
+    assert disabled.connections_for_device("wt01") == ()
+    assert len(disabled.connections_for_device("wt01", enabled_only=False)) == 1
