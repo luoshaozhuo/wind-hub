@@ -57,6 +57,7 @@ class DeviceConnection:
     connection_id: ConnectionId
     device_id: DeviceId
     endpoint: ConnectionEndpoint
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         connection_id = self.connection_id.strip()
