@@ -90,7 +90,6 @@ def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
     forbidden_tokens = {
         "protocol_options",
         "raw_type",
-        "data_type",
         "register_type",
         "word_order",
         "target_net_id",
@@ -108,6 +107,35 @@ def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
                 violations.append(f"{path.name}: contains '{token}'")
 
     assert violations == []
+
+
+def test_point_does_not_define_protocol_specific_fields() -> None:
+    path = _CORE / "domain" / "point.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    point_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Point"
+    )
+    field_names = {
+        target.id
+        for node in point_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance((target := node.target), ast.Name)
+    }
+    forbidden = {
+        "address",
+        "register_type",
+        "word_order",
+        "symbol",
+        "index_group",
+        "index_offset",
+        "ioa",
+        "type_id",
+    }
+
+    assert field_names & forbidden == set()
+    assert "ext" in field_names
 
 def test_infrastructure_imports_domain_types_from_domain() -> None:
     """Infrastructure 不得通过 application.config 间接导入 Domain 类型。"""
@@ -127,8 +155,8 @@ def test_infrastructure_imports_domain_types_from_domain() -> None:
         "PointTable",
         "PointTableId",
         "Protocol",
-        "PointDefinition",
-        "ValueType",
+        "DataType",
+        "Point",
     }
     violations: list[str] = []
 
