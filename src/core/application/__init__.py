@@ -1,4 +1,4 @@
-"""Shared Core Application 用例。"""
+"""Shared Core Application 用例与稳定数据契约。"""
 
 from .collection_plan import (
     CollectionAssignment,
@@ -6,10 +6,31 @@ from .collection_plan import (
     assign_collection_connection,
     build_collection_work,
 )
+from .measurement import PointScalar, PointValue, ProtocolSample, Quality
+from .port import (
+    ExclusiveOpenSinkPort,
+    ProtocolPort,
+    ProtocolWrite,
+    ProtocolWriteResult,
+    SinkPort,
+    SubscribableProtocolPort,
+    SubscriptionHandle,
+)
 
 __all__ = [
     "CollectionAssignment",
     "CollectionWork",
+    "ExclusiveOpenSinkPort",
+    "PointScalar",
+    "PointValue",
+    "ProtocolPort",
+    "ProtocolSample",
+    "ProtocolWrite",
+    "ProtocolWriteResult",
+    "Quality",
+    "SinkPort",
+    "SubscribableProtocolPort",
+    "SubscriptionHandle",
     "assign_collection_connection",
     "build_collection_work",
 ]
