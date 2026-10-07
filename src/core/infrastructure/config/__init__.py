@@ -1,6 +1,6 @@
 """Shared Core 配置基础设施 Adapter。"""
 
-from .file_repository import FileCoreConfigRepository
+from .file_repository import YamlFileCoreConfigRepository
 from .yaml_codec import YamlCoreConfigCodec
 
 __all__ = [
