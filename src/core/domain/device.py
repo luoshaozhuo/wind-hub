@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +48,10 @@ class DeviceGroup:
 
 @dataclass(frozen=True, slots=True)
 class DeviceModel:
-    """可复用的设备型号定义。
+    """可复用的设备型号聚合根。
 
-    一个型号可以声明多张点表，从而表达同一型号通过不同协议暴露数据点的能力。
-    具体现场设备启用哪些通信接口不属于该领域对象。
+    point_table_ids 表达该型号支持的接入点表；具体现场设备实际启用哪些接入
+    方式，由 DeviceConnection 配置决定。
     """
 
     device_model_id: str
@@ -63,7 +63,9 @@ class DeviceModel:
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
         device_type_id = self.device_type_id.strip()
-        point_table_ids = tuple(point_table_id.strip() for point_table_id in self.point_table_ids)
+        point_table_ids = tuple(
+            point_table_id.strip() for point_table_id in self.point_table_ids
+        )
 
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
@@ -80,13 +82,17 @@ class DeviceModel:
         object.__setattr__(self, "device_type_id", device_type_id)
         object.__setattr__(self, "point_table_ids", point_table_ids)
 
+    def supports_point_table(self, point_table_id: str) -> bool:
+        """判断该型号是否声明支持指定点表。"""
+        return point_table_id.strip() in self.point_table_ids
+
 
 @dataclass(frozen=True, slots=True)
 class Device:
-    """现场具体设备。
+    """现场具体设备聚合根。
 
-    只表达设备业务身份和静态归属，不持有启停配置、Endpoint、连接或
-    DeviceSession 等运行信息。
+    Device 只维护设备自身业务身份、型号引用和业务分组引用。通信端点、协议会话、
+    启停配置等不属于本聚合。
     """
 
     device_id: str
@@ -97,10 +103,14 @@ class Device:
     def __post_init__(self) -> None:
         device_id = self.device_id.strip()
         device_model_id = self.device_model_id.strip()
+        name = self.name.strip() if self.name is not None else None
+
         if not device_id:
             raise ValueError("device_id must not be empty")
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
+        if name == "":
+            name = None
 
         group_ids = tuple(group_id.strip() for group_id in self.device_group_ids)
         if any(not group_id for group_id in group_ids):
@@ -110,4 +120,36 @@ class Device:
 
         object.__setattr__(self, "device_id", device_id)
         object.__setattr__(self, "device_model_id", device_model_id)
+        object.__setattr__(self, "name", name)
         object.__setattr__(self, "device_group_ids", group_ids)
+
+    def rename(self, name: str | None) -> Device:
+        """返回修改名称后的新聚合快照。"""
+        return replace(self, name=name)
+
+    def change_model(self, device_model_id: str) -> Device:
+        """返回切换型号引用后的新聚合快照。"""
+        return replace(self, device_model_id=device_model_id)
+
+    def assign_group(self, device_group_id: str) -> Device:
+        """将设备加入业务分组；重复加入保持幂等。"""
+        group_id = device_group_id.strip()
+        if not group_id:
+            raise ValueError("device_group_id must not be empty")
+        if group_id in self.device_group_ids:
+            return self
+        return replace(self, device_group_ids=(*self.device_group_ids, group_id))
+
+    def remove_group(self, device_group_id: str) -> Device:
+        """将设备移出业务分组；不存在时保持幂等。"""
+        group_id = device_group_id.strip()
+        if not group_id:
+            raise ValueError("device_group_id must not be empty")
+        if group_id not in self.device_group_ids:
+            return self
+        return replace(
+            self,
+            device_group_ids=tuple(
+                existing for existing in self.device_group_ids if existing != group_id
+            ),
+        )
