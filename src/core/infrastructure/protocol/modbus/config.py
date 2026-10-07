@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import DeviceConnection, ProtocolOptions
+from core.application.config import ProtocolOptions
+from core.domain import DeviceConnection
 from core.application.errors import ConfigError
 
 _VALID_MODES = frozenset({"tcp"})
