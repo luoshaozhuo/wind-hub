@@ -32,8 +32,7 @@ class CoreConfigDiff:
     devices: IndexDiff
     business_points: IndexDiff
     point_tables: IndexDiff
-    device_connections: IndexDiff
-    connection_options: IndexDiff
+    device_options: IndexDiff
     point_options: IndexDiff
 
     @property
@@ -48,8 +47,7 @@ class CoreConfigDiff:
                 self.devices,
                 self.business_points,
                 self.point_tables,
-                self.device_connections,
-                self.connection_options,
+                self.device_options,
                 self.point_options,
             )
         )
@@ -67,13 +65,9 @@ def compute_core_config_diff(
         devices=_diff_index(old.devices, new.devices),
         business_points=_diff_index(old.business_points, new.business_points),
         point_tables=_diff_index(old.point_tables, new.point_tables),
-        device_connections=_diff_index(
-            old.device_connections,
-            new.device_connections,
-        ),
-        connection_options=_diff_index(
-            old.connection_options,
-            new.connection_options,
+        device_options=_diff_index(
+            old.device_options,
+            new.device_options,
         ),
         point_options=_diff_index(
             old.point_options,
