@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.application.errors import ConfigError
-from core.domain import PointAccess, ProtocolPoint
+from core.application.config import PointAccess, ProtocolPoint
 
 _REGISTER_TYPE_ALIASES: dict[str, str] = {
     "coil": "coil",
