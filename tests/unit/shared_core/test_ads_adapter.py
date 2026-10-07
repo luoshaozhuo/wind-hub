@@ -239,7 +239,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
 
     results = await driver.write(
-        (ProtocolWrite(point=point, value=10.0),)
+        (ProtocolWrite(point_id=point.point_id, value=10.0),)
     )
 
     assert results[0].success is True
