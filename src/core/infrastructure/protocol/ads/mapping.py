@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from core.application.errors import ConfigError
-from core.domain import ProtocolPoint
+from core.application.config import ProtocolPoint
 
 _ALLOWED_OPTIONS = frozenset(
     {
