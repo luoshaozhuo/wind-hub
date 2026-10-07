@@ -13,7 +13,11 @@ import struct
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from core.application.config import DeviceConnection
+from core.application.config import (
+    DeviceConnection,
+    PointTable,
+    ProtocolPoint,
+)
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -22,7 +26,6 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import PointTable, ProtocolPoint
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
