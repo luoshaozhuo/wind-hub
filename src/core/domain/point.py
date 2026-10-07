@@ -9,7 +9,7 @@ from types import MappingProxyType
 
 from .identities import BusinessPointId, PointTableId
 from .unit import Unit
-from .value_objects import PointAccess, Protocol, RawDataType, ValueType
+from .value_objects import PointAccess, Protocol, ValueType
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,6 @@ class PointDefinition:
 
     point_id: str
     business_point_id: BusinessPointId
-    raw_type: RawDataType
     source_unit: Unit
     access: PointAccess
     scale: float = 1.0
