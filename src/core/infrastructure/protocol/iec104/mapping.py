@@ -9,6 +9,15 @@ from core.domain import ProtocolPoint
 
 _ALLOWED_OPTIONS = frozenset({"ioa", "type", "type_id"})
 _MAX_IOA = 0xFFFFFF
+_COMMAND_TYPE_IDS = frozenset(
+    {
+        "C_SC_NA_1",
+        "C_DC_NA_1",
+        "C_SE_NA_1",
+        "C_SE_NB_1",
+        "C_SE_NC_1",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,3 +85,17 @@ def build_iec104_index(
         by_id[mapped.point_id] = mapped
         by_ioa[mapped.ioa] = mapped
     return by_id, by_ioa
+
+
+
+def validate_iec104_write_type(point: IEC104Point) -> None:
+    """校验写点使用当前 Driver 明确支持的 IEC104 控制类型。"""
+    if point.type_id is None:
+        raise ConfigError(
+            f"IEC104 writable point '{point.point_id}' requires type_id"
+        )
+    if point.type_id not in _COMMAND_TYPE_IDS:
+        raise ConfigError(
+            f"IEC104 writable point '{point.point_id}' uses unsupported "
+            f"command type '{point.type_id}'"
+        )
