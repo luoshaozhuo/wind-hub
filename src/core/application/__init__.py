@@ -21,8 +21,15 @@ from .config import (
     compute_core_config_diff,
     validate_core_config,
 )
-from .interpretation import interpret_protocol_sample
-from .measurement import PointScalar, PointValue, ProtocolSample, Quality
+from .interpretation import interpret_protocol_sample, prepare_protocol_write
+from .measurement import (
+    PointScalar,
+    PointValue,
+    PointWrite,
+    ProtocolSample,
+    Quality,
+    WritableScalar,
+)
 from .port import (
     ProtocolFactoryPort,
     ProtocolPort,
@@ -47,15 +54,18 @@ __all__ = [
     "IndexDiff",
     "PointScalar",
     "PointValue",
+    "PointWrite",
     "ProtocolFactoryPort",
     "ProtocolPort",
     "ProtocolSample",
     "ProtocolWrite",
     "ProtocolWriteResult",
     "Quality",
+    "WritableScalar",
     "StoredCoreConfig",
     "compute_core_config_diff",
     "create_device_session",
     "interpret_protocol_sample",
+    "prepare_protocol_write",
     "validate_core_config",
 ]
