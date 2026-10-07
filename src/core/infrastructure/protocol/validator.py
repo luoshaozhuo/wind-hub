@@ -1,0 +1,23 @@
+"""基于显式 ProtocolRegistry 的协议配置静态校验。"""
+
+from __future__ import annotations
+
+from core.application.config import CoreConfigSnapshot, CoreConfigValidatorPort
+
+from .registry import ProtocolRegistry
+
+
+class ProtocolConfigValidator(CoreConfigValidatorPort):
+    """通过创建未连接 Driver 对协议专有配置做 fail-fast 校验。
+
+    Driver factory 必须只解析配置和预编译点表，不得在 create 阶段执行网络 I/O。
+    """
+
+    def __init__(self, registry: ProtocolRegistry) -> None:
+        self._registry = registry
+
+    def validate(self, snapshot: CoreConfigSnapshot) -> None:
+        """校验全部 DeviceConnection 的协议专有连接参数与点地址。"""
+        for connection in snapshot.device_connections.values():
+            point_table = snapshot.point_table_for_device(connection.device_id)
+            self._registry.create(connection, point_table)
