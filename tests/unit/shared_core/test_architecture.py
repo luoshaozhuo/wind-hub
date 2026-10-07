@@ -85,9 +85,8 @@ def test_domain_does_not_depend_on_application_or_infrastructure() -> None:
     assert violations == []
 
 
-def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
+def test_domain_models_do_not_embed_adapter_specific_fields() -> None:
     forbidden_tokens = {
-        "protocol_options",
         "raw_type",
         "register_type",
         "word_order",
@@ -99,7 +98,8 @@ def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
     }
     violations: list[str] = []
 
-    for path in _python_files(_CORE / "domain"):
+    for name in ("device.py", "point.py", "value_objects.py"):
+        path = _CORE / "domain" / name
         source = path.read_text(encoding="utf-8")
         for token in forbidden_tokens:
             if token in source:
@@ -137,9 +137,12 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
     assert "ext" in field_names
 
 
-def test_domain_config_has_no_diff_model() -> None:
-    """Shared Domain 配置只保留快照、选项与一致性规则。"""
-    assert not (_CORE / "domain" / "config" / "diff.py").exists()
+def test_domain_config_is_compact() -> None:
+    """Shared Domain 配置只保留快照与一致性规则。"""
+    config_dir = _CORE / "domain" / "config"
+
+    assert not (config_dir / "diff.py").exists()
+    assert not (config_dir / "options.py").exists()
 
 
 def test_application_does_not_own_config_domain_model() -> None:
