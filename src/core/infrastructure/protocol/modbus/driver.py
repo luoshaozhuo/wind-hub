@@ -18,7 +18,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointTable, ProtocolPoint
+from core.domain import ConnectionEndpoint, PointTable, PointDefinition
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
@@ -142,7 +142,7 @@ class ModbusDriver:
 
     async def read(
         self,
-        points: Sequence[ProtocolPoint],
+        points: Sequence[PointDefinition],
     ) -> tuple[ProtocolSample, ...]:
         """批量读取协议点，并合并相邻 Modbus 地址。"""
         if not points:
@@ -243,7 +243,7 @@ class ModbusDriver:
 
             return tuple(results)
 
-    def _mapped_point(self, point: ProtocolPoint) -> ModbusPoint:
+    def _mapped_point(self, point: PointDefinition) -> ModbusPoint:
         mapped = self._points.get(point.point_id)
         if mapped is None:
             raise ConfigError(
