@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointTable, Point
+from core.domain import ConnectionEndpoint, Point, PointTable
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
