@@ -15,7 +15,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol as DeviceProtocol,
-    ProtocolPoint,
+    PointDefinition,
     RawDataType,
     UNIT_CATALOG,
     UnitCode,
@@ -42,8 +42,8 @@ def _point(
     *,
     access: PointAccess = PointAccess.READ,
     raw_type: str = "float32",
-) -> ProtocolPoint:
-    return ProtocolPoint(
+) -> PointDefinition:
+    return PointDefinition(
         point_id=point_id,
         business_point_id=point_id,
         raw_type=RawDataType(raw_type),
@@ -176,7 +176,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
         )
 
 
-def _driver_for_monitoring_point() -> tuple[IEC104Driver, ProtocolPoint]:
+def _driver_for_monitoring_point() -> tuple[IEC104Driver, PointDefinition]:
     point = _point("power")
     table = PointTable(
         "iec_pt",
