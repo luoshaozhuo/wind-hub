@@ -62,3 +62,32 @@ def test_application_port_modules_contain_interfaces_only() -> None:
                 )
 
     assert violations == []
+
+
+
+def test_domain_does_not_define_protocol_integration_models() -> None:
+    forbidden = {
+        "ConnectionId",
+        "PointAccess",
+        "PointTable",
+        "PointTableId",
+        "Protocol",
+        "ProtocolPoint",
+        "RawDataType",
+    }
+    defined: set[str] = set()
+
+    for path in _python_files(_CORE / "domain"):
+        tree = ast.parse(
+            path.read_text(encoding="utf-8"),
+            filename=str(path),
+        )
+        for node in tree.body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                defined.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined.add(target.id)
+
+    assert defined.isdisjoint(forbidden)
