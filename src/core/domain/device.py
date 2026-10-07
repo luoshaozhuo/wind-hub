@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .connection import ConnectionEndpoint
+from .value_objects import ConnectionEndpoint
 from .identities import (
     DeviceGroupId,
     DeviceId,
