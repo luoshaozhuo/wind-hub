@@ -138,6 +138,8 @@ def create_device_session(
 ) -> DeviceSession:
     """按共享配置和协议工厂创建尚未连接的 DeviceSession。"""
     connection = snapshot.device_connections[connection_id]
+    if not connection.enabled:
+        raise ValueError(f"connection '{connection_id}' is disabled")
     device = snapshot.devices[connection.device_id]
     model = snapshot.device_models[device.device_model_id]
     point_table = snapshot.point_tables[model.point_table_id]
