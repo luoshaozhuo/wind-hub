@@ -1,20 +1,24 @@
-"""Shared Core 应用级配置模型。
+"""Shared Core 应用级配置模型。"""
 
-这里只聚合配置数据模型、差异与纯校验；应用服务从
-core.application.config.service 显式导入，避免与 port 形成循环依赖。
-"""
-
-from .artifact import CoreConfigArtifact
-from .device_connection import ConnectionEndpoint, DeviceConnection
-from .identities import ConnectionId, PointTableId
-from .point_table import (
+from core.domain import (
+    ConnectionEndpoint,
+    ConnectionId,
+    DeviceConnection,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     ProtocolPoint,
     RawDataType,
 )
+
+from .artifact import CoreConfigArtifact
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
+from .protocol_options import (
+    PointProtocolOptions,
+    ProtocolOptions,
+    ProtocolOptionValue,
+)
 from .revision import (
     ConfigRevision,
     ConfigRevisionConflict,
@@ -28,17 +32,20 @@ __all__ = [
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "ConnectionId",
-    "PointAccess",
-    "PointTable",
-    "PointTableId",
-    "Protocol",
-    "ProtocolPoint",
-    "RawDataType",
     "CoreConfigArtifact",
     "CoreConfigDiff",
     "CoreConfigSnapshot",
     "DeviceConnection",
     "IndexDiff",
+    "PointAccess",
+    "PointProtocolOptions",
+    "PointTable",
+    "PointTableId",
+    "Protocol",
+    "ProtocolOptionValue",
+    "ProtocolOptions",
+    "ProtocolPoint",
+    "RawDataType",
     "StoredCoreConfig",
     "compute_core_config_diff",
     "validate_core_config",
