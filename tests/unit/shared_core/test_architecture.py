@@ -126,7 +126,6 @@ def test_infrastructure_imports_domain_types_from_domain() -> None:
         "PointTableId",
         "Protocol",
         "PointDefinition",
-        "RawDataType",
         "ValueType",
     }
     violations: list[str] = []
