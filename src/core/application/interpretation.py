@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from math import isfinite
 
-from core.config import ConfigSnapshot
+from .config import CoreCoreConfigSnapshot
 from core.domain import (
     BusinessPoint,
     DeviceId,
@@ -27,7 +27,7 @@ from .measurement import PointScalar, PointValue, ProtocolSample
 
 
 def interpret_protocol_sample(
-    snapshot: ConfigSnapshot,
+    snapshot: CoreConfigSnapshot,
     device_id: DeviceId,
     sample: ProtocolSample,
     *,
