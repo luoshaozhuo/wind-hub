@@ -37,7 +37,7 @@ from core.domain import (
     DataType,
 )
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _MEDIA_TYPE = "application/x-yaml"
 
 _KeyT = TypeVar("_KeyT")
@@ -146,12 +146,7 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
                         "access": point.access.value,
                         "scale": point.scale,
                         "offset": point.offset,
-                        "protocol_options": dict(
-                            snapshot.point_options_for(
-                                table.point_table_id,
-                                point.point_id,
-                            )
-                        ),
+                        "ext": dict(point.ext),
                     }
                     for point in sorted(
                         table.points.values(),
@@ -210,20 +205,15 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
             for value in _require_list(root.get("business_points"), "business_points")
         )
     }
-    decoded_point_tables = [
-        _decode_point_table(value)
-        for value in _require_list(
-            root.get("point_tables"),
-            "point_tables",
-        )
-    ]
     point_tables = {
         table.point_table_id: table
-        for table, _ in decoded_point_tables
-    }
-    point_options = {
-        table.point_table_id: options
-        for table, options in decoded_point_tables
+        for table in (
+            _decode_point_table(value)
+            for value in _require_list(
+                root.get("point_tables"),
+                "point_tables",
+            )
+        )
     }
     device_models = {
         item.device_model_id: item
@@ -263,7 +253,6 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
         business_points=business_points,
         point_tables=point_tables,
         device_options=device_options,
-        point_options=point_options,
     )
 
 
@@ -310,48 +299,30 @@ def _decode_business_point(value: object) -> BusinessPoint:
     )
 
 
-def _decode_point_table(
-    value: object,
-) -> tuple[
-    PointTable,
-    dict[str, dict[str, str | int | float | bool | None]],
-]:
+def _decode_point_table(value: object) -> PointTable:
     item = _require_mapping(value, "point_tables[]")
     _require_fields(
         item,
         {"point_table_id", "protocol", "points"},
         "point_tables[]",
     )
-    decoded_points = [
-        _decode_protocol_point(raw)
+    points = [
+        _decode_point(raw)
         for raw in _require_list(item.get("points"), "points")
     ]
-    points = [point for point, _ in decoded_points]
     by_id = {point.point_id: point for point in points}
     if len(by_id) != len(points):
         raise ConfigError(
             f"point table '{_required_str(item, 'point_table_id')}' contains duplicate point_id"
         )
-    table = PointTable(
+    return PointTable(
         point_table_id=PointTableId(_required_str(item, "point_table_id")),
         protocol=Protocol(_required_str(item, "protocol")),
         points=by_id,
     )
-    return (
-        table,
-        {
-            point.point_id: options
-            for point, options in decoded_points
-        },
-    )
 
 
-def _decode_protocol_point(
-    value: object,
-) -> tuple[
-    Point,
-    dict[str, str | int | float | bool | None],
-]:
+def _decode_point(value: object) -> Point:
     item = _require_mapping(value, "points[]")
     _require_fields(
         item,
@@ -362,11 +333,11 @@ def _decode_protocol_point(
             "access",
             "scale",
             "offset",
-            "protocol_options",
+            "ext",
         },
         "points[]",
     )
-    point = Point(
+    return Point(
         point_id=_required_str(item, "point_id"),
         business_point_id=BusinessPointId(
             _required_str(item, "business_point_id")
@@ -375,15 +346,8 @@ def _decode_protocol_point(
         access=PointAccess(_required_str(item, "access")),
         scale=_number(item, "scale", default=1.0),
         offset=_number(item, "offset", default=0.0),
+        ext=_scalar_mapping(item.get("ext"), "ext"),
     )
-    return (
-        point,
-        _scalar_mapping(
-            item.get("protocol_options"),
-            "protocol_options",
-        ),
-    )
-
 
 def _decode_device_model(value: object) -> DeviceModel:
     item = _require_mapping(value, "device_models[]")
