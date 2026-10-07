@@ -11,7 +11,12 @@ from core.application import (
     ProtocolWriteResult,
 )
 from core.domain import PointTable, Protocol, ProtocolPoint
-from core.infrastructure import ProtocolRegistry
+from core.infrastructure import (
+    ADSDriver,
+    IEC104Driver,
+    ModbusDriver,
+    ProtocolRegistry,
+)
 
 
 class _Protocol:
@@ -51,3 +56,13 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
 
     assert registry.registered_names() == ("modbus",)
     assert protocol.health().healthy is True
+
+
+
+def test_protocol_registry_accepts_builtin_driver_classes() -> None:
+    registry = ProtocolRegistry()
+    registry.register("modbus", ModbusDriver)
+    registry.register("ads", ADSDriver)
+    registry.register("iec104", IEC104Driver)
+
+    assert registry.registered_names() == ("ads", "iec104", "modbus")
