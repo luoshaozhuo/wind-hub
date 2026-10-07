@@ -31,6 +31,10 @@ class BusinessPoint:
             BusinessPointId(business_point_id),
         )
 
+    def coerce(self, value: object) -> bool | int | float | str:
+        """按业务点标准数据类型收敛值。"""
+        return self.data_type.coerce(value)
+
 
 @dataclass(frozen=True, slots=True)
 class Point:
