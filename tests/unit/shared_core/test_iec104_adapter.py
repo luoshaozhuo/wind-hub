@@ -12,12 +12,14 @@ from core.application import (
     ProtocolSample,
     Quality,
 )
-from core.domain import (
+from core.application.config import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
+)
+from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
