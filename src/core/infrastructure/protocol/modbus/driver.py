@@ -18,7 +18,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointTable, Point
+from core.domain import ConnectionEndpoint, Point, PointTable
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
