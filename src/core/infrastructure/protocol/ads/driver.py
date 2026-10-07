@@ -1,7 +1,7 @@
 """基于 pyads 的共享 ADS ProtocolPort Adapter。
 
-Driver 只实现 Collector 与 Commander 共同需要的单连接 connect/read/write/health。
-持续订阅、采集节拍与重连策略属于具体应用，不进入 Shared Core。
+Driver 实现共享的 connect/read/write/health，并通过可选订阅能力暴露 ADS
+device-notification。何时订阅、订阅哪些点以及失败后的应用级重建策略仍由上层决定。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import ctypes
 import struct
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from core.application import (
@@ -22,11 +22,13 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    SubscriptionHandle,
 )
 from core.domain import PointTable, ProtocolPoint
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
+from .subscription import ADSSubscription
 
 _ADSERR_SYMBOL_NOT_FOUND = 1808
 
@@ -78,6 +80,7 @@ class ADSDriver:
         self._lock = asyncio.Lock()
         self._connection: Any = None
         self._connected = False
+        self._subscriptions: set[ADSSubscription] = set()
 
     async def connect(self) -> None:
         """建立一次 ADS session 并解析全部 symbol 地址。"""
@@ -125,6 +128,11 @@ class ADSDriver:
     async def close(self) -> None:
         """关闭当前 ADS session；重复调用安全。"""
         async with self._lock:
+            subscriptions = tuple(self._subscriptions)
+            self._subscriptions.clear()
+            for subscription in subscriptions:
+                await subscription.close()
+
             connection, self._connection = self._connection, None
             self._connected = False
             if connection is not None:
@@ -142,6 +150,46 @@ class ADSDriver:
                 ),
             )
         return ConnectionHealth(healthy=False, message="not connected")
+
+    async def subscribe(
+        self,
+        points: Sequence[ProtocolPoint],
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
+        """建立独立 ADS device-notification 订阅。
+
+        interval 是 notification cycle_time，必须由调用方明确提供。空 points
+        表示订阅当前 PointTable 的全部协议点。
+        """
+        if not self._connected:
+            raise ProtocolError(
+                "ADS subscribe requires an active connection"
+            )
+        if interval is None or interval <= 0:
+            raise ConfigError(
+                "ADS subscription interval must be > 0"
+            )
+
+        mapped = tuple(
+            self._mapped_point(point)
+            for point in points
+        ) if points else tuple(self._points.values())
+
+        subscription = ADSSubscription(
+            self._config,
+            mapped,
+            callback,
+            cycle_time=interval,
+            loop=asyncio.get_running_loop(),
+        )
+        await subscription.start()
+        self._subscriptions.add(subscription)
+        return _TrackedADSSubscription(
+            self,
+            subscription,
+        )
 
     async def read(
         self,
@@ -448,7 +496,12 @@ class ADSDriver:
         )
 
     async def _disconnect_after_failure(self) -> None:
-        """传输失败后立即释放死 ADS connection。"""
+        """传输失败后释放死 ADS connection 与关联订阅。"""
+        subscriptions = tuple(self._subscriptions)
+        self._subscriptions.clear()
+        for subscription in subscriptions:
+            await subscription.close()
+
         connection, self._connection = self._connection, None
         self._connected = False
         if connection is not None:
@@ -549,3 +602,24 @@ def _coerce_write_value(
         return float(value)
 
     raise ValueError(f"unsupported ADS type '{ads_type}'")
+
+
+
+class _TrackedADSSubscription:
+    """从 Driver 注册表中自动移除的订阅句柄。"""
+
+    def __init__(
+        self,
+        owner: ADSDriver,
+        subscription: ADSSubscription,
+    ) -> None:
+        self._owner = owner
+        self._subscription = subscription
+        self._closed = False
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._owner._subscriptions.discard(self._subscription)
+        await self._subscription.close()
