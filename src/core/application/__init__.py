@@ -21,6 +21,7 @@ from .config import (
     compute_core_config_diff,
     validate_core_config,
 )
+from .errors import ConfigError, CoreError, ProtocolError
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
 from .measurement import (
     PointScalar,
@@ -40,11 +41,13 @@ from .port import (
 from .session import DeviceSession, create_device_session
 
 __all__ = [
+    "ConfigError",
     "ConfigRevision",
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "ConnectionHealth",
     "CoreConfigArtifact",
+    "CoreError",
     "CoreConfigCodecPort",
     "CoreConfigDiff",
     "CoreConfigRepositoryPort",
@@ -57,6 +60,7 @@ __all__ = [
     "PointScalar",
     "PointValue",
     "PointWrite",
+    "ProtocolError",
     "ProtocolFactoryPort",
     "ProtocolPort",
     "ProtocolSample",
