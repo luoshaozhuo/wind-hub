@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
 from core.domain import Point
 
@@ -90,9 +89,9 @@ class ADSPoint:
 
 def parse_ads_point(
     point: Point,
-    options: ProtocolOptions,
 ) -> ADSPoint:
     """把 Point 解析为纯内存 ADSPoint。"""
+    options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
