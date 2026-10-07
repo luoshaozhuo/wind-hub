@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.domain import DataType, UNIT_CATALOG, Quantity, Unit
+from core.domain import DataType, Quantity, UNIT_CATALOG, Unit
 
 from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
