@@ -7,19 +7,17 @@ import pytest
 
 from core.application import (
     ConfigError,
-    ConnectionEndpoint,
-    DeviceConnection,
     ProtocolSample,
     Quality,
 )
-from core.application.config import (
+from core.domain import (
+    ConnectionEndpoint,
+    DeviceConnection,
     PointAccess,
     PointTable,
-    Protocol,
+    Protocol as DeviceProtocol,
     ProtocolPoint,
     RawDataType,
-)
-from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
@@ -31,41 +29,47 @@ from core.infrastructure.protocol.iec104 import (
 )
 
 
-def _connection(**options: object) -> DeviceConnection:
+class _Closable(Protocol):
+    async def close(self) -> None:
+        ...
+
+
+def _connection() -> DeviceConnection:
     return DeviceConnection(
         "iec-main",
         "rtu01",
-        ConnectionEndpoint(
-            "192.0.2.30",
-            None,
-            options,
-        ),
+        ConnectionEndpoint("192.0.2.30"),
     )
 
 
 def _point(
     point_id: str,
     *,
-    ioa: int,
     access: PointAccess = PointAccess.READ,
-    type_id: str | None = None,
     raw_type: str = "float32",
 ) -> ProtocolPoint:
-    options: dict[str, str | int] = {"ioa": ioa}
-    if type_id is not None:
-        options["type_id"] = type_id
     return ProtocolPoint(
         point_id=point_id,
         business_point_id=point_id,
         raw_type=RawDataType(raw_type),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
-        protocol_options=options,
     )
 
 
+def _point_options(
+    *,
+    ioa: int,
+    type_id: str | None = None,
+) -> dict[str, str | int]:
+    options: dict[str, str | int] = {"ioa": ioa}
+    if type_id is not None:
+        options["type_id"] = type_id
+    return options
+
+
 def test_iec104_config_defaults_and_window_validation() -> None:
-    config = parse_iec104_config(_connection())
+    config = parse_iec104_config(_connection(), {})
 
     assert config.port == 2404
     assert config.common_addr == 1
@@ -73,16 +77,19 @@ def test_iec104_config_defaults_and_window_validation() -> None:
     assert config.w == 8
 
     with pytest.raises(ConfigError, match="must not exceed k"):
-        parse_iec104_config(_connection(k=4, w=8))
+        parse_iec104_config(
+            _connection(),
+            {"k": 4, "w": 8},
+        )
 
 
 def test_iec104_point_maps_ioa_and_type_id() -> None:
     mapped = parse_iec104_point(
-        _point(
-            "active_power",
+        _point("active_power"),
+        _point_options(
             ioa=1001,
             type_id="M_ME_NC_1",
-        )
+        ),
     )
 
     assert mapped.ioa == 1001
@@ -90,79 +97,108 @@ def test_iec104_point_maps_ioa_and_type_id() -> None:
 
 
 def test_iec104_index_rejects_duplicate_ioa() -> None:
-    first = _point("p1", ioa=100)
-    second = _point("p2", ioa=100)
+    first = _point("p1")
+    second = _point("p2")
 
     with pytest.raises(ConfigError, match="duplicate IOA"):
-        build_iec104_index([first, second])
+        build_iec104_index(
+            [first, second],
+            {
+                "p1": _point_options(ioa=100),
+                "p2": _point_options(ioa=100),
+            },
+        )
 
 
 def test_iec104_writable_point_requires_command_type() -> None:
     point = _point(
         "setpoint",
-        ioa=2001,
         access=PointAccess.WRITE,
     )
     table = PointTable(
         "iec_pt",
-        Protocol("iec104"),
+        DeviceProtocol("iec104"),
         {point.point_id: point},
     )
 
     with pytest.raises(ConfigError, match="requires type_id"):
-        IEC104Driver(_connection(), table)
+        IEC104Driver(
+            _connection(),
+            table,
+            {},
+            {"setpoint": _point_options(ioa=2001)},
+        )
 
 
 def test_iec104_driver_builds_without_importing_c104() -> None:
     point = _point(
         "setpoint",
-        ioa=2001,
         access=PointAccess.WRITE,
-        type_id="C_SE_NC_1",
     )
     table = PointTable(
         "iec_pt",
-        Protocol("iec104"),
+        DeviceProtocol("iec104"),
         {point.point_id: point},
     )
 
-    driver = IEC104Driver(_connection(), table)
+    driver = IEC104Driver(
+        _connection(),
+        table,
+        {},
+        {
+            "setpoint": _point_options(
+                ioa=2001,
+                type_id="C_SE_NC_1",
+            ),
+        },
+    )
 
     assert driver.health().healthy is False
-
 
 
 def test_iec104_writable_point_rejects_monitoring_type() -> None:
     point = _point(
         "setpoint",
-        ioa=2001,
         access=PointAccess.WRITE,
-        type_id="M_ME_NC_1",
     )
     table = PointTable(
         "iec_pt",
-        Protocol("iec104"),
+        DeviceProtocol("iec104"),
         {point.point_id: point},
     )
 
     with pytest.raises(ConfigError, match="unsupported command type"):
-        IEC104Driver(_connection(), table)
+        IEC104Driver(
+            _connection(),
+            table,
+            {},
+            {
+                "setpoint": _point_options(
+                    ioa=2001,
+                    type_id="M_ME_NC_1",
+                ),
+            },
+        )
 
 
-
-class _Closable(Protocol):
-    async def close(self) -> None:
-        ...
+def _driver_for_monitoring_point() -> tuple[IEC104Driver, ProtocolPoint]:
+    point = _point("power")
+    table = PointTable(
+        "iec_pt",
+        DeviceProtocol("iec104"),
+        {point.point_id: point},
+    )
+    driver = IEC104Driver(
+        _connection(),
+        table,
+        {},
+        {"power": _point_options(ioa=100)},
+    )
+    return driver, point
 
 
 def test_iec104_driver_exposes_infrastructure_capabilities() -> None:
-    point = _point("power", ioa=100)
-    table = PointTable(
-        "iec_pt",
-        Protocol("iec104"),
-        {point.point_id: point},
-    )
-    driver = IEC104Driver(_connection(), table)
+    driver, _ = _driver_for_monitoring_point()
 
     assert callable(driver.subscribe)
     assert callable(driver.interrogate)
@@ -170,13 +206,7 @@ def test_iec104_driver_exposes_infrastructure_capabilities() -> None:
 
 @pytest.mark.asyncio
 async def test_iec104_subscription_close_drains_inflight_callback() -> None:
-    point = _point("power", ioa=100)
-    table = PointTable(
-        "iec_pt",
-        Protocol("iec104"),
-        {point.point_id: point},
-    )
-    driver = IEC104Driver(_connection(), table)
+    driver, point = _driver_for_monitoring_point()
     started = asyncio.Event()
     release = asyncio.Event()
     received: list[float | int | bool | str | None] = []
@@ -219,23 +249,15 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
     assert received == [42.0]
 
 
-
 @pytest.mark.asyncio
 async def test_iec104_subscription_can_close_itself_from_callback() -> None:
-    point = _point("power", ioa=100)
-    table = PointTable(
-        "iec_pt",
-        Protocol("iec104"),
-        {point.point_id: point},
-    )
-    driver = IEC104Driver(_connection(), table)
+    driver, point = _driver_for_monitoring_point()
     done = asyncio.Event()
     handle_box: list[_Closable] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
-        handle = handle_box[0]
-        await handle.close()
+        await handle_box[0].close()
         done.set()
 
     handle = await driver.subscribe((point,), callback)
