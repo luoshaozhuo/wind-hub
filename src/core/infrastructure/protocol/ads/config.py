@@ -14,6 +14,8 @@ _ALLOWED_OPTIONS = frozenset(
         "read_mode",
         "max_subs_per_sum",
         "max_concurrent_reads",
+        "max_delay",
+        "max_notifications_per_connection",
     }
 )
 _VALID_READ_MODES = frozenset({"sum", "sequential"})
@@ -31,6 +33,8 @@ class ADSConfig:
     read_mode: str = "sum"
     max_subs_per_sum: int = 500
     max_concurrent_reads: int = 16
+    max_delay: float = 0.06
+    max_notifications_per_connection: int = 550
 
 
 def parse_ads_config(connection: DeviceConnection) -> ADSConfig:
@@ -104,6 +108,27 @@ def parse_ads_config(connection: DeviceConnection) -> ADSConfig:
             "max_concurrent_reads must be > 0"
         )
 
+    max_delay = _float_option(
+        options.get("max_delay"),
+        "max_delay",
+        default=0.06,
+    )
+    if max_delay < 0:
+        raise ConfigError(
+            f"connection '{connection.connection_id}': max_delay must be >= 0"
+        )
+
+    max_notifications = _int_option(
+        options.get("max_notifications_per_connection"),
+        "max_notifications_per_connection",
+        default=550,
+    )
+    if max_notifications <= 0:
+        raise ConfigError(
+            f"connection '{connection.connection_id}': "
+            "max_notifications_per_connection must be > 0"
+        )
+
     default_port = 801 if twincat_version == "2" else 802
     target_port = connection.endpoint.port or default_port
 
@@ -116,6 +141,8 @@ def parse_ads_config(connection: DeviceConnection) -> ADSConfig:
         read_mode=read_mode,
         max_subs_per_sum=max_subs,
         max_concurrent_reads=max_concurrent,
+        max_delay=max_delay,
+        max_notifications_per_connection=max_notifications,
     )
 
 
