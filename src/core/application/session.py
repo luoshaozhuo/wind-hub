@@ -15,7 +15,7 @@ from core.domain import ConnectionId, DeviceId, PointAccess, ProtocolPoint
 from .config import CoreConfigSnapshot, DeviceConnection
 from .errors import ConfigError, ProtocolError
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
-from .measurement import PointValue, PointWrite
+from .measurement import PointValue, PointWrite, ProtocolSample
 from .port import (
     ConnectionHealth,
     ProtocolFactoryPort,
@@ -69,6 +69,23 @@ class DeviceSession:
         """返回底层协议缓存的连接状态。"""
         return self._protocol.health()
 
+    def interpret_sample(
+        self,
+        sample: ProtocolSample,
+        *,
+        observed_at: datetime | None = None,
+    ) -> PointValue:
+        """把当前连接产生的一条协议样本归一化为标准业务值。"""
+        timestamp = observed_at or datetime.now(UTC)
+        if timestamp.tzinfo is None:
+            raise ConfigError("observed_at must be timezone-aware")
+        return interpret_protocol_sample(
+            self._snapshot,
+            self.device_id,
+            sample,
+            observed_at=timestamp,
+        )
+
     async def read(
         self,
         point_ids: Sequence[str],
@@ -93,14 +110,9 @@ class DeviceSession:
             )
 
         timestamp = observed_at or datetime.now(UTC)
-        if timestamp.tzinfo is None:
-            raise ConfigError("observed_at must be timezone-aware")
-
         samples_by_id = {sample.point_id: sample for sample in samples}
         return tuple(
-            interpret_protocol_sample(
-                self._snapshot,
-                self.device_id,
+            self.interpret_sample(
                 samples_by_id[point_id],
                 observed_at=timestamp,
             )
