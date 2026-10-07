@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .diff import CoreConfigDiff, compute_core_config_diff
-from .repository import ConfigRevision, CoreConfigRepositoryPort, StoredCoreConfig
+from .repository import (
+    ConfigRevision,
+    ConfigRevisionConflict,
+    CoreConfigRepositoryPort,
+    StoredCoreConfig,
+)
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
 
@@ -43,7 +48,7 @@ class CoreConfigService:
 
         current = await self._repository.load()
         if current.revision != expected_revision:
-            raise ValueError(
+            raise ConfigRevisionConflict(
                 f"config revision conflict: expected '{expected_revision}', "
                 f"current '{current.revision}'"
             )
