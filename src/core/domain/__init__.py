@@ -7,7 +7,6 @@ from .identities import (
     DeviceId,
     DeviceModelId,
     DeviceTypeId,
-    PointTableId,
 )
 from .point import BusinessPoint
 from .unit import Quantity, Unit, UnitCode, UNIT_CATALOG, convert_value
