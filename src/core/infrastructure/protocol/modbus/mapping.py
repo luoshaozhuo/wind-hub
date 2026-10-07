@@ -54,11 +54,11 @@ class ModbusPoint:
 
 def parse_modbus_point(
     point: ProtocolPoint,
+    options: ProtocolOptions,
     *,
     default_word_order: str,
 ) -> ModbusPoint:
     """把 ProtocolPoint 解析成 ModbusPoint，并尽早校验配置。"""
-    options = point.protocol_options
     unknown = set(options) - _ALLOWED_POINT_OPTIONS
     if unknown:
         raise ConfigError(
