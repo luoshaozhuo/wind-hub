@@ -66,6 +66,8 @@ class ADSDriver:
         self,
         connection: DeviceConnection,
         point_table: PointTable,
+        connection_options: ProtocolOptions,
+        point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError(
@@ -74,9 +76,15 @@ class ADSDriver:
             )
 
         self._connection_config = connection
-        self._config: ADSConfig = parse_ads_config(connection)
+        self._config: ADSConfig = parse_ads_config(
+            connection,
+            connection_options,
+        )
         self._points = {
-            point.point_id: parse_ads_point(point)
+            point.point_id: parse_ads_point(
+                point,
+                point_options.get(point.point_id, {}),
+            )
             for point in point_table.points.values()
         }
 
