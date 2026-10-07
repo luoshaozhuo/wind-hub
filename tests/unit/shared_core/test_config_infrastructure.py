@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from core.application import ConfigError, ConfigRevisionConflict
+from core.application import (
+    ConfigError,
+    ConfigRevision,
+    ConfigRevisionConflict,
+    CoreConfigPort,
+    CoreConfigService,
+    StoredCoreConfig,
+)
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
@@ -30,6 +37,30 @@ from core.infrastructure import (
     fingerprint_core_config,
 )
 
+
+
+class _MemoryConfigRepository:
+    def __init__(self, snapshot: CoreConfigSnapshot) -> None:
+        self._stored = StoredCoreConfig(
+            snapshot=snapshot,
+            revision=ConfigRevision("r1"),
+        )
+
+    async def load(self) -> StoredCoreConfig:
+        return self._stored
+
+    async def save(
+        self,
+        snapshot: CoreConfigSnapshot,
+        *,
+        expected_revision: ConfigRevision,
+    ) -> StoredCoreConfig:
+        del expected_revision
+        self._stored = StoredCoreConfig(
+            snapshot=snapshot,
+            revision=ConfigRevision("r2"),
+        )
+        return self._stored
 
 def _snapshot(
     *,
@@ -92,6 +123,37 @@ def test_data_type_coerces_standard_business_values() -> None:
         DataType.INT16.coerce(12.5)
     with pytest.raises(TypeError, match="requires bool"):
         DataType.BOOL.coerce(1)
+
+
+def test_config_service_implements_port_and_wraps_domain_validation() -> None:
+    snapshot = _snapshot()
+    point = next(iter(snapshot.business_points.values()))
+    invalid_point = BusinessPoint(
+        point.business_point_id,
+        point.data_type,
+        Unit(
+            UnitCode.KILOWATT,
+            "bad",
+            Quantity.TIME,
+            scale_to_base=2.0,
+        ),
+    )
+    invalid = CoreConfigSnapshot(
+        device_types=snapshot.device_types,
+        device_models=snapshot.device_models,
+        devices=snapshot.devices,
+        business_points={
+            invalid_point.business_point_id: invalid_point,
+        },
+        point_tables=snapshot.point_tables,
+        device_options=snapshot.device_options,
+    )
+    service: CoreConfigPort = CoreConfigService(
+        _MemoryConfigRepository(snapshot)
+    )
+
+    with pytest.raises(ConfigError, match="canonical built-in unit"):
+        service.validate(invalid)
 
 def test_yaml_codec_round_trip_is_stable() -> None:
     codec = YamlCoreConfigCodec()
