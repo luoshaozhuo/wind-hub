@@ -137,6 +137,11 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
     assert "ext" in field_names
 
 
+def test_domain_config_has_no_diff_model() -> None:
+    """Shared Domain 配置只保留快照、选项与一致性规则。"""
+    assert not (_CORE / "domain" / "config" / "diff.py").exists()
+
+
 def test_application_does_not_own_config_domain_model() -> None:
     """Application 只做配置用例编排，不重新承载配置领域模型。"""
     assert not (_CORE / "application" / "config").exists()
