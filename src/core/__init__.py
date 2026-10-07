@@ -1,5 +1,6 @@
-"""新领域内核实验包。
+"""wind-hub Shared Core。
 
-该包与现有 wind_hub_core 完全隔离，用于承载新的领域模型设计。
-现阶段不被现有 Collector、Commander 或 Server 导入。
+Shared Core 只承载跨 Collector、Commander、Server 稳定共享的 Domain、
+Application contract/service 与 Infrastructure。应用专有采集、控制、调度、
+Sink 和 Runtime 不进入本包。
 """
