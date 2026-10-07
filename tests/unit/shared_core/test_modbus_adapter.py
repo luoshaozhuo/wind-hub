@@ -12,7 +12,7 @@ from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
-from core.infrastructure import (
+from core.infrastructure.protocol.modbus import (
     ModbusDriver,
     group_consecutive_reads,
     parse_modbus_config,
