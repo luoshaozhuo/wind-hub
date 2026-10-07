@@ -13,6 +13,8 @@ from core.domain import (
     DeviceId,
     DeviceModel,
     DeviceModelId,
+    DeviceType,
+    DeviceTypeId,
     PointTable,
     PointTableId,
 )
@@ -20,10 +22,16 @@ from core.domain import (
 
 def validate_device_models(
     device_models: Mapping[DeviceModelId, DeviceModel],
+    device_types: Mapping[DeviceTypeId, DeviceType],
     point_tables: Mapping[PointTableId, PointTable],
 ) -> None:
-    """校验 DeviceModel 对 PointTable 的跨聚合引用完整性。"""
+    """校验 DeviceModel 对 DeviceType 与 PointTable 的跨聚合引用完整性。"""
     for model in device_models.values():
+        if model.device_type_id not in device_types:
+            raise ValueError(
+                f"device model '{model.device_model_id}' references unknown device type "
+                f"'{model.device_type_id}'"
+            )
         if model.point_table_id not in point_tables:
             raise ValueError(
                 f"device model '{model.device_model_id}' references unknown point table "
