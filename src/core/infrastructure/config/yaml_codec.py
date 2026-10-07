@@ -30,11 +30,11 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    PointDefinition,
+    Point,
     UNIT_CATALOG,
     Unit,
     UnitCode,
-    ValueType,
+    DataType,
 )
 
 _SCHEMA_VERSION = 3
@@ -128,7 +128,7 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
         "business_points": [
             {
                 "business_point_id": str(item.business_point_id),
-                "value_type": item.value_type.value,
+                "data_type": item.data_type.value,
                 "standard_unit": item.standard_unit.code.value,
                 "description": item.description,
             }
@@ -299,12 +299,12 @@ def _decode_business_point(value: object) -> BusinessPoint:
     item = _require_mapping(value, "business_points[]")
     _require_fields(
         item,
-        {"business_point_id", "value_type", "standard_unit", "description"},
+        {"business_point_id", "data_type", "standard_unit", "description"},
         "business_points[]",
     )
     return BusinessPoint(
         business_point_id=BusinessPointId(_required_str(item, "business_point_id")),
-        value_type=ValueType(_required_str(item, "value_type")),
+        data_type=DataType(_required_str(item, "data_type")),
         standard_unit=_unit(_required_str(item, "standard_unit")),
         description=_optional_str(item, "description"),
     )
@@ -349,7 +349,7 @@ def _decode_point_table(
 def _decode_protocol_point(
     value: object,
 ) -> tuple[
-    PointDefinition,
+    Point,
     dict[str, str | int | float | bool | None],
 ]:
     item = _require_mapping(value, "points[]")
@@ -366,7 +366,7 @@ def _decode_protocol_point(
         },
         "points[]",
     )
-    point = PointDefinition(
+    point = Point(
         point_id=_required_str(item, "point_id"),
         business_point_id=BusinessPointId(
             _required_str(item, "business_point_id")
