@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.domain import Quantity, ValueType
+from core.domain import UNIT_CATALOG, Quantity, Unit, ValueType
 
 from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
@@ -19,6 +19,10 @@ def validate_core_config(snapshot: CoreConfigSnapshot) -> None:
 
 def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
     for point in snapshot.business_points.values():
+        _validate_canonical_unit(
+            point.standard_unit,
+            context=f"business point '{point.business_point_id}' standard_unit",
+        )
         if (
             point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
             and point.standard_unit.quantity is not Quantity.DIMENSIONLESS
@@ -61,6 +65,13 @@ def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
 def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
     for table in snapshot.point_tables.values():
         for point in table.points.values():
+            _validate_canonical_unit(
+                point.source_unit,
+                context=(
+                    f"point table '{table.point_table_id}' "
+                    f"point '{point.point_id}' source_unit"
+                ),
+            )
             business_point = snapshot.business_points.get(point.business_point_id)
             if business_point is None:
                 raise ConfigError(
@@ -91,3 +102,13 @@ def _validate_device_connections(snapshot: CoreConfigSnapshot) -> None:
                 f"connection '{connection.connection_id}' references unknown device "
                 f"'{connection.device_id}'"
             )
+
+
+
+def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
+    """确保配置只引用内置目录中的规范 Unit 值对象。"""
+    canonical = UNIT_CATALOG.get(unit.code)
+    if canonical is None or unit != canonical:
+        raise ConfigError(
+            f"{context} must use canonical built-in unit '{unit.code.value}'"
+        )
