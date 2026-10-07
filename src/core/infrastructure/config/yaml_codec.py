@@ -18,6 +18,7 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
+    DataType,
     Device,
     DeviceGroup,
     DeviceGroupId,
@@ -26,15 +27,14 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
+    Point,
     PointAccess,
     PointTable,
     PointTableId,
     Protocol,
-    Point,
     UNIT_CATALOG,
     Unit,
     UnitCode,
-    DataType,
 )
 
 _SCHEMA_VERSION = 4
