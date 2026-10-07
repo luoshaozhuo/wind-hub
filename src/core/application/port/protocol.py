@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from core.domain import PointTable, ProtocolPoint
 
@@ -90,4 +90,39 @@ class ProtocolFactoryPort(Protocol):
         point_table 是已经 resolve 完成的共享点表。factory 必须是纯静态构造：
         可以解析连接参数、预编译 Symbol/IOA/寄存器映射，但不得执行网络 I/O。
         """
+        ...
+
+
+
+class SubscriptionHandle(Protocol):
+    """一次协议订阅的生命周期句柄。"""
+
+    async def close(self) -> None:
+        """注销本次订阅；重复调用必须安全。"""
+        ...
+
+
+@runtime_checkable
+class SubscribableProtocolPort(Protocol):
+    """可选协议能力：接收设备主动上送/通知样本。
+
+    本接口只表达协议能力，不规定 Collector 如何创建 Task、何时订阅或如何
+    重订阅。callback 在实现所属 asyncio loop 中执行。
+    """
+
+    async def subscribe(
+        self,
+        points: Sequence[ProtocolPoint],
+        callback: Callable[[ProtocolSample], Awaitable[None]],
+    ) -> SubscriptionHandle:
+        """注册一组协议点的样本回调。"""
+        ...
+
+
+@runtime_checkable
+class InterrogationCapableProtocolPort(Protocol):
+    """可选协议能力：显式触发一次站级总召/全量刷新。"""
+
+    async def interrogate(self) -> None:
+        """触发一次协议定义的全量刷新操作。"""
         ...
