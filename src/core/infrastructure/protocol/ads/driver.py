@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, Point, PointTable
+from core.domain import ConnectionEndpoint, PointTable
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
@@ -148,14 +148,14 @@ class ADSDriver:
 
     async def subscribe(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
     ) -> _TrackedADSSubscription:
         """建立独立 ADS device-notification 订阅。
 
-        interval 是 notification cycle_time，必须由调用方明确提供。空 points
+        interval 是 notification cycle_time，必须由调用方明确提供。空 point_ids
         表示订阅当前 PointTable 的全部协议点。
         """
         if not self._connected:
@@ -168,9 +168,9 @@ class ADSDriver:
             )
 
         mapped = tuple(
-            self._mapped_point(point.point_id)
-            for point in points
-        ) if points else tuple(self._points.values())
+            self._mapped_point(point_id)
+            for point_id in point_ids
+        ) if point_ids else tuple(self._points.values())
 
         subscription = ADSSubscription(
             self._config,
