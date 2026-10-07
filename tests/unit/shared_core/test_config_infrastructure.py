@@ -12,14 +12,12 @@ from core.application import (
     compute_core_config_diff,
     validate_core_config,
 )
-from core.application.config import (
+from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
-)
-from core.domain import (
     BusinessPoint,
     Device,
     DeviceModel,
