@@ -32,6 +32,50 @@ class CollectionWork:
     interval: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class CollectionAssignment:
+    """已由 placement 明确绑定通信接入的采集工作。"""
+
+    task_id: TaskId
+    device_id: DeviceId
+    connection_id: ConnectionId
+    point_ids: tuple[str, ...]
+    target_sink_ids: tuple[SinkId, ...]
+    interval: float | None
+
+
+def assign_collection_connection(
+    work: CollectionWork,
+    connection_id: ConnectionId,
+) -> CollectionAssignment:
+    """把设备级采集工作绑定到一个明确的 DeviceConnection。
+
+    Args:
+        work: 已解析但尚未选择接入路径的设备级工作。
+        connection_id: placement 选定的连接 ID。
+
+    Returns:
+        可直接交给 Runtime 实例化的静态 assignment。
+
+    Raises:
+        ValueError: connection_id 不属于该工作声明的候选集合。
+    """
+    if connection_id not in work.candidate_connection_ids:
+        raise ValueError(
+            f"connection '{connection_id}' is not a candidate for "
+            f"task '{work.task_id}' device '{work.device_id}'"
+        )
+
+    return CollectionAssignment(
+        task_id=work.task_id,
+        device_id=work.device_id,
+        connection_id=connection_id,
+        point_ids=work.point_ids,
+        target_sink_ids=work.target_sink_ids,
+        interval=work.interval,
+    )
+
+
 def build_collection_work(
     snapshot: ConfigSnapshot,
     task_id: TaskId,
@@ -54,6 +98,9 @@ def build_collection_work(
         return ()
 
     devices = _resolve_target_devices(snapshot, task_id)
+    if not devices:
+        raise ValueError(f"task '{task.task_id}' resolves to no target devices")
+
     works = [
         _build_device_work(snapshot, task_id, device_id)
         for device_id in devices
@@ -70,7 +117,9 @@ def _resolve_target_devices(
     if task.device_id is not None:
         return (task.device_id,)
 
-    assert task.device_group_id is not None
+    if task.device_group_id is None:
+        raise ValueError(f"task '{task.task_id}' has no target device or device group")
+
     return tuple(
         sorted(
             (
