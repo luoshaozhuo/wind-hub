@@ -25,21 +25,11 @@ class BusinessPoint:
         business_point_id = self.business_point_id.strip()
         if not business_point_id:
             raise ValueError("business_point_id must not be empty")
-        ext = dict(self.ext)
-        for key, value in ext.items():
-            if not key.strip():
-                raise ValueError("point ext keys must not be empty")
-            if isinstance(value, float) and not isfinite(value):
-                raise ValueError(
-                    f"point ext '{key}' must be finite"
-                )
-
         object.__setattr__(
             self,
             "business_point_id",
             BusinessPointId(business_point_id),
         )
-        object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,12 +60,20 @@ class Point:
         if not isfinite(self.offset):
             raise ValueError("offset must be finite")
 
+        ext = dict(self.ext)
+        for key, value in ext.items():
+            if not key.strip():
+                raise ValueError("point ext keys must not be empty")
+            if isinstance(value, float) and not isfinite(value):
+                raise ValueError(f"point ext '{key}' must be finite")
+
         object.__setattr__(self, "point_id", point_id)
         object.__setattr__(
             self,
             "business_point_id",
             BusinessPointId(business_point_id),
         )
+        object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
 @dataclass(frozen=True, slots=True)
