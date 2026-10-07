@@ -18,20 +18,18 @@ class _Closable(Protocol):
 
 from core.application import (
     ConfigError,
-    ConnectionEndpoint,
-    DeviceConnection,
     ProtocolError,
     ProtocolSample,
     ProtocolWrite,
 )
-from core.application.config import (
+from core.domain import (
+    ConnectionEndpoint,
+    DeviceConnection,
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
-)
-from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
@@ -47,7 +45,6 @@ from core.infrastructure.protocol.ads import (
 def _connection(
     *,
     port: int | None = 801,
-    **options: object,
 ) -> DeviceConnection:
     return DeviceConnection(
         "ads-main",
@@ -55,16 +52,18 @@ def _connection(
         ConnectionEndpoint(
             "192.0.2.20",
             port,
-            options,
         ),
     )
+
+
+def _connection_options(**options: object) -> dict[str, object]:
+    return dict(options)
 
 
 def _point(
     point_id: str,
     *,
     raw_type: str = "float32",
-    **options: object,
 ) -> ProtocolPoint:
     return ProtocolPoint(
         point_id=point_id,
@@ -72,18 +71,22 @@ def _point(
         raw_type=RawDataType(raw_type),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
-        protocol_options=options,
     )
+
+
+def _point_options(**options: object) -> dict[str, object]:
+    return dict(options)
 
 
 def test_ads_config_parses_connection_options() -> None:
     config = parse_ads_config(
-        _connection(
+        _connection(),
+        _connection_options(
             target_net_id="192.0.2.20.1.1",
             timeout=2.5,
             read_mode="sequential",
             max_concurrent_reads=8,
-        )
+        ),
     )
 
     assert config.host == "192.0.2.20"
@@ -95,10 +98,11 @@ def test_ads_config_parses_connection_options() -> None:
 
 
 def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
-    assert parse_ads_config(_connection(port=None)).target_port == 801
+    assert parse_ads_config(_connection(port=None), {}).target_port == 801
     assert (
         parse_ads_config(
-            _connection(port=None, twincat_version="3")
+            _connection(port=None),
+            {"twincat_version": "3"},
         ).target_port
         == 802
     )
@@ -106,7 +110,10 @@ def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
 
 def test_ads_config_rejects_unknown_options() -> None:
     try:
-        parse_ads_config(_connection(unknown_option=True))
+        parse_ads_config(
+            _connection(),
+            {"unknown_option": True},
+        )
     except ConfigError as exc:
         assert "unknown ADS options" in str(exc)
     else:
@@ -115,7 +122,8 @@ def test_ads_config_rejects_unknown_options() -> None:
 
 def test_ads_symbol_point_requires_session_resolution() -> None:
     mapped = parse_ads_point(
-        _point("speed", symbol="MAIN.speed")
+        _point("speed"),
+        _point_options(symbol="MAIN.speed"),
     )
 
     assert mapped.symbol == "MAIN.speed"
@@ -129,9 +137,11 @@ def test_ads_index_point_is_resolved_without_network() -> None:
         _point(
             "power",
             raw_type="int32",
+        ),
+        _point_options(
             index_group=0x4020,
             index_offset=100,
-        )
+        ),
     )
 
     assert mapped.address_resolved is True
@@ -146,9 +156,11 @@ def test_ads_int64_mapping_is_supported() -> None:
         _point(
             "counter",
             raw_type="int64",
+        ),
+        _point_options(
             index_group=0x4020,
             index_offset=0,
-        )
+        ),
     )
 
     assert mapped.data_type == "LINT"
@@ -156,13 +168,15 @@ def test_ads_int64_mapping_is_supported() -> None:
 
 
 def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
-    point = _point(
-        "speed",
-        symbol="MAIN.speed",
-    )
+    point = _point("speed")
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
-    driver = ADSDriver(_connection(), table)
+    driver = ADSDriver(
+        _connection(),
+        table,
+        {},
+        {"speed": _point_options(symbol="MAIN.speed")},
+    )
 
     assert driver.health().healthy is False
 
@@ -209,15 +223,23 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     point = _point(
         "setpoint",
         raw_type="int32",
-        index_group=0x4020,
-        index_offset=12,
     )
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
         {"setpoint": point},
     )
-    driver = ADSDriver(_connection(), table)
+    driver = ADSDriver(
+        _connection(),
+        table,
+        {},
+        {
+            "setpoint": _point_options(
+                index_group=0x4020,
+                index_offset=12,
+            ),
+        },
+    )
     fake_connection = _FakeADSConnection()
     driver._connection = fake_connection
     driver._connected = True
@@ -341,17 +363,23 @@ class _FakeNotificationPyads:
 async def test_ads_driver_exposes_notification_subscription(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "speed",
-        index_group=0x4020,
-        index_offset=10,
-    )
+    point = _point("speed")
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
         {"speed": point},
     )
-    driver = ADSDriver(_connection(), table)
+    driver = ADSDriver(
+        _connection(),
+        table,
+        {},
+        {
+            "speed": _point_options(
+                index_group=0x4020,
+                index_offset=10,
+            ),
+        },
+    )
     driver._connected = True
 
     _FakeNotificationConnection.instances = []
@@ -417,17 +445,23 @@ async def test_ads_local_router_has_single_process_owner(
 async def test_ads_subscription_can_close_itself_from_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "speed",
-        index_group=0x4020,
-        index_offset=10,
-    )
+    point = _point("speed")
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
         {"speed": point},
     )
-    driver = ADSDriver(_connection(), table)
+    driver = ADSDriver(
+        _connection(),
+        table,
+        {},
+        {
+            "speed": _point_options(
+                index_group=0x4020,
+                index_offset=10,
+            ),
+        },
+    )
     driver._connected = True
 
     _FakeNotificationConnection.instances = []
