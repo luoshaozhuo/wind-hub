@@ -18,6 +18,19 @@ from core.domain import (
 )
 
 
+def validate_device_models(
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    point_tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """校验 DeviceModel 对 PointTable 的跨聚合引用完整性。"""
+    for model in device_models.values():
+        if model.point_table_id not in point_tables:
+            raise ValueError(
+                f"device model '{model.device_model_id}' references unknown point table "
+                f"'{model.point_table_id}'"
+            )
+
+
 def validate_device_references(
     devices: Sequence[Device],
     device_models: Mapping[DeviceModelId, DeviceModel],
@@ -48,17 +61,16 @@ def validate_device_connections(
 
     规则：
     1. connection_id 在连接集合中唯一；
-    2. 同一个 ``(device_id, point_table_id)`` 只允许一个 DeviceConnection；
-    3. DeviceConnection.device_id 必须引用已存在 Device；
-    4. Device.device_model_id 必须引用已存在 DeviceModel；
-    5. DeviceConnection.point_table_id 必须存在，并属于该设备型号声明支持的点表。
+    2. DeviceConnection.device_id 必须引用已存在 Device；
+    3. Device.device_model_id 必须引用已存在 DeviceModel；
+    4. DeviceConnection.point_table_id 必须存在；
+    5. DeviceConnection.point_table_id 必须等于 DeviceModel.point_table_id。
 
-    协议无需单独比较，因为 DeviceConnection 不保存 protocol；最终协议唯一来自
-    PointTable.protocol。不同连接的 endpoint 不要求唯一。Worker / Session 的一对一
-    运行约束属于 Runtime，不在此创建或管理运行对象。
+    同一设备允许存在多个连接，且它们的 endpoint 不要求唯一。协议无需单独比较，
+    因为 DeviceConnection 不保存 protocol；最终协议唯一来自 PointTable.protocol。
+    Worker / Session 的一对一运行约束属于 Runtime。
     """
     seen_connection_ids: set[ConnectionId] = set()
-    seen_bindings: set[tuple[DeviceId, PointTableId]] = set()
 
     for connection in connections:
         if connection.connection_id in seen_connection_ids:
@@ -66,15 +78,6 @@ def validate_device_connections(
                 f"duplicate device connection id '{connection.connection_id}'"
             )
         seen_connection_ids.add(connection.connection_id)
-
-        binding = (connection.device_id, connection.point_table_id)
-        if binding in seen_bindings:
-            raise ValueError(
-                "duplicate device connection for "
-                f"device '{connection.device_id}' and point table "
-                f"'{connection.point_table_id}'"
-            )
-        seen_bindings.add(binding)
 
         device = devices.get(connection.device_id)
         if device is None:
@@ -96,9 +99,9 @@ def validate_device_connections(
                 f"'{connection.point_table_id}'"
             )
 
-        if not model.supports_point_table(connection.point_table_id):
+        if connection.point_table_id != model.point_table_id:
             raise ValueError(
                 f"connection '{connection.connection_id}' uses point table "
                 f"'{connection.point_table_id}', but device model "
-                f"'{model.device_model_id}' does not support it"
+                f"'{model.device_model_id}' is bound to '{model.point_table_id}'"
             )
