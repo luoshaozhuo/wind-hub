@@ -299,15 +299,16 @@ class IEC104Driver:
             self._open_event = None
             self._receive_callback_factory = None
             self._samples.clear()
-            await self._subscriptions.close_all()
             self._loop = None
 
-            if connection is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.disconnect)
-            if client is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(client.stop)
+        await self._subscriptions.close_all()
+
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(connection.disconnect)
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(client.stop)
 
     def health(self) -> ConnectionHealth:
         """返回缓存的 OPEN 状态，不触发网络 I/O。"""
