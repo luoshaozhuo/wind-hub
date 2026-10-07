@@ -171,6 +171,7 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
             {
                 "connection_id": str(item.connection_id),
                 "device_id": str(item.device_id),
+                "enabled": item.enabled,
                 "endpoint": {
                     "host": item.endpoint.host,
                     "port": item.endpoint.port,
@@ -390,7 +391,7 @@ def _decode_connection(value: object) -> DeviceConnection:
     item = _require_mapping(value, "device_connections[]")
     _require_fields(
         item,
-        {"connection_id", "device_id", "endpoint"},
+        {"connection_id", "device_id", "enabled", "endpoint"},
         "device_connections[]",
     )
     endpoint = _require_mapping(item.get("endpoint"), "endpoint")
@@ -398,6 +399,7 @@ def _decode_connection(value: object) -> DeviceConnection:
     return DeviceConnection(
         connection_id=_required_str(item, "connection_id"),
         device_id=_required_str(item, "device_id"),
+        enabled=_optional_bool(item, "enabled", default=True),
         endpoint=ConnectionEndpoint(
             host=_required_str(endpoint, "host"),
             port=_optional_int(endpoint, "port"),
@@ -511,3 +513,15 @@ def _require_fields(
         raise ValueError(
             f"{context} contains unknown fields: {sorted(unknown)}"
         )
+
+
+def _optional_bool(
+    item: Mapping[str, object],
+    field: str,
+    *,
+    default: bool,
+) -> bool:
+    value = item.get(field, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be boolean")
+    return value
