@@ -11,8 +11,6 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TypeAlias
 
-from core.domain import Point
-
 PointScalar: TypeAlias = float | int | bool | str | None
 WritableScalar: TypeAlias = float | int | bool | str
 
@@ -29,8 +27,14 @@ class ConnectionHealth:
 class ProtocolWrite:
     """一次协议点写入请求。"""
 
-    point: Point
+    point_id: str
     value: WritableScalar
+
+    def __post_init__(self) -> None:
+        point_id = self.point_id.strip()
+        if not point_id:
+            raise ValueError("point_id must not be empty")
+        object.__setattr__(self, "point_id", point_id)
 
 
 @dataclass(frozen=True, slots=True)
