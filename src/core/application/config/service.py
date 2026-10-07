@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .codec import CoreConfigArtifact, CoreConfigCodecPort
 from .diff import CoreConfigDiff, compute_core_config_diff
 from .repository import (
     ConfigRevision,
@@ -30,12 +31,34 @@ class CoreConfigService:
     文件格式、目录结构、数据库事务或 Git commit 等细节由 Repository Adapter 负责。
     """
 
-    def __init__(self, repository: CoreConfigRepositoryPort) -> None:
+    def __init__(
+        self,
+        repository: CoreConfigRepositoryPort,
+        codec: CoreConfigCodecPort | None = None,
+    ) -> None:
         self._repository = repository
+        self._codec = codec
 
     async def get(self) -> StoredCoreConfig:
         """读取当前共享配置。"""
         return await self._repository.load()
+
+    async def export(self) -> CoreConfigArtifact:
+        """导出当前 Shared Core 配置。"""
+        codec = self._require_codec()
+        current = await self._repository.load()
+        return codec.encode(current.snapshot)
+
+    async def import_replace(
+        self,
+        artifact: CoreConfigArtifact,
+        *,
+        expected_revision: ConfigRevision,
+    ) -> CoreConfigUpdateResult:
+        """解析外部配置制品并原子替换当前配置。"""
+        codec = self._require_codec()
+        snapshot = codec.decode(artifact)
+        return await self.replace(snapshot, expected_revision=expected_revision)
 
     async def replace(
         self,
@@ -62,3 +85,10 @@ class CoreConfigService:
             expected_revision=expected_revision,
         )
         return CoreConfigUpdateResult(stored=stored, diff=diff)
+
+
+    def _require_codec(self) -> CoreConfigCodecPort:
+        """返回已注入 Codec；未配置时明确失败。"""
+        if self._codec is None:
+            raise RuntimeError("config codec is not wired")
+        return self._codec
