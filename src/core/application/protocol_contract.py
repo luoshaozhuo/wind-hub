@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TypeAlias
 
-from core.domain import PointDefinition
+from core.domain import Point
 
 PointScalar: TypeAlias = float | int | bool | str | None
 WritableScalar: TypeAlias = float | int | bool | str
@@ -29,7 +29,7 @@ class ConnectionHealth:
 class ProtocolWrite:
     """一次协议点写入请求。"""
 
-    point: PointDefinition
+    point: Point
     value: WritableScalar
 
 
