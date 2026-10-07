@@ -10,9 +10,11 @@ from math import isfinite
 from typing import Any
 
 from core.application.config import ProtocolOptions
-from core.application.errors import ConfigError, ProtocolError
+from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
+from core.application.port import ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -81,6 +83,15 @@ class ModbusDriver:
         self._lock = asyncio.Lock()
         self._client: Any = None
         self._connected = False
+
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        """返回 Modbus Driver 实际支持的协议能力。"""
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+            }
+        )
 
     async def connect(self) -> None:
         """建立一次 Modbus TCP 连接；不在 Driver 内部重试。"""
@@ -240,6 +251,25 @@ class ModbusDriver:
                 raise ProtocolError(f"Modbus write failed: {exc}") from exc
 
             return tuple(results)
+
+    async def subscribe(
+        self,
+        point_ids: Sequence[str],
+        callback: ProtocolSampleCallback,
+        *,
+        interval: float | None = None,
+    ) -> SubscriptionHandle:
+        """Modbus TCP 不支持协议级主动订阅。"""
+        del point_ids, callback, interval
+        raise ProtocolCapabilityError(
+            "modbus does not support subscription"
+        )
+
+    async def interrogate(self) -> None:
+        """Modbus TCP 不支持 IEC104 式总召能力。"""
+        raise ProtocolCapabilityError(
+            "modbus does not support interrogation"
+        )
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:
         mapped = self._points.get(point_id)
