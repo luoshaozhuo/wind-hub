@@ -6,13 +6,13 @@ from collections.abc import Callable
 
 from core.application.config import DeviceConnection
 from core.application.errors import ConfigError
-from core.application.port import ProtocolFactoryPort, ProtocolPort
+from core.application.port import ProtocolPort
 from core.domain import PointTable, Protocol
 
 ProtocolFactory = Callable[[DeviceConnection, PointTable], ProtocolPort]
 
 
-class ProtocolRegistry(ProtocolFactoryPort):
+class ProtocolRegistry:
     """协议名到 ProtocolPort factory 的显式注册表。
 
     Registry 只保存工厂，不建立连接、不缓存 Driver 实例，也不依赖 import
