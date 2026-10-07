@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from core.config import PointSet
 from core.domain import BusinessPoint, BusinessPointId, PointTable, PointTableId
 
 
@@ -41,4 +42,18 @@ def validate_point_tables(
                     f"uses source quantity '{point.source_unit.quantity}', but business point "
                     f"'{business_point.business_point_id}' expects "
                     f"'{business_point.standard_unit.quantity}'"
+                )
+
+
+def validate_point_sets(
+    point_sets: Sequence[PointSet],
+    business_points: Mapping[BusinessPointId, BusinessPoint],
+) -> None:
+    """校验 PointSet 对 BusinessPoint 的引用完整性。"""
+    for point_set in point_sets:
+        for business_point_id in point_set.business_point_ids:
+            if business_point_id not in business_points:
+                raise ValueError(
+                    f"point set '{point_set.point_set_id}' references unknown business point "
+                    f"'{business_point_id}'"
                 )

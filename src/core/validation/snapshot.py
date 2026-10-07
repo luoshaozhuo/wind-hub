@@ -9,7 +9,7 @@ from .device import (
     validate_device_models,
     validate_device_references,
 )
-from .point import validate_point_tables
+from .point import validate_point_sets, validate_point_tables
 
 
 def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
@@ -30,6 +30,10 @@ def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
     )
     validate_point_tables(
         tuple(snapshot.point_tables.values()),
+        snapshot.business_points,
+    )
+    validate_point_sets(
+        tuple(snapshot.point_sets.values()),
         snapshot.business_points,
     )
     validate_device_connections(

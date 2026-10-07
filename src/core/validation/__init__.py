@@ -5,7 +5,7 @@ from .device import (
     validate_device_models,
     validate_device_references,
 )
-from .point import validate_point_tables
+from .point import validate_point_sets, validate_point_tables
 from .snapshot import validate_config_snapshot
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     "validate_device_connections",
     "validate_device_models",
     "validate_device_references",
+    "validate_point_sets",
     "validate_point_tables",
 ]
