@@ -1,4 +1,4 @@
-"""Modbus ProtocolPoint 地址解析与批量读取分组。"""
+"""Modbus PointDefinition 地址解析与批量读取分组。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import PointAccess, ProtocolPoint
+from core.domain import PointAccess, PointDefinition
 
 _REGISTER_TYPE_ALIASES: dict[str, str] = {
     "coil": "coil",
@@ -54,12 +54,12 @@ class ModbusPoint:
 
 
 def parse_modbus_point(
-    point: ProtocolPoint,
+    point: PointDefinition,
     options: ProtocolOptions,
     *,
     default_word_order: str,
 ) -> ModbusPoint:
-    """把 ProtocolPoint 解析成 ModbusPoint，并尽早校验配置。"""
+    """把 PointDefinition 解析成 ModbusPoint，并尽早校验配置。"""
     unknown = set(options) - _ALLOWED_POINT_OPTIONS
     if unknown:
         raise ConfigError(
