@@ -5,10 +5,9 @@ from .device import (
     validate_device_models,
     validate_device_references,
 )
-from .point import validate_business_points, validate_point_tables
+from .point import validate_point_tables
 
 __all__ = [
-    "validate_business_points",
     "validate_device_connections",
     "validate_device_models",
     "validate_device_references",
