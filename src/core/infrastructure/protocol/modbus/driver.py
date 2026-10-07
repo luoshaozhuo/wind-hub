@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from math import isfinite
 from typing import Any
 
-from core.application.config import PointProtocolOptions, ProtocolOptions
+from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -58,7 +58,6 @@ class ModbusDriver:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         device_options: ProtocolOptions,
-        point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "modbus":
             raise ConfigError(
@@ -74,7 +73,6 @@ class ModbusDriver:
         self._points = {
             point.point_id: parse_modbus_point(
                 point,
-                point_options.get(point.point_id, {}),
                 default_word_order=self._config.word_order,
             )
             for point in point_table.points.values()
