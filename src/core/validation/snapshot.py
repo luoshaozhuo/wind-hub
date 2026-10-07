@@ -10,6 +10,7 @@ from .device import (
     validate_device_references,
 )
 from .point import validate_point_sets, validate_point_tables
+from .task import validate_collection_tasks
 
 
 def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
@@ -39,4 +40,10 @@ def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
     validate_device_connections(
         tuple(snapshot.device_connections.values()),
         snapshot.devices,
+    )
+    validate_collection_tasks(
+        tuple(snapshot.tasks.values()),
+        snapshot.devices,
+        snapshot.device_groups,
+        snapshot.point_sets,
     )

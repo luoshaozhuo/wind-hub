@@ -7,8 +7,10 @@ from .device import (
 )
 from .point import validate_point_sets, validate_point_tables
 from .snapshot import validate_config_snapshot
+from .task import validate_collection_tasks
 
 __all__ = [
+    "validate_collection_tasks",
     "validate_config_snapshot",
     "validate_device_connections",
     "validate_device_models",
