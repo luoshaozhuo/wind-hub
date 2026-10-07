@@ -10,7 +10,6 @@ from typing import TypeVar
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
-    ConnectionId,
     Device,
     DeviceGroup,
     DeviceGroupId,
@@ -25,6 +24,7 @@ from core.domain import (
 
 from ..errors import ConfigError
 from .device_connection import DeviceConnection
+from .identities import ConnectionId
 
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
