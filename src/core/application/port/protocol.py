@@ -114,8 +114,14 @@ class SubscribableProtocolPort(Protocol):
         self,
         points: Sequence[ProtocolPoint],
         callback: Callable[[ProtocolSample], Awaitable[None]],
+        *,
+        interval: float | None = None,
     ) -> SubscriptionHandle:
-        """注册一组协议点的样本回调。"""
+        """注册一组协议点的样本回调。
+
+        interval 是协议订阅自身的采样/通知周期提示；对天然事件驱动协议可忽略。
+        它不表示 Collector 的 Task 调度策略。
+        """
         ...
 
 
