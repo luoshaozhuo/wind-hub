@@ -9,8 +9,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from core.domain import Point
-
 from ..protocol_contract import (
     ConnectionHealth,
     ProtocolSample,
@@ -33,7 +31,7 @@ class ProtocolPort(Protocol):
 
     async def read(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         ...
 
