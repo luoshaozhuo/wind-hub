@@ -10,7 +10,9 @@ from core.application import (
     AcquisitionMode,
     CollectionAssignment,
     PointValue,
+    ProtocolSample,
     SubscribableProtocolPort,
+    SubscriptionHandle,
     interpret_protocol_sample,
 )
 from core.config import ConfigSnapshot
@@ -47,7 +49,7 @@ class CollectionRuntime:
         self._sinks = sinks
         self._clock = clock
         self._poll_tasks: dict[_AssignmentKey, asyncio.Task[None]] = {}
-        self._subscriptions: dict[_AssignmentKey, object] = {}
+        self._subscriptions: dict[_AssignmentKey, SubscriptionHandle] = {}
 
     async def start_assignment(self, assignment: CollectionAssignment) -> None:
         """启动一个已完成 placement 的采集 assignment。"""
@@ -82,11 +84,7 @@ class CollectionRuntime:
                 "but does not implement SubscribableProtocolPort"
             )
 
-        async def _on_sample(sample: object) -> None:
-            from core.application import ProtocolSample
-
-            if not isinstance(sample, ProtocolSample):
-                raise TypeError("subscription callback received invalid sample")
+        async def _on_sample(sample: ProtocolSample) -> None:
             value = interpret_protocol_sample(
                 self._snapshot,
                 assignment.device_id,
@@ -149,17 +147,11 @@ class CollectionRuntime:
         self,
         assignment: CollectionAssignment,
         points: tuple[ProtocolPoint, ...],
-        samples: tuple[object, ...],
+        samples: tuple[ProtocolSample, ...],
     ) -> tuple[PointValue, ...]:
-        from core.application import ProtocolSample
-
-        if not all(isinstance(sample, ProtocolSample) for sample in samples):
-            raise TypeError("protocol read returned invalid sample")
-
-        typed_samples = tuple(sample for sample in samples if isinstance(sample, ProtocolSample))
         expected_ids = {point.point_id for point in points}
-        actual_ids = {sample.point_id for sample in typed_samples}
-        if actual_ids != expected_ids or len(typed_samples) != len(points):
+        actual_ids = {sample.point_id for sample in samples}
+        if actual_ids != expected_ids or len(samples) != len(points):
             raise ValueError(
                 f"connection '{assignment.connection_id}' returned unexpected point set"
             )
@@ -172,7 +164,7 @@ class CollectionRuntime:
                 sample,
                 observed_at=observed_at,
             )
-            for sample in typed_samples
+            for sample in samples
         )
 
     def _resolve_points(
