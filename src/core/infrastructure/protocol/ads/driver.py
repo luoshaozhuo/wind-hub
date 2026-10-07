@@ -161,7 +161,7 @@ class ADSDriver:
             except ProtocolError:
                 raise
             except Exception as exc:
-                self._signal_disconnect()
+                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
 
     async def write(
@@ -219,7 +219,7 @@ class ADSDriver:
                         )
                     )
             except Exception as exc:
-                self._signal_disconnect()
+                await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
             return tuple(results)
@@ -432,9 +432,13 @@ class ADSDriver:
             )
         )
 
-    def _signal_disconnect(self) -> None:
+    async def _disconnect_after_failure(self) -> None:
+        """传输失败后立即释放死 ADS connection。"""
+        connection, self._connection = self._connection, None
         self._connected = False
-        self._close_connection()
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(connection.close)
 
     def _close_connection(self) -> None:
         connection, self._connection = self._connection, None
