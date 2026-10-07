@@ -7,11 +7,7 @@ from typing import TypeVar, cast
 
 import yaml
 
-from core.application.config import (
-    CoreConfigArtifact,
-    CoreConfigSnapshot,
-    validate_core_config,
-)
+from core.application import CoreConfigArtifact
 from core.application.errors import ConfigError
 from core.application.port import CoreConfigCodecPort
 from core.domain import (
@@ -35,6 +31,8 @@ from core.domain import (
     UNIT_CATALOG,
     Unit,
     UnitCode,
+    CoreConfigSnapshot,
+    validate_core_config,
 )
 
 _SCHEMA_VERSION = 4
@@ -53,7 +51,10 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
 
     def encode(self, snapshot: CoreConfigSnapshot) -> CoreConfigArtifact:
         """稳定导出配置；相同快照生成确定性字段和对象顺序。"""
-        validate_core_config(snapshot)
+        try:
+            validate_core_config(snapshot)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
         payload = _encode_snapshot(snapshot)
         text = yaml.safe_dump(
             payload,
