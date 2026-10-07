@@ -7,13 +7,13 @@ import pytest
 from core.application import (
     ConfigError,
     ConfigRevisionConflict,
-    ConnectionEndpoint,
     CoreConfigSnapshot,
     compute_core_config_diff,
     validate_core_config,
 )
 from core.domain import (
     BusinessPoint,
+    ConnectionEndpoint,
     DataType,
     Device,
     DeviceModel,
