@@ -8,12 +8,27 @@ from .config import (
     YamlFileCoreConfigRepository,
     fingerprint_core_config,
 )
-from .protocol import ProtocolFactory, ProtocolRegistry
+from .protocol import (
+    ModbusConfig,
+    ModbusDriver,
+    ModbusPoint,
+    ProtocolFactory,
+    ProtocolRegistry,
+    group_consecutive_reads,
+    parse_modbus_config,
+    parse_modbus_point,
+)
 
 __all__ = [
+    "ModbusConfig",
+    "ModbusDriver",
+    "ModbusPoint",
     "ProtocolFactory",
     "ProtocolRegistry",
     "YamlCoreConfigCodec",
+    "group_consecutive_reads",
+    "parse_modbus_config",
+    "parse_modbus_point",
     "YamlFileCoreConfigRepository",
     "fingerprint_core_config",
 ]
