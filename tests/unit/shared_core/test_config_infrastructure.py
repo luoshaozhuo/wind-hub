@@ -64,12 +64,13 @@ def _snapshot(
     model = DeviceModel(
         "m1",
         device_type.device_type_id,
+        table.point_table_id,
     )
     device = Device("wt01", model.device_model_id, name=device_name)
     connection = DeviceConnection(
         "wt01-main",
         device.device_id,
-        ConnectionEndpoint("10.0.0.1", 502, {"unit_id": 1}),
+        ConnectionEndpoint("10.0.0.1", 502),
         enabled=connection_enabled,
     )
     return CoreConfigSnapshot(
@@ -78,10 +79,10 @@ def _snapshot(
         devices={device.device_id: device},
         business_points={point.business_point_id: point},
         point_tables={table.point_table_id: table},
-        device_model_point_tables={
-            model.device_model_id: table.point_table_id,
-        },
         device_connections={connection.connection_id: connection},
+        connection_options={
+            connection.connection_id: {"unit_id": 1},
+        },
     )
 
 
@@ -162,8 +163,9 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
             invalid_point.business_point_id: invalid_point,
         },
         point_tables=snapshot.point_tables,
-        device_model_point_tables=snapshot.device_model_point_tables,
         device_connections=snapshot.device_connections,
+        connection_options=snapshot.connection_options,
+        point_options=snapshot.point_options,
     )
 
     with pytest.raises(ConfigError, match="canonical built-in unit"):
@@ -179,40 +181,69 @@ def test_config_diff_detects_device_model_point_table_change() -> None:
         table.protocol,
         table.points,
     )
+    current_model = next(iter(current.device_models.values()))
+    changed_model = DeviceModel(
+        current_model.device_model_id,
+        current_model.device_type_id,
+        replacement.point_table_id,
+        name=current_model.name,
+        manufacturer=current_model.manufacturer,
+    )
     changed = CoreConfigSnapshot(
         device_types=current.device_types,
-        device_models=current.device_models,
+        device_models={
+            changed_model.device_model_id: changed_model,
+        },
         devices=current.devices,
         business_points=current.business_points,
         point_tables={
             **current.point_tables,
             replacement.point_table_id: replacement,
         },
-        device_model_point_tables={
-            model_id: replacement.point_table_id
-            for model_id in current.device_models
-        },
         device_connections=current.device_connections,
+        connection_options=current.connection_options,
+        point_options=current.point_options,
     )
 
     diff = compute_core_config_diff(current, changed)
 
     assert diff.changed is True
-    assert diff.device_model_point_tables.updated == ("m1",)
+    assert diff.device_models.updated == ("m1",)
 
 
-
-def test_core_config_requires_point_table_mapping_for_every_model() -> None:
+def test_core_config_rejects_unknown_model_point_table() -> None:
     snapshot = _snapshot()
+    model = next(iter(snapshot.device_models.values()))
+    invalid_model = DeviceModel(
+        model.device_model_id,
+        model.device_type_id,
+        "missing_table",
+    )
     invalid = CoreConfigSnapshot(
         device_types=snapshot.device_types,
-        device_models=snapshot.device_models,
+        device_models={
+            invalid_model.device_model_id: invalid_model,
+        },
         devices=snapshot.devices,
         business_points=snapshot.business_points,
         point_tables=snapshot.point_tables,
-        device_model_point_tables={},
         device_connections=snapshot.device_connections,
+        connection_options=snapshot.connection_options,
+        point_options=snapshot.point_options,
     )
 
-    with pytest.raises(ConfigError, match="missing point table mapping"):
+    with pytest.raises(ConfigError, match="unknown point table"):
         validate_core_config(invalid)
+
+
+def test_yaml_round_trip_preserves_protocol_options_outside_domain() -> None:
+    codec = YamlCoreConfigCodec()
+    snapshot = _snapshot()
+    artifact = codec.encode(snapshot)
+    decoded = codec.decode(artifact)
+
+    connection = next(iter(decoded.device_connections.values()))
+    assert not hasattr(connection.endpoint, "options")
+    assert decoded.connection_options_for(connection.connection_id) == {
+        "unit_id": 1
+    }
