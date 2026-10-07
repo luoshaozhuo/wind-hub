@@ -7,6 +7,7 @@ Fake Protocol/Sink，供 unit/component 层复用；不 import 任何 wind_hub_*
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from collector.application.config import (
@@ -297,3 +298,70 @@ __all__ = [
     "make_runtime",
     "make_session",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 配置目录写出辅助（config loader 测试）
+# ---------------------------------------------------------------------------
+
+
+def write_collector_config_tree(
+    base: Path,
+    *,
+    protocol: str = "modbus",
+    address: dict[str, Any] | None = None,
+    devices: list[dict[str, Any]] | None = None,
+    points: list[dict[str, Any]] | None = None,
+    point_tables: dict[str, Any] | None = None,
+    connection_defaults: dict[str, Any] | None = None,
+    runtime: dict[str, Any] | None = None,
+    read_mode: str | None = None,
+    tasks: list[dict[str, Any]] | None = None,
+    sinks: list[dict[str, Any]] | None = None,
+) -> Path:
+    """写出 Collector 最小自包含配置树（含 tasks.yaml / sinks.yaml）。
+
+    默认：单设备 dev1、单点 p1(group g)、单 file Sink ``s1``（映射
+    dev1.p1 → field value）、单 Task ``t1``（device=dev1, group=g,
+    interval=1.0, targets=[s1]）。
+    """
+    from tests.support.new_commander import write_minimal_config_tree, write_yaml
+
+    config_dir = write_minimal_config_tree(
+        base,
+        protocol=protocol,
+        address=address,
+        devices=devices,
+        points=points,
+        point_tables=point_tables,
+        connection_defaults=connection_defaults,
+        runtime=runtime,
+        read_mode=read_mode,
+    )
+    if sinks is None:
+        sinks = [
+            {
+                "name": "s1",
+                "type": "file",
+                "connection": {"path": str(base / "out.jsonl")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        ]
+    write_yaml(config_dir, "sinks.yaml", {"sinks": sinks})
+    if tasks is None:
+        tasks = [
+            {
+                "task_id": "t1",
+                "device": "dev1",
+                "point_group": "g",
+                "interval": 1.0,
+                "targets": [{"sink": "s1"}],
+            }
+        ]
+    write_yaml(config_dir, "tasks.yaml", {"tasks": tasks})
+    return config_dir
