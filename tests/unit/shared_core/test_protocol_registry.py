@@ -16,7 +16,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    PointDefinition,
+    Point,
     BusinessPoint,
     ConnectionEndpoint,
     Device,
@@ -24,7 +24,7 @@ from core.domain import (
     DeviceType,
     UNIT_CATALOG,
     UnitCode,
-    ValueType,
+    DataType,
 )
 from core.infrastructure import (
     ProtocolConfigValidator,
@@ -48,7 +48,7 @@ class _Protocol:
 
     async def read(
         self,
-        points: Sequence[PointDefinition],
+        points: Sequence[Point],
     ) -> tuple[ProtocolSample, ...]:
         return ()
 
@@ -63,12 +63,12 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
     registry.register(
         "Modbus",
-        lambda _endpoint, _point_table, _device_options, _point_options: _Protocol(),
+        lambda _endpoint, _point_table, _device_options: _Protocol(),
     )
 
     endpoint = ConnectionEndpoint("127.0.0.1", 502)
     point_table = PointTable("pt", Protocol("MODBUS"), {})
-    protocol = registry.create(endpoint, point_table, {}, {})
+    protocol = registry.create(endpoint, point_table, {})
 
     assert registry.registered_names() == ("modbus",)
     assert protocol.health().healthy is True
@@ -93,14 +93,19 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
     device_type = DeviceType("turbine", "Turbine")
     business_point = BusinessPoint(
         "power",
-        ValueType.FLOAT,
+        DataType.FLOAT32,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
-    protocol_point = PointDefinition(
+    protocol_point = Point(
         point_id="power",
         business_point_id=business_point.business_point_id,
         source_unit=UNIT_CATALOG[UnitCode.KILOWATT],
         access=PointAccess.READ,
+        ext={
+            "register_type": "input",
+            "data_type": "float32",
+            # address intentionally missing
+        },
     )
     table = PointTable(
         "pt",
@@ -125,15 +130,6 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
             business_point.business_point_id: business_point,
         },
         point_tables={table.point_table_id: table},
-        point_options={
-            table.point_table_id: {
-                protocol_point.point_id: {
-                    "register_type": "input",
-                    "data_type": "float32",
-                    # address intentionally missing
-                },
-            },
-        },
     )
 
     with pytest.raises(ConfigError, match="address"):
