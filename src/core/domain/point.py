@@ -25,29 +25,25 @@ def _freeze_mapping(
 class BusinessPoint:
     """稳定业务点实体，回答“这个量是什么”。
 
-    业务点与具体协议、地址和点表解耦。standard_unit 是内置工程单位值对象，
+    business_point_id 同时承担稳定身份与业务名称，不再保存重复 name 字段。
+    业务点与具体协议、地址和点表解耦；standard_unit 是内置工程单位值对象，
     value_type 是转换后的标准业务值类型。
     """
 
     business_point_id: BusinessPointId
-    name: str
     value_type: ValueType
     standard_unit: Unit
     description: str | None = None
 
     def __post_init__(self) -> None:
         business_point_id = self.business_point_id.strip()
-        name = self.name.strip()
         if not business_point_id:
             raise ValueError("business_point_id must not be empty")
-        if not name:
-            raise ValueError("business point name must not be empty")
         object.__setattr__(
             self,
             "business_point_id",
             BusinessPointId(business_point_id),
         )
-        object.__setattr__(self, "name", name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,23 +92,20 @@ class ProtocolPoint:
 class PointTable:
     """单一协议下的一套可复用点表聚合根。
 
+    point_table_id 同时承担稳定身份与点表名称，不再保存重复 name 字段。
     PointTable 是 ProtocolPoint 的一致性边界。points 以 point_id 为键，键必须与
     ProtocolPoint.point_id 一致；BusinessPoint 不属于本聚合，ProtocolPoint 仅通过
     business_point_id 引用它。
     """
 
     point_table_id: PointTableId
-    name: str
     protocol: Protocol
     points: Mapping[str, ProtocolPoint]
 
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
-        name = self.name.strip()
         if not point_table_id:
             raise ValueError("point_table_id must not be empty")
-        if not name:
-            raise ValueError("point table name must not be empty")
 
         points = dict(self.points)
         for point_id, point in points.items():
@@ -127,7 +120,6 @@ class PointTable:
                 )
 
         object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
-        object.__setattr__(self, "name", name)
         object.__setattr__(self, "points", MappingProxyType(points))
 
     def point(self, point_id: str) -> ProtocolPoint:
