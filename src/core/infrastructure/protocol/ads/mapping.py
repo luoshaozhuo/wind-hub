@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.application.config import ProtocolOptions, ProtocolPoint
+from core.domain import ProtocolPoint
 
 _ALLOWED_OPTIONS = frozenset(
     {
