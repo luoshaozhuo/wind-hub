@@ -20,20 +20,19 @@ from .config.service import (
     CoreConfigService,
     CoreConfigUpdateResult,
 )
-from .errors import ConfigError, CoreError, ProtocolError
+from .errors import ConfigError, CoreError, ProtocolCapabilityError, ProtocolError
 from .port import (
     CoreConfigCodecPort,
     CoreConfigRepositoryPort,
     CoreConfigValidatorPort,
-    InterrogatableProtocolPort,
     ProtocolPort,
     ProtocolSampleCallback,
-    SubscribableProtocolPort,
     SubscriptionHandle,
 )
 from .protocol_contract import (
     ConnectionHealth,
     PointScalar,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -57,8 +56,9 @@ __all__ = [
     "CoreConfigValidatorPort",
     "CoreError",
     "IndexDiff",
-    "InterrogatableProtocolPort",
     "PointScalar",
+    "ProtocolCapability",
+    "ProtocolCapabilityError",
     "ProtocolError",
     "ProtocolPort",
     "ProtocolSample",
@@ -67,7 +67,6 @@ __all__ = [
     "ProtocolWriteResult",
     "Quality",
     "StoredCoreConfig",
-    "SubscribableProtocolPort",
     "SubscriptionHandle",
     "WritableScalar",
     "compute_core_config_diff",
