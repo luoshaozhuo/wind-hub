@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ..protocol_contract import (
     ConnectionHealth,
@@ -52,6 +52,7 @@ class SubscriptionHandle(Protocol):
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 
 
+@runtime_checkable
 class SubscribableProtocolPort(ProtocolPort, Protocol):
     """支持主动上送或设备通知订阅的协议能力。"""
 
@@ -65,6 +66,7 @@ class SubscribableProtocolPort(ProtocolPort, Protocol):
         ...
 
 
+@runtime_checkable
 class InterrogatableProtocolPort(ProtocolPort, Protocol):
     """支持显式总召或等价全站召唤的协议能力。"""
 
