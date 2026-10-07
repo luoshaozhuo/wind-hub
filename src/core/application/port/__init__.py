@@ -1,6 +1,6 @@
 """Shared Core Application ports。
 
-本包只导出接口定义。
+本包只导出 Application 对外部能力的接口定义。
 """
 
 from .config import (
@@ -8,21 +8,11 @@ from .config import (
     CoreConfigRepositoryPort,
     CoreConfigValidatorPort,
 )
-from .protocol import (
-    InterrogationCapableProtocolPort,
-    ProtocolFactoryPort,
-    ProtocolPort,
-    SubscribableProtocolPort,
-    SubscriptionHandle,
-)
+from .protocol import ProtocolPort
 
 __all__ = [
     "CoreConfigCodecPort",
     "CoreConfigRepositoryPort",
     "CoreConfigValidatorPort",
-    "InterrogationCapableProtocolPort",
-    "ProtocolFactoryPort",
     "ProtocolPort",
-    "SubscribableProtocolPort",
-    "SubscriptionHandle",
 ]
