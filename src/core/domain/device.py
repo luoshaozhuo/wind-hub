@@ -9,6 +9,7 @@ from .identities import (
     DeviceId,
     DeviceModelId,
     DeviceTypeId,
+    PointTableId,
 )
 
 
@@ -55,28 +56,32 @@ class DeviceGroup:
 
 @dataclass(frozen=True, slots=True)
 class DeviceModel:
-    """可复用的设备业务型号聚合根。
+    """可复用的设备型号聚合根。
 
-    只描述型号自身业务身份、类型、名称与制造商。协议点表属于接入配置，
-    不进入 Domain。
+    一个 DeviceModel 固定对应一张 PointTable，这是设备型号对外数据语义的一部分。
     """
 
     device_model_id: DeviceModelId
     device_type_id: DeviceTypeId
+    point_table_id: PointTableId
     name: str | None = None
     manufacturer: str | None = None
 
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
         device_type_id = self.device_type_id.strip()
+        point_table_id = self.point_table_id.strip()
 
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
         if not device_type_id:
             raise ValueError("device_type_id must not be empty")
+        if not point_table_id:
+            raise ValueError("point_table_id must not be empty")
 
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "device_type_id", DeviceTypeId(device_type_id))
+        object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
 
 
 @dataclass(frozen=True, slots=True)
