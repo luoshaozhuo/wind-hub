@@ -7,10 +7,10 @@ from collections.abc import Callable
 from core.application.config import PointProtocolOptions, ProtocolOptions
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
-from core.domain import DeviceConnection, PointTable, Protocol
+from core.domain import ConnectionEndpoint, PointTable, Protocol
 
 ProtocolFactory = Callable[
-    [DeviceConnection, PointTable, ProtocolOptions, PointProtocolOptions],
+    [ConnectionEndpoint, PointTable, ProtocolOptions, PointProtocolOptions],
     ProtocolPort,
 ]
 
@@ -42,12 +42,12 @@ class ProtocolRegistry:
 
     def create(
         self,
-        connection: DeviceConnection,
+        endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        connection_options: ProtocolOptions,
+        device_options: ProtocolOptions,
         point_options: PointProtocolOptions,
     ) -> ProtocolPort:
-        """为指定 DeviceConnection 与 resolved PointTable 创建协议实例。"""
+        """为指定 Endpoint 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
         factory = self._factories.get(protocol.name)
         if factory is None:
@@ -56,9 +56,9 @@ class ProtocolRegistry:
                 f"registered={list(self.registered_names())}"
             )
         return factory(
-            connection,
+            endpoint,
             point_table,
-            connection_options,
+            device_options,
             point_options,
         )
 
