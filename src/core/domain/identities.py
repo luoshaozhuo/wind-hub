@@ -3,7 +3,6 @@
 from typing import NewType
 
 BusinessPointId = NewType("BusinessPointId", str)
-ConnectionId = NewType("ConnectionId", str)
 DeviceGroupId = NewType("DeviceGroupId", str)
 DeviceId = NewType("DeviceId", str)
 DeviceModelId = NewType("DeviceModelId", str)
@@ -12,7 +11,6 @@ PointTableId = NewType("PointTableId", str)
 
 __all__ = [
     "BusinessPointId",
-    "ConnectionId",
     "DeviceGroupId",
     "DeviceId",
     "DeviceModelId",
