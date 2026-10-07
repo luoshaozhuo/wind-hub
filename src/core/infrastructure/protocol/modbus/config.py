@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from core.application import ConfigError, DeviceConnection
 
-_VALID_MODES = frozenset({"tcp", "rtu"})
+_VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
 _ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order"})
 
@@ -36,7 +36,8 @@ def parse_modbus_config(connection: DeviceConnection) -> ModbusConfig:
     mode = _string_option(options.get("mode"), "mode", default="tcp").lower()
     if mode not in _VALID_MODES:
         raise ConfigError(
-            f"connection '{connection.connection_id}': invalid Modbus mode '{mode}'"
+            f"connection '{connection.connection_id}': unsupported Modbus mode "
+            f"'{mode}'; only TCP is currently supported"
         )
 
     unit_id = _int_option(options.get("unit_id"), "unit_id", default=1)
