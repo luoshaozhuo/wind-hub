@@ -63,7 +63,8 @@ class ConnectionEndpoint:
 class DeviceConnection:
     """一台 Device 的一次独立通信接入定义。
 
-    PointTable 不在此重复保存，而由 Device -> DeviceModel -> PointTable 唯一解析。
+    PointTable 不在此重复保存，而由共享配置中的
+    Device -> DeviceModel -> PointTable 映射唯一解析。
     同一 Device 可以拥有多个 DeviceConnection，endpoint 允许相同或不同。
     """
 
