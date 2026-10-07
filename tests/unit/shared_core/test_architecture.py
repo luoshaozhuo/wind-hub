@@ -125,7 +125,7 @@ def test_infrastructure_imports_domain_types_from_domain() -> None:
         "PointTable",
         "PointTableId",
         "Protocol",
-        "ProtocolPoint",
+        "PointDefinition",
         "RawDataType",
         "ValueType",
     }
