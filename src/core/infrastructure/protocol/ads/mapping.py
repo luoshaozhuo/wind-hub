@@ -125,17 +125,13 @@ def parse_ads_point(
 
     explicit_type = options.get("data_type", options.get("type"))
     if explicit_type is None:
-        ads_type = _RAW_TO_ADS.get(point.raw_type.name)
-        if ads_type is None:
-            raise ConfigError(
-                f"ADS point '{point.point_id}': unsupported raw type "
-                f"'{point.raw_type.name}'"
-            )
-    else:
-        ads_type = _normalize_ads_type(
-            explicit_type,
-            point_id=point.point_id,
+        raise ConfigError(
+            f"ADS point '{point.point_id}' requires data_type"
         )
+    ads_type = _normalize_ads_type(
+        explicit_type,
+        point_id=point.point_id,
+    )
 
     size = _ADS_TYPE_SIZES[ads_type]
     explicit_size = options.get("size")
