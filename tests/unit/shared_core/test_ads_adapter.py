@@ -471,7 +471,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
         done.set()
 
     handle = await driver.subscribe(
-        (point,),
+        (point.point_id,),
         callback,
         interval=0.25,
     )
