@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from .connection import ConnectionEndpoint
 from .identities import (
     DeviceGroupId,
     DeviceId,
@@ -88,12 +89,13 @@ class DeviceModel:
 class Device:
     """现场具体设备聚合根。
 
-    Device 只维护设备自身业务身份、型号引用和业务分组引用。通信端点、协议会话、
-    启停配置等不属于本聚合。
+    每台 Device 固定对应一个通信端点。协议会话、启停状态和协议专有参数
+    不属于本聚合。
     """
 
     device_id: DeviceId
     device_model_id: DeviceModelId
+    endpoint: ConnectionEndpoint
     name: str | None = None
     device_group_ids: tuple[DeviceGroupId, ...] = ()
 
