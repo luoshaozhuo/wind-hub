@@ -1,12 +1,11 @@
-"""Shared Core 的应用级配置模型、仓储与用例。"""
+"""Shared Core 应用级配置模型与用例。"""
 
-from .codec import CoreConfigArtifact, CoreConfigCodecPort
+from .artifact import CoreConfigArtifact
 from .device_connection import ConnectionEndpoint, DeviceConnection
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
-from .repository import (
+from .revision import (
     ConfigRevision,
     ConfigRevisionConflict,
-    CoreConfigRepositoryPort,
     StoredCoreConfig,
 )
 from .service import (
@@ -16,21 +15,17 @@ from .service import (
 )
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
-from .validator import CoreConfigValidatorPort
 
 __all__ = [
     "ConfigRevision",
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "CoreConfigArtifact",
-    "CoreConfigCodecPort",
     "CoreConfigDiff",
     "CoreConfigPreview",
-    "CoreConfigRepositoryPort",
     "CoreConfigService",
     "CoreConfigSnapshot",
     "CoreConfigUpdateResult",
-    "CoreConfigValidatorPort",
     "DeviceConnection",
     "IndexDiff",
     "StoredCoreConfig",
