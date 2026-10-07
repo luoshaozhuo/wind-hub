@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from core.config import DeviceConnection
-from core.domain import Device, DeviceGroup, DeviceModel, PointTable
-from core.domain.identities import (
+from core.domain import (
     ConnectionId,
+    Device,
+    DeviceGroup,
     DeviceGroupId,
     DeviceId,
+    DeviceModel,
     DeviceModelId,
+    PointTable,
     PointTableId,
 )
 
