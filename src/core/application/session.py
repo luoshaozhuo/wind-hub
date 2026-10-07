@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from core.domain import ConnectionId, DeviceId, PointAccess, ProtocolPoint
 
 from .config import CoreConfigSnapshot, DeviceConnection
+from .errors import ConfigError, ProtocolError
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
 from .measurement import PointValue, PointWrite
 from .port import (
@@ -80,29 +81,30 @@ class DeviceSession:
         points = tuple(self._point_table.point(point_id) for point_id in normalized_ids)
         for point in points:
             if point.access not in (PointAccess.READ, PointAccess.READ_WRITE):
-                raise ValueError(f"point '{point.point_id}' is not readable")
+                raise ConfigError(f"point '{point.point_id}' is not readable")
 
         samples = await self._protocol.read(points)
 
         expected_ids = {point.point_id for point in points}
         actual_ids = {sample.point_id for sample in samples}
         if actual_ids != expected_ids or len(samples) != len(points):
-            raise ValueError(
+            raise ProtocolError(
                 f"connection '{self.connection_id}' returned unexpected point set"
             )
 
         timestamp = observed_at or datetime.now(UTC)
         if timestamp.tzinfo is None:
-            raise ValueError("observed_at must be timezone-aware")
+            raise ConfigError("observed_at must be timezone-aware")
 
+        samples_by_id = {sample.point_id: sample for sample in samples}
         return tuple(
             interpret_protocol_sample(
                 self._snapshot,
                 self.device_id,
-                sample,
+                samples_by_id[point_id],
                 observed_at=timestamp,
             )
-            for sample in samples
+            for point_id in normalized_ids
         )
 
     async def write(
@@ -119,7 +121,7 @@ class DeviceSession:
         for write in writes:
             point = self._point_table.point(write.point_id)
             if point.access not in (PointAccess.WRITE, PointAccess.READ_WRITE):
-                raise ValueError(f"point '{point.point_id}' is not writable")
+                raise ConfigError(f"point '{point.point_id}' is not writable")
             business_point = self._snapshot.business_points[point.business_point_id]
             protocol_writes.append(
                 ProtocolWrite(
@@ -131,7 +133,17 @@ class DeviceSession:
                     ),
                 )
             )
-        return await self._protocol.write(protocol_writes)
+        results = await self._protocol.write(protocol_writes)
+        expected_ids = tuple(write.point.point_id for write in protocol_writes)
+        if (
+            len(results) != len(expected_ids)
+            or {result.point_id for result in results} != set(expected_ids)
+        ):
+            raise ProtocolError(
+                f"connection '{self.connection_id}' returned unexpected write results"
+            )
+        results_by_id = {result.point_id: result for result in results}
+        return tuple(results_by_id[point_id] for point_id in expected_ids)
 
     def point(self, point_id: str) -> ProtocolPoint:
         """返回当前设备 PointTable 中的协议点。"""
@@ -146,7 +158,7 @@ def create_device_session(
     """按共享配置和协议工厂创建尚未连接的 DeviceSession。"""
     connection = snapshot.device_connections[connection_id]
     if not connection.enabled:
-        raise ValueError(f"connection '{connection_id}' is disabled")
+        raise ConfigError(f"connection '{connection_id}' is disabled")
     device = snapshot.devices[connection.device_id]
     model = snapshot.device_models[device.device_model_id]
     point_table = snapshot.point_tables[model.point_table_id]
@@ -159,6 +171,6 @@ def create_device_session(
 def _require_unique_point_ids(point_ids: Sequence[str]) -> None:
     """拒绝一次操作内重复点，避免重复读写和写入顺序歧义。"""
     if any(not point_id for point_id in point_ids):
-        raise ValueError("point_id must not be empty")
+        raise ConfigError("point_id must not be empty")
     if len(point_ids) != len(set(point_ids)):
-        raise ValueError("point_ids must not contain duplicates")
+        raise ConfigError("point_ids must not contain duplicates")
