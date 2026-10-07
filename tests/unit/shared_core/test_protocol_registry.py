@@ -12,14 +12,12 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
 )
-from core.application.config import (
+from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
-)
-from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
     Device,
