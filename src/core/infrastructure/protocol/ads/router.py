@@ -43,8 +43,8 @@ _owner_config: ADSLocalConfig | None = None
 class ADSLocalRouter:
     """pyads 进程级本机 router 端口生命周期 owner。
 
-    一个进程应只创建一个实例，并在所有 ADS DeviceSession 之前 initialize，
-    在全部 ADS session 关闭后 close。
+    一个进程应只创建一个实例，并在所有 ADS 协议连接之前 initialize，
+    在全部 ADS 协议连接关闭后 close。
     """
 
     def __init__(self) -> None:
