@@ -8,7 +8,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    PointDefinition,
+    Point,
     UNIT_CATALOG,
     UnitCode,
 )
@@ -24,12 +24,14 @@ def _point(
     point_id: str,
     *,
     access: PointAccess = PointAccess.READ_WRITE,
-) -> PointDefinition:
-    return PointDefinition(
+    ext: dict[str, str | int] | None = None,
+) -> Point:
+    return Point(
         point_id=point_id,
         business_point_id=point_id,
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
+        ext={} if ext is None else ext,
     )
 
 
@@ -67,18 +69,15 @@ def test_modbus_config_uses_device_options() -> None:
 
 def test_modbus_point_mapping_and_grouping() -> None:
     first = parse_modbus_point(
-        _point("p1"),
-        _point_options(address=10),
+        _point("p1", ext=_point_options(address=10)),
         default_word_order="little_endian",
     )
     second = parse_modbus_point(
-        _point("p2"),
-        _point_options(address=12),
+        _point("p2", ext=_point_options(address=12)),
         default_word_order="little_endian",
     )
     distant = parse_modbus_point(
-        _point("p3"),
-        _point_options(address=100),
+        _point("p3", ext=_point_options(address=100)),
         default_word_order="little_endian",
     )
 
@@ -92,18 +91,22 @@ def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
     point = _point(
         "readonly",
         access=PointAccess.READ_WRITE,
+        ext=_point_options(
+            address=1,
+            register_type="input",
+            data_type="int16",
+        ),
     )
 
     with pytest.raises(ConfigError, match="read-only"):
         parse_modbus_point(
             point,
-            _point_options(address=1, register_type="input", data_type="int16"),
             default_word_order="little_endian",
         )
 
 
 def test_modbus_driver_precompiles_resolved_point_table() -> None:
-    point = _point("p1")
+    point = _point("p1", ext=_point_options(address=10))
     table = PointTable("pt", Protocol("modbus"), {"p1": point})
     endpoint = ConnectionEndpoint("192.0.2.10", 502)
 
@@ -111,7 +114,6 @@ def test_modbus_driver_precompiles_resolved_point_table() -> None:
         endpoint,
         table,
         {},
-        {"p1": _point_options(address=10)},
     )
 
     assert driver.health().healthy is False
@@ -119,13 +121,25 @@ def test_modbus_driver_precompiles_resolved_point_table() -> None:
 
 def test_modbus_grouping_uses_bit_limit_separately() -> None:
     first = parse_modbus_point(
-        _point("b1"),
-        _point_options(address=0, register_type="coil", data_type="bool"),
+        _point(
+            "b1",
+            ext=_point_options(
+                address=0,
+                register_type="coil",
+                data_type="bool",
+            ),
+        ),
         default_word_order="little_endian",
     )
     second = parse_modbus_point(
-        _point("b2"),
-        _point_options(address=1500, register_type="coil", data_type="bool"),
+        _point(
+            "b2",
+            ext=_point_options(
+                address=1500,
+                register_type="coil",
+                data_type="bool",
+            ),
+        ),
         default_word_order="little_endian",
     )
 
@@ -138,11 +152,10 @@ def test_modbus_grouping_uses_bit_limit_separately() -> None:
 
 
 def test_modbus_point_rejects_address_span_overflow() -> None:
-    point = _point("overflow")
+    point = _point("overflow", ext=_point_options(address=65535))
 
     with pytest.raises(ConfigError, match="address span exceeds"):
         parse_modbus_point(
             point,
-            _point_options(address=65535),
             default_word_order="little_endian",
         )
