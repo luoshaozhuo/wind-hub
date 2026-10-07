@@ -16,7 +16,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    ProtocolPoint,
+    PointDefinition,
     RawDataType,
     BusinessPoint,
     Device,
@@ -45,7 +45,7 @@ def _snapshot(
         ValueType.FLOAT,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
-    protocol_point = ProtocolPoint(
+    protocol_point = PointDefinition(
         point_id="p",
         business_point_id=point.business_point_id,
         raw_type=RawDataType("float32"),
