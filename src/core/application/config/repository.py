@@ -25,7 +25,7 @@ class StoredCoreConfig:
     def __post_init__(self) -> None:
         revision = self.revision.strip()
         if not revision:
-            raise ValueError("config revision must not be empty")
+            raise ConfigError("config revision must not be empty")
         object.__setattr__(self, "revision", ConfigRevision(revision))
 
 
