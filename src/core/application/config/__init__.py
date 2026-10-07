@@ -6,6 +6,7 @@ core.application.config.service 显式导入，避免与 port 形成循环依赖
 
 from .artifact import CoreConfigArtifact
 from .device_connection import ConnectionEndpoint, DeviceConnection
+from .identities import ConnectionId
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
 from .revision import (
     ConfigRevision,
@@ -19,6 +20,7 @@ __all__ = [
     "ConfigRevision",
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
+    "ConnectionId",
     "CoreConfigArtifact",
     "CoreConfigDiff",
     "CoreConfigSnapshot",
