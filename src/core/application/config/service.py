@@ -18,6 +18,14 @@ from .validator import CoreConfigValidatorPort
 
 
 @dataclass(frozen=True, slots=True)
+class CoreConfigPreview:
+    """一次配置替换预览。"""
+
+    current_revision: ConfigRevision
+    diff: CoreConfigDiff
+
+
+@dataclass(frozen=True, slots=True)
 class CoreConfigUpdateResult:
     """一次配置替换的结果。"""
 
@@ -46,6 +54,32 @@ class CoreConfigService:
         """读取当前共享配置。"""
         return await self._repository.load()
 
+    def validate(self, snapshot: CoreConfigSnapshot) -> None:
+        """执行通用与已注入的协议/基础设施静态校验。"""
+        validate_core_config(snapshot)
+        for validator in self._validators:
+            validator.validate(snapshot)
+
+    async def preview_replace(
+        self,
+        snapshot: CoreConfigSnapshot,
+    ) -> CoreConfigPreview:
+        """校验候选配置并预览与当前版本的结构化差异。"""
+        self.validate(snapshot)
+        current = await self._repository.load()
+        return CoreConfigPreview(
+            current_revision=current.revision,
+            diff=compute_core_config_diff(current.snapshot, snapshot),
+        )
+
+    async def import_preview(
+        self,
+        artifact: CoreConfigArtifact,
+    ) -> CoreConfigPreview:
+        """解析外部制品并预览，不写入持久化配置。"""
+        codec = self._require_codec()
+        return await self.preview_replace(codec.decode(artifact))
+
     async def export(self) -> CoreConfigArtifact:
         """导出当前 Shared Core 配置。"""
         codec = self._require_codec()
@@ -70,9 +104,7 @@ class CoreConfigService:
         expected_revision: ConfigRevision,
     ) -> CoreConfigUpdateResult:
         """以新快照替换当前共享配置，并返回结构化差异。"""
-        validate_core_config(snapshot)
-        for validator in self._validators:
-            validator.validate(snapshot)
+        self.validate(snapshot)
 
         current = await self._repository.load()
         if current.revision != expected_revision:
@@ -90,7 +122,6 @@ class CoreConfigService:
             expected_revision=expected_revision,
         )
         return CoreConfigUpdateResult(stored=stored, diff=diff)
-
 
     def _require_codec(self) -> CoreConfigCodecPort:
         """返回已注入 Codec；未配置时明确失败。"""
