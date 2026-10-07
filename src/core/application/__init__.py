@@ -9,6 +9,7 @@ from .collection_plan import (
 from .interpretation import interpret_protocol_sample
 from .measurement import PointScalar, PointValue, ProtocolSample, Quality
 from .port import (
+    AcquisitionMode,
     ExclusiveOpenSinkPort,
     ProtocolPort,
     ProtocolWrite,
@@ -19,6 +20,7 @@ from .port import (
 )
 
 __all__ = [
+    "AcquisitionMode",
     "CollectionAssignment",
     "CollectionWork",
     "ExclusiveOpenSinkPort",
