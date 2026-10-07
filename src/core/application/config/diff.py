@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-
-from core.domain import (
-    BusinessPointId,
-    ConnectionId,
-    DeviceGroupId,
-    DeviceId,
-    DeviceModelId,
-    DeviceTypeId,
-    PointTableId,
-)
+from typing import TypeVar
 
 from .snapshot import CoreConfigSnapshot
+
+_KeyT = TypeVar("_KeyT")
+_ValueT = TypeVar("_ValueT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,14 +70,14 @@ def compute_core_config_diff(
     )
 
 
-def _diff_index(old: object, new: object) -> IndexDiff:
-    old_map = dict(old)  # type: ignore[arg-type]
-    new_map = dict(new)  # type: ignore[arg-type]
-
-    old_ids = set(old_map)
-    new_ids = set(new_map)
+def _diff_index(
+    old: Mapping[_KeyT, _ValueT],
+    new: Mapping[_KeyT, _ValueT],
+) -> IndexDiff:
+    old_ids = set(old)
+    new_ids = set(new)
     shared = old_ids & new_ids
-    updated_ids = {key for key in shared if old_map[key] != new_map[key]}
+    updated_ids = {key for key in shared if old[key] != new[key]}
 
     return IndexDiff(
         added=tuple(sorted((str(key) for key in new_ids - old_ids))),
