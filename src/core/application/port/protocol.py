@@ -9,7 +9,7 @@ from typing import Protocol, runtime_checkable
 from core.domain import PointTable, ProtocolPoint
 
 from ..config import DeviceConnection
-from ..measurement import PointScalar, ProtocolSample
+from ..measurement import ProtocolSample, WritableScalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ class ProtocolWrite:
     """一次协议点写入请求。"""
 
     point: ProtocolPoint
-    value: PointScalar
+    value: WritableScalar
 
 
 @dataclass(frozen=True, slots=True)
