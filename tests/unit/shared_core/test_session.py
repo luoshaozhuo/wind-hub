@@ -5,13 +5,14 @@ from collections.abc import Sequence
 import pytest
 
 from core.application import (
+    ConfigError,
     ConnectionEndpoint,
     ConnectionHealth,
-    ProtocolError,
     CoreConfigSnapshot,
     DeviceConnection,
     DeviceSession,
     PointWrite,
+    ProtocolError,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -60,98 +61,12 @@ class _FakeProtocol:
     ) -> tuple[ProtocolWriteResult, ...]:
         self.writes = tuple(writes)
         return tuple(
-            ProtocolWriteResult(point_id=write.point.point_id, success=True)
+            ProtocolWriteResult(
+                point_id=write.point.point_id,
+                success=True,
+            )
             for write in writes
         )
-
-
-def _session() -> tuple[DeviceSession, _FakeProtocol]:
-    device_type = DeviceType("wind_turbine", "Wind Turbine")
-    business_point = BusinessPoint(
-        "active_power",
-        ValueType.FLOAT,
-        UNIT_CATALOG[UnitCode.KILOWATT],
-    )
-    protocol_point = ProtocolPoint(
-        point_id="power",
-        business_point_id=business_point.business_point_id,
-        raw_type=RawDataType("float32"),
-        source_unit=UNIT_CATALOG[UnitCode.WATT],
-        access=PointAccess.READ_WRITE,
-        scale=2.0,
-        offset=10.0,
-    )
-    table = PointTable(
-        "wt_modbus",
-        Protocol("modbus"),
-        {protocol_point.point_id: protocol_point},
-    )
-    model = DeviceModel(
-        "m1",
-        device_type.device_type_id,
-        table.point_table_id,
-    )
-    device = Device("wt01", model.device_model_id)
-    connection = DeviceConnection(
-        "wt01-main",
-        device.device_id,
-        ConnectionEndpoint("10.0.0.1", 502),
-    )
-    snapshot = CoreConfigSnapshot(
-        device_types={device_type.device_type_id: device_type},
-        device_models={model.device_model_id: model},
-        devices={device.device_id: device},
-        business_points={business_point.business_point_id: business_point},
-        point_tables={table.point_table_id: table},
-        device_connections={connection.connection_id: connection},
-    )
-    protocol = _FakeProtocol()
-    return DeviceSession(snapshot, connection, protocol), protocol
-
-
-@pytest.mark.asyncio
-async def test_session_read_normalizes_to_business_unit() -> None:
-    session, _ = _session()
-    assert session.health().healthy is True
-
-    values = await session.read(("power",))
-
-    assert len(values) == 1
-    assert values[0].value == pytest.approx(1.0)
-    assert values[0].unit == UNIT_CATALOG[UnitCode.KILOWATT]
-
-
-@pytest.mark.asyncio
-async def test_session_write_reverses_unit_scale_and_offset() -> None:
-    session, protocol = _session()
-
-    results = await session.write((PointWrite("power", 1.0),))
-
-    assert results[0].success is True
-    assert protocol.writes[0].value == pytest.approx(495.0)
-
-
-
-@pytest.mark.asyncio
-async def test_session_rejects_duplicate_read_points() -> None:
-    session, _ = _session()
-
-    with pytest.raises(ValueError, match="duplicates"):
-        await session.read(("power", "power"))
-
-
-@pytest.mark.asyncio
-async def test_session_rejects_duplicate_write_points() -> None:
-    session, _ = _session()
-
-    with pytest.raises(ValueError, match="duplicates"):
-        await session.write(
-            (
-                PointWrite("power", 1.0),
-                PointWrite("power", 2.0),
-            )
-        )
-
 
 
 class _ReorderedProtocol(_FakeProtocol):
@@ -177,52 +92,131 @@ class _ReorderedProtocol(_FakeProtocol):
         )
 
 
-@pytest.mark.asyncio
-async def test_session_restores_requested_result_order() -> None:
-    session, _ = _session()
-    protocol = _ReorderedProtocol()
-    session = DeviceSession(
-        session._snapshot,
-        session._connection,
-        protocol,
-    )
+class _BrokenProtocol(_FakeProtocol):
+    async def read(
+        self,
+        points: Sequence[ProtocolPoint],
+    ) -> tuple[ProtocolSample, ...]:
+        return (
+            ProtocolSample(
+                point_id="unexpected",
+                value=1.0,
+            ),
+        )
 
-    first = session.point("power")
-    second = ProtocolPoint(
-        point_id="power_copy",
-        business_point_id=first.business_point_id,
-        raw_type=first.raw_type,
-        source_unit=first.source_unit,
-        access=first.access,
-        scale=first.scale,
-        offset=first.offset,
-        protocol_options=first.protocol_options,
+
+def _session(
+    *,
+    protocol: _FakeProtocol | None = None,
+    two_points: bool = False,
+) -> tuple[DeviceSession, _FakeProtocol]:
+    device_type = DeviceType("wind_turbine", "Wind Turbine")
+    business_point = BusinessPoint(
+        "active_power",
+        ValueType.FLOAT,
+        UNIT_CATALOG[UnitCode.KILOWATT],
     )
+    power = ProtocolPoint(
+        point_id="power",
+        business_point_id=business_point.business_point_id,
+        raw_type=RawDataType("float32"),
+        source_unit=UNIT_CATALOG[UnitCode.WATT],
+        access=PointAccess.READ_WRITE,
+        scale=2.0,
+        offset=10.0,
+    )
+    points = {power.point_id: power}
+    if two_points:
+        power_copy = ProtocolPoint(
+            point_id="power_copy",
+            business_point_id=business_point.business_point_id,
+            raw_type=power.raw_type,
+            source_unit=power.source_unit,
+            access=power.access,
+            scale=power.scale,
+            offset=power.offset,
+        )
+        points[power_copy.point_id] = power_copy
+
     table = PointTable(
         "wt_modbus",
         Protocol("modbus"),
-        {
-            first.point_id: first,
-            second.point_id: second,
-        },
+        points,
     )
-    model = next(iter(session._snapshot.device_models.values()))
-    from core.domain import DeviceModel
-
-    new_model = DeviceModel(
-        model.device_model_id,
-        model.device_type_id,
+    model = DeviceModel(
+        "m1",
+        device_type.device_type_id,
         table.point_table_id,
     )
-    snapshot = CoreConfigSnapshot(
-        device_types=session._snapshot.device_types,
-        device_models={new_model.device_model_id: new_model},
-        devices=session._snapshot.devices,
-        business_points=session._snapshot.business_points,
-        point_tables={table.point_table_id: table},
-        device_connections=session._snapshot.device_connections,
+    device = Device("wt01", model.device_model_id)
+    connection = DeviceConnection(
+        "wt01-main",
+        device.device_id,
+        ConnectionEndpoint("10.0.0.1", 502),
     )
-    session = DeviceSession(snapshot, session._connection, protocol)
+    snapshot = CoreConfigSnapshot(
+        device_types={device_type.device_type_id: device_type},
+        device_models={model.device_model_id: model},
+        devices={device.device_id: device},
+        business_points={
+            business_point.business_point_id: business_point,
+        },
+        point_tables={table.point_table_id: table},
+        device_connections={connection.connection_id: connection},
+    )
+    fake = protocol or _FakeProtocol()
+    return DeviceSession(snapshot, connection, fake), fake
+
+
+@pytest.mark.asyncio
+async def test_session_read_normalizes_to_business_unit() -> None:
+    session, _ = _session()
+
+    assert session.health().healthy is True
+    values = await session.read(("power",))
+
+    assert len(values) == 1
+    assert values[0].value == pytest.approx(1.0)
+    assert values[0].unit == UNIT_CATALOG[UnitCode.KILOWATT]
+
+
+@pytest.mark.asyncio
+async def test_session_write_reverses_unit_scale_and_offset() -> None:
+    session, protocol = _session()
+
+    results = await session.write((PointWrite("power", 1.0),))
+
+    assert results[0].success is True
+    assert protocol.writes[0].value == pytest.approx(495.0)
+
+
+@pytest.mark.asyncio
+async def test_session_rejects_duplicate_read_points() -> None:
+    session, _ = _session()
+
+    with pytest.raises(ConfigError, match="duplicates"):
+        await session.read(("power", "power"))
+
+
+@pytest.mark.asyncio
+async def test_session_rejects_duplicate_write_points() -> None:
+    session, _ = _session()
+
+    with pytest.raises(ConfigError, match="duplicates"):
+        await session.write(
+            (
+                PointWrite("power", 1.0),
+                PointWrite("power", 2.0),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_session_restores_requested_result_order() -> None:
+    session, _ = _session(
+        protocol=_ReorderedProtocol(),
+        two_points=True,
+    )
 
     values = await session.read(("power", "power_copy"))
     results = await session.write(
@@ -242,28 +236,9 @@ async def test_session_restores_requested_result_order() -> None:
     )
 
 
-class _BrokenProtocol(_FakeProtocol):
-    async def read(
-        self,
-        points: Sequence[ProtocolPoint],
-    ) -> tuple[ProtocolSample, ...]:
-        return (
-            ProtocolSample(
-                point_id=points[0].point_id,
-                value=1.0,
-            ),
-        )
-
-
 @pytest.mark.asyncio
 async def test_session_rejects_protocol_result_set_mismatch() -> None:
-    session, _ = _session()
-    protocol = _BrokenProtocol()
-    session = DeviceSession(
-        session._snapshot,
-        session._connection,
-        protocol,
-    )
+    session, _ = _session(protocol=_BrokenProtocol())
 
-    with pytest.raises(ProtocolError):
-        await session.read(("power", "missing"))
+    with pytest.raises(ProtocolError, match="unexpected point set"):
+        await session.read(("power",))
