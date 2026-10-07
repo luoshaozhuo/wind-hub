@@ -5,7 +5,6 @@ import pytest
 from core.application import ConfigError
 from core.domain import (
     ConnectionEndpoint,
-    DeviceConnection,
     PointAccess,
     PointTable,
     Protocol,
@@ -48,15 +47,11 @@ def _point_options(
     }
 
 
-def test_modbus_config_uses_connection_options() -> None:
-    connection = DeviceConnection(
-        "c1",
-        "d1",
-        ConnectionEndpoint("192.0.2.10", 1502),
-    )
+def test_modbus_config_uses_device_options() -> None:
+    endpoint = ConnectionEndpoint("192.0.2.10", 1502)
 
     config = parse_modbus_config(
-        connection,
+        endpoint,
         {
             "unit_id": 7,
             "timeout": 2.5,
@@ -112,14 +107,10 @@ def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
 def test_modbus_driver_precompiles_resolved_point_table() -> None:
     point = _point("p1")
     table = PointTable("pt", Protocol("modbus"), {"p1": point})
-    connection = DeviceConnection(
-        "c1",
-        "d1",
-        ConnectionEndpoint("192.0.2.10", 502),
-    )
+    endpoint = ConnectionEndpoint("192.0.2.10", 502)
 
     driver = ModbusDriver(
-        connection,
+        endpoint,
         table,
         {},
         {"p1": _point_options(address=10)},
