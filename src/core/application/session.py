@@ -75,7 +75,13 @@ class DeviceSession:
         observed_at: datetime | None = None,
     ) -> tuple[PointValue, ...]:
         """按 PointTable 本地点 ID 批量读取并返回标准业务值。"""
-        points = tuple(self._point_table.point(point_id) for point_id in point_ids)
+        normalized_ids = tuple(point_id.strip() for point_id in point_ids)
+        _require_unique_point_ids(normalized_ids)
+        points = tuple(self._point_table.point(point_id) for point_id in normalized_ids)
+        for point in points:
+            if point.access not in (PointAccess.READ, PointAccess.READ_WRITE):
+                raise ValueError(f"point '{point.point_id}' is not readable")
+
         samples = await self._protocol.read(points)
 
         expected_ids = {point.point_id for point in points}
@@ -108,6 +114,7 @@ class DeviceSession:
         本方法只负责点访问权限与值映射；控制权限、幂等、超时、联锁和审计由
         Commander Application 负责。
         """
+        _require_unique_point_ids(tuple(write.point_id for write in writes))
         protocol_writes: list[ProtocolWrite] = []
         for write in writes:
             point = self._point_table.point(write.point_id)
@@ -146,3 +153,12 @@ def create_device_session(
 
     protocol = protocols.create(connection, point_table.protocol)
     return DeviceSession(snapshot, connection, protocol)
+
+
+
+def _require_unique_point_ids(point_ids: Sequence[str]) -> None:
+    """拒绝一次操作内重复点，避免重复读写和写入顺序歧义。"""
+    if any(not point_id for point_id in point_ids):
+        raise ValueError("point_id must not be empty")
+    if len(point_ids) != len(set(point_ids)):
+        raise ValueError("point_ids must not contain duplicates")
