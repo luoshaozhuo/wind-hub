@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
-from core.application import ConfigError, ConnectionEndpoint, DeviceConnection
+from core.application import (
+    ConfigError,
+    ConnectionEndpoint,
+    DeviceConnection,
+    InterrogationCapableProtocolPort,
+    ProtocolSample,
+    Quality,
+    SubscribableProtocolPort,
+)
 from core.domain import (
     PointAccess,
     PointTable,
@@ -136,3 +146,68 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
 
     with pytest.raises(ConfigError, match="unsupported command type"):
         IEC104Driver(_connection(), table)
+
+
+
+def test_iec104_driver_exposes_optional_protocol_capabilities() -> None:
+    point = _point("power", ioa=100)
+    table = PointTable(
+        "iec_pt",
+        Protocol("iec104"),
+        {point.point_id: point},
+    )
+    driver = IEC104Driver(_connection(), table)
+
+    assert isinstance(driver, SubscribableProtocolPort)
+    assert isinstance(driver, InterrogationCapableProtocolPort)
+
+
+@pytest.mark.asyncio
+async def test_iec104_subscription_close_drains_inflight_callback() -> None:
+    point = _point("power", ioa=100)
+    table = PointTable(
+        "iec_pt",
+        Protocol("iec104"),
+        {point.point_id: point},
+    )
+    driver = IEC104Driver(_connection(), table)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    received: list[float | int | bool | str | None] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        started.set()
+        await release.wait()
+        received.append(sample.value)
+
+    handle = await driver.subscribe((point,), callback)
+    driver._closed = False
+    driver._is_open = True
+    driver._store_sample(
+        100,
+        ProtocolSample(
+            point_id="power",
+            value=42.0,
+            quality=Quality.GOOD,
+        ),
+    )
+    await started.wait()
+
+    closer = asyncio.create_task(handle.close())
+    await asyncio.sleep(0)
+    assert not closer.done()
+
+    release.set()
+    await closer
+    assert received == [42.0]
+
+    driver._store_sample(
+        100,
+        ProtocolSample(
+            point_id="power",
+            value=43.0,
+            quality=Quality.GOOD,
+        ),
+    )
+    await asyncio.sleep(0)
+    assert received == [42.0]
