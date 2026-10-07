@@ -12,6 +12,7 @@ from .repository import (
 from .service import CoreConfigService, CoreConfigUpdateResult
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
+from .validator import CoreConfigValidatorPort
 
 __all__ = [
     "ConfigRevision",
@@ -24,6 +25,7 @@ __all__ = [
     "CoreConfigService",
     "CoreConfigSnapshot",
     "CoreConfigUpdateResult",
+    "CoreConfigValidatorPort",
     "DeviceConnection",
     "IndexDiff",
     "StoredCoreConfig",
