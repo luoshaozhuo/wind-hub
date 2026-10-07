@@ -1,7 +1,7 @@
 """Application 层统一点值契约。
 
-这里定义协议 Adapter 与 Application、Application 与 Sink Adapter 之间传递的
-稳定值对象。它们不是设备领域实体，也不承担持久化或运行时生命周期。
+这里定义 Protocol Adapter 与上层应用之间传递的稳定值对象。Collector 与
+Commander 可以共享这些通信值契约；它们不承担持久化或运行时生命周期。
 """
 
 from __future__ import annotations
