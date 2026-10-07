@@ -128,3 +128,25 @@ async def test_session_write_reverses_unit_scale_and_offset() -> None:
 
     assert results[0].success is True
     assert protocol.writes[0].value == pytest.approx(495.0)
+
+
+
+@pytest.mark.asyncio
+async def test_session_rejects_duplicate_read_points() -> None:
+    session, _ = _session()
+
+    with pytest.raises(ValueError, match="duplicates"):
+        await session.read(("power", "power"))
+
+
+@pytest.mark.asyncio
+async def test_session_rejects_duplicate_write_points() -> None:
+    session, _ = _session()
+
+    with pytest.raises(ValueError, match="duplicates"):
+        await session.write(
+            (
+                PointWrite("power", 1.0),
+                PointWrite("power", 2.0),
+            )
+        )
