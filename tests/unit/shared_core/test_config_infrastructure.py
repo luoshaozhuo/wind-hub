@@ -13,19 +13,19 @@ from core.application import (
     validate_core_config,
 )
 from core.domain import (
-    PointAccess,
-    PointTable,
-    Protocol,
-    Point,
     BusinessPoint,
+    DataType,
     Device,
     DeviceModel,
     DeviceType,
-    UNIT_CATALOG,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
     Quantity,
+    UNIT_CATALOG,
     Unit,
     UnitCode,
-    DataType,
 )
 from core.infrastructure import (
     YamlCoreConfigCodec,
