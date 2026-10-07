@@ -21,6 +21,10 @@ _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 _ALLOWED_POINT_OPTIONS = frozenset(
     {"register_type", "type", "address", "count", "word_order"}
 )
+_MAX_ADDRESS = 0xFFFF
+_MAX_REGISTER_READ = 125
+_MAX_BIT_READ = 2000
+
 _REGISTER_COUNTS: dict[str, int] = {
     "bool": 1,
     "int8": 1,
@@ -69,9 +73,10 @@ def parse_modbus_point(
         raw_address,
         f"Modbus point '{point.point_id}': address",
     )
-    if address < 0:
+    if not 0 <= address <= _MAX_ADDRESS:
         raise ConfigError(
-            f"Modbus point '{point.point_id}': address must be >= 0"
+            f"Modbus point '{point.point_id}': address must be in "
+            f"0..{_MAX_ADDRESS}"
         )
 
     expected_count = _count_for_data_type(register_type, point.raw_type.name)
@@ -87,6 +92,11 @@ def parse_modbus_point(
         raise ConfigError(
             f"Modbus point '{point.point_id}': count {count} does not match "
             f"{point.raw_type.name} requirement {expected_count}"
+        )
+    if address + count > _MAX_ADDRESS + 1:
+        raise ConfigError(
+            f"Modbus point '{point.point_id}': address span exceeds "
+            f"{_MAX_ADDRESS}"
         )
 
     raw_word_order = options.get("word_order")
@@ -126,9 +136,14 @@ def group_consecutive_reads(
     points: list[ModbusPoint],
     *,
     max_gap: int = 8,
-    max_registers_per_request: int = 125,
+    max_registers_per_request: int = _MAX_REGISTER_READ,
+    max_bits_per_request: int = _MAX_BIT_READ,
 ) -> list[list[ModbusPoint]]:
-    """按 function code 和地址把读取点合并为合法 Modbus 请求。"""
+    """按 function code 和地址把读取点合并为合法 Modbus 请求。
+
+    Holding/Input Register 按规范限制单次最多 125 个寄存器；
+    Coil/Discrete Input 按规范限制单次最多 2000 bit。
+    """
     if not points:
         return []
 
@@ -136,8 +151,18 @@ def group_consecutive_reads(
     for point in points:
         by_type.setdefault(point.register_type, []).append(point)
 
+    if max_gap < 0:
+        raise ValueError("max_gap must be >= 0")
+    if max_registers_per_request <= 0 or max_bits_per_request <= 0:
+        raise ValueError("Modbus request limits must be > 0")
+
     groups: list[list[ModbusPoint]] = []
     for register_type in sorted(by_type):
+        request_limit = (
+            max_bits_per_request
+            if register_type in {"coil", "discrete_input"}
+            else max_registers_per_request
+        )
         ordered = sorted(by_type[register_type], key=lambda item: item.address)
         current = [ordered[0]]
         previous_end = ordered[0].address + ordered[0].count
@@ -149,7 +174,7 @@ def group_consecutive_reads(
             )
             if (
                 point.address - previous_end <= max_gap
-                and span <= max_registers_per_request
+                and span <= request_limit
             ):
                 current.append(point)
             else:
