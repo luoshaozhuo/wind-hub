@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TypeAlias
 
-from core.domain import ProtocolPoint
+from .config.point_table import ProtocolPoint
 
 PointScalar: TypeAlias = float | int | bool | str | None
 WritableScalar: TypeAlias = float | int | bool | str
