@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Any
 
-from core.application import ConfigError, ProtocolSample, Quality
+from core.application.errors import ConfigError
+from core.application.protocol_contract import ProtocolSample, Quality
 from .mapping import IEC104Point
 
 
