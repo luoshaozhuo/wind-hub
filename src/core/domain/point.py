@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from types import MappingProxyType
 
@@ -50,7 +50,9 @@ class Point:
     access: PointAccess
     scale: float = 1.0
     offset: float = 0.0
-    ext: Mapping[str, str | int | float | bool | None] = MappingProxyType({})
+    ext: Mapping[str, str | int | float | bool | None] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -66,8 +68,15 @@ class Point:
 
         ext = dict(self.ext)
         for key, value in ext.items():
-            if not key.strip():
-                raise ValueError("point ext keys must not be empty")
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("point ext keys must be non-empty strings")
+            if value is not None and not isinstance(
+                value,
+                str | int | float | bool,
+            ):
+                raise ValueError(
+                    f"point ext '{key}' must be a scalar value or null"
+                )
             if isinstance(value, float) and not isfinite(value):
                 raise ValueError(f"point ext '{key}' must be finite")
 
