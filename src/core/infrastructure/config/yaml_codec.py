@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import TypeVar, cast
 
 import yaml
 
@@ -27,12 +27,16 @@ from core.domain import (
     ProtocolPoint,
     RawDataType,
     UNIT_CATALOG,
+    Unit,
     UnitCode,
     ValueType,
 )
 
 _SCHEMA_VERSION = 1
 _MEDIA_TYPE = "application/x-yaml"
+
+_KeyT = TypeVar("_KeyT")
+_ValueT = TypeVar("_ValueT")
 
 
 class YamlCoreConfigCodec(CoreConfigCodecPort):
@@ -332,14 +336,16 @@ def _decode_connection(value: object) -> DeviceConnection:
     )
 
 
-def _unit(value: str):
+def _unit(value: str) -> Unit:
     try:
         return UNIT_CATALOG[UnitCode(value)]
     except (KeyError, ValueError) as exc:
         raise ValueError(f"unknown built-in unit '{value}'") from exc
 
 
-def _sorted_values(values: Mapping[object, Any]) -> list[Any]:
+def _sorted_values(
+    values: Mapping[_KeyT, _ValueT],
+) -> list[_ValueT]:
     return [values[key] for key in sorted(values, key=str)]
 
 
