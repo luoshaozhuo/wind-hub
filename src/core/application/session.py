@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from core.domain import ConnectionId, DeviceId, ProtocolPoint
+from core.domain import ConnectionId, DeviceId, PointAccess, ProtocolPoint
 
 from .config import CoreConfigSnapshot, DeviceConnection
-from .interpretation import interpret_protocol_sample
-from .measurement import PointValue
+from .interpretation import interpret_protocol_sample, prepare_protocol_write
+from .measurement import PointValue, PointWrite
 from .port import ProtocolFactoryPort, ProtocolPort, ProtocolWrite, ProtocolWriteResult
 
 
@@ -91,10 +91,30 @@ class DeviceSession:
 
     async def write(
         self,
-        writes: Sequence[ProtocolWrite],
+        writes: Sequence[PointWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
-        """把协议点写请求直接委托给底层协议 Adapter。"""
-        return await self._protocol.write(writes)
+        """按标准业务值执行批量写入。
+
+        本方法只负责点访问权限与值映射；控制权限、幂等、超时、联锁和审计由
+        Commander Application 负责。
+        """
+        protocol_writes: list[ProtocolWrite] = []
+        for write in writes:
+            point = self._point_table.point(write.point_id)
+            if point.access not in (PointAccess.WRITE, PointAccess.READ_WRITE):
+                raise ValueError(f"point '{point.point_id}' is not writable")
+            business_point = self._snapshot.business_points[point.business_point_id]
+            protocol_writes.append(
+                ProtocolWrite(
+                    point=point,
+                    value=prepare_protocol_write(
+                        business_point,
+                        point,
+                        write.value,
+                    ),
+                )
+            )
+        return await self._protocol.write(protocol_writes)
 
     def point(self, point_id: str) -> ProtocolPoint:
         """返回当前设备 PointTable 中的协议点。"""
