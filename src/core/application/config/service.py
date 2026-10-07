@@ -14,6 +14,7 @@ from .repository import (
 )
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
+from .validator import CoreConfigValidatorPort
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +36,11 @@ class CoreConfigService:
         self,
         repository: CoreConfigRepositoryPort,
         codec: CoreConfigCodecPort | None = None,
+        validators: tuple[CoreConfigValidatorPort, ...] = (),
     ) -> None:
         self._repository = repository
         self._codec = codec
+        self._validators = validators
 
     async def get(self) -> StoredCoreConfig:
         """读取当前共享配置。"""
@@ -68,6 +71,8 @@ class CoreConfigService:
     ) -> CoreConfigUpdateResult:
         """以新快照替换当前共享配置，并返回结构化差异。"""
         validate_core_config(snapshot)
+        for validator in self._validators:
+            validator.validate(snapshot)
 
         current = await self._repository.load()
         if current.revision != expected_revision:
