@@ -18,9 +18,7 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    ConnectionId,
     Device,
-    DeviceConnection,
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
@@ -40,7 +38,7 @@ from core.domain import (
     ValueType,
 )
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _MEDIA_TYPE = "application/x-yaml"
 
 _KeyT = TypeVar("_KeyT")
@@ -89,7 +87,6 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
                 "point_tables",
                 "device_models",
                 "devices",
-                "device_connections",
             },
             "root",
         )
@@ -182,25 +179,13 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
                 "device_model_id": str(item.device_model_id),
                 "name": item.name,
                 "device_group_ids": [str(value) for value in item.device_group_ids],
-            }
-            for item in _sorted_values(snapshot.devices)
-        ],
-        "device_connections": [
-            {
-                "connection_id": str(item.connection_id),
-                "device_id": str(item.device_id),
-                "enabled": item.enabled,
                 "endpoint": {
                     "host": item.endpoint.host,
                     "port": item.endpoint.port,
-                    "options": dict(
-                        snapshot.connection_options_for(
-                            item.connection_id
-                        )
-                    ),
+                    "options": dict(snapshot.device_options_for(item.device_id)),
                 },
             }
-            for item in _sorted_values(snapshot.device_connections)
+            for item in _sorted_values(snapshot.devices)
         ],
     }
 
@@ -252,27 +237,17 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
             )
         )
     }
-    devices = {
-        item.device_id: item
-        for item in (
-            _decode_device(value)
-            for value in _require_list(root.get("devices"), "devices")
-        )
-    }
-    decoded_connections = [
-        _decode_connection(value)
-        for value in _require_list(
-            root.get("device_connections"),
-            "device_connections",
-        )
+    decoded_devices = [
+        _decode_device(value)
+        for value in _require_list(root.get("devices"), "devices")
     ]
-    connections = {
-        connection.connection_id: connection
-        for connection, _ in decoded_connections
+    devices = {
+        device.device_id: device
+        for device, _ in decoded_devices
     }
-    connection_options = {
-        connection.connection_id: options
-        for connection, options in decoded_connections
+    device_options = {
+        device.device_id: options
+        for device, options in decoded_devices
     }
 
     _require_unique_count(root, "device_types", len(device_types))
@@ -281,7 +256,6 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
     _require_unique_count(root, "point_tables", len(point_tables))
     _require_unique_count(root, "device_models", len(device_models))
     _require_unique_count(root, "devices", len(devices))
-    _require_unique_count(root, "device_connections", len(connections))
 
     return CoreConfigSnapshot(
         device_types=device_types,
@@ -290,8 +264,7 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
         devices=devices,
         business_points=business_points,
         point_tables=point_tables,
-        device_connections=connections,
-        connection_options=connection_options,
+        device_options=device_options,
         point_options=point_options,
     )
 
@@ -440,49 +413,35 @@ def _decode_device_model(value: object) -> DeviceModel:
     )
 
 
-def _decode_device(value: object) -> Device:
+def _decode_device(
+    value: object,
+) -> tuple[
+    Device,
+    dict[str, str | int | float | bool | None],
+]:
     item = _require_mapping(value, "devices[]")
     _require_fields(
         item,
-        {"device_id", "device_model_id", "name", "device_group_ids"},
+        {"device_id", "device_model_id", "name", "device_group_ids", "endpoint"},
         "devices[]",
     )
-    return Device(
+    endpoint = _require_mapping(item.get("endpoint"), "endpoint")
+    _require_fields(endpoint, {"host", "port", "options"}, "endpoint")
+    device = Device(
         device_id=DeviceId(_required_str(item, "device_id")),
         device_model_id=DeviceModelId(_required_str(item, "device_model_id")),
+        endpoint=ConnectionEndpoint(
+            host=_required_str(endpoint, "host"),
+            port=_optional_int(endpoint, "port"),
+        ),
         name=_optional_str(item, "name"),
         device_group_ids=tuple(
             DeviceGroupId(_require_str(value, "device_group_ids[]"))
             for value in _require_list(item.get("device_group_ids"), "device_group_ids")
         ),
     )
-
-
-def _decode_connection(
-    value: object,
-) -> tuple[
-    DeviceConnection,
-    dict[str, str | int | float | bool | None],
-]:
-    item = _require_mapping(value, "device_connections[]")
-    _require_fields(
-        item,
-        {"connection_id", "device_id", "enabled", "endpoint"},
-        "device_connections[]",
-    )
-    endpoint = _require_mapping(item.get("endpoint"), "endpoint")
-    _require_fields(endpoint, {"host", "port", "options"}, "endpoint")
-    connection = DeviceConnection(
-        connection_id=ConnectionId(_required_str(item, "connection_id")),
-        device_id=DeviceId(_required_str(item, "device_id")),
-        enabled=_optional_bool(item, "enabled", default=True),
-        endpoint=ConnectionEndpoint(
-            host=_required_str(endpoint, "host"),
-            port=_optional_int(endpoint, "port"),
-        ),
-    )
     return (
-        connection,
+        device,
         _scalar_mapping(
             endpoint.get("options"),
             "endpoint.options",
@@ -597,13 +556,3 @@ def _require_fields(
         )
 
 
-def _optional_bool(
-    item: Mapping[str, object],
-    field: str,
-    *,
-    default: bool,
-) -> bool:
-    value = item.get(field, default)
-    if not isinstance(value, bool):
-        raise ConfigError(f"{field} must be boolean")
-    return value
