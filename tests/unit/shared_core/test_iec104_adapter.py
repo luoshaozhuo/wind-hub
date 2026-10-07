@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Protocol
 
 import pytest
 
@@ -8,11 +9,8 @@ from core.application import (
     ConfigError,
     ConnectionEndpoint,
     DeviceConnection,
-    InterrogationCapableProtocolPort,
     ProtocolSample,
     Quality,
-    SubscribableProtocolPort,
-    SubscriptionHandle,
 )
 from core.domain import (
     PointAccess,
@@ -150,7 +148,12 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
 
 
 
-def test_iec104_driver_exposes_optional_protocol_capabilities() -> None:
+class _Closable(Protocol):
+    async def close(self) -> None:
+        ...
+
+
+def test_iec104_driver_exposes_infrastructure_capabilities() -> None:
     point = _point("power", ioa=100)
     table = PointTable(
         "iec_pt",
@@ -159,8 +162,8 @@ def test_iec104_driver_exposes_optional_protocol_capabilities() -> None:
     )
     driver = IEC104Driver(_connection(), table)
 
-    assert isinstance(driver, SubscribableProtocolPort)
-    assert isinstance(driver, InterrogationCapableProtocolPort)
+    assert callable(driver.subscribe)
+    assert callable(driver.interrogate)
 
 
 @pytest.mark.asyncio
@@ -225,7 +228,7 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
     )
     driver = IEC104Driver(_connection(), table)
     done = asyncio.Event()
-    handle_box: list[SubscriptionHandle] = []
+    handle_box: list[_Closable] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
