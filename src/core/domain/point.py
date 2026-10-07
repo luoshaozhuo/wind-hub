@@ -9,7 +9,7 @@ from types import MappingProxyType
 
 from .identities import BusinessPointId, PointTableId
 from .unit import Unit
-from .value_objects import PointAccess, Protocol, ValueType
+from .value_objects import DataType, PointAccess, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +17,7 @@ class BusinessPoint:
     """稳定业务点实体，回答“这个量是什么”。"""
 
     business_point_id: BusinessPointId
-    value_type: ValueType
+    data_type: DataType
     standard_unit: Unit
     description: str | None = None
 
@@ -25,15 +25,25 @@ class BusinessPoint:
         business_point_id = self.business_point_id.strip()
         if not business_point_id:
             raise ValueError("business_point_id must not be empty")
+        ext = dict(self.ext)
+        for key, value in ext.items():
+            if not key.strip():
+                raise ValueError("point ext keys must not be empty")
+            if isinstance(value, float) and not isfinite(value):
+                raise ValueError(
+                    f"point ext '{key}' must be finite"
+                )
+
         object.__setattr__(
             self,
             "business_point_id",
             BusinessPointId(business_point_id),
         )
+        object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
 @dataclass(frozen=True, slots=True)
-class PointDefinition:
+class Point:
     """PointTable 内的一条稳定点定义。
 
     这里只表达跨协议稳定语义；设备侧数据类型、Modbus 地址、ADS symbol、
@@ -46,6 +56,7 @@ class PointDefinition:
     access: PointAccess
     scale: float = 1.0
     offset: float = 0.0
+    ext: Mapping[str, str | int | float | bool | None] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -73,7 +84,7 @@ class PointTable:
 
     point_table_id: PointTableId
     protocol: Protocol
-    points: Mapping[str, PointDefinition]
+    points: Mapping[str, Point]
 
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
@@ -105,14 +116,14 @@ class PointTable:
             MappingProxyType(points),
         )
 
-    def point(self, point_id: str) -> PointDefinition:
+    def point(self, point_id: str) -> Point:
         """按本地点 ID 返回协议点。"""
         return self.points[point_id.strip()]
 
     def points_for_business(
         self,
         business_point_id: BusinessPointId,
-    ) -> tuple[PointDefinition, ...]:
+    ) -> tuple[Point, ...]:
         """返回映射到同一业务点的全部协议点。"""
         return tuple(
             point
