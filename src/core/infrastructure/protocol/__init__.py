@@ -1,6 +1,14 @@
 """Shared Core 协议基础设施。"""
 
-from .ads import ADSConfig, ADSDriver, ADSPoint, parse_ads_config, parse_ads_point
+from .ads import (
+    ADSConfig,
+    ADSDriver,
+    ADSLocalConfig,
+    ADSLocalRouter,
+    ADSPoint,
+    parse_ads_config,
+    parse_ads_point,
+)
 from .modbus import (
     ModbusConfig,
     ModbusDriver,
@@ -14,6 +22,8 @@ from .registry import ProtocolFactory, ProtocolRegistry
 __all__ = [
     "ADSConfig",
     "ADSDriver",
+    "ADSLocalConfig",
+    "ADSLocalRouter",
     "ADSPoint",
     "ModbusConfig",
     "ModbusDriver",
