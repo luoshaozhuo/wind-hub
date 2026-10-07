@@ -35,10 +35,13 @@ from .measurement import (
 )
 from .port import (
     ConnectionHealth,
+    InterrogationCapableProtocolPort,
     ProtocolFactoryPort,
     ProtocolPort,
     ProtocolWrite,
     ProtocolWriteResult,
+    SubscribableProtocolPort,
+    SubscriptionHandle,
 )
 from .session import DeviceSession, create_device_session
 
@@ -48,6 +51,7 @@ __all__ = [
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "ConnectionHealth",
+    "InterrogationCapableProtocolPort",
     "CoreConfigArtifact",
     "CoreError",
     "CoreConfigCodecPort",
@@ -70,6 +74,8 @@ __all__ = [
     "ProtocolSample",
     "ProtocolWrite",
     "ProtocolWriteResult",
+    "SubscribableProtocolPort",
+    "SubscriptionHandle",
     "Quality",
     "WritableScalar",
     "StoredCoreConfig",
