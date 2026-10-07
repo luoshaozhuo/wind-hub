@@ -12,15 +12,16 @@ from core.application.config import (
     ConfigRevision,
     ConfigRevisionConflict,
     CoreConfigArtifact,
-    CoreConfigCodecPort,
     CoreConfigRepositoryPort,
     CoreConfigSnapshot,
     StoredCoreConfig,
     validate_core_config,
 )
 
+from .yaml_codec import YamlCoreConfigCodec
 
-class FileCoreConfigRepository(CoreConfigRepositoryPort):
+
+class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
     """使用单个配置文件持久化 Shared Core 配置。
 
     - revision 是文件内容的 SHA-256；
@@ -35,10 +36,10 @@ class FileCoreConfigRepository(CoreConfigRepositoryPort):
     def __init__(
         self,
         path: str | Path,
-        codec: CoreConfigCodecPort,
+        codec: YamlCoreConfigCodec | None = None,
     ) -> None:
         self._path = Path(path)
-        self._codec = codec
+        self._codec = codec or YamlCoreConfigCodec()
         self._write_lock = asyncio.Lock()
 
     @property
