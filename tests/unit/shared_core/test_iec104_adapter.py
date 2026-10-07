@@ -201,7 +201,7 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
         await release.wait()
         received.append(sample.value)
 
-    handle = await driver.subscribe((point,), callback)
+    handle = await driver.subscribe((point.point_id,), callback)
     driver._closed = False
     driver._is_open = True
     driver._store_sample(
@@ -245,7 +245,7 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
         await handle_box[0].close()
         done.set()
 
-    handle = await driver.subscribe((point,), callback)
+    handle = await driver.subscribe((point.point_id,), callback)
     handle_box.append(handle)
     driver._closed = False
     driver._is_open = True
