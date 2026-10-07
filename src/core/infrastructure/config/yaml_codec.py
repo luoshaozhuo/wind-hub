@@ -15,6 +15,7 @@ from core.application.config import (
     DeviceConnection,
     validate_core_config,
 )
+from core.application.errors import ConfigError
 from core.domain import (
     BusinessPoint,
     Device,
@@ -61,14 +62,14 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
     def decode(self, artifact: CoreConfigArtifact) -> CoreConfigSnapshot:
         """解析并校验规范化 YAML 配置制品。"""
         if artifact.media_type not in {_MEDIA_TYPE, "text/yaml", "application/yaml"}:
-            raise ValueError(
+            raise ConfigError(
                 f"unsupported config media type '{artifact.media_type}'"
             )
 
         try:
             raw = yaml.safe_load(artifact.content.decode("utf-8"))
         except (UnicodeDecodeError, yaml.YAMLError) as exc:
-            raise ValueError(f"invalid YAML config artifact: {exc}") from exc
+            raise ConfigError(f"invalid YAML config artifact: {exc}") from exc
 
         root = _require_mapping(raw, "root")
         _require_fields(
@@ -87,13 +88,18 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
         )
         version = root.get("schema_version")
         if version != _SCHEMA_VERSION:
-            raise ValueError(
+            raise ConfigError(
                 f"unsupported core config schema_version '{version}', "
                 f"expected '{_SCHEMA_VERSION}'"
             )
 
-        snapshot = _decode_snapshot(root)
-        validate_core_config(snapshot)
+        try:
+            snapshot = _decode_snapshot(root)
+            validate_core_config(snapshot)
+        except ConfigError:
+            raise
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ConfigError(f"invalid core config artifact: {exc}") from exc
         return snapshot
 
 
@@ -309,7 +315,7 @@ def _decode_point_table(value: object) -> PointTable:
     points = [_decode_protocol_point(raw) for raw in _require_list(item.get("points"), "points")]
     by_id = {point.point_id: point for point in points}
     if len(by_id) != len(points):
-        raise ValueError(
+        raise ConfigError(
             f"point table '{_required_str(item, 'point_table_id')}' contains duplicate point_id"
         )
     return PointTable(
@@ -412,7 +418,7 @@ def _unit(value: str) -> Unit:
     try:
         return UNIT_CATALOG[UnitCode(value)]
     except (KeyError, ValueError) as exc:
-        raise ValueError(f"unknown built-in unit '{value}'") from exc
+        raise ConfigError(f"unknown built-in unit '{value}'") from exc
 
 
 def _sorted_values(
@@ -428,14 +434,14 @@ def _require_unique_count(
 ) -> None:
     raw = _require_list(root.get(field), field)
     if len(raw) != actual_count:
-        raise ValueError(f"{field} contains duplicate identities")
+        raise ConfigError(f"{field} contains duplicate identities")
 
 
 def _require_mapping(value: object, field: str) -> Mapping[str, object]:
     if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a mapping")
+        raise ConfigError(f"{field} must be a mapping")
     if not all(isinstance(key, str) for key in value):
-        raise ValueError(f"{field} keys must be strings")
+        raise ConfigError(f"{field} keys must be strings")
     return cast(Mapping[str, object], value)
 
 
@@ -443,19 +449,19 @@ def _require_list(value: object, field: str) -> list[object]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list")
+        raise ConfigError(f"{field} must be a list")
     return value
 
 
 def _required_str(item: Mapping[str, object], field: str) -> str:
     if field not in item:
-        raise ValueError(f"{field} is required")
+        raise ConfigError(f"{field} is required")
     return _require_str(item[field], field)
 
 
 def _require_str(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
+        raise ConfigError(f"{field} must be a non-empty string")
     return value.strip()
 
 
@@ -464,7 +470,7 @@ def _optional_str(item: Mapping[str, object], field: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string or null")
+        raise ConfigError(f"{field} must be a string or null")
     value = value.strip()
     return value or None
 
@@ -474,7 +480,7 @@ def _optional_int(item: Mapping[str, object], field: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer or null")
+        raise ConfigError(f"{field} must be an integer or null")
     return value
 
 
@@ -486,7 +492,7 @@ def _number(
 ) -> float:
     value = item.get(field, default)
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(f"{field} must be numeric")
+        raise ConfigError(f"{field} must be numeric")
     return float(value)
 
 
@@ -497,7 +503,7 @@ def _scalar_mapping(value: object, field: str) -> dict[str, str | int | float | 
     result: dict[str, str | int | float | bool | None] = {}
     for key, item in mapping.items():
         if item is not None and not isinstance(item, str | int | float | bool):
-            raise ValueError(f"{field}.{key} must be a scalar value")
+            raise ConfigError(f"{field}.{key} must be a scalar value")
         result[key] = item
     return result
 
@@ -510,7 +516,7 @@ def _require_fields(
     """拒绝未知字段，避免配置拼写错误被静默忽略。"""
     unknown = set(item) - allowed
     if unknown:
-        raise ValueError(
+        raise ConfigError(
             f"{context} contains unknown fields: {sorted(unknown)}"
         )
 
@@ -523,5 +529,5 @@ def _optional_bool(
 ) -> bool:
     value = item.get(field, default)
     if not isinstance(value, bool):
-        raise ValueError(f"{field} must be boolean")
+        raise ConfigError(f"{field} must be boolean")
     return value
