@@ -3,9 +3,12 @@
 这里只承载 Collector、Commander 等应用共同复用的基础设施实现。
 """
 
-from .config import YamlFileCoreConfigRepository, YamlCoreConfigCodec
+from .config import YamlCoreConfigCodec, YamlFileCoreConfigRepository
+from .protocol import ProtocolFactory, ProtocolRegistry
 
 __all__ = [
-    "FileCoreConfigRepository",
+    "ProtocolFactory",
+    "ProtocolRegistry",
     "YamlCoreConfigCodec",
+    "YamlFileCoreConfigRepository",
 ]
