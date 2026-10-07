@@ -1,24 +1,38 @@
-"""共享设备协议 outbound ports。
+"""共享设备协议 outbound port。
 
-基础 Port 只定义 Collector 与 Commander 都依赖的最小通信能力；订阅、总召等
-可选协议能力使用独立 capability Port 表达，避免基础接口要求所有协议实现。
+ProtocolPort 统一描述 Shared Core 支持的协议运行时能力集合。具体协议通过
+capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显式失败。
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from ..protocol_contract import (
     ConnectionHealth,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
 )
 
 
+class SubscriptionHandle(Protocol):
+    """协议订阅生命周期句柄。"""
+
+    async def close(self) -> None:
+        ...
+
+
+ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
+
+
 class ProtocolPort(Protocol):
-    """共享的最小设备通信能力边界。"""
+    """统一设备协议运行时能力边界。"""
+
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        ...
 
     async def connect(self) -> None:
         ...
@@ -41,21 +55,6 @@ class ProtocolPort(Protocol):
     ) -> tuple[ProtocolWriteResult, ...]:
         ...
 
-
-class SubscriptionHandle(Protocol):
-    """协议订阅生命周期句柄。"""
-
-    async def close(self) -> None:
-        ...
-
-
-ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
-
-
-@runtime_checkable
-class SubscribableProtocolPort(ProtocolPort, Protocol):
-    """支持主动上送或设备通知订阅的协议能力。"""
-
     async def subscribe(
         self,
         point_ids: Sequence[str],
@@ -64,11 +63,6 @@ class SubscribableProtocolPort(ProtocolPort, Protocol):
         interval: float | None = None,
     ) -> SubscriptionHandle:
         ...
-
-
-@runtime_checkable
-class InterrogatableProtocolPort(ProtocolPort, Protocol):
-    """支持显式总召或等价全站召唤的协议能力。"""
 
     async def interrogate(self) -> None:
         ...
