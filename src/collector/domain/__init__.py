@@ -1,1 +1,1 @@
-"""Wind Hub 新 Collector 包（Phase 2 起逐步实现，只依赖 core）。"""
+"""Collector Domain——无 I/O、无协议库依赖的采集核心规则。"""
