@@ -1,17 +1,5 @@
 """Shared Core 应用级配置模型。"""
 
-from core.domain import (
-    ConnectionEndpoint,
-    ConnectionId,
-    DeviceConnection,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-    ProtocolPoint,
-    RawDataType,
-)
-
 from .artifact import CoreConfigArtifact
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
 from .protocol_options import (
@@ -30,22 +18,13 @@ from .validation import validate_core_config
 __all__ = [
     "ConfigRevision",
     "ConfigRevisionConflict",
-    "ConnectionEndpoint",
-    "ConnectionId",
     "CoreConfigArtifact",
     "CoreConfigDiff",
     "CoreConfigSnapshot",
-    "DeviceConnection",
     "IndexDiff",
-    "PointAccess",
     "PointProtocolOptions",
-    "PointTable",
-    "PointTableId",
-    "Protocol",
     "ProtocolOptionValue",
     "ProtocolOptions",
-    "ProtocolPoint",
-    "RawDataType",
     "StoredCoreConfig",
     "compute_core_config_diff",
     "validate_core_config",
