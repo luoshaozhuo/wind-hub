@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from core.application import (
+    ConfigError,
     ConfigRevisionConflict,
     ConnectionEndpoint,
     CoreConfigSnapshot,
@@ -21,6 +22,8 @@ from core.domain import (
     ProtocolPoint,
     RawDataType,
     UNIT_CATALOG,
+    Quantity,
+    Unit,
     UnitCode,
     ValueType,
 )
@@ -129,3 +132,34 @@ def test_snapshot_resolves_enabled_connections_only() -> None:
     assert len(enabled.connections_for_device("wt01")) == 1
     assert disabled.connections_for_device("wt01") == ()
     assert len(disabled.connections_for_device("wt01", enabled_only=False)) == 1
+
+
+
+def test_core_config_rejects_noncanonical_unit_instance() -> None:
+    snapshot = _snapshot()
+    point = next(iter(snapshot.business_points.values()))
+    invalid_point = BusinessPoint(
+        point.business_point_id,
+        point.value_type,
+        Unit(
+            UnitCode.KILOWATT,
+            "bad",
+            Quantity.TIME,
+            scale_to_base=2.0,
+        ),
+    )
+    invalid = CoreConfigSnapshot(
+        device_types=snapshot.device_types,
+        device_models=snapshot.device_models,
+        devices=snapshot.devices,
+        business_points={
+            invalid_point.business_point_id: invalid_point,
+        },
+        point_tables=snapshot.point_tables,
+        device_connections=snapshot.device_connections,
+    )
+
+    with pytest.raises(ConfigError, match="canonical built-in unit"):
+        from core.application import validate_core_config
+
+        validate_core_config(invalid)
