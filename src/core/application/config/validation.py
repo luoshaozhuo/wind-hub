@@ -14,7 +14,6 @@ def validate_core_config(snapshot: CoreConfigSnapshot) -> None:
     _validate_point_tables(snapshot)
     _validate_device_models(snapshot)
     _validate_devices(snapshot)
-    _validate_device_connections(snapshot)
     _validate_protocol_options(snapshot)
 
 
@@ -99,23 +98,12 @@ def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
             )
 
 
-def _validate_device_connections(snapshot: CoreConfigSnapshot) -> None:
-    for connection in snapshot.device_connections.values():
-        if connection.device_id not in snapshot.devices:
-            raise ConfigError(
-                f"connection '{connection.connection_id}' references unknown "
-                f"device '{connection.device_id}'"
-            )
-
-
 def _validate_protocol_options(snapshot: CoreConfigSnapshot) -> None:
-    unknown_connections = set(snapshot.connection_options) - set(
-        snapshot.device_connections
-    )
-    if unknown_connections:
+    unknown_devices = set(snapshot.device_options) - set(snapshot.devices)
+    if unknown_devices:
         raise ConfigError(
-            "connection options reference unknown connections: "
-            f"{sorted(str(value) for value in unknown_connections)}"
+            "device options reference unknown devices: "
+            f"{sorted(str(value) for value in unknown_devices)}"
         )
 
     unknown_tables = set(snapshot.point_options) - set(snapshot.point_tables)
