@@ -402,3 +402,50 @@ async def test_ads_local_router_has_single_process_owner(
 
     assert fake_pyads.open_calls == 2
     assert fake_pyads.close_calls == 2
+
+
+
+@pytest.mark.asyncio
+async def test_ads_subscription_can_close_itself_from_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    point = _point(
+        "speed",
+        index_group=0x4020,
+        index_offset=10,
+    )
+    table = PointTable(
+        "ads_pt",
+        Protocol("ads"),
+        {"speed": point},
+    )
+    driver = ADSDriver(_connection(), table)
+    driver._connected = True
+
+    _FakeNotificationConnection.instances = []
+    monkeypatch.setattr(
+        subscription_module,
+        "_pyads",
+        lambda: _FakeNotificationPyads,
+    )
+    done = asyncio.Event()
+    handle_box: list[object] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        del sample
+        handle = handle_box[0]
+        await handle.close()
+        done.set()
+
+    handle = await driver.subscribe(
+        (point,),
+        callback,
+        interval=0.25,
+    )
+    handle_box.append(handle)
+    connection = _FakeNotificationConnection.instances[0]
+    assert connection.callback is not None
+    connection.callback(None, (0x4020, 10), None, 12.5)
+
+    await asyncio.wait_for(done.wait(), timeout=1.0)
+    assert connection.is_open is False
