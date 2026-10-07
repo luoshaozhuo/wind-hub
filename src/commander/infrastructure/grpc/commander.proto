@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package windhub.commander.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+message ScalarValue {
+  oneof kind {
+    bool bool_value = 1;
+    sint64 sint64_value = 2;
+    uint64 uint64_value = 3;
+    double double_value = 4;
+    string string_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+message ReadPointRequest { string device_id = 1; string point_id = 2; }
+message ReadPointsRequest { string device_id = 1; repeated string point_ids = 2; }
+message PointValueMessage {
+  string device_id = 1; string point_id = 2; ScalarValue value = 3;
+  string quality = 4; google.protobuf.Timestamp timestamp = 5; string source = 6;
+}
+message ReadPointsResponse { repeated PointValueMessage values = 1; }
+message WritePointRequest {
+  string command_id = 1; string device_id = 2; string point_id = 3;
+  ScalarValue value = 4; double timeout = 5;
+}
+message WritePointsRequest { repeated WritePointRequest commands = 1; }
+message CommandResultMessage {
+  string command_id = 1; bool success = 2; string error = 3;
+  google.protobuf.Timestamp finished_at = 4;
+}
+message WritePointsResponse { repeated CommandResultMessage results = 1; }
+
+message CommanderStatusResponse {
+  bool running = 1; uint64 device_count = 2; uint64 healthy_devices = 3;
+  string active_revision = 4; string active_config_hash = 5;
+  string prepared_revision = 6; string prepared_config_hash = 7;
+}
+message DeviceSummary {
+  string device_id = 1; string protocol = 2; string host = 3;
+  uint64 port = 4; bool enabled = 5; bool healthy = 6;
+}
+message ListDevicesResponse { repeated DeviceSummary devices = 1; }
+
+message PrepareConfigRequest { string revision_id = 1; string config_hash = 2; }
+message PrepareConfigResponse { bool success = 1; string revision_id = 2; string config_hash = 3; }
+message ActivateConfigRequest { string revision_id = 1; }
+message ActivateConfigResponse { bool success = 1; string revision_id = 2; string active_config_hash = 3; }
+message AbortConfigRequest { string revision_id = 1; }
+message AbortConfigResponse { bool success = 1; string revision_id = 2; bool aborted = 3; }
+
+message VerifyDeviceRequest { string device_id = 1; double timeout = 2; }
+message DiagnosticStageMessage {
+  string name = 1; bool ok = 2; string code = 3; string severity = 4; string message = 5;
+}
+message DeviceVerifyResponse {
+  string device_id = 1; string protocol = 2; string host = 3; uint64 port = 4; bool ok = 5;
+  repeated DiagnosticStageMessage stages = 6;
+}
+message PointRequest { string device_id = 1; string point_id = 2; }
+message VerifyPointsRequest { string device_id = 1; string point_group = 2; }
+message AddressField { string key = 1; ScalarValue value = 2; }
+message PointVerifyResponse {
+  string device_id = 1; string point_id = 2; string variable_name = 3; string protocol = 4;
+  repeated AddressField configured_address = 5; repeated AddressField resolved_address = 6;
+  string data_type = 7; double scale = 8; double offset = 9; string unit = 10;
+  google.protobuf.BoolValue readable = 11; bool ok = 12; string code = 13; string severity = 14;
+  ScalarValue raw_value = 15; ScalarValue engineering_value = 16;
+  string quality = 17; string source = 18; string error = 19;
+}
+message PointsVerifyResponse {
+  string device_id = 1; string point_group = 2; uint64 checked = 3;
+  uint64 passed = 4; uint64 failed = 5; bool ok = 6;
+  repeated PointVerifyResponse points = 7;
+}
+
+service CommanderService {
+  rpc GetStatus(google.protobuf.Empty) returns (CommanderStatusResponse);
+  rpc ListDevices(google.protobuf.Empty) returns (ListDevicesResponse);
+  rpc PrepareConfig(PrepareConfigRequest) returns (PrepareConfigResponse);
+  rpc ActivateConfig(ActivateConfigRequest) returns (ActivateConfigResponse);
+  rpc AbortConfig(AbortConfigRequest) returns (AbortConfigResponse);
+  rpc ReadPoint(ReadPointRequest) returns (PointValueMessage);
+  rpc ReadPoints(ReadPointsRequest) returns (ReadPointsResponse);
+  rpc WritePoint(WritePointRequest) returns (CommandResultMessage);
+  rpc WritePoints(WritePointsRequest) returns (WritePointsResponse);
+  rpc VerifyDevice(VerifyDeviceRequest) returns (DeviceVerifyResponse);
+  rpc ResolvePoint(PointRequest) returns (PointVerifyResponse);
+  rpc VerifyPoint(PointRequest) returns (PointVerifyResponse);
+  rpc VerifyPoints(VerifyPointsRequest) returns (PointsVerifyResponse);
+}

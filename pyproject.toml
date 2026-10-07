@@ -97,6 +97,8 @@ extend-immutable-calls = [
 # 框架按方法名分发，无法改为 snake_case。
 "src/wind_hub_collector/adapter/inbound/grpc/server.py" = ["N802"]
 "src/wind_hub_commander/adapter/inbound/grpc/server.py" = ["N802"]
+"src/collector/infrastructure/grpc/server.py" = ["N802"]
+"src/commander/infrastructure/grpc/server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -120,6 +122,10 @@ module = [
     "wind_hub_core.rpc.collector_pb2_grpc",
     "wind_hub_core.rpc.commander_pb2",
     "wind_hub_core.rpc.commander_pb2_grpc",
+    "collector.infrastructure.grpc.collector_pb2",
+    "collector.infrastructure.grpc.collector_pb2_grpc",
+    "commander.infrastructure.grpc.commander_pb2",
+    "commander.infrastructure.grpc.commander_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -357,6 +363,22 @@ source_modules = [
     "wind_hub_commander.application",
 ]
 forbidden_modules = ["wind_hub_core.rpc"]
+
+[[tool.importlinter.contracts]]
+name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = [
+    "collector.application",
+    "collector.domain",
+    "commander.application",
+    "commander.domain",
+]
+forbidden_modules = [
+    "collector.infrastructure.grpc.collector_pb2",
+    "collector.infrastructure.grpc.collector_pb2_grpc",
+    "commander.infrastructure.grpc.commander_pb2",
+    "commander.infrastructure.grpc.commander_pb2_grpc",
+]
 
 # ---- server application 内部分层 ----
 # 依赖方向：adapter → application capability → application port → outbound adapter/infra。

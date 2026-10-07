@@ -1,7 +1,7 @@
 """wind-hub-commander 独立进程入口。
 
-Commander 独立运行：不依赖 Server，gRPC 入站适配器是可选组件（后续阶段
-接入）。默认启动后驻留等待停机信号；``--check`` 仅做配置加载校验。
+Commander 独立运行：不依赖 Server，gRPC 入站适配器承载即时读写、诊断与
+配置事务。默认启动后驻留等待停机信号；``--check`` 仅做配置加载校验。
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import signal
 from pathlib import Path
 
 from .assembly import assemble_commander
+from .infrastructure.grpc import build_grpc_server
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +28,34 @@ def _install_signal_handlers(shutdown_event: asyncio.Event) -> None:
         logger.warning("当前事件循环不支持 add_signal_handler；请通过进程管理器停止 Commander")
 
 
-async def run_commander(config_dir: str | Path) -> int:
-    """启动 Commander 并阻塞到收到停机信号。"""
+async def run_commander(
+    config_dir: str | Path,
+    *,
+    grpc_host: str = "127.0.0.1",
+    grpc_port: int = 50052,
+) -> int:
+    """启动 Commander 与 gRPC Server，并阻塞到收到停机信号。"""
     app = assemble_commander(config_dir)
+    grpc_server = build_grpc_server(app, host=grpc_host, port=grpc_port)
     shutdown_event = asyncio.Event()
     _install_signal_handlers(shutdown_event)
 
     try:
         await app.start()
+        await grpc_server.start()
         logger.info(
-            "wind-hub-commander 已启动 devices=%d config_hash=%s",
+            "wind-hub-commander 已启动 devices=%d config_hash=%s grpc=%s",
             len(app.runtime.devices),
             app.config_hash[:12],
+            grpc_server.endpoint,
         )
         await shutdown_event.wait()
         logger.info("收到停机信号，Commander 开始优雅停机")
     finally:
-        await app.stop()
+        try:
+            await grpc_server.stop()
+        finally:
+            await app.stop()
 
     logger.info("wind-hub-commander 已干净退出")
     return 0
@@ -56,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="启动 Wind Hub Commander 即时设备操作进程。",
     )
     parser.add_argument("--config", required=True, help="现场配置目录")
+    parser.add_argument("--grpc-host", default="127.0.0.1", help="gRPC 监听地址")
+    parser.add_argument("--grpc-port", type=int, default=50052, help="gRPC 监听端口")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -77,7 +91,9 @@ def main() -> int:
             app.config_hash[:12],
         )
         return 0
-    return asyncio.run(run_commander(args.config))
+    return asyncio.run(
+        run_commander(args.config, grpc_host=args.grpc_host, grpc_port=args.grpc_port)
+    )
 
 
 if __name__ == "__main__":
