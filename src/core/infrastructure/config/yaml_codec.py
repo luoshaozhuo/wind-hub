@@ -13,6 +13,12 @@ from core.application.config import (
     CoreConfigArtifact,
     CoreConfigSnapshot,
     DeviceConnection,
+    PointAccess,
+    PointTable,
+    PointTableId,
+    Protocol,
+    ProtocolPoint,
+    RawDataType,
     validate_core_config,
 )
 from core.application.errors import ConfigError
@@ -28,12 +34,6 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
-    PointAccess,
-    PointTable,
-    PointTableId,
-    Protocol,
-    ProtocolPoint,
-    RawDataType,
     UNIT_CATALOG,
     Unit,
     UnitCode,
@@ -165,7 +165,9 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
             {
                 "device_model_id": str(item.device_model_id),
                 "device_type_id": str(item.device_type_id),
-                "point_table_id": str(item.point_table_id),
+                "point_table_id": str(
+                    snapshot.device_model_point_tables[item.device_model_id]
+                ),
                 "name": item.name,
                 "manufacturer": item.manufacturer,
             }
@@ -225,12 +227,20 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
             for value in _require_list(root.get("point_tables"), "point_tables")
         )
     }
-    device_models = {
-        item.device_model_id: item
-        for item in (
-            _decode_device_model(value)
-            for value in _require_list(root.get("device_models"), "device_models")
+    decoded_device_models = [
+        _decode_device_model(value)
+        for value in _require_list(
+            root.get("device_models"),
+            "device_models",
         )
+    ]
+    device_models = {
+        model.device_model_id: model
+        for model, _ in decoded_device_models
+    }
+    device_model_point_tables = {
+        model.device_model_id: point_table_id
+        for model, point_table_id in decoded_device_models
     }
     devices = {
         item.device_id: item
@@ -265,6 +275,7 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
         devices=devices,
         business_points=business_points,
         point_tables=point_tables,
+        device_model_point_tables=device_model_point_tables,
         device_connections=connections,
     )
 
@@ -362,7 +373,9 @@ def _decode_protocol_point(value: object) -> ProtocolPoint:
     )
 
 
-def _decode_device_model(value: object) -> DeviceModel:
+def _decode_device_model(
+    value: object,
+) -> tuple[DeviceModel, PointTableId]:
     item = _require_mapping(value, "device_models[]")
     _require_fields(
         item,
@@ -375,12 +388,15 @@ def _decode_device_model(value: object) -> DeviceModel:
         },
         "device_models[]",
     )
-    return DeviceModel(
+    model = DeviceModel(
         device_model_id=DeviceModelId(_required_str(item, "device_model_id")),
         device_type_id=DeviceTypeId(_required_str(item, "device_type_id")),
-        point_table_id=PointTableId(_required_str(item, "point_table_id")),
         name=_optional_str(item, "name"),
         manufacturer=_optional_str(item, "manufacturer"),
+    )
+    return (
+        model,
+        PointTableId(_required_str(item, "point_table_id")),
     )
 
 
