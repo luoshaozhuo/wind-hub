@@ -10,7 +10,7 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
 )
-from core.domain import Protocol, ProtocolPoint
+from core.domain import PointTable, Protocol, ProtocolPoint
 from core.infrastructure import ProtocolRegistry
 
 
@@ -39,14 +39,15 @@ class _Protocol:
 
 def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
-    registry.register("Modbus", lambda _connection: _Protocol())
+    registry.register("Modbus", lambda _connection, _point_table: _Protocol())
 
     connection = DeviceConnection(
         "c1",
         "d1",
         ConnectionEndpoint("127.0.0.1", 502),
     )
-    protocol = registry.create(connection, Protocol("MODBUS"))
+    point_table = PointTable("pt", Protocol("MODBUS"), {})
+    protocol = registry.create(connection, point_table)
 
     assert registry.registered_names() == ("modbus",)
     assert protocol.health().healthy is True
