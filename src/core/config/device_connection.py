@@ -1,11 +1,12 @@
 """设备静态通信接入配置。
 
-DeviceConnection 表达一台 Device 与一张具体 PointTable 的独立接入定义。
-PointTable.protocol 唯一决定协议语义，因此 DeviceConnection 不重复保存 protocol。
+DeviceConnection 表达一台 Device 的一次独立通信接入定义。连接本身只保存
+设备引用与现场端点；PointTable 由 Device.device_model_id ->
+DeviceModel.point_table_id 唯一解析，协议再由 PointTable.protocol 唯一决定。
 
 运行时约束不进入本配置模型：一个独立 Worker 运行一个 DeviceConnection，
 一个 DeviceConnection 在该 Worker 中只建立一个活动协议连接。Worker、Session、
-重连状态等属于 Application / Runtime，而不是 Shared Domain。
+重连状态等属于 Application / Runtime，而不是共享配置语义。
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TypeAlias
 
-from core.domain import ConnectionId, DeviceId, PointTableId
+from core.domain import ConnectionId, DeviceId
 
 ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 
@@ -53,35 +54,29 @@ class ConnectionEndpoint:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConnection:
-    """一台现场设备针对其型号点表的一次独立通信接入定义。
+    """一台现场设备的一次独立通信接入定义。
 
+    - connection_id 是该静态接入定义的稳定身份；
     - device_id 指定具体设备；
-    - point_table_id 必须与该设备 DeviceModel.point_table_id 一致；
-    - PointTable.protocol 唯一决定协议；
     - endpoint 描述该连接实例的现场连接参数；
-    - connection_id 是独立接入单元的稳定身份，可供 Worker placement、
-      start/stop、health、reload 与诊断等运行能力引用。
+    - PointTable 不在此重复保存，而由 Device -> DeviceModel 唯一解析；
+    - PointTable.protocol 唯一决定该连接所使用的协议。
 
     同一个设备可以存在多个 DeviceConnection；它们可以使用相同或不同 endpoint。
     """
 
     connection_id: ConnectionId
     device_id: DeviceId
-    point_table_id: PointTableId
     endpoint: ConnectionEndpoint
 
     def __post_init__(self) -> None:
         connection_id = self.connection_id.strip()
         device_id = self.device_id.strip()
-        point_table_id = self.point_table_id.strip()
 
         if not connection_id:
             raise ValueError("connection_id must not be empty")
         if not device_id:
             raise ValueError("device_id must not be empty")
-        if not point_table_id:
-            raise ValueError("point_table_id must not be empty")
 
         object.__setattr__(self, "connection_id", ConnectionId(connection_id))
         object.__setattr__(self, "device_id", DeviceId(device_id))
-        object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
