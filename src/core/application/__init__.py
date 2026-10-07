@@ -28,6 +28,8 @@ from .measurement import (
     PointValue,
     PointWrite,
     ProtocolSample,
+    ProtocolWrite,
+    ProtocolWriteResult,
     Quality,
     WritableScalar,
 )
@@ -38,8 +40,6 @@ from .port import (
     InterrogationCapableProtocolPort,
     ProtocolFactoryPort,
     ProtocolPort,
-    ProtocolWrite,
-    ProtocolWriteResult,
     SubscribableProtocolPort,
     SubscriptionHandle,
 )
