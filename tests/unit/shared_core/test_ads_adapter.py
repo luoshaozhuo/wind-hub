@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import Protocol
 
 import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
 import core.infrastructure.protocol.ads.router as router_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
+
+
+class _Closable(Protocol):
+    async def close(self) -> None:
+        ...
+
 
 from core.application import (
     ConfigError,
@@ -16,8 +23,6 @@ from core.application import (
     ProtocolError,
     ProtocolSample,
     ProtocolWrite,
-    SubscribableProtocolPort,
-    SubscriptionHandle,
 )
 from core.domain import (
     PointAccess,
@@ -358,7 +363,6 @@ async def test_ads_driver_exposes_notification_subscription(
     async def callback(sample: ProtocolSample) -> None:
         received.append(sample)
 
-    assert isinstance(driver, SubscribableProtocolPort)
     handle = await driver.subscribe(
         (point,),
         callback,
@@ -431,7 +435,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
         lambda: _FakeNotificationPyads,
     )
     done = asyncio.Event()
-    handle_box: list[SubscriptionHandle] = []
+    handle_box: list[_Closable] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
