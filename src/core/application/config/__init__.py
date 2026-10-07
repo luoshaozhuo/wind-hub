@@ -1,4 +1,8 @@
-"""Shared Core 应用级配置模型与用例。"""
+"""Shared Core 应用级配置模型。
+
+这里只聚合配置数据模型、差异与纯校验；应用服务从
+core.application.config.service 显式导入，避免与 port 形成循环依赖。
+"""
 
 from .artifact import CoreConfigArtifact
 from .device_connection import ConnectionEndpoint, DeviceConnection
@@ -7,11 +11,6 @@ from .revision import (
     ConfigRevision,
     ConfigRevisionConflict,
     StoredCoreConfig,
-)
-from .service import (
-    CoreConfigPreview,
-    CoreConfigService,
-    CoreConfigUpdateResult,
 )
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
@@ -22,10 +21,7 @@ __all__ = [
     "ConnectionEndpoint",
     "CoreConfigArtifact",
     "CoreConfigDiff",
-    "CoreConfigPreview",
-    "CoreConfigService",
     "CoreConfigSnapshot",
-    "CoreConfigUpdateResult",
     "DeviceConnection",
     "IndexDiff",
     "StoredCoreConfig",
