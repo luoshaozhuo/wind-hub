@@ -60,6 +60,15 @@ class _Protocol:
         return ()
 
 
+
+def test_protocol_write_normalizes_point_id() -> None:
+    write = ProtocolWrite(point_id=" power ", value=1.0)
+
+    assert write.point_id == "power"
+
+    with pytest.raises(ValueError, match="point_id"):
+        ProtocolWrite(point_id=" ", value=1.0)
+
 def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
     registry.register(
