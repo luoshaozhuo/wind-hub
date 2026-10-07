@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
-import struct
 
 
 @dataclass(frozen=True, slots=True)
