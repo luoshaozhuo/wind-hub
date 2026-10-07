@@ -14,7 +14,7 @@ def validate_core_config(snapshot: CoreConfigSnapshot) -> None:
     _validate_point_tables(snapshot)
     _validate_device_models(snapshot)
     _validate_devices(snapshot)
-    _validate_protocol_options(snapshot)
+    _validate_device_options(snapshot)
 
 
 def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
@@ -98,7 +98,7 @@ def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
             )
 
 
-def _validate_protocol_options(snapshot: CoreConfigSnapshot) -> None:
+def _validate_device_options(snapshot: CoreConfigSnapshot) -> None:
     unknown_devices = set(snapshot.device_options) - set(snapshot.devices)
     if unknown_devices:
         raise ConfigError(
