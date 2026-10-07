@@ -30,11 +30,7 @@ from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
-from core.infrastructure import (
-    ProtocolConfigValidator,
-    ProtocolRegistry,
-    build_protocol_registry,
-)
+from core.infrastructure import ProtocolRegistry
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -121,10 +117,9 @@ def test_protocol_registry_accepts_builtin_driver_classes() -> None:
 
 
 
-def test_protocol_config_validator_fails_before_runtime_io() -> None:
+def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
     registry = ProtocolRegistry()
     registry.register("modbus", ModbusDriver)
-    validator = ProtocolConfigValidator(registry)
 
     device_type = DeviceType("turbine", "Turbine")
     business_point = BusinessPoint(
@@ -169,7 +164,11 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
     )
 
     with pytest.raises(ConfigError, match="address"):
-        validator.validate(snapshot)
+        registry.create(
+            device.endpoint,
+            snapshot.point_table_for_device(device.device_id),
+            snapshot.device_options_for(device.device_id),
+        )
 
 
 
@@ -236,7 +235,10 @@ async def test_ads_rejects_unsupported_interrogation() -> None:
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
         await driver.interrogate()
 
-def test_builtin_protocol_registry_has_all_shared_drivers() -> None:
-    registry = build_protocol_registry()
+def test_protocol_registry_is_explicitly_assembled_by_caller() -> None:
+    registry = ProtocolRegistry()
+    registry.register("ads", ADSDriver)
+    registry.register("iec104", IEC104Driver)
+    registry.register("modbus", ModbusDriver)
 
     assert registry.registered_names() == ("ads", "iec104", "modbus")
