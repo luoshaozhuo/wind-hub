@@ -122,17 +122,15 @@ class PointTable:
 
         points = dict(self.points)
         for point_id, point in points.items():
-            normalized_point_id = point_id.strip()
-            if not normalized_point_id:
+            if not point_id:
                 raise ValueError("point table keys must not be empty")
-            if normalized_point_id != point.point_id:
+            if point_id != point_id.strip():
+                raise ValueError("point table keys must not contain surrounding whitespace")
+            if point_id != point.point_id:
                 raise ValueError(
                     f"point table key '{point_id}' does not match point_id "
                     f"'{point.point_id}'"
                 )
-            if normalized_point_id != point_id:
-                del points[point_id]
-                points[normalized_point_id] = point
 
         object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
         object.__setattr__(self, "name", name)
