@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -27,6 +28,9 @@ from core.domain import PointAccess, PointTable, ProtocolPoint
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
+logger = logging.getLogger(__name__)
+
+
 from .mapping import (
     IEC104Point,
     build_iec104_index,
@@ -108,14 +112,15 @@ class _SubscriptionRegistry:
             if not subscriptions:
                 del self._ioa[ioa]
 
-    def clear(self) -> None:
-        for subscription in self._global:
-            subscription._closed = True
-        for subscriptions in self._ioa.values():
-            for subscription in subscriptions:
-                subscription._closed = True
-        self._global.clear()
-        self._ioa.clear()
+    async def close_all(self) -> None:
+        """注销全部订阅并等待在途 callback 完成。"""
+        subscriptions = list(self._global)
+        for items in self._ioa.values():
+            for subscription in items:
+                if subscription not in subscriptions:
+                    subscriptions.append(subscription)
+        for subscription in subscriptions:
+            await subscription.close()
 
     async def dispatch(self, sample: ProtocolSample, ioa: int) -> None:
         subscriptions = [
@@ -138,6 +143,11 @@ class _SubscriptionRegistry:
     ) -> None:
         try:
             await subscription._callback(sample)
+        except Exception:
+            logger.exception(
+                "IEC104 subscriber callback failed for point '%s'",
+                sample.point_id,
+            )
         finally:
             subscription._untrack()
 
@@ -199,7 +209,7 @@ class IEC104Driver:
     async def connect(self) -> None:
         """创建 c104 client 并等待连接进入 OPEN。"""
         async with self._lock:
-            if self._client is not None and self._is_open:
+            if self._client is not None:
                 return
 
             c104 = _c104()
@@ -289,7 +299,7 @@ class IEC104Driver:
             self._open_event = None
             self._receive_callback_factory = None
             self._samples.clear()
-            self._subscriptions.clear()
+            await self._subscriptions.close_all()
             self._loop = None
 
             if connection is not None:
