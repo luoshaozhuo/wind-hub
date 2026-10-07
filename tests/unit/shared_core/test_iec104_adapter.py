@@ -12,7 +12,6 @@ from core.application import (
 )
 from core.domain import (
     ConnectionEndpoint,
-    DeviceConnection,
     PointAccess,
     PointTable,
     Protocol as DeviceProtocol,
@@ -34,12 +33,8 @@ class _Closable(Protocol):
         ...
 
 
-def _connection() -> DeviceConnection:
-    return DeviceConnection(
-        "iec-main",
-        "rtu01",
-        ConnectionEndpoint("192.0.2.30"),
-    )
+def _endpoint() -> ConnectionEndpoint:
+    return ConnectionEndpoint("192.0.2.30")
 
 
 def _point(
@@ -69,7 +64,7 @@ def _point_options(
 
 
 def test_iec104_config_defaults_and_window_validation() -> None:
-    config = parse_iec104_config(_connection(), {})
+    config = parse_iec104_config(_endpoint(), {})
 
     assert config.port == 2404
     assert config.common_addr == 1
@@ -78,7 +73,7 @@ def test_iec104_config_defaults_and_window_validation() -> None:
 
     with pytest.raises(ConfigError, match="must not exceed k"):
         parse_iec104_config(
-            _connection(),
+            _endpoint(),
             {"k": 4, "w": 8},
         )
 
@@ -123,7 +118,7 @@ def test_iec104_writable_point_requires_command_type() -> None:
 
     with pytest.raises(ConfigError, match="requires type_id"):
         IEC104Driver(
-            _connection(),
+            _endpoint(),
             table,
             {},
             {"setpoint": _point_options(ioa=2001)},
@@ -142,7 +137,7 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
     )
 
     driver = IEC104Driver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {
@@ -169,7 +164,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
 
     with pytest.raises(ConfigError, match="unsupported command type"):
         IEC104Driver(
-            _connection(),
+            _endpoint(),
             table,
             {},
             {
@@ -189,7 +184,7 @@ def _driver_for_monitoring_point() -> tuple[IEC104Driver, ProtocolPoint]:
         {point.point_id: point},
     )
     driver = IEC104Driver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {"power": _point_options(ioa=100)},
