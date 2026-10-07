@@ -18,8 +18,14 @@ ProtocolOptionValue: TypeAlias = str | int | float | bool | None
 def _freeze_mapping(
     value: Mapping[str, ProtocolOptionValue],
 ) -> Mapping[str, ProtocolOptionValue]:
-    """返回协议专有字段的只读浅拷贝。"""
-    return MappingProxyType(dict(value))
+    """返回协议专有字段的只读浅拷贝，并拒绝非有限浮点值。"""
+    options = dict(value)
+    for key, item in options.items():
+        if isinstance(item, float) and not isfinite(item):
+            raise ValueError(
+                f"protocol option '{key}' must be finite"
+            )
+    return MappingProxyType(options)
 
 
 @dataclass(frozen=True, slots=True)
