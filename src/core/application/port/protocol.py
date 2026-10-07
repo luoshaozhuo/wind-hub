@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from core.domain import ProtocolPoint
 
 from ..measurement import PointScalar, ProtocolSample
+
+
+class AcquisitionMode(StrEnum):
+    """持续采集模式。"""
+
+    POLL = "poll"
+    SUBSCRIBE = "subscribe"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +48,11 @@ class ProtocolPort(Protocol):
     具体 ADS / Modbus / IEC104 Adapter 负责协议寻址、编码和网络 I/O；
     Application 只传递 ProtocolPoint 与标量值，不依赖第三方协议对象。
     """
+
+    @property
+    def acquisition_mode(self) -> AcquisitionMode:
+        """声明该协议实例当前采用的持续采集模式。"""
+        ...
 
     async def connect(self) -> None:
         """建立底层协议连接。"""
