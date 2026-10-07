@@ -52,12 +52,12 @@ def parse_iec104_point(
             f"IEC104 point '{point.point_id}': ioa must be in 0..{_MAX_IOA}"
         )
 
-    raw_type = options.get("type_id", options.get("type"))
+    raw_type_id = options.get("type_id", options.get("type"))
     type_id: str | None
-    if raw_type is None:
+    if raw_type_id is None:
         type_id = None
-    elif isinstance(raw_type, str) and raw_type.strip():
-        type_id = raw_type.strip().upper()
+    elif isinstance(raw_type_id, str) and raw_type_id.strip():
+        type_id = raw_type_id.strip().upper()
     else:
         raise ConfigError(
             f"IEC104 point '{point.point_id}': type/type_id must be a non-empty string"
