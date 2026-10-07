@@ -33,7 +33,6 @@ class CoreConfigDiff:
     business_points: IndexDiff
     point_tables: IndexDiff
     device_options: IndexDiff
-    point_options: IndexDiff
 
     @property
     def changed(self) -> bool:
@@ -48,7 +47,6 @@ class CoreConfigDiff:
                 self.business_points,
                 self.point_tables,
                 self.device_options,
-                self.point_options,
             )
         )
 
@@ -68,10 +66,6 @@ def compute_core_config_diff(
         device_options=_diff_index(
             old.device_options,
             new.device_options,
-        ),
-        point_options=_diff_index(
-            old.point_options,
-            new.point_options,
         ),
     )
 
