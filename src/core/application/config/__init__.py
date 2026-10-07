@@ -6,7 +6,14 @@ core.application.config.service 显式导入，避免与 port 形成循环依赖
 
 from .artifact import CoreConfigArtifact
 from .device_connection import ConnectionEndpoint, DeviceConnection
-from .identities import ConnectionId
+from .identities import ConnectionId, PointTableId
+from .point_table import (
+    PointAccess,
+    PointTable,
+    Protocol,
+    ProtocolPoint,
+    RawDataType,
+)
 from .diff import CoreConfigDiff, IndexDiff, compute_core_config_diff
 from .revision import (
     ConfigRevision,
@@ -21,6 +28,12 @@ __all__ = [
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
     "ConnectionId",
+    "PointAccess",
+    "PointTable",
+    "PointTableId",
+    "Protocol",
+    "ProtocolPoint",
+    "RawDataType",
     "CoreConfigArtifact",
     "CoreConfigDiff",
     "CoreConfigSnapshot",
