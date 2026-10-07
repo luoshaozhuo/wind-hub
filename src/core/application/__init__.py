@@ -1,28 +1,21 @@
-"""Shared Core Application。
+"""Shared Core Application 公共门面。
 
-只保留 Collector、Commander、Server 稳定共享的配置用例、配置端口、
-最小设备协议 Port 与协议数据契约。
+Application 只暴露用例编排、应用契约、错误和 Ports。
 """
 
-from .config import (
+from .config_contract import (
     ConfigRevision,
     ConfigRevisionConflict,
     CoreConfigArtifact,
-    CoreConfigDiff,
-    CoreConfigSnapshot,
-    IndexDiff,
-    StoredCoreConfig,
-    compute_core_config_diff,
-    validate_core_config,
-)
-from .config.service import (
     CoreConfigPreview,
-    CoreConfigService,
     CoreConfigUpdateResult,
+    StoredCoreConfig,
 )
+from .config_service import CoreConfigService
 from .errors import ConfigError, CoreError, ProtocolCapabilityError, ProtocolError
 from .port import (
     CoreConfigCodecPort,
+    CoreConfigPort,
     CoreConfigRepositoryPort,
     CoreConfigValidatorPort,
     ProtocolPort,
@@ -47,15 +40,13 @@ __all__ = [
     "ConnectionHealth",
     "CoreConfigArtifact",
     "CoreConfigCodecPort",
-    "CoreConfigDiff",
+    "CoreConfigPort",
     "CoreConfigPreview",
     "CoreConfigRepositoryPort",
     "CoreConfigService",
-    "CoreConfigSnapshot",
     "CoreConfigUpdateResult",
     "CoreConfigValidatorPort",
     "CoreError",
-    "IndexDiff",
     "PointScalar",
     "ProtocolCapability",
     "ProtocolCapabilityError",
@@ -69,6 +60,4 @@ __all__ = [
     "StoredCoreConfig",
     "SubscriptionHandle",
     "WritableScalar",
-    "compute_core_config_diff",
-    "validate_core_config",
 ]
