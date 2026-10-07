@@ -29,12 +29,13 @@ from core.domain import (
     ValueType,
 )
 from core.infrastructure import (
-    ADSDriver,
-    IEC104Driver,
-    ModbusDriver,
     ProtocolConfigValidator,
     ProtocolRegistry,
+    build_protocol_registry,
 )
+from core.infrastructure.protocol.ads import ADSDriver
+from core.infrastructure.protocol.iec104 import IEC104Driver
+from core.infrastructure.protocol.modbus import ModbusDriver
 
 
 class _Protocol:
@@ -138,3 +139,10 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
 
     with pytest.raises(ConfigError, match="address"):
         validator.validate(snapshot)
+
+
+
+def test_builtin_protocol_registry_has_all_shared_drivers() -> None:
+    registry = build_protocol_registry()
+
+    assert registry.registered_names() == ("ads", "iec104", "modbus")
