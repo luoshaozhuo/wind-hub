@@ -139,10 +139,21 @@ RPM = Unit(
     Quantity.ANGULAR_SPEED,
     scale_to_base=2.0 * pi / 60.0,
 )
+RADIAN_PER_SECOND_SQUARED = Unit(
+    UnitCode.RADIAN_PER_SECOND_SQUARED,
+    "rad/s²",
+    Quantity.ANGULAR_ACCELERATION,
+)
+DEGREE_PER_SECOND_SQUARED = Unit(
+    UnitCode.DEGREE_PER_SECOND_SQUARED,
+    "°/s²",
+    Quantity.ANGULAR_ACCELERATION,
+    scale_to_base=pi / 180.0,
+)
 RPM_PER_SECOND = Unit(
     UnitCode.RPM_PER_SECOND,
     "r/min/s",
-    Quantity.ROTATIONAL_ACCELERATION,
+    Quantity.ANGULAR_ACCELERATION,
     scale_to_base=2.0 * pi / 60.0,
 )
 
@@ -248,6 +259,8 @@ _ALL_UNITS = (
     RADIAN_PER_SECOND,
     DEGREE_PER_SECOND,
     RPM,
+    RADIAN_PER_SECOND_SQUARED,
+    DEGREE_PER_SECOND_SQUARED,
     RPM_PER_SECOND,
     NEWTON,
     KILONEWTON,
