@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 import pytest
 
@@ -274,7 +275,7 @@ class _FakeNotificationConnection:
     ) -> None:
         del net_id, port, host
         self.is_open = False
-        self.callback: object | None = None
+        self.callback: Callable[..., None] | None = None
         type(self).instances.append(self)
 
     def set_timeout(self, timeout_ms: int) -> None:
@@ -289,10 +290,15 @@ class _FakeNotificationConnection:
     def read_state(self) -> tuple[int, int]:
         return (5, 0)
 
-    def notification(self, datatype: object):
+    def notification(
+        self,
+        datatype: object,
+    ) -> Callable[[Callable[..., None]], Callable[..., None]]:
         del datatype
 
-        def decorator(callback: object) -> object:
+        def decorator(
+            callback: Callable[..., None],
+        ) -> Callable[..., None]:
             self.callback = callback
             return callback
 
@@ -302,7 +308,7 @@ class _FakeNotificationConnection:
         self,
         address: tuple[int, int],
         attr: object,
-        callback: object,
+        callback: Callable[..., None],
     ) -> tuple[object, object]:
         del attr
         self.callback = callback
