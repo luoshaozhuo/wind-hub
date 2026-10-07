@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolPoint
+from core.domain import ConnectionEndpoint, PointAccess, PointTable, PointDefinition
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
@@ -325,7 +325,7 @@ class IEC104Driver:
 
     async def read(
         self,
-        points: Sequence[ProtocolPoint],
+        points: Sequence[PointDefinition],
     ) -> tuple[ProtocolSample, ...]:
         """读取 c104 回调维护的最新镜像，不主动发 wire 请求。"""
         if not points:
@@ -367,7 +367,7 @@ class IEC104Driver:
 
     async def subscribe(
         self,
-        points: Sequence[ProtocolPoint],
+        points: Sequence[PointDefinition],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
@@ -487,7 +487,7 @@ class IEC104Driver:
             )
         return point
 
-    def _mapped_point(self, point: ProtocolPoint) -> IEC104Point:
+    def _mapped_point(self, point: PointDefinition) -> IEC104Point:
         mapped = self._points_by_id.get(point.point_id)
         if mapped is None:
             raise ConfigError(
