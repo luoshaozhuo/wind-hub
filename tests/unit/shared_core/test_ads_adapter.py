@@ -24,12 +24,14 @@ from core.application import (
     ProtocolSample,
     ProtocolWrite,
 )
-from core.domain import (
+from core.application.config import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
+)
+from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
