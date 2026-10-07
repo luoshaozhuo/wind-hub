@@ -87,9 +87,11 @@ class ADSPoint:
         return replace(self, address_resolved=False)
 
 
-def parse_ads_point(point: ProtocolPoint) -> ADSPoint:
+def parse_ads_point(
+    point: ProtocolPoint,
+    options: ProtocolOptions,
+) -> ADSPoint:
     """把 ProtocolPoint 解析为纯内存 ADSPoint。"""
-    options = point.protocol_options
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
