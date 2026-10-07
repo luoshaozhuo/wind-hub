@@ -1,7 +1,11 @@
 """设备静态通信接入配置。
 
-DeviceConnection 不重复保存 protocol。point_table_id 唯一决定协议语义；
-ConnectionEndpoint 只描述该现场设备实例的具体连接参数。
+DeviceConnection 表达一台 Device 与一张具体 PointTable 的唯一接入关系。
+PointTable.protocol 唯一决定协议语义，因此 DeviceConnection 不重复保存 protocol。
+
+运行时约束不进入本配置模型：一个独立 Worker 运行一个 DeviceConnection，
+一个 DeviceConnection 在该 Worker 中只建立一个活动协议连接。Worker、Session、
+重连状态等属于 Application / Runtime，而不是 Shared Domain。
 """
 
 from __future__ import annotations
@@ -45,10 +49,17 @@ class ConnectionEndpoint:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConnection:
-    """一台现场设备实际启用的一种通信接入方式。
+    """一台现场设备与一张具体点表的通信接入定义。
 
-    point_table_id 同时选择该设备使用的协议点表，并由 PointTable.protocol
-    唯一确定协议；因此本对象不再重复保存 protocol 字段。
+    - device_id 指定具体设备；
+    - point_table_id 指定该设备使用的具体点表；
+    - PointTable.protocol 唯一决定协议；
+    - endpoint 描述该接入实例的现场连接参数；
+    - connection_id 是该独立接入单元的稳定身份，可供 Worker placement、
+      start/stop、health、reload 与诊断等运行能力引用。
+
+    同一个 ``(device_id, point_table_id)`` 在配置集合中只允许一个
+    DeviceConnection；该集合级不变量由 validation 层校验。
     """
 
     connection_id: str
