@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application.config import DeviceConnection
+from core.application.errors import ConfigError
 from core.application.port import ProtocolFactoryPort, ProtocolPort
 from core.domain import PointTable, Protocol
 
@@ -29,7 +30,7 @@ class ProtocolRegistry(ProtocolFactoryPort):
         """注册一个协议 Driver factory。"""
         name = _protocol_name(protocol)
         if name in self._factories:
-            raise ValueError(f"protocol driver '{name}' is already registered")
+            raise ConfigError(f"protocol driver '{name}' is already registered")
         self._factories[name] = factory
 
     def registered_names(self) -> tuple[str, ...]:
@@ -45,7 +46,7 @@ class ProtocolRegistry(ProtocolFactoryPort):
         protocol = point_table.protocol
         factory = self._factories.get(protocol.name)
         if factory is None:
-            raise ValueError(
+            raise ConfigError(
                 f"unknown protocol driver '{protocol.name}'; "
                 f"registered={list(self.registered_names())}"
             )
@@ -57,5 +58,5 @@ def _protocol_name(protocol: Protocol | str) -> str:
         return protocol.name
     name = protocol.strip().lower()
     if not name:
-        raise ValueError("protocol name must not be empty")
+        raise ConfigError("protocol name must not be empty")
     return name
