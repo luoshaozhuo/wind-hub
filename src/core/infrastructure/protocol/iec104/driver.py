@@ -22,7 +22,6 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
-    SubscriptionHandle,
 )
 from core.domain import PointAccess, PointTable, ProtocolPoint
 
@@ -365,7 +364,7 @@ class IEC104Driver:
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
-    ) -> SubscriptionHandle:
+    ) -> _Subscription:
         """注册 IEC104 主动上送/总召响应的样本回调。
 
         空 points 表示订阅本 PointTable 内的全部已知 IOA。生命周期由调用方
