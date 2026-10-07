@@ -11,6 +11,7 @@ from .measurement import PointScalar, PointValue, ProtocolSample, Quality
 from .port import (
     AcquisitionMode,
     ExclusiveOpenSinkPort,
+    InterrogationCapable,
     ProtocolPort,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -24,6 +25,7 @@ __all__ = [
     "CollectionAssignment",
     "CollectionWork",
     "ExclusiveOpenSinkPort",
+    "InterrogationCapable",
     "PointScalar",
     "PointValue",
     "ProtocolPort",
