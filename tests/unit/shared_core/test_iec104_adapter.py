@@ -51,7 +51,7 @@ def _point(
     )
 
 
-def _point_options(
+def _point_ext(
     *,
     ioa: int,
     type_id: str | None = None,
@@ -81,7 +81,7 @@ def test_iec104_point_maps_ioa_and_type_id() -> None:
     mapped = parse_iec104_point(
         _point(
             "active_power",
-            ext=_point_options(
+            ext=_point_ext(
                 ioa=1001,
                 type_id="M_ME_NC_1",
             ),
@@ -93,8 +93,8 @@ def test_iec104_point_maps_ioa_and_type_id() -> None:
 
 
 def test_iec104_index_rejects_duplicate_ioa() -> None:
-    first = _point("p1", ext=_point_options(ioa=100))
-    second = _point("p2", ext=_point_options(ioa=100))
+    first = _point("p1", ext=_point_ext(ioa=100))
+    second = _point("p2", ext=_point_ext(ioa=100))
 
     with pytest.raises(ConfigError, match="duplicate IOA"):
         build_iec104_index([first, second])
@@ -104,7 +104,7 @@ def test_iec104_writable_point_requires_command_type() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
-        ext=_point_options(ioa=2001),
+        ext=_point_ext(ioa=2001),
     )
     table = PointTable(
         "iec_pt",
@@ -124,7 +124,7 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
-        ext=_point_options(
+        ext=_point_ext(
             ioa=2001,
             type_id="C_SE_NC_1",
         ),
@@ -148,7 +148,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
-        ext=_point_options(
+        ext=_point_ext(
             ioa=2001,
             type_id="M_ME_NC_1",
         ),
@@ -168,7 +168,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
 
 
 def _driver_for_monitoring_point() -> tuple[IEC104Driver, Point]:
-    point = _point("power", ext=_point_options(ioa=100))
+    point = _point("power", ext=_point_ext(ioa=100))
     table = PointTable(
         "iec_pt",
         DeviceProtocol("iec104"),
