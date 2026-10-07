@@ -7,7 +7,7 @@ from enum import IntEnum
 from typing import Any
 
 from core.application import ConfigError, ProtocolSample, Quality
-from core.infrastructure.protocol.iec104.mapping import IEC104Point
+from .mapping import IEC104Point
 
 
 def sample_from_c104(point: Any, point_id: str) -> ProtocolSample:
