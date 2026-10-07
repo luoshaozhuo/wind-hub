@@ -22,7 +22,6 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
-    SubscriptionHandle,
 )
 from core.domain import PointTable, ProtocolPoint
 
@@ -150,7 +149,7 @@ class ADSDriver:
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
-    ) -> SubscriptionHandle:
+    ) -> _TrackedADSSubscription:
         """建立独立 ADS device-notification 订阅。
 
         interval 是 notification cycle_time，必须由调用方明确提供。空 points
