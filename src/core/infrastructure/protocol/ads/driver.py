@@ -168,7 +168,7 @@ class ADSDriver:
             )
 
         mapped = tuple(
-            self._mapped_point(point)
+            self._mapped_point(point.point_id)
             for point in points
         ) if points else tuple(self._points.values())
 
@@ -188,10 +188,10 @@ class ADSDriver:
 
     async def read(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """按配置的 sum/sequential 策略读取点。"""
-        if not points:
+        if not point_ids:
             return ()
 
         async with self._lock:
@@ -199,8 +199,8 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
-                    return await self._read_sum(points)
-                return await self._read_sequential(points)
+                    return await self._read_sum(point_ids)
+                return await self._read_sequential(point_ids)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -225,7 +225,7 @@ class ADSDriver:
             results: list[ProtocolWriteResult] = []
             try:
                 for write in writes:
-                    mapped = self._mapped_point(write.point)
+                    mapped = self._mapped_point(write.point_id)
                     if not mapped.address_resolved:
                         results.append(
                             ProtocolWriteResult(
@@ -284,16 +284,16 @@ class ADSDriver:
 
     async def _read_sum(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        results: list[ProtocolSample | None] = [None] * len(points)
+        results: list[ProtocolSample | None] = [None] * len(point_ids)
         fixed: list[tuple[int, ADSPoint]] = []
         variable: list[tuple[int, ADSPoint]] = []
 
-        for index, point in enumerate(points):
-            mapped = self._mapped_point(point)
+        for index, point_id in enumerate(point_ids):
+            mapped = self._mapped_point(point_id)
             if not mapped.address_resolved:
-                results[index] = _bad_sample(point.point_id)
+                results[index] = _bad_sample(point_id)
             elif mapped.size > 0:
                 fixed.append((index, mapped))
             else:
@@ -377,14 +377,14 @@ class ADSDriver:
 
     async def _read_sequential(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         semaphore = asyncio.Semaphore(
             self._config.max_concurrent_reads
         )
 
-        async def read_one(point: Point) -> ProtocolSample:
-            mapped = self._mapped_point(point)
+        async def read_one(point_id: str) -> ProtocolSample:
+            mapped = self._mapped_point(point_id)
             if not mapped.address_resolved:
                 return _bad_sample(mapped.point_id)
             try:
@@ -407,7 +407,7 @@ class ADSDriver:
 
         return tuple(
             await asyncio.gather(
-                *(read_one(point) for point in points)
+                *(read_one(point_id) for point_id in point_ids)
             )
         )
 
@@ -458,11 +458,11 @@ class ADSDriver:
             for point_id, point in self._points.items()
         }
 
-    def _mapped_point(self, point: Point) -> ADSPoint:
-        mapped = self._points.get(point.point_id)
+    def _mapped_point(self, point_id: str) -> ADSPoint:
+        mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point.point_id}' is not part of connection "
+                f"point '{point_id}' is not part of connection "
                 f"'{self._point_table_id}'"
             )
         return mapped
