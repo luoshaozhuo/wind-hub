@@ -16,7 +16,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    PointDefinition,
+    Point,
     BusinessPoint,
     Device,
     DeviceModel,
@@ -25,7 +25,7 @@ from core.domain import (
     Quantity,
     Unit,
     UnitCode,
-    ValueType,
+    DataType,
 )
 from core.infrastructure import (
     YamlCoreConfigCodec,
@@ -41,14 +41,19 @@ def _snapshot(
     device_type = DeviceType("wind_turbine", "Wind Turbine")
     point = BusinessPoint(
         "active_power",
-        ValueType.FLOAT,
+        DataType.FLOAT32,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
-    protocol_point = PointDefinition(
+    protocol_point = Point(
         point_id="p",
         business_point_id=point.business_point_id,
         source_unit=UNIT_CATALOG[UnitCode.WATT],
         access=PointAccess.READ_WRITE,
+        ext={
+            "register_type": "holding",
+            "address": 1,
+            "data_type": "float32",
+        },
     )
     table = PointTable(
         "wt_modbus",
@@ -138,7 +143,7 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
     point = next(iter(snapshot.business_points.values()))
     invalid_point = BusinessPoint(
         point.business_point_id,
-        point.value_type,
+        point.data_type,
         Unit(
             UnitCode.KILOWATT,
             "bad",
@@ -155,7 +160,6 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
         },
         point_tables=snapshot.point_tables,
         device_options=snapshot.device_options,
-        point_options=snapshot.point_options,
     )
 
     with pytest.raises(ConfigError, match="canonical built-in unit"):
@@ -191,7 +195,6 @@ def test_config_diff_detects_device_model_point_table_change() -> None:
             replacement.point_table_id: replacement,
         },
         device_options=current.device_options,
-        point_options=current.point_options,
     )
 
     diff = compute_core_config_diff(current, changed)
@@ -217,19 +220,22 @@ def test_core_config_rejects_unknown_model_point_table() -> None:
         business_points=snapshot.business_points,
         point_tables=snapshot.point_tables,
         device_options=snapshot.device_options,
-        point_options=snapshot.point_options,
     )
 
     with pytest.raises(ConfigError, match="unknown point table"):
         validate_core_config(invalid)
 
 
-def test_yaml_round_trip_preserves_protocol_options_outside_domain() -> None:
+def test_yaml_round_trip_preserves_point_extensions() -> None:
     codec = YamlCoreConfigCodec()
     snapshot = _snapshot()
     artifact = codec.encode(snapshot)
     decoded = codec.decode(artifact)
 
     device = decoded.devices["wt01"]
+    point = decoded.point_tables["wt_modbus"].points["p"]
+
     assert not hasattr(device.endpoint, "options")
     assert decoded.device_options_for(device.device_id) == {"unit_id": 1}
+    assert point.ext["address"] == 1
+    assert point.ext["data_type"] == "float32"
