@@ -12,16 +12,18 @@ from core.application import (
     DeviceConnection,
     validate_core_config,
 )
-from core.domain import (
-    BusinessPoint,
-    Device,
-    DeviceModel,
-    DeviceType,
+from core.application.config import (
     PointAccess,
     PointTable,
     Protocol,
     ProtocolPoint,
     RawDataType,
+)
+from core.domain import (
+    BusinessPoint,
+    Device,
+    DeviceModel,
+    DeviceType,
     UNIT_CATALOG,
     Quantity,
     Unit,
@@ -61,7 +63,6 @@ def _snapshot(
     model = DeviceModel(
         "m1",
         device_type.device_type_id,
-        table.point_table_id,
     )
     device = Device("wt01", model.device_model_id, name=device_name)
     connection = DeviceConnection(
@@ -76,6 +77,9 @@ def _snapshot(
         devices={device.device_id: device},
         business_points={point.business_point_id: point},
         point_tables={table.point_table_id: table},
+        device_model_point_tables={
+            model.device_model_id: table.point_table_id,
+        },
         device_connections={connection.connection_id: connection},
     )
 
@@ -157,6 +161,7 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
             invalid_point.business_point_id: invalid_point,
         },
         point_tables=snapshot.point_tables,
+        device_model_point_tables=snapshot.device_model_point_tables,
         device_connections=snapshot.device_connections,
     )
 
