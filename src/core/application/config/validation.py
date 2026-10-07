@@ -12,6 +12,7 @@ def validate_core_config(snapshot: CoreConfigSnapshot) -> None:
     """校验 Shared Core 配置中的跨对象引用与语义约束。"""
     _validate_business_points(snapshot)
     _validate_device_models(snapshot)
+    _validate_device_model_point_tables(snapshot)
     _validate_devices(snapshot)
     _validate_point_tables(snapshot)
     _validate_device_connections(snapshot)
@@ -40,10 +41,33 @@ def _validate_device_models(snapshot: CoreConfigSnapshot) -> None:
                 f"device model '{model.device_model_id}' references unknown "
                 f"device type '{model.device_type_id}'"
             )
-        if model.point_table_id not in snapshot.point_tables:
+
+
+def _validate_device_model_point_tables(
+    snapshot: CoreConfigSnapshot,
+) -> None:
+    model_ids = set(snapshot.device_models)
+    binding_ids = set(snapshot.device_model_point_tables)
+
+    missing = model_ids - binding_ids
+    if missing:
+        raise ConfigError(
+            "device models missing point table mapping: "
+            f"{sorted(str(value) for value in missing)}"
+        )
+
+    unknown = binding_ids - model_ids
+    if unknown:
+        raise ConfigError(
+            "point table mappings reference unknown device models: "
+            f"{sorted(str(value) for value in unknown)}"
+        )
+
+    for model_id, point_table_id in snapshot.device_model_point_tables.items():
+        if point_table_id not in snapshot.point_tables:
             raise ConfigError(
-                f"device model '{model.device_model_id}' references unknown "
-                f"point table '{model.point_table_id}'"
+                f"device model '{model_id}' references unknown "
+                f"point table '{point_table_id}'"
             )
 
 
