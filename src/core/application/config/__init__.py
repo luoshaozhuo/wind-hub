@@ -9,7 +9,11 @@ from .repository import (
     CoreConfigRepositoryPort,
     StoredCoreConfig,
 )
-from .service import CoreConfigService, CoreConfigUpdateResult
+from .service import (
+    CoreConfigPreview,
+    CoreConfigService,
+    CoreConfigUpdateResult,
+)
 from .snapshot import CoreConfigSnapshot
 from .validation import validate_core_config
 from .validator import CoreConfigValidatorPort
@@ -21,6 +25,7 @@ __all__ = [
     "CoreConfigArtifact",
     "CoreConfigCodecPort",
     "CoreConfigDiff",
+    "CoreConfigPreview",
     "CoreConfigRepositoryPort",
     "CoreConfigService",
     "CoreConfigSnapshot",
