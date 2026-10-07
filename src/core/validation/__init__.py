@@ -5,11 +5,16 @@ from .device import (
     validate_device_models,
     validate_device_references,
 )
-from .point import validate_point_sets, validate_point_tables
+from .point import (
+    validate_business_points,
+    validate_point_sets,
+    validate_point_tables,
+)
 from .snapshot import validate_config_snapshot
 from .task import validate_collection_tasks
 
 __all__ = [
+    "validate_business_points",
     "validate_collection_tasks",
     "validate_config_snapshot",
     "validate_device_connections",
