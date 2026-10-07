@@ -96,7 +96,8 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
                 f"current '{current_revision}'"
             )
 
-        self._atomic_replace(content)
+        current_mode = self._path.stat().st_mode & 0o777
+        self._atomic_replace(content, mode=current_mode)
         snapshot = self._codec.decode(_artifact_from_bytes(content))
         validate_core_config(snapshot)
         return StoredCoreConfig(
@@ -104,7 +105,7 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
             revision=_revision(content),
         )
 
-    def _atomic_replace(self, content: bytes) -> None:
+    def _atomic_replace(self, content: bytes, *, mode: int) -> None:
         parent = self._path.parent
         parent.mkdir(parents=True, exist_ok=True)
 
@@ -115,6 +116,7 @@ class YamlFileCoreConfigRepository(CoreConfigRepositoryPort):
         )
         temp_path = Path(temp_name)
         try:
+            os.fchmod(fd, mode)
             with os.fdopen(fd, "wb") as file:
                 file.write(content)
                 file.flush()
