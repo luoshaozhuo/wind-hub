@@ -5,10 +5,10 @@ import pytest
 from core.application import ConfigError
 from core.domain import (
     ConnectionEndpoint,
+    Point,
     PointAccess,
     PointTable,
     Protocol,
-    Point,
     UNIT_CATALOG,
     UnitCode,
 )
