@@ -22,19 +22,17 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, PointAccess, PointTable, Point
+from core.domain import ConnectionEndpoint, Point, PointAccess, PointTable
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
-logger = logging.getLogger(__name__)
-
-
 from .mapping import (
     IEC104Point,
     build_iec104_index,
     validate_iec104_write_type,
 )
 
+logger = logging.getLogger(__name__)
 
 
 class _Subscription:
