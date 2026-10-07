@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
-from core.domain import ConnectionEndpoint
+from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _ALLOWED_OPTIONS = frozenset({"common_addr", "k", "w", "t0", "t1", "t2", "t3"})
 
