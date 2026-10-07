@@ -11,8 +11,10 @@ from core.application import (
     ProtocolCapability,
     ProtocolCapabilityError,
     ProtocolSample,
+    ProtocolSampleCallback,
     ProtocolWrite,
     ProtocolWriteResult,
+    SubscriptionHandle,
 )
 from core.domain import (
     BusinessPoint,
@@ -73,10 +75,10 @@ class _Protocol:
     async def subscribe(
         self,
         point_ids: Sequence[str],
-        callback: object,
+        callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
-    ) -> object:
+    ) -> SubscriptionHandle:
         del point_ids, callback, interval
         raise ProtocolCapabilityError("not supported")
 
@@ -213,8 +215,23 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
         {},
     )
 
+    async def callback(_sample: ProtocolSample) -> None:
+        return None
+
     with pytest.raises(ProtocolCapabilityError, match="subscription"):
-        await driver.subscribe((), lambda _sample: None)
+        await driver.subscribe((), callback)
+
+    with pytest.raises(ProtocolCapabilityError, match="interrogation"):
+        await driver.interrogate()
+
+
+@pytest.mark.asyncio
+async def test_ads_rejects_unsupported_interrogation() -> None:
+    driver = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable("ads_pt", Protocol("ads"), {}),
+        {},
+    )
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
         await driver.interrogate()
