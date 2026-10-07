@@ -29,7 +29,6 @@ class IEC104Point:
     point_id: str
     ioa: int
     type_id: str | None
-    raw_type: str
 
 
 def parse_iec104_point(
@@ -68,7 +67,6 @@ def parse_iec104_point(
         point_id=point.point_id,
         ioa=raw_ioa,
         type_id=type_id,
-        raw_type=point.raw_type.name,
     )
 
 
