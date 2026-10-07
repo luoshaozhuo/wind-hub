@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
-from typing import TypeVar
+from typing import TypeAlias, TypeVar
 
 from ..device import Device, DeviceGroup, DeviceModel, DeviceType
 from ..identities import (
@@ -17,7 +18,9 @@ from ..identities import (
     PointTableId,
 )
 from ..point import BusinessPoint, PointTable
-from .options import ProtocolOptions, freeze_protocol_options
+
+ProtocolOptionValue: TypeAlias = str | int | float | bool | None
+ProtocolOptions: TypeAlias = Mapping[str, ProtocolOptionValue]
 
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
@@ -27,6 +30,18 @@ def _freeze_index(
     values: Mapping[_KeyT, _ValueT],
 ) -> Mapping[_KeyT, _ValueT]:
     return MappingProxyType(dict(values))
+
+
+def _freeze_protocol_options(
+    values: Mapping[str, ProtocolOptionValue],
+) -> ProtocolOptions:
+    options = dict(values)
+    for key, value in options.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("protocol option keys must be non-empty strings")
+        if isinstance(value, float) and not isfinite(value):
+            raise ValueError(f"protocol option '{key}' must be finite")
+    return MappingProxyType(options)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +66,7 @@ class CoreConfigSnapshot:
             "point_tables": _freeze_index(self.point_tables),
             "device_options": MappingProxyType(
                 {
-                    device_id: freeze_protocol_options(options)
+                    device_id: _freeze_protocol_options(options)
                     for device_id, options in self.device_options.items()
                 }
             ),
