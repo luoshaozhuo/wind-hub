@@ -16,7 +16,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from core.application import ConfigError, ProtocolError, ProtocolSample, Quality
+from core.application.errors import ConfigError, ProtocolError
+from core.application.protocol_contract import ProtocolSample, Quality
 
 from .config import ADSConfig
 from .mapping import ADSPoint
