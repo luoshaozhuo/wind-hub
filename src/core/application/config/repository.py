@@ -10,6 +10,10 @@ from .snapshot import CoreConfigSnapshot
 ConfigRevision = NewType("ConfigRevision", str)
 
 
+class ConfigRevisionConflict(RuntimeError):
+    """配置乐观并发冲突。"""
+
+
 @dataclass(frozen=True, slots=True)
 class StoredCoreConfig:
     """带持久化修订号的 Shared Core 配置快照。"""
@@ -44,6 +48,6 @@ class CoreConfigRepositoryPort(Protocol):
         """原子保存配置。
 
         当 expected_revision 与当前持久化版本不一致时，实现必须拒绝覆盖并抛出
-        并发冲突异常，而不是静默覆盖他人修改。
+        ConfigRevisionConflict，而不是静默覆盖他人修改。
         """
         ...
