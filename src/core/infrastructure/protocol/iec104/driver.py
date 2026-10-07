@@ -26,7 +26,11 @@ from core.domain import PointAccess, PointTable, ProtocolPoint
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
-from .mapping import IEC104Point, build_iec104_index
+from .mapping import (
+    IEC104Point,
+    build_iec104_index,
+    validate_iec104_write_type,
+)
 
 
 def _c104() -> Any:
@@ -66,10 +70,7 @@ class IEC104Driver:
         for point in point_table.points.values():
             mapped = self._points_by_id[point.point_id]
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
-                if mapped.type_id is None:
-                    raise ConfigError(
-                        f"IEC104 writable point '{point.point_id}' requires type_id"
-                    )
+                validate_iec104_write_type(mapped)
 
         self._lock = asyncio.Lock()
         self._client: Any = None
