@@ -137,26 +137,42 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
     assert "ext" in field_names
 
 
-def test_infrastructure_imports_domain_types_from_domain() -> None:
-    """Infrastructure 不得通过 application.config 间接导入 Domain 类型。"""
+def test_application_does_not_own_config_domain_model() -> None:
+    """Application 只做配置用例编排，不重新承载配置领域模型。"""
+    assert not (_CORE / "application" / "config").exists()
+
+    forbidden_names = {
+        "CoreConfigDiff",
+        "CoreConfigSnapshot",
+        "IndexDiff",
+        "ProtocolOptions",
+        "ProtocolOptionValue",
+        "compute_core_config_diff",
+        "freeze_protocol_options",
+        "validate_core_config",
+    }
+    violations: list[str] = []
+
+    for path in _python_files(_CORE / "application"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name in forbidden_names:
+                violations.append(f"{path.name}:{node.lineno} class {node.name}")
+            elif isinstance(node, ast.FunctionDef) and node.name in forbidden_names:
+                violations.append(f"{path.name}:{node.lineno} def {node.name}")
+
+    assert violations == []
+
+
+def test_infrastructure_imports_domain_config_from_domain() -> None:
+    """Infrastructure 不得通过 Application 门面获取 Domain 配置类型。"""
     domain_names = {
-        "BusinessPoint",
-        "BusinessPointId",
-        "ConnectionEndpoint",
-        "Device",
-        "DeviceGroup",
-        "DeviceGroupId",
-        "DeviceId",
-        "DeviceModel",
-        "DeviceModelId",
-        "DeviceType",
-        "DeviceTypeId",
-        "PointAccess",
-        "PointTable",
-        "PointTableId",
-        "Protocol",
-        "DataType",
-        "Point",
+        "CoreConfigDiff",
+        "CoreConfigSnapshot",
+        "ProtocolOptions",
+        "ProtocolOptionValue",
+        "compute_core_config_diff",
+        "validate_core_config",
     }
     violations: list[str] = []
 
@@ -165,15 +181,15 @@ def test_infrastructure_imports_domain_types_from_domain() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
                 continue
-            if node.module != "core.application.config":
+            if node.module != "core.application":
                 continue
             imported = {alias.name for alias in node.names}
             leaked = imported & domain_names
             if leaked:
                 relative = path.relative_to(_CORE)
                 violations.append(
-                    f"{relative}:{node.lineno} imports Domain types "
-                    f"from application.config: {sorted(leaked)}"
+                    f"{relative}:{node.lineno} imports Domain config "
+                    f"from core.application: {sorted(leaked)}"
                 )
 
     assert violations == []
