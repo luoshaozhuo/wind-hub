@@ -47,6 +47,8 @@ class UnitCode(StrEnum):
     RADIAN_PER_SECOND = "radian_per_second"
     DEGREE_PER_SECOND = "degree_per_second"
     RPM = "rpm"
+    RADIAN_PER_SECOND_SQUARED = "radian_per_second_squared"
+    DEGREE_PER_SECOND_SQUARED = "degree_per_second_squared"
     RPM_PER_SECOND = "rpm_per_second"
 
     NEWTON = "newton"
