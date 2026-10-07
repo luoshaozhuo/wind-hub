@@ -22,22 +22,6 @@ class Protocol:
         object.__setattr__(self, "name", name)
 
 
-@dataclass(frozen=True, slots=True)
-class Unit:
-    """工程单位。"""
-
-    unit_id: str
-    symbol: str
-    name: str | None = None
-
-    def __post_init__(self) -> None:
-        unit_id = self.unit_id.strip().lower()
-        if not unit_id:
-            raise ValueError("unit_id must not be empty")
-        object.__setattr__(self, "unit_id", unit_id)
-        object.__setattr__(self, "symbol", self.symbol.strip())
-
-
 class ValueType(StrEnum):
     """业务点标准值类型。"""
 
