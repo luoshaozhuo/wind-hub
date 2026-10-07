@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.application import ConfigError, DeviceConnection
+from core.application.config import DeviceConnection
+from core.application.errors import ConfigError
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
