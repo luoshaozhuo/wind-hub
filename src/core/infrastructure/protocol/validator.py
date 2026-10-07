@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from core.application import ProtocolFactoryPort
 from core.application.config import CoreConfigSnapshot
 from core.application.port import CoreConfigValidatorPort
+
+from .registry import ProtocolRegistry
 
 
 class ProtocolConfigValidator(CoreConfigValidatorPort):
@@ -13,7 +14,7 @@ class ProtocolConfigValidator(CoreConfigValidatorPort):
     Driver factory 必须只解析配置和预编译点表，不得在 create 阶段执行网络 I/O。
     """
 
-    def __init__(self, protocols: ProtocolFactoryPort) -> None:
+    def __init__(self, protocols: ProtocolRegistry) -> None:
         self._protocols = protocols
 
     def validate(self, snapshot: CoreConfigSnapshot) -> None:
