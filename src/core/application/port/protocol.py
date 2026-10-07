@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from core.domain import ProtocolPoint
+from core.domain import Protocol, ProtocolPoint
 
 from ..config import DeviceConnection
 from ..measurement import PointScalar, ProtocolSample
@@ -71,7 +71,7 @@ class ProtocolFactoryPort(Protocol):
     def create(
         self,
         connection: DeviceConnection,
-        protocol_name: str,
+        protocol: Protocol,
     ) -> ProtocolPort:
         """创建尚未建立连接的协议实例。"""
         ...
