@@ -9,11 +9,10 @@ from collections.abc import Sequence
 from math import isfinite
 from typing import Any
 
-from core.application import (
-    ConfigError,
+from core.application.config import DeviceConnection
+from core.application.errors import ConfigError, ProtocolError
+from core.application.protocol_contract import (
     ConnectionHealth,
-    DeviceConnection,
-    ProtocolError,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
