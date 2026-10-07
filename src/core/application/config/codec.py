@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
 
 
@@ -22,7 +23,7 @@ class CoreConfigArtifact:
     def __post_init__(self) -> None:
         media_type = self.media_type.strip().lower()
         if not media_type:
-            raise ValueError("config artifact media_type must not be empty")
+            raise ConfigError("config artifact media_type must not be empty")
         object.__setattr__(self, "media_type", media_type)
 
 
