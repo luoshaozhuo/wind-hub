@@ -4,7 +4,6 @@ from .config import (
     CoreConfigSnapshot,
     ProtocolOptions,
     ProtocolOptionValue,
-    freeze_protocol_options,
     validate_core_config,
 )
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
@@ -41,6 +40,5 @@ __all__ = [
     "Protocol",
     "ProtocolOptionValue",
     "ProtocolOptions",
-    "freeze_protocol_options",
     "validate_core_config",
 ]
