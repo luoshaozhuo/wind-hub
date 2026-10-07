@@ -14,9 +14,10 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from core.application.config import ProtocolOptions
-from core.application.errors import ConfigError, ProtocolError
+from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -83,6 +84,16 @@ class ADSDriver:
         self._connection: Any = None
         self._connected = False
         self._subscriptions: set[ADSSubscription] = set()
+
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        """返回 ADS Driver 实际支持的协议能力。"""
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+                ProtocolCapability.SUBSCRIBE,
+            }
+        )
 
     async def connect(self) -> None:
         """建立一次 ADS session 并解析全部 symbol 地址。"""
@@ -281,6 +292,12 @@ class ADSDriver:
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
             return tuple(results)
+
+    async def interrogate(self) -> None:
+        """ADS 不支持 IEC104 式总召能力。"""
+        raise ProtocolCapabilityError(
+            "ads does not support interrogation"
+        )
 
     async def _read_sum(
         self,
