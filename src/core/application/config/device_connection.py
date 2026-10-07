@@ -48,8 +48,11 @@ class ConnectionEndpoint:
         host = self.host.strip()
         if not host:
             raise ConfigError("endpoint host must not be empty")
-        if self.port is not None and not 1 <= self.port <= 65535:
-            raise ConfigError("endpoint port must be between 1 and 65535")
+        if self.port is not None:
+            if isinstance(self.port, bool) or not isinstance(self.port, int):
+                raise ConfigError("endpoint port must be an integer or null")
+            if not 1 <= self.port <= 65535:
+                raise ConfigError("endpoint port must be between 1 and 65535")
 
         object.__setattr__(self, "host", host)
         object.__setattr__(self, "options", _freeze_options(self.options))
@@ -75,6 +78,8 @@ class DeviceConnection:
             raise ConfigError("connection_id must not be empty")
         if not device_id:
             raise ConfigError("device_id must not be empty")
+        if not isinstance(self.enabled, bool):
+            raise ConfigError("connection enabled must be boolean")
 
         object.__setattr__(self, "connection_id", ConnectionId(connection_id))
         object.__setattr__(self, "device_id", DeviceId(device_id))
