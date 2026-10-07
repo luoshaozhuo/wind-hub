@@ -23,7 +23,7 @@ from core.domain import (
 )
 
 from .config import CoreConfigSnapshot
-from .measurement import PointScalar, PointValue, ProtocolSample
+from .measurement import PointScalar, PointValue, ProtocolSample, WritableScalar
 
 
 def interpret_protocol_sample(
@@ -163,3 +163,62 @@ def _require_identity_mapping(
             f"{value_type.value} point '{protocol_point.point_id}' must use "
             "scale=1 and offset=0"
         )
+
+
+
+def prepare_protocol_write(
+    business_point: BusinessPoint,
+    protocol_point: ProtocolPoint,
+    value: WritableScalar,
+) -> WritableScalar:
+    """把标准业务值反向映射为 ProtocolPoint 的协议侧写值。
+
+    Commander 的权限、幂等、超时和控制安全不在此处理；这里只执行与读取相反的
+    纯值转换，保证 Collector 读取与 Commander 写入共用同一套点表语义。
+    """
+    if business_point.value_type is ValueType.BOOLEAN:
+        _require_identity_mapping(protocol_point, business_point.value_type)
+        if type(value) is not bool:
+            raise ValueError(
+                f"business point '{business_point.business_point_id}' expects boolean, "
+                f"got {type(value).__name__}"
+            )
+        return value
+
+    if business_point.value_type is ValueType.STRING:
+        _require_identity_mapping(protocol_point, business_point.value_type)
+        if not isinstance(value, str):
+            raise ValueError(
+                f"business point '{business_point.business_point_id}' expects string, "
+                f"got {type(value).__name__}"
+            )
+        return value
+
+    numeric_value = _require_numeric(value, business_point)
+    source_value = convert_value(
+        numeric_value,
+        business_point.standard_unit,
+        protocol_point.source_unit,
+    )
+    raw_value = (source_value - protocol_point.offset) / protocol_point.scale
+    if not isfinite(raw_value):
+        raise ValueError(
+            f"business point '{business_point.business_point_id}' produced non-finite "
+            "protocol write value"
+        )
+
+    if business_point.value_type is ValueType.FLOAT:
+        return float(raw_value)
+
+    if business_point.value_type is ValueType.INTEGER:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"business point '{business_point.business_point_id}' expects integer, "
+                f"got {type(value).__name__}"
+            )
+        return float(raw_value)
+
+    raise ValueError(
+        f"unsupported business value type '{business_point.value_type}' "
+        f"for '{business_point.business_point_id}'"
+    )
