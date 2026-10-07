@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from core.application.config import PointProtocolOptions, ProtocolOptions
+from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
 from core.domain import ConnectionEndpoint, PointTable, Protocol
 
 ProtocolFactory = Callable[
-    [ConnectionEndpoint, PointTable, ProtocolOptions, PointProtocolOptions],
+    [ConnectionEndpoint, PointTable, ProtocolOptions],
     ProtocolPort,
 ]
 
@@ -45,7 +45,6 @@ class ProtocolRegistry:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         device_options: ProtocolOptions,
-        point_options: PointProtocolOptions,
     ) -> ProtocolPort:
         """为指定 Endpoint 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
@@ -59,7 +58,6 @@ class ProtocolRegistry:
             endpoint,
             point_table,
             device_options,
-            point_options,
         )
 
 
