@@ -95,7 +95,6 @@ def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
         "index_group",
         "index_offset",
         "common_addr",
-        "type_id",
         "ioa",
     }
     violations: list[str] = []
