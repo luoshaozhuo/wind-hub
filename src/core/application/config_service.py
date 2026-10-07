@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.domain.config import (
+from core.domain import (
     CoreConfigSnapshot,
     compute_core_config_diff,
     validate_core_config,
