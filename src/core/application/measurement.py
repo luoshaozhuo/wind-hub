@@ -14,6 +14,7 @@ from typing import TypeAlias
 from core.domain import BusinessPointId, DeviceId, Unit
 
 PointScalar: TypeAlias = float | int | bool | str | None
+WritableScalar: TypeAlias = float | int | bool | str
 
 
 class Quality(StrEnum):
@@ -36,6 +37,20 @@ class ProtocolSample:
     value: PointScalar
     quality: Quality = Quality.GOOD
     timestamp: datetime | None = None
+
+    def __post_init__(self) -> None:
+        point_id = self.point_id.strip()
+        if not point_id:
+            raise ValueError("point_id must not be empty")
+        object.__setattr__(self, "point_id", point_id)
+
+
+@dataclass(frozen=True, slots=True)
+class PointWrite:
+    """按 PointTable 本地点 ID 表达的一次标准工程值写请求。"""
+
+    point_id: str
+    value: WritableScalar
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
