@@ -18,7 +18,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import DeviceConnection, PointTable, ProtocolPoint
+from core.domain import ConnectionEndpoint, PointTable, ProtocolPoint
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
@@ -47,7 +47,7 @@ _DECODE_FAILED = object()
 
 
 class ModbusDriver:
-    """单个 DeviceConnection 的 Modbus TCP Driver。
+    """单个 Endpoint 的 Modbus TCP Driver。
 
     Driver 只执行单次 connect/read/write，不负责重连退避或采集调度。一个实例
     由单一 asyncio event loop 持有，内部 Lock 防止同一 client 上读写交错。
@@ -55,9 +55,9 @@ class ModbusDriver:
 
     def __init__(
         self,
-        connection: DeviceConnection,
+        endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        connection_options: ProtocolOptions,
+        device_options: ProtocolOptions,
         point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "modbus":
@@ -66,10 +66,10 @@ class ModbusDriver:
                 f"'{point_table.protocol.name}', expected 'modbus'"
             )
 
-        self._connection = connection
+        self._point_table_id = point_table.point_table_id
         self._config: ModbusConfig = parse_modbus_config(
-            connection,
-            connection_options,
+            endpoint,
+            device_options,
         )
         self._points = {
             point.point_id: parse_modbus_point(
@@ -248,7 +248,7 @@ class ModbusDriver:
         if mapped is None:
             raise ConfigError(
                 f"point '{point.point_id}' is not part of connection "
-                f"'{self._connection.connection_id}' point table"
+                f"'{self._point_table_id}'"
             )
         return mapped
 
