@@ -19,6 +19,7 @@ from typing import TypeAlias
 
 from core.domain import BusinessPointId, Unit
 
+from ..errors import ConfigError
 from .identities import PointTableId
 
 ProtocolOptionValue: TypeAlias = str | int | float | bool | None
@@ -33,7 +34,7 @@ class Protocol:
     def __post_init__(self) -> None:
         name = self.name.strip().lower()
         if not name:
-            raise ValueError("protocol name must not be empty")
+            raise ConfigError("protocol name must not be empty")
         object.__setattr__(self, "name", name)
 
 
@@ -46,7 +47,7 @@ class RawDataType:
     def __post_init__(self) -> None:
         name = self.name.strip().lower()
         if not name:
-            raise ValueError("raw data type must not be empty")
+            raise ConfigError("raw data type must not be empty")
         object.__setattr__(self, "name", name)
 
 
@@ -64,7 +65,7 @@ def _freeze_options(
     options = dict(value)
     for key, item in options.items():
         if isinstance(item, float) and not isfinite(item):
-            raise ValueError(
+            raise ConfigError(
                 f"protocol option '{key}' must be finite"
             )
     return MappingProxyType(options)
@@ -87,13 +88,13 @@ class ProtocolPoint:
         point_id = self.point_id.strip()
         business_point_id = self.business_point_id.strip()
         if not point_id:
-            raise ValueError("point_id must not be empty")
+            raise ConfigError("point_id must not be empty")
         if not business_point_id:
-            raise ValueError("business_point_id must not be empty")
+            raise ConfigError("business_point_id must not be empty")
         if not isfinite(self.scale) or self.scale == 0.0:
-            raise ValueError("scale must be finite and non-zero")
+            raise ConfigError("scale must be finite and non-zero")
         if not isfinite(self.offset):
-            raise ValueError("offset must be finite")
+            raise ConfigError("offset must be finite")
 
         object.__setattr__(self, "point_id", point_id)
         object.__setattr__(
@@ -119,18 +120,18 @@ class PointTable:
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
         if not point_table_id:
-            raise ValueError("point_table_id must not be empty")
+            raise ConfigError("point_table_id must not be empty")
 
         points = dict(self.points)
         for point_id, point in points.items():
             if not point_id:
-                raise ValueError("point table keys must not be empty")
+                raise ConfigError("point table keys must not be empty")
             if point_id != point_id.strip():
-                raise ValueError(
+                raise ConfigError(
                     "point table keys must not contain surrounding whitespace"
                 )
             if point_id != point.point_id:
-                raise ValueError(
+                raise ConfigError(
                     f"point table key '{point_id}' does not match "
                     f"point_id '{point.point_id}'"
                 )
