@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import DeviceConnection, PointTable, ProtocolPoint
+from core.domain import ConnectionEndpoint, PointTable, ProtocolPoint
 
 from .config import ADSConfig, parse_ads_config
 from .mapping import ADSPoint, parse_ads_point
@@ -51,7 +51,7 @@ def _plc_datatype(ads_name: str) -> Any:
 
 
 class ADSDriver:
-    """单个 DeviceConnection 的 ADS Driver。
+    """单个 Endpoint 的 ADS Driver。
 
     symbol 点在每次 ADS session 建立后解析为 index_group/index_offset 并缓存；
     read/write 不在周期路径上重复查询 symbol。
@@ -59,9 +59,9 @@ class ADSDriver:
 
     def __init__(
         self,
-        connection: DeviceConnection,
+        endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        connection_options: ProtocolOptions,
+        device_options: ProtocolOptions,
         point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
@@ -70,10 +70,10 @@ class ADSDriver:
                 f"'{point_table.protocol.name}', expected 'ads'"
             )
 
-        self._connection_config = connection
+        self._point_table_id = point_table.point_table_id
         self._config: ADSConfig = parse_ads_config(
-            connection,
-            connection_options,
+            endpoint,
+            device_options,
         )
         self._points = {
             point.point_id: parse_ads_point(
@@ -467,7 +467,7 @@ class ADSDriver:
         if mapped is None:
             raise ConfigError(
                 f"point '{point.point_id}' is not part of connection "
-                f"'{self._connection_config.connection_id}' point table"
+                f"'{self._point_table_id}'"
             )
         return mapped
 
