@@ -145,6 +145,11 @@ def test_domain_config_is_compact() -> None:
     assert not (config_dir / "options.py").exists()
 
 
+def test_shared_core_has_no_config_infrastructure_adapter() -> None:
+    """配置持久化实现由具体进程拥有，Shared Core 只定义 Port。"""
+    assert not (_CORE / "infrastructure" / "config").exists()
+
+
 def test_application_does_not_own_config_domain_model() -> None:
     """Application 只做配置用例编排，不重新承载配置领域模型。"""
     assert not (_CORE / "application" / "config").exists()
