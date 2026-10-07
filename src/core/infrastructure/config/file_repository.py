@@ -9,7 +9,7 @@ from pathlib import Path
 
 from core.application import ConfigError
 from core.application.port import ConfigRepositoryPort
-from core.domain import CoreConfigSnapshot, validate_core_config
+from core.domain import CoreConfigSnapshot
 
 from .yaml_codec import YamlCoreConfigCodec
 
@@ -32,12 +32,9 @@ class YamlFileCoreConfigRepository(ConfigRepositoryPort):
 
     async def load(self) -> CoreConfigSnapshot:
         content = await asyncio.to_thread(self._read_bytes)
-        snapshot = self._codec.decode(content)
-        validate_core_config(snapshot)
-        return snapshot
+        return self._codec.decode(content)
 
     async def save(self, snapshot: CoreConfigSnapshot) -> None:
-        validate_core_config(snapshot)
         content = self._codec.encode(snapshot)
 
         async with self._write_lock:
