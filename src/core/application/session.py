@@ -15,7 +15,13 @@ from core.domain import ConnectionId, DeviceId, PointAccess, ProtocolPoint
 from .config import CoreConfigSnapshot, DeviceConnection
 from .interpretation import interpret_protocol_sample, prepare_protocol_write
 from .measurement import PointValue, PointWrite
-from .port import ProtocolFactoryPort, ProtocolPort, ProtocolWrite, ProtocolWriteResult
+from .port import (
+    ConnectionHealth,
+    ProtocolFactoryPort,
+    ProtocolPort,
+    ProtocolWrite,
+    ProtocolWriteResult,
+)
 
 
 class DeviceSession:
@@ -57,6 +63,10 @@ class DeviceSession:
     async def close(self) -> None:
         """关闭底层协议连接。"""
         await self._protocol.close()
+
+    def health(self) -> ConnectionHealth:
+        """返回底层协议缓存的连接状态。"""
+        return self._protocol.health()
 
     async def read(
         self,
