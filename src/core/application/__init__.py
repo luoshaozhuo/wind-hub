@@ -6,6 +6,7 @@ from .collection_plan import (
     assign_collection_connection,
     build_collection_work,
 )
+from .interpretation import interpret_protocol_sample
 from .measurement import PointScalar, PointValue, ProtocolSample, Quality
 from .port import (
     ExclusiveOpenSinkPort,
@@ -33,4 +34,5 @@ __all__ = [
     "SubscriptionHandle",
     "assign_collection_connection",
     "build_collection_work",
+    "interpret_protocol_sample",
 ]
