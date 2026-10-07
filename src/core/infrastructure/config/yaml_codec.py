@@ -94,7 +94,7 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
             "root",
         )
         version = root.get("schema_version")
-        if version != _SCHEMA_VERSION:
+        if type(version) is not int or version != _SCHEMA_VERSION:
             raise ConfigError(
                 f"unsupported core config schema_version '{version}', "
                 f"expected '{_SCHEMA_VERSION}'"
