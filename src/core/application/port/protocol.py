@@ -1,22 +1,15 @@
-"""设备协议 outbound port。"""
+"""共享设备协议 outbound port。"""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from core.domain import ProtocolPoint
 
+from ..config import DeviceConnection
 from ..measurement import PointScalar, ProtocolSample
-
-
-class AcquisitionMode(StrEnum):
-    """持续采集模式。"""
-
-    POLL = "poll"
-    SUBSCRIBE = "subscribe"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,37 +36,25 @@ class ProtocolWriteResult:
 
 
 class ProtocolPort(Protocol):
-    """Application 依赖的最小设备协议能力边界。
+    """Collector 与 Commander 共享的最小设备通信能力边界。
 
-    具体 ADS / Modbus / IEC104 Adapter 负责协议寻址、编码和网络 I/O；
-    Application 只传递 ProtocolPoint 与标量值，不依赖第三方协议对象。
+    本接口只表达一次连接上的基础通信能力，不包含轮询调度、订阅生命周期、
+    总召、重连退避等具体应用运行策略。
     """
-
-    @property
-    def acquisition_mode(self) -> AcquisitionMode:
-        """声明该协议实例当前采用的持续采集模式。"""
-        ...
 
     async def connect(self) -> None:
         """建立底层协议连接。"""
         ...
 
     async def close(self) -> None:
-        """释放连接与独占资源；实现必须支持幂等关闭。"""
+        """关闭底层协议连接；实现必须支持幂等调用。"""
         ...
 
     async def read(
         self,
         points: Sequence[ProtocolPoint],
     ) -> tuple[ProtocolSample, ...]:
-        """批量读取协议点。
-
-        Args:
-            points: 待读取的协议点定义。
-
-        Returns:
-            每个返回值通过 point_id 与输入点关联。
-        """
+        """批量读取协议点。"""
         ...
 
     async def write(
@@ -84,33 +65,13 @@ class ProtocolPort(Protocol):
         ...
 
 
-class SubscriptionHandle(Protocol):
-    """一次独立协议订阅的生命周期句柄。"""
+class ProtocolFactoryPort(Protocol):
+    """按共享连接配置创建协议 Adapter 的工厂端口。"""
 
-    async def close(self) -> None:
-        """注销本次订阅；实现必须支持幂等关闭。"""
-        ...
-
-
-@runtime_checkable
-class SubscribableProtocolPort(Protocol):
-    """可选能力：协议支持设备侧推送或订阅采集。"""
-
-    async def subscribe(
+    def create(
         self,
-        points: Sequence[ProtocolPoint],
-        callback: Callable[[ProtocolSample], Awaitable[None]],
-        *,
-        interval: float | None = None,
-    ) -> SubscriptionHandle:
-        """建立独立订阅并返回其生命周期句柄。"""
-        ...
-
-
-@runtime_checkable
-class InterrogationCapable(Protocol):
-    """可选能力：订阅建立后可主动触发一次协议总召/全量刷新。"""
-
-    async def interrogate(self) -> None:
-        """请求远端主动发送当前全量值。"""
+        connection: DeviceConnection,
+        protocol_name: str,
+    ) -> ProtocolPort:
+        """创建尚未建立连接的协议实例。"""
         ...
