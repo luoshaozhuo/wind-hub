@@ -18,6 +18,8 @@ from core.application.config import (
     validate_core_config,
 )
 
+from core.application.port import CoreConfigRepositoryPort
+
 from .yaml_codec import YamlCoreConfigCodec
 
 
