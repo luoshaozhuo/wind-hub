@@ -15,7 +15,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol as DeviceProtocol,
-    PointDefinition,
+    Point,
     UNIT_CATALOG,
     UnitCode,
 )
@@ -40,12 +40,14 @@ def _point(
     point_id: str,
     *,
     access: PointAccess = PointAccess.READ,
-) -> PointDefinition:
-    return PointDefinition(
+    ext: dict[str, str | int] | None = None,
+) -> Point:
+    return Point(
         point_id=point_id,
         business_point_id=point_id,
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
+        ext={} if ext is None else ext,
     )
 
 
@@ -77,11 +79,13 @@ def test_iec104_config_defaults_and_window_validation() -> None:
 
 def test_iec104_point_maps_ioa_and_type_id() -> None:
     mapped = parse_iec104_point(
-        _point("active_power"),
-        _point_options(
-            ioa=1001,
-            type_id="M_ME_NC_1",
-        ),
+        _point(
+            "active_power",
+            ext=_point_options(
+                ioa=1001,
+                type_id="M_ME_NC_1",
+            ),
+        )
     )
 
     assert mapped.ioa == 1001
@@ -89,23 +93,18 @@ def test_iec104_point_maps_ioa_and_type_id() -> None:
 
 
 def test_iec104_index_rejects_duplicate_ioa() -> None:
-    first = _point("p1")
-    second = _point("p2")
+    first = _point("p1", ext=_point_options(ioa=100))
+    second = _point("p2", ext=_point_options(ioa=100))
 
     with pytest.raises(ConfigError, match="duplicate IOA"):
-        build_iec104_index(
-            [first, second],
-            {
-                "p1": _point_options(ioa=100),
-                "p2": _point_options(ioa=100),
-            },
-        )
+        build_iec104_index([first, second])
 
 
 def test_iec104_writable_point_requires_command_type() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
+        ext=_point_options(ioa=2001),
     )
     table = PointTable(
         "iec_pt",
@@ -118,7 +117,6 @@ def test_iec104_writable_point_requires_command_type() -> None:
             _endpoint(),
             table,
             {},
-            {"setpoint": _point_options(ioa=2001)},
         )
 
 
@@ -126,6 +124,10 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
+        ext=_point_options(
+            ioa=2001,
+            type_id="C_SE_NC_1",
+        ),
     )
     table = PointTable(
         "iec_pt",
@@ -137,12 +139,6 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
         _endpoint(),
         table,
         {},
-        {
-            "setpoint": _point_options(
-                ioa=2001,
-                type_id="C_SE_NC_1",
-            ),
-        },
     )
 
     assert driver.health().healthy is False
@@ -152,6 +148,10 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
+        ext=_point_options(
+            ioa=2001,
+            type_id="M_ME_NC_1",
+        ),
     )
     table = PointTable(
         "iec_pt",
@@ -164,17 +164,11 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
             _endpoint(),
             table,
             {},
-            {
-                "setpoint": _point_options(
-                    ioa=2001,
-                    type_id="M_ME_NC_1",
-                ),
-            },
         )
 
 
-def _driver_for_monitoring_point() -> tuple[IEC104Driver, PointDefinition]:
-    point = _point("power")
+def _driver_for_monitoring_point() -> tuple[IEC104Driver, Point]:
+    point = _point("power", ext=_point_options(ioa=100))
     table = PointTable(
         "iec_pt",
         DeviceProtocol("iec104"),
@@ -184,7 +178,6 @@ def _driver_for_monitoring_point() -> tuple[IEC104Driver, PointDefinition]:
         _endpoint(),
         table,
         {},
-        {"power": _point_options(ioa=100)},
     )
     return driver, point
 
