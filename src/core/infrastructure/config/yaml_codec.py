@@ -9,6 +9,7 @@ import yaml
 
 from core.application.config import (
     ConnectionEndpoint,
+    ConnectionId,
     CoreConfigArtifact,
     CoreConfigSnapshot,
     DeviceConnection,
@@ -19,7 +20,6 @@ from core.application.port import CoreConfigCodecPort
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
-    ConnectionId,
     Device,
     DeviceGroup,
     DeviceGroupId,
