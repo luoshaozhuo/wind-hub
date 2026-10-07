@@ -31,6 +31,7 @@ from .measurement import (
     WritableScalar,
 )
 from .port import (
+    ConnectionHealth,
     ProtocolFactoryPort,
     ProtocolPort,
     ProtocolWrite,
@@ -42,6 +43,7 @@ __all__ = [
     "ConfigRevision",
     "ConfigRevisionConflict",
     "ConnectionEndpoint",
+    "ConnectionHealth",
     "CoreConfigArtifact",
     "CoreConfigCodecPort",
     "CoreConfigDiff",
