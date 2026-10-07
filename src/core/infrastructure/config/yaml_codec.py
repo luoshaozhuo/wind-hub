@@ -7,9 +7,7 @@ from typing import TypeVar, cast
 
 import yaml
 
-from core.application import CoreConfigArtifact
 from core.application.errors import ConfigError
-from core.application.port import CoreConfigCodecPort
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -42,15 +40,15 @@ _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
 
 
-class YamlCoreConfigCodec(CoreConfigCodecPort):
+class YamlCoreConfigCodec:
     """CoreConfigSnapshot 与单一规范化 YAML 制品之间的转换器。
 
     YAML 是配置交换格式，不承担运行时继承或隐式默认值解析。decode 后立即构造
     强类型 Shared Core 模型并执行跨对象一致性校验。
     """
 
-    def encode(self, snapshot: CoreConfigSnapshot) -> CoreConfigArtifact:
-        """稳定导出配置；相同快照生成确定性字段和对象顺序。"""
+    def encode(self, snapshot: CoreConfigSnapshot) -> bytes:
+        """编码为稳定 YAML bytes。"""
         try:
             validate_core_config(snapshot)
         except ValueError as exc:
@@ -62,19 +60,14 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
             sort_keys=False,
             default_flow_style=False,
         )
-        return CoreConfigArtifact(content=text.encode("utf-8"), media_type=_MEDIA_TYPE)
+        return text.encode("utf-8")
 
-    def decode(self, artifact: CoreConfigArtifact) -> CoreConfigSnapshot:
-        """解析并校验规范化 YAML 配置制品。"""
-        if artifact.media_type not in {_MEDIA_TYPE, "text/yaml", "application/yaml"}:
-            raise ConfigError(
-                f"unsupported config media type '{artifact.media_type}'"
-            )
-
+    def decode(self, content: bytes) -> CoreConfigSnapshot:
+        """解析并校验规范化 YAML bytes。"""
         try:
-            raw = yaml.safe_load(artifact.content.decode("utf-8"))
+            raw = yaml.safe_load(content.decode("utf-8"))
         except (UnicodeDecodeError, yaml.YAMLError) as exc:
-            raise ConfigError(f"invalid YAML config artifact: {exc}") from exc
+            raise ConfigError(f"invalid YAML config: {exc}") from exc
 
         root = _require_mapping(raw, "root")
         _require_fields(
