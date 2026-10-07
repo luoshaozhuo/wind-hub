@@ -22,7 +22,7 @@ from core.domain import (
     UNIT_CATALOG,
     UnitCode,
 )
-from core.infrastructure import (
+from core.infrastructure.protocol.iec104 import (
     IEC104Driver,
     build_iec104_index,
     parse_iec104_config,
