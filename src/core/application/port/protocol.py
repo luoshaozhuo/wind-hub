@@ -13,6 +13,14 @@ from ..measurement import PointScalar, ProtocolSample
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectionHealth:
+    """协议连接的轻量缓存状态。"""
+
+    healthy: bool
+    message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolWrite:
     """一次协议点写入请求。"""
 
@@ -48,6 +56,10 @@ class ProtocolPort(Protocol):
 
     async def close(self) -> None:
         """关闭底层协议连接；实现必须支持幂等调用。"""
+        ...
+
+    def health(self) -> ConnectionHealth:
+        """返回缓存连接状态；不得因读取 health 触发网络 I/O。"""
         ...
 
     async def read(
