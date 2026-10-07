@@ -136,7 +136,7 @@ DEGREE_PER_SECOND = Unit(
 RPM = Unit(
     UnitCode.RPM,
     "r/min",
-    Quantity.ROTATIONAL_SPEED,
+    Quantity.ANGULAR_SPEED,
     scale_to_base=2.0 * pi / 60.0,
 )
 RPM_PER_SECOND = Unit(
