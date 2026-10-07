@@ -1,56 +1,24 @@
-"""Shared Core 协议基础设施。"""
+"""Shared Core 协议基础设施公共门面。
 
-from .ads import (
-    ADSConfig,
-    ADSDriver,
-    ADSLocalConfig,
-    ADSLocalRouter,
-    ADSPoint,
-    parse_ads_config,
-    parse_ads_point,
-)
+只暴露协议 Driver、显式 Registry、静态校验器以及进程级 ADS 本机身份。
+协议地址解析器和内部映射值对象保留在各协议子包，不提升为公共 API。
+"""
+
+from .ads import ADSDriver, ADSLocalConfig, ADSLocalRouter
 from .builtins import build_protocol_registry
-from .iec104 import (
-    IEC104Config,
-    IEC104Driver,
-    IEC104Point,
-    build_iec104_index,
-    parse_iec104_config,
-    parse_iec104_point,
-)
-from .modbus import (
-    ModbusConfig,
-    ModbusDriver,
-    ModbusPoint,
-    group_consecutive_reads,
-    parse_modbus_config,
-    parse_modbus_point,
-)
+from .iec104 import IEC104Driver
+from .modbus import ModbusDriver
 from .registry import ProtocolFactory, ProtocolRegistry
 from .validator import ProtocolConfigValidator
 
 __all__ = [
-    "ADSConfig",
     "ADSDriver",
     "ADSLocalConfig",
     "ADSLocalRouter",
-    "ADSPoint",
-    "IEC104Config",
     "IEC104Driver",
-    "IEC104Point",
-    "ModbusConfig",
     "ModbusDriver",
-    "ModbusPoint",
+    "ProtocolConfigValidator",
     "ProtocolFactory",
     "ProtocolRegistry",
-    "ProtocolConfigValidator",
-    "build_iec104_index",
     "build_protocol_registry",
-    "group_consecutive_reads",
-    "parse_ads_config",
-    "parse_ads_point",
-    "parse_iec104_config",
-    "parse_iec104_point",
-    "parse_modbus_config",
-    "parse_modbus_point",
 ]
