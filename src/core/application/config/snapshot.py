@@ -98,3 +98,33 @@ class CoreConfigSnapshot:
                     f"{index_name} key '{key}' does not match "
                     f"{identity_attr} '{identity}'"
                 )
+
+
+    def point_table_for_device(self, device_id: DeviceId) -> PointTable:
+        """解析 Device -> DeviceModel -> PointTable。"""
+        device = self.devices[device_id]
+        model = self.device_models[device.device_model_id]
+        return self.point_tables[model.point_table_id]
+
+    def connections_for_device(
+        self,
+        device_id: DeviceId,
+        *,
+        enabled_only: bool = True,
+    ) -> tuple[DeviceConnection, ...]:
+        """返回设备的稳定排序通信接入定义。
+
+        本方法只解析候选连接，不决定主备、负载均衡、重试或 failover 策略。
+        """
+        connections = tuple(
+            connection
+            for connection in self.device_connections.values()
+            if connection.device_id == device_id
+            and (connection.enabled or not enabled_only)
+        )
+        return tuple(
+            sorted(
+                connections,
+                key=lambda connection: str(connection.connection_id),
+            )
+        )
