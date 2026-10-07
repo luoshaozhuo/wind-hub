@@ -16,7 +16,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    ProtocolPoint,
+    PointDefinition,
     RawDataType,
     BusinessPoint,
     ConnectionEndpoint,
@@ -49,7 +49,7 @@ class _Protocol:
 
     async def read(
         self,
-        points: Sequence[ProtocolPoint],
+        points: Sequence[PointDefinition],
     ) -> tuple[ProtocolSample, ...]:
         return ()
 
@@ -97,7 +97,7 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
         ValueType.FLOAT,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
-    protocol_point = ProtocolPoint(
+    protocol_point = PointDefinition(
         point_id="power",
         business_point_id=business_point.business_point_id,
         raw_type=RawDataType("float32"),
