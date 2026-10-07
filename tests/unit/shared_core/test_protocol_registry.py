@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from core.application import ConnectionEndpoint, ConnectionHealth, DeviceConnection
-from core.domain import Protocol
+from collections.abc import Sequence
+
+from core.application import (
+    ConnectionEndpoint,
+    ConnectionHealth,
+    DeviceConnection,
+    ProtocolSample,
+    ProtocolWrite,
+    ProtocolWriteResult,
+)
+from core.domain import Protocol, ProtocolPoint
 from core.infrastructure import ProtocolRegistry
 
 
@@ -15,10 +24,16 @@ class _Protocol:
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
-    async def read(self, points):
+    async def read(
+        self,
+        points: Sequence[ProtocolPoint],
+    ) -> tuple[ProtocolSample, ...]:
         return ()
 
-    async def write(self, writes):
+    async def write(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
         return ()
 
 
