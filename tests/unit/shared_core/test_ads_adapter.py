@@ -16,6 +16,7 @@ from core.application import (
     ProtocolSample,
     ProtocolWrite,
     SubscribableProtocolPort,
+    SubscriptionHandle,
 )
 from core.domain import (
     PointAccess,
@@ -429,7 +430,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
         lambda: _FakeNotificationPyads,
     )
     done = asyncio.Event()
-    handle_box: list[object] = []
+    handle_box: list[SubscriptionHandle] = []
 
     async def callback(sample: ProtocolSample) -> None:
         del sample
