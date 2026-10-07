@@ -25,8 +25,4 @@ class ProtocolConfigValidator(CoreConfigValidatorPort):
                 device.endpoint,
                 point_table,
                 snapshot.device_options_for(device.device_id),
-                snapshot.point_options.get(
-                    point_table.point_table_id,
-                    {},
-                ),
             )
