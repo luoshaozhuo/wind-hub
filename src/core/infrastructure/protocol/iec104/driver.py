@@ -17,6 +17,7 @@ from core.application.config import ProtocolOptions
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -200,6 +201,17 @@ class IEC104Driver:
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
+
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        """返回 IEC104 Driver 实际支持的协议能力。"""
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+                ProtocolCapability.SUBSCRIBE,
+                ProtocolCapability.INTERROGATE,
+            }
+        )
 
     async def connect(self) -> None:
         """创建 c104 client 并等待连接进入 OPEN。"""
