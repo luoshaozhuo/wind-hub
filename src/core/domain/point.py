@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 from typing import TypeAlias
 
@@ -75,6 +76,10 @@ class ProtocolPoint:
             raise ValueError("point_id must not be empty")
         if not business_point_id:
             raise ValueError("business_point_id must not be empty")
+        if not isfinite(self.scale) or self.scale == 0.0:
+            raise ValueError("scale must be finite and non-zero")
+        if not isfinite(self.offset):
+            raise ValueError("offset must be finite")
         object.__setattr__(self, "point_id", point_id)
         object.__setattr__(
             self,
