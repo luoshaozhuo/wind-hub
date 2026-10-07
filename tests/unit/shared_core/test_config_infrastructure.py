@@ -167,3 +167,36 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
 
     with pytest.raises(ConfigError, match="canonical built-in unit"):
         validate_core_config(invalid)
+
+
+
+def test_config_diff_detects_device_model_point_table_change() -> None:
+    from core.application import compute_core_config_diff
+
+    current = _snapshot()
+    table = next(iter(current.point_tables.values()))
+    replacement = PointTable(
+        "wt_modbus_v2",
+        table.protocol,
+        table.points,
+    )
+    changed = CoreConfigSnapshot(
+        device_types=current.device_types,
+        device_models=current.device_models,
+        devices=current.devices,
+        business_points=current.business_points,
+        point_tables={
+            **current.point_tables,
+            replacement.point_table_id: replacement,
+        },
+        device_model_point_tables={
+            model_id: replacement.point_table_id
+            for model_id in current.device_models
+        },
+        device_connections=current.device_connections,
+    )
+
+    diff = compute_core_config_diff(current, changed)
+
+    assert diff.changed is True
+    assert diff.device_model_point_tables.updated == ("m1",)
