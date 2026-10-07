@@ -1,42 +1,39 @@
-"""Shared Core Application 用例与稳定数据契约。"""
+"""Shared Core Application。
 
-from .collection_plan import (
-    CollectionAssignment,
-    CollectionWork,
-    assign_collection_connection,
-    build_collection_work,
+仅保留 Collector、Commander、Server 共同依赖的应用级能力：
+共享配置、设备通信会话、协议端口以及协议值归一化。
+"""
+
+from .config import (
+    ConnectionEndpoint,
+    CoreConfigSnapshot,
+    DeviceConnection,
+    validate_core_config,
 )
 from .interpretation import interpret_protocol_sample
 from .measurement import PointScalar, PointValue, ProtocolSample, Quality
 from .port import (
-    AcquisitionMode,
-    ExclusiveOpenSinkPort,
-    InterrogationCapable,
+    ProtocolFactoryPort,
     ProtocolPort,
     ProtocolWrite,
     ProtocolWriteResult,
-    SinkPort,
-    SubscribableProtocolPort,
-    SubscriptionHandle,
 )
+from .session import DeviceSession, create_device_session
 
 __all__ = [
-    "AcquisitionMode",
-    "CollectionAssignment",
-    "CollectionWork",
-    "ExclusiveOpenSinkPort",
-    "InterrogationCapable",
+    "ConnectionEndpoint",
+    "CoreConfigSnapshot",
+    "DeviceConnection",
+    "DeviceSession",
     "PointScalar",
     "PointValue",
+    "ProtocolFactoryPort",
     "ProtocolPort",
     "ProtocolSample",
     "ProtocolWrite",
     "ProtocolWriteResult",
     "Quality",
-    "SinkPort",
-    "SubscribableProtocolPort",
-    "SubscriptionHandle",
-    "assign_collection_connection",
-    "build_collection_work",
+    "create_device_session",
     "interpret_protocol_sample",
+    "validate_core_config",
 ]
