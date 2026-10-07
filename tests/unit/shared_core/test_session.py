@@ -6,6 +6,7 @@ import pytest
 
 from core.application import (
     ConnectionEndpoint,
+    ConnectionHealth,
     CoreConfigSnapshot,
     DeviceConnection,
     DeviceSession,
@@ -39,6 +40,9 @@ class _FakeProtocol:
 
     async def close(self) -> None:
         return None
+
+    def health(self) -> ConnectionHealth:
+        return ConnectionHealth(healthy=True)
 
     async def read(
         self,
@@ -107,6 +111,7 @@ def _session() -> tuple[DeviceSession, _FakeProtocol]:
 @pytest.mark.asyncio
 async def test_session_read_normalizes_to_business_unit() -> None:
     session, _ = _session()
+    assert session.health().healthy is True
 
     values = await session.read(("power",))
 
