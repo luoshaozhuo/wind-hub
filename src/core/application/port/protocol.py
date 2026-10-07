@@ -105,3 +105,12 @@ class SubscribableProtocolPort(Protocol):
     ) -> SubscriptionHandle:
         """建立独立订阅并返回其生命周期句柄。"""
         ...
+
+
+@runtime_checkable
+class InterrogationCapable(Protocol):
+    """可选能力：订阅建立后可主动触发一次协议总召/全量刷新。"""
+
+    async def interrogate(self) -> None:
+        """请求远端主动发送当前全量值。"""
+        ...
