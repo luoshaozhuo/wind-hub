@@ -18,15 +18,13 @@ class ProtocolConfigValidator(CoreConfigValidatorPort):
         self._protocols = protocols
 
     def validate(self, snapshot: CoreConfigSnapshot) -> None:
-        """校验全部 DeviceConnection 的协议专有连接参数与点地址。"""
-        for connection in snapshot.device_connections.values():
-            point_table = snapshot.point_table_for_device(connection.device_id)
+        """校验全部 Device 的协议专有连接参数与点地址。"""
+        for device in snapshot.devices.values():
+            point_table = snapshot.point_table_for_device(device.device_id)
             self._protocols.create(
-                connection,
+                device.endpoint,
                 point_table,
-                snapshot.connection_options_for(
-                    connection.connection_id
-                ),
+                snapshot.device_options_for(device.device_id),
                 snapshot.point_options.get(
                     point_table.point_table_id,
                     {},
