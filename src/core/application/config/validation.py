@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.domain import UNIT_CATALOG, Quantity, Unit, ValueType
+from core.domain import DataType, UNIT_CATALOG, Quantity, Unit
 
 from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
@@ -24,12 +24,12 @@ def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
             context=f"business point '{point.business_point_id}' standard_unit",
         )
         if (
-            point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
+            point.data_type in (DataType.BOOL, DataType.STRING)
             and point.standard_unit.quantity is not Quantity.DIMENSIONLESS
         ):
             raise ConfigError(
                 f"business point '{point.business_point_id}' with "
-                f"{point.value_type.value} value must use dimensionless unit"
+                f"{point.data_type.value} value must use dimensionless unit"
             )
 
 
@@ -59,12 +59,12 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
                     f"point '{point.business_point_id}'"
                 )
             if (
-                business_point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
+                business_point.data_type in (DataType.BOOL, DataType.STRING)
                 and (point.scale != 1.0 or point.offset != 0.0)
             ):
                 raise ConfigError(
                     f"point table '{table.point_table_id}' point "
-                    f"'{point.point_id}' with {business_point.value_type.value} "
+                    f"'{point.point_id}' with {business_point.data_type.value} "
                     "value must use identity scale/offset"
                 )
 
@@ -106,21 +106,6 @@ def _validate_protocol_options(snapshot: CoreConfigSnapshot) -> None:
             f"{sorted(str(value) for value in unknown_devices)}"
         )
 
-    unknown_tables = set(snapshot.point_options) - set(snapshot.point_tables)
-    if unknown_tables:
-        raise ConfigError(
-            "point options reference unknown point tables: "
-            f"{sorted(str(value) for value in unknown_tables)}"
-        )
-
-    for table_id, options in snapshot.point_options.items():
-        table = snapshot.point_tables[table_id]
-        unknown_points = set(options) - set(table.points)
-        if unknown_points:
-            raise ConfigError(
-                f"point options for table '{table_id}' reference unknown "
-                f"points {sorted(unknown_points)}"
-            )
 
 
 def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
