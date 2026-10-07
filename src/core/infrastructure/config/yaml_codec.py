@@ -71,6 +71,20 @@ class YamlCoreConfigCodec(CoreConfigCodecPort):
             raise ValueError(f"invalid YAML config artifact: {exc}") from exc
 
         root = _require_mapping(raw, "root")
+        _require_fields(
+            root,
+            {
+                "schema_version",
+                "device_types",
+                "device_groups",
+                "business_points",
+                "point_tables",
+                "device_models",
+                "devices",
+                "device_connections",
+            },
+            "root",
+        )
         version = root.get("schema_version")
         if version != _SCHEMA_VERSION:
             raise ValueError(
@@ -243,6 +257,11 @@ def _decode_snapshot(root: Mapping[str, object]) -> CoreConfigSnapshot:
 
 def _decode_device_type(value: object) -> DeviceType:
     item = _require_mapping(value, "device_types[]")
+    _require_fields(
+        item,
+        {"device_type_id", "name", "description"},
+        "device_types[]",
+    )
     return DeviceType(
         device_type_id=_required_str(item, "device_type_id"),
         name=_required_str(item, "name"),
@@ -252,6 +271,11 @@ def _decode_device_type(value: object) -> DeviceType:
 
 def _decode_device_group(value: object) -> DeviceGroup:
     item = _require_mapping(value, "device_groups[]")
+    _require_fields(
+        item,
+        {"device_group_id", "name", "description"},
+        "device_groups[]",
+    )
     return DeviceGroup(
         device_group_id=_required_str(item, "device_group_id"),
         name=_required_str(item, "name"),
@@ -261,6 +285,11 @@ def _decode_device_group(value: object) -> DeviceGroup:
 
 def _decode_business_point(value: object) -> BusinessPoint:
     item = _require_mapping(value, "business_points[]")
+    _require_fields(
+        item,
+        {"business_point_id", "value_type", "standard_unit", "description"},
+        "business_points[]",
+    )
     return BusinessPoint(
         business_point_id=_required_str(item, "business_point_id"),
         value_type=ValueType(_required_str(item, "value_type")),
@@ -271,6 +300,11 @@ def _decode_business_point(value: object) -> BusinessPoint:
 
 def _decode_point_table(value: object) -> PointTable:
     item = _require_mapping(value, "point_tables[]")
+    _require_fields(
+        item,
+        {"point_table_id", "protocol", "points"},
+        "point_tables[]",
+    )
     points = [_decode_protocol_point(raw) for raw in _require_list(item.get("points"), "points")]
     by_id = {point.point_id: point for point in points}
     if len(by_id) != len(points):
@@ -286,6 +320,20 @@ def _decode_point_table(value: object) -> PointTable:
 
 def _decode_protocol_point(value: object) -> ProtocolPoint:
     item = _require_mapping(value, "points[]")
+    _require_fields(
+        item,
+        {
+            "point_id",
+            "business_point_id",
+            "raw_type",
+            "source_unit",
+            "access",
+            "scale",
+            "offset",
+            "protocol_options",
+        },
+        "points[]",
+    )
     return ProtocolPoint(
         point_id=_required_str(item, "point_id"),
         business_point_id=_required_str(item, "business_point_id"),
@@ -300,6 +348,17 @@ def _decode_protocol_point(value: object) -> ProtocolPoint:
 
 def _decode_device_model(value: object) -> DeviceModel:
     item = _require_mapping(value, "device_models[]")
+    _require_fields(
+        item,
+        {
+            "device_model_id",
+            "device_type_id",
+            "point_table_id",
+            "name",
+            "manufacturer",
+        },
+        "device_models[]",
+    )
     return DeviceModel(
         device_model_id=_required_str(item, "device_model_id"),
         device_type_id=_required_str(item, "device_type_id"),
@@ -311,6 +370,11 @@ def _decode_device_model(value: object) -> DeviceModel:
 
 def _decode_device(value: object) -> Device:
     item = _require_mapping(value, "devices[]")
+    _require_fields(
+        item,
+        {"device_id", "device_model_id", "name", "device_group_ids"},
+        "devices[]",
+    )
     return Device(
         device_id=_required_str(item, "device_id"),
         device_model_id=_required_str(item, "device_model_id"),
@@ -324,7 +388,13 @@ def _decode_device(value: object) -> Device:
 
 def _decode_connection(value: object) -> DeviceConnection:
     item = _require_mapping(value, "device_connections[]")
+    _require_fields(
+        item,
+        {"connection_id", "device_id", "endpoint"},
+        "device_connections[]",
+    )
     endpoint = _require_mapping(item.get("endpoint"), "endpoint")
+    _require_fields(endpoint, {"host", "port", "options"}, "endpoint")
     return DeviceConnection(
         connection_id=_required_str(item, "connection_id"),
         device_id=_required_str(item, "device_id"),
@@ -428,3 +498,16 @@ def _scalar_mapping(value: object, field: str) -> dict[str, str | int | float | 
             raise ValueError(f"{field}.{key} must be a scalar value")
         result[key] = item
     return result
+
+
+def _require_fields(
+    item: Mapping[str, object],
+    allowed: set[str],
+    context: str,
+) -> None:
+    """拒绝未知字段，避免配置拼写错误被静默忽略。"""
+    unknown = set(item) - allowed
+    if unknown:
+        raise ValueError(
+            f"{context} contains unknown fields: {sorted(unknown)}"
+        )
