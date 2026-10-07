@@ -10,9 +10,7 @@ from typing import TypeVar
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
-    ConnectionId,
     Device,
-    DeviceConnection,
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
@@ -52,10 +50,7 @@ class CoreConfigSnapshot:
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
-    device_connections: Mapping[ConnectionId, DeviceConnection] = field(
-        default_factory=dict
-    )
-    connection_options: Mapping[ConnectionId, ProtocolOptions] = field(
+    device_options: Mapping[DeviceId, ProtocolOptions] = field(
         default_factory=dict
     )
     point_options: Mapping[PointTableId, PointProtocolOptions] = field(
@@ -70,11 +65,10 @@ class CoreConfigSnapshot:
             "devices": _freeze_index(self.devices),
             "business_points": _freeze_index(self.business_points),
             "point_tables": _freeze_index(self.point_tables),
-            "device_connections": _freeze_index(self.device_connections),
-            "connection_options": MappingProxyType(
+            "device_options": MappingProxyType(
                 {
-                    connection_id: freeze_protocol_options(options)
-                    for connection_id, options in self.connection_options.items()
+                    device_id: freeze_protocol_options(options)
+                    for device_id, options in self.device_options.items()
                 }
             ),
             "point_options": MappingProxyType(
@@ -111,12 +105,6 @@ class CoreConfigSnapshot:
             "point_tables",
             "point_table_id",
         )
-        self._validate_identity(
-            fields["device_connections"],
-            "device_connections",
-            "connection_id",
-        )
-
         for name, value in fields.items():
             object.__setattr__(self, name, value)
 
@@ -140,33 +128,13 @@ class CoreConfigSnapshot:
         model = self.device_models[device.device_model_id]
         return self.point_tables[model.point_table_id]
 
-    def connections_for_device(
+    def device_options_for(
         self,
         device_id: DeviceId,
-        *,
-        enabled_only: bool = True,
-    ) -> tuple[DeviceConnection, ...]:
-        """返回设备的稳定排序通信接入定义。"""
-        connections = tuple(
-            connection
-            for connection in self.device_connections.values()
-            if connection.device_id == device_id
-            and (connection.enabled or not enabled_only)
-        )
-        return tuple(
-            sorted(
-                connections,
-                key=lambda connection: str(connection.connection_id),
-            )
-        )
-
-    def connection_options_for(
-        self,
-        connection_id: ConnectionId,
     ) -> ProtocolOptions:
-        """返回指定 DeviceConnection 的协议专有配置。"""
-        return self.connection_options.get(
-            connection_id,
+        """返回指定 Device 的协议专有连接配置。"""
+        return self.device_options.get(
+            device_id,
             MappingProxyType({}),
         )
 
