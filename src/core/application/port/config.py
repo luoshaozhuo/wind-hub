@@ -1,15 +1,63 @@
-"""Shared Core 配置 outbound ports。
+"""Shared Core 配置 ports。
 
-本模块只定义 Application 依赖的接口，不放 DTO、值对象、实现或业务逻辑。
+CoreConfigPort 是上层调用的配置用例入口；Repository/Codec/Validator Port 是
+Application 对 Infrastructure 的依赖边界。本模块只定义接口。
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from ..config.artifact import CoreConfigArtifact
-from ..config.revision import ConfigRevision, StoredCoreConfig
-from ..config.snapshot import CoreConfigSnapshot
+from core.domain.config import CoreConfigSnapshot
+
+from ..config_contract import (
+    ConfigRevision,
+    CoreConfigArtifact,
+    CoreConfigPreview,
+    CoreConfigUpdateResult,
+    StoredCoreConfig,
+)
+
+
+class CoreConfigPort(Protocol):
+    """Shared Core 对上层暴露的完整配置用例能力。"""
+
+    async def get(self) -> StoredCoreConfig:
+        ...
+
+    def validate(self, snapshot: CoreConfigSnapshot) -> None:
+        ...
+
+    async def preview_replace(
+        self,
+        snapshot: CoreConfigSnapshot,
+    ) -> CoreConfigPreview:
+        ...
+
+    async def import_preview(
+        self,
+        artifact: CoreConfigArtifact,
+    ) -> CoreConfigPreview:
+        ...
+
+    async def export(self) -> CoreConfigArtifact:
+        ...
+
+    async def import_replace(
+        self,
+        artifact: CoreConfigArtifact,
+        *,
+        expected_revision: ConfigRevision,
+    ) -> CoreConfigUpdateResult:
+        ...
+
+    async def replace(
+        self,
+        snapshot: CoreConfigSnapshot,
+        *,
+        expected_revision: ConfigRevision,
+    ) -> CoreConfigUpdateResult:
+        ...
 
 
 class CoreConfigCodecPort(Protocol):
