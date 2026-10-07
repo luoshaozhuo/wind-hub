@@ -87,7 +87,7 @@ class ProtocolFactoryPort(Protocol):
     ) -> ProtocolPort:
         """创建尚未建立连接的协议实例。
 
-        point_table 是已经 resolve 完成的共享点表。Adapter 可在构造/建连阶段
-        预编译地址、建立 Symbol/IOA/寄存器映射，但不得修改 PointTable。
+        point_table 是已经 resolve 完成的共享点表。factory 必须是纯静态构造：
+        可以解析连接参数、预编译 Symbol/IOA/寄存器映射，但不得执行网络 I/O。
         """
         ...
