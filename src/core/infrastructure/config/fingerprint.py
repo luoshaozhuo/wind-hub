@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from core.application.config import CoreConfigSnapshot
+from core.domain import CoreConfigSnapshot
 
 from .yaml_codec import YamlCoreConfigCodec
 
