@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Mapping, TypeAlias
 
 from .value_objects import PointAccess, Protocol, RawDataType, Unit, ValueType
 
+ProtocolOptionValue: TypeAlias = str | int | float | bool | None
 
-def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    """返回映射的只读浅拷贝。"""
+
+def _freeze_mapping(
+    value: Mapping[str, ProtocolOptionValue],
+) -> Mapping[str, ProtocolOptionValue]:
+    """返回协议专有字段的只读浅拷贝。"""
     return MappingProxyType(dict(value))
 
 
@@ -45,17 +49,20 @@ class ProtocolPoint:
 
     business_point_id 关联稳定业务点；raw_type、source_unit、scale、offset
     描述从协议原始量到标准业务量的解释规则；protocol_options 只保存协议
-    专有字段，例如 Modbus 地址、ADS Symbol 或 IEC 104 IOA。
+    专有标量字段，例如 Modbus 地址、ADS Symbol 或 IEC 104 IOA。
+
+    scale 与 offset 仅描述映射参数。映射是否合法以及如何转换，需要结合所关联
+    BusinessPoint 的 value_type 与 standard_unit 判断，不由 ProtocolPoint 单独执行。
     """
 
     point_id: str
     business_point_id: str
     raw_type: RawDataType
+    source_unit: Unit
     access: PointAccess
-    source_unit: Unit | None = None
     scale: float = 1.0
     offset: float = 0.0
-    protocol_options: Mapping[str, Any] = field(default_factory=dict)
+    protocol_options: Mapping[str, ProtocolOptionValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -72,18 +79,13 @@ class ProtocolPoint:
             _freeze_mapping(self.protocol_options),
         )
 
-    def normalize_numeric(self, raw_value: int | float) -> float:
-        """将数值型协议原始值换算为标准业务值。"""
-        if isinstance(raw_value, bool):
-            raise TypeError("bool is not a numeric protocol value")
-        return raw_value * self.scale + self.offset
-
 
 @dataclass(frozen=True, slots=True)
 class PointTable:
     """单一协议下的一套可复用点表聚合。
 
     PointTable 是 ProtocolPoint 的一致性边界；表内 point_id 必须唯一。
+    BusinessPoint 不属于本聚合，ProtocolPoint 仅通过 business_point_id 引用它。
     """
 
     point_table_id: str
@@ -98,12 +100,14 @@ class PointTable:
             raise ValueError("point_table_id must not be empty")
         if not name:
             raise ValueError("point table name must not be empty")
+
         points = tuple(self.points)
         point_ids = [point.point_id for point in points]
         if len(point_ids) != len(set(point_ids)):
             raise ValueError(
                 f"point table '{point_table_id}' contains duplicate point_id"
             )
+
         object.__setattr__(self, "point_table_id", point_table_id)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "points", points)
