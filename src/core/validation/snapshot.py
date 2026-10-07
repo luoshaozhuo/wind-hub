@@ -46,4 +46,5 @@ def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
         snapshot.devices,
         snapshot.device_groups,
         snapshot.point_sets,
+        snapshot.sinks,
     )
