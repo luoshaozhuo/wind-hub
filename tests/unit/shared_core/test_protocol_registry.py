@@ -8,8 +8,10 @@ from core.application import (
     ConfigError,
     ConnectionHealth,
     CoreConfigSnapshot,
+    InterrogatableProtocolPort,
     ProtocolSample,
     ProtocolWrite,
+    SubscribableProtocolPort,
     ProtocolWriteResult,
 )
 from core.domain import (
@@ -146,6 +148,30 @@ def test_protocol_config_validator_fails_before_runtime_io() -> None:
         validator.validate(snapshot)
 
 
+
+
+def test_optional_protocol_capabilities_are_runtime_detectable() -> None:
+    modbus = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("modbus_pt", Protocol("modbus"), {}),
+        {},
+    )
+    ads = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable("ads_pt", Protocol("ads"), {}),
+        {},
+    )
+    iec104 = IEC104Driver(
+        ConnectionEndpoint("127.0.0.1", 2404),
+        PointTable("iec104_pt", Protocol("iec104"), {}),
+        {},
+    )
+
+    assert isinstance(ads, SubscribableProtocolPort)
+    assert isinstance(iec104, SubscribableProtocolPort)
+    assert isinstance(iec104, InterrogatableProtocolPort)
+    assert not isinstance(modbus, SubscribableProtocolPort)
+    assert not isinstance(modbus, InterrogatableProtocolPort)
 
 def test_builtin_protocol_registry_has_all_shared_drivers() -> None:
     registry = build_protocol_registry()
