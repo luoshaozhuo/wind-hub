@@ -2,19 +2,37 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import pytest
+
 from core.application import (
+    ConfigError,
     ConnectionEndpoint,
     ConnectionHealth,
+    CoreConfigSnapshot,
     DeviceConnection,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
 )
-from core.domain import PointTable, Protocol, ProtocolPoint
+from core.domain import (
+    BusinessPoint,
+    Device,
+    DeviceModel,
+    DeviceType,
+    PointAccess,
+    PointTable,
+    Protocol,
+    ProtocolPoint,
+    RawDataType,
+    UNIT_CATALOG,
+    UnitCode,
+    ValueType,
+)
 from core.infrastructure import (
     ADSDriver,
     IEC104Driver,
     ModbusDriver,
+    ProtocolConfigValidator,
     ProtocolRegistry,
 )
 
@@ -66,3 +84,57 @@ def test_protocol_registry_accepts_builtin_driver_classes() -> None:
     registry.register("iec104", IEC104Driver)
 
     assert registry.registered_names() == ("ads", "iec104", "modbus")
+
+
+
+def test_protocol_config_validator_fails_before_runtime_io() -> None:
+    registry = ProtocolRegistry()
+    registry.register("modbus", ModbusDriver)
+    validator = ProtocolConfigValidator(registry)
+
+    device_type = DeviceType("turbine", "Turbine")
+    business_point = BusinessPoint(
+        "power",
+        ValueType.FLOAT,
+        UNIT_CATALOG[UnitCode.KILOWATT],
+    )
+    protocol_point = ProtocolPoint(
+        point_id="power",
+        business_point_id=business_point.business_point_id,
+        raw_type=RawDataType("float32"),
+        source_unit=UNIT_CATALOG[UnitCode.KILOWATT],
+        access=PointAccess.READ,
+        protocol_options={
+            "register_type": "input",
+            # address intentionally missing
+        },
+    )
+    table = PointTable(
+        "pt",
+        Protocol("modbus"),
+        {"power": protocol_point},
+    )
+    model = DeviceModel(
+        "m1",
+        device_type.device_type_id,
+        table.point_table_id,
+    )
+    device = Device("d1", model.device_model_id)
+    connection = DeviceConnection(
+        "c1",
+        device.device_id,
+        ConnectionEndpoint("127.0.0.1", 502),
+    )
+    snapshot = CoreConfigSnapshot(
+        device_types={device_type.device_type_id: device_type},
+        device_models={model.device_model_id: model},
+        devices={device.device_id: device},
+        business_points={
+            business_point.business_point_id: business_point,
+        },
+        point_tables={table.point_table_id: table},
+        device_connections={connection.connection_id: connection},
+    )
+
+    with pytest.raises(ConfigError, match="address"):
+        validator.validate(snapshot)
