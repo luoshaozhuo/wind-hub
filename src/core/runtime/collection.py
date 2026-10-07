@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -19,6 +18,7 @@ from core.config import ConfigSnapshot
 from core.domain import DeviceId, ProtocolPoint, TaskId
 
 from .connection import ConnectionRuntime
+from .scheduler import FixedRateHandle
 from .sink import SinkRuntime
 
 _AssignmentKey = tuple[TaskId, DeviceId]
@@ -43,18 +43,24 @@ class CollectionRuntime:
         sinks: SinkRuntime,
         *,
         clock: Callable[[], datetime] = _utc_now,
+        on_poll_error: Callable[[CollectionAssignment, BaseException], None] | None = None,
+        on_poll_stats: (
+            Callable[[CollectionAssignment, float, bool, int], None] | None
+        ) = None,
     ) -> None:
         self._snapshot = snapshot
         self._connections = connections
         self._sinks = sinks
         self._clock = clock
-        self._poll_tasks: dict[_AssignmentKey, asyncio.Task[None]] = {}
+        self._on_poll_error = on_poll_error
+        self._on_poll_stats = on_poll_stats
+        self._poll_handles: dict[_AssignmentKey, FixedRateHandle] = {}
         self._subscriptions: dict[_AssignmentKey, SubscriptionHandle] = {}
 
     async def start_assignment(self, assignment: CollectionAssignment) -> None:
         """启动一个已完成 placement 的采集 assignment。"""
         key = self._key(assignment)
-        if key in self._poll_tasks or key in self._subscriptions:
+        if key in self._poll_handles or key in self._subscriptions:
             raise ValueError(
                 f"collection assignment '{assignment.task_id}/{assignment.device_id}' "
                 "is already running"
@@ -69,9 +75,33 @@ class CollectionRuntime:
                     f"poll assignment '{assignment.task_id}/{assignment.device_id}' "
                     "requires a positive interval"
                 )
-            self._poll_tasks[key] = asyncio.create_task(
-                self._poll_loop(assignment, points)
+
+            async def _acquire() -> None:
+                samples = await protocol.read(points)
+                values = self._interpret_batch(assignment, points, samples)
+                await self._sinks.dispatch(assignment.target_sink_ids, values)
+
+            def _on_error(exc: BaseException) -> None:
+                if self._on_poll_error is not None:
+                    self._on_poll_error(assignment, exc)
+
+            def _on_stats(jitter: float, overrun: bool, missed: int) -> None:
+                if self._on_poll_stats is not None:
+                    self._on_poll_stats(
+                        assignment,
+                        jitter,
+                        overrun,
+                        missed,
+                    )
+
+            handle = FixedRateHandle(
+                assignment.interval,
+                _acquire,
+                on_error=_on_error,
+                on_stats=_on_stats,
             )
+            await handle.start()
+            self._poll_handles[key] = handle
             return
 
         if protocol.acquisition_mode is not AcquisitionMode.SUBSCRIBE:
@@ -104,21 +134,17 @@ class CollectionRuntime:
         """停止一个采集 assignment；不存在时保持幂等。"""
         key = (task_id, device_id)
 
-        task = self._poll_tasks.pop(key, None)
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        poll_handle = self._poll_handles.pop(key, None)
+        if poll_handle is not None:
+            await poll_handle.close()
 
-        handle = self._subscriptions.pop(key, None)
-        if handle is not None:
-            await handle.close()
+        subscription = self._subscriptions.pop(key, None)
+        if subscription is not None:
+            await subscription.close()
 
     async def stop(self) -> None:
         """停止全部采集实例。"""
-        keys = tuple({*self._poll_tasks.keys(), *self._subscriptions.keys()})
+        keys = tuple({*self._poll_handles.keys(), *self._subscriptions.keys()})
         first_error: Exception | None = None
         for task_id, device_id in keys:
             try:
@@ -128,20 +154,6 @@ class CollectionRuntime:
                     first_error = exc
         if first_error is not None:
             raise first_error
-
-    async def _poll_loop(
-        self,
-        assignment: CollectionAssignment,
-        points: tuple[ProtocolPoint, ...],
-    ) -> None:
-        assert assignment.interval is not None
-        protocol = self._connections.protocol(assignment.connection_id)
-
-        while True:
-            samples = await protocol.read(points)
-            values = self._interpret_batch(assignment, points, samples)
-            await self._sinks.dispatch(assignment.target_sink_ids, values)
-            await asyncio.sleep(assignment.interval)
 
     def _interpret_batch(
         self,
