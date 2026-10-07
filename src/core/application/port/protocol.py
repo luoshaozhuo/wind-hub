@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from core.domain import Protocol, ProtocolPoint
+from core.domain import PointTable, ProtocolPoint
 
 from ..config import DeviceConnection
 from ..measurement import PointScalar, ProtocolSample
@@ -83,7 +83,11 @@ class ProtocolFactoryPort(Protocol):
     def create(
         self,
         connection: DeviceConnection,
-        protocol: Protocol,
+        point_table: PointTable,
     ) -> ProtocolPort:
-        """创建尚未建立连接的协议实例。"""
+        """创建尚未建立连接的协议实例。
+
+        point_table 是已经 resolve 完成的共享点表。Adapter 可在构造/建连阶段
+        预编译地址、建立 Symbol/IOA/寄存器映射，但不得修改 PointTable。
+        """
         ...
