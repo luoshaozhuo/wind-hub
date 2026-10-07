@@ -30,7 +30,7 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    ProtocolPoint,
+    PointDefinition,
     RawDataType,
     UNIT_CATALOG,
     Unit,
@@ -351,7 +351,7 @@ def _decode_point_table(
 def _decode_protocol_point(
     value: object,
 ) -> tuple[
-    ProtocolPoint,
+    PointDefinition,
     dict[str, str | int | float | bool | None],
 ]:
     item = _require_mapping(value, "points[]")
@@ -369,7 +369,7 @@ def _decode_protocol_point(
         },
         "points[]",
     )
-    point = ProtocolPoint(
+    point = PointDefinition(
         point_id=_required_str(item, "point_id"),
         business_point_id=BusinessPointId(
             _required_str(item, "business_point_id")
