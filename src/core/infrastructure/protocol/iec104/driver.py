@@ -321,22 +321,22 @@ class IEC104Driver:
 
     async def read(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         """读取 c104 回调维护的最新镜像，不主动发 wire 请求。"""
-        if not points:
+        if not point_ids:
             return ()
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
 
         results: list[ProtocolSample] = []
-        for point in points:
-            mapped = self._mapped_point(point)
+        for point_id in point_ids:
+            mapped = self._mapped_point(point_id)
             sample = self._samples.get(mapped.ioa)
             if sample is None:
                 results.append(
                     ProtocolSample(
-                        point_id=point.point_id,
+                        point_id=point_id,
                         value=None,
                         quality=Quality.BAD,
                     )
@@ -375,7 +375,10 @@ class IEC104Driver:
         """
         del interval
         if points:
-            ioas = tuple(self._mapped_point(point).ioa for point in points)
+            ioas = tuple(
+                self._mapped_point(point.point_id).ioa
+                for point in points
+            )
         else:
             ioas = None
         return self._subscriptions.subscribe(ioas, callback)
@@ -405,7 +408,7 @@ class IEC104Driver:
         self,
         write: ProtocolWrite,
     ) -> ProtocolWriteResult:
-        mapped = self._mapped_point(write.point)
+        mapped = self._mapped_point(write.point_id)
         lock = self._command_locks.setdefault(
             mapped.ioa,
             asyncio.Lock(),
@@ -483,11 +486,11 @@ class IEC104Driver:
             )
         return point
 
-    def _mapped_point(self, point: Point) -> IEC104Point:
-        mapped = self._points_by_id.get(point.point_id)
+    def _mapped_point(self, point_id: str) -> IEC104Point:
+        mapped = self._points_by_id.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point.point_id}' is not part of connection "
+                f"point '{point_id}' is not part of connection "
                 f"'{self._point_table_id}'"
             )
         return mapped
