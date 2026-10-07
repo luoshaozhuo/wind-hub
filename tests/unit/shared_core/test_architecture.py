@@ -65,29 +65,45 @@ def test_application_port_modules_contain_interfaces_only() -> None:
 
 
 
-def test_domain_does_not_define_protocol_integration_models() -> None:
-    forbidden = {
-        "ConnectionId",
-        "PointAccess",
-        "PointTable",
-        "PointTableId",
-        "Protocol",
-        "ProtocolPoint",
-        "RawDataType",
-    }
-    defined: set[str] = set()
+def test_domain_does_not_depend_on_application_or_infrastructure() -> None:
+    violations: list[str] = []
 
     for path in _python_files(_CORE / "domain"):
         tree = ast.parse(
             path.read_text(encoding="utf-8"),
             filename=str(path),
         )
-        for node in tree.body:
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
-                defined.add(node.name)
-            elif isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        defined.add(target.id)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.module is None:
+                continue
+            if node.module.startswith(
+                ("core.application", "core.infrastructure")
+            ):
+                violations.append(
+                    f"{path.name}:{node.lineno} imports {node.module}"
+                )
 
-    assert defined.isdisjoint(forbidden)
+    assert violations == []
+
+
+def test_domain_protocol_models_do_not_embed_adapter_options() -> None:
+    forbidden_tokens = {
+        "protocol_options",
+        "register_type",
+        "word_order",
+        "target_net_id",
+        "index_group",
+        "index_offset",
+        "common_addr",
+        "type_id",
+        "ioa",
+    }
+    violations: list[str] = []
+
+    for path in _python_files(_CORE / "domain"):
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in source:
+                violations.append(f"{path.name}: contains '{token}'")
+
+    assert violations == []
