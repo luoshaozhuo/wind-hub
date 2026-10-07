@@ -2,6 +2,7 @@
 
 from .protocol import (
     AcquisitionMode,
+    InterrogationCapable,
     ProtocolPort,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -13,6 +14,7 @@ from .sink import ExclusiveOpenSinkPort, SinkPort
 __all__ = [
     "AcquisitionMode",
     "ExclusiveOpenSinkPort",
+    "InterrogationCapable",
     "ProtocolPort",
     "ProtocolWrite",
     "ProtocolWriteResult",
