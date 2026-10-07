@@ -52,6 +52,15 @@ class ProtocolWriteResult:
         object.__setattr__(self, "point_id", point_id)
 
 
+class ProtocolCapability(StrEnum):
+    """统一协议 Port 可声明的运行时能力。"""
+
+    READ = "read"
+    WRITE = "write"
+    SUBSCRIBE = "subscribe"
+    INTERROGATE = "interrogate"
+
+
 class Quality(StrEnum):
     """统一协议点值质量。"""
 
