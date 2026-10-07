@@ -64,7 +64,6 @@ def test_application_port_modules_contain_interfaces_only() -> None:
     assert violations == []
 
 
-
 def test_domain_does_not_depend_on_application_or_infrastructure() -> None:
     violations: list[str] = []
 
@@ -136,6 +135,7 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
 
     assert field_names & forbidden == set()
     assert "ext" in field_names
+
 
 def test_infrastructure_imports_domain_types_from_domain() -> None:
     """Infrastructure 不得通过 application.config 间接导入 Domain 类型。"""
