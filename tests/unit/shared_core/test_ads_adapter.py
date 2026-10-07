@@ -24,7 +24,6 @@ from core.application import (
 )
 from core.domain import (
     ConnectionEndpoint,
-    DeviceConnection,
     PointAccess,
     PointTable,
     Protocol,
@@ -42,21 +41,14 @@ from core.infrastructure.protocol.ads import (
 )
 
 
-def _connection(
+def _endpoint(
     *,
     port: int | None = 801,
-) -> DeviceConnection:
-    return DeviceConnection(
-        "ads-main",
-        "wt01",
-        ConnectionEndpoint(
-            "192.0.2.20",
-            port,
-        ),
-    )
+) -> ConnectionEndpoint:
+    return ConnectionEndpoint("192.0.2.20", port)
 
 
-def _connection_options(**options: object) -> dict[str, object]:
+def _device_options(**options: object) -> dict[str, object]:
     return dict(options)
 
 
@@ -78,10 +70,10 @@ def _point_options(**options: object) -> dict[str, object]:
     return dict(options)
 
 
-def test_ads_config_parses_connection_options() -> None:
+def test_ads_config_parses_device_options() -> None:
     config = parse_ads_config(
-        _connection(),
-        _connection_options(
+        _endpoint(),
+        _device_options(
             target_net_id="192.0.2.20.1.1",
             timeout=2.5,
             read_mode="sequential",
@@ -98,10 +90,10 @@ def test_ads_config_parses_connection_options() -> None:
 
 
 def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
-    assert parse_ads_config(_connection(port=None), {}).target_port == 801
+    assert parse_ads_config(_endpoint(port=None), {}).target_port == 801
     assert (
         parse_ads_config(
-            _connection(port=None),
+            _endpoint(port=None),
             {"twincat_version": "3"},
         ).target_port
         == 802
@@ -111,7 +103,7 @@ def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
 def test_ads_config_rejects_unknown_options() -> None:
     try:
         parse_ads_config(
-            _connection(),
+            _endpoint(),
             {"unknown_option": True},
         )
     except ConfigError as exc:
@@ -172,7 +164,7 @@ def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
     driver = ADSDriver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {"speed": _point_options(symbol="MAIN.speed")},
@@ -230,7 +222,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         {"setpoint": point},
     )
     driver = ADSDriver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {
@@ -370,7 +362,7 @@ async def test_ads_driver_exposes_notification_subscription(
         {"speed": point},
     )
     driver = ADSDriver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {
@@ -452,7 +444,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
         {"speed": point},
     )
     driver = ADSDriver(
-        _connection(),
+        _endpoint(),
         table,
         {},
         {
