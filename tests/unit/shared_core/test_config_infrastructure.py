@@ -10,6 +10,7 @@ from core.application import (
     ConnectionEndpoint,
     CoreConfigSnapshot,
     DeviceConnection,
+    validate_core_config,
 )
 from core.domain import (
     BusinessPoint,
@@ -96,7 +97,7 @@ def test_yaml_codec_rejects_unknown_fields() -> None:
     artifact = codec.encode(_snapshot())
     content = artifact.content + b"unexpected: true\n"
 
-    with pytest.raises(ValueError, match="unknown fields"):
+    with pytest.raises(ConfigError, match="unknown fields"):
         codec.decode(type(artifact)(content=content, media_type=artifact.media_type))
 
 
@@ -160,6 +161,4 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
     )
 
     with pytest.raises(ConfigError, match="canonical built-in unit"):
-        from core.application import validate_core_config
-
         validate_core_config(invalid)
