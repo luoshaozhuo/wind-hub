@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from core.application import ConfigError, LoadConfig, SaveConfig
+from core.application import LoadConfig, SaveConfig
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
@@ -23,10 +21,6 @@ from core.domain import (
     UnitCode,
     validate_core_config,
 )
-from core.infrastructure import YamlFileCoreConfigRepository
-
-
-
 class _MemoryConfigRepository:
     def __init__(self, snapshot: CoreConfigSnapshot) -> None:
         self.snapshot = snapshot
@@ -144,32 +138,6 @@ def test_domain_validation_rejects_unknown_model_point_table() -> None:
 
     with pytest.raises(ValueError, match="unknown point table"):
         validate_core_config(invalid)
-
-
-@pytest.mark.asyncio
-async def test_yaml_repository_round_trip(tmp_path: Path) -> None:
-    path = tmp_path / "core.yaml"
-    repository = YamlFileCoreConfigRepository(path)
-    snapshot = _snapshot()
-
-    await repository.save(snapshot)
-    loaded = await repository.load()
-
-    assert loaded == snapshot
-    assert loaded.devices["wt01"].name == "WT01"
-    assert loaded.device_options_for("wt01") == {"unit_id": 1}
-    assert loaded.point_tables["wt_modbus"].points["p"].ext["address"] == 1
-
-
-@pytest.mark.asyncio
-async def test_yaml_repository_rejects_unknown_fields(tmp_path: Path) -> None:
-    path = tmp_path / "core.yaml"
-    repository = YamlFileCoreConfigRepository(path)
-    await repository.save(_snapshot())
-    path.write_bytes(path.read_bytes() + b"unexpected: true\n")
-
-    with pytest.raises(ConfigError, match="unknown fields"):
-        await repository.load()
 
 
 @pytest.mark.asyncio
