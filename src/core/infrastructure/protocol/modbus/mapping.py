@@ -83,10 +83,10 @@ def parse_modbus_point(
     )
     if count <= 0:
         raise ConfigError(f"Modbus point '{point.point_id}': count must be > 0")
-    if count < expected_count:
+    if count != expected_count:
         raise ConfigError(
-            f"Modbus point '{point.point_id}': count {count} is too small for "
-            f"{point.raw_type.name} (requires {expected_count})"
+            f"Modbus point '{point.point_id}': count {count} does not match "
+            f"{point.raw_type.name} requirement {expected_count}"
         )
 
     raw_word_order = options.get("word_order")
