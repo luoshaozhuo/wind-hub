@@ -31,14 +31,13 @@ from core.domain import (
     PointTableId,
     Protocol,
     PointDefinition,
-    RawDataType,
     UNIT_CATALOG,
     Unit,
     UnitCode,
     ValueType,
 )
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _MEDIA_TYPE = "application/x-yaml"
 
 _KeyT = TypeVar("_KeyT")
@@ -143,7 +142,6 @@ def _encode_snapshot(snapshot: CoreConfigSnapshot) -> dict[str, object]:
                     {
                         "point_id": point.point_id,
                         "business_point_id": str(point.business_point_id),
-                        "raw_type": point.raw_type.name,
                         "source_unit": point.source_unit.code.value,
                         "access": point.access.value,
                         "scale": point.scale,
@@ -360,7 +358,6 @@ def _decode_protocol_point(
         {
             "point_id",
             "business_point_id",
-            "raw_type",
             "source_unit",
             "access",
             "scale",
@@ -374,7 +371,6 @@ def _decode_protocol_point(
         business_point_id=BusinessPointId(
             _required_str(item, "business_point_id")
         ),
-        raw_type=RawDataType(_required_str(item, "raw_type")),
         source_unit=_unit(_required_str(item, "source_unit")),
         access=PointAccess(_required_str(item, "access")),
         scale=_number(item, "scale", default=1.0),
