@@ -9,6 +9,14 @@ from .ads import (
     parse_ads_config,
     parse_ads_point,
 )
+from .iec104 import (
+    IEC104Config,
+    IEC104Driver,
+    IEC104Point,
+    build_iec104_index,
+    parse_iec104_config,
+    parse_iec104_point,
+)
 from .modbus import (
     ModbusConfig,
     ModbusDriver,
@@ -25,14 +33,20 @@ __all__ = [
     "ADSLocalConfig",
     "ADSLocalRouter",
     "ADSPoint",
+    "IEC104Config",
+    "IEC104Driver",
+    "IEC104Point",
     "ModbusConfig",
     "ModbusDriver",
     "ModbusPoint",
     "ProtocolFactory",
     "ProtocolRegistry",
+    "build_iec104_index",
     "group_consecutive_reads",
     "parse_ads_config",
     "parse_ads_point",
+    "parse_iec104_config",
+    "parse_iec104_point",
     "parse_modbus_config",
     "parse_modbus_point",
 ]
