@@ -14,6 +14,8 @@ from typing import TypeAlias
 
 from core.domain import ConnectionId, DeviceId
 
+from ..errors import ConfigError
+
 ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 
 
@@ -24,7 +26,7 @@ def _freeze_options(
     options = dict(value)
     for key, item in options.items():
         if isinstance(item, float) and not isfinite(item):
-            raise ValueError(
+            raise ConfigError(
                 f"connection option '{key}' must be finite"
             )
     return MappingProxyType(options)
@@ -35,7 +37,7 @@ class ConnectionEndpoint:
     """现场通信端点。
 
     host/port 是跨协议常见属性；options 保存协议专有的连接级参数，例如
-    ADS target_net_id/local_ams_net_id、Modbus unit_id 或连接超时等。
+    ADS target_net_id、Modbus unit_id 或连接超时等。进程级本机身份不放在这里。
     """
 
     host: str
@@ -45,9 +47,9 @@ class ConnectionEndpoint:
     def __post_init__(self) -> None:
         host = self.host.strip()
         if not host:
-            raise ValueError("endpoint host must not be empty")
+            raise ConfigError("endpoint host must not be empty")
         if self.port is not None and not 1 <= self.port <= 65535:
-            raise ValueError("endpoint port must be between 1 and 65535")
+            raise ConfigError("endpoint port must be between 1 and 65535")
 
         object.__setattr__(self, "host", host)
         object.__setattr__(self, "options", _freeze_options(self.options))
@@ -70,9 +72,9 @@ class DeviceConnection:
         connection_id = self.connection_id.strip()
         device_id = self.device_id.strip()
         if not connection_id:
-            raise ValueError("connection_id must not be empty")
+            raise ConfigError("connection_id must not be empty")
         if not device_id:
-            raise ValueError("device_id must not be empty")
+            raise ConfigError("device_id must not be empty")
 
         object.__setattr__(self, "connection_id", ConnectionId(connection_id))
         object.__setattr__(self, "device_id", DeviceId(device_id))
