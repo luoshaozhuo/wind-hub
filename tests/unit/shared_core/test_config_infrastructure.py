@@ -4,16 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from core.application import (
-    ConfigError,
-    ConfigRevisionConflict,
-    CoreConfigSnapshot,
-    compute_core_config_diff,
-    validate_core_config,
-)
+from core.application import ConfigError, ConfigRevisionConflict
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
+    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceModel,
@@ -26,6 +21,8 @@ from core.domain import (
     UNIT_CATALOG,
     Unit,
     UnitCode,
+    compute_core_config_diff,
+    validate_core_config,
 )
 from core.infrastructure import (
     YamlCoreConfigCodec,
@@ -175,7 +172,7 @@ def test_core_config_rejects_noncanonical_unit_instance() -> None:
         device_options=snapshot.device_options,
     )
 
-    with pytest.raises(ConfigError, match="canonical built-in unit"):
+    with pytest.raises(ValueError, match="canonical built-in unit"):
         validate_core_config(invalid)
 
 
@@ -235,7 +232,7 @@ def test_core_config_rejects_unknown_model_point_table() -> None:
         device_options=snapshot.device_options,
     )
 
-    with pytest.raises(ConfigError, match="unknown point table"):
+    with pytest.raises(ValueError, match="unknown point table"):
         validate_core_config(invalid)
 
 
