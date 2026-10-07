@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from ..config.point_table import ProtocolPoint
+from core.domain import ProtocolPoint
 
 from ..protocol_contract import (
     ConnectionHealth,
