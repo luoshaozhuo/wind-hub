@@ -128,16 +128,9 @@ class ADSDriver:
     async def close(self) -> None:
         """关闭当前 ADS session；重复调用安全。"""
         async with self._lock:
-            subscriptions = tuple(self._subscriptions)
-            self._subscriptions.clear()
-            for subscription in subscriptions:
-                await subscription.close()
+            connection, subscriptions = self._detach_runtime()
 
-            connection, self._connection = self._connection, None
-            self._connected = False
-            if connection is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.close)
+        await self._close_detached(connection, subscriptions)
 
     def health(self) -> ConnectionHealth:
         """返回缓存连接状态，不执行 ADS wire 探测。"""
@@ -504,6 +497,28 @@ class ADSDriver:
 
         connection, self._connection = self._connection, None
         self._connected = False
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(connection.close)
+
+    def _detach_runtime(
+        self,
+    ) -> tuple[Any, tuple[ADSSubscription, ...]]:
+        """在 Driver lock 内原子摘除当前连接与订阅。"""
+        connection, self._connection = self._connection, None
+        subscriptions = tuple(self._subscriptions)
+        self._subscriptions.clear()
+        self._connected = False
+        return connection, subscriptions
+
+    async def _close_detached(
+        self,
+        connection: Any,
+        subscriptions: tuple[ADSSubscription, ...],
+    ) -> None:
+        """在 Driver lock 外完成可能等待 callback 的资源清理。"""
+        for subscription in subscriptions:
+            await subscription.close()
         if connection is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(connection.close)
