@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import datetime
 from math import isfinite
 
-from .config import CoreCoreConfigSnapshot
 from core.domain import (
     BusinessPoint,
     DeviceId,
@@ -23,6 +22,7 @@ from core.domain import (
     convert_value,
 )
 
+from .config import CoreConfigSnapshot
 from .measurement import PointScalar, PointValue, ProtocolSample
 
 
