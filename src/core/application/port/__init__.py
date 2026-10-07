@@ -8,11 +8,21 @@ from .config import (
     CoreConfigRepositoryPort,
     CoreConfigValidatorPort,
 )
-from .protocol import ProtocolPort
+from .protocol import (
+    InterrogatableProtocolPort,
+    ProtocolPort,
+    ProtocolSampleCallback,
+    SubscribableProtocolPort,
+    SubscriptionHandle,
+)
 
 __all__ = [
     "CoreConfigCodecPort",
     "CoreConfigRepositoryPort",
     "CoreConfigValidatorPort",
+    "InterrogatableProtocolPort",
     "ProtocolPort",
+    "ProtocolSampleCallback",
+    "SubscribableProtocolPort",
+    "SubscriptionHandle",
 ]
