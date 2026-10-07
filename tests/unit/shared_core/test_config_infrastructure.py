@@ -38,7 +38,6 @@ from core.infrastructure import (
 )
 
 
-
 class _MemoryConfigRepository:
     def __init__(self, snapshot: CoreConfigSnapshot) -> None:
         self._stored = StoredCoreConfig(
@@ -61,6 +60,7 @@ class _MemoryConfigRepository:
             revision=ConfigRevision("r2"),
         )
         return self._stored
+
 
 def _snapshot(
     *,
@@ -109,8 +109,6 @@ def _snapshot(
             device.device_id: {"unit_id": 1},
         },
     )
-
-
 
 def test_data_type_coerces_standard_business_values() -> None:
     assert DataType.INT16.coerce(12.0) == 12
