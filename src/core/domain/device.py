@@ -58,40 +58,32 @@ class DeviceGroup:
 class DeviceModel:
     """可复用的设备型号聚合根。
 
-    point_table_ids 表达该型号已经声明支持的接入点表；允许为空，表示型号已存在，
-    但当前尚未定义通信点表。具体现场设备实际启用哪些接入方式，由
-    DeviceConnection 配置决定。
+    每个 DeviceModel 固定对应一张 PointTable。该约束用于简化设备型号与协议点表
+    的关系；具体现场设备可以定义多个 DeviceConnection，但这些连接都必须使用
+    该型号对应的同一张 PointTable。
     """
 
     device_model_id: DeviceModelId
     device_type_id: DeviceTypeId
-    point_table_ids: tuple[PointTableId, ...] = ()
+    point_table_id: PointTableId
     name: str | None = None
     manufacturer: str | None = None
 
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
         device_type_id = self.device_type_id.strip()
-        point_table_ids = tuple(
-            PointTableId(point_table_id.strip()) for point_table_id in self.point_table_ids
-        )
+        point_table_id = self.point_table_id.strip()
 
         if not device_model_id:
             raise ValueError("device_model_id must not be empty")
         if not device_type_id:
             raise ValueError("device_type_id must not be empty")
-        if any(not point_table_id for point_table_id in point_table_ids):
-            raise ValueError("point_table_ids must not contain empty values")
-        if len(point_table_ids) != len(set(point_table_ids)):
-            raise ValueError("point_table_ids must not contain duplicates")
+        if not point_table_id:
+            raise ValueError("point_table_id must not be empty")
 
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "device_type_id", DeviceTypeId(device_type_id))
-        object.__setattr__(self, "point_table_ids", point_table_ids)
-
-    def supports_point_table(self, point_table_id: PointTableId) -> bool:
-        """判断该型号是否声明支持指定点表。"""
-        return PointTableId(point_table_id.strip()) in self.point_table_ids
+        object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
 
 
 @dataclass(frozen=True, slots=True)
