@@ -1,21 +1,27 @@
-"""Shared Domain 模型。"""
+"""Shared Core Domain 公共门面。"""
 
+from .connection import ConnectionEndpoint, DeviceConnection
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
+    ConnectionId,
     DeviceGroupId,
     DeviceId,
     DeviceModelId,
     DeviceTypeId,
+    PointTableId,
 )
-from .point import BusinessPoint
-from .unit import Quantity, Unit, UnitCode, UNIT_CATALOG, convert_value
-from .value_objects import ValueType
+from .point import BusinessPoint, PointTable, ProtocolPoint
+from .unit import *
+from .value_objects import PointAccess, Protocol, RawDataType, ValueType
 
 __all__ = [
     "BusinessPoint",
     "BusinessPointId",
+    "ConnectionEndpoint",
+    "ConnectionId",
     "Device",
+    "DeviceConnection",
     "DeviceGroup",
     "DeviceGroupId",
     "DeviceId",
@@ -23,10 +29,11 @@ __all__ = [
     "DeviceModelId",
     "DeviceType",
     "DeviceTypeId",
-    "Quantity",
-    "UNIT_CATALOG",
-    "Unit",
-    "UnitCode",
+    "PointAccess",
+    "PointTable",
+    "PointTableId",
+    "Protocol",
+    "ProtocolPoint",
+    "RawDataType",
     "ValueType",
-    "convert_value",
 ]
