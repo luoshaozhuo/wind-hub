@@ -28,7 +28,6 @@ from core.domain import (
     PointTable,
     Protocol,
     PointDefinition,
-    RawDataType,
     UNIT_CATALOG,
     UnitCode,
 )
@@ -54,20 +53,21 @@ def _device_options(**options: object) -> dict[str, object]:
 
 def _point(
     point_id: str,
-    *,
-    raw_type: str = "float32",
 ) -> PointDefinition:
     return PointDefinition(
         point_id=point_id,
         business_point_id=point_id,
-        raw_type=RawDataType(raw_type),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
     )
 
 
-def _point_options(**options: object) -> dict[str, object]:
-    return dict(options)
+def _point_options(
+    *,
+    data_type: str = "REAL",
+    **options: object,
+) -> dict[str, object]:
+    return {"data_type": data_type, **options}
 
 
 def test_ads_config_parses_device_options() -> None:
@@ -126,14 +126,8 @@ def test_ads_symbol_point_requires_session_resolution() -> None:
 
 def test_ads_index_point_is_resolved_without_network() -> None:
     mapped = parse_ads_point(
-        _point(
-            "power",
-            raw_type="int32",
-        ),
-        _point_options(
-            index_group=0x4020,
-            index_offset=100,
-        ),
+        _point("power"),
+        _point_options(data_type="DINT", index_group=0x4020, index_offset=100),
     )
 
     assert mapped.address_resolved is True
@@ -145,14 +139,8 @@ def test_ads_index_point_is_resolved_without_network() -> None:
 
 def test_ads_int64_mapping_is_supported() -> None:
     mapped = parse_ads_point(
-        _point(
-            "counter",
-            raw_type="int64",
-        ),
-        _point_options(
-            index_group=0x4020,
-            index_offset=0,
-        ),
+        _point("counter"),
+        _point_options(data_type="LINT", index_group=0x4020, index_offset=0),
     )
 
     assert mapped.data_type == "LINT"
@@ -212,10 +200,7 @@ class _FakePyads:
 async def test_ads_write_coerces_integral_float_for_integer_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point(
-        "setpoint",
-        raw_type="int32",
-    )
+    point = _point("setpoint")
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
@@ -226,10 +211,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         table,
         {},
         {
-            "setpoint": _point_options(
-                index_group=0x4020,
-                index_offset=12,
-            ),
+            "setpoint": _point_options(data_type="DINT", index_group=0x4020, index_offset=12),
         },
     )
     fake_connection = _FakeADSConnection()
