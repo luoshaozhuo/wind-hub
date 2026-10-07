@@ -17,13 +17,9 @@ from .yaml_codec import YamlCoreConfigCodec
 class YamlFileCoreConfigRepository(ConfigRepositoryPort):
     """使用单个 YAML 文件加载与原子保存 Shared Core 配置。"""
 
-    def __init__(
-        self,
-        path: str | Path,
-        codec: YamlCoreConfigCodec | None = None,
-    ) -> None:
+    def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
-        self._codec = codec or YamlCoreConfigCodec()
+        self._codec = YamlCoreConfigCodec()
         self._write_lock = asyncio.Lock()
 
     @property
