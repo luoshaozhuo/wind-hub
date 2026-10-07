@@ -369,12 +369,15 @@ class IEC104Driver:
         self,
         points: Sequence[ProtocolPoint],
         callback: Callable[[ProtocolSample], Awaitable[None]],
+        *,
+        interval: float | None = None,
     ) -> SubscriptionHandle:
         """注册 IEC104 主动上送/总召响应的样本回调。
 
         空 points 表示订阅本 PointTable 内的全部已知 IOA。生命周期由调用方
         持有返回句柄；订阅不自动触发总召。
         """
+        del interval
         if points:
             ioas = tuple(self._mapped_point(point).ioa for point in points)
         else:
