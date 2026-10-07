@@ -274,10 +274,17 @@ class ADSSubscription:
             del handle, address
             if self._closed:
                 return
+            try:
+                scalar = _as_scalar(value)
+                quality = Quality.GOOD
+            except TypeError:
+                scalar = None
+                quality = Quality.BAD
+
             sample = ProtocolSample(
                 point_id=point.point_id,
-                value=_as_scalar(value),
-                quality=Quality.GOOD,
+                value=scalar,
+                quality=quality,
                 timestamp=_normalize_timestamp(timestamp),
             )
             with contextlib.suppress(RuntimeError):
