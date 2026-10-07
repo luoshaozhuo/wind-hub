@@ -27,7 +27,7 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    PointDefinition,
+    Point,
     UNIT_CATALOG,
     UnitCode,
 )
@@ -53,12 +53,15 @@ def _device_options(**options: object) -> dict[str, object]:
 
 def _point(
     point_id: str,
-) -> PointDefinition:
-    return PointDefinition(
+    *,
+    ext: dict[str, object] | None = None,
+) -> Point:
+    return Point(
         point_id=point_id,
         business_point_id=point_id,
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
+        ext={} if ext is None else ext,
     )
 
 
@@ -114,8 +117,7 @@ def test_ads_config_rejects_unknown_options() -> None:
 
 def test_ads_symbol_point_requires_session_resolution() -> None:
     mapped = parse_ads_point(
-        _point("speed"),
-        _point_options(symbol="MAIN.speed"),
+        _point("speed", ext=_point_options(symbol="MAIN.speed")),
     )
 
     assert mapped.symbol == "MAIN.speed"
@@ -126,8 +128,14 @@ def test_ads_symbol_point_requires_session_resolution() -> None:
 
 def test_ads_index_point_is_resolved_without_network() -> None:
     mapped = parse_ads_point(
-        _point("power"),
-        _point_options(data_type="DINT", index_group=0x4020, index_offset=100),
+        _point(
+            "power",
+            ext=_point_options(
+                data_type="DINT",
+                index_group=0x4020,
+                index_offset=100,
+            ),
+        ),
     )
 
     assert mapped.address_resolved is True
@@ -139,8 +147,14 @@ def test_ads_index_point_is_resolved_without_network() -> None:
 
 def test_ads_int64_mapping_is_supported() -> None:
     mapped = parse_ads_point(
-        _point("counter"),
-        _point_options(data_type="LINT", index_group=0x4020, index_offset=0),
+        _point(
+            "counter",
+            ext=_point_options(
+                data_type="LINT",
+                index_group=0x4020,
+                index_offset=0,
+            ),
+        ),
     )
 
     assert mapped.data_type == "LINT"
@@ -148,14 +162,13 @@ def test_ads_int64_mapping_is_supported() -> None:
 
 
 def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
-    point = _point("speed")
+    point = _point("speed", ext=_point_options(symbol="MAIN.speed"))
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
     driver = ADSDriver(
         _endpoint(),
         table,
         {},
-        {"speed": _point_options(symbol="MAIN.speed")},
     )
 
     assert driver.health().healthy is False
@@ -200,7 +213,14 @@ class _FakePyads:
 async def test_ads_write_coerces_integral_float_for_integer_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point("setpoint")
+    point = _point(
+        "setpoint",
+        ext=_point_options(
+            data_type="DINT",
+            index_group=0x4020,
+            index_offset=12,
+        ),
+    )
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
@@ -210,9 +230,6 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         _endpoint(),
         table,
         {},
-        {
-            "setpoint": _point_options(data_type="DINT", index_group=0x4020, index_offset=12),
-        },
     )
     fake_connection = _FakeADSConnection()
     driver._connection = fake_connection
@@ -337,7 +354,13 @@ class _FakeNotificationPyads:
 async def test_ads_driver_exposes_notification_subscription(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point("speed")
+    point = _point(
+        "speed",
+        ext=_point_options(
+            index_group=0x4020,
+            index_offset=10,
+        ),
+    )
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
@@ -347,12 +370,6 @@ async def test_ads_driver_exposes_notification_subscription(
         _endpoint(),
         table,
         {},
-        {
-            "speed": _point_options(
-                index_group=0x4020,
-                index_offset=10,
-            ),
-        },
     )
     driver._connected = True
 
@@ -419,7 +436,13 @@ async def test_ads_local_router_has_single_process_owner(
 async def test_ads_subscription_can_close_itself_from_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point = _point("speed")
+    point = _point(
+        "speed",
+        ext=_point_options(
+            index_group=0x4020,
+            index_offset=10,
+        ),
+    )
     table = PointTable(
         "ads_pt",
         Protocol("ads"),
@@ -429,12 +452,6 @@ async def test_ads_subscription_can_close_itself_from_callback(
         _endpoint(),
         table,
         {},
-        {
-            "speed": _point_options(
-                index_group=0x4020,
-                index_offset=10,
-            ),
-        },
     )
     driver._connected = True
 
