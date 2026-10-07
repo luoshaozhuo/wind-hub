@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +35,11 @@ class ADSLocalConfig:
         object.__setattr__(self, "local_ip", local_ip)
 
 
+_owner_lock = threading.Lock()
+_owner: ADSLocalRouter | None = None
+_owner_config: ADSLocalConfig | None = None
+
+
 class ADSLocalRouter:
     """pyads 进程级本机 router 端口生命周期 owner。
 
@@ -57,7 +63,11 @@ class ADSLocalRouter:
         return self._config
 
     async def initialize(self, config: ADSLocalConfig) -> None:
-        """幂等初始化；不同配置重复初始化属于部署错误。"""
+        """初始化进程唯一的 pyads 本机 AMS 身份。
+
+        pyads.open_port/set_local_address 操作进程级全局资源，因此同一进程只允许
+        一个 ADSLocalRouter 实例成为 owner。重复初始化同一实例保持幂等。
+        """
         async with self._lock:
             if self._initialized:
                 if self._config != config:
@@ -67,6 +77,7 @@ class ADSLocalRouter:
                     )
                 return
 
+            _reserve_owner(self, config)
             pyads = _pyads()
             try:
                 await asyncio.to_thread(pyads.open_port)
@@ -77,6 +88,7 @@ class ADSLocalRouter:
             except Exception as exc:
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(pyads.close_port)
+                _release_owner(self)
                 raise ProtocolError(
                     f"failed to initialize local ADS identity "
                     f"'{config.local_ams_net_id}': {exc}"
@@ -86,7 +98,7 @@ class ADSLocalRouter:
             self._initialized = True
 
     async def close(self) -> None:
-        """关闭本进程打开的 pyads port；重复调用安全。"""
+        """关闭本实例拥有的进程级 pyads port；重复调用安全。"""
         async with self._lock:
             if not self._initialized:
                 return
@@ -96,6 +108,7 @@ class ADSLocalRouter:
             finally:
                 self._initialized = False
                 self._config = None
+                _release_owner(self)
 
 
 def _pyads() -> Any:
@@ -114,3 +127,29 @@ def _is_valid_ams_net_id(value: str) -> bool:
         part.isdigit() and 0 <= int(part) <= 255
         for part in parts
     )
+
+
+
+def _reserve_owner(
+    router: ADSLocalRouter,
+    config: ADSLocalConfig,
+) -> None:
+    """同步占有进程级 pyads router，防止并发创建多个 owner。"""
+    global _owner, _owner_config
+    with _owner_lock:
+        if _owner is not None and _owner is not router:
+            raise ConfigError(
+                "ADS local router is already owned by another instance "
+                f"with identity '{_owner_config.local_ams_net_id if _owner_config else ''}'"
+            )
+        _owner = router
+        _owner_config = config
+
+
+def _release_owner(router: ADSLocalRouter) -> None:
+    """仅允许当前 owner 释放进程级 pyads router 所有权。"""
+    global _owner, _owner_config
+    with _owner_lock:
+        if _owner is router:
+            _owner = None
+            _owner_config = None
