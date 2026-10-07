@@ -15,7 +15,9 @@ from typing import Any
 
 from core.application.config import (
     DeviceConnection,
+    PointProtocolOptions,
     PointTable,
+    ProtocolOptions,
     ProtocolPoint,
 )
 from core.application.errors import ConfigError, ProtocolError
