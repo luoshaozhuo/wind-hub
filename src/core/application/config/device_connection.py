@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 from typing import TypeAlias
 
@@ -19,8 +20,14 @@ ConnectionOptionValue: TypeAlias = str | int | float | bool | None
 def _freeze_options(
     value: Mapping[str, ConnectionOptionValue],
 ) -> Mapping[str, ConnectionOptionValue]:
-    """返回连接扩展参数的只读浅拷贝。"""
-    return MappingProxyType(dict(value))
+    """返回连接扩展参数的只读浅拷贝，并拒绝非有限浮点值。"""
+    options = dict(value)
+    for key, item in options.items():
+        if isinstance(item, float) and not isfinite(item):
+            raise ValueError(
+                f"connection option '{key}' must be finite"
+            )
+    return MappingProxyType(options)
 
 
 @dataclass(frozen=True, slots=True)
