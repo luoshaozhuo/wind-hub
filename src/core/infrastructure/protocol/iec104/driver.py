@@ -22,7 +22,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import ConnectionEndpoint, Point, PointAccess, PointTable
+from core.domain import ConnectionEndpoint, PointAccess, PointTable
 
 from .codec import command_to_c104, sample_from_c104
 from .config import IEC104Config, parse_iec104_config
@@ -363,21 +363,21 @@ class IEC104Driver:
 
     async def subscribe(
         self,
-        points: Sequence[Point],
+        point_ids: Sequence[str],
         callback: Callable[[ProtocolSample], Awaitable[None]],
         *,
         interval: float | None = None,
     ) -> _Subscription:
         """注册 IEC104 主动上送/总召响应的样本回调。
 
-        空 points 表示订阅本 PointTable 内的全部已知 IOA。生命周期由调用方
+        空 point_ids 表示订阅本 PointTable 内的全部已知 IOA。生命周期由调用方
         持有返回句柄；订阅不自动触发总召。
         """
         del interval
-        if points:
+        if point_ids:
             ioas = tuple(
-                self._mapped_point(point.point_id).ioa
-                for point in points
+                self._mapped_point(point_id).ioa
+                for point_id in point_ids
             )
         else:
             ioas = None
