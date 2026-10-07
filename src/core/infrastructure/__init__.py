@@ -11,6 +11,8 @@ from .config import (
 from .protocol import (
     ADSConfig,
     ADSDriver,
+    ADSLocalConfig,
+    ADSLocalRouter,
     ADSPoint,
     ModbusConfig,
     ModbusDriver,
@@ -27,6 +29,8 @@ from .protocol import (
 __all__ = [
     "ADSConfig",
     "ADSDriver",
+    "ADSLocalConfig",
+    "ADSLocalRouter",
     "ADSPoint",
     "ModbusConfig",
     "ModbusDriver",
