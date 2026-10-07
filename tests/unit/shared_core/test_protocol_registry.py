@@ -7,7 +7,6 @@ import pytest
 from core.application import (
     ConfigError,
     ConnectionHealth,
-    CoreConfigSnapshot,
     ProtocolCapability,
     ProtocolCapabilityError,
     ProtocolSample,
@@ -19,6 +18,7 @@ from core.application import (
 from core.domain import (
     BusinessPoint,
     ConnectionEndpoint,
+    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceModel,
