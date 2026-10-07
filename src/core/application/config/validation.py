@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from core.domain import Quantity, ValueType
 
+from ..errors import ConfigError
 from .snapshot import CoreConfigSnapshot
 
 
@@ -22,7 +23,7 @@ def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
             point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
             and point.standard_unit.quantity is not Quantity.DIMENSIONLESS
         ):
-            raise ValueError(
+            raise ConfigError(
                 f"business point '{point.business_point_id}' with value type "
                 f"'{point.value_type}' must use a dimensionless standard unit"
             )
@@ -31,12 +32,12 @@ def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
 def _validate_device_models(snapshot: CoreConfigSnapshot) -> None:
     for model in snapshot.device_models.values():
         if model.device_type_id not in snapshot.device_types:
-            raise ValueError(
+            raise ConfigError(
                 f"device model '{model.device_model_id}' references unknown "
                 f"device type '{model.device_type_id}'"
             )
         if model.point_table_id not in snapshot.point_tables:
-            raise ValueError(
+            raise ConfigError(
                 f"device model '{model.device_model_id}' references unknown "
                 f"point table '{model.point_table_id}'"
             )
@@ -45,13 +46,13 @@ def _validate_device_models(snapshot: CoreConfigSnapshot) -> None:
 def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
     for device in snapshot.devices.values():
         if device.device_model_id not in snapshot.device_models:
-            raise ValueError(
+            raise ConfigError(
                 f"device '{device.device_id}' references unknown device model "
                 f"'{device.device_model_id}'"
             )
         for group_id in device.device_group_ids:
             if group_id not in snapshot.device_groups:
-                raise ValueError(
+                raise ConfigError(
                     f"device '{device.device_id}' references unknown device group "
                     f"'{group_id}'"
                 )
@@ -62,12 +63,12 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
         for point in table.points.values():
             business_point = snapshot.business_points.get(point.business_point_id)
             if business_point is None:
-                raise ValueError(
+                raise ConfigError(
                     f"point table '{table.point_table_id}' point '{point.point_id}' "
                     f"references unknown business point '{point.business_point_id}'"
                 )
             if point.source_unit.quantity != business_point.standard_unit.quantity:
-                raise ValueError(
+                raise ConfigError(
                     f"point table '{table.point_table_id}' point '{point.point_id}' "
                     f"uses source quantity '{point.source_unit.quantity}', but "
                     f"business point '{business_point.business_point_id}' expects "
@@ -77,7 +78,7 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
                 business_point.value_type in (ValueType.BOOLEAN, ValueType.STRING)
                 and (point.scale != 1.0 or point.offset != 0.0)
             ):
-                raise ValueError(
+                raise ConfigError(
                     f"point table '{table.point_table_id}' point '{point.point_id}' "
                     f"maps {business_point.value_type} with non-identity scale/offset"
                 )
@@ -86,7 +87,7 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
 def _validate_device_connections(snapshot: CoreConfigSnapshot) -> None:
     for connection in snapshot.device_connections.values():
         if connection.device_id not in snapshot.devices:
-            raise ValueError(
+            raise ConfigError(
                 f"connection '{connection.connection_id}' references unknown device "
                 f"'{connection.device_id}'"
             )
