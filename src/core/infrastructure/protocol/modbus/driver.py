@@ -62,6 +62,8 @@ class ModbusDriver:
         self,
         connection: DeviceConnection,
         point_table: PointTable,
+        connection_options: ProtocolOptions,
+        point_options: PointProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "modbus":
             raise ConfigError(
@@ -70,10 +72,14 @@ class ModbusDriver:
             )
 
         self._connection = connection
-        self._config: ModbusConfig = parse_modbus_config(connection)
+        self._config: ModbusConfig = parse_modbus_config(
+            connection,
+            connection_options,
+        )
         self._points = {
             point.point_id: parse_modbus_point(
                 point,
+                point_options.get(point.point_id, {}),
                 default_word_order=self._config.word_order,
             )
             for point in point_table.points.values()
