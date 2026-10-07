@@ -9,7 +9,11 @@ from .device import (
     validate_device_models,
     validate_device_references,
 )
-from .point import validate_point_sets, validate_point_tables
+from .point import (
+    validate_business_points,
+    validate_point_sets,
+    validate_point_tables,
+)
 from .task import validate_collection_tasks
 
 
@@ -19,6 +23,7 @@ def validate_config_snapshot(snapshot: ConfigSnapshot) -> None:
     ConfigSnapshot 自身只保证不可变索引及索引键与对象身份一致；
     本函数负责跨 Domain Aggregate 与 Config Object 的引用完整性。
     """
+    validate_business_points(snapshot.business_points)
     validate_device_models(
         snapshot.device_models,
         snapshot.device_types,
