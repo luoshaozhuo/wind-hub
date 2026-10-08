@@ -21,6 +21,7 @@ from core.application.config_types import (
     TaskConfig,
     TaskDefinition,
     UnitConfig,
+    UnitDefinition,
 )
 from core.application.sink_config import SinksConfig
 from core.infrastructure.config.point_tables import resolve_point_tables
@@ -102,7 +103,12 @@ class YamlTypedConfigAdapter(YamlConfigReader):
         return self._validate(SinksConfig, self.read_sinks(), "sinks")
 
     def read_unit_config(self) -> UnitConfig:
-        return UnitConfig(definition=self._validate(UnitsFile, self.read_units(), "units"))
+        definition = self._validate(UnitsFile, self.read_units(), "units")
+        units = {
+            unit_id: UnitDefinition(symbol=raw.symbol, name=raw.name)
+            for unit_id, raw in definition.units.items()
+        }
+        return UnitConfig(units=MappingProxyType(units))
 
 
 __all__ = [
