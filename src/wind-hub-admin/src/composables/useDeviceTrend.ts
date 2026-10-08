@@ -8,6 +8,7 @@ import { ElMessage } from 'element-plus'
 import { fetchDeviceTrend } from '../api/devices'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { formatTimestamp } from '../utils/format'
+import type { DataSourceState } from '../domain/dataSourceState'
 import type { DataRow } from '../domain/deviceData'
 import type { DeviceInst } from '../domain/types'
 
@@ -59,6 +60,7 @@ export function useDeviceTrend(
   const lastRefreshAt = ref('')
   const signals = ref<TrendSignal[]>([])
   const recording = ref(false)
+  const sourceState = ref<DataSourceState>('pending')
 
   function rawDataOf(signal: TrendSignal): Array<[Date, number]> {
     if (!device.value) return []
@@ -135,18 +137,26 @@ export function useDeviceTrend(
 
   async function render() {
     if (device.value && signals.value.length) {
-      const rows = await fetchDeviceTrend(
-        device.value.device_id,
-        signals.value.map((signal) => signal.id),
-        Math.max(1, Math.ceil(trendRangeMs(range.value) / 1000)),
-      )
-      for (const row of rows) {
-        seriesCache.set(
-          row.point_id,
-          row.samples
-            .filter((sample) => typeof sample.value === 'number')
-            .map((sample) => [new Date(sample.timestamp), Number(sample.value)]),
+      try {
+        const rows = await fetchDeviceTrend(
+          device.value.device_id,
+          signals.value.map((signal) => signal.id),
+          Math.max(1, Math.ceil(trendRangeMs(range.value) / 1000)),
         )
+        seriesCache.clear()
+        for (const row of rows) {
+          seriesCache.set(
+            row.point_id,
+            row.samples
+              .filter((sample) => typeof sample.value === 'number')
+              .map((sample) => [new Date(sample.timestamp), Number(sample.value)]),
+          )
+        }
+        sourceState.value = 'valid'
+      } catch {
+        sourceState.value = seriesCache.size ? 'stale' : 'unavailable'
+        // 不把断源时最后一次的数值绘制成持续有效的实时曲线。
+        seriesCache.clear()
       }
     }
     lastRefreshAt.value = formatTimestamp(new Date())
@@ -237,6 +247,7 @@ export function useDeviceTrend(
     range,
     autoRefresh,
     lastRefreshAt,
+    sourceState,
     recording,
     candidates,
     toggleSelection,
