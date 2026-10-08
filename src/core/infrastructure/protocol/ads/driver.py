@@ -18,6 +18,7 @@ from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
     ProtocolSample,
+    PointScalar,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -220,7 +221,7 @@ class ADSDriver:
     async def read_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[tuple[object, Quality], ...]:
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
         """按配置的 sum/sequential 策略读取点。"""
         if not point_ids:
             return ()
@@ -322,7 +323,7 @@ class ADSDriver:
     async def _read_sum_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[tuple[object, Quality], ...]:
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
         key = tuple(point_ids)
         cached = self._read_plan_cache.get(key)
         if cached is None:
@@ -357,7 +358,7 @@ class ADSDriver:
             self._read_variable_cache[key] = tuple(variable)
             self._read_unresolved_cache[key] = tuple(unresolved)
 
-        results: list[tuple[object, Quality] | None] = [None] * len(key)
+        results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
         for index in self._read_unresolved_cache[key]:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
@@ -418,12 +419,12 @@ class ADSDriver:
     async def _read_sequential_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[tuple[object, Quality], ...]:
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
         semaphore = asyncio.Semaphore(
             self._config.max_concurrent_reads
         )
 
-        async def read_one(point_id: str) -> tuple[object, Quality]:
+        async def read_one(point_id: str) -> tuple[PointScalar, Quality]:
             mapped = self._mapped_point(point_id)
             if not mapped.address_resolved:
                 return (None, Quality.BAD)
