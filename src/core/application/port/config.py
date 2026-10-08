@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 ConfigSection = Mapping[str, Any]
 
@@ -50,6 +50,7 @@ class DeviceDefinitionReader(
     """设备配置所需的最小组合端口。"""
 
 
+@runtime_checkable
 class CollectorConfigReader(
     DeviceDefinitionReader,
     SystemConfigReader,
@@ -60,6 +61,7 @@ class CollectorConfigReader(
     """Collector 配置加载所需端口。"""
 
 
+@runtime_checkable
 class CommanderConfigReader(
     DeviceDefinitionReader,
     SystemConfigReader,
