@@ -359,7 +359,7 @@ class ADSDriver:
 
         results: list[tuple[object, Quality] | None] = [None] * len(key)
         for index in self._read_unresolved_cache[key]:
-            results[index] = _bad_sample(key[index])
+            results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
             raw = await asyncio.to_thread(
                 self._sum_read_bytes,
