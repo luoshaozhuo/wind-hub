@@ -27,7 +27,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     assert reader.read_device_config().instances.devices == []
     assert reader.read_device_config().models.device_models == {}
     assert reader.read_point_config().tables == {}
-    assert reader.read_task_config().definition.tasks == []
+    assert reader.read_task_config().tasks == ()
     assert reader.read_unit_config().definition.units == {}
     assert reader.read_sink_config().sinks == []
     assert reader.read_system_config().sections["runtime"]["connect_timeout"] == 10
@@ -110,3 +110,18 @@ def test_device_models_and_instances_are_independently_readable(tmp_path):
     assert reader.read_device_models_config().definition.device_models == {}
     with pytest.raises(ConfigError, match="not found"):
         reader.read_device_instances_config()
+
+
+def test_task_config_returns_immutable_definitions(tmp_path):
+    (tmp_path / "tasks.yaml").write_text(
+        "tasks:\n"
+        "  - task_id: sample\n"
+        "    device: wt01\n"
+        "    point_group: fast\n"
+        "    targets: [{sink: archive}]\n",
+        encoding="utf-8",
+    )
+    tasks = YamlTypedConfigAdapter(tmp_path).read_task_config().tasks
+    assert tasks[0].targets == ("archive",)
+    with pytest.raises(AttributeError):
+        tasks[0].task_id = "changed"
