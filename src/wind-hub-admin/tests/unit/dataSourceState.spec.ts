@@ -16,6 +16,8 @@ describe('data source availability', () => {
     expect(unavailableValue('valid', 0)).toBe('0')
     expect(unavailableValue('stale', 0)).toBe('—')
     expect(unavailableValue('unavailable', 'RUNNING')).toBe('—')
-    expect(dataSourceState({ isPending: false, isError: false, hasData: true, isInvalid: true })).toBe('invalid')
+    expect(
+      dataSourceState({ isPending: false, isError: false, hasData: true, isInvalid: true }),
+    ).toBe('invalid')
   })
 })
