@@ -12,9 +12,9 @@ from pathlib import Path
 from core.application import ConfigError
 from core.application.port.typed_config import TypedConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
+from core.infrastructure.config.assembly import assemble_core_config
 
-from ...application.config import ADSLocalIdentity, CommanderConfig
-from .snapshot import build_core_snapshot
+from ...application.config import ADSLocalIdentity, CommanderConfig, PointMeta
 
 
 def load_commander_config(
@@ -43,14 +43,29 @@ def load_commander_config(
     if write_timeout <= 0:
         raise ConfigError("runtime.write_timeout must be > 0")
 
-    snapshot, point_meta, disabled = build_core_snapshot(
+    assembly = assemble_core_config(
         device_config=device_config,
         point_config=point_config,
         unit_config=unit_config,
     )
 
     return CommanderConfig(
-        core=snapshot,
+        devices=assembly.devices,
+        device_models=assembly.device_models,
+        device_groups=assembly.device_groups,
+        point_tables=assembly.point_tables,
+        business_points=assembly.business_points,
+        device_options=assembly.device_options,
+        point_meta={
+            table_id: {
+                point_id: PointMeta(
+                    variable_name=meta.variable_name,
+                    point_groups=meta.point_groups,
+                )
+                for point_id, meta in points.items()
+            }
+            for table_id, points in assembly.point_meta.items()
+        },
         ads_local=(
             ADSLocalIdentity(
                 local_ams_net_id=system.ads.local_ams_net_id,
@@ -61,8 +76,7 @@ def load_commander_config(
         ),
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,
-        point_meta=point_meta,
-        disabled_devices=disabled,
+        disabled_devices=assembly.disabled_devices,
     )
 
 

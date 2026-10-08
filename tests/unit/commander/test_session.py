@@ -16,13 +16,13 @@ from tests.support.new_commander import FakeProtocol, make_commander_config
 
 def _session(**kwargs) -> tuple[DeviceSession, FakeProtocol]:
     config = make_commander_config(**kwargs)
-    device = next(iter(config.core.devices.values()))
-    table = config.core.point_table_for_device(device.device_id)
+    device = next(iter(config.devices.values()))
+    table = config.point_table_for_device(device.device_id)
     protocol = FakeProtocol()
     session = DeviceSession(
         device,
         table,
-        config.core.business_points,
+        config.business_points,
         config.point_meta[table.point_table_id],
         protocol,
     )

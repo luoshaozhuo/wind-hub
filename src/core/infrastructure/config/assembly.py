@@ -1,7 +1,7 @@
-"""类型化主题配置 → CoreConfigSnapshot 组装。
+"""类型化主题配置 → 共享领域配置索引组装。
 
-把 DeviceConfig / PointConfig / UnitConfig 合并为共享 Core 的不可变配置
-快照，同时产出进程级附属配置：
+把 DeviceConfig / PointConfig / UnitConfig 合并为 CoreConfigAssembly——
+一组冻结、经过领域一致性校验的配置索引，同时产出进程级附属配置：
 
 - ``point_meta``：点位的 variable_name / point_groups（采集选点分组与
   展示元数据，不属于协议 Point.ext，也不属于共享 Domain 点定义）；
@@ -28,7 +28,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from core.application import ConfigError
@@ -43,7 +44,6 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceGroup,
@@ -58,7 +58,9 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
+    ProtocolOptions,
     ProtocolOptionValue,
+    freeze_protocol_options,
     validate_core_config,
 )
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
@@ -70,25 +72,65 @@ class PointMeta:
     point_groups: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CoreConfigAssembly:
+    """冻结并校验过的领域配置索引与进程级附属配置（一次性组装结果）。"""
+
+    device_types: Mapping[DeviceTypeId, DeviceType] = field(default_factory=dict)
+    device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
+    device_groups: Mapping[DeviceGroupId, DeviceGroup] = field(default_factory=dict)
+    devices: Mapping[DeviceId, Device] = field(default_factory=dict)
+    business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
+    point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
+    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
+    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
+    disabled_devices: frozenset[DeviceId] = frozenset()
+    ads_subscribe_devices: frozenset[DeviceId] = frozenset()
+
+    def __post_init__(self) -> None:
+        for name in (
+            "device_types",
+            "device_models",
+            "device_groups",
+            "devices",
+            "business_points",
+            "point_tables",
+        ):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        object.__setattr__(
+            self,
+            "device_options",
+            MappingProxyType(
+                {key: freeze_protocol_options(value) for key, value in self.device_options.items()}
+            ),
+        )
+        object.__setattr__(
+            self,
+            "point_meta",
+            MappingProxyType(
+                {
+                    table_id: MappingProxyType(dict(meta))
+                    for table_id, meta in self.point_meta.items()
+                }
+            ),
+        )
+        object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
+        object.__setattr__(self, "ads_subscribe_devices", frozenset(self.ads_subscribe_devices))
+
+
 _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_register"})
 
 
-def build_core_snapshot(
+def assemble_core_config(
     *,
     device_config: DeviceConfig,
     point_config: PointConfig,
     unit_config: UnitConfig,
-) -> tuple[
-    CoreConfigSnapshot,
-    dict[PointTableId, dict[str, PointMeta]],
-    frozenset[DeviceId],
-    frozenset[DeviceId],
-]:
-    """合并类型化主题配置为 Core 快照 + 进程级附属配置。
+) -> CoreConfigAssembly:
+    """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
     Returns:
-        (CoreConfigSnapshot, point_meta, disabled_devices, ads_subscribe_devices)。
-        point_meta 为 ``{点表: {point_id: PointMeta}}``。
+        CoreConfigAssembly；point_meta 为 ``{点表: {point_id: PointMeta}}``。
 
     Raises:
         ConfigError: 任何引用缺失、协议不一致或领域不变量违反。
@@ -195,7 +237,7 @@ def build_core_snapshot(
     }
 
     try:
-        snapshot = CoreConfigSnapshot(
+        validate_core_config(
             device_types=device_types,
             device_models=device_models,
             device_groups=device_groups,
@@ -204,16 +246,22 @@ def build_core_snapshot(
             point_tables=point_tables,
             device_options=device_options,
         )
-        validate_core_config(snapshot)
+        assembly = CoreConfigAssembly(
+            device_types=device_types,
+            device_models=device_models,
+            device_groups=device_groups,
+            devices=devices,
+            business_points=business_points,
+            point_tables=point_tables,
+            device_options=device_options,
+            point_meta=point_meta,
+            disabled_devices=frozenset(disabled),
+            ads_subscribe_devices=frozenset(ads_subscribe),
+        )
     except ValueError as exc:
         raise ConfigError(f"invalid core configuration: {exc}") from exc
 
-    return (
-        snapshot,
-        point_meta,
-        frozenset(disabled),
-        frozenset(ads_subscribe),
-    )
+    return assembly
 
 
 def _lookup_model(
@@ -400,4 +448,4 @@ def _derive_access(protocol: str, definition: PointDefinition) -> PointAccess:
     return PointAccess.READ_WRITE
 
 
-__all__ = ["build_core_snapshot"]
+__all__ = ["CoreConfigAssembly", "PointMeta", "assemble_core_config"]

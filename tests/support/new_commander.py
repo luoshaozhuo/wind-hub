@@ -27,13 +27,11 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceId,
     DeviceModel,
     DeviceModelId,
-    DeviceType,
     DeviceTypeId,
     Point,
     PointAccess,
@@ -252,10 +250,7 @@ def make_commander_config(
         protocol=Protocol(protocol),
         points={"p1": point},
     )
-    snapshot = CoreConfigSnapshot(
-        device_types={
-            DeviceTypeId("turbine"): DeviceType(device_type_id=DeviceTypeId("turbine"), name="风机")
-        },
+    return CommanderConfig(
         device_models={
             DeviceModelId("mod"): DeviceModel(
                 device_model_id=DeviceModelId("mod"),
@@ -275,9 +270,6 @@ def make_commander_config(
         device_options=(
             {DeviceId(device_id): dict(device_options)} if device_options is not None else {}
         ),
-    )
-    return CommanderConfig(
-        core=snapshot,
         ads_local=ads_local,
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,

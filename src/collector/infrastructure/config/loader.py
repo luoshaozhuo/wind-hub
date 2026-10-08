@@ -16,16 +16,17 @@ from core.application.config_types import SystemConfig
 from core.application.port.typed_config import TypedConfigReader
 from core.domain import PointTableId
 from core.infrastructure.config import YamlTypedConfigAdapter
+from core.infrastructure.config.assembly import assemble_core_config
 
 from ...application.config import (
     ADSLocalIdentity,
     BackpressurePolicy,
     CollectionTask,
     CollectorConfig,
+    PointMeta,
     RuntimeParams,
 )
 from .sinks_resolver import resolve_sinks
-from .snapshot import build_core_snapshot
 from .tasks import validate_task_targets
 
 
@@ -56,21 +57,31 @@ def load_collector_config(
         else None
     )
 
-    snapshot, point_meta, disabled, ads_subscribe = build_core_snapshot(
+    assembly = assemble_core_config(
         device_config=device_config,
         point_config=point_config,
         unit_config=unit_config,
     )
+    point_meta = {
+        table_id: {
+            point_id: PointMeta(
+                variable_name=meta.variable_name,
+                point_groups=meta.point_groups,
+            )
+            for point_id, meta in points.items()
+        }
+        for table_id, points in assembly.point_meta.items()
+    }
 
-    # disabled 设备不进快照，但其点表仍可用于 Sink 引用解析（旧行为）。
+    # disabled 设备不进索引，但其点表仍可用于 Sink 引用解析（旧行为）。
     disabled_tables = {
-        instance.device_id: snapshot.point_tables[
+        instance.device_id: assembly.point_tables[
             PointTableId(device_config.models.device_models[instance.model].point_table)
         ]
         for instance in device_config.instances.devices
         if not instance.enabled
     }
-    sinks = resolve_sinks(sinks_file, snapshot, unit_config, disabled_tables)
+    sinks = resolve_sinks(sinks_file, assembly, unit_config, disabled_tables)
 
     tasks = {
         task.task_id: CollectionTask(
@@ -95,22 +106,25 @@ def load_collector_config(
     for task in tasks.values():
         validate_task_targets(
             task,
-            snapshot,
+            assembly,
             point_meta,
             sink_names,
             all_device_groups,
-            disabled,
+            assembly.disabled_devices,
         )
 
     return CollectorConfig(
-        core=snapshot,
+        devices=assembly.devices,
+        device_models=assembly.device_models,
+        point_tables=assembly.point_tables,
+        device_options=assembly.device_options,
         runtime=runtime,
         ads_local=ads_local,
         tasks=tasks,
         sinks=sinks,
         point_meta=point_meta,
-        ads_subscribe_devices=ads_subscribe,
-        disabled_devices=disabled,
+        ads_subscribe_devices=assembly.ads_subscribe_devices,
+        disabled_devices=assembly.disabled_devices,
     )
 
 

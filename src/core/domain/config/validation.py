@@ -2,22 +2,65 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
+from ..device import Device, DeviceGroup, DeviceModel, DeviceType
+from ..identities import (
+    BusinessPointId,
+    DeviceGroupId,
+    DeviceId,
+    DeviceModelId,
+    DeviceTypeId,
+    PointTableId,
+)
+from ..point import BusinessPoint, PointTable
 from ..unit import UNIT_CATALOG, Quantity, Unit
 from ..value_objects import DataType
-from .snapshot import CoreConfigSnapshot
+from .options import ProtocolOptions
 
 
-def validate_core_config(snapshot: CoreConfigSnapshot) -> None:
-    """校验配置中的领域引用与跨对象不变量。"""
-    _validate_business_points(snapshot)
-    _validate_point_tables(snapshot)
-    _validate_device_models(snapshot)
-    _validate_devices(snapshot)
-    _validate_device_options(snapshot)
+def validate_core_config(
+    *,
+    device_types: Mapping[DeviceTypeId, DeviceType],
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    device_groups: Mapping[DeviceGroupId, DeviceGroup],
+    devices: Mapping[DeviceId, Device],
+    business_points: Mapping[BusinessPointId, BusinessPoint],
+    point_tables: Mapping[PointTableId, PointTable],
+    device_options: Mapping[DeviceId, ProtocolOptions],
+) -> None:
+    """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
+    _validate_identity(device_types, "device_types", "device_type_id")
+    _validate_identity(device_models, "device_models", "device_model_id")
+    _validate_identity(device_groups, "device_groups", "device_group_id")
+    _validate_identity(devices, "devices", "device_id")
+    _validate_identity(business_points, "business_points", "business_point_id")
+    _validate_identity(point_tables, "point_tables", "point_table_id")
+    _validate_business_points(business_points)
+    _validate_point_tables(point_tables, business_points)
+    _validate_device_models(device_models, device_types, point_tables)
+    _validate_devices(devices, device_models, device_groups)
+    _validate_device_options(device_options, devices)
 
 
-def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
-    for point in snapshot.business_points.values():
+def _validate_identity(
+    values: Mapping[Any, Any],
+    index_name: str,
+    identity_attr: str,
+) -> None:
+    for key, value in values.items():
+        identity = getattr(value, identity_attr)
+        if key != identity:
+            raise ValueError(
+                f"{index_name} key '{key}' does not match " f"{identity_attr} '{identity}'"
+            )
+
+
+def _validate_business_points(
+    business_points: Mapping[BusinessPointId, BusinessPoint],
+) -> None:
+    for point in business_points.values():
         _validate_canonical_unit(
             point.standard_unit,
             context=f"business point '{point.business_point_id}' standard_unit",
@@ -32,8 +75,11 @@ def _validate_business_points(snapshot: CoreConfigSnapshot) -> None:
             )
 
 
-def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
-    for table in snapshot.point_tables.values():
+def _validate_point_tables(
+    point_tables: Mapping[PointTableId, PointTable],
+    business_points: Mapping[BusinessPointId, BusinessPoint],
+) -> None:
+    for table in point_tables.values():
         for point in table.points.values():
             _validate_canonical_unit(
                 point.source_unit,
@@ -41,7 +87,7 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
                     f"point table '{table.point_table_id}' " f"point '{point.point_id}' source_unit"
                 ),
             )
-            business_point = snapshot.business_points.get(point.business_point_id)
+            business_point = business_points.get(point.business_point_id)
             if business_point is None:
                 raise ValueError(
                     f"point table '{table.point_table_id}' point "
@@ -64,28 +110,36 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
                 )
 
 
-def _validate_device_models(snapshot: CoreConfigSnapshot) -> None:
-    for model in snapshot.device_models.values():
-        if model.device_type_id not in snapshot.device_types:
+def _validate_device_models(
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    device_types: Mapping[DeviceTypeId, DeviceType],
+    point_tables: Mapping[PointTableId, PointTable],
+) -> None:
+    for model in device_models.values():
+        if model.device_type_id not in device_types:
             raise ValueError(
                 f"device model '{model.device_model_id}' references unknown "
                 f"device type '{model.device_type_id}'"
             )
-        if model.point_table_id not in snapshot.point_tables:
+        if model.point_table_id not in point_tables:
             raise ValueError(
                 f"device model '{model.device_model_id}' references unknown "
                 f"point table '{model.point_table_id}'"
             )
 
 
-def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
-    for device in snapshot.devices.values():
-        if device.device_model_id not in snapshot.device_models:
+def _validate_devices(
+    devices: Mapping[DeviceId, Device],
+    device_models: Mapping[DeviceModelId, DeviceModel],
+    device_groups: Mapping[DeviceGroupId, DeviceGroup],
+) -> None:
+    for device in devices.values():
+        if device.device_model_id not in device_models:
             raise ValueError(
                 f"device '{device.device_id}' references unknown model "
                 f"'{device.device_model_id}'"
             )
-        unknown_groups = set(device.device_group_ids) - set(snapshot.device_groups)
+        unknown_groups = set(device.device_group_ids) - set(device_groups)
         if unknown_groups:
             raise ValueError(
                 f"device '{device.device_id}' references unknown groups "
@@ -93,8 +147,11 @@ def _validate_devices(snapshot: CoreConfigSnapshot) -> None:
             )
 
 
-def _validate_device_options(snapshot: CoreConfigSnapshot) -> None:
-    unknown_devices = set(snapshot.device_options) - set(snapshot.devices)
+def _validate_device_options(
+    device_options: Mapping[DeviceId, ProtocolOptions],
+    devices: Mapping[DeviceId, Device],
+) -> None:
+    unknown_devices = set(device_options) - set(devices)
     if unknown_devices:
         raise ValueError(
             "device options reference unknown devices: "

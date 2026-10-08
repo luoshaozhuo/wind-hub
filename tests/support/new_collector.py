@@ -30,15 +30,12 @@ from core.domain import (
     BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    CoreConfigSnapshot,
     DataType,
     Device,
-    DeviceGroup,
     DeviceGroupId,
     DeviceId,
     DeviceModel,
     DeviceModelId,
-    DeviceType,
     DeviceTypeId,
     Point,
     PointAccess,
@@ -180,27 +177,15 @@ def make_collector_config(
         points={"p1": point},
     )
     group_ids = (DeviceGroupId(device_group),) if device_group else ()
-    snapshot = CoreConfigSnapshot(
-        device_types={
-            DeviceTypeId("turbine"): DeviceType(device_type_id=DeviceTypeId("turbine"), name="风机")
-        },
-        device_models={
+    device_indexes = {
+        "device_models": {
             DeviceModelId("mod"): DeviceModel(
                 device_model_id=DeviceModelId("mod"),
                 device_type_id=DeviceTypeId("turbine"),
                 point_table_id=PointTableId("tab"),
             )
         },
-        device_groups=(
-            {
-                DeviceGroupId(device_group): DeviceGroup(
-                    device_group_id=DeviceGroupId(device_group), name=device_group
-                )
-            }
-            if device_group
-            else {}
-        ),
-        devices={
+        "devices": {
             DeviceId(device_id): Device(
                 device_id=DeviceId(device_id),
                 device_model_id=DeviceModelId("mod"),
@@ -208,9 +193,8 @@ def make_collector_config(
                 device_group_ids=group_ids,
             )
         },
-        business_points={bp.business_point_id: bp},
-        point_tables={PointTableId("tab"): table},
-    )
+        "point_tables": {PointTableId("tab"): table},
+    }
     if tasks is None:
         tasks = {
             "t1": CollectionTask(
@@ -222,7 +206,7 @@ def make_collector_config(
             )
         }
     return CollectorConfig(
-        core=snapshot,
+        **device_indexes,
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
         sinks=sinks or {},

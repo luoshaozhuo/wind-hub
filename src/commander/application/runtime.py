@@ -125,20 +125,19 @@ class CommanderRuntime:
 
     def _build_generation(self, config: CommanderConfig) -> _Generation:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
-        snapshot = config.core
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
-        for device in snapshot.devices.values():
-            point_table = snapshot.point_table_for_device(device.device_id)
+        for device in config.devices.values():
+            point_table = config.point_table_for_device(device.device_id)
             protocol = self._protocol_registry.create(
                 device.endpoint,
                 point_table,
-                snapshot.device_options_for(device.device_id),
+                config.device_options_for(device.device_id),
             )
             devices[str(device.device_id)] = DeviceSession(
                 device,
                 point_table,
-                snapshot.business_points,
+                config.business_points,
                 config.point_meta.get(point_table.point_table_id, {}),
                 protocol,
             )
