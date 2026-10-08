@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import type { DeviceDataFeature } from '../../composables/useDeviceData'
 import { useConfigStore } from '../../stores/config'
 import { useViewport } from '../../composables/useViewport'
+import DataSourceBadge from '../DataSourceBadge.vue'
 
 const props = defineProps<{
   data: DeviceDataFeature
@@ -13,7 +14,7 @@ const props = defineProps<{
 const configStore = useConfigStore()
 const { isMobile } = useViewport()
 
-const { dataRows, refreshing, lastRefreshAt, autoRefresh, refreshInterval, refresh } = props.data
+const { dataRows, refreshing, sourceState, autoRefresh, refreshInterval, refresh } = props.data
 
 const dataSearch = ref('')
 const dataGroup = ref('All')
@@ -51,11 +52,11 @@ watch(visibleData, (rows) => {
 <template>
   <div class="data-toolbar">
     <div>
-      <h3>{{ dataRows.length }} points</h3>
+      <h3>{{ dataRows.length }} points <DataSourceBadge :state="sourceState" /></h3>
       <p>
-        {{ dataSuccessCount }} / {{ dataRows.length }} read
+        {{ sourceState === 'valid' ? dataSuccessCount + ' / ' + dataRows.length : '—' }}
+        read
         <template v-if="dataFailureCount"> · {{ dataFailureCount }} failed</template>
-        <template v-if="lastRefreshAt"> · Last refreshed {{ lastRefreshAt }}</template>
       </p>
     </div>
     <div class="data-tools data-refresh-tools">
@@ -83,16 +84,19 @@ watch(visibleData, (rows) => {
       v-for="r in pagedData"
       :key="r.point_id"
       class="compact-data-item"
-      :class="{ 'data-read-failed': r.read_state === 'failed' }"
+      :class="{ 'data-read-failed': sourceState !== 'valid' || r.read_state === 'failed' }"
     >
       <div class="compact-data-top">
         <b :title="r.variable_name || r.point_id">{{ r.variable_name || r.point_id }}</b>
         <div class="compact-data-value">
-          <strong>{{ r.value }}</strong
+          <strong>{{
+            sourceState === 'valid' && r.read_state === 'success' ? r.value : '—'
+          }}</strong
           ><span>{{ r.unit }}</span>
         </div>
       </div>
-      <time v-if="r.read_state === 'success'">{{ r.updated_at }}</time>
+      <small v-if="sourceState !== 'valid'" class="data-error">当前数据源不可用</small>
+      <time v-else-if="r.read_state === 'success'">{{ r.updated_at }}</time>
       <small v-else class="data-error">{{ r.error }}</small>
     </article>
   </div>

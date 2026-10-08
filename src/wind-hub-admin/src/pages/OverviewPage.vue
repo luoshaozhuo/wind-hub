@@ -2,7 +2,12 @@
 import { computed, ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { InfoFilled } from '@element-plus/icons-vue'
-import { fetchLogs } from '../api/monitoring'
+import { fetchLogs, fetchOverview } from '../api/monitoring'
+import { fetchDevices } from '../api/devices'
+import { fetchTasks } from '../api/tasks'
+import { fetchSinks } from '../api/sinks'
+import DataSourceBadge from '../components/DataSourceBadge.vue'
+import { dataSourceState, unavailableValue } from '../domain/dataSourceState'
 import { qk } from '../api/queryKeys'
 import { useQuality } from '../composables/useQuality'
 import { useSystemHealth } from '../composables/useSystemHealth'
@@ -15,6 +20,40 @@ const configStore = useConfigStore()
 
 // Overview 页面查询每 1s 更新；全局运行态快照亦按 1s 更新。
 const OVERVIEW_REFETCH_MS = 1000
+const devicesQuery = useQuery({
+  queryKey: qk.devices,
+  queryFn: () => fetchDevices(),
+  refetchInterval: OVERVIEW_REFETCH_MS,
+})
+const tasksQuery = useQuery({
+  queryKey: qk.tasks,
+  queryFn: () => fetchTasks(),
+  refetchInterval: OVERVIEW_REFETCH_MS,
+})
+const sinksQuery = useQuery({
+  queryKey: qk.sinks,
+  queryFn: fetchSinks,
+  refetchInterval: OVERVIEW_REFETCH_MS,
+})
+const runtimeQuery = useQuery({
+  queryKey: qk.overview,
+  queryFn: fetchOverview,
+  refetchInterval: OVERVIEW_REFETCH_MS,
+})
+const availability = (query: {
+  isPending: { value: boolean }
+  isError: { value: boolean }
+  data: { value: unknown }
+}) =>
+  dataSourceState({
+    isPending: query.isPending.value,
+    isError: query.isError.value,
+    hasData: query.data.value != null,
+  })
+const deviceSource = computed(() => availability(devicesQuery))
+const taskSource = computed(() => availability(tasksQuery))
+const sinkSource = computed(() => availability(sinksQuery))
+const runtimeSource = computed(() => availability(runtimeQuery))
 
 type Tone = 'normal' | 'info' | 'warning' | 'danger' | 'muted'
 
@@ -38,6 +77,9 @@ const quality1h = useQuality(ref('1 h'), OVERVIEW_REFETCH_MS)
 const quality24h = useQuality(ref('24 h'), OVERVIEW_REFETCH_MS)
 const health = useSystemHealth(ref('24 h'), OVERVIEW_REFETCH_MS)
 const healthRisks = health.risks
+const qualitySource = computed(() => availability(quality1h.query))
+const riskQualitySource = computed(() => availability(quality24h.query))
+const healthSource = computed(() => availability(health.query))
 
 interface LogEntry {
   time: string
@@ -51,6 +93,7 @@ const logsQuery = useQuery({
   queryFn: () => fetchLogs({ page: 1, pageSize: 200 }),
   refetchInterval: OVERVIEW_REFETCH_MS,
 })
+const logsSource = computed(() => availability(logsQuery))
 const logStore = computed<LogEntry[]>(() =>
   (logsQuery.data.value?.items || []).map((row) => ({
     time: row.timestamp.replace('T', ' ').replace('Z', '').slice(0, 19),
@@ -322,13 +365,20 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card runtime-card">
           <div class="card-top">
             <span class="card-label">Runtime</span>
-            <span class="ov-status-pill normal"><i></i>RUNNING</span>
+            <DataSourceBadge :state="runtimeSource" />
+            <span
+              v-if="runtimeSource === 'valid'"
+              class="ov-status-pill"
+              :class="configStore.systemInfo.runtimeStatus === 'RUNNING' ? 'normal' : 'danger'"
+              ><i></i>{{ configStore.systemInfo.runtimeStatus }}</span
+            >
           </div>
-          <div class="hero-value normal">{{ serviceUptime }}</div>
-          <div class="hero-caption">Service uptime</div>
+          <div class="hero-value normal">{{ unavailableValue(healthSource, serviceUptime) }}</div>
+          <div class="hero-caption">Service uptime <DataSourceBadge :state="healthSource" /></div>
           <div class="kv-list">
             <div>
-              <span>Last start</span><b class="value info">{{ lastStart }}</b>
+              <span>Last start</span
+              ><b class="value info">{{ unavailableValue(healthSource, lastStart) }}</b>
             </div>
             <div>
               <span>Last stop</span><b class="value muted">{{ lastStop }}</b>
@@ -342,22 +392,27 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card devices-card">
           <div class="card-top">
             <span class="card-label">Devices</span>
-            <span class="ov-status-pill" :class="deviceTone"
+            <DataSourceBadge :state="deviceSource" />
+            <span v-if="deviceSource === 'valid'" class="ov-status-pill" :class="deviceTone"
               ><i></i>{{ offline === 0 ? 'HEALTHY' : 'ATTENTION' }}</span
             >
           </div>
 
           <div class="split-main">
             <div>
-              <div class="hero-value info">{{ online }} / {{ enabledDevices.length }}</div>
+              <div class="hero-value info">
+                {{ deviceSource === 'valid' ? online + ' / ' + enabledDevices.length : '—' }}
+              </div>
               <div class="hero-caption">Online / Enabled</div>
             </div>
             <div class="mini-stack">
               <span
-                ><b class="value danger">{{ offline }}</b> Offline</span
+                ><b class="value danger">{{ unavailableValue(deviceSource, offline) }}</b>
+                Offline</span
               >
               <span
-                ><b class="value muted">{{ disabledDevices }}</b> Disabled</span
+                ><b class="value muted">{{ unavailableValue(deviceSource, disabledDevices) }}</b>
+                Disabled</span
               >
             </div>
           </div>
@@ -410,27 +465,39 @@ const statTone = (onlineCount: number, total: number): Tone => {
                 /></el-icon>
               </el-tooltip>
             </span>
-            <span class="ov-status-pill" :class="acquisitionTone"
+            <DataSourceBadge :state="qualitySource" />
+            <span v-if="qualitySource === 'valid'" class="ov-status-pill" :class="acquisitionTone"
               ><i></i>{{ acquisition.availability >= 99.9 ? 'HEALTHY' : 'DEGRADED' }}</span
             >
           </div>
           <div class="hero-value" :class="acquisitionTone">
-            {{ acquisition.availability.toFixed(2) }}%
+            {{ qualitySource === 'valid' ? acquisition.availability.toFixed(2) + '%' : '—' }}
           </div>
           <div class="hero-caption">Current availability</div>
           <div class="four-metrics">
             <div>
               <span>P95 latency</span
-              ><b class="value info">{{ acquisition.p95LatencyMs.toFixed(0) }} ms</b>
+              ><b class="value info">{{
+                qualitySource === 'valid' ? acquisition.p95LatencyMs.toFixed(0) + ' ms' : '—'
+              }}</b>
             </div>
             <div>
-              <span>Avg latency</span><b class="value info">{{ acquisition.avgLatencyMs }} ms</b>
+              <span>Avg latency</span
+              ><b class="value info">{{
+                qualitySource === 'valid' ? acquisition.avgLatencyMs + ' ms' : '—'
+              }}</b>
             </div>
             <div>
-              <span>Timeout / 1 h</span><b class="value warning">{{ acquisition.timeouts }}</b>
+              <span>Timeout / 1 h</span
+              ><b class="value warning">{{
+                unavailableValue(qualitySource, acquisition.timeouts)
+              }}</b>
             </div>
             <div>
-              <span>Overrun / 1 h</span><b class="value warning">{{ acquisition.overruns }}</b>
+              <span>Overrun / 1 h</span
+              ><b class="value warning">{{
+                unavailableValue(qualitySource, acquisition.overruns)
+              }}</b>
             </div>
           </div>
         </article>
@@ -457,24 +524,35 @@ const statTone = (onlineCount: number, total: number): Tone => {
                 <el-icon class="info-icon" aria-label="Tasks 指标定义"><InfoFilled /></el-icon>
               </el-tooltip>
             </span>
-            <span class="ov-status-pill" :class="taskTone"
+            <DataSourceBadge :state="taskSource" />
+            <span v-if="taskSource === 'valid'" class="ov-status-pill" :class="taskTone"
               ><i></i>{{ stoppedTasks === 0 ? 'HEALTHY' : 'PARTIAL' }}</span
             >
           </div>
-          <div class="hero-value info">{{ runningTasks }} / {{ configStore.tasks.length }}</div>
+          <div class="hero-value info">
+            {{ taskSource === 'valid' ? runningTasks + ' / ' + configStore.tasks.length : '—' }}
+          </div>
           <div class="hero-caption">Running / Total</div>
           <div class="four-metrics">
             <div>
-              <span>Running</span><b class="value normal">{{ runningTasks }}</b>
+              <span>Running</span
+              ><b class="value normal">{{ unavailableValue(taskSource, runningTasks) }}</b>
             </div>
             <div>
-              <span>Stopped</span><b class="value muted">{{ stoppedTasks }}</b>
+              <span>Stopped</span
+              ><b class="value muted">{{ unavailableValue(taskSource, stoppedTasks) }}</b>
             </div>
             <div>
-              <span>Timeout / 1m</span><b class="value warning">{{ acquisition.timeouts }}</b>
+              <span>Timeout / 1m</span
+              ><b class="value warning">{{
+                unavailableValue(qualitySource, acquisition.timeouts)
+              }}</b>
             </div>
             <div>
-              <span>Overrun / 1m</span><b class="value warning">{{ acquisition.overruns }}</b>
+              <span>Overrun / 1m</span
+              ><b class="value warning">{{
+                unavailableValue(qualitySource, acquisition.overruns)
+              }}</b>
             </div>
           </div>
         </article>
@@ -482,11 +560,14 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card">
           <div class="card-top">
             <span class="card-label">Sinks</span>
-            <span class="ov-status-pill" :class="sinkCardTone"
+            <DataSourceBadge :state="sinkSource" />
+            <span v-if="sinkSource === 'valid'" class="ov-status-pill" :class="sinkCardTone"
               ><i></i>{{ sinkCardTone === 'normal' ? 'AVAILABLE' : 'ATTENTION' }}</span
             >
           </div>
-          <div class="hero-value info">{{ enabledSinks }} / {{ configStore.sinks.length }}</div>
+          <div class="hero-value info">
+            {{ sinkSource === 'valid' ? enabledSinks + ' / ' + configStore.sinks.length : '—' }}
+          </div>
           <div class="hero-caption">Enabled / Configured</div>
           <div class="sink-list">
             <div v-for="sink in sinkRuntime" :key="sink.name">
@@ -500,28 +581,37 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card">
           <div class="card-top">
             <span class="card-label">Host / Process</span>
-            <span class="ov-status-pill normal"><i></i>HEALTHY</span>
+            <DataSourceBadge :state="healthSource" />
+            <span v-if="healthSource === 'valid'" class="ov-status-pill normal"
+              ><i></i>HEALTHY</span
+            >
           </div>
           <div class="resource-grid">
             <div>
               <span>CPU</span>
-              <b class="value info">{{ host.cpu }}%</b>
-              <div class="meter"><i :style="{ width: `${host.cpu}%` }"></i></div>
+              <b class="value info">{{ healthSource === 'valid' ? host.cpu + '%' : '—' }}</b>
+              <div class="meter">
+                <i :style="{ width: healthSource === 'valid' ? `${host.cpu}%` : '0%' }"></i>
+              </div>
             </div>
             <div>
               <span>Memory</span>
-              <b class="value info">{{ host.memory }}%</b>
-              <div class="meter"><i :style="{ width: `${host.memory}%` }"></i></div>
+              <b class="value info">{{ healthSource === 'valid' ? host.memory + '%' : '—' }}</b>
+              <div class="meter">
+                <i :style="{ width: healthSource === 'valid' ? `${host.memory}%` : '0%' }"></i>
+              </div>
             </div>
             <div>
               <span>Disk free</span>
-              <b class="value normal">{{ host.diskFree }}%</b>
-              <div class="meter normal"><i :style="{ width: `${host.diskFree}%` }"></i></div>
+              <b class="value normal">{{ healthSource === 'valid' ? host.diskFree + '%' : '—' }}</b>
+              <div class="meter normal">
+                <i :style="{ width: healthSource === 'valid' ? `${host.diskFree}%` : '0%' }"></i>
+              </div>
             </div>
           </div>
           <div class="health-check">
             <span>Last health check</span>
-            <b class="value normal">{{ host.healthCheck }}</b>
+            <b class="value normal">{{ unavailableValue(healthSource, host.healthCheck) }}</b>
           </div>
         </article>
       </div>
@@ -537,14 +627,17 @@ const statTone = (onlineCount: number, total: number): Tone => {
       <div class="risk-summary-grid">
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
-            <span class="card-label">Channel Quality</span
-            ><span
+            <span class="card-label">Channel Quality</span>
+            <DataSourceBadge :state="riskQualitySource" />
+            <span
+              v-if="riskQualitySource === 'valid'"
               class="ov-status-pill"
               :class="channelSummaryValue('interrupted') ? 'danger' : 'normal'"
               ><i></i>{{ channelSummaryValue('interrupted') }} INTERRUPTED</span
             >
           </div>
-          <div class="risk-summary-main">
+          <div v-if="riskQualitySource !== 'valid'" class="risk-summary-main">—</div>
+          <div v-else class="risk-summary-main">
             {{ riskQuality24h.channelSummary.find((x) => x.key === 'timeouts')?.value ?? 0 }}
             timeouts ·
             {{ riskQuality24h.channelSummary.find((x) => x.key === 'reconnects')?.value ?? 0 }}
@@ -553,22 +646,31 @@ const statTone = (onlineCount: number, total: number): Tone => {
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
-            <span class="card-label">Data Quality</span
-            ><span class="ov-status-pill" :class="dataMetricValue('stale') ? 'danger' : 'normal'"
+            <span class="card-label">Data Quality</span>
+            <DataSourceBadge :state="qualitySource" />
+            <span
+              v-if="qualitySource === 'valid'"
+              class="ov-status-pill"
+              :class="dataMetricValue('stale') ? 'danger' : 'normal'"
               ><i></i>{{ dataMetricValue('stale') ? 'DEGRADED' : 'HEALTHY' }}</span
             >
           </div>
-          <div class="risk-summary-main">
+          <div v-if="qualitySource !== 'valid'" class="risk-summary-main">—</div>
+          <div v-else class="risk-summary-main">
             {{ dataMetricValue('stale') }} stale task · {{ dataMetricValue('missing') }} missing
             cycles
           </div>
         </article>
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
-            <span class="card-label">System Health</span
-            ><span class="ov-status-pill danger"><i></i>CAPACITY RISK</span>
+            <span class="card-label">System Health</span>
+            <DataSourceBadge :state="healthSource" />
+            <span v-if="healthSource === 'valid'" class="ov-status-pill danger"
+              ><i></i>CAPACITY RISK</span
+            >
           </div>
-          <div class="risk-summary-main">
+          <div v-if="healthSource !== 'valid'" class="risk-summary-main">—</div>
+          <div v-else class="risk-summary-main">
             {{ healthRisks[1]?.summary ?? '—' }} · {{ healthRisks[0]?.summary ?? '—' }}
           </div>
         </article>
@@ -585,7 +687,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
 
       <div class="coverage-grid">
         <article class="industrial-card compact-card">
-          <div class="card-label">Protocols</div>
+          <div class="card-label">Protocols <DataSourceBadge :state="deviceSource" /></div>
           <div class="distribution-list">
             <div v-for="item in protocolStats" :key="item.label">
               <span>{{ item.label }}</span>
@@ -597,7 +699,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         </article>
 
         <article class="industrial-card compact-card">
-          <div class="card-label">Configuration</div>
+          <div class="card-label">Configuration <DataSourceBadge :state="deviceSource" /></div>
           <div class="kv-list tight">
             <div>
               <span>Config set</span
@@ -621,6 +723,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card compact-card">
           <div class="card-label-with-info">
             <span class="card-label">Data Timeliness</span>
+            <DataSourceBadge :state="qualitySource" />
             <el-tooltip
               placement="bottom-start"
               effect="dark"
@@ -668,6 +771,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card compact-card">
           <div class="card-label-with-info">
             <span class="card-label">Communication</span>
+            <DataSourceBadge :state="qualitySource" />
             <el-tooltip
               placement="bottom-start"
               effect="dark"
@@ -710,7 +814,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
       <div class="section-title">
         <div>
           <span class="eyebrow">EVENTS & ALERTS</span>
-          <h2>事件与活动告警</h2>
+          <h2>事件与活动告警 <DataSourceBadge :state="qualitySource" /></h2>
         </div>
       </div>
 
@@ -718,7 +822,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card table-card">
           <div class="table-head">
             <div>
-              <h3>最近 1 分钟</h3>
+              <h3>最近 1 分钟 <DataSourceBadge :state="logsSource" /></h3>
               <p>ERROR / WARN</p>
             </div>
             <span class="count-badge info">{{ recentEvents.length }}</span>
