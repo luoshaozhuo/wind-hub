@@ -12,7 +12,13 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from core.application import ConfigError
-from core.application.config_types import DeviceConfig, PointConfig, SystemConfig, TaskConfig, UnitConfig
+from core.application.config_types import (
+    DeviceConfig,
+    PointConfig,
+    SystemConfig,
+    TaskConfig,
+    UnitConfig,
+)
 from core.application.sink_config import SinksConfig
 from core.infrastructure.config.point_tables import resolve_point_tables
 from core.infrastructure.config.raw import (
