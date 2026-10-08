@@ -7,6 +7,8 @@ readme = "README.md"
 license = "MIT"
 packages = [
     { include = "core", from = "src" },
+    { include = "collector", from = "src" },
+    { include = "commander", from = "src" },
     { include = "wind_hub_collector", from = "src" },
     { include = "wind_hub_server", from = "src" },
     { include = "wind_hub_commander", from = "src" },
@@ -95,6 +97,8 @@ extend-immutable-calls = [
 # 框架按方法名分发，无法改为 snake_case。
 "src/wind_hub_collector/adapter/inbound/grpc/server.py" = ["N802"]
 "src/wind_hub_commander/adapter/inbound/grpc/server.py" = ["N802"]
+"src/collector/infrastructure/grpc/server.py" = ["N802"]
+"src/commander/infrastructure/grpc/server.py" = ["N802"]
 
 [tool.mypy]
 strict = true
@@ -118,6 +122,10 @@ module = [
     "wind_hub_core.rpc.collector_pb2_grpc",
     "wind_hub_core.rpc.commander_pb2",
     "wind_hub_core.rpc.commander_pb2_grpc",
+    "collector.infrastructure.grpc.collector_pb2",
+    "collector.infrastructure.grpc.collector_pb2_grpc",
+    "commander.infrastructure.grpc.commander_pb2",
+    "commander.infrastructure.grpc.commander_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -156,6 +164,8 @@ markers = [
 [tool.importlinter]
 root_packages = [
     "core",
+    "collector",
+    "commander",
     "wind_hub_core",
     "wind_hub_collector",
     "wind_hub_commander",
@@ -185,6 +195,53 @@ layers = [
     "core.infrastructure",
     "core.application",
     "core.domain",
+]
+
+# ---- 新 Collector / Commander 架构边界 ----
+# 新进程包只依赖 core；禁止 import 旧 wind_hub_* 包，禁止互相 import。
+
+[[tool.importlinter.contracts]]
+name = "new commander 不得依赖旧包或 collector"
+type = "forbidden"
+source_modules = ["commander"]
+forbidden_modules = [
+    "wind_hub_core",
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+    "collector",
+]
+
+[[tool.importlinter.contracts]]
+name = "new collector 不得依赖旧包或 commander"
+type = "forbidden"
+source_modules = ["collector"]
+forbidden_modules = [
+    "wind_hub_core",
+    "wind_hub_collector",
+    "wind_hub_commander",
+    "wind_hub_server",
+    "wind_hub_ctl",
+    "commander",
+]
+
+[[tool.importlinter.contracts]]
+name = "new commander 三层依赖方向"
+type = "layers"
+layers = [
+    "commander.infrastructure",
+    "commander.application",
+    "commander.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "new collector 三层依赖方向"
+type = "layers"
+layers = [
+    "collector.infrastructure",
+    "collector.application",
+    "collector.domain",
 ]
 
 # ---- 跨包边界（现行正式架构的固化，见各包文件头职责说明）----
@@ -306,6 +363,22 @@ source_modules = [
     "wind_hub_commander.application",
 ]
 forbidden_modules = ["wind_hub_core.rpc"]
+
+[[tool.importlinter.contracts]]
+name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"
+type = "forbidden"
+source_modules = [
+    "collector.application",
+    "collector.domain",
+    "commander.application",
+    "commander.domain",
+]
+forbidden_modules = [
+    "collector.infrastructure.grpc.collector_pb2",
+    "collector.infrastructure.grpc.collector_pb2_grpc",
+    "commander.infrastructure.grpc.commander_pb2",
+    "commander.infrastructure.grpc.commander_pb2_grpc",
+]
 
 # ---- server application 内部分层 ----
 # 依赖方向：adapter → application capability → application port → outbound adapter/infra。
