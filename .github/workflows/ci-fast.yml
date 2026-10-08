@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   scope:
@@ -70,8 +70,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -82,16 +80,6 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
-      - name: Temporary import sorting
-        run: |
-          python -m ruff check --fix src/core/domain/__init__.py tests/unit/shared_core/test_ads_adapter.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/domain/__init__.py tests/unit/shared_core/test_ads_adapter.py
-          if ! git diff --cached --quiet; then
-            git commit -m 'style: sort remaining imports'
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
       - name: Backend static
         run: python scripts/ci_gate.py fast --part backend-static
 
