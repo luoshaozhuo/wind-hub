@@ -17,6 +17,7 @@ from core.application import ConfigError
 from core.application.port.config import CollectorConfigReader
 from core.domain import PointTableId
 from core.infrastructure.config import YamlTypedConfigAdapter
+from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables
 
 from ...application.config import (
     ADSLocalIdentity,
@@ -72,8 +73,11 @@ def load_collector_config(
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
         ads_local = _parse_ads_local_identity(system_raw.get("ads"))
-        models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
-        instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
+        if typed_reader is not None:
+            models_file, instances_file = to_raw_devices(device_config)
+        else:
+            models_file = DeviceModelsFile(**models_raw)
+            instances_file = DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
         if typed_reader is not None:
             units_file = UnitsFile(
@@ -96,7 +100,7 @@ def load_collector_config(
         raise ConfigError(f"Invalid collector configuration: {exc}") from exc
 
     if typed_reader is not None:
-        tables = dict(point_config.tables)
+        tables = to_raw_point_tables(point_config)
     else:
         assert tables_file is not None
         tables = resolve_point_tables(tables_file.point_tables)
