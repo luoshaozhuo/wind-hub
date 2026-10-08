@@ -71,3 +71,15 @@ def test_invalid_sink_is_rejected_without_other_topics(tmp_path):
     )
     with pytest.raises(ConfigError):
         YamlTypedConfigAdapter(tmp_path).read_sink_config()
+
+
+def test_system_config_is_deeply_immutable(tmp_path):
+    (tmp_path / "system.yaml").write_text(
+        "runtime:\n  nested:\n    values: [1, 2]\n",
+        encoding="utf-8",
+    )
+    config = YamlTypedConfigAdapter(tmp_path).read_system_config()
+    with pytest.raises(TypeError):
+        config.sections["runtime"]["nested"] = {}
+    with pytest.raises(TypeError):
+        config.sections["runtime"]["nested"]["values"][0] = 10
