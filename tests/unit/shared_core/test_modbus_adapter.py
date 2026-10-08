@@ -4,12 +4,12 @@ import pytest
 
 from core.application import ConfigError
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure.protocol.modbus import (

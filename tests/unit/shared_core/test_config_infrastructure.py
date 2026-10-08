@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from core.domain import (
+    UNIT_CATALOG,
     BusinessPoint,
     ConnectionEndpoint,
     CoreConfigSnapshot,
@@ -15,11 +16,12 @@ from core.domain import (
     PointTable,
     Protocol,
     Quantity,
-    UNIT_CATALOG,
     Unit,
     UnitCode,
     validate_core_config,
 )
+
+
 def _snapshot(
     *,
     device_name: str = "WT01",

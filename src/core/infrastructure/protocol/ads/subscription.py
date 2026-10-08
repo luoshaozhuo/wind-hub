@@ -30,9 +30,7 @@ def _pyads() -> Any:
     try:
         import pyads  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise ProtocolError(
-            "ADS support requires the optional 'pyads' dependency"
-        ) from exc
+        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
     return pyads
 
 
@@ -103,11 +101,7 @@ class ADSSubscription:
             await self._close_pool_locked()
 
         current = asyncio.current_task()
-        tasks = tuple(
-            task
-            for task in self._tasks
-            if task is not current
-        )
+        tasks = tuple(task for task in self._tasks if task is not current)
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -118,18 +112,11 @@ class ADSSubscription:
                 return
             try:
                 async with self._lock:
-                    if (
-                        self._points
-                        and len(self._handles) != len(self._points)
-                    ):
-                        raise ConnectionError(
-                            "ADS notification registration is incomplete"
-                        )
+                    if self._points and len(self._handles) != len(self._points):
+                        raise ConnectionError("ADS notification registration is incomplete")
                     for connection in self._connections:
                         if not connection.is_open:
-                            raise ConnectionError(
-                                "ADS notification connection is closed"
-                            )
+                            raise ConnectionError("ADS notification connection is closed")
                         await asyncio.to_thread(connection.read_state)
             except asyncio.CancelledError:
                 raise
@@ -145,9 +132,7 @@ class ADSSubscription:
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    logger.exception(
-                        "ADS notification pool rebuild failed"
-                    )
+                    logger.exception("ADS notification pool rebuild failed")
 
     async def _rebuild_locked(self) -> None:
         await self._close_pool_locked()
@@ -202,9 +187,7 @@ class ADSSubscription:
     ) -> ADSPoint:
         if point.symbol is None:
             if not point.address_resolved:
-                raise ConfigError(
-                    f"ADS point '{point.point_id}' has no resolved address"
-                )
+                raise ConfigError(f"ADS point '{point.point_id}' has no resolved address")
             return point
 
         symbol = await asyncio.to_thread(
@@ -219,9 +202,7 @@ class ADSSubscription:
             or isinstance(index_offset, bool)
             or not isinstance(index_offset, int)
         ):
-            raise ConfigError(
-                f"ADS symbol '{point.symbol}' did not resolve a valid index address"
-            )
+            raise ConfigError(f"ADS symbol '{point.symbol}' did not resolve a valid index address")
 
         size = point.size
         plc_type = getattr(symbol, "plc_type", None)
@@ -252,18 +233,16 @@ class ADSSubscription:
             cycle_time=self._cycle_time,
             max_delay=self._config.max_delay,
         )
-        callback = connection.notification(
-            _plc_datatype(point.data_type)
-        )(self._notification_callback(point))
+        callback = connection.notification(_plc_datatype(point.data_type))(
+            self._notification_callback(point)
+        )
         handle, user_handle = await asyncio.to_thread(
             connection.add_device_notification,
             (point.index_group, point.index_offset),
             attr,
             callback,
         )
-        self._handles.append(
-            (connection, handle, user_handle)
-        )
+        self._handles.append((connection, handle, user_handle))
 
     async def _close_pool_locked(self) -> None:
         for connection, handle, user_handle in self._handles:
@@ -317,9 +296,7 @@ class ADSSubscription:
     def _schedule_sample(self, sample: ProtocolSample) -> None:
         if self._closed:
             return
-        task = asyncio.create_task(
-            self._invoke_callback(sample)
-        )
+        task = asyncio.create_task(self._invoke_callback(sample))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -346,6 +323,4 @@ def _normalize_timestamp(value: object) -> datetime:
 def _as_scalar(value: object) -> float | int | bool | str | None:
     if value is None or isinstance(value, str | int | float | bool):
         return value
-    raise TypeError(
-        f"unsupported ADS notification value type '{type(value).__name__}'"
-    )
+    raise TypeError(f"unsupported ADS notification value type '{type(value).__name__}'")

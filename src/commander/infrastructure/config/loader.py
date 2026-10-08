@@ -8,11 +8,10 @@ devices / points / units），完成 Raw 解析、点表继承展开、Core 快�
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
-
-import yaml
 
 from core.application import ConfigError
+from core.application.port.config import CommanderConfigReader
+from core.infrastructure.config import YamlConfigReader
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
 from .point_tables import resolve_point_tables
@@ -26,19 +25,21 @@ from .raw import (
 from .snapshot import build_core_snapshot
 
 
-def load_commander_config(config_dir: str | Path) -> CommanderConfig:
+def load_commander_config(
+    config_dir: str | Path, *, reader: CommanderConfigReader | None = None
+) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    base = Path(config_dir)
+    reader = reader if reader is not None else YamlConfigReader(config_dir)
 
-    system_raw = _read_yaml(base / "system.yaml")
-    models_raw = _read_yaml(base / "device_models.yaml")
-    devices_raw = _read_yaml(base / "devices.yaml")
-    points_raw = _read_yaml(base / "points.yaml")
-    units_raw = _read_yaml(base / "units.yaml")
+    system_raw = reader.read_system()
+    models_raw = reader.read_device_models()
+    devices_raw = reader.read_devices()
+    points_raw = reader.read_points()
+    units_raw = reader.read_units()
 
     try:
         ads_raw = system_raw.get("ads")
@@ -86,22 +87,6 @@ def load_commander_config(config_dir: str | Path) -> CommanderConfig:
         point_meta=point_meta,
         disabled_devices=disabled,
     )
-
-
-def _read_yaml(path: Path) -> dict[str, Any]:
-    """安全读取 YAML 根映射。"""
-    if not path.is_file():
-        raise ConfigError(f"Configuration file not found: {path}")
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = cast(dict[str, Any], yaml.safe_load(handle))
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
-    if data is None:
-        raise ConfigError(f"Empty configuration file: {path}")
-    if not isinstance(data, dict):
-        raise ConfigError(f"Configuration root must be a mapping: {path}")
-    return data
 
 
 __all__ = ["load_commander_config"]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .value_objects import ConnectionEndpoint
 from .identities import (
     DeviceGroupId,
     DeviceId,
@@ -12,6 +11,7 @@ from .identities import (
     DeviceTypeId,
     PointTableId,
 )
+from .value_objects import ConnectionEndpoint
 
 
 @dataclass(frozen=True, slots=True)

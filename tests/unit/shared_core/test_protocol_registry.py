@@ -16,6 +16,7 @@ from core.application import (
     SubscriptionHandle,
 )
 from core.domain import (
+    UNIT_CATALOG,
     BusinessPoint,
     ConnectionEndpoint,
     CoreConfigSnapshot,
@@ -27,7 +28,6 @@ from core.domain import (
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure import ProtocolRegistry
@@ -82,7 +82,6 @@ class _Protocol:
         raise ProtocolCapabilityError("not supported")
 
 
-
 def test_protocol_write_normalizes_point_id() -> None:
     write = ProtocolWrite(point_id=" power ", value=1.0)
 
@@ -90,6 +89,7 @@ def test_protocol_write_normalizes_point_id() -> None:
 
     with pytest.raises(ValueError, match="point_id"):
         ProtocolWrite(point_id=" ", value=1.0)
+
 
 def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
@@ -106,7 +106,6 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     assert protocol.health().healthy is True
 
 
-
 def test_protocol_registry_accepts_builtin_driver_classes() -> None:
     registry = ProtocolRegistry()
     registry.register("modbus", ModbusDriver)
@@ -114,7 +113,6 @@ def test_protocol_registry_accepts_builtin_driver_classes() -> None:
     registry.register("iec104", IEC104Driver)
 
     assert registry.registered_names() == ("ads", "iec104", "modbus")
-
 
 
 def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
@@ -169,8 +167,6 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
             snapshot.point_table_for_device(device.device_id),
             snapshot.device_options_for(device.device_id),
         )
-
-
 
 
 def test_protocol_drivers_declare_supported_capabilities() -> None:
@@ -234,6 +230,7 @@ async def test_ads_rejects_unsupported_interrogation() -> None:
 
     with pytest.raises(ProtocolCapabilityError, match="interrogation"):
         await driver.interrogate()
+
 
 def test_protocol_registry_is_explicitly_assembled_by_caller() -> None:
     registry = ProtocolRegistry()

@@ -23,6 +23,8 @@ _ALLOWED_PB2_PREFIXES = (
     "wind_hub_server/adapter/outbound/grpc/",
     "wind_hub_core/rpc/",
     "wind_hub_ctl/",
+    "collector/infrastructure/grpc/",
+    "commander/infrastructure/grpc/",
 )
 
 # application/domain 一律不感知 wire 形态。

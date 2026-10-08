@@ -50,15 +50,10 @@ def test_application_port_modules_contain_interfaces_only() -> None:
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
-            base_names = {
-                base.id
-                for base in node.bases
-                if isinstance(base, ast.Name)
-            }
+            base_names = {base.id for base in node.bases if isinstance(base, ast.Name)}
             if "Protocol" not in base_names:
                 violations.append(
-                    f"{path.name}:{node.lineno} class {node.name} "
-                    "is not a typing.Protocol"
+                    f"{path.name}:{node.lineno} class {node.name} " "is not a typing.Protocol"
                 )
 
     assert violations == []
@@ -75,12 +70,8 @@ def test_domain_does_not_depend_on_application_or_infrastructure() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.module is None:
                 continue
-            if node.module.startswith(
-                ("core.application", "core.infrastructure")
-            ):
-                violations.append(
-                    f"{path.name}:{node.lineno} imports {node.module}"
-                )
+            if node.module.startswith(("core.application", "core.infrastructure")):
+                violations.append(f"{path.name}:{node.lineno} imports {node.module}")
 
     assert violations == []
 
@@ -112,15 +103,12 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
     path = _CORE / "domain" / "point.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     point_class = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "Point"
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Point"
     )
     field_names = {
         target.id
         for node in point_class.body
-        if isinstance(node, ast.AnnAssign)
-        and isinstance((target := node.target), ast.Name)
+        if isinstance(node, ast.AnnAssign) and isinstance((target := node.target), ast.Name)
     }
     forbidden = {
         "address",
@@ -147,10 +135,10 @@ def test_domain_config_is_compact() -> None:
 
 def test_shared_core_has_no_process_config_adapters_or_use_cases() -> None:
     """配置加载、保存与事务编排由 Collector、Commander、Server 各自拥有。"""
-    assert not (_CORE / "infrastructure" / "config").exists()
+    assert (_CORE / "infrastructure" / "config" / "yaml.py").is_file()
     assert not (_CORE / "application" / "config").exists()
     assert not (_CORE / "application" / "config_usecase.py").exists()
-    assert not (_CORE / "application" / "port" / "config.py").exists()
+    assert (_CORE / "application" / "port" / "config.py").is_file()
 
 
 def test_application_does_not_own_config_domain_model() -> None:
@@ -208,4 +196,3 @@ def test_infrastructure_imports_domain_config_from_domain() -> None:
                 )
 
     assert violations == []
-

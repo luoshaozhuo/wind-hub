@@ -40,7 +40,7 @@ class _Subscription:
 
     def __init__(
         self,
-        registry: "_SubscriptionRegistry",
+        registry: _SubscriptionRegistry,
         callback: Callable[[ProtocolSample], Awaitable[None]],
         ioas: tuple[int, ...] | None,
     ) -> None:
@@ -61,11 +61,7 @@ class _Subscription:
         self._registry.unsubscribe(self)
 
         current = asyncio.current_task()
-        tasks = tuple(
-            task
-            for task in self._tasks
-            if task is not current
-        )
+        tasks = tuple(task for task in self._tasks if task is not current)
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -145,9 +141,7 @@ def _c104() -> Any:
     try:
         import c104
     except ImportError as exc:
-        raise ConfigError(
-            "IEC104 support requires the optional 'c104' dependency"
-        ) from exc
+        raise ConfigError("IEC104 support requires the optional 'c104' dependency") from exc
     return c104
 
 
@@ -225,9 +219,7 @@ class IEC104Driver:
             self._open_event = asyncio.Event()
             self._samples.clear()
 
-            client = c104.Client(
-                command_timeout_ms=int(self._config.t1 * 2 * 1000)
-            )
+            client = c104.Client(command_timeout_ms=int(self._config.t1 * 2 * 1000))
             connection = client.add_connection(
                 ip=self._config.host,
                 port=self._config.port,
@@ -236,19 +228,14 @@ class IEC104Driver:
             if connection is None:
                 self._closed = True
                 raise ProtocolError(
-                    f"IEC104 invalid endpoint "
-                    f"{self._config.host}:{self._config.port}"
+                    f"IEC104 invalid endpoint " f"{self._config.host}:{self._config.port}"
                 )
 
             self._apply_protocol_parameters(connection)
-            station = connection.add_station(
-                common_address=self._config.common_addr
-            )
+            station = connection.add_station(common_address=self._config.common_addr)
             if station is None:
                 self._closed = True
-                raise ProtocolError(
-                    f"IEC104 invalid common_addr={self._config.common_addr}"
-                )
+                raise ProtocolError(f"IEC104 invalid common_addr={self._config.common_addr}")
 
             from .callbacks import (
                 new_point_callback,
@@ -256,12 +243,8 @@ class IEC104Driver:
                 state_callback,
             )
 
-            connection.on_state_change(
-                callable=state_callback(self._handle_state_change)
-            )
-            client.on_new_point(
-                callable=new_point_callback(self._handle_new_point)
-            )
+            connection.on_state_change(callable=state_callback(self._handle_state_change))
+            client.on_new_point(callable=new_point_callback(self._handle_new_point))
             self._receive_callback_factory = receive_callback
 
             self._client = client
@@ -284,8 +267,7 @@ class IEC104Driver:
             except Exception as exc:
                 await self._cleanup_failed_connect()
                 raise ProtocolError(
-                    f"IEC104 connect failed for {self._config.host}:"
-                    f"{self._config.port}: {exc}"
+                    f"IEC104 connect failed for {self._config.host}:" f"{self._config.port}: {exc}"
                 ) from exc
 
             self._is_open = True
@@ -366,11 +348,7 @@ class IEC104Driver:
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 write requires an OPEN connection")
 
-        return tuple(
-            await asyncio.gather(
-                *(self._execute_write(write) for write in writes)
-            )
-        )
+        return tuple(await asyncio.gather(*(self._execute_write(write) for write in writes)))
 
     async def subscribe(
         self,
@@ -386,10 +364,7 @@ class IEC104Driver:
         """
         del interval
         if point_ids:
-            ioas = tuple(
-                self._mapped_point(point_id).ioa
-                for point_id in point_ids
-            )
+            ioas = tuple(self._mapped_point(point_id).ioa for point_id in point_ids)
         else:
             ioas = None
         return self._subscriptions.subscribe(ioas, callback)
@@ -397,9 +372,7 @@ class IEC104Driver:
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
         if not self._is_open or self._connection is None:
-            raise ProtocolError(
-                "IEC104 interrogation requires an OPEN connection"
-            )
+            raise ProtocolError("IEC104 interrogation requires an OPEN connection")
 
         c104 = _c104()
         connection = self._connection
@@ -492,17 +465,14 @@ class IEC104Driver:
             type=point_type,
         )
         if point is None:
-            raise ProtocolError(
-                f"IEC104 cannot create command point at IOA {ioa}"
-            )
+            raise ProtocolError(f"IEC104 cannot create command point at IOA {ioa}")
         return point
 
     def _mapped_point(self, point_id: str) -> IEC104Point:
         mapped = self._points_by_id.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection "
-                f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
 
@@ -588,9 +558,7 @@ class IEC104Driver:
             )
         if point is None:
             return
-        point.on_receive(
-            callable=factory(self._handle_point_receive)
-        )
+        point.on_receive(callable=factory(self._handle_point_receive))
 
     def _handle_point_receive(self, point: Any) -> Any:
         c104 = _c104()
@@ -629,6 +597,4 @@ class IEC104Driver:
         if self._closed or not self._is_open:
             return
         self._samples[ioa] = sample
-        asyncio.create_task(
-            self._subscriptions.dispatch(sample, ioa)
-        )
+        asyncio.create_task(self._subscriptions.dispatch(sample, ioa))

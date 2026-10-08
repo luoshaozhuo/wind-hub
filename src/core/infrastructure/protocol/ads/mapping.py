@@ -94,9 +94,7 @@ def parse_ads_point(
     options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
-        raise ConfigError(
-            f"ADS point '{point.point_id}' has unknown options: {sorted(unknown)}"
-        )
+        raise ConfigError(f"ADS point '{point.point_id}' has unknown options: {sorted(unknown)}")
 
     symbol = _optional_string(options.get("symbol"), "symbol", point.point_id)
     raw_group = options.get("index_group")
@@ -107,26 +105,18 @@ def parse_ads_point(
             "must be configured together"
         )
     if symbol is None and raw_group is None:
-        raise ConfigError(
-            f"ADS point '{point.point_id}' requires symbol or index address"
-        )
+        raise ConfigError(f"ADS point '{point.point_id}' requires symbol or index address")
 
     index_group = (
-        0
-        if raw_group is None
-        else _non_negative_int(raw_group, "index_group", point.point_id)
+        0 if raw_group is None else _non_negative_int(raw_group, "index_group", point.point_id)
     )
     index_offset = (
-        0
-        if raw_offset is None
-        else _non_negative_int(raw_offset, "index_offset", point.point_id)
+        0 if raw_offset is None else _non_negative_int(raw_offset, "index_offset", point.point_id)
     )
 
     explicit_type = options.get("data_type", options.get("type"))
     if explicit_type is None:
-        raise ConfigError(
-            f"ADS point '{point.point_id}' requires data_type"
-        )
+        raise ConfigError(f"ADS point '{point.point_id}' requires data_type")
     ads_type = _normalize_ads_type(
         explicit_type,
         point_id=point.point_id,
@@ -158,15 +148,11 @@ def parse_ads_point(
 
 def _normalize_ads_type(value: object, *, point_id: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(
-            f"ADS point '{point_id}': data_type must be a non-empty string"
-        )
+        raise ConfigError(f"ADS point '{point_id}': data_type must be a non-empty string")
     normalized = value.strip().upper()
     normalized = _RAW_TO_ADS.get(normalized.lower(), normalized)
     if normalized not in _ADS_TYPE_SIZES:
-        raise ConfigError(
-            f"ADS point '{point_id}': unsupported ADS type '{value}'"
-        )
+        raise ConfigError(f"ADS point '{point_id}': unsupported ADS type '{value}'")
     return normalized
 
 
@@ -178,9 +164,7 @@ def _optional_string(
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(
-            f"ADS point '{point_id}': {name} must be a non-empty string"
-        )
+        raise ConfigError(f"ADS point '{point_id}': {name} must be a non-empty string")
     return value.strip()
 
 
@@ -190,11 +174,7 @@ def _non_negative_int(
     point_id: str,
 ) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError(
-            f"ADS point '{point_id}': {name} must be an integer"
-        )
+        raise ConfigError(f"ADS point '{point_id}': {name} must be an integer")
     if value < 0:
-        raise ConfigError(
-            f"ADS point '{point_id}': {name} must be >= 0"
-        )
+        raise ConfigError(f"ADS point '{point_id}': {name} must be >= 0")
     return value

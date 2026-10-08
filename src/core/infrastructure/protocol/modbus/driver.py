@@ -118,8 +118,7 @@ class ModbusDriver:
                 with contextlib.suppress(Exception):
                     client.close()
                 raise ProtocolError(
-                    f"Modbus connect failed for {self._config.host}:"
-                    f"{self._config.port}: {exc}"
+                    f"Modbus connect failed for {self._config.host}:" f"{self._config.port}: {exc}"
                 ) from exc
 
             if not connected:
@@ -260,22 +259,17 @@ class ModbusDriver:
     ) -> SubscriptionHandle:
         """Modbus TCP 不支持协议级主动订阅。"""
         del point_ids, callback, interval
-        raise ProtocolCapabilityError(
-            "modbus does not support subscription"
-        )
+        raise ProtocolCapabilityError("modbus does not support subscription")
 
     async def interrogate(self) -> None:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
-        raise ProtocolCapabilityError(
-            "modbus does not support interrogation"
-        )
+        raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection "
-                f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
 
@@ -322,10 +316,7 @@ class ModbusDriver:
             )
 
         raw: list[object]
-        if register_type in _BIT_TYPES:
-            raw = list(response.bits)
-        else:
-            raw = list(response.registers)
+        raw = list(response.bits) if register_type in _BIT_TYPES else list(response.registers)
 
         values: dict[str, object] = {}
         for point in group:
@@ -488,9 +479,7 @@ def _strict_integer_value(
         raise ValueError(f"{data_type} requires an integer value")
     lower, upper = value_range
     if not lower <= integer <= upper:
-        raise ValueError(
-            f"{data_type} value {integer} outside range {lower}..{upper}"
-        )
+        raise ValueError(f"{data_type} value {integer} outside range {lower}..{upper}")
     return integer
 
 

@@ -13,10 +13,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-import yaml
-
 from core.application import ConfigError
+from core.application.port.config import CollectorConfigReader
 from core.domain import PointTableId
+from core.infrastructure.config import YamlConfigReader
 
 from ...application.config import (
     ADSLocalIdentity,
@@ -42,21 +42,23 @@ from .tasks import validate_task_targets
 _BACKPRESSURE_POLICIES = ("drop_old", "drop_new", "block")
 
 
-def load_collector_config(config_dir: str | Path) -> CollectorConfig:
+def load_collector_config(
+    config_dir: str | Path, *, reader: CollectorConfigReader | None = None
+) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    base = Path(config_dir)
+    reader = reader if reader is not None else YamlConfigReader(config_dir)
 
-    system_raw = _read_yaml(base / "system.yaml")
-    models_raw = _read_yaml(base / "device_models.yaml")
-    devices_raw = _read_yaml(base / "devices.yaml")
-    points_raw = _read_yaml(base / "points.yaml")
-    units_raw = _read_yaml(base / "units.yaml")
-    tasks_raw = _read_yaml(base / "tasks.yaml")
-    sinks_raw = _read_yaml(base / "sinks.yaml")
+    system_raw = reader.read_system()
+    models_raw = reader.read_device_models()
+    devices_raw = reader.read_devices()
+    points_raw = reader.read_points()
+    units_raw = reader.read_units()
+    tasks_raw = reader.read_tasks()
+    sinks_raw = reader.read_sinks()
 
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
@@ -172,22 +174,6 @@ def _parse_runtime_params(raw: Any) -> RuntimeParams:
         connect_timeout=float(raw.get("connect_timeout", 10.0)),
         read_timeout=(None if raw.get("read_timeout") is None else float(raw["read_timeout"])),
     )
-
-
-def _read_yaml(path: Path) -> dict[str, Any]:
-    """安全读取 YAML 根映射。"""
-    if not path.is_file():
-        raise ConfigError(f"Configuration file not found: {path}")
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = cast(dict[str, Any], yaml.safe_load(handle))
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
-    if data is None:
-        raise ConfigError(f"Empty configuration file: {path}")
-    if not isinstance(data, dict):
-        raise ConfigError(f"Configuration root must be a mapping: {path}")
-    return data
 
 
 __all__ = ["load_collector_config"]

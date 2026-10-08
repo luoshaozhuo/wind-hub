@@ -11,13 +11,15 @@ from core.application import (
     Quality,
 )
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
-    Protocol as DeviceProtocol,
-    UNIT_CATALOG,
     UnitCode,
+)
+from core.domain import (
+    Protocol as DeviceProtocol,
 )
 from core.infrastructure.protocol.iec104 import (
     IEC104Driver,
@@ -28,8 +30,7 @@ from core.infrastructure.protocol.iec104 import (
 
 
 class _Closable(Protocol):
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 def _endpoint() -> ConnectionEndpoint:

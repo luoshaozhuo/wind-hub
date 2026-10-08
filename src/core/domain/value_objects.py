@@ -69,7 +69,7 @@ class DataType(StrEnum):
         if self is DataType.BOOL:
             if type(value) is not bool:
                 raise TypeError("bool data type requires bool value")
-            return value
+            return bool(value)
 
         if self is DataType.STRING:
             if not isinstance(value, str):
@@ -85,9 +85,7 @@ class DataType(StrEnum):
                 raise ValueError(f"{self.value} data type requires integer value")
             lower, upper = integer_range
             if not lower <= integer <= upper:
-                raise ValueError(
-                    f"{self.value} value {integer} outside range {lower}..{upper}"
-                )
+                raise ValueError(f"{self.value} value {integer} outside range {lower}..{upper}")
             return integer
 
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -97,7 +95,7 @@ class DataType(StrEnum):
             raise ValueError(f"{self.value} data type requires finite value")
         if self is DataType.FLOAT32:
             try:
-                return struct.unpack(">f", struct.pack(">f", number))[0]
+                return float(struct.unpack(">f", struct.pack(">f", number))[0])
             except OverflowError as exc:
                 raise ValueError("float32 value is outside finite range") from exc
         return number
