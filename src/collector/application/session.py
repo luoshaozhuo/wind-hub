@@ -169,7 +169,6 @@ class CollectorDeviceSession:
         self._device = device
         self._point_table = point_table
         self._point_meta = dict(point_meta)
-        self._point_group_cache.clear()
         self._point_group_cache: dict[str, tuple[str, ...]] = {}
         self._protocol = protocol
         self._subscribe_enabled = subscribe_enabled
@@ -249,6 +248,7 @@ class CollectorDeviceSession:
         """
         self._point_table = point_table
         self._point_meta = dict(point_meta)
+        self._point_group_cache.clear()
 
     # ------------------------------------------------------------------
     # 连接与健康（委托协议 Driver）
