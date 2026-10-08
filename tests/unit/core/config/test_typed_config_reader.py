@@ -24,7 +24,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
 
     reader = YamlTypedConfigAdapter(tmp_path)
     assert isinstance(reader, TypedConfigReader)
-    assert reader.read_device_config().instances.devices == []
+    assert reader.read_device_config().instances.devices == ()
     assert reader.read_device_config().models.device_models == {}
     assert reader.read_point_config().tables == {}
     assert reader.read_task_config().tasks == ()
@@ -107,7 +107,7 @@ def test_device_models_and_instances_are_independently_readable(tmp_path):
         encoding="utf-8",
     )
     reader = YamlTypedConfigAdapter(tmp_path)
-    assert reader.read_device_models_config().definition.device_models == {}
+    assert reader.read_device_models_config().device_models == {}
     with pytest.raises(ConfigError, match="not found"):
         reader.read_device_instances_config()
 
@@ -138,3 +138,58 @@ def test_units_are_independent_and_immutable(tmp_path):
         result.units["new"] = None
     with pytest.raises(AttributeError):
         result.units["none"].symbol = "changed"
+
+
+def test_device_and_point_contracts_are_deeply_immutable(tmp_path):
+    (tmp_path / "device_models.yaml").write_text(
+        "device_types:\n  turbine: {name: Turbine}\n"
+        "device_models:\n  m1:\n    device_type: turbine\n"
+        "    protocol: ads\n    point_table: main\n"
+        "    connection_defaults: {port: 851}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "devices.yaml").write_text(
+        "devices:\n  - device_id: d1\n    model: m1\n"
+        "    endpoint: {host: localhost, extensions: {nested: [1, 2]}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "points.yaml").write_text(
+        "point_tables:\n  main:\n    protocol: ads\n"
+        "    points:\n      - point_id: p1\n"
+        "        point_groups: [fast]\n        address: {type: MAIN.p1}\n",
+        encoding="utf-8",
+    )
+    reader = YamlTypedConfigAdapter(tmp_path)
+    device = reader.read_device_config()
+    points = reader.read_point_config()
+    with pytest.raises(TypeError):
+        device.models.device_models["m1"].connection_defaults["port"] = 852
+    with pytest.raises(TypeError):
+        device.instances.devices[0].endpoint.extensions["nested"][0] = 3
+    with pytest.raises(AttributeError):
+        points.tables["main"].points["p1"].scale = 10.0
+
+
+def test_immutable_device_and_point_legacy_bridge(tmp_path):
+    from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables
+
+    (tmp_path / "device_models.yaml").write_text(
+        "device_types: {t: {}}\n"
+        "device_models: {m: {device_type: t, protocol: ads, point_table: main}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "devices.yaml").write_text(
+        "devices: [{device_id: d, model: m, endpoint: {host: localhost, port: 851}}]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "points.yaml").write_text(
+        "point_tables:\n  main:\n    protocol: ads\n"
+        "    points: [{point_id: p, point_groups: [fast], address: {type: MAIN.p}}]\n",
+        encoding="utf-8",
+    )
+    reader = YamlTypedConfigAdapter(tmp_path)
+    models, instances = to_raw_devices(reader.read_device_config())
+    tables = to_raw_point_tables(reader.read_point_config())
+    assert models.device_models["m"].point_table == "main"
+    assert instances.devices[0].endpoint.port == 851
+    assert tables["main"].points["p"].point_groups == ["fast"]
