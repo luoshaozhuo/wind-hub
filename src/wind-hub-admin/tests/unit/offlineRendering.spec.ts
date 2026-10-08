@@ -36,7 +36,24 @@ async function waitFor(predicate: () => boolean, timeoutMs = 8000): Promise<void
 }
 
 describe('离线渲染（后端不可达）', () => {
+  // 以 503 确定性模拟后端不可达（不依赖 DNS 失败时长，环境无关）。
+  beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+  afterEach(() => server.resetHandlers())
+  afterAll(() => server.close())
+
+  function serveUnavailable() {
+    server.use(
+      http.all('*/api/v1/*', () =>
+        HttpResponse.json(
+          { error: { code: 'UNAVAILABLE', message: 'backend down' } },
+          { status: 503 },
+        ),
+      ),
+    )
+  }
+
   it('全部启动 API 失败：业务页仍渲染，API OFFLINE + Retry 可见', async () => {
+    serveUnavailable()
     const { wrapper } = mountApp()
     try {
       await waitFor(() => wrapper.text().includes('API OFFLINE'))
@@ -90,7 +107,7 @@ describe('MSW mock 后端下的 App 行为', () => {
     try {
       expect(wrapper.text()).toContain('LIVE')
       expect(wrapper.find('.app-api-error').exists()).toBe(false)
-      expect(wrapper.text()).toContain('Mock Wind Farm')
+      expect(wrapper.text()).toContain('示例风场')
     } finally {
       wrapper.unmount()
     }
@@ -100,7 +117,7 @@ describe('MSW mock 后端下的 App 行为', () => {
     const { wrapper, queryClient } = await mountLiveApp()
     try {
       // Store 已同步 mock 设备数据。
-      expect(wrapper.text()).toContain('inv-ads-01')
+      expect(wrapper.text()).toContain('wtg-001')
 
       // 断线：全部 API 返回 503。
       server.use(
@@ -119,7 +136,7 @@ describe('MSW mock 后端下的 App 行为', () => {
 
       // 旧数据保留，页面未卸载。
       expect(wrapper.find('section.content').exists()).toBe(true)
-      expect(wrapper.text()).toContain('inv-ads-01')
+      expect(wrapper.text()).toContain('wtg-001')
     } finally {
       wrapper.unmount()
     }
