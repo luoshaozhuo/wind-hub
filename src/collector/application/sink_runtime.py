@@ -78,6 +78,15 @@ class SinkRuntime:
         """
         return MappingProxyType(self._sinks)
 
+    def update_params(self, params: RuntimeParams) -> None:
+        """热更新运行时参数快照。
+
+        ``backpressure_policy`` 由 SinkDispatcher 每次派发动态读取；
+        ``shutdown_timeout`` 仅影响后续 stop/remove；``queue_maxsize`` 为
+        restart-required（既有 queue 容量不随之变化）。
+        """
+        self._params = params
+
     def health(self) -> dict[str, ConnectionHealth]:
         """各 Sink 健康状态——open 失败的 Sink 以 unhealthy 覆盖其实现自报值。"""
         result: dict[str, ConnectionHealth] = {}

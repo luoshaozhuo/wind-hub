@@ -82,6 +82,10 @@ class DeviceRuntime:
         """与 Collector 的指标 observer 同步替换，不改变连接状态。"""
         self._metrics = metrics_hook
 
+    def update_params(self, params: RuntimeParams) -> None:
+        """热更新运行时参数快照——``connect_timeout`` 在每次 connect 动态读取。"""
+        self._params = params
+
     def health(self) -> dict[str, ConnectionHealth]:
         """按注册顺序读取设备协议健康状态。"""
         return {device_id: device.health() for device_id, device in self._devices.items()}

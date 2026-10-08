@@ -35,7 +35,13 @@ from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask, CollectorConfig, DeviceView, RuntimeParams
 from .device_runtime import DeviceRuntime
 from .device_state import DeviceRuntimeState
-from .reload import ConfigDiff, DeviceDiff, SinkDiff, TaskDiff
+from .reload import (
+    HOT_RELOADABLE_RUNTIME_FIELDS,
+    ConfigDiff,
+    DeviceDiff,
+    SinkDiff,
+    TaskDiff,
+)
 from .session import AcquisitionMode, CollectorDeviceSession
 from .sink_port import SinkFactory, SinkPort
 from .sink_runtime import SinkRuntime
@@ -421,6 +427,10 @@ class CollectorRuntime:
             tasks=tasks,
             points_changed=bool(changed_tables),
             point_tables_changed=changed_tables,
+            runtime_changed=any(
+                getattr(self._params, name) != getattr(target.runtime, name)
+                for name in HOT_RELOADABLE_RUNTIME_FIELDS
+            ),
         )
 
     async def reconfigure(self, new_config: CollectorConfig, diff: ConfigDiff) -> list[str]:
@@ -489,6 +499,15 @@ class CollectorRuntime:
                 ):
                     restart_subscription_devices.add(did)
 
+        # 可热更新的 RuntimeParams 字段变化：把新 params 快照应用到各
+        # 子系统 owner（restart-required 字段已在 prepare 阶段被拒绝）。
+        if diff.runtime_changed:
+            try:
+                self.apply_runtime_params(new_config.runtime)
+            except Exception as exc:
+                logger.error("Runtime params apply failed: %s", exc, exc_info=True)
+                errors.append(f"runtime: {exc}")
+
         try:
             await self._task_runtime.apply_definitions(
                 dict(new_config.tasks),
@@ -499,6 +518,18 @@ class CollectorRuntime:
             errors.append(f"tasks: {exc}")
 
         return errors
+
+    def apply_runtime_params(self, params: RuntimeParams) -> None:
+        """把可热更新的 RuntimeParams 快照应用到各子系统 owner。
+
+        只替换 params 引用——热更新字段（``backpressure_policy`` /
+        ``shutdown_timeout`` / ``connect_timeout``）由各 owner 在使用点
+        动态读取，替换即生效；``queue_maxsize`` / ``read_timeout`` 为
+        restart-required，热重载 prepare 阶段已拒绝其变化。
+        """
+        self._params = params
+        self._device_runtime.update_params(params)
+        self._sink_runtime.update_params(params)
 
     def _reinject_changed_tables(self, new_config: CollectorConfig, diff: ConfigDiff) -> None:
         """点表内容变化时，对绑定受影响表的既有设备重注入点映射。

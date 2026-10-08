@@ -315,6 +315,7 @@ def write_collector_config_tree(
     point_tables: dict[str, Any] | None = None,
     connection_defaults: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
+    ads: dict[str, Any] | None = None,
     read_mode: str | None = None,
     tasks: list[dict[str, Any]] | None = None,
     sinks: list[dict[str, Any]] | None = None,
@@ -336,6 +337,7 @@ def write_collector_config_tree(
         point_tables=point_tables,
         connection_defaults=connection_defaults,
         runtime=runtime,
+        ads=ads,
         read_mode=read_mode,
     )
     if sinks is None:

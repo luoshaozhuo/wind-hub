@@ -67,6 +67,21 @@ class RuntimeParams:
 
 
 @dataclass(frozen=True, slots=True)
+class ADSLocalIdentity:
+    """进程级 ADS 本机身份（system.yaml ``ads`` 段的 Collector 子集）。
+
+    属于进程级启动配置：本机 AMS Net ID 绑定路由与已建立的 ADS 连接，
+    不支持热重载——变化在 prepare 阶段拒绝，必须重启进程生效。
+
+    Application 层不直接引用 ``core.infrastructure`` 的 ADSLocalConfig；
+    组合根在装配时把本模型转换为 Core 的 ADSLocalConfig。
+    """
+
+    local_ams_net_id: str
+    local_ip: str
+
+
+@dataclass(frozen=True, slots=True)
 class PointMeta:
     """点位的进程级元数据（采集分组与展示用，不属于协议寻址）。
 
@@ -162,10 +177,13 @@ class CollectorConfig:
         point_meta: ``{点表: {point_id: PointMeta}}`` 采集分组/展示元数据。
         ads_subscribe_devices: 使用 ADS 订阅推送（notification）的设备集合。
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
+        ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
+            restart-required——热重载 prepare 阶段拒绝其任何变化。
     """
 
     core: CoreConfigSnapshot
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
+    ads_local: ADSLocalIdentity | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
     sinks: Mapping[str, ResolvedSinkConfig] = field(default_factory=dict)
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)

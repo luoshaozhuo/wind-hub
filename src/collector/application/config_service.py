@@ -17,7 +17,12 @@ import time
 from collections.abc import Callable
 
 from .config import CollectorConfig
-from .reload import ConfigDiff, ReloadResult, compute_diff
+from .reload import (
+    ConfigDiff,
+    ReloadResult,
+    compute_diff,
+    restart_required_runtime_fields,
+)
 from .runtime import CollectorRuntime
 
 logger = logging.getLogger(__name__)
@@ -152,6 +157,23 @@ class CollectorConfigService:
             )
 
         async with self._reload_lock:
+            # 不能安全热更新的配置必须在 prepare 阶段明确拒绝——「激活成功
+            # 但仍使用旧值」的假激活会让上报的 revision/hash 与真实运行态
+            # 不一致。force_reconfigure 只改变 diff 基线，不绕过本校验。
+            rejection = self._restart_required_rejection(candidate)
+            if rejection is not None:
+                logger.warning(
+                    "Prepare rejected revision=%s: %s",
+                    revision_id,
+                    "; ".join(rejection),
+                )
+                return ReloadResult(
+                    success=False,
+                    diff=ConfigDiff(),
+                    errors=rejection,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+
             diff = (
                 self._runtime.convergence_diff(candidate)
                 if force_reconfigure
@@ -173,6 +195,20 @@ class CollectorConfigService:
             diff=diff,
             duration_ms=(time.monotonic() - started) * 1000,
         )
+
+    def _restart_required_rejection(self, candidate: CollectorConfig) -> list[str] | None:
+        """返回候选配置中的 restart-required 变化；无变化时返回 None。
+
+        RuntimeParams 的 restart-required 字段与进程级 ADS 本机身份都不支持
+        热重载：任一变化必须重启进程，prepare 以稳定错误信息拒绝。
+        """
+        errors = [
+            f"runtime.{name} change requires process restart"
+            for name in restart_required_runtime_fields(self._current.runtime, candidate.runtime)
+        ]
+        if self._current.ads_local != candidate.ads_local:
+            errors.append("ADS local identity change requires process restart")
+        return errors or None
 
     async def activate_config(self, revision_id: str) -> ReloadResult:
         """激活已准备配置；仅此阶段执行 CollectorRuntime.reconfigure。"""

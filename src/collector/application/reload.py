@@ -12,7 +12,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from .config import CollectorConfig
+from .config import CollectorConfig, RuntimeParams
+
+#: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
+#:
+#: - ``queue_maxsize``：asyncio.Queue 按启动值创建，运行中改容量会丢队/溢队；
+#: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口。
+RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = ("queue_maxsize", "read_timeout")
+
+#: 可安全热更新的 RuntimeParams 字段——owner 在使用点动态读取当前值：
+#: ``backpressure_policy``（SinkDispatcher 每次派发读取）、
+#: ``shutdown_timeout``（仅影响后续 stop/remove）、``connect_timeout``
+#: （DeviceRuntime 每次 connect 读取）。activate 时整体替换 owner 持有的
+#: params 快照即真实生效。
+HOT_RELOADABLE_RUNTIME_FIELDS: tuple[str, ...] = (
+    "backpressure_policy",
+    "shutdown_timeout",
+    "connect_timeout",
+)
+
+
+def restart_required_runtime_fields(old: RuntimeParams, new: RuntimeParams) -> list[str]:
+    """返回新旧 RuntimeParams 间发生变化的 restart-required 字段名（排序稳定）。"""
+    return sorted(
+        name for name in RESTART_REQUIRED_RUNTIME_FIELDS if getattr(old, name) != getattr(new, name)
+    )
 
 
 @dataclass(slots=True)
@@ -67,6 +91,11 @@ class ConfigDiff:
     """发生变化（新增/删除/内容/元数据修改）的点表名——Runtime 据此对绑定
     这些表的设备做点映射重注入（不重建 Protocol 连接）。"""
 
+    runtime_changed: bool = False
+    """可热更新的 RuntimeParams 字段发生变化时为 True，activate 时把新
+    params 快照应用到运行时 owner（restart-required 字段在 prepare 阶段
+    已被拒绝，不会出现在本 diff 中）。"""
+
     @property
     def has_any_changes(self) -> bool:
         """任一会影响配置快照的字段发生变化时返回 True。"""
@@ -81,6 +110,7 @@ class ConfigDiff:
             or self.tasks.removed
             or self.tasks.updated
             or self.points_changed
+            or self.runtime_changed
         )
 
 
@@ -176,4 +206,8 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         tasks=tasks,
         points_changed=bool(changed_tables),
         point_tables_changed=changed_tables,
+        runtime_changed=any(
+            getattr(old.runtime, name) != getattr(new.runtime, name)
+            for name in HOT_RELOADABLE_RUNTIME_FIELDS
+        ),
     )

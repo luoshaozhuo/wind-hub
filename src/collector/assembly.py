@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.application import ConfigError
 from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
@@ -19,7 +18,7 @@ from core.infrastructure import (
 )
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import CollectorConfig, DeviceView
+from .application.config import ADSLocalIdentity, CollectorConfig, DeviceView
 from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
 from .application.metrics_state import CollectorMetricsState
@@ -29,7 +28,6 @@ from .application.sink_port import SinkPort
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.fingerprint import fingerprint_config_set
 from .infrastructure.config.loader import load_collector_config
-from .infrastructure.config.raw import ADSSystemRaw
 from .infrastructure.sink import build_sink_registry
 
 
@@ -81,21 +79,13 @@ class CollectorApp:
             await self.ads_local_router.close()
 
 
-def _load_ads_local_identity(config_dir: Path) -> ADSLocalConfig | None:
-    """读取 system.yaml 的 ``ads`` 段（进程级本机身份，boot 时生效）。"""
-    import yaml
-
-    with open(config_dir / "system.yaml", encoding="utf-8") as handle:
-        system_raw = yaml.safe_load(handle)
-    ads_raw = system_raw.get("ads") if isinstance(system_raw, dict) else None
-    if ads_raw is None:
+def _to_ads_local_config(identity: ADSLocalIdentity | None) -> ADSLocalConfig | None:
+    """把 Application 层 ADS 本机身份转换为 Core 的 ADSLocalConfig。"""
+    if identity is None:
         return None
-    if not isinstance(ads_raw, dict):
-        raise ConfigError("system.yaml 'ads' must be a mapping")
-    parsed = ADSSystemRaw(**ads_raw)
     return ADSLocalConfig(
-        local_ams_net_id=parsed.local_ams_net_id,
-        local_ip=parsed.local_ip,
+        local_ams_net_id=identity.local_ams_net_id,
+        local_ip=identity.local_ip,
     )
 
 
@@ -184,7 +174,7 @@ def assemble_collector(
         metrics=metrics,
         identity=build_collector_identity(config_hash, collector_id=collector_id),
         ads_local_router=ADSLocalRouter(),
-        ads_local=_load_ads_local_identity(config_path),
+        ads_local=_to_ads_local_config(config.ads_local),
     )
 
 

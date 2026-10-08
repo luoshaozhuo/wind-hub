@@ -51,6 +51,29 @@ def test_runtime_params_parsed(tmp_path):
     assert config.runtime.read_timeout == 1.5
 
 
+def test_ads_local_identity_loaded(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        ads={"local_ams_net_id": "5.6.7.8.1.1", "local_ip": "192.168.1.10"},
+    )
+    config = load_collector_config(config_dir)
+    assert config.ads_local is not None
+    assert config.ads_local.local_ams_net_id == "5.6.7.8.1.1"
+    assert config.ads_local.local_ip == "192.168.1.10"
+
+
+def test_ads_local_identity_absent_by_default(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path)
+    config = load_collector_config(config_dir)
+    assert config.ads_local is None
+
+
+def test_ads_local_identity_must_be_mapping(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path, ads="not-a-mapping")
+    with pytest.raises(ConfigError, match="ads"):
+        load_collector_config(config_dir)
+
+
 def test_invalid_backpressure_policy_rejected(tmp_path):
     config_dir = write_collector_config_tree(tmp_path, runtime={"backpressure_policy": "explode"})
     with pytest.raises(ConfigError, match="backpressure_policy"):

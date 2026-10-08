@@ -19,6 +19,7 @@ from core.application import ConfigError
 from core.domain import PointTableId
 
 from ...application.config import (
+    ADSLocalIdentity,
     BackpressurePolicy,
     CollectionTask,
     CollectorConfig,
@@ -27,6 +28,7 @@ from ...application.config import (
 from ...application.sinks import SinksConfig
 from .point_tables import resolve_point_tables
 from .raw import (
+    ADSSystemRaw,
     DeviceInstancesFile,
     DeviceModelsFile,
     PointTablesFile,
@@ -58,6 +60,7 @@ def load_collector_config(config_dir: str | Path) -> CollectorConfig:
 
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
+        ads_local = _parse_ads_local_identity(system_raw.get("ads"))
         models_file = DeviceModelsFile(**models_raw)
         instances_file = DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw)
@@ -119,11 +122,25 @@ def load_collector_config(config_dir: str | Path) -> CollectorConfig:
     return CollectorConfig(
         core=snapshot,
         runtime=runtime,
+        ads_local=ads_local,
         tasks=tasks,
         sinks=sinks,
         point_meta=point_meta,
         ads_subscribe_devices=ads_subscribe,
         disabled_devices=disabled,
+    )
+
+
+def _parse_ads_local_identity(raw: Any) -> ADSLocalIdentity | None:
+    """解析 system.yaml ``ads`` 段的进程级本机身份（restart-required）。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("system.yaml 'ads' must be a mapping")
+    parsed = ADSSystemRaw(**raw)
+    return ADSLocalIdentity(
+        local_ams_net_id=parsed.local_ams_net_id,
+        local_ip=parsed.local_ip,
     )
 
 
