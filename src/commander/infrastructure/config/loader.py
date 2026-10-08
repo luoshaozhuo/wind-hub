@@ -12,7 +12,7 @@ from pathlib import Path
 from core.application import ConfigError
 from core.application.port.config import CommanderConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
-from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables
+from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables, to_raw_units
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
 from .point_tables import resolve_point_tables
@@ -65,12 +65,7 @@ def load_commander_config(
             instances_file = DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
         if typed_reader is not None:
-            units_file = UnitsFile(
-                units={
-                    key: {"symbol": item.symbol, "name": item.name}
-                    for key, item in unit_config.units.items()
-                }
-            )
+            units_file = to_raw_units(unit_config)
         else:
             units_file = UnitsFile(**units_raw)
     except ConfigError:
