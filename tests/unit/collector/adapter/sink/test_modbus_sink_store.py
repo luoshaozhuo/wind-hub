@@ -68,9 +68,7 @@ def test_store_writes_encoded_registers() -> None:
 
 
 def test_store_writes_encoded_bits() -> None:
-    store = ModbusSinkStore(
-        [_point("p1", datatype="bool", register_type="discrete", address=20)]
-    )
+    store = ModbusSinkStore([_point("p1", datatype="bool", register_type="discrete", address=20)])
     store.write(
         EncodedModbusValue(
             unit_id=1,
@@ -83,9 +81,7 @@ def test_store_writes_encoded_bits() -> None:
 
 
 def test_store_rejects_undeclared_unit() -> None:
-    store = ModbusSinkStore(
-        [_point("p1", datatype="uint16", register_type="holding", address=5)]
-    )
+    store = ModbusSinkStore([_point("p1", datatype="uint16", register_type="holding", address=5)])
     try:
         store.write(
             EncodedModbusValue(
@@ -102,9 +98,7 @@ def test_store_rejects_undeclared_unit() -> None:
 
 
 def test_store_rejects_write_outside_declared_span() -> None:
-    store = ModbusSinkStore(
-        [_point("p1", datatype="uint16", register_type="holding", address=5)]
-    )
+    store = ModbusSinkStore([_point("p1", datatype="uint16", register_type="holding", address=5)])
     try:
         store.write(
             EncodedModbusValue(
@@ -121,9 +115,7 @@ def test_store_rejects_write_outside_declared_span() -> None:
 
 
 def test_store_rejects_partial_write_without_mutation() -> None:
-    store = ModbusSinkStore(
-        [_point("p1", datatype="uint16", register_type="holding", address=5)]
-    )
+    store = ModbusSinkStore([_point("p1", datatype="uint16", register_type="holding", address=5)])
     try:
         store.write(
             EncodedModbusValue(

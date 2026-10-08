@@ -924,7 +924,6 @@ class TestReconfigure:
         finally:
             await rt.stop()
 
-
     async def test_lightweight_device_update_and_point_table_change_reinjects_mapping(self) -> None:
         """device_group 轻量更新与点表内容变化同时发生时不得漏掉新 mapping。"""
         d1 = _make_device_config("d1", device_group="old")
@@ -959,7 +958,6 @@ class TestReconfigure:
             assert protos["d1"].connect.await_count == 1
         finally:
             await rt.stop()
-
 
     async def test_point_table_change_restarts_running_subscription_handle(self) -> None:
         """订阅型设备点表变化时，RUNNING instance 必须注销旧订阅并重新注册。"""
@@ -1001,7 +999,6 @@ class TestReconfigure:
             assert proto.connect.await_count == 1
         finally:
             await rt.stop()
-
 
     async def test_subscription_restart_failure_returns_reload_error_and_retries(self) -> None:
         """订阅重建失败不能被吞掉；下一次 reload 必须继续重试并恢复 RUNNING。"""
@@ -1055,7 +1052,6 @@ class TestReconfigure:
             assert proto.subscribe.await_count == 3
         finally:
             await rt.stop()
-
 
     async def test_point_table_binding_switch_restarts_running_subscription_handle(self) -> None:
         """设备切换到另一张既有点表时也必须重新注册订阅。"""
@@ -1181,7 +1177,6 @@ class TestSinkDispatch:
             await rt.stop()
 
 
-
 # ---------------------------------------------------------------------------
 # 健康与组件生命周期（best-effort 语义）
 # ---------------------------------------------------------------------------
@@ -1211,7 +1206,8 @@ async def test_device_replacement_stops_handle_before_close_and_resumes_after_co
     """设备替换仍由 Collector 协调采集；重复热增的 rebuild 分支顺序也必须一致。"""
     cfg = _make_device_config("d1")
     rt, protocols, _, _ = _build_runtime(
-        devices=[cfg], tasks=[_make_task("t1", device="d1")],
+        devices=[cfg],
+        tasks=[_make_task("t1", device="d1")],
     )
     await rt.start()
     try:

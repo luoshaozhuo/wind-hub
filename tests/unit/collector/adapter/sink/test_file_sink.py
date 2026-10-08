@@ -55,9 +55,7 @@ async def _raise_oserror(*args: object, **kwargs: object) -> None:
 # open 失败的注入缝：aiofiles.open 在 async_writer 模块命名空间内被调用，
 # monkeypatch 该属性即可让异步打开抛 OSError（aiofiles 在 import 时绑定了
 # builtins.open，patch builtins 不再生效）。
-_AIO_OPEN = (
-    "wind_hub_collector.adapter.outbound.sink.file.async_writer.aiofiles.open"
-)
+_AIO_OPEN = "wind_hub_collector.adapter.outbound.sink.file.async_writer.aiofiles.open"
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +134,6 @@ class TestLifecycle:
         sink = FileSink(_cfg(str(tmp_path / "out.jsonl")))
         with pytest.raises(SinkError, match="before open"):
             await sink.write([_pv()])
-
 
 
 # ---------------------------------------------------------------------------
@@ -356,9 +353,7 @@ class TestHealth:
 
 
 class TestEventLoopNonBlocking:
-    async def test_slow_file_io_still_yields_to_other_tasks(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_slow_file_io_still_yields_to_other_tasks(self, tmp_path: Path) -> None:
         """底层写盘变慢时，FileSink 写路径不得阻塞事件循环。
 
         用一个人为延迟的 async 文件包装替换 writer 内部句柄，验证

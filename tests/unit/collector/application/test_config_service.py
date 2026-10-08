@@ -469,7 +469,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                             "data_type": "float32",
                             "unit": base_unit,
                         }
-                    ]
+                    ],
                 },
                 "child": {"extends": "base"},
                 "other": {
@@ -481,7 +481,7 @@ def _write_inheritance_configs(base: Path, base_unit: str = "rpm") -> None:
                             "address": {"type": "holding_register", "address": 9},
                             "data_type": "float32",
                         }
-                    ]
+                    ],
                 },
             }
         },

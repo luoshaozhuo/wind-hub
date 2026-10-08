@@ -53,25 +53,17 @@ def test_export_maps_internal_identity_to_external_ref() -> None:
 
 def test_export_applies_sink_scale_and_offset_once() -> None:
     exporter = SinkReferenceExporter([_definition(scale=2.0, offset=1.0)])
-    values = exporter.export(
-        [PointValue(device_id="wt01", point_id="wind_speed", value=3.0)]
-    )
+    values = exporter.export([PointValue(device_id="wt01", point_id="wind_speed", value=3.0)])
     assert values[0].value == 7.0
 
 
 def test_one_internal_point_can_export_to_multiple_refs() -> None:
-    exporter = SinkReferenceExporter(
-        [_definition(ref="a"), _definition(ref="b")]
-    )
-    values = exporter.export(
-        [PointValue(device_id="wt01", point_id="wind_speed", value=1.0)]
-    )
+    exporter = SinkReferenceExporter([_definition(ref="a"), _definition(ref="b")])
+    values = exporter.export([PointValue(device_id="wt01", point_id="wind_speed", value=1.0)])
     assert [item.ref for item in values] == ["a", "b"]
 
 
 def test_unmapped_point_is_ignored() -> None:
     exporter = SinkReferenceExporter([_definition()])
-    values = exporter.export(
-        [PointValue(device_id="wt01", point_id="other", value=1.0)]
-    )
+    values = exporter.export([PointValue(device_id="wt01", point_id="other", value=1.0)])
     assert values == []

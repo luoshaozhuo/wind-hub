@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import struct
 from collections.abc import Sequence
+from dataclasses import dataclass
 from math import isfinite
 from typing import Any
 
@@ -13,6 +14,7 @@ from core.application.errors import ConfigError, ProtocolCapabilityError, Protoc
 from core.application.port import ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
+    PointScalar,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
@@ -47,6 +49,14 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
 _DECODE_FAILED = object()
 
 
+@dataclass(frozen=True, slots=True)
+class _ReadGroupPlan:
+    points: tuple[ModbusPoint, ...]
+    register_type: str
+    start: int
+    count: int
+
+
 class ModbusDriver:
     """单个 Endpoint 的 Modbus TCP Driver。
 
@@ -79,6 +89,8 @@ class ModbusDriver:
             for point in point_table.points.values()
         }
 
+        # 点表在 Driver 生命周期内不可变；相同选点序列复用预编译读取组。
+        self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._lock = asyncio.Lock()
         self._client: Any = None
         self._connected = False
@@ -151,7 +163,18 @@ class ModbusDriver:
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        """批量读取协议点，并合并相邻 Modbus 地址。"""
+        """兼容标准协议端口；由调用方选择是否需要 DTO 封装。"""
+        values = await self.read_raw(point_ids)
+        return tuple(
+            ProtocolSample(point_id=point_id, value=value, quality=quality)
+            for point_id, (value, quality) in zip(point_ids, values, strict=True)
+        )
+
+    async def read_raw(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
+        """读取原始数据及逐点质量；不创建 ProtocolSample。"""
         if not point_ids:
             return ()
 
@@ -159,10 +182,10 @@ class ModbusDriver:
             if not self._connected:
                 raise ProtocolError("Modbus read requires an active connection")
 
-            mapped = [self._mapped_point(point_id) for point_id in point_ids]
+            plan = self._read_plan(point_ids)
             try:
                 values: dict[str, object] = {}
-                for group in group_consecutive_reads(mapped):
+                for group in plan:
                     values.update(await self._read_group(group))
             except ProtocolError:
                 raise
@@ -170,26 +193,12 @@ class ModbusDriver:
                 self._signal_disconnect()
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
-            samples: list[ProtocolSample] = []
-            for point_id in point_ids:
-                value = values.get(point_id, _DECODE_FAILED)
-                if value is _DECODE_FAILED:
-                    samples.append(
-                        ProtocolSample(
-                            point_id=point_id,
-                            value=None,
-                            quality=Quality.BAD,
-                        )
-                    )
-                else:
-                    samples.append(
-                        ProtocolSample(
-                            point_id=point_id,
-                            value=_as_point_scalar(value),
-                            quality=Quality.GOOD,
-                        )
-                    )
-            return tuple(samples)
+            return tuple(
+                (None, Quality.BAD)
+                if values.get(point_id, _DECODE_FAILED) is _DECODE_FAILED
+                else (_as_point_scalar(values[point_id]), Quality.GOOD)
+                for point_id in point_ids
+            )
 
     async def write(
         self,
@@ -273,15 +282,37 @@ class ModbusDriver:
             )
         return mapped
 
+    def _read_plan(self, point_ids: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
+        """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
+        key = tuple(point_ids)
+        cached = self._read_plan_cache.get(key)
+        if cached is not None:
+            return cached
+        mapped = [self._mapped_point(point_id) for point_id in key]
+        plan = tuple(
+            _ReadGroupPlan(
+                points=tuple(group),
+                register_type=group[0].register_type,
+                start=min(point.address for point in group),
+                count=max(point.address + point.count for point in group)
+                - min(point.address for point in group),
+            )
+            for group in group_consecutive_reads(mapped)
+        )
+        # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
+        if len(self._read_plan_cache) >= 32:
+            self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
+        self._read_plan_cache[key] = plan
+        return plan
+
     async def _read_group(
         self,
-        group: list[ModbusPoint],
+        group: _ReadGroupPlan,
     ) -> dict[str, object]:
         client = self._client
-        register_type = group[0].register_type
-        start = min(point.address for point in group)
-        end = max(point.address + point.count for point in group)
-        count = end - start
+        register_type = group.register_type
+        start = group.start
+        count = group.count
         unit_id = self._config.unit_id
 
         if register_type == "coil":
@@ -315,11 +346,12 @@ class ModbusDriver:
                 "returned an exception response"
             )
 
-        raw: list[object]
-        raw = list(response.bits) if register_type in _BIT_TYPES else list(response.registers)
+        # 协议响应的序列只读取不修改，避免每轮复制整块寄存器。
+        raw: Sequence[object]
+        raw = response.bits if register_type in _BIT_TYPES else response.registers
 
         values: dict[str, object] = {}
-        for point in group:
+        for point in group.points:
             offset = point.address - start
             segment = raw[offset : offset + point.count]
             try:
@@ -377,7 +409,7 @@ class ModbusDriver:
 
 def _decode_point(
     point: ModbusPoint,
-    segment: list[object],
+    segment: Sequence[object],
 ) -> object:
     if not segment:
         raise ValueError("empty Modbus response segment")

@@ -36,9 +36,7 @@ def _config() -> ResolvedSinkConfig:
 
 async def test_write_updates_store() -> None:
     sink = ModbusSink(_config())
-    await sink.write(
-        [PointValue(device_id="wt01", point_id="power", value=1.0)]
-    )
+    await sink.write([PointValue(device_id="wt01", point_id="power", value=1.0)])
     assert sink.data_path.store.read_registers(1, "holding", 100, 2) == [
         0x3F80,
         0x0000,

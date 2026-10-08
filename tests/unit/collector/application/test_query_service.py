@@ -153,9 +153,7 @@ async def test_status_splits_device_and_sink_health_by_source_not_count() -> Non
 
 
 async def test_status_with_empty_devices_or_sinks() -> None:
-    only_sinks = CollectorQueryService(
-        _runtime(sinks={"s1": _sink(True), "s2": _sink(True)})
-    )
+    only_sinks = CollectorQueryService(_runtime(sinks={"s1": _sink(True), "s2": _sink(True)}))
     status = await only_sinks.status()
     assert status.device_count == 0
     assert status.devices_connected == 0

@@ -184,7 +184,6 @@ class TestPointSelection:
         assert device.points == (_point("p1", ("g",)),)
         assert isinstance(device.points, tuple)
 
-
     def test_set_points_updates_table_and_reinjects_mapping(self) -> None:
         proto = _FakeProtocol()
         device = _make_device(proto)

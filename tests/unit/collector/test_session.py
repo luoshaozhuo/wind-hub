@@ -221,3 +221,77 @@ async def test_close_idempotent_and_start_idempotent():
     await handle.close()
     await handle.close()
     assert handle._task is None and task is not None and task.done()
+
+
+async def test_raw_driver_path_skips_protocol_sample_wrapping():
+    proto = CollectorFakeProtocol()
+    proto.read_values["p1"] = 7.0
+
+    async def read_raw(point_ids):
+        assert point_ids == ["p1"]
+        return ((7.0, Quality.GOOD),)
+
+    async def reject_legacy_read(_point_ids):
+        raise AssertionError("raw-capable driver should bypass ProtocolSample read")
+
+    proto.read_raw = read_raw
+    proto.read = reject_legacy_read
+    session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
+    values = await session.read("g")
+    assert len(values) == 1
+    assert values[0].value == 15.0
+    assert values[0].device_id == "dev1"
+    assert values[0].quality is Quality.GOOD
+
+
+async def test_point_group_cache_invalidated_by_set_points():
+    """相同点组不重复筛选；配置刷新后必须使用新点组。"""
+    first = make_collector_config(point_groups=("g",))
+    second = make_collector_config(point_groups=("changed",))
+    session = make_session(first, CollectorFakeProtocol())
+    assert session.point_ids("g") == ["p1"]
+    assert session.point_ids("g") == ["p1"]
+    assert session._point_group_cache["g"] == ("p1",)
+    view = second.device_view("dev1")
+    session.set_points(view.point_table, view.point_meta)
+    assert session.point_ids("g") == []
+    assert session.point_ids("changed") == ["p1"]
+
+
+async def test_raw_value_conversion_preserves_bad_and_bool():
+    proto = CollectorFakeProtocol()
+    session = make_session(make_collector_config(scale=3.0, offset=1.0), proto)
+    bad = session.to_point_values_raw(["p1"], ((None, Quality.BAD),))
+    assert bad[0].value is None
+    assert bad[0].quality is Quality.BAD
+    flag = session.to_point_values_raw(["p1"], ((True, Quality.GOOD),))
+    assert flag[0].value is True
+    with pytest.raises(ValueError, match="length"):
+        session.to_point_values_raw(["p1"], ())
+
+
+async def test_public_raw_session_read_defers_pointvalue_creation():
+    proto = CollectorFakeProtocol()
+    proto.read_values["p1"] = 12.0
+    session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
+    ids, raw = await session.read_raw("g")
+    assert ids == ["p1"]
+    assert raw == ((12.0, Quality.GOOD),)
+    values = session.to_point_values_raw(ids, raw)
+    assert values[0].value == 25.0
+
+
+async def test_public_raw_session_read_uses_raw_capability():
+    proto = CollectorFakeProtocol()
+
+    async def raw_reader(ids):
+        assert ids == ["p1"]
+        return ((42, Quality.GOOD),)
+
+    async def reject(_ids):
+        raise AssertionError("ProtocolSample path must not be used")
+
+    proto.read_raw = raw_reader
+    proto.read = reject
+    session = make_session(make_collector_config(), proto)
+    assert await session.read_raw("g") == (["p1"], ((42, Quality.GOOD),))

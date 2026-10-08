@@ -106,14 +106,17 @@ def test_collector_transfers_task_registries_and_engine_port_to_one_owner() -> N
     assert isinstance(tasks, TaskRuntime)
     assert tasks.task_definitions().keys() == {"t1"}
     # 六类簿记的唯一权威在 TaskRuntime，CollectorRuntime 不保留任何副本。
-    assert not {
-        "_task_defs",
-        "_task_instances",
-        "_instance_states",
-        "_acquisition_handles",
-        "_acquisition_states",
-        "_restart_pending",
-    } & vars(collector).keys()
+    assert (
+        not {
+            "_task_defs",
+            "_task_instances",
+            "_instance_states",
+            "_acquisition_handles",
+            "_acquisition_states",
+            "_restart_pending",
+        }
+        & vars(collector).keys()
+    )
     # 引擎直接绑定采集状态 owner，CollectorRuntime 不再实现该端口。
     assert collector.engine._acquisition_state is tasks
     # 既有 public 查询面是同一来源的只读视图。
@@ -158,9 +161,7 @@ async def test_start_stop_instance_handle_lifecycle_and_idempotency() -> None:
 
 
 async def test_suspend_resume_around_device_rebuild_restores_only_running() -> None:
-    runtime, devices, protocol, _ = _build(
-        tasks=[_task("t1"), _task("t2", interval=0.05)]
-    )
+    runtime, devices, protocol, _ = _build(tasks=[_task("t1"), _task("t2", interval=0.05)])
     await devices.connect_all()
     await runtime.sync_instances()
     try:

@@ -7,14 +7,16 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ..protocol_contract import (
     ConnectionHealth,
+    PointScalar,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
+    Quality,
 )
 
 
@@ -57,3 +59,15 @@ class ProtocolPort(Protocol):
     ) -> SubscriptionHandle: ...
 
     async def interrogate(self) -> None: ...
+
+
+RawReadResult = tuple[tuple[PointScalar, Quality], ...]
+
+
+@runtime_checkable
+class RawReadPort(Protocol):
+    """可选高频读取能力，不更改现有 ProtocolPort 的必需方法。"""
+
+    async def read_raw(self, point_ids: Sequence[str]) -> RawReadResult:
+        """按请求顺序返回原始值与质量，不创建 ProtocolSample。"""
+        ...
