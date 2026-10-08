@@ -57,5 +57,11 @@ class SystemConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class UnitDefinition:
+    symbol: str
+    name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class UnitConfig:
-    definition: Any
+    units: Mapping[str, UnitDefinition]
