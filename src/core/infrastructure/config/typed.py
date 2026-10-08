@@ -13,6 +13,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from core.application import ConfigError
+from core.application.sink_config import SinksConfig
 from core.application.config_types import (
     DeviceConfig,
     PointConfig,
@@ -64,6 +65,9 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
     def read_task_config(self) -> TaskConfig:
         return TaskConfig(definition=self._validate(TasksFile, self.read_tasks(), "tasks"))
+
+    def read_sink_config(self) -> SinksConfig:
+        return self._validate(SinksConfig, self.read_sinks(), "sinks")
 
     def read_unit_config(self) -> UnitConfig:
         return UnitConfig(definition=self._validate(UnitsFile, self.read_units(), "units"))
