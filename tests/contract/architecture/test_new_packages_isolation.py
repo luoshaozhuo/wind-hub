@@ -4,7 +4,8 @@
 
 - 新包（core/collector/commander）不得 import 任何 wind_hub_* 旧包；
 - collector 与 commander 不得互相 import；
-- core 保持配置纯净（不引入 yaml/grpc/配置仓储）；
+- core.domain / core.application 保持纯净（不引入 yaml/grpc/配置仓储，
+  YAML 适配器统一位于 core.infrastructure）；
 - 旧 wind_hub_* 生产代码相对任务基线零改动；
 - 进程内 proto 副本与旧共享 proto 逐字节一致（wire contract 兼容）。
 """
@@ -65,14 +66,21 @@ def test_collector_commander_no_cross_import() -> None:
 
 
 def test_core_config_purity() -> None:
-    """core 不得引入 YAML/gRPC/指纹等配置基础设施（留在进程包内）。"""
+    """core.domain / core.application 不得引入 YAML/gRPC 等基础设施依赖。
+
+    目标架构中 YAML 配置读取适配器统一位于 core.infrastructure；
+    Domain 与 Application 层保持纯净，不依赖配置/传输基础设施。
+    """
     offenders: list[str] = []
-    for path in _python_files(SRC / "core"):
-        roots = _imported_roots(path)
-        banned = roots & {"yaml", "grpc", "grpc_tools"}
-        if banned:
-            offenders.append(f"{path.relative_to(REPO_ROOT)}: {sorted(banned)}")
-    assert not offenders, "core 引入了配置/传输基础设施：\n" + "\n".join(offenders)
+    for layer in ("domain", "application"):
+        for path in _python_files(SRC / "core" / layer):
+            roots = _imported_roots(path)
+            banned = roots & {"yaml", "grpc", "grpc_tools"}
+            if banned:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}: {sorted(banned)}")
+    assert not offenders, "core domain/application 引入了配置/传输基础设施：\n" + "\n".join(
+        offenders
+    )
 
 
 def test_legacy_packages_unmodified_since_baseline() -> None:
