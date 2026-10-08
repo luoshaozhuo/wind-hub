@@ -3,7 +3,7 @@
 比较相同协议响应条件下 read_raw（直接点值）与 read（ProtocolSample 包装），
 分别测量固定选点及变化选点。结果是本机 Python / Mock 开销，不包含网络时延。
 
-运行：python -m tests.benchmarks.read_pipeline_benchmark
+运行：PYTHONPATH=src python tests/benchmarks/read_pipeline_benchmark.py
 """
 
 from __future__ import annotations
@@ -15,7 +15,41 @@ import time
 import tracemalloc
 from collections.abc import Awaitable, Callable
 
-from tests.benchmarks.read_plan_benchmark import _driver
+from core.domain import (
+    ConnectionEndpoint,
+    Point,
+    PointAccess,
+    PointTable,
+    Protocol,
+    UNIT_CATALOG,
+    UnitCode,
+)
+from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+
+def _driver(point_count: int = 256) -> ModbusDriver:
+    """构建完全本地化的读点配置，避免基准依赖其他脚本。"""
+    unit = UNIT_CATALOG[UnitCode.NONE]
+    points = {
+        f"p{index}": Point(
+            point_id=f"p{index}",
+            business_point_id=f"p{index}",
+            source_unit=unit,
+            access=PointAccess.READ_WRITE,
+            ext={
+                "register_type": "holding",
+                "address": index,
+                "data_type": "uint16",
+            },
+        )
+        for index in range(point_count)
+    }
+    return ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("benchmark", Protocol("modbus"), points),
+        {},
+    )
+
 
 
 class FakeModbusResponse:
