@@ -76,7 +76,7 @@ def load_collector_config(
         instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
         units_file = unit_config.definition if typed else UnitsFile(**units_raw)
-        tasks_file = task_config.definition if typed else TasksFile(**tasks_raw)
+        tasks_file = TasksFile(**tasks_raw) if not typed else None
         sinks_file = (
             typed_reader.read_sink_config()
             if typed_reader is not None
@@ -108,6 +108,7 @@ def load_collector_config(
         if not instance.enabled
     }
     sinks = resolve_sinks(sinks_file, snapshot, units_file, disabled_tables)
+    task_definitions = task_config.tasks if typed_reader is not None else tasks_file.tasks
     tasks = {
         raw.task_id: CollectionTask(
             task_id=raw.task_id,
@@ -115,7 +116,7 @@ def load_collector_config(
             device_group=raw.device_group,
             point_group=raw.point_group,
             interval=raw.interval,
-            targets=tuple(target.sink for target in raw.targets),
+            targets=(raw.targets if typed_reader is not None else tuple(target.sink for target in raw.targets)),
             enabled=raw.enabled,
         )
         for raw in tasks_file.tasks
