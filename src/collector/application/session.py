@@ -30,6 +30,7 @@ from core.application import (
     ProtocolSample,
     Quality,
 )
+from core.application.port.protocol import RawReadPort
 from core.domain import Device, DeviceId, Point, PointTable
 
 from ..domain.point_value import PointValue
@@ -279,9 +280,8 @@ class CollectorDeviceSession:
     async def read(self, point_group: str) -> list[PointValue]:
         """读取指定点组并返回已应用 scale/offset 的工程值（盖设备身份）。"""
         point_ids = self.point_ids(point_group)
-        read_raw = getattr(self._protocol, "read_raw", None)
-        if callable(read_raw):
-            raw_values = await read_raw(point_ids)
+        if isinstance(self._protocol, RawReadPort):
+            raw_values = await self._protocol.read_raw(point_ids)
             return self.to_point_values_raw(point_ids, raw_values)
         samples = await self._protocol.read(point_ids)
         return self._to_values(samples)
