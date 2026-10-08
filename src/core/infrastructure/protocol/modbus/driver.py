@@ -154,7 +154,18 @@ class ModbusDriver:
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        """批量读取协议点，并合并相邻 Modbus 地址。"""
+        """兼容标准协议端口；由调用方选择是否需要 DTO 封装。"""
+        values = await self.read_raw(point_ids)
+        return tuple(
+            ProtocolSample(point_id=point_id, value=value, quality=quality)
+            for point_id, (value, quality) in zip(point_ids, values, strict=True)
+        )
+
+    async def read_raw(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[tuple[object, Quality], ...]:
+        """读取原始数据及逐点质量；不创建 ProtocolSample。"""
         if not point_ids:
             return ()
 
@@ -173,26 +184,12 @@ class ModbusDriver:
                 self._signal_disconnect()
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
-            samples: list[ProtocolSample] = []
-            for point_id in point_ids:
-                value = values.get(point_id, _DECODE_FAILED)
-                if value is _DECODE_FAILED:
-                    samples.append(
-                        ProtocolSample(
-                            point_id=point_id,
-                            value=None,
-                            quality=Quality.BAD,
-                        )
-                    )
-                else:
-                    samples.append(
-                        ProtocolSample(
-                            point_id=point_id,
-                            value=_as_point_scalar(value),
-                            quality=Quality.GOOD,
-                        )
-                    )
-            return tuple(samples)
+            return tuple(
+                (None, Quality.BAD)
+                if values.get(point_id, _DECODE_FAILED) is _DECODE_FAILED
+                else (_as_point_scalar(values[point_id]), Quality.GOOD)
+                for point_id in point_ids
+            )
 
     async def write(
         self,
