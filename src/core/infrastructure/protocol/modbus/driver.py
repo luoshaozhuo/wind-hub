@@ -79,6 +79,8 @@ class ModbusDriver:
             for point in point_table.points.values()
         }
 
+        # 点表在 Driver 生命周期内不可变；相同选点序列复用预编译读取组。
+        self._read_plan_cache: dict[tuple[str, ...], tuple[tuple[ModbusPoint, ...], ...]] = {}
         self._lock = asyncio.Lock()
         self._client: Any = None
         self._connected = False
@@ -160,11 +162,11 @@ class ModbusDriver:
             if not self._connected:
                 raise ProtocolError("Modbus read requires an active connection")
 
-            mapped = [self._mapped_point(point_id) for point_id in point_ids]
+            plan = self._read_plan(point_ids)
             try:
                 values: dict[str, object] = {}
-                for group in group_consecutive_reads(mapped):
-                    values.update(await self._read_group(group))
+                for group in plan:
+                    values.update(await self._read_group(list(group)))
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -278,6 +280,20 @@ class ModbusDriver:
                 f"'{self._point_table_id}'"
             )
         return mapped
+
+    def _read_plan(self, point_ids: Sequence[str]) -> tuple[tuple[ModbusPoint, ...], ...]:
+        """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
+        key = tuple(point_ids)
+        cached = self._read_plan_cache.get(key)
+        if cached is not None:
+            return cached
+        mapped = [self._mapped_point(point_id) for point_id in key]
+        plan = tuple(tuple(group) for group in group_consecutive_reads(mapped))
+        # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
+        if len(self._read_plan_cache) >= 32:
+            self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
+        self._read_plan_cache[key] = plan
+        return plan
 
     async def _read_group(
         self,
