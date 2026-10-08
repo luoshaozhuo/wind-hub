@@ -1,0 +1,74 @@
+"""高频轮询读取计划的复用与失效测试。"""
+
+from __future__ import annotations
+
+import struct
+
+import pytest
+
+from core.domain import ConnectionEndpoint, Point, PointAccess, PointTable, Protocol, UNIT_CATALOG, UnitCode
+from core.infrastructure.protocol.ads.driver import ADSDriver
+from core.infrastructure.protocol.modbus.driver import ModbusDriver
+
+
+def _point(point_id: str, ext: dict[str, object]) -> Point:
+    return Point(
+        point_id=point_id,
+        business_point_id=point_id,
+        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        access=PointAccess.READ_WRITE,
+        ext=ext,
+    )
+
+
+def test_modbus_reuses_plan_and_caps_dynamic_cache():
+    points = {
+        f"p{i}": _point(f"p{i}", {"register_type": "holding", "address": i, "data_type": "uint16"})
+        for i in range(40)
+    }
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), points),
+        {},
+    )
+    first = driver._read_plan(("p0", "p1"))
+    assert driver._read_plan(["p0", "p1"]) is first
+    assert driver._read_plan(("p1", "p0")) is not first
+    for i in range(40):
+        driver._read_plan((f"p{i}",))
+    assert len(driver._read_plan_cache) <= 32
+
+
+@pytest.mark.asyncio
+async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monkeypatch):
+    points = {
+        "a": _point("a", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 0}),
+        "b": _point("b", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 4}),
+    }
+    driver = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable("ads", Protocol("ads"), points),
+        {},
+    )
+    driver._connection = object()
+    driver._connected = True
+    seen = []
+
+    def _read(addresses):
+        seen.append(tuple(addresses))
+        return struct.pack("<IIii", 0, 0, 11, 22)
+
+    monkeypatch.setattr(driver, "_sum_read_bytes", _read)
+    # DINT 解码需要 pyads 类型；采用独立的确定性解码替身。
+    import core.infrastructure.protocol.ads.driver as ads_module
+
+    monkeypatch.setattr(ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0])
+    first = await driver.read(["a", "b"])
+    plan = driver._read_plan_cache[("a", "b")]
+    second = await driver.read(["a", "b"])
+    assert [(x.value, x.quality) for x in first] == [(x.value, x.quality) for x in second]
+    assert [x.value for x in second] == [11, 22]
+    assert driver._read_plan_cache[("a", "b")] is plan
+    assert seen == [((0x4020, 0, 4), (0x4020, 4, 4))] * 2
+    driver._invalidate_symbol_addresses()
+    assert driver._read_plan_cache == {}
