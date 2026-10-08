@@ -16,6 +16,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
         "points": "point_tables: {}\n",
         "units": "units: {}\n",
         "tasks": "tasks: []\n",
+        "system": "runtime:\n  connect_timeout: 10\n",
     }
     for name, body in files.items():
         (tmp_path / f"{name}.yaml").write_text(body, encoding="utf-8")
@@ -27,6 +28,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     assert reader.read_point_config().tables == {}
     assert reader.read_task_config().definition.tasks == []
     assert reader.read_unit_config().definition.units == {}
+    assert reader.read_system_config().sections["runtime"]["connect_timeout"] == 10
 
 
 def test_invalid_task_is_rejected_without_loading_other_topics(tmp_path):
