@@ -36,8 +36,19 @@ class PointConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskDefinition:
+    task_id: str
+    device: str | None
+    device_group: str | None
+    point_group: str
+    interval: float | None
+    targets: tuple[str, ...]
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TaskConfig:
-    definition: Any
+    tasks: tuple[TaskDefinition, ...]
 
 
 @dataclass(frozen=True, slots=True)
