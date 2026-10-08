@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import * as echarts from 'echarts'
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import DataSourceBadge from '../components/DataSourceBadge.vue'
+import { dataSourceState } from '../domain/dataSourceState'
 // System Health 数据源（§23）：曲线 / 风险卡片 / 资源明细 / 存储挂载全部来自
 // backend System Health API 的确定性模型；切窗口只改变查询的 range 输入。
 import { useSystemHealth, type HealthRange } from '../composables/useSystemHealth'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 
 const range = ref<HealthRange>('24 h')
-const { data, series, risks, details, mounts } = useSystemHealth(range)
+const { query, data, series, risks, details, mounts } = useSystemHealth(range)
+const sourceState = computed(() =>
+  dataSourceState({
+    isPending: query.isPending.value,
+    isError: query.isError.value,
+    hasData: data.value != null,
+  }),
+)
 
 const memoryEl = ref<HTMLElement | null>(null)
 const diskEl = ref<HTMLElement | null>(null)
@@ -36,6 +45,10 @@ function initChart(el: HTMLElement | null, option: any) {
   resizeObserver?.observe(el)
 }
 function renderCharts() {
+  if (sourceState.value !== 'valid') {
+    charts.splice(0).forEach((chart) => chart.dispose())
+    return
+  }
   if (!data.value) return
   charts.splice(0).forEach((c) => c.dispose())
   resizeObserver?.disconnect()
@@ -92,7 +105,7 @@ function renderCharts() {
     ],
   })
 }
-watch(data, () => nextTick(renderCharts), { immediate: true })
+watch([data, sourceState], () => nextTick(renderCharts), { immediate: true })
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   charts.forEach((c) => c.dispose())
@@ -111,11 +124,12 @@ onBeforeUnmount(() => {
     <section class="health-section">
       <div class="section-title">
         <div>
-          <h2>Current Risks</h2>
+          <h2>Current Risks <DataSourceBadge :state="sourceState" /></h2>
           <p>当前最需要处理的资源风险。</p>
         </div>
       </div>
-      <div class="risk-grid">
+      <p v-if="sourceState !== 'valid'" class="source-empty">— · 风险数据不可用</p>
+      <div v-else class="risk-grid">
         <el-card v-for="r in risks" :key="r.name" shadow="never">
           <div class="risk-head">
             <b>{{ r.name }}</b
@@ -130,7 +144,7 @@ onBeforeUnmount(() => {
     <section class="health-section">
       <div class="section-title trends-title">
         <div>
-          <h2>Resource Trends</h2>
+          <h2>Resource Trends <DataSourceBadge :state="sourceState" /></h2>
           <p>趋势比单个瞬时值更重要；图表来自后端监控采样历史。</p>
         </div>
         <el-segmented
@@ -139,7 +153,8 @@ onBeforeUnmount(() => {
           @change="renderCharts"
         />
       </div>
-      <div class="chart-grid">
+      <p v-if="sourceState !== 'valid'" class="source-empty">— · 资源趋势数据不可用</p>
+      <div v-show="sourceState === 'valid'" class="chart-grid">
         <el-card shadow="never"
           ><div class="chart-head"><b>Memory</b><span>Host used / wind-hub RSS</span></div>
           <div ref="memoryEl" class="health-chart"
@@ -158,11 +173,12 @@ onBeforeUnmount(() => {
     <section class="health-section">
       <div class="section-title">
         <div>
-          <h2>Resource Details</h2>
+          <h2>Resource Details <DataSourceBadge :state="sourceState" /></h2>
           <p>当前值用于确认风险背景，不替代趋势判断。</p>
         </div>
       </div>
-      <div class="detail-grid">
+      <p v-if="sourceState !== 'valid'" class="source-empty">— · 资源明细不可用</p>
+      <div v-else class="detail-grid">
         <el-card v-for="group in details" :key="group.group" shadow="never">
           <h3>{{ group.group }}</h3>
           <div class="detail-list">
@@ -189,6 +205,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.source-empty {
+  color: var(--app-text-muted);
+  padding: var(--app-space-3);
+}
 .health-section {
   margin-top: var(--app-space-6);
 }
