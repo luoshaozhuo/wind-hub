@@ -8,6 +8,7 @@ from collector.infrastructure.config.fingerprint import fingerprint_config_set
 from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError
 from core.domain import DeviceId, PointTableId
+from core.infrastructure.config import YamlConfigReader
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_yaml
 
@@ -457,3 +458,15 @@ def test_meta_and_point_groups_loaded(tmp_path):
     meta = config.meta_for(PointTableId("tab"), "p1")
     assert meta.variable_name == "风速"
     assert meta.point_groups == ("g", "fast")
+
+
+def test_typed_and_legacy_readers_produce_same_collector_config(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path)
+    typed = load_collector_config(config_dir)
+    legacy = load_collector_config(config_dir, reader=YamlConfigReader(config_dir))
+    assert typed.core.devices == legacy.core.devices
+    assert typed.core.point_tables == legacy.core.point_tables
+    assert typed.core.device_options == legacy.core.device_options
+    assert typed.tasks == legacy.tasks
+    assert typed.disabled_devices == legacy.disabled_devices
+    assert set(typed.sinks) == set(legacy.sinks)
