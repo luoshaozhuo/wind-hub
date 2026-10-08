@@ -56,7 +56,7 @@ class FakeModbusResponse:
     def __init__(self, registers: list[int]) -> None:
         self.registers = registers
 
-    def isError(self) -> bool:
+    def isError(self) -> bool:  # noqa: N802 — pymodbus compatibility
         return False
 
 
@@ -130,7 +130,7 @@ async def main() -> None:
         ("dynamic / DTO", dynamic_dto),
     ):
         samples = [await _measure(operation, 1000) for _ in range(3)]
-        elapsed, throughput, peak = (statistics.median(x) for x in zip(*samples))
+        elapsed, throughput, peak = (statistics.median(x) for x in zip(*samples, strict=True))
         print(f"{name:26} {elapsed:8.2f} {throughput:10.1f} {peak:12.0f}")
 
 
