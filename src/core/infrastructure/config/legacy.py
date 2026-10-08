@@ -8,12 +8,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.application.config_types import DeviceConfig, PointConfig
+from core.application.config_types import DeviceConfig, PointConfig, UnitConfig
 from core.infrastructure.config.point_tables import ResolvedTable
 from core.infrastructure.config.raw import (
     DeviceInstancesFile,
     DeviceModelsFile,
     PointConfigRaw,
+    UnitsFile,
 )
 
 
@@ -89,4 +90,14 @@ def to_raw_point_tables(config: PointConfig) -> dict[str, ResolvedTable]:
     }
 
 
-__all__ = ["to_raw_devices", "to_raw_point_tables"]
+def to_raw_units(config: UnitConfig) -> UnitsFile:
+    """在旧快照边界恢复单位 Schema，不暴露给 Core Application。"""
+    return UnitsFile.model_validate({
+        "units": {
+            key: {"symbol": item.symbol, "name": item.name}
+            for key, item in config.units.items()
+        },
+    })
+
+
+__all__ = ["to_raw_devices", "to_raw_point_tables", "to_raw_units"]
