@@ -210,6 +210,17 @@ class ADSDriver:
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
+        """兼容 DTO 协议端口；原始值读取由 read_raw 提供。"""
+        raw = await self.read_raw(point_ids)
+        return tuple(
+            ProtocolSample(point_id=pid, value=value, quality=quality)
+            for pid, (value, quality) in zip(point_ids, raw, strict=True)
+        )
+
+    async def read_raw(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[tuple[object, Quality], ...]:
         """按配置的 sum/sequential 策略读取点。"""
         if not point_ids:
             return ()
@@ -219,8 +230,8 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
-                    return await self._read_sum(point_ids)
-                return await self._read_sequential(point_ids)
+                    return await self._read_sum_raw(point_ids)
+                return await self._read_sequential_raw(point_ids)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -308,10 +319,10 @@ class ADSDriver:
             "ads does not support interrogation"
         )
 
-    async def _read_sum(
+    async def _read_sum_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
+    ) -> tuple[tuple[object, Quality], ...]:
         key = tuple(point_ids)
         cached = self._read_plan_cache.get(key)
         if cached is None:
@@ -346,7 +357,7 @@ class ADSDriver:
             self._read_variable_cache[key] = tuple(variable)
             self._read_unresolved_cache[key] = tuple(unresolved)
 
-        results: list[ProtocolSample | None] = [None] * len(key)
+        results: list[tuple[object, Quality] | None] = [None] * len(key)
         for index in self._read_unresolved_cache[key]:
             results[index] = _bad_sample(key[index])
         for chunk, addresses, expected in cached:
@@ -372,18 +383,14 @@ class ADSDriver:
                 ]
                 data_offset += mapped.size
                 if error:
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
                 try:
                     value = _decode_value(value_bytes, mapped)
                 except (TypeError, ValueError, UnicodeDecodeError):
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
-                results[result_index] = ProtocolSample(
-                    point_id=mapped.point_id,
-                    value=value,
-                    quality=Quality.GOOD,
-                )
+                results[result_index] = (value, Quality.GOOD)
 
         for result_index, mapped in self._read_variable_cache[key]:
             try:
@@ -395,14 +402,10 @@ class ADSDriver:
                 )
             except Exception as exc:
                 if _is_point_level_error(exc):
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
                 raise
-            results[result_index] = ProtocolSample(
-                point_id=mapped.point_id,
-                value=_as_point_scalar(value),
-                quality=Quality.GOOD,
-            )
+            results[result_index] = (_as_point_scalar(value), Quality.GOOD)
 
         if any(result is None for result in results):
             raise RuntimeError("ADS read did not produce a result for every point")
@@ -412,18 +415,18 @@ class ADSDriver:
             if result is not None
         )
 
-    async def _read_sequential(
+    async def _read_sequential_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
+    ) -> tuple[tuple[object, Quality], ...]:
         semaphore = asyncio.Semaphore(
             self._config.max_concurrent_reads
         )
 
-        async def read_one(point_id: str) -> ProtocolSample:
+        async def read_one(point_id: str) -> tuple[object, Quality]:
             mapped = self._mapped_point(point_id)
             if not mapped.address_resolved:
-                return _bad_sample(mapped.point_id)
+                return (None, Quality.BAD)
             try:
                 async with semaphore:
                     value = await asyncio.to_thread(
@@ -434,13 +437,9 @@ class ADSDriver:
                     )
             except Exception as exc:
                 if _is_point_level_error(exc):
-                    return _bad_sample(mapped.point_id)
+                    return (None, Quality.BAD)
                 raise
-            return ProtocolSample(
-                point_id=mapped.point_id,
-                value=_as_point_scalar(value),
-                quality=Quality.GOOD,
-            )
+            return (_as_point_scalar(value), Quality.GOOD)
 
         return tuple(
             await asyncio.gather(
