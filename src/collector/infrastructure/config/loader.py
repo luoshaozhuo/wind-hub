@@ -67,7 +67,7 @@ def load_collector_config(
         points_raw = reader.read_points()
         units_raw = reader.read_units()
         tasks_raw = reader.read_tasks()
-    sinks_raw = reader.read_sinks() if typed_reader is None else None
+    sinks_raw = reader.read_sinks() if typed_reader is None else {}
 
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
