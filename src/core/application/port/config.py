@@ -38,3 +38,31 @@ class SinkConfigReader(Protocol):
 
 class ConfigFingerprintReader(Protocol):
     def fingerprint(self) -> str: ...
+
+
+class DeviceDefinitionReader(
+    DeviceConfigReader,
+    DeviceModelConfigReader,
+    PointConfigReader,
+    UnitConfigReader,
+    Protocol,
+):
+    """设备配置所需的最小组合端口。"""
+
+
+class CollectorConfigReader(
+    DeviceDefinitionReader,
+    SystemConfigReader,
+    TaskConfigReader,
+    SinkConfigReader,
+    Protocol,
+):
+    """Collector 配置加载所需端口。"""
+
+
+class CommanderConfigReader(
+    DeviceDefinitionReader,
+    SystemConfigReader,
+    Protocol,
+):
+    """Commander 配置加载所需端口。"""
