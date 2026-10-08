@@ -188,3 +188,23 @@ async def test_modbus_accepts_tuple_register_buffer_without_copying():
         (22, Quality.GOOD),
     )
     assert Response.registers == (11, 22)
+
+
+def test_modbus_read_plan_precomputes_register_ranges():
+    """同一读取计划在热路径上不再扫描组内寄存器计算起止地址。"""
+    points = {
+        "x": _point("x", {"register_type": "holding", "address": 12, "data_type": "uint16"}),
+        "y": _point("y", {"register_type": "holding", "address": 13, "data_type": "uint16"}),
+        "z": _point("z", {"register_type": "input", "address": 8, "data_type": "uint16"}),
+    }
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), points),
+        {},
+    )
+    first = driver._read_plan(("x", "y", "z"))
+    assert [(group.register_type, group.start, group.count) for group in first] == [
+        ("holding", 12, 2),
+        ("input", 8, 1),
+    ]
+    assert first is driver._read_plan(("x", "y", "z"))
