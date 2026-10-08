@@ -166,6 +166,8 @@ class CollectorDeviceSession:
         self._device = device
         self._point_table = point_table
         self._point_meta = dict(point_meta)
+        self._point_group_cache.clear()
+        self._point_group_cache: dict[str, tuple[str, ...]] = {}
         self._protocol = protocol
         self._subscribe_enabled = subscribe_enabled
         self._supports_scheduled_collection = supports_scheduled_collection
@@ -267,7 +269,11 @@ class CollectorDeviceSession:
 
     def point_ids(self, point_group: str) -> list[str]:
         """返回属于指定 point_group 的 point_id 列表（按点表顺序）。"""
-        return [point.point_id for point in self._group_points(point_group)]
+        cached = self._point_group_cache.get(point_group)
+        if cached is None:
+            cached = tuple(point.point_id for point in self._group_points(point_group))
+            self._point_group_cache[point_group] = cached
+        return list(cached)
 
     async def read(self, point_group: str) -> list[PointValue]:
         """读取指定点组并返回已应用 scale/offset 的工程值（盖设备身份）。"""
