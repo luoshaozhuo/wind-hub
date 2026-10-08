@@ -6,6 +6,8 @@ from typing import Protocol, runtime_checkable
 
 from core.application.config_types import (
     DeviceConfig,
+    DeviceInstancesConfig,
+    DeviceModelsConfig,
     PointConfig,
     SystemConfig,
     TaskConfig,
@@ -19,6 +21,10 @@ class TypedConfigReader(Protocol):
     """只约束读取能力；具体 YAML/文件实现属于 Adapter。"""
 
     def read_system_config(self) -> SystemConfig: ...
+
+    def read_device_models_config(self) -> DeviceModelsConfig: ...
+
+    def read_device_instances_config(self) -> DeviceInstancesConfig: ...
 
     def read_device_config(self) -> DeviceConfig: ...
 
