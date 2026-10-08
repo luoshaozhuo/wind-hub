@@ -525,17 +525,17 @@ const statTone = (onlineCount: number, total: number): Tone => {
             <div>
               <span>CPU</span>
               <b class="value info">{{ healthSource === 'valid' ? host.cpu + '%' : '—' }}</b>
-              <div class="meter"><i :style="{ width: `${host.cpu}%` }"></i></div>
+              <div class="meter"><i :style="{ width: healthSource === 'valid' ? `${host.cpu}%` : '0%' }"></i></div>
             </div>
             <div>
               <span>Memory</span>
               <b class="value info">{{ healthSource === 'valid' ? host.memory + '%' : '—' }}</b>
-              <div class="meter"><i :style="{ width: `${host.memory}%` }"></i></div>
+              <div class="meter"><i :style="{ width: healthSource === 'valid' ? `${host.memory}%` : '0%' }"></i></div>
             </div>
             <div>
               <span>Disk free</span>
               <b class="value normal">{{ healthSource === 'valid' ? host.diskFree + '%' : '—' }}</b>
-              <div class="meter normal"><i :style="{ width: `${host.diskFree}%` }"></i></div>
+              <div class="meter normal"><i :style="{ width: healthSource === 'valid' ? `${host.diskFree}%` : '0%' }"></i></div>
             </div>
           </div>
           <div class="health-check">
@@ -557,8 +557,8 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
             <span class="card-label">Channel Quality</span><DataSourceBadge :state="riskQualitySource" />
-            ><span
-              class="ov-status-pill"
+            <span
+              v-if="riskQualitySource === 'valid'" class="ov-status-pill"
               :class="channelSummaryValue('interrupted') ? 'danger' : 'normal'"
               ><i></i>{{ channelSummaryValue('interrupted') }} INTERRUPTED</span
             >
@@ -574,7 +574,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
             <span class="card-label">Data Quality</span><DataSourceBadge :state="qualitySource" />
-            ><span class="ov-status-pill" :class="dataMetricValue('stale') ? 'danger' : 'normal'"
+            <span v-if="qualitySource === 'valid'" class="ov-status-pill" :class="dataMetricValue('stale') ? 'danger' : 'normal'"
               ><i></i>{{ dataMetricValue('stale') ? 'DEGRADED' : 'HEALTHY' }}</span
             >
           </div>
@@ -587,7 +587,7 @@ const statTone = (onlineCount: number, total: number): Tone => {
         <article class="industrial-card risk-summary-card">
           <div class="card-top">
             <span class="card-label">System Health</span><DataSourceBadge :state="healthSource" />
-            ><span class="ov-status-pill danger"><i></i>CAPACITY RISK</span>
+            <span v-if="healthSource === 'valid'" class="ov-status-pill danger"><i></i>CAPACITY RISK</span>
           </div>
           <div v-if="healthSource !== 'valid'" class="risk-summary-main">—</div>
           <div v-else class="risk-summary-main">
