@@ -2,8 +2,8 @@
 
 from .config import (
     CoreConfigSnapshot,
-    ProtocolOptions,
     ProtocolOptionValue,
+    ProtocolOptions,
     validate_core_config,
 )
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
@@ -20,6 +20,7 @@ from .unit import (
     AMPERE,
     BAR,
     CELSIUS,
+    convert_value,
     DEGREE,
     DEGREE_PER_SECOND,
     FARAD,
@@ -44,8 +45,8 @@ from .unit import (
     METER,
     METER_PER_SECOND,
     METER_PER_SECOND_SQUARED,
-    MILLISECOND,
     MILLIMETER,
+    MILLISECOND,
     MINUTE,
     NEWTON,
     NEWTON_METER,
@@ -61,15 +62,14 @@ from .unit import (
     SECOND,
     SIEMENS,
     STANDARD_GRAVITY,
-    UNIT_CATALOG,
     Unit,
+    UNIT_CATALOG,
     UnitCode,
     VAR,
     VOLT,
     VOLT_AMPERE,
     WATT,
     WATT_HOUR,
-    convert_value,
 )
 from .value_objects import ConnectionEndpoint, DataType, PointAccess, Protocol
 
