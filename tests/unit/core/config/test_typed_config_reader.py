@@ -28,7 +28,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     assert reader.read_device_config().models.device_models == {}
     assert reader.read_point_config().tables == {}
     assert reader.read_task_config().tasks == ()
-    assert reader.read_unit_config().definition.units == {}
+    assert reader.read_unit_config().units == {}
     assert reader.read_sink_config().sinks == []
     assert reader.read_system_config().sections["runtime"]["connect_timeout"] == 10
 
@@ -125,3 +125,16 @@ def test_task_config_returns_immutable_definitions(tmp_path):
     assert tasks[0].targets == ("archive",)
     with pytest.raises(AttributeError):
         tasks[0].task_id = "changed"
+
+
+def test_units_are_independent_and_immutable(tmp_path):
+    (tmp_path / "units.yaml").write_text(
+        "units:\n  none:\n    symbol: ''\n    name: Dimensionless\n",
+        encoding="utf-8",
+    )
+    result = YamlTypedConfigAdapter(tmp_path).read_unit_config()
+    assert result.units["none"].name == "Dimensionless"
+    with pytest.raises(TypeError):
+        result.units["new"] = None
+    with pytest.raises(AttributeError):
+        result.units["none"].symbol = "changed"
