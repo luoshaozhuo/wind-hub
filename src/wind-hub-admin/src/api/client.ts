@@ -67,6 +67,9 @@ export function normalizeApiError(error: unknown, status = 0): ApiError {
 
 export const client = createClient<paths>({
   baseUrl: API_BASE,
+  // 调用时解析当前 globalThis.fetch：MSW（测试 Node 拦截器）在模块加载后
+  // 替换全局 fetch，捕获旧引用会绕过拦截。
+  fetch: (...args) => globalThis.fetch(...args),
   // openapi-fetch 默认在抛出前保留 fetch TypeError；统一在 call() 归一化。
 })
 

@@ -1,5 +1,5 @@
 // App 级 Server State → Config Store 同步：Vue Query 持有全部配置/运行态
-// 查询（5s refetchInterval 与旧 Overview 轮询节奏一致），结果到达时推入
+// 查询（1s refetchInterval），结果到达时推入
 // configStore.syncFromServer；脏状态下 store 只补丁运行时字段。
 import { computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -11,7 +11,7 @@ import { fetchSinks } from '../api/sinks'
 import { fetchOverview } from '../api/monitoring'
 import { useConfigStore } from '../stores/config'
 
-const RUNTIME_REFETCH_MS = 5000
+const RUNTIME_REFETCH_MS = 1000
 
 export function useServerSnapshot() {
   const configStore = useConfigStore()
@@ -65,12 +65,14 @@ export function useServerSnapshot() {
   )
 
   const queries = [settings, definitions, devices, tasks, sinks, overview]
-  const booting = computed(() => queries.some((q) => q.isPending.value))
-  const bootError = computed(() => queries.find((q) => q.isError.value)?.error.value?.message || '')
+  // connecting / apiError 只是状态信号，不得用于卸载业务页面：
+  // API 失败时业务结构仍以 Store 默认值 / 最后一次有效数据渲染。
+  const connecting = computed(() => queries.some((q) => q.isPending.value))
+  const apiError = computed(() => queries.find((q) => q.isError.value)?.error.value?.message || '')
 
   function retry() {
     for (const q of queries) void q.refetch()
   }
 
-  return { booting, bootError, retry }
+  return { connecting, apiError, retry }
 }

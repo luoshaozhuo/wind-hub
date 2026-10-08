@@ -12,7 +12,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate:api": "python3 ../../scripts/generate_api_contract.py",
-    "check:api": "python3 ../../scripts/generate_api_contract.py --check"
+    "check:api": "python3 ../../scripts/generate_api_contract.py --check",
+    "dev:mock": "vite --mode mock",
+    "test:e2e:mock": "playwright test --config playwright.mock.config.ts"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.104.1",
@@ -34,6 +36,7 @@
     "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.13.0",
     "jsdom": "^30.1.1",
+    "msw": "^2.15.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.9",
     "typescript": "^5.9.2",
@@ -44,5 +47,10 @@
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

@@ -257,7 +257,11 @@ export const useConfigStore = defineStore('config', {
       }))
       // markRaw：raw 透传基线只参与序列化（structuredClone），不能成为
       // 响应式代理（Proxy 不可克隆，会导致保存路径抛 DataCloneError）。
-      this.rawPointTables = markRaw(structuredClone(defs.point_tables))
+      // 入参可能已被 Vue Query 深度响应式化：JSON round-trip 深解包
+      // （point_tables 来自 wire JSON，无不可序列化值）。
+      this.rawPointTables = markRaw(
+        JSON.parse(JSON.stringify(defs.point_tables)) as DefinitionsDto['point_tables'],
+      )
       const tables: PointTableDef[] = [
         {
           id: DEFAULT_POINT_TABLE_ID,
