@@ -193,3 +193,24 @@ def test_immutable_device_and_point_legacy_bridge(tmp_path):
     assert models.device_models["m"].point_table == "main"
     assert instances.devices[0].endpoint.port == 851
     assert tables["main"].points["p"].point_groups == ["fast"]
+
+
+@pytest.mark.parametrize("section", ["ads", "runtime"])
+def test_system_config_rejects_non_mapping_sections(tmp_path, section):
+    (tmp_path / "system.yaml").write_text(
+        f"{section}: invalid\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="must be a mapping"):
+        YamlTypedConfigAdapter(tmp_path).read_system_config()
+
+
+def test_system_config_validates_ads_identity(tmp_path):
+    (tmp_path / "system.yaml").write_text(
+        "ads:\n"
+        "  local_ams_net_id: invalid\n"
+        "  local_ip: 127.0.0.1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="AMS Net ID"):
+        YamlTypedConfigAdapter(tmp_path).read_system_config()
