@@ -30,7 +30,14 @@ const detail = computed(() => props.reason || dataSourceLabels[props.state])
   font-weight: 600;
   white-space: nowrap;
 }
-.source-badge.pending { color: var(--app-text-secondary); }
-.source-badge.stale, .source-badge.invalid { color: var(--app-status-warning); }
-.source-badge.unavailable { color: var(--app-status-fault); }
+.source-badge.pending {
+  color: var(--app-text-secondary);
+}
+.source-badge.stale,
+.source-badge.invalid {
+  color: var(--app-status-warning);
+}
+.source-badge.unavailable {
+  color: var(--app-status-fault);
+}
 </style>
