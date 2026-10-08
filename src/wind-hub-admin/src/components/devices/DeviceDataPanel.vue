@@ -52,9 +52,12 @@ watch(visibleData, (rows) => {
 <template>
   <div class="data-toolbar">
     <div>
-      <h3>{{ dataRows.length }} points <DataSourceBadge :state="sourceState" /></h3>
+      <h3>
+        {{ dataRows.length }} points <DataSourceBadge :state="sourceState" />
+      </h3>
       <p>
-        {{ sourceState === 'valid' ? dataSuccessCount + ' / ' + dataRows.length : '—' }} read
+        {{ sourceState === 'valid' ? dataSuccessCount + ' / ' + dataRows.length : '—' }}
+        read
         <template v-if="dataFailureCount"> · {{ dataFailureCount }} failed</template>
       </p>
     </div>
@@ -88,7 +91,9 @@ watch(visibleData, (rows) => {
       <div class="compact-data-top">
         <b :title="r.variable_name || r.point_id">{{ r.variable_name || r.point_id }}</b>
         <div class="compact-data-value">
-          <strong>{{ sourceState === 'valid' && r.read_state === 'success' ? r.value : '—' }}</strong
+          <strong>{{
+            sourceState === 'valid' && r.read_state === 'success' ? r.value : '—'
+          }}</strong
           ><span>{{ r.unit }}</span>
         </div>
       </div>
