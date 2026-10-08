@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 趋势 panel：信号选择、时间窗、自动刷新、ECharts 展示与原始数据导出。
 // 趋势业务状态在 useDeviceTrend；ECharts 配置为 view-specific，留在这里渲染。
+import DataSourceBadge from '../DataSourceBadge.vue'
 import type { DeviceTrendFeature } from '../../composables/useDeviceTrend'
 
 const props = defineProps<{
@@ -14,7 +15,7 @@ const {
   search,
   range,
   autoRefresh,
-  lastRefreshAt,
+  sourceState,
   recording,
   candidates,
   toggleSelection,
@@ -29,7 +30,7 @@ const {
       <div class="trend-summary">
         <b>{{ signals.length }} signals</b>
         <span>Window {{ range }}</span>
-        <span v-if="lastRefreshAt">Updated {{ lastRefreshAt }}</span>
+        <DataSourceBadge v-if="signals.length" :state="sourceState" />
       </div>
       <div class="trend-primary-actions">
         <el-button @click="pickerOpen = true">Select Signals</el-button>
@@ -64,6 +65,7 @@ const {
       No trend signals selected. Use “Select Signals” to add variables.
     </div>
     <div ref="chartEl" class="trend-chart control-trend-chart"></div>
+    <p v-if="signals.length && sourceState !== 'valid'" class="data-source-hint">当前趋势数据不可用；图表未继续绘制失效测点。</p>
 
     <!-- Trend picker -->
     <el-dialog v-model="pickerOpen" title="Select Trend Signals" width="var(--app-dialog-width-md)">
