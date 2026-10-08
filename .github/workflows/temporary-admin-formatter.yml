@@ -1,0 +1,32 @@
+name: Temporary Admin Formatter
+on:
+  push:
+    branches:
+      - fix/admin-data-source-indicators
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/admin-data-source-indicators
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/wind-hub-admin/package-lock.json
+      - run: npm ci
+        working-directory: src/wind-hub-admin
+      - run: npx prettier --write src/components/DataSourceBadge.vue src/components/devices/DeviceDataPanel.vue src/components/devices/DeviceTrendPanel.vue src/pages/OverviewPage.vue src/pages/QualityPage.vue src/pages/SystemHealthPage.vue tests/unit/dataSourceState.spec.ts
+        working-directory: src/wind-hub-admin
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/wind-hub-admin
+          if ! git diff --cached --quiet; then
+            git commit -m "style(admin): apply project Prettier formatting"
+            git push origin HEAD:fix/admin-data-source-indicators
+          fi
