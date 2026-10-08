@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 #: 失败由 Runtime 记录并降级（ADS 操作不可用，其他协议继续服务）。
 ProtocolPrepareHook = Callable[[CommanderConfig], Awaitable[None]]
 
+#: 协议环境「尚未准备」哨兵——与「已按 ads_local=None 准备」区分。
+_NEVER_PREPARED: object = object()
+
 
 @dataclass(slots=True)
 class _Generation:
@@ -74,6 +77,10 @@ class CommanderRuntime:
             default=None,
         )
         self._current = self._build_generation(config)
+        # 协议环境准备按 ADS 本机身份记账：身份是 restart-required 的进程级
+        # 配置，同一身份只 initialize 一次；sentinel 区分「尚未准备」与
+        # 「已按无 ADS 身份准备」。
+        self._protocols_ready_for: object = _NEVER_PREPARED
         self._active_revision = "startup"
         self._active_config_hash = config_hash
         self._prepared_revision: str | None = None
@@ -163,6 +170,14 @@ class CommanderRuntime:
         """返回当前操作固定的 generation，否则返回最新 generation。"""
         return self._operation_generation.get() or self._current
 
+    def operation_config(self) -> CommanderConfig:
+        """返回当前操作固定的 generation 配置（无操作时返回最新配置）。
+
+        设备操作（读/写/诊断）必须在 ``operation()`` 内读取本配置——
+        generation 固定期间 activate 新配置不影响本次操作的超时与协议参数。
+        """
+        return self._generation().config
+
     async def reload(
         self,
         config: CommanderConfig,
@@ -180,11 +195,19 @@ class CommanderRuntime:
         config: CommanderConfig,
         config_hash: str,
     ) -> None:
-        """构造并保存候选 generation，不影响当前运行配置。"""
+        """构造并保存候选 generation，不影响当前运行配置。
+
+        Raises:
+            ValueError: revision_id/config_hash 为空，或候选配置的进程级
+                ADS 本机身份与当前配置不一致——ADS local identity 是
+                restart-required 的启动配置，热重载拒绝其任何变化。
+        """
         if not revision_id:
             raise ValueError("revision_id must not be empty")
         if not config_hash:
             raise ValueError("config_hash must not be empty")
+        if config.ads_local != self._current.config.ads_local:
+            raise ValueError("ADS local identity change requires process restart")
         candidate = self._build_generation(config)
         async with self._reload_lock:
             if self._stopping:
@@ -249,8 +272,15 @@ class CommanderRuntime:
 
         不主动连接所有设备——设备连接在首次操作时 lazy 建立。准备失败
         只记录并降级：受影响协议的操作不可用，其他协议继续服务。
+
+        ADS 本机身份是 restart-required 的进程级配置：同一身份只准备
+        一次（进程 start 时），reload 激活不重复 initialize；准备失败
+        不记账，下一次 start 仍会重试。
         """
         if self._prepare_protocols is None:
+            return
+        identity = self._current.config.ads_local
+        if identity == self._protocols_ready_for:
             return
         try:
             await self._prepare_protocols(self._current.config)
@@ -259,6 +289,8 @@ class CommanderRuntime:
                 "Commander 协议环境准备失败；受影响协议将保持不可用，其他协议继续服务",
                 exc_info=True,
             )
+        else:
+            self._protocols_ready_for = identity
 
     async def stop(self) -> None:
         """停止 generation 变更并回收 active/prepared/retired 全部会话。"""

@@ -20,7 +20,7 @@ def _runtime(registry: FakeRegistry | None = None) -> CommanderRuntime:
 
 async def test_send_success_and_idempotent_replay():
     registry = FakeRegistry()
-    dispatcher = CommandDispatcher(_runtime(registry), default_timeout=1.0)
+    dispatcher = CommandDispatcher(_runtime(registry))
     command = Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0)
 
     first = await dispatcher.send(command)
@@ -33,7 +33,7 @@ async def test_send_success_and_idempotent_replay():
 
 
 async def test_idempotency_conflict_on_different_payload():
-    dispatcher = CommandDispatcher(_runtime(), default_timeout=1.0)
+    dispatcher = CommandDispatcher(_runtime())
     command = Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0)
     await dispatcher.send(command)
 
@@ -45,7 +45,7 @@ async def test_idempotency_conflict_on_different_payload():
 
 
 async def test_unknown_device_returns_failure_result():
-    dispatcher = CommandDispatcher(_runtime(), default_timeout=1.0)
+    dispatcher = CommandDispatcher(_runtime())
     result = await dispatcher.send(
         Command(command_id="c2", device_id="ghost", point_id="p1", value=1.0)
     )
@@ -62,7 +62,7 @@ async def test_write_timeout_returns_failure_result():
 
     runtime = _runtime(registry)
     runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
-    dispatcher = CommandDispatcher(runtime, default_timeout=1.0)
+    dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(
             command_id="c3",
@@ -78,7 +78,7 @@ async def test_write_timeout_returns_failure_result():
 
 async def test_concurrent_same_command_shares_inflight():
     registry = FakeRegistry()
-    dispatcher = CommandDispatcher(_runtime(registry), default_timeout=1.0)
+    dispatcher = CommandDispatcher(_runtime(registry))
     command = Command(command_id="c4", device_id="dev1", point_id="p1", value=1.0)
     first, second = await asyncio.gather(dispatcher.send(command), dispatcher.send(command))
     assert first.success and second.success
@@ -89,7 +89,7 @@ async def test_protocol_rejection_maps_to_failure_result():
     registry = FakeRegistry()
     runtime = _runtime(registry)
     runtime.device("dev1").protocol.write_success = False  # type: ignore[attr-defined]
-    dispatcher = CommandDispatcher(runtime, default_timeout=1.0)
+    dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c5", device_id="dev1", point_id="p1", value=1.0)
     )

@@ -430,9 +430,10 @@ class CommanderDiagnosticService:
                 await probe.close()
 
     def _ads_probe(self, device: DeviceSession) -> SymbolProbe | None:
+        """为 ADS 设备创建地址解析 probe；options 来自本次操作固定的 generation。"""
         if self._probe_factory is None:
             return None
-        generation_config = self._runtime.config
+        generation_config = self._runtime.operation_config()
         return self._probe_factory(
             device.device,
             device.device.endpoint,

@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from commander.application.config import CommanderConfig, PointMeta
+from commander.application.config import ADSLocalIdentity, CommanderConfig, PointMeta
 from core.application import (
     ConnectionHealth,
     ProtocolCapability,
@@ -220,6 +220,10 @@ class FakeRegistry:
 def make_commander_config(
     *,
     device_id: str = "dev1",
+    protocol: str = "modbus",
+    address: dict[str, Any] | None = None,
+    device_options: dict[str, Any] | None = None,
+    ads_local: ADSLocalIdentity | None = None,
     scale: float = 1.0,
     offset: float = 0.0,
     access: PointAccess = PointAccess.READ_WRITE,
@@ -241,11 +245,11 @@ def make_commander_config(
         access=access,
         scale=scale,
         offset=offset,
-        ext={"register_type": "holding", "address": 100},
+        ext=address or {"register_type": "holding", "address": 100},
     )
     table = PointTable(
         point_table_id=PointTableId("tab"),
-        protocol=Protocol("modbus"),
+        protocol=Protocol(protocol),
         points={"p1": point},
     )
     snapshot = CoreConfigSnapshot(
@@ -268,9 +272,13 @@ def make_commander_config(
         },
         business_points={bp.business_point_id: bp},
         point_tables={PointTableId("tab"): table},
+        device_options=(
+            {DeviceId(device_id): dict(device_options)} if device_options is not None else {}
+        ),
     )
     return CommanderConfig(
         core=snapshot,
+        ads_local=ads_local,
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,
         point_meta={

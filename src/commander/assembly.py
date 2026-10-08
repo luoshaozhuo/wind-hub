@@ -126,10 +126,12 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         endpoint: ConnectionEndpoint,
         options: ProtocolOptions,
     ) -> SymbolProbe | None:
-        """诊断 probe 工厂；按设备协议返回 ADS 探测会话或 None。"""
-        point_table = config.core.point_table_for_device(device.device_id)
-        if point_table.protocol.name != "ads":
-            return None
+        """诊断 probe 工厂——只创建 ADS 探测会话，不读取启动配置。
+
+        协议判定由 DiagnosticService 按 DeviceSession.protocol_name 完成；
+        endpoint/options 均来自调用方固定 generation 的事实。
+        """
+        del device
         return AdsDiagnosticProbe(endpoint, options)
 
     runtime = CommanderRuntime(
@@ -138,10 +140,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         protocol_registry=build_protocol_registry(),
         prepare_protocols=prepare_protocols,
     )
-    dispatcher = CommandDispatcher(
-        runtime,
-        default_timeout=config.write_timeout,
-    )
+    dispatcher = CommandDispatcher(runtime)
     return CommanderApp(
         boot_config=config,
         runtime=runtime,

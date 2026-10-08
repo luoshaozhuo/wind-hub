@@ -26,12 +26,10 @@ class CommandDispatcher:
         self,
         runtime: CommanderRuntime,
         *,
-        default_timeout: float,
         idempotency_cache_size: int = 10000,
         idempotency_ttl: float = 3600.0,
     ) -> None:
         self._runtime = runtime
-        self._default_timeout = default_timeout
         self._cache_max = idempotency_cache_size
         self._cache_ttl = idempotency_ttl
         self._cache: OrderedDict[str, tuple[str, CommandResult, float]] = OrderedDict()
@@ -88,7 +86,13 @@ class CommandDispatcher:
                 self._cache_store(command.command_id, signature, result, time.monotonic())
                 return result
 
-            timeout = command.timeout if command.timeout > 0 else self._default_timeout
+            # 显式 timeout 优先；否则使用本次操作固定 generation 的
+            # write_timeout——reload 激活新配置不影响在途操作的超时。
+            timeout = (
+                command.timeout
+                if command.timeout > 0
+                else self._runtime.operation_config().write_timeout
+            )
             try:
                 await asyncio.wait_for(
                     device.write_point(command.point_id, command.value),
