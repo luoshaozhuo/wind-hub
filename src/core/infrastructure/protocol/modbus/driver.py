@@ -16,6 +16,7 @@ from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
     ProtocolSample,
+    PointScalar,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -173,7 +174,7 @@ class ModbusDriver:
     async def read_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[tuple[object, Quality], ...]:
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
         """读取原始数据及逐点质量；不创建 ProtocolSample。"""
         if not point_ids:
             return ()
