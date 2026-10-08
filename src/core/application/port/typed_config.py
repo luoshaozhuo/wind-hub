@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from core.infrastructure.config.typed import (
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     )
 
 
+@runtime_checkable
 class TypedConfigReader(Protocol):
     """只约束读取能力；具体 YAML/文件实现属于 Adapter。"""
 
