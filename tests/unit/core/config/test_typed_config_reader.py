@@ -99,3 +99,14 @@ def test_resolved_point_table_index_is_read_only(tmp_path):
     config = YamlTypedConfigAdapter(tmp_path).read_point_config()
     with pytest.raises(TypeError):
         config.tables["main"].points["speed"] = None
+
+
+def test_device_models_and_instances_are_independently_readable(tmp_path):
+    (tmp_path / "device_models.yaml").write_text(
+        "device_types: {}\ndevice_models: {}\n",
+        encoding="utf-8",
+    )
+    reader = YamlTypedConfigAdapter(tmp_path)
+    assert reader.read_device_models_config().definition.device_models == {}
+    with pytest.raises(ConfigError, match="not found"):
+        reader.read_device_instances_config()
