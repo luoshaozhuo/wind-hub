@@ -60,7 +60,7 @@ def load_commander_config(
         models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
         instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
-        units_file = unit_config.definition if typed else UnitsFile(**units_raw)
+        units_file = UnitsFile(units={key: {'symbol': item.symbol, 'name': item.name} for key, item in unit_config.units.items()}) if typed else UnitsFile(**units_raw)
     except ConfigError:
         raise
     except Exception as exc:
