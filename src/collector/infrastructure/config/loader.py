@@ -108,7 +108,11 @@ def load_collector_config(
         if not instance.enabled
     }
     sinks = resolve_sinks(sinks_file, snapshot, units_file, disabled_tables)
-    task_definitions = task_config.tasks if typed_reader is not None else tasks_file.tasks
+    if typed_reader is not None:
+        task_definitions = task_config.tasks
+    else:
+        assert tasks_file is not None
+        task_definitions = tasks_file.tasks
     tasks = {
         raw.task_id: CollectionTask(
             task_id=raw.task_id,
