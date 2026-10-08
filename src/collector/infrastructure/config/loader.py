@@ -16,7 +16,7 @@ from typing import Any, cast
 from core.application import ConfigError
 from core.application.port.config import CollectorConfigReader
 from core.domain import PointTableId
-from core.infrastructure.config import YamlConfigReader
+from core.infrastructure.config import YamlTypedConfigAdapter
 
 from ...application.config import (
     ADSLocalIdentity,
@@ -50,31 +50,39 @@ def load_collector_config(
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    reader = reader if reader is not None else YamlConfigReader(config_dir)
+    reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
 
     system_raw = reader.read_system()
-    models_raw = reader.read_device_models()
-    devices_raw = reader.read_devices()
-    points_raw = reader.read_points()
-    units_raw = reader.read_units()
-    tasks_raw = reader.read_tasks()
+    # 兼容已注入的旧 Raw Reader；默认路径统一使用 Core 类型化 Adapter。
+    typed = isinstance(reader, YamlTypedConfigAdapter)
+    if typed:
+        device_config = reader.read_device_config()
+        point_config = reader.read_point_config()
+        unit_config = reader.read_unit_config()
+        task_config = reader.read_task_config()
+    else:
+        models_raw = reader.read_device_models()
+        devices_raw = reader.read_devices()
+        points_raw = reader.read_points()
+        units_raw = reader.read_units()
+        tasks_raw = reader.read_tasks()
     sinks_raw = reader.read_sinks()
 
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
         ads_local = _parse_ads_local_identity(system_raw.get("ads"))
-        models_file = DeviceModelsFile(**models_raw)
-        instances_file = DeviceInstancesFile(**devices_raw)
-        tables_file = PointTablesFile(**points_raw)
-        units_file = UnitsFile(**units_raw)
-        tasks_file = TasksFile(**tasks_raw)
+        models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
+        instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
+        tables_file = None if typed else PointTablesFile(**points_raw)
+        units_file = unit_config.definition if typed else UnitsFile(**units_raw)
+        tasks_file = task_config.definition if typed else TasksFile(**tasks_raw)
         sinks_file = SinksConfig(**sinks_raw)
     except ConfigError:
         raise
     except Exception as exc:
         raise ConfigError(f"Invalid collector configuration: {exc}") from exc
 
-    tables = resolve_point_tables(tables_file.point_tables)
+    tables = dict(point_config.tables) if typed else resolve_point_tables(tables_file.point_tables)
     snapshot, point_meta, disabled, ads_subscribe = build_core_snapshot(
         models_file=models_file,
         instances_file=instances_file,
