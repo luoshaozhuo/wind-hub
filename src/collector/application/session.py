@@ -286,6 +286,20 @@ class CollectorDeviceSession:
         samples = await self._protocol.read(point_ids)
         return self._to_values(samples)
 
+    async def read_raw(
+        self, point_group: str
+    ) -> tuple[list[str], tuple[tuple[object, Quality], ...]]:
+        """直接读取原始数据，调用方决定是否转换为 PointValue。
+
+        不支持原始读取的协议通过标准 read 返回值拆出原始数据；
+        保留点位顺序与质量，避免上层依赖具体 Driver。
+        """
+        point_ids = self.point_ids(point_group)
+        if isinstance(self._protocol, RawReadPort):
+            return point_ids, await self._protocol.read_raw(point_ids)
+        samples = await self._protocol.read(point_ids)
+        return point_ids, tuple((sample.value, sample.quality) for sample in samples)
+
     def to_point_values_raw(
         self,
         point_ids: list[str],
