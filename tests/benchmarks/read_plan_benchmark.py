@@ -77,11 +77,17 @@ def main() -> None:
         driver._read_plan_cache.clear()
         driver._read_plan(fixed)
 
+    dynamic_hot = dynamic[:16]
     index = 0
 
     def dynamic_cached() -> None:
         nonlocal index
         driver._read_plan(dynamic[index % len(dynamic)])
+        index += 1
+
+    def dynamic_hot_cached() -> None:
+        nonlocal index
+        driver._read_plan(dynamic_hot[index % len(dynamic_hot)])
         index += 1
 
     def dynamic_uncached() -> None:
@@ -93,6 +99,7 @@ def main() -> None:
     cases = (
         ("fixed / cached", fixed_cached),
         ("fixed / no cache", fixed_uncached),
+        ("dynamic / cached (16 targets)", dynamic_hot_cached),
         ("dynamic / cached (64 targets)", dynamic_cached),
         ("dynamic / no cache (64 targets)", dynamic_uncached),
     )
