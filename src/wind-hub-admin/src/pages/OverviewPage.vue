@@ -20,8 +20,8 @@ const configStore = useConfigStore()
 
 // Overview 页面查询每 1s 更新；全局运行态快照亦按 1s 更新。
 const OVERVIEW_REFETCH_MS = 1000
-const devicesQuery = useQuery({ queryKey: qk.devices, queryFn: fetchDevices, refetchInterval: OVERVIEW_REFETCH_MS })
-const tasksQuery = useQuery({ queryKey: qk.tasks, queryFn: fetchTasks, refetchInterval: OVERVIEW_REFETCH_MS })
+const devicesQuery = useQuery({ queryKey: qk.devices, queryFn: () => fetchDevices(), refetchInterval: OVERVIEW_REFETCH_MS })
+const tasksQuery = useQuery({ queryKey: qk.tasks, queryFn: () => fetchTasks(), refetchInterval: OVERVIEW_REFETCH_MS })
 const sinksQuery = useQuery({ queryKey: qk.sinks, queryFn: fetchSinks, refetchInterval: OVERVIEW_REFETCH_MS })
 const runtimeQuery = useQuery({ queryKey: qk.overview, queryFn: fetchOverview, refetchInterval: OVERVIEW_REFETCH_MS })
 const availability = (query: { isPending: { value: boolean }; isError: { value: boolean }; data: { value: unknown } }) =>
