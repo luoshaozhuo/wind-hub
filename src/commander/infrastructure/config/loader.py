@@ -36,11 +36,12 @@ def load_commander_config(
     reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
 
     system_raw = reader.read_system()
-    typed = isinstance(reader, YamlTypedConfigAdapter)
+    typed_reader = reader if isinstance(reader, YamlTypedConfigAdapter) else None
+    typed = typed_reader is not None
     if typed:
-        device_config = reader.read_device_config()
-        point_config = reader.read_point_config()
-        unit_config = reader.read_unit_config()
+        device_config = typed_reader.read_device_config()
+        point_config = typed_reader.read_point_config()
+        unit_config = typed_reader.read_unit_config()
     else:
         models_raw = reader.read_device_models()
         devices_raw = reader.read_devices()
@@ -58,14 +59,18 @@ def load_commander_config(
 
         models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
         instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
-        tables_file = None if typed else PointTablesFile(**points_raw)
+        tables_file = PointTablesFile(**points_raw) if not typed else None
         units_file = unit_config.definition if typed else UnitsFile(**units_raw)
     except ConfigError:
         raise
     except Exception as exc:
         raise ConfigError(f"Invalid commander configuration: {exc}") from exc
 
-    tables = dict(point_config.tables) if typed else resolve_point_tables(tables_file.point_tables)
+    if typed_reader is not None:
+        tables = dict(point_config.tables)
+    else:
+        assert tables_file is not None
+        tables = resolve_point_tables(tables_file.point_tables)
     snapshot, point_meta, disabled = build_core_snapshot(
         models_file=models_file,
         instances_file=instances_file,
