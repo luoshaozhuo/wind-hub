@@ -221,3 +221,23 @@ async def test_close_idempotent_and_start_idempotent():
     await handle.close()
     await handle.close()
     assert handle._task is None and task is not None and task.done()
+
+
+async def test_raw_driver_path_skips_protocol_sample_wrapping():
+    proto = CollectorFakeProtocol()
+    proto.read_values["p1"] = 7.0
+    async def read_raw(point_ids):
+        assert point_ids == ["p1"]
+        return ((7.0, Quality.GOOD),)
+
+    async def reject_legacy_read(_point_ids):
+        raise AssertionError("raw-capable driver should bypass ProtocolSample read")
+
+    proto.read_raw = read_raw
+    proto.read = reject_legacy_read
+    session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
+    values = await session.read("g")
+    assert len(values) == 1
+    assert values[0].value == 15.0
+    assert values[0].device_id == "dev1"
+    assert values[0].quality is Quality.GOOD
