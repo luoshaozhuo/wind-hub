@@ -8,9 +8,9 @@ devices / points / units），完成 Raw 解析、点表继承展开、Core 快�
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
 
 from core.application import ConfigError
+from core.application.port.config import CommanderConfigReader
 from core.infrastructure.config import YamlConfigReader
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
@@ -25,13 +25,13 @@ from .raw import (
 from .snapshot import build_core_snapshot
 
 
-def load_commander_config(config_dir: str | Path) -> CommanderConfig:
+def load_commander_config(config_dir: str | Path, *, reader: CommanderConfigReader | None = None) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    reader = YamlConfigReader(config_dir)
+    reader = reader if reader is not None else YamlConfigReader(config_dir)
 
     system_raw = reader.read_system()
     models_raw = reader.read_device_models()
