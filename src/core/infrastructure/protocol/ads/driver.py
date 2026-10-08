@@ -363,7 +363,7 @@ class ADSDriver:
         for chunk, addresses, expected in cached:
             raw = await asyncio.to_thread(
                 self._sum_read_bytes,
-                list(addresses),
+                addresses,
             )
             if len(raw) < expected:
                 raise ProtocolError(
@@ -511,7 +511,7 @@ class ADSDriver:
 
     def _sum_read_bytes(
         self,
-        addresses: list[tuple[int, int, int]],
+        addresses: Sequence[tuple[int, int, int]],
     ) -> bytes:
         """调用 pyads 地址型 Sum Read。"""
         try:
