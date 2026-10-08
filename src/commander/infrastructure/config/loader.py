@@ -11,7 +11,7 @@ from pathlib import Path
 
 from core.application import ConfigError
 from core.application.port.config import CommanderConfigReader
-from core.infrastructure.config import YamlConfigReader
+from core.infrastructure.config import YamlTypedConfigAdapter
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
 from .point_tables import resolve_point_tables
@@ -33,13 +33,19 @@ def load_commander_config(
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    reader = reader if reader is not None else YamlConfigReader(config_dir)
+    reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
 
     system_raw = reader.read_system()
-    models_raw = reader.read_device_models()
-    devices_raw = reader.read_devices()
-    points_raw = reader.read_points()
-    units_raw = reader.read_units()
+    typed = isinstance(reader, YamlTypedConfigAdapter)
+    if typed:
+        device_config = reader.read_device_config()
+        point_config = reader.read_point_config()
+        unit_config = reader.read_unit_config()
+    else:
+        models_raw = reader.read_device_models()
+        devices_raw = reader.read_devices()
+        points_raw = reader.read_points()
+        units_raw = reader.read_units()
 
     try:
         ads_raw = system_raw.get("ads")
@@ -50,16 +56,16 @@ def load_commander_config(
         connect_timeout = float(runtime_raw.get("connect_timeout", 10.0))
         write_timeout = float(runtime_raw.get("write_timeout", 5.0))
 
-        models_file = DeviceModelsFile(**models_raw)
-        instances_file = DeviceInstancesFile(**devices_raw)
-        tables_file = PointTablesFile(**points_raw)
-        units_file = UnitsFile(**units_raw)
+        models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
+        instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
+        tables_file = None if typed else PointTablesFile(**points_raw)
+        units_file = unit_config.definition if typed else UnitsFile(**units_raw)
     except ConfigError:
         raise
     except Exception as exc:
         raise ConfigError(f"Invalid commander configuration: {exc}") from exc
 
-    tables = resolve_point_tables(tables_file.point_tables)
+    tables = dict(point_config.tables) if typed else resolve_point_tables(tables_file.point_tables)
     snapshot, point_meta, disabled = build_core_snapshot(
         models_file=models_file,
         instances_file=instances_file,
