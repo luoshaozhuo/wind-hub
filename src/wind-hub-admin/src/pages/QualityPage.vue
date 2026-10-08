@@ -20,6 +20,8 @@ import { runQualityCheck } from '../api/monitoring'
 import { baseAxisLabel, baseAxisLine, baseChartOption, baseSplitLine } from '../utils/chartTheme'
 import { nowText } from '../utils/format'
 import { statusTagType } from '../utils/status'
+import DataSourceBadge from '../components/DataSourceBadge.vue'
+import { dataSourceState } from '../domain/dataSourceState'
 
 type WindowRange = QualityWindow
 type DrawerKind = 'channel-metric' | 'event' | 'data-metric' | 'dimension'
@@ -71,6 +73,14 @@ let chart: echarts.ECharts | null = null
 // 统一窗口数据源（§11–§15）：切窗口时 summary / events / metrics / dimensions / issues 全部联动。
 const channelQuality = useQuality(channelWindow)
 const dataQuality = useQuality(dataWindow)
+const sourceOf = (query: typeof channelQuality.query) =>
+  dataSourceState({
+    isPending: query.isPending.value,
+    isError: query.isError.value,
+    hasData: query.data.value != null,
+  })
+const channelSource = computed(() => sourceOf(channelQuality.query))
+const dataSource = computed(() => sourceOf(dataQuality.query))
 
 // Auto Check：调用后端 /quality/check 立即采样，并按真实时间窗口重算后写回查询缓存。
 async function runCheck() {
@@ -282,10 +292,12 @@ onBeforeUnmount(() => {
     <el-tabs v-model="activeTab">
       <el-tab-pane label="Channel Quality" name="channel">
         <div class="channel-window-bar">
+          <DataSourceBadge :state="channelSource" />
           <el-segmented v-model="channelWindow" :options="['1 h', '24 h', '7 d']" />
         </div>
 
-        <div class="metric-grid clickable-metrics">
+        <p v-if="channelSource !== 'valid'" class="source-empty">— · 采集质量数据不可用</p>
+        <div v-else class="metric-grid clickable-metrics">
           <el-card
             v-for="metric in channelSummary"
             :key="metric.key"
@@ -301,7 +313,7 @@ onBeforeUnmount(() => {
         <section class="quality-section">
           <div class="section-head acquisition-head">
             <div>
-              <h2>Acquisition Channels</h2>
+              <h2>Acquisition Channels <DataSourceBadge :state="channelSource" /></h2>
               <p>设备采集通道当前状态；详情通过 Communication Events 查看。</p>
             </div>
             <div class="channel-check-panel">
@@ -326,7 +338,7 @@ onBeforeUnmount(() => {
           </div>
 
           <el-card shadow="never">
-            <el-table :data="pagedAcquisitionChannels">
+            <el-table :data="channelSource === 'valid' ? pagedAcquisitionChannels : []">
               <el-table-column prop="object" label="Device" min-width="130" />
               <el-table-column v-if="!isMobile" prop="protocol" label="Protocol" width="100" />
               <el-table-column label="State" width="110"
@@ -361,12 +373,12 @@ onBeforeUnmount(() => {
         <section class="quality-section">
           <div class="section-head">
             <div>
-              <h2>Delivery Channels</h2>
+              <h2>Delivery Channels <DataSourceBadge :state="channelSource" /></h2>
               <p>Sink 交付通道当前状态。</p>
             </div>
           </div>
           <el-card shadow="never">
-            <el-table :data="deliveryChannelRows">
+            <el-table :data="channelSource === 'valid' ? deliveryChannelRows : []">
               <el-table-column prop="object" label="Sink" min-width="130" />
               <el-table-column prop="protocol" label="Type" width="110" />
               <el-table-column label="State" width="110"
@@ -396,13 +408,13 @@ onBeforeUnmount(() => {
         <section class="quality-section">
           <div class="section-head">
             <div>
-              <h2>Communication Events</h2>
+              <h2>Communication Events <DataSourceBadge :state="channelSource" /></h2>
               <p>连接中断、恢复、超时和退化事件。点击事件查看时间与错误信息。</p>
             </div>
           </div>
           <el-card shadow="never">
             <el-table
-              :data="pagedCommunicationEvents"
+              :data="channelSource === 'valid' ? pagedCommunicationEvents : []"
               @row-click="openEvent"
               class="clickable-table"
             >
@@ -439,13 +451,14 @@ onBeforeUnmount(() => {
       <el-tab-pane label="Data Quality" name="data">
         <div class="quality-toolbar">
           <div>
-            <h2>Data Quality</h2>
+            <h2>Data Quality <DataSourceBadge :state="dataSource" /></h2>
             <p>点击指标查看受影响的 Task / Device / Point 以及错误信息。</p>
           </div>
           <el-segmented v-model="dataWindow" :options="['1 h', '24 h', '7 d']" />
         </div>
 
-        <div class="metric-grid clickable-metrics">
+        <p v-if="dataSource !== 'valid'" class="source-empty">— · 数据质量指标不可用</p>
+        <div v-else class="metric-grid clickable-metrics">
           <el-card
             v-for="metric in dataMetrics"
             :key="metric.key"
@@ -461,11 +474,12 @@ onBeforeUnmount(() => {
         <section class="quality-section">
           <div class="section-head">
             <div>
-              <h2>Quality Dimensions</h2>
+              <h2>Quality Dimensions <DataSourceBadge :state="dataSource" /></h2>
               <p>点击维度查看分布以及质量较差的对象。</p>
             </div>
           </div>
-          <div class="dimension-grid">
+          <div v-if="dataSource !== 'valid'" class="source-empty">— · 质量维度不可用</div>
+          <div v-else class="dimension-grid">
             <el-card
               v-for="row in dimensionRows"
               :key="row.key"
@@ -498,12 +512,12 @@ onBeforeUnmount(() => {
         <section class="quality-section">
           <div class="section-head">
             <div>
-              <h2>Active Data Issues</h2>
+              <h2>Active Data Issues <DataSourceBadge :state="dataSource" /></h2>
               <p>当前未恢复的问题直接展示。</p>
             </div>
           </div>
           <el-card shadow="never">
-            <el-table :data="activeIssues">
+            <el-table :data="dataSource === 'valid' ? activeIssues : []">
               <el-table-column label="Level" width="90"
                 ><template #default="{ row }"
                   ><el-tag :type="stateType(row.level)">{{ row.level }}</el-tag></template
@@ -633,6 +647,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.source-empty {
+  padding: var(--app-space-3);
+  color: var(--app-text-muted);
+}
 .channel-window-bar {
   display: flex;
   align-items: center;
