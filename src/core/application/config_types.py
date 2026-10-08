@@ -11,28 +11,77 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class DeviceModelsConfig:
-    """设备型号配置主题。"""
+class DeviceTypeDefinition:
+    name: str | None
 
-    definition: Any
+
+@dataclass(frozen=True, slots=True)
+class DeviceModelDefinition:
+    device_type: str
+    manufacturer: str | None
+    model: str | None
+    protocol: str
+    point_table: str
+    read_mode: str | None
+    properties: Mapping[str, Any]
+    connection_defaults: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceModelsConfig:
+    device_types: Mapping[str, DeviceTypeDefinition]
+    device_models: Mapping[str, DeviceModelDefinition]
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointDefinition:
+    host: str
+    port: int | None
+    extensions: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceInstanceDefinition:
+    device_id: str
+    model: str
+    device_group: str | None
+    endpoint: EndpointDefinition
+    enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
 class DeviceInstancesConfig:
-    """设备实例配置主题。"""
-
-    definition: Any
+    devices: tuple[DeviceInstanceDefinition, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class DeviceConfig:
-    models: Any
-    instances: Any
+    models: DeviceModelsConfig
+    instances: DeviceInstancesConfig
+
+
+@dataclass(frozen=True, slots=True)
+class PointDefinition:
+    point_id: str
+    variable_name: str | None
+    point_groups: tuple[str, ...]
+    address: Mapping[str, Any]
+    data_type: str
+    scale: float
+    offset: float
+    unit: str
+    description: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PointTableDefinition:
+    protocol: str
+    points: Mapping[str, PointDefinition]
 
 
 @dataclass(frozen=True, slots=True)
 class PointConfig:
-    tables: Mapping[str, Any]
+    tables: Mapping[str, PointTableDefinition>
 
 
 @dataclass(frozen=True, slots=True)
