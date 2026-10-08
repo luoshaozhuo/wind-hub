@@ -13,8 +13,8 @@ import { useConfigStore } from '../stores/config'
 const { isMobile, isTablet } = useViewport()
 const configStore = useConfigStore()
 
-// 运行态 5s 刷新由全局 useServerSnapshot 负责；本页查询沿用旧版 5s 轮询节奏。
-const OVERVIEW_REFETCH_MS = 5000
+// Overview 页面查询每 1s 更新；全局运行态快照亦按 1s 更新。
+const OVERVIEW_REFETCH_MS = 1000
 
 type Tone = 'normal' | 'info' | 'warning' | 'danger' | 'muted'
 
