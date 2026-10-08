@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from copy import deepcopy
 from types import MappingProxyType
 from typing import Any, TypeVar
 
@@ -35,6 +34,15 @@ from core.infrastructure.config.yaml import YamlConfigReader
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
+def _freeze_config(value: Any) -> Any:
+    """递归复制并冻结系统配置，阻止对共享配置的原地修改。"""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_config(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_config(item) for item in value)
+    return value
+
+
 class YamlTypedConfigAdapter(YamlConfigReader):
     """复用基础 YAML 读取器，向调用方提供类型化配置。"""
 
@@ -49,8 +57,7 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
     def read_system_config(self) -> SystemConfig:
         raw = self.read_system()
-        sections = {name: deepcopy(value) for name, value in raw.items()}
-        return SystemConfig(sections=MappingProxyType(sections))
+        return SystemConfig(sections=_freeze_config(raw))
 
     def read_device_config(self) -> DeviceConfig:
         return DeviceConfig(
