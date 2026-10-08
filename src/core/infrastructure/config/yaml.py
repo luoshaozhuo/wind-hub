@@ -77,7 +77,7 @@ def fingerprint_config_set(config_dir: str | Path) -> str:
 
     for relative, path in sorted(files):
         digest.update(relative.encode("utf-8"))
-        digest.update(b"\\0")
+        digest.update(b"\0")
         digest.update(path.read_bytes())
-        digest.update(b"\\0")
+        digest.update(b"\0")
     return digest.hexdigest()
