@@ -1,310 +1,520 @@
-// Mock 种子数据：小而完整、确定性（无随机数），直接使用 generated schema 类型。
-// 覆盖 3 台设备（ADS / Modbus / IEC104，一台 online、两台中一台 offline）、
-// 2 个 task、3 个 sink，以及最小 logs / quality / system-health / workers。
+// Mock 静态种子：definitions（units/types/groups/models/point tables/points）、
+// 56 台设备（48 风机 + 8 PCS，ADS/Modbus/IEC104）、6 个 task、4 个 sink、
+// settings、workers，以及 7 个配置文件的 YAML 文本（由结构化数据生成）。
+// 故障场景不在此处定义 —— 见 scenarios.ts（单一事实源）。
 import type { components } from '../api/generated/schema'
 
 export type SettingsDto = components['schemas']['SettingsResponse']
 export type DefinitionsDto = components['schemas']['DefinitionsResponse']
 export type DeviceDto = components['schemas']['DeviceResponse']
-export type DeviceDataItem = components['schemas']['DeviceDataItemResponse']
 export type TaskDto = components['schemas']['TaskResponse']
-export type TaskInstanceDto = components['schemas']['TaskInstanceResponse']
 export type SinkDto = components['schemas']['SinkResponse']
-export type OverviewDto = components['schemas']['OverviewResponse']
 export type WorkerDto = components['schemas']['WorkerResponse']
-export type QualityDto = components['schemas']['QualityResponse']
-export type LogEntryDto = components['schemas']['LogEntryResponse']
-export type SystemHealthDto = components['schemas']['SystemHealthResponse']
 export type ConfigFileDto = components['schemas']['ConfigFileResponse']
 export type ConfigRevisionDto = components['schemas']['ConfigRevisionResponse']
 
-export const MOCK_NOW = '2026-10-08T08:00:00Z'
-
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
 export const settingsSeed: SettingsDto = {
-  site_id: 'mock-site',
-  site_name: 'Mock Wind Farm',
+  site_id: 'wind_farm_a',
+  site_name: '示例风场',
   api_enabled: true,
   api_host: '0.0.0.0',
   api_port: 8080,
-  ads_local_ip: '127.0.0.1',
-  ads_local_ams_net_id: '127.0.0.1.1.1',
+  ads_local_ip: '192.168.151.244',
+  ads_local_ams_net_id: '192.168.151.244.1.2',
   ads_username: 'Administrator',
   ads_password: '',
 }
 
-export const definitionsSeed: DefinitionsDto = {
-  units: {
-    mw: { name: 'Megawatt', symbol: 'MW' },
-    mps: { name: 'Meter per second', symbol: 'm/s' },
-    celsius: { name: 'Celsius', symbol: '°C' },
-  },
-  device_types: {
-    turbine: { name: 'Wind Turbine' },
-    inverter: { name: 'Inverter' },
-  },
-  device_models: {
-    'ads-cx9020': {
-      device_type: 'inverter',
-      manufacturer: 'Beckhoff',
-      model: 'CX9020',
-      protocol: 'ads',
-      point_table: 'ads-inv',
-      properties: {},
-      connection_defaults: { port: 48898 },
-    },
-    'modbus-gw': {
-      device_type: 'inverter',
-      manufacturer: 'Generic',
-      model: 'Modbus TCP',
-      protocol: 'modbus',
-      point_table: 'modbus-inv',
-      properties: {},
-      connection_defaults: { port: 502 },
-    },
-    'iec104-rtu': {
-      device_type: 'turbine',
-      manufacturer: 'Generic',
-      model: 'IEC 60870-5-104',
-      protocol: 'iec104',
-      point_table: 'iec104-turbine',
-      properties: {},
-      connection_defaults: { port: 2404 },
-    },
-  },
-  point_tables: {
-    'ads-inv': {
-      protocol: 'ads',
-      points: [
-        {
-          point_id: 'INV.POWER',
-          variable_name: 'Active Power',
-          point_groups: ['fast'],
-          address: { symbol: 'MAIN.fPower' },
-          data_type: 'float',
-          scale: 1,
-          offset: 0,
-          unit: 'mw',
-        },
-      ],
-    },
-    'modbus-inv': {
-      protocol: 'modbus',
-      points: [
-        {
-          point_id: 'INV.POWER',
-          variable_name: 'Active Power',
-          point_groups: ['fast'],
-          address: { function: 'holding', address: 40001 },
-          data_type: 'float',
-          scale: 0.001,
-          offset: 0,
-          unit: 'mw',
-        },
-      ],
-    },
-    'iec104-turbine': {
-      protocol: 'iec104',
-      points: [
-        {
-          point_id: 'WTG.WIND_SPEED',
-          variable_name: 'Wind Speed',
-          point_groups: ['slow'],
-          address: { ioa: 1001 },
-          data_type: 'float',
-          scale: 1,
-          offset: 0,
-          unit: 'mps',
-        },
-      ],
-    },
-  },
-  device_groups: ['array-a'],
-  point_groups: ['fast', 'slow'],
+// ---------------------------------------------------------------------------
+// Definitions：units / device types / groups / models / point tables / points
+// ---------------------------------------------------------------------------
+export interface MockPointDef {
+  point_id: string
+  variable_name: string
+  point_groups: string[]
+  address: Record<string, unknown>
+  data_type: string
+  scale: number
+  offset: number
+  unit: string
+  description: string
 }
 
-export const devicesSeed: DeviceDto[] = [
-  {
-    device_id: 'inv-ads-01',
-    model: 'ads-cx9020',
-    device_type: 'inverter',
-    device_group: 'array-a',
-    host: '192.168.10.11',
-    port: 48898,
-    protocol: 'ads',
-    point_table: 'ads-inv',
-    enabled: true,
-    connected: true,
-    consecutive_failures: 0,
-    last_error: null,
-    extensions: {},
-  },
-  {
-    device_id: 'inv-mbus-01',
-    model: 'modbus-gw',
-    device_type: 'inverter',
-    device_group: 'array-a',
-    host: '192.168.10.12',
-    port: 502,
-    protocol: 'modbus',
-    point_table: 'modbus-inv',
-    enabled: true,
-    connected: false,
-    consecutive_failures: 3,
-    last_error: 'connection refused',
-    extensions: {},
-  },
-  {
-    device_id: 'wtg-104-01',
-    model: 'iec104-rtu',
-    device_type: 'turbine',
-    device_group: null,
-    host: '192.168.10.21',
-    port: 2404,
-    protocol: 'iec104',
-    point_table: 'iec104-turbine',
-    enabled: false,
-    connected: false,
-    consecutive_failures: 0,
-    last_error: null,
-    extensions: {},
-  },
+export const unitsSeed: Record<string, { symbol: string; name: string }> = {
+  none: { symbol: '', name: 'Dimensionless' },
+  percent: { symbol: '%', name: 'Percent' },
+  volt: { symbol: 'V', name: 'Volt' },
+  kilovolt: { symbol: 'kV', name: 'Kilovolt' },
+  ampere: { symbol: 'A', name: 'Ampere' },
+  watt: { symbol: 'W', name: 'Watt' },
+  kilowatt: { symbol: 'kW', name: 'Kilowatt' },
+  megawatt: { symbol: 'MW', name: 'Megawatt' },
+  hertz: { symbol: 'Hz', name: 'Hertz' },
+  rpm: { symbol: 'rpm', name: 'Revolutions per minute' },
+  meter_per_second: { symbol: 'm/s', name: 'Meter per second' },
+  degree: { symbol: 'deg', name: 'Degree' },
+  celsius: { symbol: '°C', name: 'Degree Celsius' },
+  pascal: { symbol: 'Pa', name: 'Pascal' },
+  bar: { symbol: 'bar', name: 'Bar' },
+  second: { symbol: 's', name: 'Second' },
+  millisecond: { symbol: 'ms', name: 'Millisecond' },
+}
+
+export const deviceTypesSeed: Record<string, { name: string }> = {
+  turbine: { name: '风力发电机组' },
+  pcs: { name: '储能变流器' },
+  bms: { name: '电池管理系统' },
+}
+
+export const deviceGroupsSeed: string[] = [
+  'turbine_modbus',
+  'turbine_ads',
+  'turbine_iec104',
+  'storage_pcs',
 ]
 
-export const deviceDataSeed: Record<string, DeviceDataItem[]> = {
-  'inv-ads-01': [
-    {
-      point_id: 'INV.POWER',
-      variable_name: 'Active Power',
-      point_groups: ['fast'],
-      data_type: 'float',
-      unit: 'mw',
-      unit_symbol: 'MW',
-      value: 1.25,
-      quality: 'good',
-      source: 'ads',
-      timestamp: MOCK_NOW,
-      description: null,
-    },
-  ],
-  'inv-mbus-01': [
-    {
-      point_id: 'INV.POWER',
-      variable_name: 'Active Power',
-      point_groups: ['fast'],
-      data_type: 'float',
-      unit: 'mw',
-      unit_symbol: 'MW',
-      value: null,
-      quality: 'bad',
-      source: 'modbus',
-      timestamp: MOCK_NOW,
-      description: null,
-    },
-  ],
-  'wtg-104-01': [
-    {
-      point_id: 'WTG.WIND_SPEED',
-      variable_name: 'Wind Speed',
-      point_groups: ['slow'],
-      data_type: 'float',
-      unit: 'mps',
-      unit_symbol: 'm/s',
-      value: 8.4,
-      quality: 'good',
-      source: 'iec104',
-      timestamp: MOCK_NOW,
-      description: null,
-    },
-  ],
+export const pointGroupsSeed: string[] = [
+  'all',
+  'fast',
+  'status',
+  'control',
+  'electrical',
+  'mechanical',
+  'monitor',
+]
+
+export interface MockDeviceModel {
+  device_type: string
+  manufacturer: string
+  model: string
+  protocol: 'ads' | 'modbus' | 'iec104'
+  point_table: string
+  read_mode?: string
+  connection_defaults: Record<string, unknown>
 }
 
-export const tasksSeed: TaskDto[] = [
+export const deviceModelsSeed: Record<string, MockDeviceModel> = {
+  beckhoff_wtg: {
+    device_type: 'turbine',
+    manufacturer: 'Beckhoff',
+    model: 'TwinCAT 2 WTG',
+    protocol: 'ads',
+    point_table: 'beckhoff_wtg_v1',
+    read_mode: 'sum',
+    connection_defaults: { port: 48898, twincat_version: '2', timeout: 3.0, target_port: 801 },
+  },
+  modbus_wtg: {
+    device_type: 'turbine',
+    manufacturer: '',
+    model: 'Modbus WTG',
+    protocol: 'modbus',
+    point_table: 'modbus_wtg_v1',
+    connection_defaults: {
+      port: 502,
+      unit_id: 1,
+      mode: 'tcp',
+      timeout: 3.0,
+      word_order: 'little_endian',
+    },
+  },
+  iec104_wtg: {
+    device_type: 'turbine',
+    manufacturer: '',
+    model: 'IEC 60870-5-104 WTG',
+    protocol: 'iec104',
+    point_table: 'iec104_wtg_v1',
+    connection_defaults: { port: 2404, timeout: 5.0 },
+  },
+  pcs_modbus_a: {
+    device_type: 'pcs',
+    manufacturer: '',
+    model: 'PCS Modbus A',
+    protocol: 'modbus',
+    point_table: 'pcs_modbus_v1',
+    connection_defaults: { port: 502, unit_id: 1, mode: 'tcp', timeout: 3.0 },
+  },
+}
+
+const pgroupIds = pointGroupsSeed
+const unitIds = Object.keys(unitsSeed).filter((u) => u !== 'none')
+const mixedTypes = ['float32', 'float32', 'int16', 'int32', 'bool', 'uint16']
+
+function adsPoints(prefix: string, count: number): MockPointDef[] {
+  return Array.from({ length: count }, (_, i) => {
+    const name = `${prefix}_${String(i + 1).padStart(3, '0')}`
+    return {
+      point_id: name,
+      variable_name: name,
+      point_groups: [
+        ...new Set([
+          pgroupIds[i % pgroupIds.length],
+          ...(i % 7 === 0 ? ['all'] : []),
+          ...(i % 11 === 0 ? ['control'] : []),
+        ]),
+      ],
+      address: {
+        symbol: `MAIN.${name}`,
+        index_group: '0x4020',
+        index_offset: `0x${((i + 1) * 8).toString(16).toUpperCase()}`,
+      },
+      data_type: mixedTypes[i % mixedTypes.length],
+      scale: i % 6 === 0 ? 0.1 : 1,
+      offset: 0,
+      unit: unitIds[i % unitIds.length],
+      description: `${name.replace(/_/g, ' ')} measurement`,
+    }
+  })
+}
+
+function modbusPoints(prefix: string, count: number): MockPointDef[] {
+  const rtypes = ['input', 'holding', 'holding', 'input']
+  return Array.from({ length: count }, (_, i) => {
+    const name = `${prefix}_${String(i + 1).padStart(3, '0')}`
+    return {
+      point_id: name,
+      variable_name: name,
+      point_groups: [
+        pgroupIds[i % pgroupIds.length],
+        ...(i % 7 === 0 ? ['all'] : []),
+        ...(i % 11 === 0 ? ['control'] : []),
+      ],
+      address: { type: rtypes[i % rtypes.length], address: 100 + i * 2 },
+      data_type: ['float32', 'int32', 'int16', 'uint16', 'bool'][i % 5],
+      scale: i % 6 === 0 ? 0.01 : 1,
+      offset: 0,
+      unit: unitIds[i % unitIds.length],
+      description: `${name.replace(/_/g, ' ')} measurement`,
+    }
+  })
+}
+
+function iec104Points(prefix: string, count: number): MockPointDef[] {
+  return Array.from({ length: count }, (_, i) => {
+    const name = `${prefix}_${String(i + 1).padStart(3, '0')}`
+    return {
+      point_id: name,
+      variable_name: name,
+      point_groups: [
+        pgroupIds[i % pgroupIds.length],
+        ...(i % 7 === 0 ? ['all'] : []),
+        ...(i % 11 === 0 ? ['control'] : []),
+      ],
+      address: { ioa: 1001 + i, type: i % 5 === 4 ? 'M_SP_NA_1' : 'M_ME_NC_1' },
+      data_type: ['float32', 'float32', 'int32', 'uint16', 'bool'][i % 5],
+      scale: i % 6 === 0 ? 0.1 : 1,
+      offset: 0,
+      unit: unitIds[i % unitIds.length],
+      description: `${name.replace(/_/g, ' ')} measurement`,
+    }
+  })
+}
+
+export interface MockPointTable {
+  protocol: string
+  extends: string
+  remove_points: string[]
+  points: MockPointDef[]
+}
+
+// 主要业务点表每张 100+ 点（验证分页 / 搜索 / Data / Trend / Diagnostics）。
+export const pointTablesSeed: Record<string, MockPointTable> = {
+  beckhoff_base_v1: {
+    protocol: 'ads',
+    extends: '',
+    remove_points: [],
+    points: adsPoints('base', 12),
+  },
+  beckhoff_wtg_v1: {
+    protocol: 'ads',
+    extends: 'beckhoff_base_v1',
+    remove_points: [],
+    points: adsPoints('wtg_ads', 120),
+  },
+  modbus_wtg_v1: {
+    protocol: 'modbus',
+    extends: '',
+    remove_points: [],
+    points: modbusPoints('wtg_mb', 120),
+  },
+  iec104_wtg_v1: {
+    protocol: 'iec104',
+    extends: '',
+    remove_points: [],
+    points: iec104Points('wtg_104', 100),
+  },
+  pcs_modbus_v1: {
+    protocol: 'modbus',
+    extends: '',
+    remove_points: [],
+    points: modbusPoints('pcs_mb', 100),
+  },
+}
+
+/** 点表继承解析：extends 链合并，子表同名点覆盖。 */
+export function pointsOfTable(tableId: string, stack: string[] = []): MockPointDef[] {
+  if (stack.includes(tableId)) return []
+  const table = pointTablesSeed[tableId]
+  if (!table) return []
+  const resolved = new Map<string, MockPointDef>()
+  if (table.extends) {
+    for (const p of pointsOfTable(table.extends, [...stack, tableId])) {
+      resolved.set(p.point_id, {
+        ...p,
+        address: { ...p.address },
+        point_groups: [...p.point_groups],
+      })
+    }
+  }
+  for (const id of table.remove_points) resolved.delete(id)
+  for (const p of table.points) {
+    resolved.set(p.point_id, { ...p, address: { ...p.address }, point_groups: [...p.point_groups] })
+  }
+  return [...resolved.values()]
+}
+
+export function buildDefinitions(): DefinitionsDto {
+  const point_tables: DefinitionsDto['point_tables'] = {}
+  for (const [id, table] of Object.entries(pointTablesSeed)) {
+    const value: Record<string, unknown> = {
+      remove_points: [...table.remove_points],
+      points: table.points.map((p) => ({
+        ...p,
+        address: { ...p.address },
+        point_groups: [...p.point_groups],
+      })),
+    }
+    if (table.protocol !== 'generic') value.protocol = table.protocol
+    if (table.extends) value.extends = table.extends
+    point_tables[id] = value
+  }
+  const device_models: DefinitionsDto['device_models'] = {}
+  for (const [id, m] of Object.entries(deviceModelsSeed)) {
+    device_models[id] = {
+      device_type: m.device_type,
+      manufacturer: m.manufacturer || null,
+      model: m.model || null,
+      protocol: m.protocol,
+      point_table: m.point_table,
+      ...(m.read_mode ? { read_mode: m.read_mode } : {}),
+      properties: {},
+      connection_defaults: { ...m.connection_defaults },
+    }
+  }
+  return {
+    units: Object.fromEntries(Object.entries(unitsSeed).map(([k, v]) => [k, { ...v }])),
+    device_types: Object.fromEntries(
+      Object.entries(deviceTypesSeed).map(([k, v]) => [k, { ...v }]),
+    ),
+    device_models,
+    point_tables,
+    device_groups: [...deviceGroupsSeed],
+    point_groups: [...pointGroupsSeed],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Devices：48 风机（24 modbus / 20 ads / 4 iec104）+ 8 PCS（modbus）
+// ---------------------------------------------------------------------------
+export interface MockDevice {
+  device_id: string
+  model: string
+  device_group: string
+  host: string
+  port: number | null
+  extensions: Record<string, unknown>
+  enabled: boolean
+}
+
+export const devicesSeed: MockDevice[] = []
+for (let i = 1; i <= 48; i++) {
+  const id = `wtg-${String(i).padStart(3, '0')}`
+  if (i <= 24) {
+    devicesSeed.push({
+      device_id: id,
+      model: 'modbus_wtg',
+      device_group: 'turbine_modbus',
+      host: `192.168.100.${100 + i}`,
+      port: null,
+      extensions: {},
+      enabled: true,
+    })
+  } else if (i <= 44) {
+    devicesSeed.push({
+      device_id: id,
+      model: 'beckhoff_wtg',
+      device_group: 'turbine_ads',
+      host: `192.168.151.${i}`,
+      port: null,
+      extensions: { target_net_id: `192.168.151.${i}.1.1` },
+      enabled: true,
+    })
+  } else {
+    devicesSeed.push({
+      device_id: id,
+      model: 'iec104_wtg',
+      device_group: 'turbine_iec104',
+      host: `192.168.130.${i}`,
+      port: null,
+      extensions: {},
+      // wtg-048 固定停用（少量 disabled 场景）
+      enabled: i !== 48,
+    })
+  }
+}
+for (let i = 1; i <= 8; i++) {
+  devicesSeed.push({
+    device_id: `pcs-${String(i).padStart(2, '0')}`,
+    model: 'pcs_modbus_a',
+    device_group: 'storage_pcs',
+    host: `192.168.60.${10 + i}`,
+    port: null,
+    extensions: {},
+    // pcs-08 固定停用
+    enabled: i !== 8,
+  })
+}
+
+export function modelOf(device: MockDevice): MockDeviceModel | undefined {
+  return deviceModelsSeed[device.model]
+}
+
+export function portOfDevice(device: MockDevice): number {
+  return device.port ?? Number(modelOf(device)?.connection_defaults?.port ?? 0)
+}
+
+// ---------------------------------------------------------------------------
+// Tasks：group task 与 single-device task 混合，RUNNING / STOPPED / 故障目标
+// ---------------------------------------------------------------------------
+export interface MockTask {
+  task_id: string
+  device: string | null
+  device_group: string | null
+  point_group: string
+  interval: number | null
+  sinks: string[]
+  enabled: boolean
+  running: boolean
+}
+
+export const tasksSeed: MockTask[] = [
   {
-    task_id: 'task-inv-fast',
-    device: 'inv-ads-01',
-    device_group: null,
+    task_id: 'turbine-modbus-all',
+    device: null,
+    device_group: 'turbine_modbus',
+    point_group: 'all',
+    interval: 1,
+    sinks: ['file_archive', 'db_main'],
+    enabled: true,
+    running: true,
+  },
+  {
+    task_id: 'turbine-ads-all',
+    device: null,
+    device_group: 'turbine_ads',
+    point_group: 'all',
+    interval: 1,
+    sinks: ['file_archive'],
+    enabled: true,
+    running: true,
+  },
+  {
+    task_id: 'turbine-iec104-all',
+    device: null,
+    device_group: 'turbine_iec104',
+    point_group: 'all',
+    interval: 5,
+    sinks: ['file_archive'],
+    enabled: true,
+    running: false,
+  },
+  {
+    task_id: 'pcs-fast',
+    device: null,
+    device_group: 'storage_pcs',
     point_group: 'fast',
     interval: 1,
+    sinks: ['file_archive', 'kafka_main'],
     enabled: true,
-    runtime_state: 'running',
-    placement_state: 'placed',
-    instance_count: 1,
-    running_instances: 1,
-    failed_instances: 0,
-    stopped_instances: 0,
-    assigned_worker_id: 'collector-1',
-    targets: ['inv-ads-01'],
+    running: false,
   },
   {
-    task_id: 'task-wtg-slow',
-    device: 'wtg-104-01',
+    task_id: 'wtg-001-diag',
+    device: 'wtg-001',
     device_group: null,
-    point_group: 'slow',
-    interval: 10,
+    point_group: 'status',
+    interval: 5,
+    sinks: ['file_archive'],
+    enabled: false,
+    running: false,
+  },
+  // 固定故障场景：目标 wtg-041 网络不可达，Start 必须失败并回滚
+  {
+    task_id: 'wtg-041-diag',
+    device: 'wtg-041',
+    device_group: null,
+    point_group: 'status',
+    interval: 5,
+    sinks: ['file_archive'],
     enabled: true,
-    runtime_state: 'stopped',
-    placement_state: 'unplaced',
-    instance_count: 0,
-    running_instances: 0,
-    failed_instances: 0,
-    stopped_instances: 1,
-    assigned_worker_id: null,
-    targets: ['wtg-104-01'],
+    running: false,
   },
 ]
 
-export const taskInstancesSeed: Record<string, TaskInstanceDto[]> = {
-  'task-inv-fast': [
-    {
-      instance_id: 'task-inv-fast#0',
-      task_id: 'task-inv-fast',
-      device_id: 'inv-ads-01',
-      point_group: 'fast',
-      interval: 1,
-      state: 'running',
-      assigned_worker_id: 'collector-1',
-      targets: ['inv-ads-01'],
-    },
-  ],
-  'task-wtg-slow': [],
+// ---------------------------------------------------------------------------
+// Sinks：file / kafka / db + 一个 disabled；healthy / failed / disabled 全覆盖
+// ---------------------------------------------------------------------------
+export interface MockSink {
+  name: string
+  type: 'file' | 'kafka' | 'db'
+  enabled: boolean
+  connection: Record<string, unknown>
+  points: Record<string, unknown>[]
 }
 
-export const sinksSeed: SinkDto[] = [
+export const sinksSeed: MockSink[] = [
   {
-    name: 'kafka-main',
+    name: 'kafka_main',
     type: 'kafka',
     enabled: true,
-    healthy: true,
-    message: null,
-    queue_depth: 0,
-    point_count: 2,
-    connection: { bootstrap_servers: '192.168.10.30:9092', topic: 'wind.telemetry' },
-    points: [{ point_group: 'fast' }],
+    connection: {
+      bootstrap_servers: 'kafka.windhub.local:9092',
+      topic: 'wind-hub.raw',
+      acks: 'all',
+    },
+    points: [{ point_group: 'all' }],
   },
   {
-    name: 'pg-archive',
-    type: 'postgresql',
+    name: 'db_main',
+    type: 'db',
     enabled: true,
-    healthy: true,
-    message: null,
-    queue_depth: 12,
-    point_count: 1,
-    connection: { dsn: 'postgresql://db.local/wind' },
-    points: [{ point_group: 'slow' }],
+    connection: {
+      dsn: 'postgresql://windhub:windhub@db.windhub.local:5432/windhub',
+      table: 'points',
+    },
+    points: [{ point_group: 'all' }],
   },
   {
-    name: 'debug-file',
+    name: 'file_archive',
+    type: 'file',
+    enabled: true,
+    connection: { path: '/var/tmp/wind-hub/archive.jsonl', format: 'jsonl' },
+    points: [{ point_group: 'fast' }, { point_group: 'status' }],
+  },
+  {
+    name: 'debug_file',
     type: 'file',
     enabled: false,
-    healthy: false,
-    message: 'disabled',
-    queue_depth: 0,
-    point_count: 0,
-    connection: { path: '/tmp/wind-debug.ndjson' },
+    connection: { path: '/var/tmp/wind-hub/debug.jsonl', format: 'jsonl' },
     points: [],
   },
 ]
 
+// ---------------------------------------------------------------------------
+// Workers
+// ---------------------------------------------------------------------------
 export const workersSeed: WorkerDto[] = [
   {
     worker_id: 'collector-1',
@@ -314,193 +524,153 @@ export const workersSeed: WorkerDto[] = [
     capabilities: ['collect', 'route'],
     runtime_running: true,
     reported_id: 'collector-1',
-    boot_id: 'boot-20261008-01',
-    active_revision: 'r42',
-    active_config_hash: 'sha256:mock',
-    last_seen_at: MOCK_NOW,
-    last_probe_at: MOCK_NOW,
+    boot_id: 'boot-20261001-01',
+    active_revision: 'r12',
+    active_config_hash: 'sha256:mock-a1',
+    last_seen_at: '2026-10-08T08:00:00Z',
+    last_probe_at: '2026-10-08T08:00:00Z',
+    last_error: null,
+  },
+  {
+    worker_id: 'commander-1',
+    role: 'commander',
+    endpoint: 'grpc://192.168.10.41:50052',
+    state: 'online',
+    capabilities: ['schedule', 'dispatch'],
+    runtime_running: true,
+    reported_id: 'commander-1',
+    boot_id: 'boot-20261001-02',
+    active_revision: 'r12',
+    active_config_hash: 'sha256:mock-a1',
+    last_seen_at: '2026-10-08T08:00:00Z',
+    last_probe_at: '2026-10-08T08:00:00Z',
     last_error: null,
   },
 ]
 
-export const logsSeed: LogEntryDto[] = [
-  {
-    timestamp: '2026-10-08T07:59:50Z',
-    level: 'INFO',
-    source: 'collector',
-    object: 'inv-ads-01',
-    message: 'device connected',
-  },
-  {
-    timestamp: '2026-10-08T07:59:55Z',
-    level: 'WARNING',
-    source: 'collector',
-    object: 'inv-mbus-01',
-    message: 'connection refused, retrying',
-  },
-  {
-    timestamp: '2026-10-08T08:00:00Z',
-    level: 'INFO',
-    source: 'commander',
-    object: 'task-inv-fast',
-    message: 'task instance running',
-  },
-]
+// ---------------------------------------------------------------------------
+// 配置文件（7 个 YAML）：内容由结构化种子生成，apply/import 后 GET 可见更新。
+// ---------------------------------------------------------------------------
+export const CONFIG_FILE_NAMES = [
+  'system.yaml',
+  'units.yaml',
+  'device_models.yaml',
+  'points.yaml',
+  'devices.yaml',
+  'tasks.yaml',
+  'reporting.yaml',
+] as const
 
-export const logSourcesSeed: string[] = ['collector', 'commander', 'server']
+export type ConfigFileName = (typeof CONFIG_FILE_NAMES)[number]
 
-export const qualitySeed: QualityDto = {
-  window: '1h',
-  sampled_from: '2026-10-08T07:00:00Z',
-  sampled_to: MOCK_NOW,
-  channel_summary: [
-    {
-      key: 'acquisition_online',
-      label: 'Acquisition Online',
-      value: 1,
-      status: 'warn',
-      hint: '1 of 2 enabled devices connected',
-    },
-  ],
-  data_metrics: [
-    {
-      key: 'points_collected',
-      label: 'Points Collected',
-      value: 3600,
-      status: 'ok',
-      hint: 'last 1h',
-    },
-    { key: 'points_dropped', label: 'Points Dropped', value: 4, status: 'warn', hint: 'last 1h' },
-  ],
-  acquisition_channels: [
-    {
-      object: 'inv-ads-01',
-      source: 'ads',
-      target: '192.168.10.11:48898',
-      protocol: 'ads',
-      state: 'online',
-      latency_ms: 12,
-      reconnects: 0,
-      timeouts: 0,
-      issue: null,
-    },
-    {
-      object: 'inv-mbus-01',
-      source: 'modbus',
-      target: '192.168.10.12:502',
-      protocol: 'modbus',
-      state: 'offline',
-      latency_ms: null,
-      reconnects: 3,
-      timeouts: 2,
-      issue: 'connection refused',
-    },
-  ],
-  delivery_channels: [
-    {
-      object: 'kafka-main',
-      source: 'kafka',
-      target: '192.168.10.30:9092',
-      protocol: 'kafka',
-      state: 'healthy',
-      latency_ms: 8,
-      reconnects: 0,
-      timeouts: 0,
-      issue: null,
-    },
-  ],
-  dimensions: [
-    {
-      dimension: 'acquisition',
-      key: 'inv-mbus-01',
-      metric: 'connectivity',
-      status: 'fail',
-      detail: 'device offline',
-    },
-  ],
-  issues: [
-    {
-      dimension: 'acquisition',
-      kind: 'connectivity',
-      level: 'warning',
-      object: 'inv-mbus-01',
-      issue: 'connection refused',
-      error: 'connection refused',
-      duration_seconds: 300,
-    },
-  ],
-  events: [
-    {
-      timestamp: '2026-10-08T07:59:55Z',
-      object: 'inv-mbus-01',
-      event: 'disconnect',
-      state: 'offline',
-      evidence: 'connection refused',
-    },
-  ],
+function systemYaml(s: SettingsDto): string {
+  return `site:
+  site_id: ${s.site_id}
+  name: "${s.site_name ?? ''}"
+
+runtime:
+  queue_maxsize: 1000
+  backpressure_policy: drop_old
+  shutdown_timeout: 30.0
+  connect_timeout: 10.0
+  read_timeout: 5.0
+  write_timeout: 5.0
+
+ads:
+  local_ams_net_id: "${s.ads_local_ams_net_id ?? ''}"
+  local_ip: "${s.ads_local_ip ?? ''}"
+  username: "${s.ads_username}"
+  password: "${s.ads_password}"
+
+interfaces:
+  api:
+    enabled: ${s.api_enabled}
+    host: "${s.api_host}"
+    port: ${s.api_port}
+`
 }
 
-export const systemHealthSeed: SystemHealthDto = {
-  range: '1h',
-  sampled_at: MOCK_NOW,
-  cpu_count: 8,
-  load_average: [0.42, 0.38, 0.35],
-  uptime_seconds: 86400,
-  current: {
-    cpu_host_pct: 12.5,
-    cpu_process_pct: 3.1,
-    memory_rss_gb: 0.8,
-    memory_host_gb: 16,
-    disk_free_gb: 120.5,
-    cpu_temp_c: null,
-  },
-  mounts: [
-    {
-      mount: '/',
-      total_gb: 256,
-      used_gb: 135.5,
-      free_gb: 120.5,
-      usage_pct: 52.9,
-      growth_24h_gb: 0.4,
-      estimated_full_days: 300,
-    },
-  ],
-  risks: [],
-  series: {
-    timestamps: ['2026-10-08T07:00:00Z', '2026-10-08T07:30:00Z', MOCK_NOW],
-    cpu_host_pct: [10.2, 11.8, 12.5],
-    cpu_process_pct: [2.8, 3.0, 3.1],
-    cpu_temp_c: [null, null, null],
-    memory_rss_gb: [0.7, 0.75, 0.8],
-    memory_host_gb: [16, 16, 16],
-    disk_free_gb: [121.3, 120.9, 120.5],
-  },
+function unitsYaml(): string {
+  const body = Object.entries(unitsSeed)
+    .map(([id, u]) => `  ${id}:\n    symbol: "${u.symbol}"\n    name: ${u.name}`)
+    .join('\n')
+  return `units:\n${body}\n`
 }
 
-export const configFilesSeed: ConfigFileDto[] = [
-  { name: 'settings.yaml', exists: true, optional: false },
-  { name: 'definitions.yaml', exists: true, optional: false },
-  { name: 'admin-state.yaml', exists: true, optional: false },
-]
-
-export const configContentsSeed: Record<string, string> = {
-  'settings.yaml':
-    'site_id: mock-site\nsite_name: Mock Wind Farm\napi:\n  enabled: true\n  host: 0.0.0.0\n  port: 8080\n',
-  'definitions.yaml': 'units:\n  mw: {name: Megawatt, symbol: MW}\n',
-  'admin-state.yaml': 'devices:\n  - device_id: inv-ads-01\n    model: ads-cx9020\n',
+function deviceModelsYaml(): string {
+  const types = Object.entries(deviceTypesSeed)
+    .map(([id, t]) => `  ${id}:\n    name: ${t.name}`)
+    .join('\n')
+  const models = Object.entries(deviceModelsSeed)
+    .map(
+      ([id, m]) =>
+        `  ${id}:\n    device_type: ${m.device_type}\n    protocol: ${m.protocol}\n    point_table: ${m.point_table}\n    connection_defaults:\n` +
+        Object.entries(m.connection_defaults)
+          .map(([k, v]) => `      ${k}: ${typeof v === 'string' ? v : String(v)}`)
+          .join('\n'),
+    )
+    .join('\n\n')
+  return `device_types:\n${types}\n\ndevice_models:\n${models}\n`
 }
 
-export const configHistorySeed: ConfigRevisionDto[] = [
-  {
-    revision: 2,
-    created_at: '2026-10-08T07:00:00Z',
-    source: 'apply',
-    comment: 'enable kafka-main sink',
-  },
-  {
-    revision: 1,
-    created_at: '2026-10-07T08:00:00Z',
-    source: 'import',
-    comment: 'initial import',
-  },
-]
+function pointsYaml(): string {
+  return Object.entries(pointTablesSeed)
+    .map(([id, t]) => {
+      const header = `  ${id}:\n    protocol: ${t.protocol}${t.extends ? `\n    extends: ${t.extends}` : ''}\n    points:`
+      const rows = t.points
+        .map(
+          (p) =>
+            `      - point_id: ${p.point_id}\n        data_type: ${p.data_type}\n        scale: ${p.scale}\n        unit: ${p.unit}`,
+        )
+        .join('\n')
+      return `${header}\n${rows}`
+    })
+    .join('\n\n')
+    .concat('\n')
+}
+
+export function devicesYaml(devices: MockDevice[]): string {
+  return (
+    'devices:\n' +
+    devices
+      .map(
+        (d) =>
+          `  - device_id: ${d.device_id}\n    model: ${d.model}\n    device_group: ${d.device_group}\n    host: "${d.host}"\n    enabled: ${d.enabled}`,
+      )
+      .join('\n') +
+    '\n'
+  )
+}
+
+export function tasksYaml(tasks: MockTask[]): string {
+  return (
+    'tasks:\n' +
+    tasks
+      .map(
+        (t) =>
+          `  - task_id: ${t.task_id}\n    device: ${t.device ?? 'null'}\n    device_group: ${t.device_group ?? 'null'}\n    point_group: ${t.point_group}\n    interval: ${t.interval ?? 'null'}\n    enabled: ${t.enabled}\n    sinks:${t.sinks.map((s) => `\n      - ${s}`).join('')}`,
+      )
+      .join('\n') +
+    '\n'
+  )
+}
+
+function reportingYaml(): string {
+  return `reporting:\n  enabled: false\n  interval: 300\n  targets: []\n`
+}
+
+export function seedYamlFiles(
+  settings: SettingsDto,
+  devices: MockDevice[],
+  tasks: MockTask[],
+): Record<string, string> {
+  return {
+    'system.yaml': systemYaml(settings),
+    'units.yaml': unitsYaml(),
+    'device_models.yaml': deviceModelsYaml(),
+    'points.yaml': pointsYaml(),
+    'devices.yaml': devicesYaml(devices),
+    'tasks.yaml': tasksYaml(tasks),
+    'reporting.yaml': reportingYaml(),
+  }
+}
