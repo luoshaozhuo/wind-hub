@@ -7,7 +7,7 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ..protocol_contract import (
     ConnectionHealth,
@@ -15,13 +15,16 @@ from ..protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
+    PointScalar,
+    Quality,
 )
 
 
 class SubscriptionHandle(Protocol):
     """协议订阅生命周期句柄。"""
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        ...
 
 
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
@@ -30,23 +33,29 @@ ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 class ProtocolPort(Protocol):
     """统一设备协议运行时能力边界。"""
 
-    def capabilities(self) -> frozenset[ProtocolCapability]: ...
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        ...
 
-    async def connect(self) -> None: ...
+    async def connect(self) -> None:
+        ...
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        ...
 
-    def health(self) -> ConnectionHealth: ...
+    def health(self) -> ConnectionHealth:
+        ...
 
     async def read(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]: ...
+    ) -> tuple[ProtocolSample, ...]:
+        ...
 
     async def write(
         self,
         writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]: ...
+    ) -> tuple[ProtocolWriteResult, ...]:
+        ...
 
     async def subscribe(
         self,
@@ -54,6 +63,20 @@ class ProtocolPort(Protocol):
         callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
-    ) -> SubscriptionHandle: ...
+    ) -> SubscriptionHandle:
+        ...
 
-    async def interrogate(self) -> None: ...
+    async def interrogate(self) -> None:
+        ...
+
+
+RawReadResult = tuple[tuple[PointScalar, Quality], ...]
+
+
+@runtime_checkable
+class RawReadPort(Protocol):
+    """可选高频读取能力，不更改现有 ProtocolPort 的必需方法。"""
+
+    async def read_raw(self, point_ids: Sequence[str]) -> RawReadResult:
+        """按请求顺序返回原始值与质量，不创建 ProtocolSample。"""
+        ...
