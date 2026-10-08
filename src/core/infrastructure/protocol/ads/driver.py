@@ -83,6 +83,16 @@ class ADSDriver:
         self._connection: Any = None
         self._connected = False
         self._subscriptions: set[ADSSubscription] = set()
+        # 地址解析与读取分组均绑定当前 ADS session；断连/重连后失效。
+        self._read_plan_cache: dict[
+            tuple[str, ...],
+            tuple[
+                tuple[tuple[tuple[int, ADSPoint], ...], tuple[tuple[int, int, int], ...], int],
+                ...,
+            ],
+        ] = {}
+        self._read_variable_cache: dict[tuple[str, ...], tuple[tuple[int, ADSPoint], ...]] = {}
+        self._read_unresolved_cache: dict[tuple[str, ...], tuple[int, ...]] = {}
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -302,36 +312,47 @@ class ADSDriver:
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        results: list[ProtocolSample | None] = [None] * len(point_ids)
-        fixed: list[tuple[int, ADSPoint]] = []
-        variable: list[tuple[int, ADSPoint]] = []
-
-        for index, point_id in enumerate(point_ids):
-            mapped = self._mapped_point(point_id)
-            if not mapped.address_resolved:
-                results[index] = _bad_sample(point_id)
-            elif mapped.size > 0:
-                fixed.append((index, mapped))
-            else:
-                variable.append((index, mapped))
-
-        max_subs = self._config.max_subs_per_sum
-        for start in range(0, len(fixed), max_subs):
-            chunk = fixed[start : start + max_subs]
-            addresses = [
-                (
-                    mapped.index_group,
-                    mapped.index_offset,
-                    mapped.size,
+        key = tuple(point_ids)
+        cached = self._read_plan_cache.get(key)
+        if cached is None:
+            unresolved: list[int] = []
+            fixed: list[tuple[int, ADSPoint]] = []
+            variable: list[tuple[int, ADSPoint]] = []
+            for index, point_id in enumerate(key):
+                mapped = self._mapped_point(point_id)
+                if not mapped.address_resolved:
+                    unresolved.append(index)
+                elif mapped.size > 0:
+                    fixed.append((index, mapped))
+                else:
+                    variable.append((index, mapped))
+            max_subs = self._config.max_subs_per_sum
+            chunks = []
+            for start in range(0, len(fixed), max_subs):
+                chunk = tuple(fixed[start : start + max_subs])
+                addresses = tuple(
+                    (mapped.index_group, mapped.index_offset, mapped.size)
+                    for _, mapped in chunk
                 )
-                for _, mapped in chunk
-            ]
+                expected = 4 * len(chunk) + sum(mapped.size for _, mapped in chunk)
+                chunks.append((chunk, addresses, expected))
+            cached = tuple(chunks)
+            if len(self._read_plan_cache) >= 32:
+                old = next(iter(self._read_plan_cache))
+                self._read_plan_cache.pop(old)
+                self._read_variable_cache.pop(old, None)
+                self._read_unresolved_cache.pop(old, None)
+            self._read_plan_cache[key] = cached
+            self._read_variable_cache[key] = tuple(variable)
+            self._read_unresolved_cache[key] = tuple(unresolved)
+
+        results: list[ProtocolSample | None] = [None] * len(key)
+        for index in self._read_unresolved_cache[key]:
+            results[index] = _bad_sample(key[index])
+        for chunk, addresses, expected in cached:
             raw = await asyncio.to_thread(
                 self._sum_read_bytes,
-                addresses,
-            )
-            expected = 4 * len(chunk) + sum(
-                mapped.size for _, mapped in chunk
+                list(addresses),
             )
             if len(raw) < expected:
                 raise ProtocolError(
@@ -364,7 +385,7 @@ class ADSDriver:
                     quality=Quality.GOOD,
                 )
 
-        for result_index, mapped in variable:
+        for result_index, mapped in self._read_variable_cache[key]:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
@@ -428,6 +449,9 @@ class ADSDriver:
         )
 
     async def _resolve_symbols(self) -> None:
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
         """在当前 session 内一次性解析 symbol -> index 地址。"""
         connection = self._connection
         if connection is None:
@@ -469,6 +493,9 @@ class ADSDriver:
             )
 
     def _invalidate_symbol_addresses(self) -> None:
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
         self._points = {
             point_id: point.unresolved()
             for point_id, point in self._points.items()
