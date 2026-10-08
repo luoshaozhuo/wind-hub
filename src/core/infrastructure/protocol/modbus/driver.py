@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import struct
+from dataclasses import dataclass
 from collections.abc import Sequence
 from math import isfinite
 from typing import Any
@@ -45,6 +46,14 @@ _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "uint64": (0, 18446744073709551615),
 }
 _DECODE_FAILED = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _ReadGroupPlan:
+    points: tuple[ModbusPoint, ...]
+    register_type: str
+    start: int
+    count: int
 
 
 class ModbusDriver:
@@ -278,14 +287,23 @@ class ModbusDriver:
             )
         return mapped
 
-    def _read_plan(self, point_ids: Sequence[str]) -> tuple[tuple[ModbusPoint, ...], ...]:
+    def _read_plan(self, point_ids: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
         key = tuple(point_ids)
         cached = self._read_plan_cache.get(key)
         if cached is not None:
             return cached
         mapped = [self._mapped_point(point_id) for point_id in key]
-        plan = tuple(tuple(group) for group in group_consecutive_reads(mapped))
+        plan = tuple(
+            _ReadGroupPlan(
+                points=tuple(group),
+                register_type=group[0].register_type,
+                start=min(point.address for point in group),
+                count=max(point.address + point.count for point in group)
+                - min(point.address for point in group),
+            )
+            for group in group_consecutive_reads(mapped)
+        )
         # 典型连续轮询通常只有一个 key；动态请求限制内存增长。
         if len(self._read_plan_cache) >= 32:
             self._read_plan_cache.pop(next(iter(self._read_plan_cache)))
@@ -294,13 +312,12 @@ class ModbusDriver:
 
     async def _read_group(
         self,
-        group: Sequence[ModbusPoint],
+        group: _ReadGroupPlan,
     ) -> dict[str, object]:
         client = self._client
-        register_type = group[0].register_type
-        start = min(point.address for point in group)
-        end = max(point.address + point.count for point in group)
-        count = end - start
+        register_type = group.register_type
+        start = group.start
+        count = group.count
         unit_id = self._config.unit_id
 
         if register_type == "coil":
@@ -342,7 +359,7 @@ class ModbusDriver:
             raw = response.registers
 
         values: dict[str, object] = {}
-        for point in group:
+        for point in group.points:
             offset = point.address - start
             segment = raw[offset : offset + point.count]
             try:
