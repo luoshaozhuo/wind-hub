@@ -1,0 +1,34 @@
+name: Temporary Ruff Autofix
+on:
+  push:
+    branches:
+      - refactor/shared-config-readers
+      - perf/collector-read-plan-cache
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install ruff==0.8.6
+      - name: Format touched backend and tests
+        run: |
+          ruff check --fix src/core src/collector src/commander tests/unit/shared_core tests/benchmarks
+          ruff format src/core src/collector src/commander tests/unit/shared_core tests/benchmarks
+      - name: Commit fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core src/collector src/commander tests/unit/shared_core tests/benchmarks
+          if ! git diff --cached --quiet; then
+            git commit -m 'style: apply Ruff autofix'
+            git push origin HEAD:${{ github.ref_name }}
+          fi
