@@ -334,11 +334,12 @@ class ModbusDriver:
                 "returned an exception response"
             )
 
-        raw: list[object]
+        # 协议响应的序列只读取不修改，避免每轮复制整块寄存器。
+        raw: Sequence[object]
         if register_type in _BIT_TYPES:
-            raw = list(response.bits)
+            raw = response.bits
         else:
-            raw = list(response.registers)
+            raw = response.registers
 
         values: dict[str, object] = {}
         for point in group:
