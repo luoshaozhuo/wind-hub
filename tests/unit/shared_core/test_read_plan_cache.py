@@ -19,12 +19,17 @@ from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
 
-def _point(point_id: str, ext: dict[str, object]) -> Point:
+def _point(
+    point_id: str,
+    ext: dict[str, object],
+    *,
+    access: PointAccess = PointAccess.READ_WRITE,
+) -> Point:
     return Point(
         point_id=point_id,
         business_point_id=point_id,
         source_unit=UNIT_CATALOG[UnitCode.NONE],
-        access=PointAccess.READ_WRITE,
+        access=access,
         ext=ext,
     )
 
