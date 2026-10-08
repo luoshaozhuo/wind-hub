@@ -88,7 +88,8 @@ def _isolated_unit_tests() -> bool:
     children = sorted(
         path
         for path in root.iterdir()
-        if path.is_dir() or (path.suffix == ".py" and path.name != "__init__.py")
+        if (path.is_dir() and path.name != "__pycache__")
+        or (path.suffix == ".py" and path.name != "__init__.py")
     )
     return _run_many(
         [
