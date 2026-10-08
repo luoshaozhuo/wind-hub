@@ -41,7 +41,6 @@ from core.infrastructure.config.raw import (
 )
 from core.infrastructure.config.yaml import YamlConfigReader
 
-
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 

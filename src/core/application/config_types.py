@@ -81,7 +81,7 @@ class PointTableDefinition:
 
 @dataclass(frozen=True, slots=True)
 class PointConfig:
-    tables: Mapping[str, PointTableDefinition>
+    tables: Mapping[str, PointTableDefinition]
 
 
 @dataclass(frozen=True, slots=True)
