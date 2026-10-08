@@ -267,3 +267,30 @@ async def test_raw_value_conversion_preserves_bad_and_bool():
     assert flag[0].value is True
     with pytest.raises(ValueError, match="length"):
         session.to_point_values_raw(["p1"], ())
+
+
+async def test_public_raw_session_read_defers_pointvalue_creation():
+    proto = CollectorFakeProtocol()
+    proto.read_values["p1"] = 12.0
+    session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
+    ids, raw = await session.read_raw("g")
+    assert ids == ["p1"]
+    assert raw == ((12.0, Quality.GOOD),)
+    values = session.to_point_values_raw(ids, raw)
+    assert values[0].value == 25.0
+
+
+async def test_public_raw_session_read_uses_raw_capability():
+    proto = CollectorFakeProtocol()
+
+    async def raw_reader(ids):
+        assert ids == ["p1"]
+        return ((42, Quality.GOOD),)
+
+    async def reject(_ids):
+        raise AssertionError("ProtocolSample path must not be used")
+
+    proto.read_raw = raw_reader
+    proto.read = reject
+    session = make_session(make_collector_config(), proto)
+    assert await session.read_raw("g") == (["p1"], ((42, Quality.GOOD),))
