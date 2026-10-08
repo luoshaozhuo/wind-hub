@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import IntEnum
-from typing import Any
+from typing import Any, cast
 
 from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality
@@ -108,7 +108,7 @@ def _value_from_c104(value: object) -> float | int | bool | str | None:
     if isinstance(value, str | int | float):
         return value
     try:
-        return float(value)
+        return float(cast(Any, value))
     except (TypeError, ValueError):
         return None
 
