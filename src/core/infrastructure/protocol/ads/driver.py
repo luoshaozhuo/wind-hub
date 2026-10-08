@@ -18,6 +18,7 @@ from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
     ProtocolSample,
+    PointScalar,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -36,7 +37,9 @@ def _pyads() -> Any:
     try:
         import pyads  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
+        raise ProtocolError(
+            "ADS support requires the optional 'pyads' dependency"
+        ) from exc
     return pyads
 
 
@@ -73,13 +76,24 @@ class ADSDriver:
             device_options,
         )
         self._points = {
-            point.point_id: parse_ads_point(point) for point in point_table.points.values()
+            point.point_id: parse_ads_point(point)
+            for point in point_table.points.values()
         }
 
         self._lock = asyncio.Lock()
         self._connection: Any = None
         self._connected = False
         self._subscriptions: set[ADSSubscription] = set()
+        # 地址解析与读取分组均绑定当前 ADS session；断连/重连后失效。
+        self._read_plan_cache: dict[
+            tuple[str, ...],
+            tuple[
+                tuple[tuple[tuple[int, ADSPoint], ...], tuple[tuple[int, int, int], ...], int],
+                ...,
+            ],
+        ] = {}
+        self._read_variable_cache: dict[tuple[str, ...], tuple[tuple[int, ADSPoint], ...]] = {}
+        self._read_unresolved_cache: dict[tuple[str, ...], tuple[int, ...]] = {}
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -110,7 +124,9 @@ class ADSDriver:
             try:
                 await asyncio.to_thread(connection.open)
                 if not connection.is_open:
-                    raise ProtocolError(f"ADS connection to {self._config.host} did not open")
+                    raise ProtocolError(
+                        f"ADS connection to {self._config.host} did not open"
+                    )
 
                 self._connection = connection
                 self._invalidate_symbol_addresses()
@@ -126,7 +142,9 @@ class ADSDriver:
                     await asyncio.to_thread(connection.close)
                 self._connection = None
                 self._connected = False
-                raise ProtocolError(f"ADS connect failed for {self._config.host}: {exc}") from exc
+                raise ProtocolError(
+                    f"ADS connect failed for {self._config.host}: {exc}"
+                ) from exc
 
             self._connected = True
 
@@ -142,7 +160,10 @@ class ADSDriver:
         if self._connected:
             return ConnectionHealth(
                 healthy=True,
-                message=(f"connected to {self._config.host}:" f"{self._config.target_port}"),
+                message=(
+                    f"connected to {self._config.host}:"
+                    f"{self._config.target_port}"
+                ),
             )
         return ConnectionHealth(healthy=False, message="not connected")
 
@@ -159,15 +180,18 @@ class ADSDriver:
         表示订阅当前 PointTable 的全部协议点。
         """
         if not self._connected:
-            raise ProtocolError("ADS subscribe requires an active connection")
+            raise ProtocolError(
+                "ADS subscribe requires an active connection"
+            )
         if interval is None or interval <= 0:
-            raise ConfigError("ADS subscription interval must be > 0")
+            raise ConfigError(
+                "ADS subscription interval must be > 0"
+            )
 
-        mapped = (
-            tuple(self._mapped_point(point_id) for point_id in point_ids)
-            if point_ids
-            else tuple(self._points.values())
-        )
+        mapped = tuple(
+            self._mapped_point(point_id)
+            for point_id in point_ids
+        ) if point_ids else tuple(self._points.values())
 
         subscription = ADSSubscription(
             self._config,
@@ -187,6 +211,17 @@ class ADSDriver:
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
+        """兼容 DTO 协议端口；原始值读取由 read_raw 提供。"""
+        raw = await self.read_raw(point_ids)
+        return tuple(
+            ProtocolSample(point_id=pid, value=value, quality=quality)
+            for pid, (value, quality) in zip(point_ids, raw, strict=True)
+        )
+
+    async def read_raw(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
         """按配置的 sum/sequential 策略读取点。"""
         if not point_ids:
             return ()
@@ -196,8 +231,8 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
-                    return await self._read_sum(point_ids)
-                return await self._read_sequential(point_ids)
+                    return await self._read_sum_raw(point_ids)
+                return await self._read_sequential_raw(point_ids)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -281,44 +316,60 @@ class ADSDriver:
 
     async def interrogate(self) -> None:
         """ADS 不支持 IEC104 式总召能力。"""
-        raise ProtocolCapabilityError("ads does not support interrogation")
+        raise ProtocolCapabilityError(
+            "ads does not support interrogation"
+        )
 
-    async def _read_sum(
+    async def _read_sum_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        results: list[ProtocolSample | None] = [None] * len(point_ids)
-        fixed: list[tuple[int, ADSPoint]] = []
-        variable: list[tuple[int, ADSPoint]] = []
-
-        for index, point_id in enumerate(point_ids):
-            mapped = self._mapped_point(point_id)
-            if not mapped.address_resolved:
-                results[index] = _bad_sample(point_id)
-            elif mapped.size > 0:
-                fixed.append((index, mapped))
-            else:
-                variable.append((index, mapped))
-
-        max_subs = self._config.max_subs_per_sum
-        for start in range(0, len(fixed), max_subs):
-            chunk = fixed[start : start + max_subs]
-            addresses = [
-                (
-                    mapped.index_group,
-                    mapped.index_offset,
-                    mapped.size,
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
+        key = tuple(point_ids)
+        cached = self._read_plan_cache.get(key)
+        if cached is None:
+            unresolved: list[int] = []
+            fixed: list[tuple[int, ADSPoint]] = []
+            variable: list[tuple[int, ADSPoint]] = []
+            for index, point_id in enumerate(key):
+                mapped = self._mapped_point(point_id)
+                if not mapped.address_resolved:
+                    unresolved.append(index)
+                elif mapped.size > 0:
+                    fixed.append((index, mapped))
+                else:
+                    variable.append((index, mapped))
+            max_subs = self._config.max_subs_per_sum
+            chunks = []
+            for start in range(0, len(fixed), max_subs):
+                chunk = tuple(fixed[start : start + max_subs])
+                addresses = tuple(
+                    (mapped.index_group, mapped.index_offset, mapped.size)
+                    for _, mapped in chunk
                 )
-                for _, mapped in chunk
-            ]
+                expected = 4 * len(chunk) + sum(mapped.size for _, mapped in chunk)
+                chunks.append((chunk, addresses, expected))
+            cached = tuple(chunks)
+            if len(self._read_plan_cache) >= 32:
+                old = next(iter(self._read_plan_cache))
+                self._read_plan_cache.pop(old)
+                self._read_variable_cache.pop(old, None)
+                self._read_unresolved_cache.pop(old, None)
+            self._read_plan_cache[key] = cached
+            self._read_variable_cache[key] = tuple(variable)
+            self._read_unresolved_cache[key] = tuple(unresolved)
+
+        results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
+        for index in self._read_unresolved_cache[key]:
+            results[index] = (None, Quality.BAD)
+        for chunk, addresses, expected in cached:
             raw = await asyncio.to_thread(
                 self._sum_read_bytes,
                 addresses,
             )
-            expected = 4 * len(chunk) + sum(mapped.size for _, mapped in chunk)
             if len(raw) < expected:
                 raise ProtocolError(
-                    f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
+                    f"ADS sum read returned {len(raw)} bytes; "
+                    f"expected at least {expected}"
                 )
 
             data_offset = 4 * len(chunk)
@@ -328,23 +379,21 @@ class ADSDriver:
                     raw,
                     item_index * 4,
                 )[0]
-                value_bytes = raw[data_offset : data_offset + mapped.size]
+                value_bytes = raw[
+                    data_offset : data_offset + mapped.size
+                ]
                 data_offset += mapped.size
                 if error:
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
                 try:
                     value = _decode_value(value_bytes, mapped)
                 except (TypeError, ValueError, UnicodeDecodeError):
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
-                results[result_index] = ProtocolSample(
-                    point_id=mapped.point_id,
-                    value=value,
-                    quality=Quality.GOOD,
-                )
+                results[result_index] = (value, Quality.GOOD)
 
-        for result_index, mapped in variable:
+        for result_index, mapped in self._read_variable_cache[key]:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
@@ -354,29 +403,31 @@ class ADSDriver:
                 )
             except Exception as exc:
                 if _is_point_level_error(exc):
-                    results[result_index] = _bad_sample(mapped.point_id)
+                    results[result_index] = (None, Quality.BAD)
                     continue
                 raise
-            results[result_index] = ProtocolSample(
-                point_id=mapped.point_id,
-                value=_as_point_scalar(value),
-                quality=Quality.GOOD,
-            )
+            results[result_index] = (_as_point_scalar(value), Quality.GOOD)
 
         if any(result is None for result in results):
             raise RuntimeError("ADS read did not produce a result for every point")
-        return tuple(result for result in results if result is not None)
+        return tuple(
+            result
+            for result in results
+            if result is not None
+        )
 
-    async def _read_sequential(
+    async def _read_sequential_raw(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        semaphore = asyncio.Semaphore(self._config.max_concurrent_reads)
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
+        semaphore = asyncio.Semaphore(
+            self._config.max_concurrent_reads
+        )
 
-        async def read_one(point_id: str) -> ProtocolSample:
+        async def read_one(point_id: str) -> tuple[PointScalar, Quality]:
             mapped = self._mapped_point(point_id)
             if not mapped.address_resolved:
-                return _bad_sample(mapped.point_id)
+                return (None, Quality.BAD)
             try:
                 async with semaphore:
                     value = await asyncio.to_thread(
@@ -387,17 +438,20 @@ class ADSDriver:
                     )
             except Exception as exc:
                 if _is_point_level_error(exc):
-                    return _bad_sample(mapped.point_id)
+                    return (None, Quality.BAD)
                 raise
-            return ProtocolSample(
-                point_id=mapped.point_id,
-                value=_as_point_scalar(value),
-                quality=Quality.GOOD,
-            )
+            return (_as_point_scalar(value), Quality.GOOD)
 
-        return tuple(await asyncio.gather(*(read_one(point_id) for point_id in point_ids)))
+        return tuple(
+            await asyncio.gather(
+                *(read_one(point_id) for point_id in point_ids)
+            )
+        )
 
     async def _resolve_symbols(self) -> None:
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
         """在当前 session 内一次性解析 symbol -> index 地址。"""
         connection = self._connection
         if connection is None:
@@ -439,25 +493,34 @@ class ADSDriver:
             )
 
     def _invalidate_symbol_addresses(self) -> None:
-        self._points = {point_id: point.unresolved() for point_id, point in self._points.items()}
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
+        self._points = {
+            point_id: point.unresolved()
+            for point_id, point in self._points.items()
+        }
 
     def _mapped_point(self, point_id: str) -> ADSPoint:
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection "
+                f"'{self._point_table_id}'"
             )
         return mapped
 
     def _sum_read_bytes(
         self,
-        addresses: list[tuple[int, int, int]],
+        addresses: Sequence[tuple[int, int, int]],
     ) -> bytes:
         """调用 pyads 地址型 Sum Read。"""
         try:
             from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
         except ImportError as exc:
-            raise ProtocolError("installed pyads does not expose adsSumReadBytes") from exc
+            raise ProtocolError(
+                "installed pyads does not expose adsSumReadBytes"
+            ) from exc
 
         connection = self._connection
         if connection is None:
@@ -529,7 +592,9 @@ def _as_point_scalar(
 ) -> float | int | bool | str | None:
     if value is None or isinstance(value, str | int | float | bool):
         return value
-    raise TypeError(f"unsupported ADS value type '{type(value).__name__}'")
+    raise TypeError(
+        f"unsupported ADS value type '{type(value).__name__}'"
+    )
 
 
 def _bad_sample(point_id: str) -> ProtocolSample:
@@ -586,7 +651,9 @@ def _coerce_write_value(
             raise ValueError(f"ADS {ads_type} requires an integer value")
         lower, upper = integer_range
         if not lower <= integer <= upper:
-            raise ValueError(f"ADS {ads_type} value {integer} outside range {lower}..{upper}")
+            raise ValueError(
+                f"ADS {ads_type} value {integer} outside range {lower}..{upper}"
+            )
         return integer
 
     if ads_type in {"REAL", "LREAL"}:
@@ -595,6 +662,7 @@ def _coerce_write_value(
         return float(value)
 
     raise ValueError(f"unsupported ADS type '{ads_type}'")
+
 
 
 class _TrackedADSSubscription:
