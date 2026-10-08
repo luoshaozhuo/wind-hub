@@ -12,6 +12,7 @@ from pathlib import Path
 from core.application import ConfigError
 from core.application.port.config import CommanderConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
+from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
 from .point_tables import resolve_point_tables
@@ -57,8 +58,11 @@ def load_commander_config(
         connect_timeout = float(runtime_raw.get("connect_timeout", 10.0))
         write_timeout = float(runtime_raw.get("write_timeout", 5.0))
 
-        models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
-        instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
+        if typed_reader is not None:
+            models_file, instances_file = to_raw_devices(device_config)
+        else:
+            models_file = DeviceModelsFile(**models_raw)
+            instances_file = DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
         if typed_reader is not None:
             units_file = UnitsFile(
@@ -75,7 +79,7 @@ def load_commander_config(
         raise ConfigError(f"Invalid commander configuration: {exc}") from exc
 
     if typed_reader is not None:
-        tables = dict(point_config.tables)
+        tables = to_raw_point_tables(point_config)
     else:
         assert tables_file is not None
         tables = resolve_point_tables(tables_file.point_tables)
