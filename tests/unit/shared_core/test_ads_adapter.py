@@ -370,9 +370,11 @@ async def test_ads_driver_exposes_notification_subscription(
         lambda: _FakeNotificationPyads,
     )
     received: list[ProtocolSample] = []
+    delivered = asyncio.Event()
 
     async def callback(sample: ProtocolSample) -> None:
         received.append(sample)
+        delivered.set()
 
     handle = await driver.subscribe(
         (point.point_id,),
@@ -388,7 +390,7 @@ async def test_ads_driver_exposes_notification_subscription(
         None,
         12.5,
     )
-    await asyncio.sleep(0)
+    await asyncio.wait_for(delivered.wait(), timeout=1.0)
 
     assert received[0].point_id == "speed"
     assert received[0].value == 12.5
