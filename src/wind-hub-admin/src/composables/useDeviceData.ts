@@ -13,6 +13,7 @@ import {
 import { tableOfDevice, unitSymbol } from '../domain/devices'
 import { pointsOfTable } from '../domain/points'
 import { useConfigStore } from '../stores/config'
+import { dataSourceState } from '../domain/dataSourceState'
 import { EMPTY, formatTimestamp } from '../utils/format'
 import type { DeviceInst } from '../domain/types'
 
@@ -33,6 +34,13 @@ export function useDeviceData(device: Ref<DeviceInst | null>, active: ComputedRe
     enabled: computed(() => !!device.value && active.value),
     refetchInterval: computed(() => (autoRefresh.value ? refreshInterval.value : false)),
   })
+  const sourceState = computed(() =>
+    dataSourceState({
+      isPending: query.isPending.value,
+      isError: query.isError.value,
+      hasData: query.data.value != null,
+    }),
+  )
   const refreshing = computed(() => query.isFetching.value)
   watch(
     () => query.dataUpdatedAt.value,
@@ -79,6 +87,7 @@ export function useDeviceData(device: Ref<DeviceInst | null>, active: ComputedRe
 
   return {
     query,
+    sourceState,
     autoRefresh,
     refreshInterval,
     lastRefreshAt,
