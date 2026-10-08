@@ -2,8 +2,8 @@
 
 from .config import (
     CoreConfigSnapshot,
-    ProtocolOptionValue,
     ProtocolOptions,
+    ProtocolOptionValue,
     validate_core_config,
 )
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
