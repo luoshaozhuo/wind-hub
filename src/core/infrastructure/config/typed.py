@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+
+from core.application.config_types import DeviceConfig, PointConfig, SystemConfig, TaskConfig, UnitConfig
 from types import MappingProxyType
 from typing import Any, TypeVar
 
@@ -23,42 +24,6 @@ from core.infrastructure.config.raw import (
     UnitsFile,
 )
 from core.infrastructure.config.yaml import YamlConfigReader
-
-
-@dataclass(frozen=True, slots=True)
-class DeviceConfig:
-    """设备型号和设备实例的独立 Schema 校验结果。"""
-
-    models: DeviceModelsFile
-    instances: DeviceInstancesFile
-
-
-@dataclass(frozen=True, slots=True)
-class PointConfig:
-    """完成继承展开的点表集合。"""
-
-    tables: Mapping[str, ResolvedTable]
-
-
-@dataclass(frozen=True, slots=True)
-class TaskConfig:
-    """仅保证 Task 自身的规则；引用有效性由调用方负责。"""
-
-    definition: TasksFile
-
-
-@dataclass(frozen=True, slots=True)
-class SystemConfig:
-    """系统配置的不可变顶层分区；各进程自行解释业务字段。"""
-
-    sections: Mapping[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class UnitConfig:
-    """经 Schema 校验的单位配置。"""
-
-    definition: UnitsFile
 
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
