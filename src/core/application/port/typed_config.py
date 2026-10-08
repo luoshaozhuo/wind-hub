@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from core.infrastructure.config.typed import (
         DeviceConfig,
         PointConfig,
+        SystemConfig,
         TaskConfig,
         UnitConfig,
     )
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
 @runtime_checkable
 class TypedConfigReader(Protocol):
     """只约束读取能力；具体 YAML/文件实现属于 Adapter。"""
+
+    def read_system_config(self) -> SystemConfig: ...
 
     def read_device_config(self) -> DeviceConfig: ...
 
