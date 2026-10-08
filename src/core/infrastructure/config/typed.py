@@ -7,15 +7,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-
-from core.application.config_types import DeviceConfig, PointConfig, SystemConfig, TaskConfig, UnitConfig
 from types import MappingProxyType
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
 from core.application import ConfigError
-from core.infrastructure.config.point_tables import ResolvedTable, resolve_point_tables
+from core.application.config_types import (
+    DeviceConfig,
+    PointConfig,
+    SystemConfig,
+    TaskConfig,
+    UnitConfig,
+)
+from core.infrastructure.config.point_tables import resolve_point_tables
 from core.infrastructure.config.raw import (
     DeviceInstancesFile,
     DeviceModelsFile,
