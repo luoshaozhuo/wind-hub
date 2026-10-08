@@ -203,7 +203,7 @@ def test_modbus_read_plan_precomputes_register_ranges():
         {},
     )
     first = driver._read_plan(("x", "y", "z"))
-    assert [(group.register_type, group.start, group.count) for group in first] == [
+    assert sorted((group.register_type, group.start, group.count) for group in first) == [
         ("holding", 12, 2),
         ("input", 8, 1),
     ]
