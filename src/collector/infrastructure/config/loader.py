@@ -75,7 +75,15 @@ def load_collector_config(
         models_file = device_config.models if typed else DeviceModelsFile(**models_raw)
         instances_file = device_config.instances if typed else DeviceInstancesFile(**devices_raw)
         tables_file = PointTablesFile(**points_raw) if not typed else None
-        units_file = UnitsFile(units={key: {'symbol': item.symbol, 'name': item.name} for key, item in unit_config.units.items()}) if typed else UnitsFile(**units_raw)
+        if typed_reader is not None:
+            units_file = UnitsFile(
+                units={
+                    key: {"symbol": item.symbol, "name": item.name}
+                    for key, item in unit_config.units.items()
+                }
+            )
+        else:
+            units_file = UnitsFile(**units_raw)
         tasks_file = TasksFile(**tasks_raw) if not typed else None
         sinks_file = (
             typed_reader.read_sink_config()
