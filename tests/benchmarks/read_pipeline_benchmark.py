@@ -16,12 +16,12 @@ import tracemalloc
 from collections.abc import Awaitable, Callable
 
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
@@ -49,7 +49,6 @@ def _driver(point_count: int = 256) -> ModbusDriver:
         PointTable("benchmark", Protocol("modbus"), points),
         {},
     )
-
 
 
 class FakeModbusResponse:
@@ -98,8 +97,7 @@ async def main() -> None:
     driver._connected = True
     fixed = tuple(f"p{i}" for i in range(64))
     dynamic = tuple(
-        tuple(f"p{(index * 17 + offset) % 256}" for offset in range(32))
-        for index in range(64)
+        tuple(f"p{(index * 17 + offset) % 256}" for offset in range(32)) for index in range(64)
     )
 
     async def fixed_raw() -> object:

@@ -23,7 +23,9 @@ from wind_hub_core.protocol.port import ProtocolPort
 
 def _config(device_id: str = "d1", port: int = 502) -> DeviceConfig:
     return DeviceConfig(
-        device_id=device_id, protocol="modbus", point_table="t1",
+        device_id=device_id,
+        protocol="modbus",
+        point_table="t1",
         endpoint=Endpoint(host="127.0.0.1", port=port),
     )
 
@@ -40,7 +42,10 @@ def test_collector_transfers_registry_and_engine_device_port_to_one_owner() -> N
     session = CollectorDeviceSession(_config(), [], _protocol())
     engine = AcquisitionEngine()
     collector = CollectorRuntime(
-        devices={"d1": session}, sinks={}, engine=engine, config=RuntimeConfig(),
+        devices={"d1": session},
+        sinks={},
+        engine=engine,
+        config=RuntimeConfig(),
     )
 
     devices = collector.device_runtime
@@ -131,9 +136,12 @@ async def test_startup_timeout_and_shutdown_failure_do_not_block_other_devices()
     failed.close.side_effect = OSError("close failed")
     metrics = CollectorMetricsState()
     devices = DeviceRuntime(
-        {"d1": CollectorDeviceSession(_config(), [], failed),
-         "d2": CollectorDeviceSession(_config("d2"), [], healthy)},
-        RuntimeConfig(connect_timeout=0.01), metrics_hook=metrics,
+        {
+            "d1": CollectorDeviceSession(_config(), [], failed),
+            "d2": CollectorDeviceSession(_config("d2"), [], healthy),
+        },
+        RuntimeConfig(connect_timeout=0.01),
+        metrics_hook=metrics,
     )
     await devices.connect_all()
     try:
@@ -156,8 +164,11 @@ async def test_reconnect_backoff_and_metrics_hook_replacement() -> None:
     first, replacement = CollectorMetricsState(), CollectorMetricsState()
     collector = CollectorRuntime(
         devices={"d1": CollectorDeviceSession(_config(), [], protocol)},
-        sinks={}, engine=AcquisitionEngine(), config=RuntimeConfig(),
-        clock=lambda: now, metrics_hook=first,
+        sinks={},
+        engine=AcquisitionEngine(),
+        config=RuntimeConfig(),
+        clock=lambda: now,
+        metrics_hook=first,
     )
     devices = collector.device_runtime
     await collector.start()
@@ -200,7 +211,8 @@ async def test_read_failure_classification_keeps_connection_only_for_healthy_dri
 ) -> None:
     protocol = _protocol()
     devices = DeviceRuntime(
-        {"d1": CollectorDeviceSession(_config(), [], protocol)}, RuntimeConfig(),
+        {"d1": CollectorDeviceSession(_config(), [], protocol)},
+        RuntimeConfig(),
     )
     await devices.connect_all()
     try:

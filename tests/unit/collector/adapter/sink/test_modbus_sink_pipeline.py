@@ -35,9 +35,7 @@ def test_update_exports_encodes_and_writes_registers() -> None:
     path = ModbusSinkDataPath(
         [_point("p1", datatype="float32", register_type="holding", address=100)]
     )
-    count = path.update(
-        [PointValue(device_id="wt01", point_id="p1", value=1.0)]
-    )
+    count = path.update([PointValue(device_id="wt01", point_id="p1", value=1.0)])
     assert count == 1
     assert path.store.read_registers(1, "holding", 100, 2) == [0x3F80, 0x0000]
 
@@ -63,9 +61,7 @@ def test_update_ignores_unmapped_input() -> None:
     path = ModbusSinkDataPath(
         [_point("p1", datatype="uint16", register_type="holding", address=10)]
     )
-    count = path.update(
-        [PointValue(device_id="wt01", point_id="other", value=7)]
-    )
+    count = path.update([PointValue(device_id="wt01", point_id="other", value=7)])
     assert count == 0
     assert path.store.read_registers(1, "holding", 10) == [0]
 
@@ -94,19 +90,13 @@ def test_none_value_does_not_overwrite_last_good_registers() -> None:
         [_point("p1", datatype="uint16", register_type="holding", address=10)]
     )
     path.update([PointValue(device_id="wt01", point_id="p1", value=7)])
-    count = path.update(
-        [PointValue(device_id="wt01", point_id="p1", value=None)]
-    )
+    count = path.update([PointValue(device_id="wt01", point_id="p1", value=None)])
     assert count == 0
     assert path.store.read_registers(1, "holding", 10) == [7]
 
 
 def test_update_writes_bit_space() -> None:
-    path = ModbusSinkDataPath(
-        [_point("run", datatype="bool", register_type="coil", address=5)]
-    )
-    count = path.update(
-        [PointValue(device_id="wt01", point_id="run", value=True)]
-    )
+    path = ModbusSinkDataPath([_point("run", datatype="bool", register_type="coil", address=5)])
+    count = path.update([PointValue(device_id="wt01", point_id="run", value=True)])
     assert count == 1
     assert path.store.read_bits(1, "coil", 5) == [True]

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import struct
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from math import isfinite
 from typing import Any
 
@@ -14,9 +14,9 @@ from core.application.errors import ConfigError, ProtocolCapabilityError, Protoc
 from core.application.port import ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
+    PointScalar,
     ProtocolCapability,
     ProtocolSample,
-    PointScalar,
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
@@ -130,8 +130,7 @@ class ModbusDriver:
                 with contextlib.suppress(Exception):
                     client.close()
                 raise ProtocolError(
-                    f"Modbus connect failed for {self._config.host}:"
-                    f"{self._config.port}: {exc}"
+                    f"Modbus connect failed for {self._config.host}:" f"{self._config.port}: {exc}"
                 ) from exc
 
             if not connected:
@@ -269,22 +268,17 @@ class ModbusDriver:
     ) -> SubscriptionHandle:
         """Modbus TCP 不支持协议级主动订阅。"""
         del point_ids, callback, interval
-        raise ProtocolCapabilityError(
-            "modbus does not support subscription"
-        )
+        raise ProtocolCapabilityError("modbus does not support subscription")
 
     async def interrogate(self) -> None:
         """Modbus TCP 不支持 IEC104 式总召能力。"""
-        raise ProtocolCapabilityError(
-            "modbus does not support interrogation"
-        )
+        raise ProtocolCapabilityError("modbus does not support interrogation")
 
     def _mapped_point(self, point_id: str) -> ModbusPoint:
         mapped = self._points.get(point_id)
         if mapped is None:
             raise ConfigError(
-                f"point '{point_id}' is not part of connection "
-                f"'{self._point_table_id}'"
+                f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
 
@@ -517,9 +511,7 @@ def _strict_integer_value(
         raise ValueError(f"{data_type} requires an integer value")
     lower, upper = value_range
     if not lower <= integer <= upper:
-        raise ValueError(
-            f"{data_type} value {integer} outside range {lower}..{upper}"
-        )
+        raise ValueError(f"{data_type} value {integer} outside range {lower}..{upper}")
     return integer
 
 

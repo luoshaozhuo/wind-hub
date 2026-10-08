@@ -11,11 +11,11 @@ from typing import Protocol, runtime_checkable
 
 from ..protocol_contract import (
     ConnectionHealth,
+    PointScalar,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
-    PointScalar,
     Quality,
 )
 
@@ -23,8 +23,7 @@ from ..protocol_contract import (
 class SubscriptionHandle(Protocol):
     """协议订阅生命周期句柄。"""
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
@@ -33,29 +32,23 @@ ProtocolSampleCallback = Callable[[ProtocolSample], Awaitable[None]]
 class ProtocolPort(Protocol):
     """统一设备协议运行时能力边界。"""
 
-    def capabilities(self) -> frozenset[ProtocolCapability]:
-        ...
+    def capabilities(self) -> frozenset[ProtocolCapability]: ...
 
-    async def connect(self) -> None:
-        ...
+    async def connect(self) -> None: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
-    def health(self) -> ConnectionHealth:
-        ...
+    def health(self) -> ConnectionHealth: ...
 
     async def read(
         self,
         point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        ...
+    ) -> tuple[ProtocolSample, ...]: ...
 
     async def write(
         self,
         writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]:
-        ...
+    ) -> tuple[ProtocolWriteResult, ...]: ...
 
     async def subscribe(
         self,
@@ -63,11 +56,9 @@ class ProtocolPort(Protocol):
         callback: ProtocolSampleCallback,
         *,
         interval: float | None = None,
-    ) -> SubscriptionHandle:
-        ...
+    ) -> SubscriptionHandle: ...
 
-    async def interrogate(self) -> None:
-        ...
+    async def interrogate(self) -> None: ...
 
 
 RawReadResult = tuple[tuple[PointScalar, Quality], ...]

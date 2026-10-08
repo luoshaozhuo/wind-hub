@@ -226,6 +226,7 @@ async def test_close_idempotent_and_start_idempotent():
 async def test_raw_driver_path_skips_protocol_sample_wrapping():
     proto = CollectorFakeProtocol()
     proto.read_values["p1"] = 7.0
+
     async def read_raw(point_ids):
         assert point_ids == ["p1"]
         return ((7.0, Quality.GOOD),)

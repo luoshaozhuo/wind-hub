@@ -7,12 +7,12 @@ import struct
 import pytest
 
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure.protocol.ads.driver import ADSDriver

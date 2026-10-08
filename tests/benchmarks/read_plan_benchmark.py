@@ -13,12 +13,12 @@ import tracemalloc
 from collections.abc import Callable
 
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
@@ -65,10 +65,7 @@ def _measure(fn: Callable[[], None], iterations: int = 5000) -> tuple[float, int
 def main() -> None:
     driver = _driver()
     fixed = tuple(f"p{i}" for i in range(64))
-    dynamic = [
-        tuple(f"p{(i * 17 + j) % 256}" for j in range(32))
-        for i in range(64)
-    ]
+    dynamic = [tuple(f"p{(i * 17 + j) % 256}" for j in range(32)) for i in range(64)]
 
     def fixed_cached() -> None:
         driver._read_plan(fixed)

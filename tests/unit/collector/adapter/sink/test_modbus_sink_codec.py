@@ -43,9 +43,7 @@ def _value(
 
 
 def test_encode_coil_bool() -> None:
-    encoded = encode_modbus_value(
-        _value(True, datatype="bool", register_type="coil")
-    )
+    encoded = encode_modbus_value(_value(True, datatype="bool", register_type="coil"))
     assert encoded.bits == (True,)
     assert encoded.registers == ()
     assert encoded.unit_id == 1
@@ -58,9 +56,7 @@ def test_encode_uint16_big_endian() -> None:
 
 
 def test_encode_int16_little_byte_order() -> None:
-    encoded = encode_modbus_value(
-        _value(-2, datatype="int16", byte_order="little")
-    )
+    encoded = encode_modbus_value(_value(-2, datatype="int16", byte_order="little"))
     assert encoded.registers == (0xFEFF,)
 
 
@@ -70,9 +66,7 @@ def test_encode_float32_big_big() -> None:
 
 
 def test_encode_float32_little_word_order() -> None:
-    encoded = encode_modbus_value(
-        _value(1.0, datatype="float32", word_order="little")
-    )
+    encoded = encode_modbus_value(_value(1.0, datatype="float32", word_order="little"))
     assert encoded.registers == (0x0000, 0x3F80)
 
 
@@ -95,9 +89,7 @@ def test_encode_none_rejected() -> None:
 
 def test_encode_non_bool_bit_rejected() -> None:
     with pytest.raises(TypeError, match="requires bool value"):
-        encode_modbus_value(
-            _value(1, datatype="bool", register_type="discrete")
-        )
+        encode_modbus_value(_value(1, datatype="bool", register_type="discrete"))
 
 
 def test_encode_str_register_rejected() -> None:

@@ -25,10 +25,10 @@ from typing import Protocol
 from core.application import (
     ConfigError,
     ConnectionHealth,
+    PointScalar,
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
-    PointScalar,
     Quality,
 )
 from core.application.port.protocol import RawReadPort

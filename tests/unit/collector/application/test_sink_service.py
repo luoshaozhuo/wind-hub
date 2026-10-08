@@ -19,9 +19,7 @@ pytestmark = pytest.mark.asyncio
 
 def _sink(healthy: bool = True, message: str | None = None) -> MagicMock:
     sink = MagicMock(spec=SinkPort)
-    sink.health = MagicMock(
-        return_value=HealthStatus(healthy=healthy, message=message)
-    )
+    sink.health = MagicMock(return_value=HealthStatus(healthy=healthy, message=message))
     sink.open = AsyncMock()
     sink.close = AsyncMock()
     sink.write = AsyncMock()

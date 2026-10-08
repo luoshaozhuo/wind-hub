@@ -258,7 +258,6 @@ class TestWrite:
         await sink.close()
 
 
-
 # ---------------------------------------------------------------------------
 # 健康状态
 # ---------------------------------------------------------------------------
@@ -323,9 +322,7 @@ class TestWriteTimeout:
         assert "timed out" in (sink.health().message or "")
         await sink.close()
 
-    async def test_hanging_writes_flip_unhealthy_after_threshold(
-        self, fake_asyncpg: None
-    ) -> None:
+    async def test_hanging_writes_flip_unhealthy_after_threshold(self, fake_asyncpg: None) -> None:
         _FakePool.hang_executemany = True
         sink = DBSink(_cfg(write_timeout=0.05))
         await sink.open()

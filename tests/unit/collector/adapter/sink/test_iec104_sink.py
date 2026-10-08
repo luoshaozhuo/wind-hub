@@ -48,9 +48,7 @@ def _point_value(sink: IEC104Sink, ioa: int):  # type: ignore[no-untyped-def]
 
 async def test_write_exports_and_updates_point() -> None:
     sink = IEC104Sink(_config())
-    await sink.write(
-        [PointValue(device_id="wt01", point_id="wind_speed", value=3.0)]
-    )
+    await sink.write([PointValue(device_id="wt01", point_id="wind_speed", value=3.0)])
     # scale=2.0, offset=1.0 → 3.0*2+1 = 7.0
     assert _point_value(sink, 1001) == pytest.approx(7.0)
 
