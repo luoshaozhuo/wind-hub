@@ -83,3 +83,19 @@ def test_system_config_is_deeply_immutable(tmp_path):
         config.sections["runtime"]["nested"] = {}
     with pytest.raises(TypeError):
         config.sections["runtime"]["nested"]["values"][0] = 10
+
+
+def test_resolved_point_table_index_is_read_only(tmp_path):
+    (tmp_path / "points.yaml").write_text(
+        "point_tables:\n"
+        "  main:\n"
+        "    protocol: ads\n"
+        "    points:\n"
+        "      - point_id: speed\n"
+        "        point_groups: [fast]\n"
+        "        address: {type: MAIN.speed}\n",
+        encoding="utf-8",
+    )
+    config = YamlTypedConfigAdapter(tmp_path).read_point_config()
+    with pytest.raises(TypeError):
+        config.tables["main"].points["speed"] = None
