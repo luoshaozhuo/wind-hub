@@ -14,6 +14,12 @@ from pydantic import BaseModel
 from core.application import ConfigError
 from core.application.config_types import (
     DeviceConfig,
+    DeviceInstanceDefinition,
+    DeviceModelDefinition,
+    DeviceTypeDefinition,
+    EndpointDefinition,
+    PointDefinition,
+    PointTableDefinition,
     DeviceInstancesConfig,
     DeviceModelsConfig,
     PointConfig,
@@ -65,22 +71,76 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
     def read_device_models_config(self) -> DeviceModelsConfig:
         definition = self._validate(DeviceModelsFile, self.read_device_models(), "device_models")
-        return DeviceModelsConfig(definition=definition)
+        return DeviceModelsConfig(
+            device_types=MappingProxyType({
+                key: DeviceTypeDefinition(name=value.name)
+                for key, value in definition.device_types.items()
+            }),
+            device_models=MappingProxyType({
+                key: DeviceModelDefinition(
+                    device_type=value.device_type,
+                    manufacturer=value.manufacturer,
+                    model=value.model,
+                    protocol=value.protocol,
+                    point_table=value.point_table,
+                    read_mode=value.read_mode,
+                    properties=_freeze_config(value.properties),
+                    connection_defaults=_freeze_config(value.connection_defaults),
+                )
+                for key, value in definition.device_models.items()
+            }),
+        )
 
     def read_device_instances_config(self) -> DeviceInstancesConfig:
         definition = self._validate(DeviceInstancesFile, self.read_devices(), "devices")
-        return DeviceInstancesConfig(definition=definition)
+        return DeviceInstancesConfig(
+            devices=tuple(
+                DeviceInstanceDefinition(
+                    device_id=item.device_id,
+                    model=item.model,
+                    device_group=item.device_group,
+                    endpoint=EndpointDefinition(
+                        host=item.endpoint.host,
+                        port=item.endpoint.port,
+                        extensions=_freeze_config(item.endpoint.extensions),
+                    ),
+                    enabled=item.enabled,
+                )
+                for item in definition.devices
+            )
+        )
 
     def read_device_config(self) -> DeviceConfig:
         return DeviceConfig(
-            models=self.read_device_models_config().definition,
-            instances=self.read_device_instances_config().definition,
+            models=self.read_device_models_config(),
+            instances=self.read_device_instances_config(),
         )
 
     def read_point_config(self) -> PointConfig:
         definition = self._validate(PointTablesFile, self.read_points(), "points")
         tables = resolve_point_tables(definition.point_tables)
-        return PointConfig(tables=MappingProxyType(dict(tables)))
+        return PointConfig(
+            tables=MappingProxyType({
+                name: PointTableDefinition(
+                    protocol=table.protocol,
+                    points=MappingProxyType({
+                        point_id: PointDefinition(
+                            point_id=point.point_id,
+                            variable_name=point.variable_name,
+                            point_groups=tuple(point.point_groups),
+                            address=_freeze_config(point.address.model_dump(exclude_none=True)),
+                            data_type=point.data_type,
+                            scale=point.scale,
+                            offset=point.offset,
+                            unit=point.unit,
+                            description=point.description,
+                        )
+                        for point_id, point in table.points.items()
+                    }),
+                )
+                for name, table in tables.items()
+            })
+        )
 
     def read_task_config(self) -> TaskConfig:
         definition = self._validate(TasksFile, self.read_tasks(), "tasks")
