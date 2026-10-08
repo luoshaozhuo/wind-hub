@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from core.application import ConfigError
 from core.application.config_types import (
     DeviceConfig,
+    DeviceInstancesConfig,
+    DeviceModelsConfig,
     PointConfig,
     SystemConfig,
     TaskConfig,
@@ -59,10 +61,18 @@ class YamlTypedConfigAdapter(YamlConfigReader):
         raw = self.read_system()
         return SystemConfig(sections=_freeze_config(raw))
 
+    def read_device_models_config(self) -> DeviceModelsConfig:
+        definition = self._validate(DeviceModelsFile, self.read_device_models(), "device_models")
+        return DeviceModelsConfig(definition=definition)
+
+    def read_device_instances_config(self) -> DeviceInstancesConfig:
+        definition = self._validate(DeviceInstancesFile, self.read_devices(), "devices")
+        return DeviceInstancesConfig(definition=definition)
+
     def read_device_config(self) -> DeviceConfig:
         return DeviceConfig(
-            models=self._validate(DeviceModelsFile, self.read_device_models(), "device_models"),
-            instances=self._validate(DeviceInstancesFile, self.read_devices(), "devices"),
+            models=self.read_device_models_config().definition,
+            instances=self.read_device_instances_config().definition,
         )
 
     def read_point_config(self) -> PointConfig:
