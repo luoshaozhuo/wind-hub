@@ -67,7 +67,7 @@ def load_collector_config(
         points_raw = reader.read_points()
         units_raw = reader.read_units()
         tasks_raw = reader.read_tasks()
-    sinks_raw = reader.read_sinks()
+    sinks_raw = reader.read_sinks() if typed_reader is None else None
 
     try:
         runtime = _parse_runtime_params(system_raw.get("runtime") or {})
@@ -77,7 +77,11 @@ def load_collector_config(
         tables_file = PointTablesFile(**points_raw) if not typed else None
         units_file = unit_config.definition if typed else UnitsFile(**units_raw)
         tasks_file = task_config.definition if typed else TasksFile(**tasks_raw)
-        sinks_file = SinksConfig(**sinks_raw)
+        sinks_file = (
+            typed_reader.read_sink_config()
+            if typed_reader is not None
+            else SinksConfig(**sinks_raw)
+        )
     except ConfigError:
         raise
     except Exception as exc:
