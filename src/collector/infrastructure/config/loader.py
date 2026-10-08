@@ -109,22 +109,32 @@ def load_collector_config(
     }
     sinks = resolve_sinks(sinks_file, snapshot, units_file, disabled_tables)
     if typed_reader is not None:
-        task_definitions = task_config.tasks
+        tasks = {
+            raw.task_id: CollectionTask(
+                task_id=raw.task_id,
+                device=raw.device,
+                device_group=raw.device_group,
+                point_group=raw.point_group,
+                interval=raw.interval,
+                targets=raw.targets,
+                enabled=raw.enabled,
+            )
+            for raw in task_config.tasks
+        }
     else:
         assert tasks_file is not None
-        task_definitions = tasks_file.tasks
-    tasks = {
-        raw.task_id: CollectionTask(
-            task_id=raw.task_id,
-            device=raw.device,
-            device_group=raw.device_group,
-            point_group=raw.point_group,
-            interval=raw.interval,
-            targets=(raw.targets if typed_reader is not None else tuple(target.sink for target in raw.targets)),
-            enabled=raw.enabled,
-        )
-        for raw in tasks_file.tasks
-    }
+        tasks = {
+            raw.task_id: CollectionTask(
+                task_id=raw.task_id,
+                device=raw.device,
+                device_group=raw.device_group,
+                point_group=raw.point_group,
+                interval=raw.interval,
+                targets=tuple(target.sink for target in raw.targets),
+                enabled=raw.enabled,
+            )
+            for raw in tasks_file.tasks
+        }
 
     sink_names = {name for name, sink in sinks.items() if sink.enabled}
     # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
