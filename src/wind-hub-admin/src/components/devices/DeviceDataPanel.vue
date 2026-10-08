@@ -52,9 +52,7 @@ watch(visibleData, (rows) => {
 <template>
   <div class="data-toolbar">
     <div>
-      <h3>
-        {{ dataRows.length }} points <DataSourceBadge :state="sourceState" />
-      </h3>
+      <h3>{{ dataRows.length }} points <DataSourceBadge :state="sourceState" /></h3>
       <p>
         {{ sourceState === 'valid' ? dataSuccessCount + ' / ' + dataRows.length : '—' }}
         read
