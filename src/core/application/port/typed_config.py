@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
-# 类型化契约在 Core Application 定义，Port 不引用 Infrastructure。
-from core.application.config_types import DeviceConfig, PointConfig, SystemConfig, TaskConfig, UnitConfig
+from core.application.config_types import (
+    DeviceConfig,
+    PointConfig,
+    SystemConfig,
+    TaskConfig,
+    UnitConfig,
+)
 
 
 @runtime_checkable
