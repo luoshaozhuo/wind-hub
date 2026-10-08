@@ -115,3 +115,41 @@ async def test_modbus_raw_read_preserves_bad_quality(monkeypatch):
     from core.application import Quality
 
     assert await driver.read_raw(["p0"]) == ((None, Quality.BAD),)
+
+
+@pytest.mark.asyncio
+async def test_ads_raw_read_skips_sample_wrapping_and_preserves_bad(monkeypatch):
+    from core.application import Quality
+
+    points = {
+        "good": _point("good", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 0}),
+        "bad": _point("bad", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 4}),
+    }
+    driver = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable("ads", Protocol("ads"), points),
+        {},
+    )
+    driver._connection = object()
+    driver._connected = True
+
+    monkeypatch.setattr(
+        driver,
+        "_sum_read_bytes",
+        lambda _addresses: struct.pack("<IIii", 0, 1808, 23, 0),
+    )
+    import core.infrastructure.protocol.ads.driver as ads_module
+
+    monkeypatch.setattr(
+        ads_module,
+        "_decode_value",
+        lambda data, _mapped: struct.unpack("<i", data)[0],
+    )
+    assert await driver.read_raw(["good", "bad"]) == (
+        (23, Quality.GOOD),
+        (None, Quality.BAD),
+    )
+    wrapped = await driver.read(["good", "bad"])
+    assert [sample.point_id for sample in wrapped] == ["good", "bad"]
+    assert wrapped[0].value == 23
+    assert wrapped[1].quality is Quality.BAD
