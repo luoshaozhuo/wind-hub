@@ -79,6 +79,28 @@ def _run_many(commands: Sequence[tuple[str, Sequence[str]]]) -> bool:
     return passed
 
 
+def _isolated_unit_tests() -> bool:
+    """各 unit 子包独立收集，隔离并行迁移期同名 Protobuf 描述符。
+
+    不跳过任何 unit 测试：目录与顶层测试文件均逐个启动新的 pytest 进程。
+    """
+    root = REPO_ROOT / "tests" / "unit"
+    children = sorted(
+        path
+        for path in root.iterdir()
+        if path.is_dir() or (path.suffix == ".py" and path.name != "__init__.py")
+    )
+    return _run_many(
+        [
+            (
+                f"unit/{path.name}",
+                _python_module("pytest", str(path.relative_to(REPO_ROOT)), "-q"),
+            )
+            for path in children
+        ]
+    )
+
+
 def fast_gate(part: str, targets: str) -> bool:
     """执行 Fast Gate。"""
     if part == "backend-static":
@@ -106,11 +128,14 @@ def fast_gate(part: str, targets: str) -> bool:
         if not selected:
             print("GATE RESULT: NOT_APPLICABLE")
             return True
-        commands = [
+        checks = [
             (target, _python_module("pytest", f"tests/{target}", "-q"))
             for target in selected
+            if target != "unit"
         ]
-        return _run_many(commands)
+        other_passed = _run_many(checks)
+        unit_passed = _isolated_unit_tests() if "unit" in selected else True
+        return other_passed and unit_passed
 
     if part == "frontend":
         return _run_many(
