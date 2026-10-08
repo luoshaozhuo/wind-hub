@@ -13,6 +13,7 @@ from .config import (
     TaskConfigReader,
     UnitConfigReader,
 )
+from .typed_config import TypedConfigReader
 from .protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "SystemConfigReader",
     "TaskConfigReader",
     "UnitConfigReader",
+    "TypedConfigReader",
     "ProtocolPort",
     "ProtocolSampleCallback",
     "SubscriptionHandle",
