@@ -153,3 +153,38 @@ async def test_ads_raw_read_skips_sample_wrapping_and_preserves_bad(monkeypatch)
     assert [sample.point_id for sample in wrapped] == ["good", "bad"]
     assert wrapped[0].value == 23
     assert wrapped[1].quality is Quality.BAD
+
+
+@pytest.mark.asyncio
+async def test_modbus_accepts_tuple_register_buffer_without_copying():
+    """底层响应允许只读寄存器序列；多个相邻点解码不改变原始缓冲区。"""
+    points = {
+        "a": _point("a", {"register_type": "holding", "address": 10, "data_type": "uint16"}),
+        "b": _point("b", {"register_type": "holding", "address": 11, "data_type": "uint16"}),
+    }
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), points),
+        {},
+    )
+
+    class Response:
+        registers = (11, 22)
+
+        def isError(self):
+            return False
+
+    class Client:
+        async def read_holding_registers(self, address, *, count, device_id):
+            assert (address, count) == (10, 2)
+            return Response()
+
+    driver._client = Client()
+    driver._connected = True
+    from core.application import Quality
+
+    assert await driver.read_raw(("a", "b")) == (
+        (11, Quality.GOOD),
+        (22, Quality.GOOD),
+    )
+    assert Response.registers == (11, 22)
