@@ -17,6 +17,8 @@ merge 语义与旧系统一致：以 ``model_fields_set`` 区分「未写」（�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from core.application import ConfigError
@@ -31,7 +33,7 @@ class ResolvedTable:
 
     def __init__(self, protocol: str, points: dict[str, PointConfigRaw]) -> None:
         self.protocol = protocol
-        self.points = points
+        self.points: Mapping[str, PointConfigRaw] = MappingProxyType(dict(points))
 
 
 def resolve_point_tables(
