@@ -65,7 +65,9 @@ const {
       No trend signals selected. Use “Select Signals” to add variables.
     </div>
     <div ref="chartEl" class="trend-chart control-trend-chart"></div>
-    <p v-if="signals.length && sourceState !== 'valid'" class="data-source-hint">当前趋势数据不可用；图表未继续绘制失效测点。</p>
+    <p v-if="signals.length && sourceState !== 'valid'" class="data-source-hint">
+      当前趋势数据不可用；图表未继续绘制失效测点。
+    </p>
 
     <!-- Trend picker -->
     <el-dialog v-model="pickerOpen" title="Select Trend Signals" width="var(--app-dialog-width-md)">
