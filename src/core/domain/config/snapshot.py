@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from math import isfinite
 from types import MappingProxyType
-from typing import TypeAlias, TypeVar
+from typing import Any, TypeAlias, TypeVar
 
 from ..device import Device, DeviceGroup, DeviceModel, DeviceType
 from ..identities import (
@@ -57,7 +57,7 @@ class CoreConfigSnapshot:
     device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        fields: dict[str, Mapping[object, object]] = {
+        fields: dict[str, Mapping[Any, Any]] = {
             "device_types": _freeze_index(self.device_types),
             "device_models": _freeze_index(self.device_models),
             "device_groups": _freeze_index(self.device_groups),
