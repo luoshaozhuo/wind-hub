@@ -72,3 +72,46 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
     assert seen == [((0x4020, 0, 4), (0x4020, 4, 4))] * 2
     driver._invalidate_symbol_addresses()
     assert driver._read_plan_cache == {}
+
+
+@pytest.mark.asyncio
+async def test_modbus_raw_read_does_not_create_sample_dto(monkeypatch):
+    point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), {"p0": point}),
+        {},
+    )
+    driver._connected = True
+
+    async def read_group(_group):
+        return {"p0": 17}
+
+    monkeypatch.setattr(driver, "_read_group", read_group)
+    raw = await driver.read_raw(["p0"])
+    assert raw[0][0] == 17
+    from core.application import Quality
+
+    assert raw[0][1] is Quality.GOOD
+    wrapped = await driver.read(["p0"])
+    assert wrapped[0].point_id == "p0"
+    assert wrapped[0].value == 17
+
+
+@pytest.mark.asyncio
+async def test_modbus_raw_read_preserves_bad_quality(monkeypatch):
+    point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), {"p0": point}),
+        {},
+    )
+    driver._connected = True
+
+    async def read_group(_group):
+        return {}
+
+    monkeypatch.setattr(driver, "_read_group", read_group)
+    from core.application import Quality
+
+    assert await driver.read_raw(["p0"]) == ((None, Quality.BAD),)
