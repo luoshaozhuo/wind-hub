@@ -16,7 +16,7 @@ import { useServerSnapshot } from './composables/useServerSnapshot'
 import { useViewport } from './composables/useViewport'
 
 const configStore = useConfigStore()
-const { booting, bootError, retry } = useServerSnapshot()
+const { connecting, apiError, retry } = useServerSnapshot()
 
 const menu = ref('Devices')
 const mobileNavOpen = ref(false)
@@ -89,15 +89,15 @@ function selectMenu(key: string) {
           >
         </div>
         <el-tag type="success">{{ configStore.systemInfo.runtimeStatus }}</el-tag>
-        <el-tag :type="bootError ? 'danger' : booting ? 'warning' : 'success'">{{
-          bootError ? 'API ERROR' : booting ? 'CONNECTING' : 'LIVE'
+        <el-tag :type="apiError ? 'danger' : connecting ? 'warning' : 'success'">{{
+          apiError ? 'API OFFLINE' : connecting ? 'CONNECTING' : 'LIVE'
         }}</el-tag>
       </el-header>
 
       <el-main class="app-main">
         <el-alert
-          v-if="bootError"
-          :title="bootError"
+          v-if="apiError"
+          :title="apiError"
           type="error"
           show-icon
           :closable="false"
@@ -107,7 +107,8 @@ function selectMenu(key: string) {
             <el-button size="small" @click="retry">Retry</el-button>
           </template>
         </el-alert>
-        <section v-if="!booting && !bootError" class="content">
+        <!-- 业务结构始终渲染：API 失败/首载 pending 只反映为状态，不卸载 content。 -->
+        <section class="content">
           <OverviewPage v-if="menu === 'Overview'" />
           <DevicesPage v-if="menu === 'Devices'" />
           <PointsPage v-if="menu === 'Points'" />

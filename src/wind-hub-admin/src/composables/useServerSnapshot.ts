@@ -65,12 +65,14 @@ export function useServerSnapshot() {
   )
 
   const queries = [settings, definitions, devices, tasks, sinks, overview]
-  const booting = computed(() => queries.some((q) => q.isPending.value))
-  const bootError = computed(() => queries.find((q) => q.isError.value)?.error.value?.message || '')
+  // connecting / apiError 只是状态信号，不得用于卸载业务页面：
+  // API 失败时业务结构仍以 Store 默认值 / 最后一次有效数据渲染。
+  const connecting = computed(() => queries.some((q) => q.isPending.value))
+  const apiError = computed(() => queries.find((q) => q.isError.value)?.error.value?.message || '')
 
   function retry() {
     for (const q of queries) void q.refetch()
   }
 
-  return { booting, bootError, retry }
+  return { connecting, apiError, retry }
 }
