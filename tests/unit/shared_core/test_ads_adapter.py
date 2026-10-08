@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol as TypingProtocol
 
 import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
 import core.infrastructure.protocol.ads.router as router_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
-
 
 from core.application import (
     ConfigError,
@@ -35,7 +34,7 @@ from core.infrastructure.protocol.ads import (
 )
 
 
-class _Closable(Protocol):
+class _Closable(TypingProtocol):
     async def close(self) -> None: ...
 
 
