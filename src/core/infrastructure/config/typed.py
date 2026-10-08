@@ -32,6 +32,7 @@ from core.application.config_types import (
 from core.application.sink_config import SinksConfig
 from core.infrastructure.config.point_tables import resolve_point_tables
 from core.infrastructure.config.raw import (
+    ADSSystemRaw,
     DeviceInstancesFile,
     DeviceModelsFile,
     PointTablesFile,
@@ -67,6 +68,11 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
     def read_system_config(self) -> SystemConfig:
         raw = self.read_system()
+        for section in ("ads", "runtime"):
+            if section in raw and raw[section] is not None and not isinstance(raw[section], dict):
+                raise ConfigError(f"system.yaml '{section}' must be a mapping")
+        if raw.get("ads") is not None:
+            self._validate(ADSSystemRaw, raw["ads"], "system.ads")
         return SystemConfig(sections=_freeze_config(raw))
 
     def read_device_models_config(self) -> DeviceModelsConfig:
