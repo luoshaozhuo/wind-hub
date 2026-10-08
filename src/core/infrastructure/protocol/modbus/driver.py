@@ -316,10 +316,7 @@ class ModbusDriver:
             )
 
         raw: list[object]
-        if register_type in _BIT_TYPES:
-            raw = list(response.bits)
-        else:
-            raw = list(response.registers)
+        raw = list(response.bits) if register_type in _BIT_TYPES else list(response.registers)
 
         values: dict[str, object] = {}
         for point in group:
