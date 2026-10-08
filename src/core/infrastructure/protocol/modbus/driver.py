@@ -354,10 +354,7 @@ class ModbusDriver:
 
         # 协议响应的序列只读取不修改，避免每轮复制整块寄存器。
         raw: Sequence[object]
-        if register_type in _BIT_TYPES:
-            raw = response.bits
-        else:
-            raw = response.registers
+        raw = response.bits if register_type in _BIT_TYPES else response.registers
 
         values: dict[str, object] = {}
         for point in group.points:
