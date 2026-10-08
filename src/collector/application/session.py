@@ -28,6 +28,7 @@ from core.application import (
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
+    PointScalar,
     Quality,
 )
 from core.application.port.protocol import RawReadPort
@@ -288,7 +289,7 @@ class CollectorDeviceSession:
 
     async def read_raw(
         self, point_group: str
-    ) -> tuple[list[str], tuple[tuple[object, Quality], ...]]:
+    ) -> tuple[list[str], tuple[tuple[PointScalar, Quality], ...]]:
         """直接读取原始数据，调用方决定是否转换为 PointValue。
 
         不支持原始读取的协议通过标准 read 返回值拆出原始数据；
@@ -303,7 +304,7 @@ class CollectorDeviceSession:
     def to_point_values_raw(
         self,
         point_ids: list[str],
-        values: tuple[tuple[object, Quality], ...],
+        values: tuple[tuple[PointScalar, Quality], ...],
     ) -> list[PointValue]:
         """由调用方选择是否将原始数据封装成下游 PointValue。"""
         if len(point_ids) != len(values):
