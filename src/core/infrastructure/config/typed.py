@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from types import MappingProxyType
-from copy import deepcopy
-from typing import Any, Mapping
+from typing import Any, TypeVar
+
+from pydantic import BaseModel
 
 from core.application import ConfigError
 from core.infrastructure.config.point_tables import ResolvedTable, resolve_point_tables
@@ -58,11 +61,14 @@ class UnitConfig:
     definition: UnitsFile
 
 
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
 class YamlTypedConfigAdapter(YamlConfigReader):
     """复用基础 YAML 读取器，向调用方提供类型化配置。"""
 
     @staticmethod
-    def _validate(model: type, raw: Mapping[str, Any], name: str) -> Any:
+    def _validate(model: type[_ModelT], raw: Mapping[str, Any], name: str) -> _ModelT:
         try:
             return model.model_validate(raw)
         except ConfigError:
