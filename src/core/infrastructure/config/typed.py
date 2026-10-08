@@ -19,6 +19,7 @@ from core.application.config_types import (
     PointConfig,
     SystemConfig,
     TaskConfig,
+    TaskDefinition,
     UnitConfig,
 )
 from core.application.sink_config import SinksConfig
@@ -81,7 +82,21 @@ class YamlTypedConfigAdapter(YamlConfigReader):
         return PointConfig(tables=MappingProxyType(dict(tables)))
 
     def read_task_config(self) -> TaskConfig:
-        return TaskConfig(definition=self._validate(TasksFile, self.read_tasks(), "tasks"))
+        definition = self._validate(TasksFile, self.read_tasks(), "tasks")
+        return TaskConfig(
+            tasks=tuple(
+                TaskDefinition(
+                    task_id=task.task_id,
+                    device=task.device,
+                    device_group=task.device_group,
+                    point_group=task.point_group,
+                    interval=task.interval,
+                    targets=tuple(target.sink for target in task.targets),
+                    enabled=task.enabled,
+                )
+                for task in definition.tasks
+            )
+        )
 
     def read_sink_config(self) -> SinksConfig:
         return self._validate(SinksConfig, self.read_sinks(), "sinks")
