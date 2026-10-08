@@ -5,7 +5,7 @@ name: CI Fast (Commit Gate)
 
 on:
   push:
-    branches: [main]
+    branches: [main, perf/collector-read-plan-cache]
   pull_request:
 
 concurrency:
@@ -71,7 +71,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -94,7 +94,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m 'style: align performance branch with Ruff'
           fi
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Backend static
         run: python scripts/ci_gate.py fast --part backend-static
 
