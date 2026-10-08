@@ -69,7 +69,7 @@ class DataType(StrEnum):
         if self is DataType.BOOL:
             if type(value) is not bool:
                 raise TypeError("bool data type requires bool value")
-            return value
+            return bool(value)
 
         if self is DataType.STRING:
             if not isinstance(value, str):
