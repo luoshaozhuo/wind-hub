@@ -56,7 +56,7 @@ def load_collector_config(
     # 兼容已注入的旧 Raw Reader；默认路径统一使用 Core 类型化 Adapter。
     typed_reader = reader if isinstance(reader, YamlTypedConfigAdapter) else None
     typed = typed_reader is not None
-    if typed:
+    if typed_reader is not None:
         device_config = typed_reader.read_device_config()
         point_config = typed_reader.read_point_config()
         unit_config = typed_reader.read_unit_config()
