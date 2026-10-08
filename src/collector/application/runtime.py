@@ -395,7 +395,7 @@ class CollectorRuntime:
         生成一个保守 diff，确保曾被部分 reconfigure 修改的运行态能够重新
         收敛到目标配置。
         """
-        target_device_ids = {str(d) for d in target.core.devices}
+        target_device_ids = {str(d) for d in target.devices}
         actual_device_ids = set(self._device_runtime.devices)
         devices = DeviceDiff(
             added=sorted(target_device_ids - actual_device_ids),
@@ -420,7 +420,7 @@ class CollectorRuntime:
             updated=sorted(target_task_ids & actual_task_ids),
         )
 
-        changed_tables = sorted(str(t) for t in target.core.point_tables)
+        changed_tables = sorted(str(t) for t in target.point_tables)
         return ConfigDiff(
             devices=devices,
             sinks=sinks,
@@ -546,7 +546,7 @@ class CollectorRuntime:
         for did, session in self._device_runtime.devices.items():
             if did in removed or did in added:
                 continue
-            if DeviceId(did) not in new_config.core.devices:
+            if DeviceId(did) not in new_config.devices:
                 # 部分失败残留：目标配置已无此设备，等下一轮 diff 收敛。
                 continue
             target_view = new_config.device_view(DeviceId(did))

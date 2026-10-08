@@ -1,4 +1,4 @@
-"""Sink source 引用解析（Collector 侧，基于 CoreConfigSnapshot）。
+"""Sink source 引用解析（Collector 侧，基于 CoreConfigAssembly）。
 
 把 sinks.yaml 的 Raw SinkPoint 与 Core 快照中的 Device/PointTable 关联，
 生成 Runtime 直接消费的 ResolvedSinkPoint。只做纯配置解析，不创建 Sink
@@ -21,24 +21,25 @@ from collector.application.sinks import (
     SinksConfig,
 )
 from core.application import ConfigError
-from core.domain import CoreConfigSnapshot, DeviceId, Point, PointTable
-
-from .raw import UnitsFile
+from core.application.config_types import UnitConfig
+from core.domain import DeviceId, Point, PointTable
+from core.domain.config.lookups import point_table_for_device
+from core.infrastructure.config.assembly import CoreConfigAssembly
 
 _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 
 
 def resolve_sinks(
     raw: SinksConfig,
-    snapshot: CoreConfigSnapshot,
-    units_file: UnitsFile,
+    assembly: CoreConfigAssembly,
+    unit_config: UnitConfig,
     disabled_tables: Mapping[str, PointTable] | None = None,
 ) -> dict[str, ResolvedSinkConfig]:
     """解析全部 Sink source 引用并补全稳定外部点元数据。
 
     Sink name 唯一性已在 :class:`SinksConfig` 解析时校验，resolve 保持
     name 不变，因此按 name 构造 dict 不会静默覆盖。``disabled_tables``
-    提供 disabled 设备的点表查找（disabled 设备不进快照，但 Sink 引用
+    提供 disabled 设备的点表查找（disabled 设备不进索引，但 Sink 引用
     合法，与旧行为一致）。
     """
     resolved: dict[str, ResolvedSinkConfig] = {}
@@ -46,7 +47,7 @@ def resolve_sinks(
 
     for sink in raw.sinks:
         points = [
-            _resolve_point(sink, point, snapshot, units_file, fallback) for point in sink.points
+            _resolve_point(sink, point, assembly, unit_config, fallback) for point in sink.points
         ]
         _validate_modbus_layout(sink.name, points)
         resolved[sink.name] = ResolvedSinkConfig(
@@ -63,13 +64,15 @@ def resolve_sinks(
 def _resolve_point(
     sink: SinkConfig,
     point: SinkPoint,
-    snapshot: CoreConfigSnapshot,
-    units_file: UnitsFile,
+    assembly: CoreConfigAssembly,
+    unit_config: UnitConfig,
     disabled_tables: Mapping[str, PointTable],
 ) -> ResolvedSinkPoint:
     device_id = DeviceId(point.source.device_id)
-    if device_id in snapshot.devices:
-        table = snapshot.point_table_for_device(device_id)
+    if device_id in assembly.devices:
+        table = point_table_for_device(
+            assembly.devices, assembly.device_models, assembly.point_tables, device_id
+        )
     elif point.source.device_id in disabled_tables:
         table = disabled_tables[point.source.device_id]
     else:
@@ -90,7 +93,7 @@ def _resolve_point(
     ref = point.ref or f"{point.source.device_id}.{point.source.point_id}"
     datatype = point.datatype or source_data_type
     unit = point.unit or source_unit
-    if unit not in units_file.units:
+    if unit not in unit_config.units:
         raise ConfigError(f"Sink '{sink.name}' point '{ref}' references unknown unit '{unit}'")
 
     _validate_transform(sink.name, ref, point, source_data_type, datatype)

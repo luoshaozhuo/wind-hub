@@ -20,10 +20,10 @@ def test_load_minimal_modbus_config(tmp_path):
     config_dir = write_minimal_config_tree(tmp_path)
     config = load_commander_config(config_dir)
 
-    device = config.core.devices[DeviceId("dev1")]
+    device = config.devices[DeviceId("dev1")]
     assert device.endpoint.host == "127.0.0.1"
     assert device.endpoint.port == 502
-    table = config.core.point_table_for_device(device.device_id)
+    table = config.point_table_for_device(device.device_id)
     assert table.protocol.name == "modbus"
     assert "p1" in table.points
     assert config.connect_timeout == 10.0
@@ -47,9 +47,9 @@ def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    device = config.core.devices[DeviceId("dev1")]
+    device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 1502
-    options = config.core.device_options_for(device.device_id)
+    options = config.device_options_for(device.device_id)
     assert options["unit_id"] == 9  # 实例 extensions 覆盖型号默认值
     assert options["word_order"] == "little_endian"
 
@@ -191,7 +191,7 @@ def test_access_derivation_modbus(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    table = config.core.point_tables[PointTableId("tab")]
+    table = config.point_tables[PointTableId("tab")]
     assert table.points["ro"].access is PointAccess.READ
     assert table.points["rw"].access is PointAccess.READ_WRITE
 
@@ -216,7 +216,7 @@ def test_access_derivation_iec104(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    table = config.core.point_tables[PointTableId("tab")]
+    table = config.point_tables[PointTableId("tab")]
     assert table.points["meas"].access is PointAccess.READ
     assert table.points["cmd"].access is PointAccess.READ_WRITE
 
@@ -237,7 +237,7 @@ def test_ads_read_mode_injected_into_options(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    options = config.core.device_options_for(DeviceId("dev1"))
+    options = config.device_options_for(DeviceId("dev1"))
     assert options["read_mode"] == "sequential"
     assert options["target_net_id"] == "1.2.3.4.5.6"
 
@@ -272,7 +272,7 @@ def test_business_point_conflict_gets_table_prefix(tmp_path):
         },
     )
     config = load_commander_config(config_dir)
-    bp_ids = {str(bp) for bp in config.core.business_points}
+    bp_ids = {str(bp) for bp in config.business_points}
     assert "p1" in bp_ids
     # dict 顺序：tab 先解析占用裸 id，tab_b 冲突后加表前缀
     assert "tab_b:p1" in bp_ids
@@ -296,7 +296,7 @@ def test_disabled_devices_excluded_from_snapshot(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    assert set(config.core.devices) == {DeviceId("dev1")}
+    assert set(config.devices) == {DeviceId("dev1")}
     assert config.disabled_devices == frozenset({DeviceId("dev2")})
 
 
@@ -313,9 +313,9 @@ def test_device_group_synthesized(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    device = config.core.devices[DeviceId("dev1")]
+    device = config.devices[DeviceId("dev1")]
     assert [str(g) for g in device.device_group_ids] == ["wind_turbines"]
-    assert "wind_turbines" in {str(g) for g in config.core.device_groups}
+    assert "wind_turbines" in {str(g) for g in config.device_groups}
 
 
 def test_point_meta_collected(tmp_path):

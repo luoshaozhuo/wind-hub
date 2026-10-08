@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from commander.infrastructure.config.point_tables import resolve_point_tables
-from commander.infrastructure.config.raw import PointTableRaw
 from core.application import ConfigError
+from core.infrastructure.config.point_tables import resolve_point_tables
+from core.infrastructure.config.raw import PointTableRaw
 
 
 def _table(data: dict) -> PointTableRaw:

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from core.domain import (
     UNIT_CATALOG,
     BusinessPoint,
     ConnectionEndpoint,
-    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceModel,
@@ -22,10 +23,11 @@ from core.domain import (
 )
 
 
-def _snapshot(
+def _indexes(
     *,
     device_name: str = "WT01",
-) -> CoreConfigSnapshot:
+) -> dict[str, Any]:
+    """返回一组可通过 validate_core_config 校验的领域配置索引。"""
     device_type = DeviceType("wind_turbine", "Wind Turbine")
     point = BusinessPoint(
         "active_power",
@@ -59,14 +61,15 @@ def _snapshot(
         ConnectionEndpoint("10.0.0.1", 502),
         name=device_name,
     )
-    return CoreConfigSnapshot(
-        device_types={device_type.device_type_id: device_type},
-        device_models={model.device_model_id: model},
-        devices={device.device_id: device},
-        business_points={point.business_point_id: point},
-        point_tables={table.point_table_id: table},
-        device_options={device.device_id: {"unit_id": 1}},
-    )
+    return {
+        "device_types": {device_type.device_type_id: device_type},
+        "device_models": {model.device_model_id: model},
+        "device_groups": {},
+        "devices": {device.device_id: device},
+        "business_points": {point.business_point_id: point},
+        "point_tables": {table.point_table_id: table},
+        "device_options": {device.device_id: {"unit_id": 1}},
+    }
 
 
 def test_data_type_coerces_standard_business_values() -> None:
@@ -83,8 +86,8 @@ def test_data_type_coerces_standard_business_values() -> None:
 
 
 def test_domain_validation_rejects_noncanonical_unit() -> None:
-    snapshot = _snapshot()
-    point = next(iter(snapshot.business_points.values()))
+    indexes = _indexes()
+    point = next(iter(indexes["business_points"].values()))
     invalid_point = BusinessPoint(
         point.business_point_id,
         point.data_type,
@@ -95,35 +98,36 @@ def test_domain_validation_rejects_noncanonical_unit() -> None:
             scale_to_base=2.0,
         ),
     )
-    invalid = CoreConfigSnapshot(
-        device_types=snapshot.device_types,
-        device_models=snapshot.device_models,
-        devices=snapshot.devices,
-        business_points={invalid_point.business_point_id: invalid_point},
-        point_tables=snapshot.point_tables,
-        device_options=snapshot.device_options,
-    )
+    invalid = {
+        **indexes,
+        "business_points": {invalid_point.business_point_id: invalid_point},
+    }
 
     with pytest.raises(ValueError, match="canonical built-in unit"):
-        validate_core_config(invalid)
+        validate_core_config(**invalid)
 
 
 def test_domain_validation_rejects_unknown_model_point_table() -> None:
-    snapshot = _snapshot()
-    model = next(iter(snapshot.device_models.values()))
+    indexes = _indexes()
+    model = next(iter(indexes["device_models"].values()))
     invalid_model = DeviceModel(
         model.device_model_id,
         model.device_type_id,
         "missing_table",
     )
-    invalid = CoreConfigSnapshot(
-        device_types=snapshot.device_types,
-        device_models={invalid_model.device_model_id: invalid_model},
-        devices=snapshot.devices,
-        business_points=snapshot.business_points,
-        point_tables=snapshot.point_tables,
-        device_options=snapshot.device_options,
-    )
+    invalid = {
+        **indexes,
+        "device_models": {invalid_model.device_model_id: invalid_model},
+    }
 
     with pytest.raises(ValueError, match="unknown point table"):
-        validate_core_config(invalid)
+        validate_core_config(**invalid)
+
+
+def test_domain_validation_rejects_identity_key_mismatch() -> None:
+    indexes = _indexes()
+    device = next(iter(indexes["devices"].values()))
+    invalid = {**indexes, "devices": {"other_key": device}}
+
+    with pytest.raises(ValueError, match="does not match"):
+        validate_core_config(**invalid)

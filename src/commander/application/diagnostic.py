@@ -437,7 +437,7 @@ class CommanderDiagnosticService:
         return self._probe_factory(
             device.device,
             device.device.endpoint,
-            generation_config.core.device_options_for(device.device_id),
+            generation_config.device_options_for(device.device_id),
         )
 
     def _point_result(

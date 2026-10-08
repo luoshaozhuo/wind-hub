@@ -1,4 +1,4 @@
-"""采集 Task 跨文件组合约束校验（Collector 侧，基于 CoreConfigSnapshot）。
+"""采集 Task 跨文件组合约束校验（Collector 侧，基于 CoreConfigAssembly）。
 
 Task 引用的 device / device_group / point_group / target sink 与命中设备
 协议能力的组合合法性校验；输入全部是 resolved 配置模型。
@@ -10,12 +10,14 @@ from collections.abc import Mapping
 
 from collector.application.config import CollectionTask, PointMeta
 from core.application import ConfigError
-from core.domain import CoreConfigSnapshot, Device, DeviceId, PointTableId
+from core.domain import Device, DeviceId, PointTableId
+from core.domain.config.lookups import device_options_for, point_table_for_device
+from core.infrastructure.config.assembly import CoreConfigAssembly
 
 
 def validate_task_targets(
     task: CollectionTask,
-    snapshot: CoreConfigSnapshot,
+    assembly: CoreConfigAssembly,
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]],
     sink_names: set[str],
     all_device_groups: set[str],
@@ -42,9 +44,9 @@ def validate_task_targets(
             )
 
     if task.device is not None:
-        device = snapshot.devices.get(DeviceId(task.device))
+        device = assembly.devices.get(DeviceId(task.device))
         if device is None:
-            # disabled 设备不进快照；引用合法但不命中任何实例（与旧行为一致）。
+            # disabled 设备不进索引；引用合法但不命中任何实例（与旧行为一致）。
             if DeviceId(task.device) not in disabled_devices:
                 raise ConfigError(
                     f"Task '{task.task_id}' references unknown device '{task.device}'"
@@ -55,7 +57,7 @@ def validate_task_targets(
     else:
         matched = [
             d
-            for d in snapshot.devices.values()
+            for d in assembly.devices.values()
             if any(str(g) == task.device_group for g in d.device_group_ids)
         ]
         if task.device_group not in all_device_groups:
@@ -63,7 +65,7 @@ def validate_task_targets(
                 f"Task '{task.task_id}': device_group '{task.device_group}' " "matches no device"
             )
 
-    unsupported = [str(d.device_id) for d in matched if not _supports_scheduled(snapshot, d)]
+    unsupported = [str(d.device_id) for d in matched if not _supports_scheduled(assembly, d)]
     if unsupported:
         raise ConfigError(
             f"Task '{task.task_id}': devices {unsupported} do not support "
@@ -75,7 +77,7 @@ def validate_task_targets(
     # IEC104 订阅由远端决定数据到达时机，不要求 interval。混合命中时
     # （如 device_group 同时含 IEC104 与 Modbus）仍必须配置。
     if task.interval is None:
-        requiring = [str(d.device_id) for d in matched if _device_protocol(snapshot, d) != "iec104"]
+        requiring = [str(d.device_id) for d in matched if _device_protocol(assembly, d) != "iec104"]
         if requiring:
             raise ConfigError(
                 f"Task '{task.task_id}': interval is required — devices {requiring} "
@@ -86,7 +88,7 @@ def validate_task_targets(
     missing = [
         str(d.device_id)
         for d in matched
-        if task.point_group not in _point_groups(snapshot, point_meta, d)
+        if task.point_group not in _point_groups(assembly, point_meta, d)
     ]
     if missing:
         raise ConfigError(
@@ -95,23 +97,28 @@ def validate_task_targets(
         )
 
 
-def _device_protocol(snapshot: CoreConfigSnapshot, device: Device) -> str:
-    return snapshot.point_table_for_device(device.device_id).protocol.name
+def _device_protocol(assembly: CoreConfigAssembly, device: Device) -> str:
+    return point_table_for_device(
+        assembly.devices, assembly.device_models, assembly.point_tables, device.device_id
+    ).protocol.name
 
 
-def _supports_scheduled(snapshot: CoreConfigSnapshot, device: Device) -> bool:
+def _supports_scheduled(assembly: CoreConfigAssembly, device: Device) -> bool:
     """ADS ``sequential`` 设备只允许请求式读取，不参与周期采集。"""
-    if _device_protocol(snapshot, device) != "ads":
+    if _device_protocol(assembly, device) != "ads":
         return True
-    return snapshot.device_options_for(device.device_id).get("read_mode") != "sequential"
+    options = device_options_for(assembly.device_options, device.device_id)
+    return options.get("read_mode") != "sequential"
 
 
 def _point_groups(
-    snapshot: CoreConfigSnapshot,
+    assembly: CoreConfigAssembly,
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]],
     device: Device,
 ) -> set[str]:
-    table = snapshot.point_table_for_device(device.device_id)
+    table = point_table_for_device(
+        assembly.devices, assembly.device_models, assembly.point_tables, device.device_id
+    )
     meta = point_meta.get(table.point_table_id, {})
     return {
         group

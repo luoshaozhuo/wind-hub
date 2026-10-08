@@ -1,9 +1,10 @@
 """Commander 进程配置模型。
 
-CommanderConfig 只承载 Commander 真正需要的内容：共享核心领域快照
-（``core``）、进程级 ADS 本机身份、连接/写超时，以及诊断展示所需的
-点位元数据（variable_name / point_groups）。Task、Sink、Reporting 等
-Collector/Server 配置不属于本模型。
+CommanderConfig 只承载 Commander 真正需要的内容：共享核心领域配置索引
+（设备、型号、分组、点表、业务点、协议参数）、进程级 ADS 本机身份、
+连接/写超时，以及诊断展示所需的点位元数据（variable_name /
+point_groups）。Task、Sink、Reporting 等 Collector/Server 配置不属于
+本模型。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
 ``commander.infrastructure.config`` 完成。
@@ -15,7 +16,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from core.domain import CoreConfigSnapshot, DeviceId, PointTableId
+from core.domain import (
+    BusinessPoint,
+    BusinessPointId,
+    Device,
+    DeviceGroup,
+    DeviceGroupId,
+    DeviceId,
+    DeviceModel,
+    DeviceModelId,
+    PointTable,
+    PointTableId,
+    ProtocolOptions,
+)
+from core.domain.config.lookups import device_options_for, point_table_for_device
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +62,12 @@ class CommanderConfig:
     """Commander 启动与 reload 使用的完整配置快照。
 
     Attributes:
-        core: 共享核心领域配置快照（设备、型号、点表、业务点、协议参数）。
+        devices: 启用设备索引（``enabled: false`` 的设备不进索引）。
+        device_models: 设备型号索引（设备查找点表用）。
+        device_groups: 设备分组索引。
+        point_tables: resolved 点表索引。
+        business_points: 业务点索引（诊断展示单位/数据类型）。
+        device_options: 合并后的协议参数索引。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
         connect_timeout: 单设备连接超时（秒）。
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
@@ -56,7 +75,12 @@ class CommanderConfig:
         disabled_devices: 配置级停用设备集合；停用设备不参与即时操作。
     """
 
-    core: CoreConfigSnapshot
+    devices: Mapping[DeviceId, Device] = field(default_factory=dict)
+    device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
+    device_groups: Mapping[DeviceGroupId, DeviceGroup] = field(default_factory=dict)
+    point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
+    business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
+    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     ads_local: ADSLocalIdentity | None = None
     connect_timeout: float = 10.0
     write_timeout: float = 5.0
@@ -79,9 +103,31 @@ class CommanderConfig:
             ),
         )
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
+        for name in (
+            "devices",
+            "device_models",
+            "device_groups",
+            "point_tables",
+            "business_points",
+            "device_options",
+        ):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
     def meta_for(self, table_id: PointTableId, point_id: str) -> PointMeta:
         """返回点位元数据；缺省时返回空元数据（元数据不参与协议路径）。"""
         return self.point_meta.get(table_id, {}).get(
             point_id, PointMeta(variable_name=None, point_groups=())
         )
+
+    def point_table_for_device(self, device_id: DeviceId) -> PointTable:
+        """解析 Device -> DeviceModel -> PointTable。"""
+        return point_table_for_device(
+            self.devices,
+            self.device_models,
+            self.point_tables,
+            device_id,
+        )
+
+    def device_options_for(self, device_id: DeviceId) -> ProtocolOptions:
+        """返回指定 Device 的协议专有连接配置。"""
+        return device_options_for(self.device_options, device_id)

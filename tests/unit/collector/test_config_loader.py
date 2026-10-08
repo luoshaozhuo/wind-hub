@@ -16,7 +16,7 @@ def test_load_minimal_config(tmp_path):
     config_dir = write_collector_config_tree(tmp_path)
     config = load_collector_config(config_dir)
 
-    device = config.core.devices[DeviceId("dev1")]
+    device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 502
     assert set(config.tasks) == {"t1"}
     task = config.tasks["t1"]
@@ -107,7 +107,7 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
     )
     config = load_collector_config(config_dir)
     assert config.ads_subscribe_devices == frozenset({DeviceId("dev1")})
-    options = config.core.device_options_for(DeviceId("dev1"))
+    options = config.device_options_for(DeviceId("dev1"))
     assert "subscribe_enabled" not in options
     assert options["target_net_id"] == "1.2.3.4.5.6"
     assert options["read_mode"] == "sum"
@@ -128,7 +128,7 @@ def test_disabled_device_excluded_but_task_reference_allowed(tmp_path):
         ],
     )
     config = load_collector_config(config_dir)
-    assert config.core.devices == {}
+    assert config.devices == {}
     assert config.disabled_devices == frozenset({DeviceId("dev1")})
     # 引用 disabled 设备的 Task 合法（不命中任何实例，与旧行为一致）
     assert "t1" in config.tasks

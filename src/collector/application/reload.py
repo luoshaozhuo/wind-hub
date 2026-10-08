@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from core.domain import DeviceId
+
 from .config import CollectorConfig, RuntimeParams
 
 #: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
@@ -134,20 +136,19 @@ class ReloadResult:
     """reload 完成时间，UTC。"""
 
 
-def _device_signature(config: CollectorConfig, device_id: object) -> object:
+def _device_signature(config: CollectorConfig, device_id: DeviceId) -> object:
     """设备的热重载比较签名：聚合 + 协议参数 + 点表绑定。"""
-    core = config.core
-    device = core.devices[device_id]  # type: ignore[index]
+    device = config.devices[device_id]
     return (
         device,
-        dict(core.device_options_for(device_id)),  # type: ignore[arg-type]
-        core.point_table_for_device(device_id).point_table_id,  # type: ignore[arg-type]
+        dict(config.device_options_for(device_id)),
+        config.point_table_for_device(device_id).point_table_id,
     )
 
 
 def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     """计算两个完整配置快照的结构化差异。"""
-    old_devices, new_devices = old.core.devices, new.core.devices
+    old_devices, new_devices = old.devices, new.devices
     old_ids, new_ids = set(old_devices), set(new_devices)
     devices = DeviceDiff(
         added=sorted(str(d) for d in new_ids - old_ids),
@@ -189,7 +190,7 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
 
     # 点表比较连带进程级点位元数据——point_groups 变化同样影响选点与
     # Task 展开，必须与表内容变化同等对待。
-    old_tables, new_tables = old.core.point_tables, new.core.point_tables
+    old_tables, new_tables = old.point_tables, new.point_tables
     table_ids = set(old_tables) | set(new_tables)
     changed_tables = sorted(
         str(table_id)

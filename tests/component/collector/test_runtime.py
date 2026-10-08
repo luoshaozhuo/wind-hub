@@ -118,8 +118,7 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
 
     view = config.device_view(DeviceId("dev1"))
     new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
-    new_snapshot = replace(config.core, devices={DeviceId("dev1"): new_device})
-    new_config = replace(config, core=new_snapshot)
+    new_config = replace(config, devices={DeviceId("dev1"): new_device})
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]
 

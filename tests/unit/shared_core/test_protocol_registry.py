@@ -19,7 +19,6 @@ from core.domain import (
     UNIT_CATALOG,
     BusinessPoint,
     ConnectionEndpoint,
-    CoreConfigSnapshot,
     DataType,
     Device,
     DeviceModel,
@@ -29,6 +28,8 @@ from core.domain import (
     PointTable,
     Protocol,
     UnitCode,
+    device_options_for,
+    point_table_for_device,
 )
 from core.infrastructure import ProtocolRegistry
 from core.infrastructure.protocol.ads import ADSDriver
@@ -151,21 +152,16 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
         model.device_model_id,
         ConnectionEndpoint("127.0.0.1", 502),
     )
-    snapshot = CoreConfigSnapshot(
-        device_types={device_type.device_type_id: device_type},
-        device_models={model.device_model_id: model},
-        devices={device.device_id: device},
-        business_points={
-            business_point.business_point_id: business_point,
-        },
-        point_tables={table.point_table_id: table},
-    )
-
     with pytest.raises(ConfigError, match="address"):
         registry.create(
             device.endpoint,
-            snapshot.point_table_for_device(device.device_id),
-            snapshot.device_options_for(device.device_id),
+            point_table_for_device(
+                {device.device_id: device},
+                {model.device_model_id: model},
+                {table.point_table_id: table},
+                device.device_id,
+            ),
+            device_options_for({}, device.device_id),
         )
 
 

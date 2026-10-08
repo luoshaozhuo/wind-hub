@@ -1,9 +1,10 @@
 """Collector 进程配置模型。
 
-CollectorConfig 只承载 Collector 真正需要的内容：共享核心领域快照
-（``core``）、运行时参数（队列/背压/超时）、采集 Task 定义、resolved
-Sink 契约、点位元数据（point_groups / variable_name），以及 ADS 订阅
-设备集合（``subscribe_enabled`` 是进程级采集策略，不进协议 Driver 的
+CollectorConfig 只承载 Collector 真正需要的内容：共享核心领域配置索引
+（devices / device_models / point_tables / device_options）、运行时参数
+（队列/背压/超时）、采集 Task 定义、resolved Sink 契约、点位元数据
+（point_groups / variable_name），以及 ADS 订阅设备集合
+（``subscribe_enabled`` 是进程级采集策略，不进协议 Driver 的
 device_options——ADS Driver 严格拒绝未知 option）。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
@@ -19,13 +20,15 @@ from typing import Literal
 
 from core.application import ConfigError
 from core.domain import (
-    CoreConfigSnapshot,
     Device,
     DeviceId,
+    DeviceModel,
+    DeviceModelId,
     PointTable,
     PointTableId,
     ProtocolOptions,
 )
+from core.domain.config.lookups import device_options_for, point_table_for_device
 
 from .sinks import ResolvedSinkConfig
 
@@ -169,7 +172,11 @@ class CollectorConfig:
     """Collector 启动与 reload 使用的完整配置快照。
 
     Attributes:
-        core: 共享核心领域配置快照（设备、型号、点表、业务点、协议参数）。
+        devices: 启用设备索引（``enabled: false`` 的设备不进索引）。
+        device_models: 设备型号索引（设备查找点表用）。
+        point_tables: resolved 点表索引。
+        device_options: 合并后的协议参数索引（model connection_defaults +
+            endpoint extensions，ADS read_mode 已注入）。
         runtime: 运行时参数（队列/背压/超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
         sinks: resolved Sink 契约注册表（``{name: ResolvedSinkConfig}``，
@@ -181,7 +188,10 @@ class CollectorConfig:
             restart-required——热重载 prepare 阶段拒绝其任何变化。
     """
 
-    core: CoreConfigSnapshot
+    devices: Mapping[DeviceId, Device] = field(default_factory=dict)
+    device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
+    point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
+    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
     ads_local: ADSLocalIdentity | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
@@ -191,6 +201,10 @@ class CollectorConfig:
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
+        object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
+        object.__setattr__(self, "point_tables", MappingProxyType(dict(self.point_tables)))
+        object.__setattr__(self, "device_options", MappingProxyType(dict(self.device_options)))
         object.__setattr__(self, "tasks", MappingProxyType(dict(self.tasks)))
         object.__setattr__(self, "sinks", MappingProxyType(dict(self.sinks)))
         object.__setattr__(
@@ -216,17 +230,30 @@ class CollectorConfig:
         """返回整张点表的点位元数据；缺省时返回空映射。"""
         return self.point_meta.get(table_id, MappingProxyType({}))
 
+    def point_table_for_device(self, device_id: DeviceId) -> PointTable:
+        """解析 Device -> DeviceModel -> PointTable。"""
+        return point_table_for_device(
+            self.devices,
+            self.device_models,
+            self.point_tables,
+            device_id,
+        )
+
+    def device_options_for(self, device_id: DeviceId) -> ProtocolOptions:
+        """返回指定 Device 的协议专有连接配置。"""
+        return device_options_for(self.device_options, device_id)
+
     def device_view(self, device_id: DeviceId) -> DeviceView:
         """派生单台设备的运行时视图。
 
         Raises:
-            ConfigError: 设备不存在于快照（停用设备不在快照内）。
+            ConfigError: 设备不存在于索引（停用设备不在索引内）。
         """
-        device = self.core.devices.get(device_id)
+        device = self.devices.get(device_id)
         if device is None:
             raise ConfigError(f"unknown device '{device_id}'")
-        point_table = self.core.point_table_for_device(device_id)
-        options = self.core.device_options_for(device_id)
+        point_table = self.point_table_for_device(device_id)
+        options = self.device_options_for(device_id)
         protocol = point_table.protocol.name
         read_mode = options.get("read_mode")
         return DeviceView(
@@ -240,4 +267,4 @@ class CollectorConfig:
 
     def device_views(self) -> dict[DeviceId, DeviceView]:
         """派生全部设备的运行时视图（启动装配用）。"""
-        return {device_id: self.device_view(device_id) for device_id in self.core.devices}
+        return {device_id: self.device_view(device_id) for device_id in self.devices}

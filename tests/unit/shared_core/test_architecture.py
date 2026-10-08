@@ -126,11 +126,11 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
 
 
 def test_domain_config_is_compact() -> None:
-    """Shared Domain 配置只保留快照与一致性规则。"""
+    """Shared Domain 配置只保留协议参数、索引查找与一致性规则。"""
     config_dir = _CORE / "domain" / "config"
 
     assert not (config_dir / "diff.py").exists()
-    assert not (config_dir / "options.py").exists()
+    assert not (config_dir / "snapshot.py").exists()
 
 
 def test_shared_core_has_no_process_config_adapters_or_use_cases() -> None:
@@ -146,7 +146,7 @@ def test_application_does_not_own_config_domain_model() -> None:
 
     forbidden_names = {
         "CoreConfigDiff",
-        "CoreConfigSnapshot",
+        "CoreConfigAssembly",
         "IndexDiff",
         "ProtocolOptions",
         "ProtocolOptionValue",
@@ -171,7 +171,7 @@ def test_infrastructure_imports_domain_config_from_domain() -> None:
     """Infrastructure 不得通过 Application 门面获取 Domain 配置类型。"""
     domain_names = {
         "CoreConfigDiff",
-        "CoreConfigSnapshot",
+        "CoreConfigAssembly",
         "ProtocolOptions",
         "ProtocolOptionValue",
         "compute_core_config_diff",
