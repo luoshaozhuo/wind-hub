@@ -90,7 +90,7 @@ class ModbusDriver:
         }
 
         # 点表在 Driver 生命周期内不可变；相同选点序列复用预编译读取组。
-        self._read_plan_cache: dict[tuple[str, ...], tuple[tuple[ModbusPoint, ...], ...]] = {}
+        self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._lock = asyncio.Lock()
         self._client: Any = None
         self._connected = False
