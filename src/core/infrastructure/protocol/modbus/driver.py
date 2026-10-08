@@ -177,7 +177,7 @@ class ModbusDriver:
             try:
                 values: dict[str, object] = {}
                 for group in plan:
-                    values.update(await self._read_group(list(group)))
+                    values.update(await self._read_group(group))
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -294,7 +294,7 @@ class ModbusDriver:
 
     async def _read_group(
         self,
-        group: list[ModbusPoint],
+        group: Sequence[ModbusPoint],
     ) -> dict[str, object]:
         client = self._client
         register_type = group[0].register_type
