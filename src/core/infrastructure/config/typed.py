@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
+from copy import deepcopy
 from typing import Any, Mapping
 
 from core.application import ConfigError
@@ -44,6 +45,13 @@ class TaskConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemConfig:
+    """系统配置的不可变顶层分区；各进程自行解释业务字段。"""
+
+    sections: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class UnitConfig:
     """经 Schema 校验的单位配置。"""
 
@@ -61,6 +69,11 @@ class YamlTypedConfigAdapter(YamlConfigReader):
             raise
         except Exception as exc:
             raise ConfigError(f"Invalid {name} configuration: {exc}") from exc
+
+    def read_system_config(self) -> SystemConfig:
+        raw = self.read_system()
+        sections = {name: deepcopy(value) for name, value in raw.items()}
+        return SystemConfig(sections=MappingProxyType(sections))
 
     def read_device_config(self) -> DeviceConfig:
         return DeviceConfig(
@@ -84,6 +97,7 @@ __all__ = [
     "DeviceConfig",
     "PointConfig",
     "TaskConfig",
+    "SystemConfig",
     "UnitConfig",
     "YamlTypedConfigAdapter",
 ]
