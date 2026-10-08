@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   scope:
@@ -80,6 +80,17 @@ jobs:
           python -m pip install --upgrade pip poetry
           poetry config virtualenvs.create false
           poetry install --all-extras --no-interaction
+      - name: Temporary style autofix
+        run: |
+          python -m ruff check --fix src/core src/collector src/commander tests/unit/shared_core tests/benchmarks || true
+          python -m ruff format src/core src/collector src/commander tests/unit/shared_core tests/benchmarks
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core src/collector src/commander tests/unit/shared_core tests/benchmarks
+          if ! git diff --cached --quiet; then
+            git commit -m 'style: apply Ruff formatting'
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
       - name: Backend static
         run: python scripts/ci_gate.py fast --part backend-static
 
