@@ -11,10 +11,6 @@ import core.infrastructure.protocol.ads.router as router_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
 
 
-class _Closable(Protocol):
-    async def close(self) -> None: ...
-
-
 from core.application import (
     ConfigError,
     ProtocolError,
@@ -37,6 +33,10 @@ from core.infrastructure.protocol.ads import (
     parse_ads_config,
     parse_ads_point,
 )
+
+
+class _Closable(Protocol):
+    async def close(self) -> None: ...
 
 
 def _endpoint(
