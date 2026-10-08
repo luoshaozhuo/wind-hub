@@ -21,9 +21,8 @@ from collector.application.sinks import (
     SinksConfig,
 )
 from core.application import ConfigError
+from core.application.config_types import UnitConfig
 from core.domain import CoreConfigSnapshot, DeviceId, Point, PointTable
-
-from .raw import UnitsFile
 
 _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 
@@ -31,7 +30,7 @@ _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 def resolve_sinks(
     raw: SinksConfig,
     snapshot: CoreConfigSnapshot,
-    units_file: UnitsFile,
+    unit_config: UnitConfig,
     disabled_tables: Mapping[str, PointTable] | None = None,
 ) -> dict[str, ResolvedSinkConfig]:
     """解析全部 Sink source 引用并补全稳定外部点元数据。
@@ -46,7 +45,7 @@ def resolve_sinks(
 
     for sink in raw.sinks:
         points = [
-            _resolve_point(sink, point, snapshot, units_file, fallback) for point in sink.points
+            _resolve_point(sink, point, snapshot, unit_config, fallback) for point in sink.points
         ]
         _validate_modbus_layout(sink.name, points)
         resolved[sink.name] = ResolvedSinkConfig(
@@ -64,7 +63,7 @@ def _resolve_point(
     sink: SinkConfig,
     point: SinkPoint,
     snapshot: CoreConfigSnapshot,
-    units_file: UnitsFile,
+    unit_config: UnitConfig,
     disabled_tables: Mapping[str, PointTable],
 ) -> ResolvedSinkPoint:
     device_id = DeviceId(point.source.device_id)
@@ -90,7 +89,7 @@ def _resolve_point(
     ref = point.ref or f"{point.source.device_id}.{point.source.point_id}"
     datatype = point.datatype or source_data_type
     unit = point.unit or source_unit
-    if unit not in units_file.units:
+    if unit not in unit_config.units:
         raise ConfigError(f"Sink '{sink.name}' point '{ref}' references unknown unit '{unit}'")
 
     _validate_transform(sink.name, ref, point, source_data_type, datatype)

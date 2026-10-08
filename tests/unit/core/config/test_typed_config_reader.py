@@ -30,7 +30,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     assert reader.read_task_config().tasks == ()
     assert reader.read_unit_config().units == {}
     assert reader.read_sink_config().sinks == []
-    assert reader.read_system_config().sections["runtime"]["connect_timeout"] == 10
+    assert reader.read_system_config().runtime.connect_timeout == 10.0
 
 
 def test_invalid_task_is_rejected_without_loading_other_topics(tmp_path):
@@ -73,16 +73,50 @@ def test_invalid_sink_is_rejected_without_other_topics(tmp_path):
         YamlTypedConfigAdapter(tmp_path).read_sink_config()
 
 
-def test_system_config_is_deeply_immutable(tmp_path):
+def test_system_config_is_typed_and_immutable(tmp_path):
     (tmp_path / "system.yaml").write_text(
-        "runtime:\n  nested:\n    values: [1, 2]\n",
+        "site: {site_id: s1}\n"
+        "runtime: {queue_maxsize: 500, read_timeout: 2.5}\n"
+        "ads: {local_ams_net_id: 1.2.3.4.5.6, local_ip: 127.0.0.1}\n",
         encoding="utf-8",
     )
     config = YamlTypedConfigAdapter(tmp_path).read_system_config()
-    with pytest.raises(TypeError):
-        config.sections["runtime"]["nested"] = {}
-    with pytest.raises(TypeError):
-        config.sections["runtime"]["nested"]["values"][0] = 10
+    assert config.site is not None and config.site.site_id == "s1"
+    assert config.runtime.queue_maxsize == 500
+    assert config.runtime.read_timeout == 2.5
+    assert config.runtime.connect_timeout is None
+    assert config.ads is not None
+    assert config.ads.username == "Administrator"
+    assert config.ads.password == ""
+    with pytest.raises(AttributeError):
+        config.runtime.queue_maxsize = 1
+
+
+def test_system_config_defaults_are_absent(tmp_path):
+    (tmp_path / "system.yaml").write_text("site: {site_id: s1}\n", encoding="utf-8")
+    config = YamlTypedConfigAdapter(tmp_path).read_system_config()
+    assert config.ads is None
+    assert config.runtime.queue_maxsize is None
+    assert config.runtime.backpressure_policy is None
+    assert config.runtime.read_timeout is None
+
+
+@pytest.mark.parametrize(
+    "runtime_yaml, message",
+    [
+        ("{nested: {values: [1]}}", "unknown keys"),
+        ("{queue_maxsize: 0}", "queue_maxsize"),
+        ("{backpressure_policy: drop_random}", "backpressure_policy"),
+        ("{connect_timeout: -1}", "connect_timeout"),
+    ],
+)
+def test_system_config_rejects_invalid_runtime(tmp_path, runtime_yaml, message):
+    (tmp_path / "system.yaml").write_text(
+        f"runtime: {runtime_yaml}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match=message):
+        YamlTypedConfigAdapter(tmp_path).read_system_config()
 
 
 def test_resolved_point_table_index_is_read_only(tmp_path):
@@ -168,31 +202,6 @@ def test_device_and_point_contracts_are_deeply_immutable(tmp_path):
         device.instances.devices[0].endpoint.extensions["nested"][0] = 3
     with pytest.raises(AttributeError):
         points.tables["main"].points["p1"].scale = 10.0
-
-
-def test_immutable_device_and_point_legacy_bridge(tmp_path):
-    from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables
-
-    (tmp_path / "device_models.yaml").write_text(
-        "device_types: {t: {}}\n"
-        "device_models: {m: {device_type: t, protocol: ads, point_table: main}}\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "devices.yaml").write_text(
-        "devices: [{device_id: d, model: m, endpoint: {host: localhost, port: 851}}]\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "points.yaml").write_text(
-        "point_tables:\n  main:\n    protocol: ads\n"
-        "    points: [{point_id: p, point_groups: [fast], address: {type: MAIN.p}}]\n",
-        encoding="utf-8",
-    )
-    reader = YamlTypedConfigAdapter(tmp_path)
-    models, instances = to_raw_devices(reader.read_device_config())
-    tables = to_raw_point_tables(reader.read_point_config())
-    assert models.device_models["m"].point_table == "main"
-    assert instances.devices[0].endpoint.port == 851
-    assert tables["main"].points["p"].point_groups == ["fast"]
 
 
 @pytest.mark.parametrize("section", ["ads", "runtime"])

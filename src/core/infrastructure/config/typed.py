@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from core.application import ConfigError
 from core.application.config_types import (
+    ADSLocalConfig,
     DeviceConfig,
     DeviceInstanceDefinition,
     DeviceInstancesConfig,
@@ -23,6 +24,8 @@ from core.application.config_types import (
     PointConfig,
     PointDefinition,
     PointTableDefinition,
+    RuntimeSettings,
+    SiteIdentity,
     SystemConfig,
     TaskConfig,
     TaskDefinition,
@@ -53,6 +56,101 @@ def _freeze_config(value: Any) -> Any:
     return value
 
 
+_RUNTIME_KEYS = frozenset(
+    {
+        "queue_maxsize",
+        "backpressure_policy",
+        "shutdown_timeout",
+        "connect_timeout",
+        "read_timeout",
+        "write_timeout",
+    }
+)
+_BACKPRESSURE_POLICIES = frozenset({"drop_old", "drop_new", "block"})
+_TIMEOUT_KEYS = ("shutdown_timeout", "connect_timeout", "read_timeout", "write_timeout")
+
+
+def _parse_site(raw: Any) -> SiteIdentity | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("system.yaml 'site' must be a mapping")
+    unknown = set(raw) - {"site_id", "name"}
+    if unknown:
+        raise ConfigError(f"system.yaml 'site' has unknown keys: {sorted(unknown)}")
+    site_id = raw.get("site_id")
+    name = raw.get("name")
+    if not isinstance(site_id, str) or not site_id.strip():
+        raise ConfigError("system.yaml 'site.site_id' must be a non-empty string")
+    if name is not None and not isinstance(name, str):
+        raise ConfigError("system.yaml 'site.name' must be a string")
+    return SiteIdentity(site_id=site_id, name=name)
+
+
+def _parse_runtime(raw: Any) -> RuntimeSettings:
+    if raw is None:
+        return RuntimeSettings()
+    if not isinstance(raw, dict):
+        raise ConfigError("system.yaml 'runtime' must be a mapping")
+    unknown = set(raw) - _RUNTIME_KEYS
+    if unknown:
+        raise ConfigError(f"system.yaml 'runtime' has unknown keys: {sorted(unknown)}")
+
+    queue_maxsize = raw.get("queue_maxsize")
+    if queue_maxsize is not None:
+        if isinstance(queue_maxsize, bool) or not isinstance(queue_maxsize, int):
+            raise ConfigError("system.yaml 'runtime.queue_maxsize' must be an integer")
+        if queue_maxsize <= 0:
+            raise ConfigError("system.yaml 'runtime.queue_maxsize' must be > 0")
+
+    policy = raw.get("backpressure_policy")
+    if policy is not None and policy not in _BACKPRESSURE_POLICIES:
+        raise ConfigError(
+            f"Invalid backpressure_policy '{policy}'; "
+            f"must be one of {sorted(_BACKPRESSURE_POLICIES)}"
+        )
+
+    timeouts: dict[str, float | None] = {}
+    for key in _TIMEOUT_KEYS:
+        value = raw.get(key)
+        if value is None:
+            timeouts[key] = None
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ConfigError(f"system.yaml 'runtime.{key}' must be a number")
+        if value <= 0:
+            raise ConfigError(f"system.yaml 'runtime.{key}' must be > 0")
+        timeouts[key] = float(value)
+
+    return RuntimeSettings(
+        queue_maxsize=queue_maxsize,
+        backpressure_policy=policy,
+        shutdown_timeout=timeouts["shutdown_timeout"],
+        connect_timeout=timeouts["connect_timeout"],
+        read_timeout=timeouts["read_timeout"],
+        write_timeout=timeouts["write_timeout"],
+    )
+
+
+def _parse_ads(raw: Any) -> ADSLocalConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError("system.yaml 'ads' must be a mapping")
+    try:
+        parsed = ADSSystemRaw.model_validate(raw)
+    except ConfigError:
+        raise
+    except Exception as exc:
+        raise ConfigError(f"Invalid system.ads configuration: {exc}") from exc
+    return ADSLocalConfig(
+        local_ams_net_id=parsed.local_ams_net_id,
+        local_ip=parsed.local_ip,
+        username=parsed.username,
+        password=parsed.password,
+    )
+
+
 class YamlTypedConfigAdapter(YamlConfigReader):
     """复用基础 YAML 读取器，向调用方提供类型化配置。"""
 
@@ -67,12 +165,11 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
     def read_system_config(self) -> SystemConfig:
         raw = self.read_system()
-        for section in ("ads", "runtime"):
-            if section in raw and raw[section] is not None and not isinstance(raw[section], dict):
-                raise ConfigError(f"system.yaml '{section}' must be a mapping")
-        if raw.get("ads") is not None:
-            self._validate(ADSSystemRaw, raw["ads"], "system.ads")
-        return SystemConfig(sections=_freeze_config(raw))
+        return SystemConfig(
+            site=_parse_site(raw.get("site")),
+            runtime=_parse_runtime(raw.get("runtime")),
+            ads=_parse_ads(raw.get("ads")),
+        )
 
     def read_device_models_config(self) -> DeviceModelsConfig:
         definition = self._validate(DeviceModelsFile, self.read_device_models(), "device_models")

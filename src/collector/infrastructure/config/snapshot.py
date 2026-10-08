@@ -1,8 +1,7 @@
 """将 Core 共享配置解析结果适配为本进程的元数据类型。"""
 
+from core.application.config_types import DeviceConfig, PointConfig, UnitConfig
 from core.domain import CoreConfigSnapshot, DeviceId, PointTableId
-from core.infrastructure.config.point_tables import ResolvedTable
-from core.infrastructure.config.raw import DeviceInstancesFile, DeviceModelsFile, UnitsFile
 from core.infrastructure.config.snapshot import build_core_snapshot as _build_core_snapshot
 
 from ...application.config import PointMeta
@@ -10,10 +9,9 @@ from ...application.config import PointMeta
 
 def build_core_snapshot(
     *,
-    models_file: DeviceModelsFile,
-    instances_file: DeviceInstancesFile,
-    tables: dict[str, ResolvedTable],
-    units_file: UnitsFile,
+    device_config: DeviceConfig,
+    point_config: PointConfig,
+    unit_config: UnitConfig,
 ) -> tuple[
     CoreConfigSnapshot,
     dict[PointTableId, dict[str, PointMeta]],
@@ -21,10 +19,9 @@ def build_core_snapshot(
     frozenset[DeviceId],
 ]:
     snapshot, metadata, disabled, ads_subscribe = _build_core_snapshot(
-        models_file=models_file,
-        instances_file=instances_file,
-        tables=tables,
-        units_file=units_file,
+        device_config=device_config,
+        point_config=point_config,
+        unit_config=unit_config,
     )
     point_meta = {
         table_id: {

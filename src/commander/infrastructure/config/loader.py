@@ -1,8 +1,8 @@
 """Commander 现场配置加载入口。
 
-读取同一现场配置目录中的 Commander 子集（system / device_models /
-devices / points / units），完成 Raw 解析、点表继承展开、Core 快照组装
-与跨文件一致性校验，产出 CommanderConfig。
+通过 Core 类型化配置读取端口获取本进程所需主题（system / device /
+points / units），完成 Core 快照组装与跨文件一致性校验，产出
+CommanderConfig。
 """
 
 from __future__ import annotations
@@ -10,24 +10,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.application import ConfigError
-from core.application.port.config import CommanderConfigReader
+from core.application.port.typed_config import TypedConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
-from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables, to_raw_units
 
 from ...application.config import ADSLocalIdentity, CommanderConfig
-from .point_tables import resolve_point_tables
-from .raw import (
-    ADSSystemRaw,
-    DeviceInstancesFile,
-    DeviceModelsFile,
-    PointTablesFile,
-    UnitsFile,
-)
 from .snapshot import build_core_snapshot
 
 
 def load_commander_config(
-    config_dir: str | Path, *, reader: CommanderConfigReader | None = None
+    config_dir: str | Path, *, reader: TypedConfigReader | None = None
 ) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
@@ -36,68 +27,36 @@ def load_commander_config(
     """
     reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
 
-    system_raw = reader.read_system()
-    typed_reader = reader if isinstance(reader, YamlTypedConfigAdapter) else None
-    typed = typed_reader is not None
-    if typed_reader is not None:
-        device_config = typed_reader.read_device_config()
-        point_config = typed_reader.read_point_config()
-        unit_config = typed_reader.read_unit_config()
-    else:
-        models_raw = reader.read_device_models()
-        devices_raw = reader.read_devices()
-        points_raw = reader.read_points()
-        units_raw = reader.read_units()
+    system = reader.read_system_config()
+    device_config = reader.read_device_config()
+    point_config = reader.read_point_config()
+    unit_config = reader.read_unit_config()
 
-    try:
-        ads_raw = system_raw.get("ads")
-        ads = ADSSystemRaw(**ads_raw) if isinstance(ads_raw, dict) else None
-        runtime_raw = system_raw.get("runtime") or {}
-        if not isinstance(runtime_raw, dict):
-            raise ConfigError("system.yaml 'runtime' must be a mapping")
-        connect_timeout = float(runtime_raw.get("connect_timeout", 10.0))
-        write_timeout = float(runtime_raw.get("write_timeout", 5.0))
-
-        if typed_reader is not None:
-            models_file, instances_file = to_raw_devices(device_config)
-        else:
-            models_file = DeviceModelsFile(**models_raw)
-            instances_file = DeviceInstancesFile(**devices_raw)
-        tables_file = PointTablesFile(**points_raw) if not typed else None
-        if typed_reader is not None:
-            units_file = to_raw_units(unit_config)
-        else:
-            units_file = UnitsFile(**units_raw)
-    except ConfigError:
-        raise
-    except Exception as exc:
-        raise ConfigError(f"Invalid commander configuration: {exc}") from exc
-
-    if typed_reader is not None:
-        tables = to_raw_point_tables(point_config)
-    else:
-        assert tables_file is not None
-        tables = resolve_point_tables(tables_file.point_tables)
-    snapshot, point_meta, disabled = build_core_snapshot(
-        models_file=models_file,
-        instances_file=instances_file,
-        tables=tables,
-        units_file=units_file,
+    connect_timeout = (
+        system.runtime.connect_timeout if system.runtime.connect_timeout is not None else 10.0
     )
-
+    write_timeout = (
+        system.runtime.write_timeout if system.runtime.write_timeout is not None else 5.0
+    )
     if connect_timeout <= 0:
         raise ConfigError("runtime.connect_timeout must be > 0")
     if write_timeout <= 0:
         raise ConfigError("runtime.write_timeout must be > 0")
 
+    snapshot, point_meta, disabled = build_core_snapshot(
+        device_config=device_config,
+        point_config=point_config,
+        unit_config=unit_config,
+    )
+
     return CommanderConfig(
         core=snapshot,
         ads_local=(
             ADSLocalIdentity(
-                local_ams_net_id=ads.local_ams_net_id,
-                local_ip=ads.local_ip,
+                local_ams_net_id=system.ads.local_ams_net_id,
+                local_ip=system.ads.local_ip,
             )
-            if ads is not None
+            if system.ads is not None
             else None
         ),
         connect_timeout=connect_timeout,

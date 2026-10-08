@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -101,8 +101,42 @@ class TaskConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SiteIdentity:
+    """当前部署实例所属现场的身份（仅标识用途）。"""
+
+    site_id: str
+    name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ADSLocalConfig:
+    """进程级 ADS 本机身份与凭据（restart-required）。"""
+
+    local_ams_net_id: str
+    local_ip: str
+    username: str
+    password: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSettings:
+    """跨进程共享的运行参数；``None`` 表示未配置，默认值由各进程自定。"""
+
+    queue_maxsize: int | None = None
+    backpressure_policy: str | None = None
+    shutdown_timeout: float | None = None
+    connect_timeout: float | None = None
+    read_timeout: float | None = None
+    write_timeout: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SystemConfig:
-    sections: Mapping[str, Any]
+    """system.yaml 的共享段；进程专属段（如 interfaces）不进公共契约。"""
+
+    site: SiteIdentity | None = None
+    runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
+    ads: ADSLocalConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)

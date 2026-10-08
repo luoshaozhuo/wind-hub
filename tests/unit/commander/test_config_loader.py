@@ -10,7 +10,6 @@ from commander.infrastructure.config import (
 )
 from core.application import ConfigError
 from core.domain import DeviceId, PointAccess, PointTableId
-from core.infrastructure.config import YamlConfigReader
 from tests.support.new_commander import (
     write_minimal_config_tree,
     write_yaml,
@@ -391,15 +390,3 @@ def test_invalid_ams_net_id_rejected(tmp_path):
     )
     with pytest.raises(ConfigError, match="AMS Net ID"):
         load_commander_config(config_dir)
-
-
-def test_typed_and_legacy_readers_produce_same_commander_config(tmp_path):
-    config_dir = write_minimal_config_tree(tmp_path)
-    typed = load_commander_config(config_dir)
-    legacy = load_commander_config(config_dir, reader=YamlConfigReader(config_dir))
-    assert typed.core.devices == legacy.core.devices
-    assert typed.core.point_tables == legacy.core.point_tables
-    assert typed.core.device_options == legacy.core.device_options
-    assert typed.disabled_devices == legacy.disabled_devices
-    assert typed.connect_timeout == legacy.connect_timeout
-    assert typed.write_timeout == legacy.write_timeout

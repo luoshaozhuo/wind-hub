@@ -1,9 +1,8 @@
 """Collector 现场配置加载入口。
 
-读取同一现场配置目录中的 Collector 子集（system / device_models /
-devices / points / units / tasks / sinks），完成 Raw 解析、点表继承
-展开、Core 快照组装、Sink 引用解析与跨文件一致性校验，产出
-CollectorConfig。
+通过 Core 类型化配置读取端口获取本进程所需主题（system / device /
+points / units / tasks / sinks），完成 Core 快照组装、Sink 引用解析与
+跨文件一致性校验，产出 CollectorConfig。
 
 加载顺序与旧系统一致：read → parse → resolve → validate → build。
 """
@@ -11,13 +10,12 @@ CollectorConfig。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
-from core.application import ConfigError
-from core.application.port.config import CollectorConfigReader
+from core.application.config_types import SystemConfig
+from core.application.port.typed_config import TypedConfigReader
 from core.domain import PointTableId
 from core.infrastructure.config import YamlTypedConfigAdapter
-from core.infrastructure.config.legacy import to_raw_devices, to_raw_point_tables, to_raw_units
 
 from ...application.config import (
     ADSLocalIdentity,
@@ -26,25 +24,13 @@ from ...application.config import (
     CollectorConfig,
     RuntimeParams,
 )
-from ...application.sinks import SinksConfig
-from .point_tables import resolve_point_tables
-from .raw import (
-    ADSSystemRaw,
-    DeviceInstancesFile,
-    DeviceModelsFile,
-    PointTablesFile,
-    TasksFile,
-    UnitsFile,
-)
 from .sinks_resolver import resolve_sinks
 from .snapshot import build_core_snapshot
 from .tasks import validate_task_targets
 
-_BACKPRESSURE_POLICIES = ("drop_old", "drop_new", "block")
-
 
 def load_collector_config(
-    config_dir: str | Path, *, reader: CollectorConfigReader | None = None
+    config_dir: str | Path, *, reader: TypedConfigReader | None = None
 ) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
@@ -53,101 +39,57 @@ def load_collector_config(
     """
     reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
 
-    system_raw = reader.read_system()
-    # 兼容已注入的旧 Raw Reader；默认路径统一使用 Core 类型化 Adapter。
-    typed_reader = reader if isinstance(reader, YamlTypedConfigAdapter) else None
-    typed = typed_reader is not None
-    if typed_reader is not None:
-        device_config = typed_reader.read_device_config()
-        point_config = typed_reader.read_point_config()
-        unit_config = typed_reader.read_unit_config()
-        task_config = typed_reader.read_task_config()
-    else:
-        models_raw = reader.read_device_models()
-        devices_raw = reader.read_devices()
-        points_raw = reader.read_points()
-        units_raw = reader.read_units()
-        tasks_raw = reader.read_tasks()
-    sinks_raw = reader.read_sinks() if typed_reader is None else {}
+    system = reader.read_system_config()
+    device_config = reader.read_device_config()
+    point_config = reader.read_point_config()
+    unit_config = reader.read_unit_config()
+    task_config = reader.read_task_config()
+    sinks_file = reader.read_sink_config()
 
-    try:
-        runtime = _parse_runtime_params(system_raw.get("runtime") or {})
-        ads_local = _parse_ads_local_identity(system_raw.get("ads"))
-        if typed_reader is not None:
-            models_file, instances_file = to_raw_devices(device_config)
-        else:
-            models_file = DeviceModelsFile(**models_raw)
-            instances_file = DeviceInstancesFile(**devices_raw)
-        tables_file = PointTablesFile(**points_raw) if not typed else None
-        if typed_reader is not None:
-            units_file = to_raw_units(unit_config)
-        else:
-            units_file = UnitsFile(**units_raw)
-        tasks_file = TasksFile(**tasks_raw) if not typed else None
-        sinks_file = (
-            typed_reader.read_sink_config()
-            if typed_reader is not None
-            else SinksConfig(**sinks_raw)
+    runtime = _runtime_params(system)
+    ads_local = (
+        ADSLocalIdentity(
+            local_ams_net_id=system.ads.local_ams_net_id,
+            local_ip=system.ads.local_ip,
         )
-    except ConfigError:
-        raise
-    except Exception as exc:
-        raise ConfigError(f"Invalid collector configuration: {exc}") from exc
+        if system.ads is not None
+        else None
+    )
 
-    if typed_reader is not None:
-        tables = to_raw_point_tables(point_config)
-    else:
-        assert tables_file is not None
-        tables = resolve_point_tables(tables_file.point_tables)
     snapshot, point_meta, disabled, ads_subscribe = build_core_snapshot(
-        models_file=models_file,
-        instances_file=instances_file,
-        tables=tables,
-        units_file=units_file,
+        device_config=device_config,
+        point_config=point_config,
+        unit_config=unit_config,
     )
 
     # disabled 设备不进快照，但其点表仍可用于 Sink 引用解析（旧行为）。
     disabled_tables = {
         instance.device_id: snapshot.point_tables[
-            PointTableId(models_file.device_models[instance.model].point_table)
+            PointTableId(device_config.models.device_models[instance.model].point_table)
         ]
-        for instance in instances_file.devices
+        for instance in device_config.instances.devices
         if not instance.enabled
     }
-    sinks = resolve_sinks(sinks_file, snapshot, units_file, disabled_tables)
-    if typed_reader is not None:
-        tasks = {
-            raw.task_id: CollectionTask(
-                task_id=raw.task_id,
-                device=raw.device,
-                device_group=raw.device_group,
-                point_group=raw.point_group,
-                interval=raw.interval,
-                targets=raw.targets,
-                enabled=raw.enabled,
-            )
-            for raw in task_config.tasks
-        }
-    else:
-        assert tasks_file is not None
-        tasks = {
-            raw.task_id: CollectionTask(
-                task_id=raw.task_id,
-                device=raw.device,
-                device_group=raw.device_group,
-                point_group=raw.point_group,
-                interval=raw.interval,
-                targets=tuple(target.sink for target in raw.targets),
-                enabled=raw.enabled,
-            )
-            for raw in tasks_file.tasks
-        }
+    sinks = resolve_sinks(sinks_file, snapshot, unit_config, disabled_tables)
+
+    tasks = {
+        task.task_id: CollectionTask(
+            task_id=task.task_id,
+            device=task.device,
+            device_group=task.device_group,
+            point_group=task.point_group,
+            interval=task.interval,
+            targets=task.targets,
+            enabled=task.enabled,
+        )
+        for task in task_config.tasks
+    }
 
     sink_names = {name for name, sink in sinks.items() if sink.enabled}
     # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
     all_device_groups = {
         instance.device_group
-        for instance in instances_file.devices
+        for instance in device_config.instances.devices
         if instance.device_group is not None
     }
     for task in tasks.values():
@@ -172,46 +114,21 @@ def load_collector_config(
     )
 
 
-def _parse_ads_local_identity(raw: Any) -> ADSLocalIdentity | None:
-    """解析 system.yaml ``ads`` 段的进程级本机身份（restart-required）。"""
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise ConfigError("system.yaml 'ads' must be a mapping")
-    parsed = ADSSystemRaw(**raw)
-    return ADSLocalIdentity(
-        local_ams_net_id=parsed.local_ams_net_id,
-        local_ip=parsed.local_ip,
-    )
+def _runtime_params(system: SystemConfig) -> RuntimeParams:
+    """把共享 RuntimeSettings 映射为 Collector 进程级运行时参数。
 
-
-def _parse_runtime_params(raw: Any) -> RuntimeParams:
-    """解析 system.yaml ``runtime`` 段的 Collector 子集。"""
-    if not isinstance(raw, dict):
-        raise ConfigError("system.yaml 'runtime' must be a mapping")
-    known = {
-        "queue_maxsize",
-        "backpressure_policy",
-        "shutdown_timeout",
-        "connect_timeout",
-        "read_timeout",
-        "write_timeout",  # Commander 子集，Collector 忽略
-    }
-    unknown = set(raw) - known
-    if unknown:
-        raise ConfigError(f"system.yaml 'runtime' has unknown keys: {sorted(unknown)}")
-    policy = raw.get("backpressure_policy", "drop_old")
-    if policy not in _BACKPRESSURE_POLICIES:
-        raise ConfigError(
-            f"Invalid backpressure_policy '{policy}'; "
-            f"must be one of {sorted(_BACKPRESSURE_POLICIES)}"
-        )
+    缺省键使用 Collector 自身默认值；正值约束由 RuntimeParams 复核。
+    """
+    settings = system.runtime
+    policy = settings.backpressure_policy or "drop_old"
     return RuntimeParams(
-        queue_maxsize=int(raw.get("queue_maxsize", 1000)),
+        queue_maxsize=settings.queue_maxsize if settings.queue_maxsize is not None else 1000,
         backpressure_policy=cast(BackpressurePolicy, policy),
-        shutdown_timeout=float(raw.get("shutdown_timeout", 10.0)),
-        connect_timeout=float(raw.get("connect_timeout", 10.0)),
-        read_timeout=(None if raw.get("read_timeout") is None else float(raw["read_timeout"])),
+        shutdown_timeout=(
+            settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
+        ),
+        connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 10.0,
+        read_timeout=settings.read_timeout,
     )
 
 
