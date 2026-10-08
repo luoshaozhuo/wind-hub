@@ -11,6 +11,20 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceModelsConfig:
+    """设备型号配置主题。"""
+
+    definition: Any
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceInstancesConfig:
+    """设备实例配置主题。"""
+
+    definition: Any
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceConfig:
     models: Any
     instances: Any
