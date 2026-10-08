@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from core.application.sink_config import SinksConfig
 from core.application.config_types import (
     DeviceConfig,
     PointConfig,
@@ -12,6 +11,7 @@ from core.application.config_types import (
     TaskConfig,
     UnitConfig,
 )
+from core.application.sink_config import SinksConfig
 
 
 @runtime_checkable
