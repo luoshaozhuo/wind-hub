@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from core.application import ConfigError
+from core.application.port.config import CollectorConfigReader
 from core.infrastructure.config import YamlConfigReader
 from core.domain import PointTableId
 
@@ -41,13 +42,13 @@ from .tasks import validate_task_targets
 _BACKPRESSURE_POLICIES = ("drop_old", "drop_new", "block")
 
 
-def load_collector_config(config_dir: str | Path) -> CollectorConfig:
+def load_collector_config(config_dir: str | Path, *, reader: CollectorConfigReader | None = None) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
     Raises:
         ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    reader = YamlConfigReader(config_dir)
+    reader = reader if reader is not None else YamlConfigReader(config_dir)
 
     system_raw = reader.read_system()
     models_raw = reader.read_device_models()
