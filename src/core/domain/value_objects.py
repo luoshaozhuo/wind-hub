@@ -97,7 +97,7 @@ class DataType(StrEnum):
             raise ValueError(f"{self.value} data type requires finite value")
         if self is DataType.FLOAT32:
             try:
-                return struct.unpack(">f", struct.pack(">f", number))[0]
+                return float(struct.unpack(">f", struct.pack(">f", number))[0])
             except OverflowError as exc:
                 raise ValueError("float32 value is outside finite range") from exc
         return number
