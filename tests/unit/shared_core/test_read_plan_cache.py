@@ -210,7 +210,11 @@ def test_modbus_read_plan_precomputes_register_ranges():
     points = {
         "x": _point("x", {"register_type": "holding", "address": 12, "data_type": "uint16"}),
         "y": _point("y", {"register_type": "holding", "address": 13, "data_type": "uint16"}),
-        "z": _point("z", {"register_type": "input", "address": 8, "data_type": "uint16"}),
+        "z": _point(
+            "z",
+            {"register_type": "input", "address": 8, "data_type": "uint16"},
+            access=PointAccess.READ,
+        ),
     }
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
