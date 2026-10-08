@@ -400,7 +400,7 @@ class ModbusDriver:
 
 def _decode_point(
     point: ModbusPoint,
-    segment: list[object],
+    segment: Sequence[object],
 ) -> object:
     if not segment:
         raise ValueError("empty Modbus response segment")
