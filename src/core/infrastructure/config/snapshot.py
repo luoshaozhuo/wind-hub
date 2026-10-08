@@ -56,12 +56,6 @@ from core.domain import (
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
 
 
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    variable_name: str | None
-    point_groups: tuple[str, ...]
-
-
 from .point_tables import ResolvedTable
 from .raw import (
     DeviceInstancesFile,
@@ -70,6 +64,13 @@ from .raw import (
     PointConfigRaw,
     UnitsFile,
 )
+
+@dataclass(frozen=True, slots=True)
+class PointMeta:
+    variable_name: str | None
+    point_groups: tuple[str, ...]
+
+
 
 _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_register"})
 
