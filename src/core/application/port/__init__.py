@@ -13,8 +13,8 @@ from .config import (
     TaskConfigReader,
     UnitConfigReader,
 )
-from .typed_config import TypedConfigReader
 from .protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
+from .typed_config import TypedConfigReader
 
 __all__ = [
     "CollectorConfigReader",
