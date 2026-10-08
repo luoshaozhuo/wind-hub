@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.domain import ConnectionEndpoint, ProtocolOptions
 from core.application.errors import ConfigError
+from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
@@ -32,8 +32,7 @@ def parse_modbus_config(
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
         raise ConfigError(
-            f"connection '{endpoint}' has unknown Modbus options: "
-            f"{sorted(unknown)}"
+            f"connection '{endpoint}' has unknown Modbus options: " f"{sorted(unknown)}"
         )
 
     mode = _string_option(options.get("mode"), "mode", default="tcp").lower()
@@ -45,15 +44,11 @@ def parse_modbus_config(
 
     unit_id = _int_option(options.get("unit_id"), "unit_id", default=1)
     if not 0 <= unit_id <= 255:
-        raise ConfigError(
-            f"connection '{endpoint}': unit_id must be in 0..255"
-        )
+        raise ConfigError(f"connection '{endpoint}': unit_id must be in 0..255")
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
-        raise ConfigError(
-            f"connection '{endpoint}': timeout must be > 0"
-        )
+        raise ConfigError(f"connection '{endpoint}': timeout must be > 0")
 
     word_order = _string_option(
         options.get("word_order"),
@@ -61,10 +56,7 @@ def parse_modbus_config(
         default="little_endian",
     ).lower()
     if word_order not in _VALID_WORD_ORDERS:
-        raise ConfigError(
-            f"connection '{endpoint}': invalid word_order "
-            f"'{word_order}'"
-        )
+        raise ConfigError(f"connection '{endpoint}': invalid word_order " f"'{word_order}'")
 
     return ModbusConfig(
         host=endpoint.host,

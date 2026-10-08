@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.application.errors import ConfigError
-from core.domain import PointAccess, Point
+from core.domain import Point, PointAccess
 
 _REGISTER_TYPE_ALIASES: dict[str, str] = {
     "coil": "coil",
@@ -61,9 +61,7 @@ def parse_modbus_point(
     options = point.ext
     unknown = set(options) - _ALLOWED_POINT_OPTIONS
     if unknown:
-        raise ConfigError(
-            f"Modbus point '{point.point_id}' has unknown options: {sorted(unknown)}"
-        )
+        raise ConfigError(f"Modbus point '{point.point_id}' has unknown options: {sorted(unknown)}")
 
     raw_register_type = options.get("register_type", options.get("type"))
     register_type = _normalize_register_type(raw_register_type)
@@ -75,8 +73,7 @@ def parse_modbus_point(
     )
     if not 0 <= address <= _MAX_ADDRESS:
         raise ConfigError(
-            f"Modbus point '{point.point_id}': address must be in "
-            f"0..{_MAX_ADDRESS}"
+            f"Modbus point '{point.point_id}': address must be in " f"0..{_MAX_ADDRESS}"
         )
 
     data_type = _required_data_type(options.get("data_type"), point.point_id)
@@ -96,8 +93,7 @@ def parse_modbus_point(
         )
     if address + count > _MAX_ADDRESS + 1:
         raise ConfigError(
-            f"Modbus point '{point.point_id}': address span exceeds "
-            f"{_MAX_ADDRESS}"
+            f"Modbus point '{point.point_id}': address span exceeds " f"{_MAX_ADDRESS}"
         )
 
     raw_word_order = options.get("word_order")
@@ -110,13 +106,11 @@ def parse_modbus_point(
         ).lower()
     )
     if word_order not in _VALID_WORD_ORDERS:
-        raise ConfigError(
-            f"Modbus point '{point.point_id}': invalid word_order '{word_order}'"
-        )
+        raise ConfigError(f"Modbus point '{point.point_id}': invalid word_order '{word_order}'")
 
-    if (
-        register_type in _READ_ONLY_TYPES
-        and point.access in (PointAccess.WRITE, PointAccess.READ_WRITE)
+    if register_type in _READ_ONLY_TYPES and point.access in (
+        PointAccess.WRITE,
+        PointAccess.READ_WRITE,
     ):
         raise ConfigError(
             f"Modbus point '{point.point_id}': {register_type} is read-only but "
@@ -169,14 +163,8 @@ def group_consecutive_reads(
         previous_end = ordered[0].address + ordered[0].count
 
         for point in ordered[1:]:
-            span = (
-                max(previous_end, point.address + point.count)
-                - current[0].address
-            )
-            if (
-                point.address - previous_end <= max_gap
-                and span <= request_limit
-            ):
+            span = max(previous_end, point.address + point.count) - current[0].address
+            if point.address - previous_end <= max_gap and span <= request_limit:
                 current.append(point)
             else:
                 groups.append(current)
@@ -189,25 +177,18 @@ def group_consecutive_reads(
     return groups
 
 
-
 def _required_data_type(value: object, point_id: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(
-            f"Modbus point '{point_id}': data_type must be a non-empty string"
-        )
+        raise ConfigError(f"Modbus point '{point_id}': data_type must be a non-empty string")
     data_type = value.strip().lower()
     if data_type not in _REGISTER_COUNTS:
-        raise ConfigError(
-            f"Modbus point '{point_id}': unsupported data_type '{value}'"
-        )
+        raise ConfigError(f"Modbus point '{point_id}': unsupported data_type '{value}'")
     return data_type
 
 
 def _normalize_register_type(value: object) -> str:
     if not isinstance(value, str):
-        raise ConfigError(
-            "Modbus point requires 'register_type' or 'type' string option"
-        )
+        raise ConfigError("Modbus point requires 'register_type' or 'type' string option")
     normalized = _REGISTER_TYPE_ALIASES.get(value.strip().lower())
     if normalized is None:
         raise ConfigError(f"invalid Modbus register type '{value}'")
@@ -219,9 +200,7 @@ def _count_for_data_type(register_type: str, data_type: str) -> int:
         return 1
     count = _REGISTER_COUNTS.get(data_type)
     if count is None:
-        raise ConfigError(
-            f"Modbus data type '{data_type}' is unsupported for register access"
-        )
+        raise ConfigError(f"Modbus data type '{data_type}' is unsupported for register access")
     return count
 
 

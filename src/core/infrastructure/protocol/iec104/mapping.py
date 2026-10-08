@@ -36,19 +36,13 @@ def parse_iec104_point(
     options = point.ext
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
-        raise ConfigError(
-            f"IEC104 point '{point.point_id}' has unknown options: {sorted(unknown)}"
-        )
+        raise ConfigError(f"IEC104 point '{point.point_id}' has unknown options: {sorted(unknown)}")
 
     raw_ioa = options.get("ioa")
     if isinstance(raw_ioa, bool) or not isinstance(raw_ioa, int):
-        raise ConfigError(
-            f"IEC104 point '{point.point_id}': ioa must be an integer"
-        )
+        raise ConfigError(f"IEC104 point '{point.point_id}': ioa must be an integer")
     if not 0 <= raw_ioa <= _MAX_IOA:
-        raise ConfigError(
-            f"IEC104 point '{point.point_id}': ioa must be in 0..{_MAX_IOA}"
-        )
+        raise ConfigError(f"IEC104 point '{point.point_id}': ioa must be in 0..{_MAX_IOA}")
 
     raw_type_id = options.get("type_id", options.get("type"))
     type_id: str | None
@@ -87,13 +81,10 @@ def build_iec104_index(
     return by_id, by_ioa
 
 
-
 def validate_iec104_write_type(point: IEC104Point) -> None:
     """校验写点使用当前 Driver 明确支持的 IEC104 控制类型。"""
     if point.type_id is None:
-        raise ConfigError(
-            f"IEC104 writable point '{point.point_id}' requires type_id"
-        )
+        raise ConfigError(f"IEC104 writable point '{point.point_id}' requires type_id")
     if point.type_id not in _COMMAND_TYPE_IDS:
         raise ConfigError(
             f"IEC104 writable point '{point.point_id}' uses unsupported "

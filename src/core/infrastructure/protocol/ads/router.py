@@ -26,9 +26,7 @@ class ADSLocalConfig:
         net_id = self.local_ams_net_id.strip()
         local_ip = self.local_ip.strip()
         if not _is_valid_ams_net_id(net_id):
-            raise ConfigError(
-                f"invalid local AMS Net ID '{self.local_ams_net_id}'"
-            )
+            raise ConfigError(f"invalid local AMS Net ID '{self.local_ams_net_id}'")
         if not local_ip:
             raise ConfigError("ADS local_ip must not be empty")
         object.__setattr__(self, "local_ams_net_id", net_id)
@@ -72,8 +70,7 @@ class ADSLocalRouter:
             if self._initialized:
                 if self._config != config:
                     raise ConfigError(
-                        "ADS local router is already initialized with a "
-                        "different local identity"
+                        "ADS local router is already initialized with a " "different local identity"
                     )
                 return
 
@@ -115,19 +112,13 @@ def _pyads() -> Any:
     try:
         import pyads  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise ProtocolError(
-            "ADS support requires the optional 'pyads' dependency"
-        ) from exc
+        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
     return pyads
 
 
 def _is_valid_ams_net_id(value: str) -> bool:
     parts = value.split(".")
-    return len(parts) == 6 and all(
-        part.isdigit() and 0 <= int(part) <= 255
-        for part in parts
-    )
-
+    return len(parts) == 6 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
 
 
 def _reserve_owner(

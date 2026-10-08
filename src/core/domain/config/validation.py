@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..unit import Quantity, UNIT_CATALOG, Unit
+from ..unit import UNIT_CATALOG, Quantity, Unit
 from ..value_objects import DataType
 from .snapshot import CoreConfigSnapshot
 
@@ -38,8 +38,7 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
             _validate_canonical_unit(
                 point.source_unit,
                 context=(
-                    f"point table '{table.point_table_id}' "
-                    f"point '{point.point_id}' source_unit"
+                    f"point table '{table.point_table_id}' " f"point '{point.point_id}' source_unit"
                 ),
             )
             business_point = snapshot.business_points.get(point.business_point_id)
@@ -55,9 +54,8 @@ def _validate_point_tables(snapshot: CoreConfigSnapshot) -> None:
                     f"'{point.point_id}' unit quantity does not match business "
                     f"point '{point.business_point_id}'"
                 )
-            if (
-                business_point.data_type in (DataType.BOOL, DataType.STRING)
-                and (point.scale != 1.0 or point.offset != 0.0)
+            if business_point.data_type in (DataType.BOOL, DataType.STRING) and (
+                point.scale != 1.0 or point.offset != 0.0
             ):
                 raise ValueError(
                     f"point table '{table.point_table_id}' point "
@@ -107,6 +105,4 @@ def _validate_device_options(snapshot: CoreConfigSnapshot) -> None:
 def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
     canonical = UNIT_CATALOG.get(unit.code)
     if canonical is None or unit != canonical:
-        raise ValueError(
-            f"{context} must use canonical built-in unit '{unit.code.value}'"
-        )
+        raise ValueError(f"{context} must use canonical built-in unit '{unit.code.value}'")

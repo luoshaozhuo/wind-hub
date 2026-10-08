@@ -50,9 +50,7 @@ class Point:
     access: PointAccess
     scale: float = 1.0
     offset: float = 0.0
-    ext: Mapping[str, str | int | float | bool | None] = field(
-        default_factory=dict
-    )
+    ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -74,9 +72,7 @@ class Point:
                 value,
                 str | int | float | bool,
             ):
-                raise ValueError(
-                    f"point ext '{key}' must be a scalar value or null"
-                )
+                raise ValueError(f"point ext '{key}' must be a scalar value or null")
             if isinstance(value, float) and not isfinite(value):
                 raise ValueError(f"point ext '{key}' must be finite")
 
@@ -107,13 +103,10 @@ class PointTable:
             if not point_id:
                 raise ValueError("point table keys must not be empty")
             if point_id != point_id.strip():
-                raise ValueError(
-                    "point table keys must not contain surrounding whitespace"
-                )
+                raise ValueError("point table keys must not contain surrounding whitespace")
             if point_id != point.point_id:
                 raise ValueError(
-                    f"point table key '{point_id}' does not match "
-                    f"point_id '{point.point_id}'"
+                    f"point table key '{point_id}' does not match " f"point_id '{point.point_id}'"
                 )
 
         object.__setattr__(
@@ -137,7 +130,5 @@ class PointTable:
     ) -> tuple[Point, ...]:
         """返回映射到同一业务点的全部协议点。"""
         return tuple(
-            point
-            for point in self.points.values()
-            if point.business_point_id == business_point_id
+            point for point in self.points.values() if point.business_point_id == business_point_id
         )

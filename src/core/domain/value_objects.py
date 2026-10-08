@@ -85,9 +85,7 @@ class DataType(StrEnum):
                 raise ValueError(f"{self.value} data type requires integer value")
             lower, upper = integer_range
             if not lower <= integer <= upper:
-                raise ValueError(
-                    f"{self.value} value {integer} outside range {lower}..{upper}"
-                )
+                raise ValueError(f"{self.value} value {integer} outside range {lower}..{upper}")
             return integer
 
         if isinstance(value, bool) or not isinstance(value, int | float):

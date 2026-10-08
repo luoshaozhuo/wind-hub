@@ -111,8 +111,7 @@ class CoreConfigSnapshot:
             identity = getattr(value, identity_attr)
             if key != identity:
                 raise ValueError(
-                    f"{index_name} key '{key}' does not match "
-                    f"{identity_attr} '{identity}'"
+                    f"{index_name} key '{key}' does not match " f"{identity_attr} '{identity}'"
                 )
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:

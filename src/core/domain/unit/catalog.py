@@ -8,7 +8,6 @@ from types import MappingProxyType
 from .model import Unit, UnitCode
 from .quantity import Quantity
 
-
 NONE = Unit(UnitCode.NONE, "", Quantity.DIMENSIONLESS)
 PERCENT = Unit(
     UnitCode.PERCENT,

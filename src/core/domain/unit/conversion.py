@@ -20,9 +20,7 @@ def convert_value(value: float, source: Unit, target: Unit) -> float:
         ValueError: source 与 target 属于不同 Quantity。
     """
     if source.quantity != target.quantity:
-        raise ValueError(
-            f"incompatible unit quantities: {source.quantity} -> {target.quantity}"
-        )
+        raise ValueError(f"incompatible unit quantities: {source.quantity} -> {target.quantity}")
 
     base_value = value * source.scale_to_base + source.offset_to_base
     return (base_value - target.offset_to_base) / target.scale_to_base

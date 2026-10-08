@@ -45,10 +45,7 @@ def parse_ads_config(
     """从 ConnectionEndpoint 解析并严格校验 ADS 参数。"""
     unknown = set(options) - _ALLOWED_OPTIONS
     if unknown:
-        raise ConfigError(
-            f"connection '{endpoint}' has unknown ADS options: "
-            f"{sorted(unknown)}"
-        )
+        raise ConfigError(f"connection '{endpoint}' has unknown ADS options: " f"{sorted(unknown)}")
 
     target_net_id = _string_option(
         options.get("target_net_id"),
@@ -57,10 +54,7 @@ def parse_ads_config(
         allow_empty=True,
     )
     if target_net_id and not _is_valid_ams_net_id(target_net_id):
-        raise ConfigError(
-            f"connection '{endpoint}': invalid target_net_id "
-            f"'{target_net_id}'"
-        )
+        raise ConfigError(f"connection '{endpoint}': invalid target_net_id " f"'{target_net_id}'")
 
     twincat_version = _string_option(
         options.get("twincat_version"),
@@ -68,10 +62,7 @@ def parse_ads_config(
         default="2",
     )
     if twincat_version not in {"2", "3"}:
-        raise ConfigError(
-            f"connection '{endpoint}': twincat_version must be "
-            "'2' or '3'"
-        )
+        raise ConfigError(f"connection '{endpoint}': twincat_version must be " "'2' or '3'")
 
     read_mode = _string_option(
         options.get("read_mode"),
@@ -79,16 +70,11 @@ def parse_ads_config(
         default="sum",
     ).lower()
     if read_mode not in _VALID_READ_MODES:
-        raise ConfigError(
-            f"connection '{endpoint}': invalid ADS read_mode "
-            f"'{read_mode}'"
-        )
+        raise ConfigError(f"connection '{endpoint}': invalid ADS read_mode " f"'{read_mode}'")
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
-        raise ConfigError(
-            f"connection '{endpoint}': timeout must be > 0"
-        )
+        raise ConfigError(f"connection '{endpoint}': timeout must be > 0")
 
     max_subs = _int_option(
         options.get("max_subs_per_sum"),
@@ -96,9 +82,7 @@ def parse_ads_config(
         default=500,
     )
     if max_subs <= 0:
-        raise ConfigError(
-            f"connection '{endpoint}': max_subs_per_sum must be > 0"
-        )
+        raise ConfigError(f"connection '{endpoint}': max_subs_per_sum must be > 0")
 
     max_concurrent = _int_option(
         options.get("max_concurrent_reads"),
@@ -106,10 +90,7 @@ def parse_ads_config(
         default=16,
     )
     if max_concurrent <= 0:
-        raise ConfigError(
-            f"connection '{endpoint}': "
-            "max_concurrent_reads must be > 0"
-        )
+        raise ConfigError(f"connection '{endpoint}': " "max_concurrent_reads must be > 0")
 
     max_delay = _float_option(
         options.get("max_delay"),
@@ -117,9 +98,7 @@ def parse_ads_config(
         default=0.06,
     )
     if max_delay < 0:
-        raise ConfigError(
-            f"connection '{endpoint}': max_delay must be >= 0"
-        )
+        raise ConfigError(f"connection '{endpoint}': max_delay must be >= 0")
 
     max_notifications = _int_option(
         options.get("max_notifications_per_connection"),
@@ -128,8 +107,7 @@ def parse_ads_config(
     )
     if max_notifications <= 0:
         raise ConfigError(
-            f"connection '{endpoint}': "
-            "max_notifications_per_connection must be > 0"
+            f"connection '{endpoint}': " "max_notifications_per_connection must be > 0"
         )
 
     default_port = 801 if twincat_version == "2" else 802
@@ -151,10 +129,7 @@ def parse_ads_config(
 
 def _is_valid_ams_net_id(value: str) -> bool:
     parts = value.split(".")
-    return len(parts) == 6 and all(
-        part.isdigit() and 0 <= int(part) <= 255
-        for part in parts
-    )
+    return len(parts) == 6 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
 
 
 def _string_option(

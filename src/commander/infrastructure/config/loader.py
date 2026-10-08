@@ -25,7 +25,9 @@ from .raw import (
 from .snapshot import build_core_snapshot
 
 
-def load_commander_config(config_dir: str | Path, *, reader: CommanderConfigReader | None = None) -> CommanderConfig:
+def load_commander_config(
+    config_dir: str | Path, *, reader: CommanderConfigReader | None = None
+) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
     Raises:
@@ -85,7 +87,6 @@ def load_commander_config(config_dir: str | Path, *, reader: CommanderConfigRead
         point_meta=point_meta,
         disabled_devices=disabled,
     )
-
 
 
 __all__ = ["load_commander_config"]

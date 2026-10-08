@@ -150,9 +150,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         diagnostic=CommanderDiagnosticService(
             runtime,
             ping=lambda host, timeout: ping_host(host, timeout=timeout),
-            tcp_connect=lambda host, port, timeout: tcp_port_open(
-                host, port, timeout=timeout
-            ),
+            tcp_connect=lambda host, port, timeout: tcp_port_open(host, port, timeout=timeout),
             probe_factory=probe_factory,
         ),
         config=CommanderConfigService(

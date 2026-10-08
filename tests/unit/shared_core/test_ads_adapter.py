@@ -12,8 +12,7 @@ import core.infrastructure.protocol.ads.subscription as subscription_module
 
 
 class _Closable(Protocol):
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 from core.application import (
@@ -23,12 +22,12 @@ from core.application import (
     ProtocolWrite,
 )
 from core.domain import (
+    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UNIT_CATALOG,
     UnitCode,
 )
 from core.infrastructure.protocol.ads import (
@@ -174,7 +173,6 @@ def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
     assert driver.health().healthy is False
 
 
-
 class _FakeADSConnection:
     def __init__(self) -> None:
         self.writes: list[tuple[int, int, object, object]] = []
@@ -186,9 +184,7 @@ class _FakeADSConnection:
         value: object,
         datatype: object,
     ) -> None:
-        self.writes.append(
-            (index_group, index_offset, value, datatype)
-        )
+        self.writes.append((index_group, index_offset, value, datatype))
 
 
 class _FakePyads:
@@ -238,9 +234,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
 
-    results = await driver.write(
-        (ProtocolWrite(point_id=point.point_id, value=10.0),)
-    )
+    results = await driver.write((ProtocolWrite(point_id=point.point_id, value=10.0),))
 
     assert results[0].success is True
     assert fake_connection.writes[0][2] == 10
@@ -264,13 +258,10 @@ async def test_ads_local_router_initializes_once_and_rejects_conflict(
     assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
 
     with pytest.raises(ConfigError, match="different local identity"):
-        await router.initialize(
-            ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11")
-        )
+        await router.initialize(ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11"))
 
     await router.close()
     assert fake_pyads.close_calls == 1
-
 
 
 class _FakeNotificationAttrib:
@@ -287,7 +278,7 @@ class _FakeNotificationAttrib:
 
 
 class _FakeNotificationConnection:
-    instances: list["_FakeNotificationConnection"] = []
+    instances: list[_FakeNotificationConnection] = []
 
     def __init__(
         self,
@@ -407,7 +398,6 @@ async def test_ads_driver_exposes_notification_subscription(
     assert connection.is_open is False
 
 
-
 @pytest.mark.asyncio
 async def test_ads_local_router_has_single_process_owner(
     monkeypatch: pytest.MonkeyPatch,
@@ -429,7 +419,6 @@ async def test_ads_local_router_has_single_process_owner(
 
     assert fake_pyads.open_calls == 2
     assert fake_pyads.close_calls == 2
-
 
 
 @pytest.mark.asyncio
@@ -482,7 +471,6 @@ async def test_ads_subscription_can_close_itself_from_callback(
 
     await asyncio.wait_for(done.wait(), timeout=1.0)
     assert connection.is_open is False
-
 
 
 @pytest.mark.asyncio

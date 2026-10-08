@@ -1,9 +1,10 @@
 """将 Core 共享配置解析结果适配为本进程的元数据类型。"""
 
 from core.domain import CoreConfigSnapshot, DeviceId, PointTableId
-from core.infrastructure.config.raw import DeviceInstancesFile, DeviceModelsFile, UnitsFile
 from core.infrastructure.config.point_tables import ResolvedTable
+from core.infrastructure.config.raw import DeviceInstancesFile, DeviceModelsFile, UnitsFile
 from core.infrastructure.config.snapshot import build_core_snapshot as _build_core_snapshot
+
 from ...application.config import PointMeta
 
 

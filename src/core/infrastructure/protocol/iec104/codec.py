@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality
+
 from .mapping import IEC104Point
 
 
@@ -29,9 +30,7 @@ def command_to_c104(
     c104 = _c104()
     type_id = mapped.type_id
     if type_id is None:
-        raise ConfigError(
-            f"IEC104 writable point '{mapped.point_id}' requires type_id"
-        )
+        raise ConfigError(f"IEC104 writable point '{mapped.point_id}' requires type_id")
 
     if type_id == "C_SC_NA_1":
         if type(value) is not bool:
@@ -63,8 +62,7 @@ def command_to_c104(
         return c104.Type.C_SE_NC_1, _numeric(value, type_id)
 
     raise ConfigError(
-        f"IEC104 point '{mapped.point_id}' uses unsupported command type "
-        f"'{type_id}'"
+        f"IEC104 point '{mapped.point_id}' uses unsupported command type " f"'{type_id}'"
     )
 
 
@@ -131,7 +129,5 @@ def _c104() -> Any:
     try:
         import c104
     except ImportError as exc:
-        raise ConfigError(
-            "IEC104 support requires the optional 'c104' dependency"
-        ) from exc
+        raise ConfigError("IEC104 support requires the optional 'c104' dependency") from exc
     return c104

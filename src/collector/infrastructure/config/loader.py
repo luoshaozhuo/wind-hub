@@ -15,8 +15,8 @@ from typing import Any, cast
 
 from core.application import ConfigError
 from core.application.port.config import CollectorConfigReader
-from core.infrastructure.config import YamlConfigReader
 from core.domain import PointTableId
+from core.infrastructure.config import YamlConfigReader
 
 from ...application.config import (
     ADSLocalIdentity,
@@ -42,7 +42,9 @@ from .tasks import validate_task_targets
 _BACKPRESSURE_POLICIES = ("drop_old", "drop_new", "block")
 
 
-def load_collector_config(config_dir: str | Path, *, reader: CollectorConfigReader | None = None) -> CollectorConfig:
+def load_collector_config(
+    config_dir: str | Path, *, reader: CollectorConfigReader | None = None
+) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
     Raises:
@@ -172,7 +174,6 @@ def _parse_runtime_params(raw: Any) -> RuntimeParams:
         connect_timeout=float(raw.get("connect_timeout", 10.0)),
         read_timeout=(None if raw.get("read_timeout") is None else float(raw["read_timeout"])),
     )
-
 
 
 __all__ = ["load_collector_config"]
