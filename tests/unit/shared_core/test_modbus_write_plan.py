@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from core.application import ConfigError
 from core.application.protocol_contract import ProtocolWrite
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
@@ -61,12 +62,6 @@ def test_write_groups_never_reorder_input() -> None:
 
 
 def test_write_groups_validation_rejects_duplicate_membership() -> None:
-    import pytest
-
-    from core.application import ConfigError
-    from core.domain import ConnectionEndpoint
-    from core.infrastructure.protocol.modbus.config import parse_modbus_config
-
     with pytest.raises(ConfigError, match="duplicate"):
         parse_modbus_config(
             ConnectionEndpoint("192.0.2.10", 502),
