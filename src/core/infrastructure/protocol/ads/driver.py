@@ -111,6 +111,7 @@ class ADSDriver:
             {
                 ProtocolCapability.READ,
                 ProtocolCapability.WRITE,
+                ProtocolCapability.WRITE_MANY,
                 ProtocolCapability.SUBSCRIBE,
             }
         )

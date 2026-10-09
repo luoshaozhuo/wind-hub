@@ -113,7 +113,7 @@ class RecoveryPort:
             return await self._bounded(action(), self._settings.read_timeout, "read")
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        return (await self.read_many((point_id,)))[0]
+        return await self._read_with_recovery(lambda: self._driver.read_one(point_id))
 
     async def read_many(
         self, point_ids: Sequence[str]
@@ -137,11 +137,21 @@ class RecoveryPort:
         return tuple((s.value, s.quality) for s in samples)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        return (await self.write_many((write,)))[0]
+        await self._restore_if_needed()
+        # No retry after a write has begun: PLC/RTU may have applied the command.
+        return await self._bounded(
+            self._driver.write_one(write), self._settings.write_timeout, "write"
+        )
 
     async def write_many(
         self, writes: Sequence[ProtocolWrite]
     ) -> tuple[ProtocolWriteResult, ...]:
+        # 未声明批量写能力的 Driver（如 Modbus）在任何输入下都明确拒绝，
+        # 且在连接恢复之前拒绝，避免无意义的重连；绝不降级为逐点写入。
+        if ProtocolCapability.WRITE_MANY not in self._driver.capabilities():
+            raise NotImplementedError(
+                f"{type(self._driver).__name__} does not support write_many"
+            )
         if not writes:
             return ()
         await self._restore_if_needed()

@@ -192,6 +192,7 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
         {
             ProtocolCapability.READ,
             ProtocolCapability.WRITE,
+            ProtocolCapability.WRITE_MANY,
             ProtocolCapability.SUBSCRIBE,
         }
     )

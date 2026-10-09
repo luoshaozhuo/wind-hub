@@ -181,6 +181,14 @@ class FakeProtocol:
             for write in writes
         )
 
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        self.writes.append(write)
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            success=self.write_success,
+            message=None if self.write_success else "fake write rejected",
+        )
+
     def update_point_table(self, point_table: PointTable) -> None:
         self.point_table_updates.append(point_table)
 
