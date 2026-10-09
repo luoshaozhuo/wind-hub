@@ -69,14 +69,18 @@ def test_write_groups_validation_rejects_duplicate_membership() -> None:
 
 
 class _Response:
+    def __init__(self, *, error: bool = False) -> None:
+        self.error = error
+
     def isError(self) -> bool:  # noqa: N802 - pymodbus response API
-        return False
+        return self.error
 
 
 class _Client:
     def __init__(self) -> None:
         self.single: list[tuple[int, int]] = []
         self.multiple: list[tuple[int, list[int]]] = []
+        self.reject_batch = False
 
     async def write_register(
         self, address: int, value: int, *, device_id: int
@@ -90,7 +94,7 @@ class _Client:
     ) -> _Response:
         assert device_id == 1
         self.multiple.append((address, values))
-        return _Response()
+        return _Response(error=self.reject_batch)
 
 
 @pytest.mark.asyncio
@@ -133,3 +137,44 @@ async def test_contiguous_write_never_fills_register_gap() -> None:
     await driver.write_many((ProtocolWrite("a", 10), ProtocolWrite("b", 20)))
     assert driver._client.multiple == []
     assert driver._client.single == [(100, 10), (103, 20)]
+
+
+@pytest.mark.asyncio
+async def test_batch_exception_response_marks_all_members_failed() -> None:
+    driver = object.__new__(ModbusDriver)
+    driver._config = parse_modbus_config(
+        ConnectionEndpoint("192.0.2.10", 502),
+        {"write_groups": [["a", "b"]]},
+    )
+    driver._point_table_id = "test"
+    driver._points = {"a": _point("a", 100), "b": _point("b", 101)}
+    client = _Client()
+    client.reject_batch = True
+    driver._client = client
+    driver._connected = True
+    driver._lock = asyncio.Lock()
+
+    result = await driver.write_many((ProtocolWrite("a", 10), ProtocolWrite("b", 20)))
+    assert [entry.success for entry in result] == [False, False]
+    assert all(entry.message == "Modbus exception response" for entry in result)
+    assert client.multiple == [(100, [10, 20])]
+    assert client.single == []  # Never retry ambiguous control commands.
+
+
+@pytest.mark.asyncio
+async def test_invalid_batch_value_falls_back_to_per_point_validation() -> None:
+    driver = object.__new__(ModbusDriver)
+    driver._config = parse_modbus_config(
+        ConnectionEndpoint("192.0.2.10", 502),
+        {"write_groups": [["a", "b"]]},
+    )
+    driver._point_table_id = "test"
+    driver._points = {"a": _point("a", 100), "b": _point("b", 101)}
+    driver._client = _Client()
+    driver._connected = True
+    driver._lock = asyncio.Lock()
+
+    result = await driver.write_many((ProtocolWrite("a", 10), ProtocolWrite("b", 70000)))
+    assert [entry.success for entry in result] == [True, False]
+    assert driver._client.multiple == []
+    assert driver._client.single == [(100, 10)]
