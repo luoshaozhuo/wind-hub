@@ -2,7 +2,8 @@
 
 本包定义现场配置目录中各主题的统一 Raw Schema：
 ``system.yaml``（ads / runtime 连接写超时）、``device_models.yaml``、
-``devices.yaml``、``points.yaml``、``units.yaml``。不读取 tasks / sinks。
+``devices.yaml``、``points.yaml``、``units.yaml``、``tasks.yaml``。sinks.yaml 的 Raw
+Schema 独立定义在 ``core.application.sink_config``。
 
 模型与旧 wind_hub_core 的 Raw Schema 保持一致（字段名、校验规则、错误
 语义），但只依赖 core，不 import 任何 wind_hub_* 模块。

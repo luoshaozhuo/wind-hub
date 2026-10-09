@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -47,7 +49,7 @@ SINK_NUMERIC_DATA_TYPES = frozenset(
     }
 )
 
-MODBUS_WORD_WIDTH: dict[str, int] = {
+MODBUS_WORD_WIDTH: Mapping[str, int] = MappingProxyType({
     "bool": 1,
     "int8": 1,
     "uint8": 1,
@@ -59,13 +61,13 @@ MODBUS_WORD_WIDTH: dict[str, int] = {
     "int64": 4,
     "uint64": 4,
     "float64": 4,
-}
+})
 
 
 class SinkSource(BaseModel):
     """Sink 点引用的内部稳定身份。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     device_id: str
     point_id: str
@@ -78,7 +80,7 @@ class SinkSource(BaseModel):
 
 
 class FileSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     path: str
     format: Literal["jsonl", "csv"] = "jsonl"
@@ -99,7 +101,7 @@ class FileSinkConnection(BaseModel):
 
 
 class KafkaSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     bootstrap_servers: str | list[str]
     topic: str
@@ -126,7 +128,7 @@ class KafkaSinkConnection(BaseModel):
 
 
 class DatabaseSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, frozen=True)
 
     dsn: str
     table: str
@@ -160,14 +162,14 @@ class DatabaseSinkConnection(BaseModel):
 
 
 class IEC104SinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     host: str = "0.0.0.0"
     port: int = Field(default=2404, ge=1, le=65535)
     common_address: int = Field(default=1, ge=0, le=0xFFFF)
 
 
 class OPCUASinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     host: str = "0.0.0.0"
     port: int = Field(default=4840, ge=1, le=65535)
     endpoint: str = "/wind-hub"
@@ -175,7 +177,7 @@ class OPCUASinkConnection(BaseModel):
 
 
 class ModbusSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     host: str = "0.0.0.0"
     port: int = Field(default=502, ge=1, le=65535)
 
@@ -193,13 +195,13 @@ SinkConnection = (
 class StreamSinkAddress(BaseModel):
     """File/Kafka/DB 中对外字段名。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     field: str
 
 
 class IEC104SinkAddress(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     ioa: int = Field(ge=0, le=0xFFFFFF)
     type_id: Literal[
         "M_SP_NA_1",
@@ -214,13 +216,13 @@ class IEC104SinkAddress(BaseModel):
 
 
 class OPCUASinkAddress(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     node_id: str
     browse_name: str | None = None
 
 
 class ModbusSinkAddress(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     unit_id: int = Field(ge=0, le=255)
     register_type: Literal["holding", "input", "coil", "discrete"]
     address: int = Field(ge=0, le=65535)
@@ -256,7 +258,7 @@ class SinkPoint(BaseModel):
     根据 source 绑定的内部点补全。
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: SinkSource
     ref: str | None = None
@@ -281,7 +283,7 @@ class SinkPoint(BaseModel):
 class ResolvedSinkPoint(BaseModel):
     """完成 source 引用解析后的运行时 Sink 点定义。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: SinkSource
     ref: str
@@ -312,7 +314,7 @@ class ResolvedSinkPoint(BaseModel):
 class SinkConfig(BaseModel):
     """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     type: str
@@ -414,7 +416,7 @@ class SinksConfig(BaseModel):
     Sink 集可直接按 name 索引为 ``dict[name, ResolvedSinkConfig]``。
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     sinks: list[SinkConfig] = Field(default_factory=list)
 
