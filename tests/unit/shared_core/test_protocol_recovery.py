@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from core.application.errors import ProtocolError
-from core.application.port.recovery import RecoveryPort, RecoverySettings
+from core.application.recovery import RecoveryPort, RecoverySettings
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolSample,
