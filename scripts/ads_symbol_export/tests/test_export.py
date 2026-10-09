@@ -68,7 +68,7 @@ def test_streams_across_record_boundaries(exporter: types.ModuleType, tmp_path: 
 def test_inconsistent_count_preserves_existing_file(
     exporter: types.ModuleType, tmp_path: Path
 ) -> None:
-    plc = FakePLC(_entry("A.x") + _entry("B.y"), 3)
+    plc = FakePLC(_entry("A." + "x" * 30) + _entry("B." + "y" * 30), 3)
     output = tmp_path / "symbols.txt"
     output.write_text("previous\n", encoding="utf-8")
     with pytest.raises(ValueError, match="不完整"):
