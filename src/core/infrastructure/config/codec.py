@@ -240,7 +240,7 @@ def dump_system_config(config: SystemConfig) -> dict[str, Any]:
         "reconnect_attempts",
     ):
         value = getattr(config.runtime, key)
-        if value is not None:
+        if value is not None and (key != "reconnect_attempts" or value != 1):
             runtime[key] = value
     if runtime:
         data["runtime"] = runtime

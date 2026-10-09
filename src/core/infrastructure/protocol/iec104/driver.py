@@ -726,6 +726,11 @@ class IEC104Driver:
         if mapped is None or mapped.point_id != sample.point_id:
             # A queued callback may belong to the previous point-table generation.
             return
+        if negative and requested:
+            waiter = self._active_reads.get(ioa)
+            if waiter is not None and not waiter.done():
+                waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
+            return
         self._samples[ioa] = sample
         if requested:
             waiter = self._active_reads.get(ioa)

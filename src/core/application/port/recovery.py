@@ -176,3 +176,24 @@ class RecoveryPort:
     async def request_read_many(self, point_ids: Sequence[str]) -> None:
         for point_id in point_ids:
             await self.request_read_one(point_id)
+
+    async def read_active_one(
+        self, point_id: str, *, timeout: float | None = None
+    ) -> ProtocolSample:
+        """IEC104-specific fresh read. Never substitute the local mirror."""
+        await self._restore_if_needed()
+        method = getattr(self._driver, "read_active_one")
+        limit = self._settings.read_timeout if timeout is None else timeout
+        return await self._bounded(method(point_id, timeout=limit), limit, "active read")
+
+    async def read_active_many(
+        self, point_ids: Sequence[str], *, timeout: float | None = None
+    ) -> tuple[ProtocolSample, ...]:
+        if not point_ids:
+            return ()
+        await self._restore_if_needed()
+        method = getattr(self._driver, "read_active_many")
+        limit = self._settings.read_timeout if timeout is None else timeout
+        return await self._bounded(
+            method(point_ids, timeout=limit), limit, "active read"
+        )

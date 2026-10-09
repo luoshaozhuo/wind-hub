@@ -138,3 +138,36 @@ async def test_read_timeout_is_enforced() -> None:
     port = RecoveryPort(driver, RecoverySettings(read_timeout=0.001))
     with pytest.raises(ProtocolError, match="timed out"):
         await port.read_many(("a",))
+
+
+@pytest.mark.asyncio
+async def test_write_timeout_does_not_replay_command() -> None:
+    driver = _Driver()
+    driver.connected = True
+
+    async def slow_write(
+        writes: tuple[ProtocolWrite, ...]
+    ) -> tuple[ProtocolWriteResult, ...]:
+        del writes
+        driver.write_count += 1
+        await asyncio.sleep(0.05)
+        return ()
+
+    driver.write_many = slow_write  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(write_timeout=0.001))
+    with pytest.raises(ProtocolError, match="write timed out"):
+        await port.write_one(ProtocolWrite("control", 5))
+    assert driver.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_connection_timeout_is_enforced() -> None:
+    driver = _Driver()
+
+    async def slow_connect() -> None:
+        await asyncio.sleep(0.05)
+
+    driver.connect = slow_connect  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(connect_timeout=0.001))
+    with pytest.raises(ProtocolError, match="connect timed out"):
+        await port.connect()
