@@ -168,19 +168,6 @@ class AdsDiagnosticProbe:
         self._resolved[point.point_id] = resolved
         return resolved
 
-    async def read_raw(self, point: Point, resolved: ResolvedAddress) -> object:
-        """按解析地址读取一次 ADS 原始值。"""
-        if not self._connected:
-            raise ConnectionError("ADS probe is not connected")
-        data_type = str(point.ext.get("data_type", ""))
-        return await asyncio.to_thread(
-            self._connection.read,
-            resolved.index_group,
-            resolved.index_offset,
-            _plc_type(data_type),
-        )
-
-
 def _pyads() -> Any:
     """延迟导入 pyads；未类型化第三方模块限制在本适配边界内。"""
     import pyads  # type: ignore[import-untyped]
