@@ -628,20 +628,42 @@ class ADSDriver:
         self,
         addresses: Sequence[tuple[int, int, int]],
     ) -> bytes:
-        """调用 pyads 地址型 Sum Read。"""
-        try:
-            from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
-        except ImportError as exc:
-            raise NotImplementedError("pyads address Sum Read is unavailable") from exc
+        """通过 PyADS 公开 read_write 发送标准 ADS Sum Read 请求。
+
+        请求体是连续 (index_group, index_offset, size) 的 12 字节记录，
+        ADSIGRP_SUMUP_READ 的 index_offset 字段携带子请求数。
+        """
+        from ctypes import Structure, c_uint32
+
+        from pyads.constants import ADSIGRP_SUMUP_READ
 
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
-        port = getattr(connection, "_port", None)
-        address = getattr(connection, "_adr", None)
-        if port is None or address is None:
-            raise NotImplementedError("pyads internal Sum Read handles unavailable")
-        return bytes(adsSumReadBytes(port, address, addresses))
+        if not hasattr(connection, "read_write"):
+            raise NotImplementedError("pyads Connection.read_write unavailable")
+
+        class _SumReadItem(Structure):
+            _fields_ = [
+                ("iGroup", c_uint32),
+                ("iOffset", c_uint32),
+                ("size", c_uint32),
+            ]
+
+        request = (_SumReadItem * len(addresses))(
+            *(_SumReadItem(group, offset, size) for group, offset, size in addresses)
+        )
+        response = connection.read_write(
+            ADSIGRP_SUMUP_READ,
+            len(addresses),
+            None,
+            request,
+            None,
+            check_length=False,
+        )
+        if response is None:
+            raise ProtocolError("ADS Sum Read received no response")
+        return bytes(response)
 
     async def _disconnect_after_failure(self) -> None:
         """传输失败后立即摘除运行资源。
