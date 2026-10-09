@@ -8,7 +8,7 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.port import ProtocolSampleCallback, SubscriptionHandle
@@ -25,6 +25,17 @@ from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
+
+if TYPE_CHECKING:
+    from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
+else:
+    try:
+        from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
+    except ImportError:  # pymodbus 是可选依赖；缺失时不影响其它协议模块导入。
+        AsyncModbusTcpClient = None
+        ModbusTcpClient = None
+
+_PYMODBUS_MISSING = "Modbus support requires the optional 'pymodbus' dependency"
 
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
@@ -115,12 +126,8 @@ class ModbusDriver:
             if self._connected:
                 return
 
-            try:
-                from pymodbus.client import AsyncModbusTcpClient
-            except ImportError as exc:
-                raise ProtocolError(
-                    "Modbus support requires the optional 'pymodbus' dependency"
-                ) from exc
+            if AsyncModbusTcpClient is None:
+                raise ProtocolError(_PYMODBUS_MISSING)
 
             self._close_client()
             client = AsyncModbusTcpClient(
@@ -165,12 +172,84 @@ class ModbusDriver:
         return ConnectionHealth(healthy=False, message="not connected")
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        """读取一个逻辑点。"""
-        return (await self.read_many((point_id,)))[0]
+        """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
+
+        一个逻辑点可能占多个寄存器（如 float32 占 2 个），但仍只发送
+        一次 Modbus 读取请求。解码失败返回 BAD 质量样本；Modbus 异常
+        响应与通信错误分别抛出 ProtocolError，只有通信错误标记断线。
+        """
+        point = self._mapped_point(point_id)
+        async with self._lock:
+            if not self._connected:
+                raise ProtocolError("Modbus read requires an active connection")
+            try:
+                response = await self._read_request(
+                    point.register_type, point.address, point.count
+                )
+            except ProtocolError:
+                raise
+            except Exception as exc:
+                self._signal_disconnect()
+                raise ProtocolError(f"Modbus read failed: {exc}") from exc
+
+            if response.isError():
+                raise ProtocolError(
+                    f"Modbus {point.register_type} read at {point.address} "
+                    f"count={point.count} returned an exception response"
+                )
+
+            raw: Sequence[object] = (
+                response.bits
+                if point.register_type in _BIT_TYPES
+                else response.registers
+            )
+            try:
+                value = _decode_point(point, raw[: point.count])
+            except (IndexError, TypeError, ValueError, struct.error):
+                return ProtocolSample(point_id=point_id, value=None, quality=Quality.BAD)
+            return ProtocolSample(
+                point_id=point_id,
+                value=_as_point_scalar(value),
+                quality=Quality.GOOD,
+            )
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        """写入一个逻辑点。"""
-        return (await self.write_many((write,)))[0]
+        """写入一个逻辑点；低频路径，不做多点合并或写规划。
+
+        一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
+        用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
+        配置或取值不合法时不向设备发送任何请求。
+        """
+        point = self._mapped_point(write.point_id)
+        if point.register_type in _READ_ONLY_TYPES:
+            return ProtocolWriteResult(
+                point_id=write.point_id,
+                success=False,
+                message=f"{point.register_type} is read-only",
+            )
+        async with self._lock:
+            if not self._connected:
+                raise ProtocolError("Modbus write requires an active connection")
+            try:
+                accepted = await self._write_single(point, write.value)
+            except (TypeError, ValueError, struct.error) as exc:
+                return ProtocolWriteResult(
+                    point_id=write.point_id,
+                    success=False,
+                    message=str(exc) or type(exc).__name__,
+                )
+            except ProtocolError:
+                raise
+            except Exception as exc:
+                self._signal_disconnect()
+                raise ProtocolError(f"Modbus write failed: {exc}") from exc
+        if not accepted:
+            return ProtocolWriteResult(
+                point_id=write.point_id,
+                success=False,
+                message="Modbus exception response",
+            )
+        return ProtocolWriteResult(point_id=write.point_id, success=True)
 
     async def read(
         self,
@@ -231,105 +310,8 @@ class ModbusDriver:
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
-        """逐点执行写入；单点配置/设备拒绝不会取消同批其它点。"""
-        if not writes:
-            return ()
-
-        async with self._lock:
-            if not self._connected:
-                raise ProtocolError("Modbus write requires an active connection")
-
-            results: list[ProtocolWriteResult] = []
-            try:
-                mapped_writes = [self._mapped_point(write.point_id) for write in writes]
-                groups_by_point = {
-                    point_id: group_index
-                    for group_index, group in enumerate(self._config.write_groups)
-                    for point_id in group
-                }
-                authorized = frozenset(groups_by_point)
-                plan = self._plan_contiguous_writes(
-                    mapped_writes, authorized_point_ids=authorized
-                )
-                position = 0
-                for group in plan:
-                    chunk = writes[position : position + len(group)]
-                    position += len(group)
-                    allowed = (
-                        len(group) > 1
-                        and all(groups_by_point.get(point.point_id) ==
-                                groups_by_point.get(group[0].point_id) for point in group)
-                    )
-                    if allowed:
-                        try:
-                            words = [
-                                word
-                                for write, point in zip(chunk, group, strict=True)
-                                for word in _encode_registers(
-                                    write.value, point.data_type, point.word_order
-                                )
-                            ]
-                        except (TypeError, ValueError, struct.error):
-                            # Let each point report its own validation result.
-                            allowed = False
-                        else:
-                            response = await self._client.write_registers(
-                                group[0].address, words, device_id=self._config.unit_id
-                            )
-                            results.extend(
-                                ProtocolWriteResult(
-                                    point_id=point.point_id,
-                                    success=not response.isError(),
-                                    message=None if not response.isError()
-                                    else "Modbus exception response",
-                                )
-                                for point in group
-                            )
-                    if allowed:
-                        continue
-                    for write, mapped in zip(chunk, group, strict=True):
-                        if mapped.register_type in _READ_ONLY_TYPES:
-                            results.append(
-                                ProtocolWriteResult(
-                                    point_id=mapped.point_id,
-                                    success=False,
-                                    message=f"{mapped.register_type} is read-only",
-                                )
-                            )
-                            continue
-                        try:
-                            accepted = await self._write_single(mapped, write.value)
-                        except (TypeError, ValueError, struct.error) as exc:
-                            results.append(
-                                ProtocolWriteResult(
-                                    point_id=mapped.point_id,
-                                    success=False,
-                                    message=str(exc) or type(exc).__name__,
-                                )
-                            )
-                            continue
-                        if accepted:
-                            results.append(
-                                ProtocolWriteResult(
-                                    point_id=mapped.point_id,
-                                    success=True,
-                                )
-                            )
-                        else:
-                            results.append(
-                                ProtocolWriteResult(
-                                    point_id=mapped.point_id,
-                                    success=False,
-                                    message="Modbus exception response",
-                                )
-                            )
-            except ProtocolError:
-                raise
-            except Exception as exc:
-                self._signal_disconnect()
-                raise ProtocolError(f"Modbus write failed: {exc}") from exc
-
-            return tuple(results)
+        """Modbus 不支持多逻辑点批量写入；请逐点调用 write_one。"""
+        raise NotImplementedError("Modbus write_many is not implemented")
 
     async def subscribe(
         self,
@@ -377,40 +359,32 @@ class ModbusDriver:
         self._read_plan_cache[key] = plan
         return plan
 
+    async def _read_request(
+        self,
+        register_type: str,
+        start: int,
+        count: int,
+    ) -> Any:
+        """发送一次 Modbus 读取请求并返回原始响应；不检查 isError。"""
+        client = self._client
+        unit_id = self._config.unit_id
+        if register_type == "coil":
+            return await client.read_coils(start, count=count, device_id=unit_id)
+        if register_type == "discrete_input":
+            return await client.read_discrete_inputs(start, count=count, device_id=unit_id)
+        if register_type == "holding":
+            return await client.read_holding_registers(start, count=count, device_id=unit_id)
+        return await client.read_input_registers(start, count=count, device_id=unit_id)
+
     async def _read_group(
         self,
         group: _ReadGroupPlan,
     ) -> dict[str, object]:
-        client = self._client
         register_type = group.register_type
         start = group.start
         count = group.count
-        unit_id = self._config.unit_id
 
-        if register_type == "coil":
-            response = await client.read_coils(
-                start,
-                count=count,
-                device_id=unit_id,
-            )
-        elif register_type == "discrete_input":
-            response = await client.read_discrete_inputs(
-                start,
-                count=count,
-                device_id=unit_id,
-            )
-        elif register_type == "holding":
-            response = await client.read_holding_registers(
-                start,
-                count=count,
-                device_id=unit_id,
-            )
-        else:
-            response = await client.read_input_registers(
-                start,
-                count=count,
-                device_id=unit_id,
-            )
+        response = await self._read_request(register_type, start, count)
 
         if response.isError():
             raise ProtocolError(
@@ -431,52 +405,6 @@ class ModbusDriver:
             except (IndexError, TypeError, ValueError, struct.error):
                 values[point.point_id] = _DECODE_FAILED
         return values
-
-    @staticmethod
-    def _plan_contiguous_writes(
-        points: Sequence[ModbusPoint],
-        *,
-        authorized_point_ids: frozenset[str],
-    ) -> tuple[tuple[ModbusPoint, ...], ...]:
-        """仅规划显式授权的连续保持寄存器写组；不跨空洞或重排命令。
-
-        未获授权的点永远单独成组。本函数不发送任何写入请求。
-        """
-        groups: list[tuple[ModbusPoint, ...]] = []
-        current: list[ModbusPoint] = []
-
-        def flush() -> None:
-            if current:
-                groups.append(tuple(current))
-                current.clear()
-
-        for point in points:
-            if (
-                point.register_type != "holding"
-                or point.point_id not in authorized_point_ids
-            ):
-                flush()
-                groups.append((point,))
-                continue
-
-            if not current:
-                current.append(point)
-                continue
-
-            last = current[-1]
-            start = current[0].address
-            next_end = point.address + point.count
-            if (
-                point.address == last.address + last.count
-                and next_end - start <= 123
-                and point.point_id not in {item.point_id for item in current}
-            ):
-                current.append(point)
-            else:
-                flush()
-                current.append(point)
-        flush()
-        return tuple(groups)
 
     async def _write_single(
         self,
@@ -569,8 +497,8 @@ def _decode_registers(
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
     # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
-    from pymodbus.client import ModbusTcpClient
-
+    if ModbusTcpClient is None:
+        raise ProtocolError(_PYMODBUS_MISSING)
     datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
@@ -601,8 +529,8 @@ def _encode_registers(
     else:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    from pymodbus.client import ModbusTcpClient
-
+    if ModbusTcpClient is None:
+        raise ProtocolError(_PYMODBUS_MISSING)
     datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
