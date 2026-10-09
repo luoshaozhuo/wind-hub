@@ -315,7 +315,10 @@ class ADSDriver:
                             message=(
                                 None
                                 if responses.get(point.symbol) in (0, "no error")
-                                else f"ADS sum write: {responses.get(point.symbol, 'missing status')}"
+                                else (
+                                    "ADS sum write: "
+                                    f"{responses.get(point.symbol, 'missing status')}"
+                                )
                             ),
                         )
                         for write, point in zip(writes, mapped_batch, strict=True)
