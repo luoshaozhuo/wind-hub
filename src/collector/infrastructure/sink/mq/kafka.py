@@ -33,9 +33,9 @@ from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
 
 from collector.application.errors import SinkError
 from collector.application.sink_port import SinkPort
-from collector.application.sinks import KafkaSinkConnection, SinkConfig
 from collector.domain.point_value import PointValue
 from core.application import ConfigError, ConnectionHealth
+from core.application.sink_config import KafkaSinkConnection, SinkConfig
 
 logger = logging.getLogger(__name__)
 

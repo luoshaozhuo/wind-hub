@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 
 from collector.application.sink_export import ExportedSinkPointValue
-from collector.application.sinks import ModbusSinkAddress
+from core.application.sink_config import ModbusSinkAddress
 
 _STRUCT_FORMAT: dict[str, str] = {
     "int16": "h",

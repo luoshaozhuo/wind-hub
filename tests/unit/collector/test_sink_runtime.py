@@ -114,7 +114,7 @@ async def test_add_sink_after_start_opens_and_consumes():
     runtime = _runtime({})
     await runtime.start()
     sink = FakeSink()
-    from collector.application.sinks import (
+    from core.application.sink_config import (
         FileSinkConnection,
         ResolvedSinkConfig,
     )
@@ -135,7 +135,7 @@ async def test_add_sink_open_failure_leaves_registry_unchanged():
     await runtime.start()
     sink = FakeSink()
     sink.fail_open = True
-    from collector.application.sinks import FileSinkConnection, ResolvedSinkConfig
+    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     cfg = ResolvedSinkConfig(
         name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.jsonl")
@@ -162,7 +162,7 @@ async def test_rebuild_open_first_for_regular_sink():
     runtime = _runtime({"s1": old})
     await runtime.start()
     new = FakeSink()
-    from collector.application.sinks import FileSinkConnection, ResolvedSinkConfig
+    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     cfg = ResolvedSinkConfig(
         name="s1", type="file", connection=FileSinkConnection(path="/tmp/y.jsonl")
@@ -180,7 +180,7 @@ async def test_rebuild_close_first_for_exclusive_sink_and_restores_on_failure():
     await runtime.start()
     new = FakeSink(exclusive=True)
     new.fail_open = True
-    from collector.application.sinks import (
+    from core.application.sink_config import (
         IEC104SinkConnection,
         ResolvedSinkConfig,
     )
@@ -199,7 +199,7 @@ async def test_apply_diff_requires_factory_before_any_removal():
     sink = FakeSink()
     runtime = _runtime({"old": sink})
     await runtime.start()
-    from collector.application.sinks import FileSinkConnection, ResolvedSinkConfig
+    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     new_cfg = ResolvedSinkConfig(
         name="new", type="file", connection=FileSinkConnection(path="/tmp/z.jsonl")
@@ -215,7 +215,7 @@ async def test_apply_diff_add_remove_update():
     old = FakeSink()
     runtime = _runtime({"keep": old, "drop": FakeSink()})
     await runtime.start()
-    from collector.application.sinks import FileSinkConnection, ResolvedSinkConfig
+    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     made: list[FakeSink] = []
 

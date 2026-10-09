@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from collector.application.sinks import (
+from core.application import ConfigError
+from core.application.config_types import UnitConfig
+from core.application.sink_config import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
     IEC104SinkAddress,
@@ -20,8 +22,6 @@ from collector.application.sinks import (
     SinkPoint,
     SinksConfig,
 )
-from core.application import ConfigError
-from core.application.config_types import UnitConfig
 from core.domain import DeviceId, Point, PointTable
 from core.domain.config.lookups import point_table_for_device
 from core.infrastructure.config.assembly import CoreConfigAssembly
