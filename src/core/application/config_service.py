@@ -250,11 +250,17 @@ def _validate_tasks(
         for device in devices.devices
         if device.model in models.device_models
     }
-    group_tables = {
-        device.device_group: table_by_device[device.device_id]
-        for device in devices.devices
-        if device.device_group is not None and device.device_id in table_by_device
-    }
+    # 组内每台参与采集（enabled）设备的点表全集——运行时
+    # validate_task_targets 要求 point_group 在每台命中 enabled 设备
+    # 的绑定点表中存在；只保留同组最后一张表会漏检并依赖声明顺序。
+    group_tables: dict[str, set[str]] = {}
+    for device in devices.devices:
+        if device.device_group is None or not device.enabled:
+            continue
+        table_name = table_by_device.get(device.device_id)
+        if table_name is None:
+            continue
+        group_tables.setdefault(device.device_group, set()).add(table_name)
     for task in tasks.tasks:
         if task.device is not None:
             if task.device not in device_ids:
@@ -276,13 +282,16 @@ def _validate_tasks(
                     f"Task '{task.task_id}' references unknown device_group "
                     f"'{task.device_group}'"
                 )
-            table_name = group_tables.get(task.device_group)
-            if table_name is not None and not _point_group_known(
-                task.point_group, table_name, points
-            ):
+            missing_tables = sorted(
+                table_name
+                for table_name in group_tables.get(task.device_group, set())
+                if not _point_group_known(task.point_group, table_name, points)
+            )
+            if missing_tables:
                 raise ConfigError(
                     f"Task '{task.task_id}': point_group '{task.point_group}' matches "
-                    f"no point in table '{table_name}' of group '{task.device_group}'"
+                    f"no point in tables {missing_tables} of group "
+                    f"'{task.device_group}'"
                 )
         for target in task.targets:
             if target not in sink_names:

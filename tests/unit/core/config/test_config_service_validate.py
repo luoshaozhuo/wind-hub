@@ -255,3 +255,162 @@ def test_validate_sinks_cross_references(service):
 
     with pytest.raises(ConfigError, match="unknown unit"):
         service.validate(ConfigTopic.SINKS, _sinks(unit="m/s"), related=related)
+
+
+# ---------------------------------------------------------------------------
+# 设备组点表校验：组内所有参与采集设备的点表都必须覆盖 point_group
+# （与 Collector 运行时 validate_task_targets 的逐设备语义一致）
+# ---------------------------------------------------------------------------
+
+
+def _group_models() -> DeviceModelsConfig:
+    def model(table: str) -> DeviceModelConfig:
+        return DeviceModelConfig(
+            device_type="turbine",
+            manufacturer=None,
+            model=None,
+            protocol="modbus",
+            point_table=table,
+            read_mode=None,
+            properties={},
+            connection_defaults={},
+        )
+
+    return DeviceModelsConfig(
+        device_types={"turbine": DeviceTypeConfig(name=None)},
+        device_models={"mod_a": model("tab_a"), "mod_b": model("tab_b")},
+    )
+
+
+def _group_device(device_id: str, model: str, group: str = "wind") -> DeviceInstanceConfig:
+    return DeviceInstanceConfig(
+        device_id=device_id,
+        model=model,
+        device_group=group,
+        endpoint=EndpointConfig(host="127.0.0.1", port=502, extensions={}),
+        enabled=True,
+    )
+
+
+def _group_points(tab_a_group: str | None, tab_b_group: str | None) -> PointTablesConfig:
+    """构造 tab_a / tab_b 两张表，各自含指定 group 的点（None 表示不含）。"""
+    tables: dict[str, PointTableConfig] = {}
+    for name, group in (("tab_a", tab_a_group), ("tab_b", tab_b_group)):
+        groups = (group,) if group is not None else ("other",)
+        tables[name] = PointTableConfig(
+            protocol="modbus",
+            points={
+                "p1": PointConfig(
+                    point_id="p1",
+                    variable_name=None,
+                    point_groups=groups,
+                    address={"register_type": "holding", "address": 1},
+                    data_type="float32",
+                    scale=1.0,
+                    offset=0.0,
+                    unit="none",
+                    description=None,
+                )
+            },
+        )
+    return PointTablesConfig(tables=tables)
+
+
+def _group_task(group: str = "wind", point_group: str = "g") -> TasksConfig:
+    return TasksConfig(
+        tasks=(
+            TaskConfig(
+                task_id="t",
+                point_group=point_group,
+                targets=("s1",),
+                device_group=group,
+            ),
+        )
+    )
+
+
+def _group_related(
+    *,
+    devices_order: tuple[tuple[str, str], ...] = (("dev1", "mod_a"), ("dev2", "mod_b")),
+    tab_a_group: str | None = "g",
+    tab_b_group: str | None = "g",
+    group: str = "wind",
+):
+    devices = DevicesConfig(
+        devices=tuple(_group_device(d, m, group) for d, m in devices_order)
+    )
+    return {
+        ConfigTopic.DEVICE_MODELS: _group_models(),
+        ConfigTopic.DEVICES: devices,
+        ConfigTopic.POINTS: _group_points(tab_a_group, tab_b_group),
+        ConfigTopic.SINKS: _sinks(),
+    }
+
+
+def test_group_task_same_table_passes(service):
+    """同组两设备共用同一张含目标组的点表：通过。"""
+    related = _group_related(
+        devices_order=(("dev1", "mod_a"), ("dev2", "mod_a")),
+        tab_a_group="g",
+    )
+    service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+
+
+def test_group_task_different_tables_all_contain_group_passes(service):
+    """同组两设备不同点表、两张表都含目标组：通过。"""
+    service.validate(ConfigTopic.TASKS, _group_task(), related=_group_related())
+
+
+def test_group_task_partial_table_coverage_rejected(service):
+    """同组两张点表只有一张含目标组：拒绝（与运行时逐设备校验一致）。"""
+    related = _group_related(tab_a_group="g", tab_b_group=None)
+    with pytest.raises(ConfigError, match="matches no point"):
+        service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+
+
+def test_group_task_no_table_contains_group_rejected(service):
+    """同组所有点表均不含目标组：拒绝。"""
+    related = _group_related(tab_a_group=None, tab_b_group=None)
+    with pytest.raises(ConfigError, match="matches no point"):
+        service.validate(ConfigTopic.TASKS, _group_task(point_group="g"), related=related)
+
+
+def test_group_task_validation_is_order_independent(service):
+    """devices.yaml 中设备声明顺序调换，校验结果不变。"""
+    forward = _group_related(
+        devices_order=(("dev1", "mod_a"), ("dev2", "mod_b")),
+        tab_a_group="g",
+        tab_b_group=None,
+    )
+    reversed_order = _group_related(
+        devices_order=(("dev2", "mod_b"), ("dev1", "mod_a")),
+        tab_a_group="g",
+        tab_b_group=None,
+    )
+    for related in (forward, reversed_order):
+        with pytest.raises(ConfigError, match="matches no point"):
+            service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+
+    ok_forward = _group_related(
+        devices_order=(("dev1", "mod_a"), ("dev2", "mod_b")),
+    )
+    ok_reversed = _group_related(
+        devices_order=(("dev2", "mod_b"), ("dev1", "mod_a")),
+    )
+    service.validate(ConfigTopic.TASKS, _group_task(), related=ok_forward)
+    service.validate(ConfigTopic.TASKS, _group_task(), related=ok_reversed)
+
+
+def test_group_tables_do_not_leak_across_groups(service):
+    """不同设备组的点表互不影响：wind 组校验不看 solar 组的表。"""
+    related = _group_related(tab_a_group="g", tab_b_group=None)
+    # wind 组：dev1(mod_a, tab_a 含 g) + dev2(mod_b, tab_b 不含 g) → 拒绝
+    with pytest.raises(ConfigError, match="matches no point"):
+        service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+    # 只含 dev1 的 solar 组任务：tab_a 含 g → 通过
+    solar_related = _group_related(
+        devices_order=(("dev1", "mod_a"),),
+        tab_a_group="g",
+        group="solar",
+    )
+    service.validate(ConfigTopic.TASKS, _group_task(group="solar"), related=solar_related)
