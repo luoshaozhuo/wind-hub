@@ -178,3 +178,39 @@ async def test_ads_local_identity_unchanged_other_changes_still_reload():
     assert service.current_config is candidate
     assert service.active_revision == "local-1"
     await runtime.stop()
+
+
+# ---------------------------------------------------------------------------
+# 点表内容变化：协议 Driver 寻址必须随轻量重注入同步更新
+# ---------------------------------------------------------------------------
+
+
+async def test_point_table_address_change_updates_driver_mapping():
+    """仅改点地址（表名/绑定不变）激活后，Driver 收到新点表并重建寻址。
+
+    回归：旧实现经 protocol.set_points_mapping 无中断更新寻址；新实现曾
+    只更新会话级点表，Driver 构造期快照不变，导致热重载后仍按旧地址采集。
+    """
+    from core.domain import PointTableId
+
+    config = make_collector_config()
+    old_table = config.point_tables[PointTableId("tab")]
+    moved_point = replace(
+        old_table.points["p1"], ext={"register_type": "holding", "address": 200}
+    )
+    new_table = replace(old_table, points={"p1": moved_point})
+    candidate = replace(config, point_tables={PointTableId("tab"): new_table})
+
+    service, runtime = _service(config, candidate)
+    protocol = next(iter(runtime.devices.values()))._protocol
+
+    result = await service.prepare_config("r1")
+    assert result.success, result.errors
+    assert result.diff.point_tables_changed == ["tab"]
+    result = await service.activate_config("r1")
+    assert result.success, result.errors
+
+    assert protocol.point_table_updates, "Driver 未收到点表热更新"
+    assert protocol.point_table_updates[-1] is new_table
+    session = runtime.devices["dev1"]
+    assert session.point_table is new_table

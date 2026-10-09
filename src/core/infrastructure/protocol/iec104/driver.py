@@ -169,16 +169,10 @@ class IEC104Driver:
             endpoint,
             device_options,
         )
-        by_id, by_ioa = build_iec104_index(
+        self._points_by_id, self._points_by_ioa = build_iec104_index(
             list(point_table.points.values()),
         )
-        self._points_by_id = by_id
-        self._points_by_ioa = by_ioa
-
-        for point in point_table.points.values():
-            mapped = self._points_by_id[point.point_id]
-            if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
-                validate_iec104_write_type(mapped)
+        self._validate_write_types(point_table)
 
         self._lock = asyncio.Lock()
         self._client: Any = None
@@ -194,6 +188,25 @@ class IEC104Driver:
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        """热重载点表：重建 IOA 寻址索引（不断开连接）。
+
+        已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
+        的残留样本不再被读取（读取按 point_id 经新索引寻址）。
+        """
+        self._point_table_id = point_table.point_table_id
+        self._points_by_id, self._points_by_ioa = build_iec104_index(
+            list(point_table.points.values()),
+        )
+        self._validate_write_types(point_table)
+
+    def _validate_write_types(self, point_table: PointTable) -> None:
+        """校验全部可写点的命令类型（与构造期校验同一规则）。"""
+        for point in point_table.points.values():
+            mapped = self._points_by_id[point.point_id]
+            if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
+                validate_iec104_write_type(mapped)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 IEC104 Driver 实际支持的协议能力。"""
