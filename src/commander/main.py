@@ -33,6 +33,7 @@ async def run_commander(
     *,
     grpc_host: str = "127.0.0.1",
     grpc_port: int = 50052,
+    shutdown_timeout: float = 30.0,
 ) -> int:
     """启动 Commander 与 gRPC Server，并阻塞到收到停机信号。"""
     app = assemble_commander(config_dir)
@@ -55,7 +56,15 @@ async def run_commander(
         try:
             await grpc_server.stop()
         finally:
-            await app.stop()
+            try:
+                # 与 Collector 同一语义：优雅停机超过硬超时即放弃等待
+                # （退役会话的协议关闭挂起不能拖死进程退出）。
+                await asyncio.wait_for(app.stop(), timeout=shutdown_timeout)
+            except TimeoutError:
+                logger.error(
+                    "优雅停机超过 %.1fs 硬超时，强制退出（可能有资源未释放）",
+                    shutdown_timeout,
+                )
 
     logger.info("wind-hub-commander 已干净退出")
     return 0
@@ -70,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, help="现场配置目录")
     parser.add_argument("--grpc-host", default="127.0.0.1", help="gRPC 监听地址")
     parser.add_argument("--grpc-port", type=int, default=50052, help="gRPC 监听端口")
+    parser.add_argument(
+        "--shutdown-timeout",
+        type=float,
+        default=30.0,
+        help="优雅停机整体硬超时（秒，默认 30）",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -92,7 +107,12 @@ def main() -> int:
         )
         return 0
     return asyncio.run(
-        run_commander(args.config, grpc_host=args.grpc_host, grpc_port=args.grpc_port)
+        run_commander(
+            args.config,
+            grpc_host=args.grpc_host,
+            grpc_port=args.grpc_port,
+            shutdown_timeout=args.shutdown_timeout,
+        )
     )
 
 

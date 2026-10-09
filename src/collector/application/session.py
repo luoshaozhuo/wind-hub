@@ -245,11 +245,14 @@ class CollectorDeviceSession:
         点表绑定切换与表内容（地址/类型）变化共用本轻量路径：会话映射
         与协议 Driver 寻址一并更新，分组缓存与 Driver 读取缓存同步失效。
         订阅类设备的已注册通知由 TaskRuntime 重启订阅后按新映射重建。
+
+        Driver 先行更新：Driver 侧校验失败时抛错，会话仍持旧表，不留下
+        "会话新表 + Driver 旧映射" 的不一致状态。
         """
+        self._protocol.update_point_table(point_table)
         self._point_table = point_table
         self._point_meta = dict(point_meta)
         self._point_group_cache.clear()
-        self._protocol.update_point_table(point_table)
 
     # ------------------------------------------------------------------
     # 连接与健康（委托协议 Driver）

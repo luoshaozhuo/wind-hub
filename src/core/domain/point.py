@@ -86,6 +86,20 @@ class Point:
 
 
 @dataclass(frozen=True, slots=True)
+class PointMeta:
+    """点位的进程级元数据（采集分组与诊断/展示用，不属于协议寻址）。
+
+    Attributes:
+        variable_name: 业务变量名（状态/诊断输出展示）。
+        point_groups: 采集分组集合——Task 按 point_group 选点，诊断按
+            point_group 批量验证。
+    """
+
+    variable_name: str | None
+    point_groups: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PointTable:
     """某类设备在一种 Protocol 下的可复用点表。"""
 

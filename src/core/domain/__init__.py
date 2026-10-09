@@ -3,9 +3,9 @@
 from .config import (
     ProtocolOptions,
     ProtocolOptionValue,
-    device_options_for,
     freeze_protocol_options,
     point_table_for_device,
+    protocol_options_for,
     validate_core_config,
 )
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
@@ -17,7 +17,7 @@ from .identities import (
     DeviceTypeId,
     PointTableId,
 )
-from .point import BusinessPoint, Point, PointTable
+from .point import BusinessPoint, Point, PointMeta, PointTable
 from .unit import (
     AMPERE,
     BAR,
@@ -143,12 +143,13 @@ __all__ = [
     "DeviceTypeId",
     "Point",
     "PointAccess",
+    "PointMeta",
     "PointTable",
     "PointTableId",
     "Protocol",
     "ProtocolOptionValue",
     "ProtocolOptions",
-    "device_options_for",
+    "protocol_options_for",
     "freeze_protocol_options",
     "point_table_for_device",
     "validate_core_config",

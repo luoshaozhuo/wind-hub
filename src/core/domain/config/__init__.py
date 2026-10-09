@@ -1,6 +1,32 @@
-"""Shared Domain 配置模型与规则。"""
+"""Shared Domain 配置模型、值对象与规则。"""
 
-from .lookups import device_options_for, point_table_for_device
+from .diff import ConfigDiff, ValueChange
+from .lookups import point_table_for_device, protocol_options_for
+from .models import (
+    ADS_READ_MODES,
+    ALLOWED_DATA_TYPES,
+    SUPPORTED_PROTOCOLS,
+    ADSLocalConfig,
+    ADSLocalIdentity,
+    ConfigTopic,
+    DeviceInstanceConfig,
+    DeviceModelConfig,
+    DeviceModelsConfig,
+    DevicesConfig,
+    DeviceTypeConfig,
+    EndpointConfig,
+    PointConfig,
+    PointTableConfig,
+    PointTablesConfig,
+    RuntimeSettings,
+    SiteIdentity,
+    SystemConfig,
+    TaskConfig,
+    TasksConfig,
+    UnitDefinitionConfig,
+    UnitsConfig,
+    freeze_config_value,
+)
 from .options import (
     ProtocolOptions,
     ProtocolOptionValue,
@@ -9,10 +35,35 @@ from .options import (
 from .validation import validate_core_config
 
 __all__ = [
+    "ADS_READ_MODES",
+    "ALLOWED_DATA_TYPES",
+    "SUPPORTED_PROTOCOLS",
+    "ADSLocalConfig",
+    "ADSLocalIdentity",
+    "ConfigDiff",
+    "ConfigTopic",
+    "DeviceInstanceConfig",
+    "DeviceModelConfig",
+    "DeviceModelsConfig",
+    "DeviceTypeConfig",
+    "DevicesConfig",
+    "EndpointConfig",
+    "PointConfig",
+    "PointTableConfig",
+    "PointTablesConfig",
     "ProtocolOptionValue",
     "ProtocolOptions",
-    "device_options_for",
+    "RuntimeSettings",
+    "SiteIdentity",
+    "SystemConfig",
+    "TaskConfig",
+    "TasksConfig",
+    "UnitDefinitionConfig",
+    "UnitsConfig",
+    "ValueChange",
+    "freeze_config_value",
     "freeze_protocol_options",
     "point_table_for_device",
+    "protocol_options_for",
     "validate_core_config",
 ]

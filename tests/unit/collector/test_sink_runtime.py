@@ -316,3 +316,43 @@ async def test_blocked_dispatch_recovers_after_unhealthy_marked():
     write_release.set()
     runtime._unhealthy.discard("s1")
     await runtime.stop()
+
+
+async def test_stop_with_hung_consumer_and_full_queue_does_not_hang():
+    """消费者卡死且队列满：哨兵投递超时后取消消费者，stop 有界完成。"""
+    sink = FakeSink()
+
+    async def blocked_write(_batch):
+        await asyncio.Event().wait()
+
+    sink.write = blocked_write
+    runtime = _runtime({"s1": sink}, maxsize=1)
+    await runtime.start()
+    await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
+    await asyncio.sleep(0.05)
+    await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
+
+    await asyncio.wait_for(runtime.stop(), timeout=5.0)
+
+    assert sink.close_calls == 1
+
+
+async def test_stop_propagates_outer_cancellation():
+    """外层硬超时取消 stop 时必须传播 CancelledError，不能吞掉后拖延。"""
+    sink = FakeSink()
+
+    async def blocked_write(_batch):
+        await asyncio.Event().wait()
+
+    sink.write = blocked_write
+    runtime = _runtime({"s1": sink}, maxsize=1)
+    await runtime.start()
+    await runtime.dispatch({"s1": [_value(1.0)]})
+    await asyncio.sleep(0.05)
+    await runtime.dispatch({"s1": [_value(2.0)]})
+
+    stop_task = asyncio.create_task(runtime.stop())
+    await asyncio.sleep(0.05)
+    stop_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await stop_task

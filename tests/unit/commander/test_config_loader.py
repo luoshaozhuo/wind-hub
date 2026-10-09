@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from commander.infrastructure.config import (
-    fingerprint_config_set,
-    load_commander_config,
-)
+from commander.infrastructure.config import load_commander_config
 from core.application import ConfigError
 from core.domain import DeviceId, PointAccess, PointTableId
+from core.infrastructure.config import fingerprint_config_set
 from tests.support.new_commander import (
     write_minimal_config_tree,
     write_yaml,
@@ -49,7 +47,7 @@ def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
     config = load_commander_config(config_dir)
     device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 1502
-    options = config.device_options_for(device.device_id)
+    options = config.protocol_options_for(device.device_id)
     assert options["unit_id"] == 9  # 实例 extensions 覆盖型号默认值
     assert options["word_order"] == "little_endian"
 
@@ -237,7 +235,7 @@ def test_ads_read_mode_injected_into_options(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    options = config.device_options_for(DeviceId("dev1"))
+    options = config.protocol_options_for(DeviceId("dev1"))
     assert options["read_mode"] == "sequential"
     assert options["target_net_id"] == "1.2.3.4.5.6"
 
@@ -390,3 +388,16 @@ def test_invalid_ams_net_id_rejected(tmp_path):
     )
     with pytest.raises(ConfigError, match="AMS Net ID"):
         load_commander_config(config_dir)
+
+
+def test_commander_load_ignores_missing_or_invalid_unrelated_topics(tmp_path):
+    """Commander 不解析 tasks/sinks；其缺失或非法均不影响加载。"""
+    config_dir = write_minimal_config_tree(tmp_path)
+    write_yaml(config_dir, "tasks.yaml", {"tasks": [{"task_id": "bad"}]})
+    write_yaml(config_dir, "sinks.yaml", {"sinks": [{"name": "bad", "type": "invalid"}]})
+    config = load_commander_config(config_dir)
+    assert config.devices
+    (config_dir / "tasks.yaml").unlink()
+    (config_dir / "sinks.yaml").unlink()
+    config = load_commander_config(config_dir)
+    assert config.devices

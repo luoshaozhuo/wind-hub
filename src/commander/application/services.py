@@ -74,6 +74,10 @@ class CommanderConfigService:
 
     配置加载函数与指纹函数由组合根注入（实现位于 Infrastructure 的
     config adapter），本服务不直接依赖 Infrastructure。
+
+    ``fingerprint`` 是全目录指纹（跨进程 expected hash 契约）；
+    ``consistency_fingerprint`` 只覆盖 Commander 消费的主题，用于
+    prepare 期间的前后一致性（TOCTOU）检查。
     """
 
     def __init__(
@@ -83,21 +87,24 @@ class CommanderConfigService:
         *,
         load_config: Callable[[Path], CommanderConfig],
         fingerprint: Callable[[Path], str],
+        consistency_fingerprint: Callable[[Path], str],
     ) -> None:
         self._config_dir = config_dir
         self._runtime = runtime
         self._load_config = load_config
         self._fingerprint = fingerprint
+        self._consistency_fingerprint = consistency_fingerprint
 
     async def prepare_config(self, revision_id: str, expected_config_hash: str) -> str:
         """加载候选配置并构造 prepared generation，返回实际配置指纹。"""
-        before_hash = self._fingerprint(self._config_dir)
+        before_hash = self._consistency_fingerprint(self._config_dir)
         candidate = self._load_config(self._config_dir)
-        actual_hash = self._fingerprint(self._config_dir)
-        if before_hash != actual_hash:
+        after_hash = self._consistency_fingerprint(self._config_dir)
+        if before_hash != after_hash:
             raise ValueError(
-                "config changed while preparing: " f"before={before_hash} after={actual_hash}"
+                "config changed while preparing: " f"before={before_hash} after={after_hash}"
             )
+        actual_hash = self._fingerprint(self._config_dir)
         if actual_hash != expected_config_hash:
             raise ValueError(
                 "config hash mismatch: " f"expected={expected_config_hash} actual={actual_hash}"

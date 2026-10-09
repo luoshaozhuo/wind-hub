@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolError
@@ -156,7 +156,7 @@ class IEC104Driver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "iec104":
             raise ConfigError(
@@ -167,7 +167,7 @@ class IEC104Driver:
         self._point_table_id = point_table.point_table_id
         self._config: IEC104Config = parse_iec104_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
         self._points_by_id, self._points_by_ioa = build_iec104_index(
             list(point_table.points.values()),
@@ -192,19 +192,29 @@ class IEC104Driver:
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建 IOA 寻址索引（不断开连接）。
 
-        已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
-        的残留样本不再被读取（读取按 point_id 经新索引寻址）。
+        先校验后切换：校验失败保留旧映射与样本。切换后清空样本镜像——
+        样本以 IOA 为键且 point_id 在接收时刻按旧映射写入，IOA 复用时
+        不清空会把旧点身份的样本错配给新点。已注册的 c104 通知点由上
+        层重启订阅后按新映射重新注册。
         """
-        self._point_table_id = point_table.point_table_id
-        self._points_by_id, self._points_by_ioa = build_iec104_index(
+        new_points_by_id, new_points_by_ioa = build_iec104_index(
             list(point_table.points.values()),
         )
-        self._validate_write_types(point_table)
+        self._validate_write_types(point_table, new_points_by_id)
+        self._point_table_id = point_table.point_table_id
+        self._points_by_id = new_points_by_id
+        self._points_by_ioa = new_points_by_ioa
+        self._samples.clear()
 
-    def _validate_write_types(self, point_table: PointTable) -> None:
+    def _validate_write_types(
+        self,
+        point_table: PointTable,
+        points_by_id: Mapping[str, Any] | None = None,
+    ) -> None:
         """校验全部可写点的命令类型（与构造期校验同一规则）。"""
+        index = points_by_id if points_by_id is not None else self._points_by_id
         for point in point_table.points.values():
-            mapped = self._points_by_id[point.point_id]
+            mapped = index[point.point_id]
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
                 validate_iec104_write_type(mapped)
 

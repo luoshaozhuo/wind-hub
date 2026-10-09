@@ -274,7 +274,7 @@ async def test_diagnostic_probe_for_ads_device_added_by_reload():
         device_id="dev2",
         protocol="ads",
         address=_ADS_ADDRESS,
-        device_options={"ams_net_id": "5.6.7.8.1.1"},
+        protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
     )
     await runtime.reload(candidate, config_hash="hash-b", revision_id="r2")
 
@@ -293,7 +293,7 @@ async def test_diagnostic_uses_new_generation_after_protocol_switch_to_ads():
     candidate = make_commander_config(
         protocol="ads",
         address=_ADS_ADDRESS,
-        device_options={"ams_net_id": "5.6.7.8.1.1"},
+        protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
     )
     await runtime.reload(candidate, config_hash="hash-b", revision_id="r2")
 
@@ -310,7 +310,7 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
         make_commander_config(
             protocol="ads",
             address=_ADS_ADDRESS,
-            device_options={"ams_net_id": "old"},
+            protocol_options_by_device={"ams_net_id": "old"},
         ),
         registry,
     )
@@ -322,7 +322,7 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
             make_commander_config(
                 protocol="ads",
                 address=_ADS_ADDRESS,
-                device_options={"ams_net_id": "new"},
+                protocol_options_by_device={"ams_net_id": "new"},
             ),
             config_hash="hash-b",
             revision_id="r2",

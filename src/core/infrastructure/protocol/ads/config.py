@@ -19,7 +19,7 @@ _ALLOWED_OPTIONS = frozenset(
         "max_notifications_per_connection",
     }
 )
-_VALID_READ_MODES = frozenset({"sum", "sequential"})
+ADS_READ_MODES = frozenset({"sum", "sequential"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ def parse_ads_config(
         default="",
         allow_empty=True,
     )
-    if target_net_id and not _is_valid_ams_net_id(target_net_id):
+    if target_net_id and not is_valid_ams_net_id(target_net_id):
         raise ConfigError(f"connection '{endpoint}': invalid target_net_id " f"'{target_net_id}'")
 
     twincat_version = _string_option(
@@ -69,7 +69,7 @@ def parse_ads_config(
         "read_mode",
         default="sum",
     ).lower()
-    if read_mode not in _VALID_READ_MODES:
+    if read_mode not in ADS_READ_MODES:
         raise ConfigError(f"connection '{endpoint}': invalid ADS read_mode " f"'{read_mode}'")
 
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
@@ -127,7 +127,7 @@ def parse_ads_config(
     )
 
 
-def _is_valid_ams_net_id(value: str) -> bool:
+def is_valid_ams_net_id(value: str) -> bool:
     parts = value.split(".")
     return len(parts) == 6 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
 

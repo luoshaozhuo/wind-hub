@@ -1,11 +1,11 @@
 """Collector 进程配置模型。
 
 CollectorConfig 只承载 Collector 真正需要的内容：共享核心领域配置索引
-（devices / device_models / point_tables / device_options）、运行时参数
+（devices / device_models / point_tables / protocol_options_by_device）、运行时参数
 （队列/背压/超时）、采集 Task 定义、resolved Sink 契约、点位元数据
 （point_groups / variable_name），以及 ADS 订阅设备集合
 （``subscribe_enabled`` 是进程级采集策略，不进协议 Driver 的
-device_options——ADS Driver 严格拒绝未知 option）。
+protocol_options_by_device——ADS Driver 严格拒绝未知 option）。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
 ``collector.infrastructure.config`` 完成。
@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
+from core.application.port import ConfigValue
 from core.application.sink_config import ResolvedSinkConfig
 from core.domain import (
     Device,
@@ -29,7 +30,12 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
-from core.domain.config.lookups import device_options_for, point_table_for_device
+from core.domain import (
+    PointMeta as PointMeta,
+)
+from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
+from core.domain.config import ConfigTopic, TaskConfig
+from core.domain.config.lookups import point_table_for_device, protocol_options_for
 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
 
@@ -68,78 +74,10 @@ class RuntimeParams:
             raise ConfigError("read_timeout must be > 0")
 
 
-@dataclass(frozen=True, slots=True)
-class ADSLocalIdentity:
-    """进程级 ADS 本机身份（system.yaml ``ads`` 段的 Collector 子集）。
-
-    属于进程级启动配置：本机 AMS Net ID 绑定路由与已建立的 ADS 连接，
-    不支持热重载——变化在 prepare 阶段拒绝，必须重启进程生效。
-
-    Application 层不直接引用 ``core.infrastructure`` 的 ADSLocalConfig；
-    组合根在装配时把本模型转换为 Core 的 ADSLocalConfig。
-    """
-
-    local_ams_net_id: str
-    local_ip: str
-
-
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    """点位的进程级元数据（采集分组与展示用，不属于协议寻址）。
-
-    Attributes:
-        variable_name: 业务变量名（状态/诊断输出展示）。
-        point_groups: 采集分组集合——Task 按 point_group 选点。
-    """
-
-    variable_name: str | None
-    point_groups: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class CollectionTask:
-    """周期采集 Task 的业务定义（Task Definition，不可变快照）。
-
-    语义与旧 ``tasks.yaml`` 一致：
-
-    - ``device`` / ``device_group`` 二选一（XOR）——选择设备范围；
-    - ``point_group`` 单值必填——命中点位 ``point_groups`` 含该值的全部点；
-    - ``interval`` 为采集节拍（秒，> 0）——主动轮询（Modbus、ADS Sum）
-      作为 fixed-rate 采样周期，ADS 订阅作为 notification cycle_time；
-      纯 IEC104 订阅 Task 可为 ``None``；
-    - ``targets`` 为输出目标 Sink 名列表（至少一个，不允许重复）；
-    - ``enabled: false`` 时 Runtime 不创建运行实例。
-    """
-
-    task_id: str
-    point_group: str
-    targets: tuple[str, ...]
-    device: str | None = None
-    device_group: str | None = None
-    interval: float | None = None
-    enabled: bool = True
-
-    def __post_init__(self) -> None:
-        if not self.task_id.strip():
-            raise ConfigError("Collection task: task_id must be non-empty")
-        if (self.device is None) == (self.device_group is None):
-            raise ConfigError(
-                f"Task '{self.task_id}': exactly one of 'device' / 'device_group' "
-                "must be configured (XOR)"
-            )
-        if not self.point_group.strip():
-            raise ConfigError(f"Task '{self.task_id}': point_group must be non-empty")
-        if self.interval is not None and self.interval <= 0:
-            raise ConfigError(f"Task '{self.task_id}': interval must be > 0, got {self.interval}")
-        object.__setattr__(self, "targets", tuple(self.targets))
-        if not self.targets:
-            raise ConfigError(f"Task '{self.task_id}': targets must be non-empty")
-        if any(not sink.strip() for sink in self.targets):
-            raise ConfigError(f"Task '{self.task_id}': target sink names must be non-empty")
-        if len(set(self.targets)) != len(self.targets):
-            raise ConfigError(
-                f"Task '{self.task_id}': duplicate target sinks: {list(self.targets)}"
-            )
+#: 周期采集 Task 的业务定义——直接使用 Core Domain 的 TaskConfig VO
+#: （语义与旧 ``tasks.yaml`` 一致：device/device_group XOR、point_group
+#: 必填、interval > 0、targets 非空不重复、enabled 控制运行实例创建）。
+CollectionTask = TaskConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +112,7 @@ class CollectorConfig:
         devices: 启用设备索引（``enabled: false`` 的设备不进索引）。
         device_models: 设备型号索引（设备查找点表用）。
         point_tables: resolved 点表索引。
-        device_options: 合并后的协议参数索引（model connection_defaults +
+        protocol_options_by_device: 合并后的协议参数索引（model connection_defaults +
             endpoint extensions，ADS read_mode 已注入）。
         runtime: 运行时参数（队列/背压/超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
@@ -185,12 +123,15 @@ class CollectorConfig:
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
             restart-required——热重载 prepare 阶段拒绝其任何变化。
+        configs: 本快照对应的各主题配置 VO（``{ConfigTopic: ConfigValue}``）——
+            热重载时由 Core Diff 在 VO 层面计算语义差异的基线。
     """
 
+    configs: Mapping[ConfigTopic, ConfigValue] = field(default_factory=dict)
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
-    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
     ads_local: ADSLocalIdentity | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
@@ -200,10 +141,15 @@ class CollectorConfig:
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "configs", MappingProxyType(dict(self.configs)))
         object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
         object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
         object.__setattr__(self, "point_tables", MappingProxyType(dict(self.point_tables)))
-        object.__setattr__(self, "device_options", MappingProxyType(dict(self.device_options)))
+        object.__setattr__(
+            self,
+            "protocol_options_by_device",
+            MappingProxyType(dict(self.protocol_options_by_device)),
+        )
         object.__setattr__(self, "tasks", MappingProxyType(dict(self.tasks)))
         object.__setattr__(self, "sinks", MappingProxyType(dict(self.sinks)))
         object.__setattr__(
@@ -238,9 +184,9 @@ class CollectorConfig:
             device_id,
         )
 
-    def device_options_for(self, device_id: DeviceId) -> ProtocolOptions:
+    def protocol_options_for(self, device_id: DeviceId) -> ProtocolOptions:
         """返回指定 Device 的协议专有连接配置。"""
-        return device_options_for(self.device_options, device_id)
+        return protocol_options_for(self.protocol_options_by_device, device_id)
 
     def device_view(self, device_id: DeviceId) -> DeviceView:
         """派生单台设备的运行时视图。
@@ -252,7 +198,7 @@ class CollectorConfig:
         if device is None:
             raise ConfigError(f"unknown device '{device_id}'")
         point_table = self.point_table_for_device(device_id)
-        options = self.device_options_for(device_id)
+        options = self.protocol_options_for(device_id)
         protocol = point_table.protocol.name
         read_mode = options.get("read_mode")
         return DeviceView(

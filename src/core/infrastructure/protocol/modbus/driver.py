@@ -68,7 +68,7 @@ class ModbusDriver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "modbus":
             raise ConfigError(
@@ -79,7 +79,7 @@ class ModbusDriver:
         self._point_table_id = point_table.point_table_id
         self._config: ModbusConfig = parse_modbus_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
         # 相同选点序列复用预编译读取组；点表热更新时整体失效。
         self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}

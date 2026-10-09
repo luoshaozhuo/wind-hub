@@ -295,3 +295,35 @@ async def test_public_raw_session_read_uses_raw_capability():
     proto.read = reject
     session = make_session(make_collector_config(), proto)
     assert await session.read_raw("g") == (["p1"], ((42, Quality.GOOD),))
+
+
+async def test_set_points_failure_keeps_session_on_old_table():
+    """Driver 先行更新：Driver 校验失败时会话仍持旧表，不留不一致状态。"""
+    first = make_collector_config(point_groups=("g",))
+    second = make_collector_config(point_groups=("changed",))
+    proto = CollectorFakeProtocol()
+    session = make_session(first, proto)
+    old_table = session.point_table
+
+    def _reject(_point_table):
+        raise ConfigError("driver rejected new table")
+
+    proto.update_point_table = _reject
+    view = second.device_view("dev1")
+    with pytest.raises(ConfigError, match="driver rejected"):
+        session.set_points(view.point_table, view.point_meta)
+
+    assert session.point_table is old_table
+    assert session.point_ids("g") == ["p1"]
+
+
+async def test_set_points_updates_driver_before_session_state():
+    """成功路径同样 Driver 先行：会话换表时 Driver 映射已是新表。"""
+    first = make_collector_config(point_groups=("g",))
+    second = make_collector_config(point_groups=("changed",))
+    proto = CollectorFakeProtocol()
+    session = make_session(first, proto)
+    view = second.device_view("dev1")
+    session.set_points(view.point_table, view.point_meta)
+    assert proto.point_table_updates[-1] is view.point_table
+    assert session.point_table is view.point_table

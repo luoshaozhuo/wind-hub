@@ -8,11 +8,14 @@ from dataclasses import replace
 from collector.application.config import CollectionTask
 from collector.application.reload import compute_diff
 from collector.application.task_instance import TaskInstanceState
+from core.application.port import ConfigTopic
 from core.domain import DeviceId
+from core.domain.config import DevicesConfig
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
     make_runtime,
+    with_config_vo,
 )
 
 
@@ -118,7 +121,18 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
 
     view = config.device_view(DeviceId("dev1"))
     new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
-    new_config = replace(config, devices={DeviceId("dev1"): new_device})
+    old_devices_vo = config.configs[ConfigTopic.DEVICES]
+    old_instance = old_devices_vo.devices[0]
+    new_devices_vo = DevicesConfig(
+        devices=(
+            replace(old_instance, endpoint=replace(old_instance.endpoint, port=503)),
+        )
+    )
+    new_config = with_config_vo(
+        replace(config, devices={DeviceId("dev1"): new_device}),
+        ConfigTopic.DEVICES,
+        new_devices_vo,
+    )
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]
 

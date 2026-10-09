@@ -260,3 +260,37 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
     )
 
     await asyncio.wait_for(done.wait(), timeout=1.0)
+
+
+def _monitoring_table(point_id: str = "power", *, ioa: int = 1001) -> PointTable:
+    point = _point(point_id, ext=_point_ext(ioa=ioa, type_id="M_ME_NC_1"))
+    return PointTable("iec_pt", DeviceProtocol("iec104"), {point.point_id: point})
+
+
+def test_iec104_update_point_table_clears_sample_mirror() -> None:
+    """切换映射后样本镜像必须清空：样本以 IOA 为键，IOA 复用会把旧点身份错配给新点。"""
+    driver = IEC104Driver(_endpoint(), _monitoring_table(), {})
+    driver._samples[1001] = ProtocolSample(point_id="power", value=1.0)
+
+    driver.update_point_table(_monitoring_table("power_v2"))
+
+    assert driver._samples == {}
+    assert "power_v2" in driver._points_by_id
+
+
+def test_iec104_update_point_table_rejects_invalid_write_and_keeps_old_mapping() -> None:
+    """先校验后切换：新表命令类型非法时保留旧映射与样本。"""
+    driver = IEC104Driver(_endpoint(), _monitoring_table(), {})
+    old_index = driver._points_by_ioa
+    bad_point = _point(
+        "setpoint",
+        access=PointAccess.WRITE,
+        ext=_point_ext(ioa=2001, type_id="M_ME_NC_1"),
+    )
+    bad_table = PointTable("iec_pt", DeviceProtocol("iec104"), {bad_point.point_id: bad_point})
+
+    with pytest.raises(ConfigError, match="unsupported command type"):
+        driver.update_point_table(bad_table)
+
+    assert driver._points_by_ioa is old_index
+    assert "power" in driver._points_by_id

@@ -60,7 +60,7 @@ class ADSDriver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError(
@@ -71,7 +71,7 @@ class ADSDriver:
         self._point_table_id = point_table.point_table_id
         self._config: ADSConfig = parse_ads_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
 
         self._lock = asyncio.Lock()
@@ -355,8 +355,14 @@ class ADSDriver:
             self._read_variable_cache[key] = tuple(variable)
             self._read_unresolved_cache[key] = tuple(unresolved)
 
+        # 缓存条目先绑定到局部变量：下方 await 让出事件循环期间，
+        # update_point_table 可能清空缓存，直接回读会 KeyError 并被误
+        # 判为传输故障拆连接。取局部快照后本轮读只使用计划自己的数据。
+        unresolved_indexes = self._read_unresolved_cache.get(key, ())
+        variable_points = self._read_variable_cache.get(key, ())
+
         results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
-        for index in self._read_unresolved_cache[key]:
+        for index in unresolved_indexes:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
             raw = await asyncio.to_thread(
@@ -387,7 +393,7 @@ class ADSDriver:
                     continue
                 results[result_index] = (value, Quality.GOOD)
 
-        for result_index, mapped in self._read_variable_cache[key]:
+        for result_index, mapped in variable_points:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,
