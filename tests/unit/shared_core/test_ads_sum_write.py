@@ -91,3 +91,18 @@ async def test_index_writes_remain_sequential(
     assert all(result.success for result in results)
     assert driver._connection.batch == []
     assert len(driver._connection.individual) == 2
+
+
+@pytest.mark.asyncio
+async def test_distinct_symbols_same_index_address_do_not_sum_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
+    for key, point in driver._points.items():
+        driver._points[key] = point.resolved(index_group=0x4020, index_offset=10)
+
+    result = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
+    assert all(entry.success for entry in result)
+    assert driver._connection.batch == []
+    assert len(driver._connection.individual) == 2

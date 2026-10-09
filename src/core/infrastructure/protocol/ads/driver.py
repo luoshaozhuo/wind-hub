@@ -293,6 +293,8 @@ class ADSDriver:
                 and all(point.address_resolved for point in mapped_batch)
                 and all(symbol is not None for symbol in symbols)
                 and len(set(symbols)) == len(symbols)
+                and len({(p.index_group, p.index_offset) for p in mapped_batch})
+                == len(mapped_batch)
                 and hasattr(self._connection, "write_list_by_name")
             ):
                 prepared: dict[str, object] = {}
@@ -413,6 +415,11 @@ class ADSDriver:
         values: list[tuple[PointScalar, Quality]] = []
         for point in points:
             raw = result.get(point.symbol)
+            # pyads represents per-symbol ADS errors as text. A non-string
+            # PLC type receiving text is an error, not a valid GOOD sample.
+            if point.data_type != "STRING" and isinstance(raw, str):
+                values.append((None, Quality.BAD))
+                continue
             if raw is None:
                 values.append((None, Quality.BAD))
                 continue
