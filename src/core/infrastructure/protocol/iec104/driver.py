@@ -195,11 +195,17 @@ class IEC104Driver:
         已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
         的残留样本不再被读取（读取按 point_id 经新索引寻址）。
         """
-        self._point_table_id = point_table.point_table_id
-        self._points_by_id, self._points_by_ioa = build_iec104_index(
+        next_by_id, next_by_ioa = build_iec104_index(
             list(point_table.points.values()),
         )
-        self._validate_write_types(point_table)
+        for point in point_table.points.values():
+            if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
+                validate_iec104_write_type(next_by_id[point.point_id])
+        # Commit the new mapping only after complete validation; old samples
+        # must not be exposed under a reassigned IOA or point identity.
+        self._point_table_id = point_table.point_table_id
+        self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
+        self._samples.clear()
 
     def _validate_write_types(self, point_table: PointTable) -> None:
         """校验全部可写点的命令类型（与构造期校验同一规则）。"""

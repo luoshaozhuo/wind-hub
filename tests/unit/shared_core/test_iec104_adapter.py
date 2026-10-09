@@ -260,3 +260,40 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
     )
 
     await asyncio.wait_for(done.wait(), timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._is_open = True
+    driver._samples[100] = ProtocolSample(
+        point_id="power", value=42.0, quality=Quality.GOOD
+    )
+    replacement = _point("wind_speed", ext=_point_ext(ioa=100))
+    driver.update_point_table(
+        PointTable(
+            "iec_pt",
+            DeviceProtocol("iec104"),
+            {"wind_speed": replacement},
+        )
+    )
+    assert await driver.read_one("wind_speed") == ProtocolSample(
+        point_id="wind_speed", value=None, quality=Quality.BAD
+    )
+
+
+def test_iec104_invalid_point_table_update_is_atomic() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._samples[100] = ProtocolSample(
+        point_id="power", value=42.0, quality=Quality.GOOD
+    )
+    invalid = _point(
+        "control", access=PointAccess.WRITE, ext=_point_ext(ioa=200)
+    )
+    with pytest.raises(ConfigError, match="requires type_id"):
+        driver.update_point_table(
+            PointTable("invalid", DeviceProtocol("iec104"), {"control": invalid})
+        )
+    assert driver._point_table_id == "iec_pt"
+    assert list(driver._points_by_id) == ["power"]
+    assert driver._samples[100].value == 42.0
