@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import platform
+import shutil
 import struct
 from pathlib import Path
 
@@ -34,12 +36,13 @@ MAX_SYMBOL_BYTES = 8 * 1024 * 1024 * 1024  # 仅用于防范异常长度，不�
 OUTPUT_FILENAME = "ads_symbols.txt"  # 输出到运行命令时的当前工作目录
 TEXT_ENCODING = "utf-8"
 LOG_EVERY = 1000
+CHECK_HOST_ENVIRONMENT = True  # 启动时报告实际运行平台及可用工具
 # ====================================================
 
 _LOG = logging.getLogger(__name__)
 _SYMBOL_INFO_GROUP = 0xF00F
 _SYMBOL_DATA_GROUP = 0xF00B
-_SYMBOL_SYMBOL_HEADER_SIZE = 30
+_SYMBOL_HEADER_SIZE = 30
 
 
 def _read_bytes(plc: pyads.Connection, group: int, offset: int, length: int) -> bytes:
@@ -130,7 +133,7 @@ def _export_in_chunks(plc: pyads.Connection, output: Path, chunk_size: int) -> i
         if exported != count or buffer:
             raise ValueError(
                 f"符号流不完整：声明 {count} 条，解析 {exported} 条，剩余 {len(buffer)} 字节；"
-                "可能是 PLC 不支持 ADSIGRP_SYM_SYMBOL_DATA_GROUP 分段偏移读取"
+                "可能是 PLC 不支持 ADSIGRP_SYM_UPLOAD 分段偏移读取"
             )
         temp.replace(output)
     except Exception:
@@ -231,8 +234,27 @@ def _open_connection() -> pyads.Connection:
     return plc
 
 
+def _inspect_environment() -> None:
+    """识别客户端环境；不把客户端系统误认为 PLC 操作系统。"""
+    host = platform.system()
+    _LOG.info("客户端系统：%s (%s)", host, platform.machine())
+    _LOG.info("目标运行时配置：TwinCAT %s, ADS port %s",
+              TWINCAT_VERSION,
+              PLC_AMS_PORT if PLC_AMS_PORT is not None
+              else (801 if TWINCAT_VERSION == 2 else 851))
+    _LOG.info("可执行文件：adstool=%s", shutil.which("adstool") or "未安装")
+    if host == "Windows":
+        _LOG.info("Windows 环境：ADS OCX 可以进一步探测，但当前未实现 OCX 枚举")
+    else:
+        _LOG.info("非 Windows 环境：跳过 ADS OCX 路线")
+    _LOG.info("ADS 文件服务须单独验证目标设备的文件可见性与访问权限；"
+              "未验证前不会将 TPY/TMC 当作运行时完整符号表")
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if CHECK_HOST_ENVIRONMENT:
+        _inspect_environment()
     destination = Path.cwd() / OUTPUT_FILENAME
     plc = _open_connection()
     try:
