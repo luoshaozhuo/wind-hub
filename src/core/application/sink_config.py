@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.application import ConfigError
+from core.application.errors import ConfigError
 from core.domain import DataType
 
 SINK_TYPES = frozenset({"file", "kafka", "db", "iec104", "opcua", "modbus"})
