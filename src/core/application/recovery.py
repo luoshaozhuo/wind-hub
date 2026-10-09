@@ -12,11 +12,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from core.application.errors import ProtocolError
-from core.application.port.protocol import (
-    ProtocolPort,
-    ProtocolSampleCallback,
-    SubscriptionHandle,
-)
+from core.application.port.protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,

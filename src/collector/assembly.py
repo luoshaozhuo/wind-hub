@@ -120,7 +120,11 @@ def assemble_collector(
         RecoverySettings(
             reconnect_attempts=config.runtime.reconnect_attempts,
             connect_timeout=config.runtime.connect_timeout,
-            read_timeout=config.runtime.read_timeout,
+            read_timeout=(
+                config.runtime.read_timeout
+                if config.runtime.read_timeout is not None
+                else 5.0
+            ),
             write_timeout=config.runtime.write_timeout,
         )
     )
