@@ -164,6 +164,28 @@ class ModbusDriver:
             )
         return ConnectionHealth(healthy=False, message="not connected")
 
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        """读取单个逻辑点，复用现有协议读取路径。"""
+        return (await self.read_many((point_id,)))[0]
+
+    async def read_many(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]:
+        """按请求顺序读取多个逻辑点。"""
+        return await self.read(point_ids)
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """写入单个逻辑点，保留协议原有确认与错误处理语义。"""
+        return (await self.write_many((write,)))[0]
+
+    async def write_many(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
+        """写入多个逻辑点，保留协议原有安全执行策略。"""
+        return await self.write(writes)
+
     async def read(
         self,
         point_ids: Sequence[str],
