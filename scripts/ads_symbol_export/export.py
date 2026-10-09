@@ -11,7 +11,8 @@ import pyads
 # ==================== 全部用户配置 ====================
 PLC_IP = "192.168.1.10"
 PLC_AMS_NET_ID = "192.168.1.10.1.1"
-PLC_AMS_PORT = 851
+TWINCAT_VERSION = 2  # 2: ADS 801；3: ADS 851
+PLC_AMS_PORT = None  # None 自动按版本选择；也可显式填写端口
 
 # 本机 ADS 路由。Linux 通常需要指定 PLC 的 AMS Net ID 与 IP。
 ADD_LOCAL_ROUTE = True
@@ -26,7 +27,8 @@ PLC_PASSWORD = ""  # 可在运行前填写，勿提交真实密码
 REMOTE_ROUTE_NAME = "ads-symbol-export"
 
 ADS_TIMEOUT_MS = 5000
-CHUNK_SIZE = 4096  # 单次 ADS 响应上限；应小于目标设备允许的响应大小
+CHUNK_SIZES = (4096, 1024, 256)  # 从较大块到较小块逐一尝试；绝不整表读取
+# 若 PLC 拒绝非零 IndexOffset，所有方案均会失败并报告，而非伪造成功
 MAX_SYMBOL_BYTES = 8 * 1024 * 1024 * 1024  # 仅用于防范异常长度，不会一次性分配
 OUTPUT_FILENAME = "ads_symbols.txt"  # 输出到运行命令时的当前工作目录
 TEXT_ENCODING = "utf-8"
@@ -82,12 +84,12 @@ def _parse_entry(data: bytearray) -> tuple[str, int] | None:
     return name, length
 
 
-def export_symbols(plc: pyads.Connection, output: Path) -> int:
-    """顺序消费符号上传数据，流式写文件；不保存全表。"""
+def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int) -> int:
+    """使用指定小块大小逐次读取符号表，失败时丢弃当前结果。"""
     count, total = _symbol_info(plc)
     _LOG.info("PLC symbols: %d, upload bytes: %d", count, total)
-    if CHUNK_SIZE < _HEADER_SIZE + 3:
-        raise ValueError("CHUNK_SIZE 太小")
+    if chunk_size < _HEADER_SIZE + 3:
+        raise ValueError("chunk_size 太小")
     buffer = bytearray()
     offset = 0
     exported = 0
@@ -96,7 +98,7 @@ def export_symbols(plc: pyads.Connection, output: Path) -> int:
     try:
         with temp.open("w", encoding="utf-8", newline="\n") as handle:
             while offset < total:
-                length = min(CHUNK_SIZE, total - offset)
+                length = min(chunk_size, total - offset)
                 chunk = _read_bytes(plc, _UPLOAD, offset, length)
                 buffer.extend(chunk)
                 offset += length
@@ -125,10 +127,35 @@ def export_symbols(plc: pyads.Connection, output: Path) -> int:
     return exported
 
 
+def export_symbols(plc: pyads.Connection, output: Path) -> int:
+    """顺序尝试有限请求策略；仅完整校验的结果才发布到目标文件。"""
+    if not CHUNK_SIZES:
+        raise ValueError("CHUNK_SIZES 不能为空")
+    failures: list[str] = []
+    for chunk_size in CHUNK_SIZES:
+        if chunk_size < _HEADER_SIZE + 3:
+            failures.append(f"chunk={chunk_size}: 配置值过小")
+            continue
+        _LOG.info("尝试 ADS 符号表分段读取：chunk=%d", chunk_size)
+        try:
+            result = _export_with_chunk_size(plc, output, chunk_size)
+        except Exception as exc:
+            reason = f"chunk={chunk_size}: {type(exc).__name__}: {exc}"
+            failures.append(reason)
+            _LOG.warning("方案失败，转入下一方案：%s", reason)
+            continue
+        _LOG.info("方案成功：chunk=%d", chunk_size)
+        return result
+    raise RuntimeError("所有安全枚举策略均失败（未执行整表读取）：\\n" + "\\n".join(failures))
+
+
 def _open_connection() -> pyads.Connection:
+    if TWINCAT_VERSION not in (2, 3):
+        raise ValueError("TWINCAT_VERSION 只能为 2 或 3")
+    port = PLC_AMS_PORT if PLC_AMS_PORT is not None else (801 if TWINCAT_VERSION == 2 else 851)
     if ADD_LOCAL_ROUTE:
         pyads.add_route(PLC_AMS_NET_ID, PLC_IP)
-    plc = pyads.Connection(PLC_AMS_NET_ID, PLC_AMS_PORT, PLC_IP)
+    plc = pyads.Connection(PLC_AMS_NET_ID, port, PLC_IP)
     plc.open()
     try:
         plc.set_timeout(ADS_TIMEOUT_MS)
@@ -139,7 +166,7 @@ def _open_connection() -> pyads.Connection:
         # 只针对明确的路由缺失错误尝试；其它连接/认证/超时错误不得修改路由。
         if not ADD_REMOTE_ROUTE_IF_NEEDED or "target machine not found" not in str(exc).lower():
             raise
-    if not all((LOCAL_AMS_NET_ID, LOCAL_HOST_NAME, PLC_USERNAME, PLC_PASSWORD)):
+    if not all((LOCAL_AMS_NET_ID, LOCAL_HOST_NAME, PLC_USERNAME)):
         raise ValueError("远端路由所需参数未填写")
     # PLC 不提供通用的远端路由查询 API；此操作应仅在确认目标尚无该路由时开启。
     pyads.add_route_to_plc(
@@ -150,7 +177,7 @@ def _open_connection() -> pyads.Connection:
         PLC_PASSWORD,
         route_name=REMOTE_ROUTE_NAME,
     )
-    plc = pyads.Connection(PLC_AMS_NET_ID, PLC_AMS_PORT, PLC_IP)
+    plc = pyads.Connection(PLC_AMS_NET_ID, port, PLC_IP)
     plc.open()
     try:
         plc.set_timeout(ADS_TIMEOUT_MS)
