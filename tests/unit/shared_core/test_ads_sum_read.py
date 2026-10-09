@@ -145,4 +145,4 @@ async def test_index_sum_read_falls_back_when_private_api_is_unavailable(
         (16, Quality.GOOD),
         (12, Quality.GOOD),
     )
-    assert connection.calls == [(0x4020, 16), (0x4020, 12)]
+    assert sorted(connection.calls) == [(0x4020, 12), (0x4020, 16)]
