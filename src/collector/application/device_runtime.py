@@ -182,10 +182,20 @@ class DeviceRuntime:
                     )
 
     async def close_all(self) -> None:
-        """停机时逐台关闭；关闭失败不阻断其他设备释放，保留注册表。"""
+        """停机时逐台关闭；关闭失败不阻断其他设备释放，保留注册表。
+
+        单台关闭以 ``connect_timeout`` 为上界：Driver close 内部若阻塞
+        （如同步协议栈关闭挂起），不能让一台设备耗尽整体停机预算。
+        """
         for device_id, device in self._devices.items():
             try:
-                await device.close()
+                await asyncio.wait_for(device.close(), timeout=self._params.connect_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "Device '%s' close exceeded %.1fs — continuing with remaining devices",
+                    device_id,
+                    self._params.connect_timeout,
+                )
             except Exception:
                 logger.warning("Device '%s' close failed", device_id, exc_info=True)
 

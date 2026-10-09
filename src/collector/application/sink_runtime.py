@@ -13,7 +13,6 @@ Sink 实例从配置的创建（组合根注入的工厂）、ConfigDiff 计算
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -27,6 +26,17 @@ from .reload import SinkDiff
 from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
 
 logger = logging.getLogger(__name__)
+
+
+def _outer_cancel_pending() -> bool:
+    """当前协程是否存在外层请求的取消（如停机硬超时取消了 stop 本身）。
+
+    ``await consumer_task`` 抛 CancelledError 有两种来源：消费者任务
+    自身被取消（预期落地），或外层取消了当前协程并传播进被等待的任务。
+    后者必须向上传播，否则整体硬超时会被吞掉后无限拖延。
+    """
+    current = asyncio.current_task()
+    return current is not None and current.cancelling() > 0
 
 
 class SinkRuntime:
@@ -228,14 +238,31 @@ class SinkRuntime:
         # 独占重建失败的 unhealthy Sink）无人取哨兵，满队列会让 put 挂起。
         for name, queue in self._queues.items():
             if name in self._consumer_tasks:
-                await queue.put([])
+                try:
+                    await asyncio.wait_for(
+                        queue.put([]), timeout=self._params.shutdown_timeout
+                    )
+                except TimeoutError:
+                    # 队列满且消费者卡死（如 sink.write 挂起）：哨兵投递
+                    # 无期限等待会让整体硬超时失效，改为直接取消消费者。
+                    logger.warning(
+                        "Sink '%s' queue full at stop — cancelling consumer "
+                        "(%d pending batches dropped)",
+                        name,
+                        queue.qsize(),
+                    )
+                    self._consumer_tasks.pop(name).cancel()
         for task in self._consumer_tasks.values():
             try:
                 await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)
             except TimeoutError:
                 task.cancel()
             except asyncio.CancelledError:
-                pass
+                # 消费者自身被取消视为已结束；若取消来自外层（停机硬超时
+                # 取消了 stop 本身），必须向上传播，不能吞掉后无限拖延。
+                if _outer_cancel_pending():
+                    task.cancel()
+                    raise
         self._consumer_tasks.clear()
 
         for name, sink in self._sinks.items():
@@ -398,8 +425,14 @@ class SinkRuntime:
         if task is None:
             return
         task.cancel()
-        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+        try:
             await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)
+        except TimeoutError:
+            pass
+        except asyncio.CancelledError:
+            # 自身发起的取消落地属预期；外层取消（如停机硬超时）必须传播。
+            if _outer_cancel_pending():
+                raise
 
     async def _flush_and_close(
         self,

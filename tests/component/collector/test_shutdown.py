@@ -109,11 +109,17 @@ class TestGracefulStop:
         )
 
         await stop_runtime(rt, timeout=10.0)
-        # 给取消传播留一个事件循环节拍。
-        await asyncio.sleep(0)
-        await asyncio.sleep(0.1)
 
+        # 等待取消传播真正落地，而不是固定 sleep 猜一个节拍。
         current = asyncio.current_task()
+        await wait_until(
+            lambda: all(
+                task is current or task.done() for task in asyncio.all_tasks()
+            )
+            or None,
+            timeout=5.0,
+            description="all asyncio tasks finished after stop",
+        )
         leftovers = [
             task
             for task in asyncio.all_tasks()

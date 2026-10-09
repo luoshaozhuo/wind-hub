@@ -165,3 +165,29 @@ def test_lightweight_update_only_table_or_group_change():
     assert not runtime.is_lightweight_update("dev1", changed)
     assert runtime.requires_rebuild("dev1", changed)
     assert not runtime.requires_rebuild("dev1", same)
+
+
+async def test_close_all_bounds_hung_device_close():
+    """单台关闭挂起以 connect_timeout 为上界，不阻断其余设备释放。"""
+    import asyncio
+
+    hung = CollectorFakeProtocol()
+    healthy = CollectorFakeProtocol()
+
+    async def blocked_close() -> None:
+        await asyncio.Event().wait()
+
+    hung.close = blocked_close
+    config1 = make_collector_config(device_id="dev1")
+    config2 = make_collector_config(device_id="dev2")
+    runtime = DeviceRuntime(
+        {
+            "dev1": make_session(config1, hung),
+            "dev2": make_session(config2, healthy, device_id="dev2"),
+        },
+        RuntimeParams(connect_timeout=0.05),
+    )
+
+    await runtime.close_all()
+
+    assert healthy.close_calls == 1
