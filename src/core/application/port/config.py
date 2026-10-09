@@ -50,5 +50,25 @@ class ConfigReader(Protocol):
         """仅覆盖指定主题文件的指纹；用于进程内部的版本一致性检查。"""
         ...
 
+    def open_snapshot(self, topics: Iterable[ConfigTopic]) -> ConfigSnapshot:
+        """开启只覆盖指定主题的一致性读取会话。"""
+        ...
 
-__all__ = ["ConfigReader", "ConfigTopic"]
+
+@runtime_checkable
+class ConfigSnapshot(ConfigReader, Protocol):
+    """一次配置读取会话：会话内多次读取解析自同一批捕获内容。
+
+    - 会话内不混用不同版本：读取一律来自 open 时捕获的内容；
+    - 依赖范围显式：读取未声明主题立即报错，不会隐式读盘；
+    - 外部并发修改由 :meth:`verify_unchanged` 检测，失败即中止，
+      不输出混合版本配置。快照不宣称跨文件原子：捕获仍是逐文件
+      顺序读取，verify 用于兜底检测捕获窗口内的写入。
+    """
+
+    def verify_unchanged(self) -> None:
+        """校验声明主题自 open 以来未被外部修改；被修改则抛 ConfigError。"""
+        ...
+
+
+__all__ = ["ConfigReader", "ConfigSnapshot", "ConfigTopic"]

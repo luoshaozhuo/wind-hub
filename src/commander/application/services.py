@@ -11,22 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from core.application.config_types import ConfigTopic
-
 from .config import CommanderConfig
 from .errors import CommandError
 from .runtime import CommanderRuntime
 from .session import PointReading
-
-# Commander 实际消费的配置主题；tasks/sinks 等无关文件变更不应
-# 影响本进程的配置一致性检查（外部 expected hash 契约仍按全目录）。
-COMMANDER_CONFIG_TOPICS: tuple[ConfigTopic, ...] = (
-    ConfigTopic.SYSTEM,
-    ConfigTopic.DEVICE_MODELS,
-    ConfigTopic.DEVICES,
-    ConfigTopic.POINTS,
-    ConfigTopic.UNITS,
-)
 
 
 class CommanderReadService:

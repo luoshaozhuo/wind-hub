@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeVar
 
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from core.application import ConfigError
 from core.application.config_types import (
     ADSLocalConfig,
+    ConfigTopic,
     DeviceConfig,
     DeviceInstanceDefinition,
     DeviceInstancesConfig,
@@ -42,7 +44,12 @@ from core.infrastructure.config.raw import (
     TasksFile,
     UnitsFile,
 )
-from core.infrastructure.config.yaml import YamlConfigReader
+from core.infrastructure.config.yaml import (
+    _TOPIC_FILES,
+    YamlConfigReader,
+    fingerprint_config_topics,
+    read_yaml_mapping,
+)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -153,6 +160,10 @@ def _parse_ads(raw: Any) -> ADSLocalConfig | None:
 
 class YamlTypedConfigAdapter(YamlConfigReader):
     """复用基础 YAML 读取器，向调用方提供类型化配置。"""
+
+    def open_snapshot(self, topics: Iterable[ConfigTopic]) -> YamlConfigSnapshot:
+        """开启只覆盖指定主题的一致性读取会话。"""
+        return YamlConfigSnapshot(self._base, topics)
 
     @staticmethod
     def _validate(model: type[_ModelT], raw: Mapping[str, Any], name: str) -> _ModelT:
@@ -273,11 +284,52 @@ class YamlTypedConfigAdapter(YamlConfigReader):
         return UnitConfig(units=MappingProxyType(units))
 
 
+class YamlConfigSnapshot(YamlTypedConfigAdapter):
+    """只覆盖声明主题的一致性读取会话。
+
+    open 时按声明主题逐个捕获配置内容；会话内所有类型化读取都解析
+    自捕获内容，不会在会话内静默混用不同版本。捕获窗口内的外部
+    并发写入由 :meth:`verify_unchanged` 兜底检测——检测失败即抛错
+    中止，不输出混合版本配置。快照不宣称跨文件原子：捕获仍是逐
+    文件顺序读取。
+    """
+
+    def __init__(self, config_dir: str | Path, topics: Iterable[ConfigTopic]) -> None:
+        super().__init__(config_dir)
+        self._topics = tuple(dict.fromkeys(topics))
+        if not self._topics:
+            raise ConfigError("config snapshot requires at least one topic")
+        self._captured: dict[str, dict[str, Any]] = {}
+        for topic in self._topics:
+            filename = _TOPIC_FILES[topic]
+            self._captured[filename] = read_yaml_mapping(self._base / filename)
+        self._opened_fingerprint = fingerprint_config_topics(self._base, self._topics)
+
+    def _read(self, filename: str) -> dict[str, Any]:
+        captured = self._captured.get(filename)
+        if captured is None:
+            raise ConfigError(
+                f"config snapshot does not include '{filename}'; "
+                "declare the topic when opening the snapshot"
+            )
+        return dict(captured)
+
+    def verify_unchanged(self) -> None:
+        """校验声明主题自 open 以来未被外部修改。"""
+        current = fingerprint_config_topics(self._base, self._topics)
+        if current != self._opened_fingerprint:
+            raise ConfigError(
+                "config changed while reading snapshot: "
+                f"opened={self._opened_fingerprint} current={current}"
+            )
+
+
 __all__ = [
     "DeviceConfig",
     "PointTablesConfig",
     "SystemConfig",
     "TasksConfig",
     "UnitConfig",
+    "YamlConfigSnapshot",
     "YamlTypedConfigAdapter",
 ]

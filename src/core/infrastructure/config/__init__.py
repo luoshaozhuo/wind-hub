@@ -6,6 +6,7 @@ from .typed import (
     SystemConfig,
     TasksConfig,
     UnitConfig,
+    YamlConfigSnapshot,
     YamlTypedConfigAdapter,
 )
 from .yaml import (
@@ -23,6 +24,7 @@ __all__ = [
     "TasksConfig",
     "UnitConfig",
     "YamlConfigReader",
+    "YamlConfigSnapshot",
     "YamlTypedConfigAdapter",
     "fingerprint_config_files",
     "fingerprint_config_set",

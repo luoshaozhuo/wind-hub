@@ -20,7 +20,7 @@ from core.infrastructure import (
 from core.infrastructure.config import fingerprint_config_set, fingerprint_config_topics
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import CommanderConfig
+from .application.config import COMMANDER_CONFIG_TOPICS, CommanderConfig
 from .application.diagnostic import (
     CommanderDiagnosticService,
     SymbolProbe,
@@ -28,7 +28,6 @@ from .application.diagnostic import (
 from .application.dispatcher import CommandDispatcher
 from .application.runtime import CommanderRuntime
 from .application.services import (
-    COMMANDER_CONFIG_TOPICS,
     CommanderConfigService,
     CommanderReadService,
 )

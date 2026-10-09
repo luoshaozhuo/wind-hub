@@ -388,3 +388,16 @@ def test_invalid_ams_net_id_rejected(tmp_path):
     )
     with pytest.raises(ConfigError, match="AMS Net ID"):
         load_commander_config(config_dir)
+
+
+def test_commander_load_ignores_missing_or_invalid_unrelated_topics(tmp_path):
+    """Commander 不解析 tasks/sinks；其缺失或非法均不影响加载。"""
+    config_dir = write_minimal_config_tree(tmp_path)
+    write_yaml(config_dir, "tasks.yaml", {"tasks": [{"task_id": "bad"}]})
+    write_yaml(config_dir, "sinks.yaml", {"sinks": [{"name": "bad", "type": "invalid"}]})
+    config = load_commander_config(config_dir)
+    assert config.devices
+    (config_dir / "tasks.yaml").unlink()
+    (config_dir / "sinks.yaml").unlink()
+    config = load_commander_config(config_dir)
+    assert config.devices

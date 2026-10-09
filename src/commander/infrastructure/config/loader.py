@@ -14,7 +14,12 @@ from core.application.port import ConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
 from core.infrastructure.config.assembly import assemble_core_config
 
-from ...application.config import ADSLocalIdentity, CommanderConfig, PointMeta
+from ...application.config import (
+    COMMANDER_CONFIG_TOPICS,
+    ADSLocalIdentity,
+    CommanderConfig,
+    PointMeta,
+)
 
 
 def load_commander_config(
@@ -22,11 +27,23 @@ def load_commander_config(
 ) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
-    Raises:
-        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
-    """
-    reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
+    默认在一致性快照内读取 Commander 消费的主题；tasks/sinks 等
+    无关文件不解析，加载期间的外部并发修改经 ``verify_unchanged``
+    检测并中止。
 
+    Raises:
+        ConfigError: 文件缺失、YAML 非法、加载期间配置被修改或任何
+            配置约束违反。
+    """
+    if reader is not None:
+        return _load_from(reader)
+    snapshot = YamlTypedConfigAdapter(config_dir).open_snapshot(COMMANDER_CONFIG_TOPICS)
+    config = _load_from(snapshot)
+    snapshot.verify_unchanged()
+    return config
+
+
+def _load_from(reader: ConfigReader) -> CommanderConfig:
     system = reader.read_system_config()
     device_config = reader.read_device_config()
     point_config = reader.read_point_tables_config()
