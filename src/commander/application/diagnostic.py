@@ -124,10 +124,6 @@ class SymbolProbe(Protocol):
         """解析单点地址；symbol 存在时实际查询 PLC。"""
         ...
 
-    async def read_raw(self, point: Point, resolved: ResolvedAddress) -> object:
-        """按解析地址读取一次协议原始值。"""
-        ...
-
 
 #: 组合根注入的 probe 工厂；返回 None 表示该协议无主动解析 probe。
 SymbolProbeFactory = Callable[
@@ -471,6 +467,9 @@ class CommanderDiagnosticService:
             severity = DiagnosticSeverity.ERROR
             ok = False
         elif _ads_mapping_mismatch(point, resolved_address):
+            # 与旧 Commander 等价：readable=False 的调用点恒伴随 error，
+            # 因此 mismatch 只在读取成功（或仅解析）时到达，两个分支的
+            # 先后顺序不影响对外诊断输出。
             code = DiagnosticCode.POINT_MAPPING_MISMATCH
             severity = DiagnosticSeverity.WARNING
             ok = False

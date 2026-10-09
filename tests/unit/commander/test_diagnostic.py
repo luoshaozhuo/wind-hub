@@ -101,3 +101,71 @@ async def test_verify_points_unknown_group_rejected():
     service = _service(registry)
     with pytest.raises(CommandError, match="point group"):
         await service.verify_points("dev1", point_group="ghost")
+
+
+class _FakeProbe:
+    """ADS SymbolProbe 替身：解析结果与配置 index 地址不一致。"""
+
+    def __init__(self) -> None:
+        self.connected = False
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def close(self) -> None:
+        self.connected = False
+
+    async def resolve(self, point):  # noqa: ANN001, ANN201
+        from commander.application.diagnostic import ResolvedAddress
+
+        return ResolvedAddress(
+            symbol="MAIN.x",
+            index_group=0xF021,
+            index_offset=4,
+            size=4,
+            protocol_type="REAL",
+        )
+
+
+def _ads_service(registry: FakeRegistry) -> CommanderDiagnosticService:
+    from commander.application.diagnostic import ResolvedAddress  # noqa: F401
+
+    runtime = CommanderRuntime(
+        make_commander_config(
+            protocol="ads",
+            address={
+                "symbol": "MAIN.x",
+                "index_group": 0xF020,
+                "index_offset": 0,
+                "data_type": "REAL",
+            },
+        ),
+        config_hash="hash-a",
+        protocol_registry=registry,  # type: ignore[arg-type]
+    )
+    return CommanderDiagnosticService(
+        runtime,
+        ping=lambda host, timeout: _const(True),
+        tcp_connect=lambda host, port, timeout: _const(True),
+        probe_factory=lambda device, endpoint, options: _FakeProbe(),
+    )
+
+
+async def test_ads_mapping_mismatch_reported_when_readable():
+    """配置 index 与 PLC symbol 解析不一致：可读时也报 MISMATCH/WARNING（旧语义）。"""
+    registry = FakeRegistry()
+    service = _ads_service(registry)
+    registry.instances[0].read_values["p1"] = 10.0
+    result = await service.verify_point("dev1", "p1")
+    assert not result.ok
+    assert result.code is DiagnosticCode.POINT_MAPPING_MISMATCH
+
+
+async def test_ads_read_failure_reports_read_failed_despite_mismatch():
+    """读取失败（error 非 None）优先于 mismatch——新旧 Commander 一致的行为。"""
+    registry = FakeRegistry()
+    service = _ads_service(registry)
+    registry.instances[0].read_values["p1"] = None  # value null → readable=False
+    result = await service.verify_point("dev1", "p1")
+    assert not result.ok
+    assert result.code is DiagnosticCode.POINT_READ_FAILED
