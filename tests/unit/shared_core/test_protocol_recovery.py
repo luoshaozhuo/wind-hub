@@ -39,7 +39,9 @@ class _Driver:
     async def close(self) -> None:
         self.connected = False
 
-    async def read_many(self, point_ids: tuple[str, ...]) -> tuple[ProtocolSample, ...]:
+    async def _read(
+        self, point_ids: tuple[str, ...]
+    ) -> tuple[ProtocolSample, ...]:
         self.read_count += 1
         if self.drop_during_read and self.read_count == 1:
             self.connected = False
@@ -47,7 +49,13 @@ class _Driver:
         return tuple(ProtocolSample(point_id=p, value=42, quality=Quality.GOOD)
                      for p in point_ids)
 
-    async def write_many(
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        return (await self._read((point_id,)))[0]
+
+    async def read_many(self, point_ids: tuple[str, ...]) -> tuple[ProtocolSample, ...]:
+        return await self._read(tuple(point_ids))
+
+    async def _write(
         self, writes: tuple[ProtocolWrite, ...]
     ) -> tuple[ProtocolWriteResult, ...]:
         self.write_count += 1
@@ -56,6 +64,14 @@ class _Driver:
             raise ProtocolError("lost after send")
         return tuple(ProtocolWriteResult(point_id=w.point_id, success=True)
                      for w in writes)
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        return (await self._write((write,)))[0]
+
+    async def write_many(
+        self, writes: tuple[ProtocolWrite, ...]
+    ) -> tuple[ProtocolWriteResult, ...]:
+        return await self._write(tuple(writes))
 
 
 @pytest.mark.asyncio
@@ -117,6 +133,23 @@ async def test_write_connects_before_first_send() -> None:
     assert driver.write_count == 1
 
 
+@pytest.mark.asyncio
+async def test_concurrent_reads_share_single_reconnect() -> None:
+    """并发请求同时发现断线：重连互斥，只建立一次连接。"""
+    driver = _Driver()
+
+    async def slow_connect() -> None:
+        driver.connect_count += 1
+        await asyncio.sleep(0.01)
+        driver.connected = True
+
+    driver.connect = slow_connect  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+    results = await asyncio.gather(*(port.read_one(f"p{i}") for i in range(8)))
+    assert all(sample.value == 42 for sample in results)
+    assert driver.connect_count == 1
+
+
 def test_recovery_configuration_rejects_invalid_attempts() -> None:
     with pytest.raises(ValueError, match="nonnegative"):
         RecoverySettings(reconnect_attempts=-1)
@@ -145,19 +178,36 @@ async def test_write_timeout_does_not_replay_command() -> None:
     driver = _Driver()
     driver.connected = True
 
-    async def slow_write(
-        writes: tuple[ProtocolWrite, ...]
-    ) -> tuple[ProtocolWriteResult, ...]:
-        del writes
+    async def slow_write(write: ProtocolWrite) -> ProtocolWriteResult:
+        del write
         driver.write_count += 1
         await asyncio.sleep(0.05)
-        return ()
+        return ProtocolWriteResult(point_id="control", success=True)
 
-    driver.write_many = slow_write  # type: ignore[method-assign]
+    driver.write_one = slow_write  # type: ignore[method-assign]
     port = RecoveryPort(driver, RecoverySettings(write_timeout=0.001))
     with pytest.raises(ProtocolError, match="write timed out"):
         await port.write_one(ProtocolWrite("control", 5))
     assert driver.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_unsupported_write_many_propagates_without_fallback() -> None:
+    """Driver 明确不支持 write_many 时：原样抛出，不降级为逐点写入。"""
+
+    class _NoBatchDriver(_Driver):
+        async def write_many(
+            self, writes: tuple[ProtocolWrite, ...]
+        ) -> tuple[ProtocolWriteResult, ...]:
+            raise NotImplementedError("write_many is not implemented")
+
+    driver = _NoBatchDriver()
+    driver.connected = True
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=3))
+    with pytest.raises(NotImplementedError):
+        await port.write_many((ProtocolWrite("control", 1),))
+    assert driver.write_count == 0
+    assert driver.connect_count == 0  # 已连接时不做任何额外动作
 
 
 @pytest.mark.asyncio

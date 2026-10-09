@@ -8,6 +8,7 @@ import contextlib
 from commander.application.command import Command
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
+from core.application.protocol_contract import ProtocolWriteResult
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
 
@@ -57,12 +58,12 @@ async def test_unknown_device_returns_failure_result():
 async def test_write_timeout_returns_failure_result():
     registry = FakeRegistry()
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await asyncio.sleep(5)
-        return ()
+        return ProtocolWriteResult(point_id=write.point_id, success=True)
 
     runtime = _runtime(registry)
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(
