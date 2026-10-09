@@ -78,10 +78,6 @@ class DeviceRuntime:
         """
         return MappingProxyType(self._devices)
 
-    def attach_metrics_hook(self, metrics_hook: RuntimeMetricsPort | None) -> None:
-        """与 Collector 的指标 observer 同步替换，不改变连接状态。"""
-        self._metrics = metrics_hook
-
     def update_params(self, params: RuntimeParams) -> None:
         """热更新运行时参数快照——``connect_timeout`` 在每次 connect 动态读取。"""
         self._params = params
