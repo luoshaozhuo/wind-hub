@@ -259,3 +259,41 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
     from core.application import Quality
 
     assert [(x.value, x.quality) for x in result] == [(11, Quality.GOOD)]
+
+
+@pytest.mark.asyncio
+async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch):
+    """固定+变量尺寸混合计划：sum read 期间热重载后，变量点直读仍用局部快照。"""
+    points = {
+        "a": _point("a", {"data_type": "DINT", "index_group": 0x4020, "index_offset": 0}),
+        "s": _point("s", {"data_type": "STRING", "index_group": 0x4020, "index_offset": 16}),
+    }
+    driver = ADSDriver(
+        ConnectionEndpoint("127.0.0.1", 801),
+        PointTable("ads", Protocol("ads"), points),
+        {},
+    )
+
+    class Conn:
+        def read(self, *_args):
+            return "ok"
+
+    driver._connection = Conn()
+    driver._connected = True
+
+    def _read(_addresses):
+        # sum read 返回前发生热重载：两份读缓存都被清空。
+        driver.update_point_table(PointTable("ads", Protocol("ads"), points))
+        return struct.pack("<Ii", 0, 11)
+
+    monkeypatch.setattr(driver, "_sum_read_bytes", _read)
+    import core.infrastructure.protocol.ads.driver as ads_module
+
+    monkeypatch.setattr(
+        ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
+    )
+
+    result = await driver.read(["a", "s"])
+    from core.application import Quality
+
+    assert [(x.value, x.quality) for x in result] == [(11, Quality.GOOD), ("ok", Quality.GOOD)]
