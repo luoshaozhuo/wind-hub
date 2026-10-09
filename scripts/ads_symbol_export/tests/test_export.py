@@ -111,7 +111,7 @@ def test_fallback_to_smaller_chunk(exporter: types.ModuleType, tmp_path: Path) -
     original = exporter._read_bytes
 
     def limited_read(plc: object, group: int, offset: int, length: int) -> bytes:
-        if group == 0xF00B and length > 128:
+        if group == 0xF00B and length > 70:
             raise RuntimeError("request too large")
         return original(plc, group, offset, length)
 
