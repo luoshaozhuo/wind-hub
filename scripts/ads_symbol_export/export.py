@@ -143,18 +143,30 @@ def _export_in_chunks(plc: pyads.Connection, output: Path, chunk_size: int) -> i
 
 
 def _export_full_table(plc: pyads.Connection, output: Path) -> int:
-    """直接获取完整 ADS 符号表，并原子写出变量名。"""
-    expected, _ = _read_symbol_table_info(plc)
-    symbols = plc.get_all_symbols()
-    if len(symbols) != expected:
-        raise ValueError(f"整表数量不完整：期望 {expected}，实际 {len(symbols)}")
+    """一次性读取完整符号表并解析；不使用 get_all_symbols。
+
+    pyads.get_all_symbols 按 Windows-1252 解码符号名，无法处理 UTF-8 变量名，
+    这里直接读取 0xF00B 原始字节，用与分段方案一致的解析器按 TEXT_ENCODING 解码。
+    """
+    expected, total = _read_symbol_table_info(plc)
+    buffer = bytearray(_read_bytes(plc, _SYMBOL_DATA_GROUP, 0, total))
+    names: list[str] = []
+    while buffer:
+        entry = _parse_symbol_entry(buffer)
+        if entry is None:
+            break
+        name, used = entry
+        names.append(name)
+        del buffer[:used]
+    if len(names) != expected or buffer:
+        raise ValueError(
+            f"整表数据不完整：声明 {expected} 条，解析 {len(names)} 条，剩余 {len(buffer)} 字节"
+        )
     temp = output.with_name(output.name + ".partial")
     try:
         with temp.open("w", encoding="utf-8", newline="\n") as handle:
-            for symbol in symbols:
-                if not isinstance(symbol.name, str) or not symbol.name:
-                    raise ValueError("整表包含无效变量名")
-                handle.write(symbol.name + "\n")
+            for name in names:
+                handle.write(name + "\n")
         temp.replace(output)
     except Exception:
         temp.unlink(missing_ok=True)

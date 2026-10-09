@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pyads
 import pytest
@@ -29,6 +30,11 @@ SYMBOL_INFO = 0xF00F
 SYMBOL_DATA = 0xF00B
 ADS_OK = 0
 ADS_REJECT = 0x701
+
+
+def _err_bytes(code: int) -> bytes:
+    """AmsResponseData.error_code 需要 4 字节小端 bytes，而非 int。"""
+    return struct.pack("<I", code)
 
 
 def _load_exporter() -> Any:
@@ -71,12 +77,15 @@ class SymbolTableHandler:
 
     def handle_request(self, request: Any) -> AmsResponseData:
         command = int.from_bytes(request.ams_header.command_id, "little")
+        # error_code 必须为 4 字节小端 bytes，testserver 会原样拼进响应包。
         if command == ADS_READ_STATE:
             return AmsResponseData(
-                b"\x05\x00", ADS_OK, struct.pack("<IHH", ADS_OK, 5, 0)
+                b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
             )
         if command != ADS_READ:
-            return AmsResponseData(b"\x05\x00", ADS_OK, struct.pack("<I", ADS_REJECT))
+            return AmsResponseData(
+                b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<I", ADS_REJECT)
+            )
 
         group, offset, size = struct.unpack_from("<III", request.ams_header.data)
         if group == SYMBOL_INFO:
@@ -104,12 +113,12 @@ class SymbolTableHandler:
     @staticmethod
     def _read_reply(payload: bytes) -> AmsResponseData:
         data = struct.pack("<II", ADS_OK, len(payload)) + payload
-        return AmsResponseData(b"\x05\x00", ADS_OK, data)
+        return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), data)
 
     @staticmethod
     def _error_reply() -> AmsResponseData:
         return AmsResponseData(
-            b"\x05\x00", ADS_OK, struct.pack("<II", ADS_REJECT, 0)
+            b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", ADS_REJECT, 0)
         )
 
 
@@ -123,7 +132,8 @@ def server_and_connection() -> Iterator[tuple[SymbolTableHandler, pyads.Connecti
         pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
 
     try:
-        pyads.add_route(SERVER_AMS_NET_ID, SERVER_IP)
+        # Linux 下 pyads 自带的 AdsLib 以 IP:48898 直连测试服务，
+        # add_route 会因本地无 TwinCAT 路由服务而报 error 6，故不调用。
         server.start()
         connection = pyads.Connection(SERVER_AMS_NET_ID, SERVER_ADS_PORT, SERVER_IP)
         connection.open()
@@ -133,7 +143,8 @@ def server_and_connection() -> Iterator[tuple[SymbolTableHandler, pyads.Connecti
         if "connection" in locals():
             connection.close()
         server.close()
-        server.join(timeout=3)
+        if server.ident is not None:  # start() 失败时线程未启动，不能 join
+            server.join(timeout=3)
 
 
 def test_full_table_error_then_chunk_fallback(
