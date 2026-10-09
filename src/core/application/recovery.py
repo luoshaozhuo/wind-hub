@@ -11,9 +11,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
-from core.application.errors import ProtocolError
-from core.application.port import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
-from core.application.protocol_contract import (
+from core.domain import PointTable
+
+from .errors import ProtocolError
+from .port import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
+from .protocol_contract import (
     ConnectionHealth,
     PointScalar,
     ProtocolCapability,
@@ -22,7 +24,6 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
-from core.domain import PointTable
 
 
 _T = TypeVar("_T")
