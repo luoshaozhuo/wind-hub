@@ -346,6 +346,88 @@ async def test_connection_timeout_is_enforced() -> None:
 
 
 @pytest.mark.asyncio
+async def test_logical_read_shares_reconnect_budget_across_phases() -> None:
+    """一次逻辑读取的恢复预算为 reconnect_attempts 总数：
+
+    读前恢复已消耗唯一一次预算后，读中再断线不得触发第二次重连——
+    原始读取错误原样传播，不允许预算翻倍。
+    """
+    driver = _Driver()
+    driver.drop_during_read = True  # 第一次 read 掉线并抛错
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=1))
+    with pytest.raises(ProtocolError, match="connection lost"):
+        await port.read_one("a")
+    assert driver.connect_count == 1  # 预算已在读前恢复中耗尽
+    assert driver.read_count == 1
+
+
+@pytest.mark.asyncio
+async def test_post_failure_restore_uses_remaining_budget() -> None:
+    """reconnect_attempts=2：读前恢复用 1 次，读失败后剩余 1 次可再恢复。"""
+    driver = _Driver()
+    driver.drop_during_read = True
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+    assert (await port.read_one("a")).value == 42
+    assert driver.connect_count == 2
+    assert driver.read_count == 2
+
+
+@pytest.mark.asyncio
+async def test_connect_is_idempotent_when_healthy() -> None:
+    """健康连接上的显式 connect 是 no-op，不重建底层连接。"""
+    driver = _Driver()
+    driver.connected = True
+    port = RecoveryPort(driver, RecoverySettings())
+    await port.connect()
+    assert driver.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_external_connect_serialized_with_transparent_restore() -> None:
+    """读路径透明恢复在途时，外部 connect 被串行化——同一断线只建一次连接。"""
+    driver = _Driver()
+    connect_entered = asyncio.Event()
+
+    async def slow_connect() -> None:
+        driver.connect_count += 1
+        connect_entered.set()
+        await asyncio.sleep(0.02)
+        driver.connected = True
+
+    driver.connect = slow_connect  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+
+    read_task = asyncio.create_task(port.read_one("a"))
+    await connect_entered.wait()
+    await port.connect()  # 等待恢复完成后发现已健康，直接返回
+    assert (await read_task).value == 42
+    assert driver.connect_count == 1
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_inflight_restore_then_closes() -> None:
+    """恢复在途时调用 close：先等恢复完成，再关闭——恢复不会晚于 close 重建连接。"""
+    driver = _Driver()
+    connect_entered = asyncio.Event()
+
+    async def slow_connect() -> None:
+        driver.connect_count += 1
+        connect_entered.set()
+        await asyncio.sleep(0.02)
+        driver.connected = True
+
+    driver.connect = slow_connect  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+
+    read_task = asyncio.create_task(port.read_one("a"))
+    await connect_entered.wait()
+    await port.close()
+    assert (await read_task).value == 42  # 在途读已完成，不受 close 影响
+    assert driver.health().healthy is False
+    assert driver.connect_count == 1
+
+
+@pytest.mark.asyncio
 async def test_reconnect_hook_fires_once_per_transparent_reconnect() -> None:
     driver = _Driver()
     driver.connected = True
