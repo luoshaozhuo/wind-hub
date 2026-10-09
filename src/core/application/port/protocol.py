@@ -43,6 +43,21 @@ class ProtocolPort(Protocol):
 
     def health(self) -> ConnectionHealth: ...
 
+    async def read_one(self, point_id: str) -> ProtocolSample: ...
+
+    async def read_many(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]: ...
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
+
+    async def write_many(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]: ...
+
+    # 兼容旧调用方；Collector/Commander 迁移后移除。
     async def read(
         self,
         point_ids: Sequence[str],
