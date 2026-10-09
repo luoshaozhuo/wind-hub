@@ -23,7 +23,7 @@ from .config import CollectorConfig, RuntimeParams
 RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = ("queue_maxsize", "read_timeout")
 
 #: 可安全热更新的 RuntimeParams 字段——owner 在使用点动态读取当前值：
-#: ``backpressure_policy``（SinkDispatcher 每次派发读取）、
+#: ``backpressure_policy``（SinkRuntime 每次派发读取）、
 #: ``shutdown_timeout``（仅影响后续 stop/remove）、``connect_timeout``
 #: （DeviceRuntime 每次 connect 读取）。activate 时整体替换 owner 持有的
 #: params 快照即真实生效。
