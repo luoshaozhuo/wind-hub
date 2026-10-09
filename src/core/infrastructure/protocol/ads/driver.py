@@ -485,10 +485,16 @@ class ADSDriver:
         for index in self._read_unresolved_cache[key]:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
-            raw = await asyncio.to_thread(
-                self._sum_read_bytes,
-                addresses,
-            )
+            try:
+                raw = await asyncio.to_thread(
+                    self._sum_read_bytes,
+                    addresses,
+                )
+            except NotImplementedError:
+                # Current pyads lacks public Index-based Sum Read. If its
+                # internal connection handles disappear, retain correctness
+                # using the supported per-address read API.
+                return await self._read_sequential_raw(point_ids)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
@@ -624,18 +630,16 @@ class ADSDriver:
         try:
             from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
         except ImportError as exc:
-            raise ProtocolError("installed pyads does not expose adsSumReadBytes") from exc
+            raise NotImplementedError("pyads address Sum Read is unavailable") from exc
 
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
-        return bytes(
-            adsSumReadBytes(
-                connection._port,
-                connection._adr,
-                addresses,
-            )
-        )
+        port = getattr(connection, "_port", None)
+        address = getattr(connection, "_adr", None)
+        if port is None or address is None:
+            raise NotImplementedError("pyads internal Sum Read handles unavailable")
+        return bytes(adsSumReadBytes(port, address, addresses))
 
     async def _disconnect_after_failure(self) -> None:
         """传输失败后立即摘除运行资源。
