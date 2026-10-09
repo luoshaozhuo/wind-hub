@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import importlib.util
 import struct
 import sys
@@ -15,7 +16,7 @@ import pytest
 @pytest.fixture
 def exporter(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     pyads = types.ModuleType("pyads")
-    pyads.PLCTYPE_BYTE = __import__("ctypes").c_ubyte
+    pyads.PLCTYPE_BYTE = ctypes.c_ubyte
     pyads.Connection = MagicMock()  # type: ignore[attr-defined]
     pyads.add_route = MagicMock()  # type: ignore[attr-defined]
     pyads.add_route_to_plc = MagicMock()  # type: ignore[attr-defined]
@@ -25,6 +26,7 @@ def exporter(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    module.TRY_FULL_TABLE_FIRST = False
     return module
 
 
@@ -45,7 +47,7 @@ class FakePLC:
 
     def read(self, group: int, offset: int, datatype: object, *, return_ctypes: bool) -> object:
         assert return_ctypes
-        length = __import__("ctypes").sizeof(datatype)
+        length = ctypes.sizeof(datatype)
         self.requests.append((group, offset, length))
         if group == 0xF00F:
             result = struct.pack("<II", self.count, len(self.payload))
@@ -71,7 +73,7 @@ def test_inconsistent_count_preserves_existing_file(
     plc = FakePLC(_entry("A." + "x" * 30) + _entry("B." + "y" * 30), 3)
     output = tmp_path / "symbols.txt"
     output.write_text("previous\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="不完整"):
+    with pytest.raises(RuntimeError, match="不完整"):
         exporter.export_symbols(plc, output)
     assert output.read_text(encoding="utf-8") == "previous\n"
     assert not (tmp_path / "symbols.txt.partial").exists()
@@ -80,7 +82,7 @@ def test_inconsistent_count_preserves_existing_file(
 def test_corrupt_symbol_header_fails(exporter: types.ModuleType, tmp_path: Path) -> None:
     payload = bytearray(_entry("A.x"))
     struct.pack_into("<I", payload, 0, 10)
-    with pytest.raises(ValueError, match="非法"):
+    with pytest.raises(RuntimeError, match="非法"):
         exporter.export_symbols(FakePLC(bytes(payload), 1), tmp_path / "bad.txt")
 
 
@@ -134,7 +136,7 @@ def test_all_strategies_fail_without_replacing_output(
         return FakePLC.read(plc, group, offset, datatype, return_ctypes=return_ctypes)
 
     plc.read = reject_offset  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError, match="所有安全枚举策略"):
+    with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
         exporter.export_symbols(plc, output)
     assert output.read_text(encoding="utf-8") == "old"
 
@@ -166,14 +168,14 @@ def test_full_table_is_first_and_skips_chunks(
         types.SimpleNamespace(name="B.y"),
     ])
     exporter.TRY_FULL_TABLE_FIRST = True
-    exporter._export_with_chunk_size = MagicMock(
+    exporter._export_in_chunks = MagicMock(
         side_effect=AssertionError("chunk path should not run")
     )
     output = tmp_path / "symbols.txt"
     assert exporter.export_symbols(plc, output) == 2
     assert output.read_text(encoding="utf-8").splitlines() == ["A.x", "B.y"]
     plc.get_all_symbols.assert_called_once()
-    exporter._export_with_chunk_size.assert_not_called()
+    exporter._export_in_chunks.assert_not_called()
 
 
 def test_full_table_failure_falls_back_to_chunks(
@@ -182,10 +184,10 @@ def test_full_table_failure_falls_back_to_chunks(
     plc = FakePLC(_entry("A.x"), 1)
     plc.get_all_symbols = MagicMock(side_effect=RuntimeError("PLC out of memory"))
     exporter.TRY_FULL_TABLE_FIRST = True
-    exporter._export_with_chunk_size = MagicMock(return_value=1)
+    exporter._export_in_chunks = MagicMock(return_value=1)
     assert exporter.export_symbols(plc, tmp_path / "symbols.txt") == 1
     plc.get_all_symbols.assert_called_once()
-    exporter._export_with_chunk_size.assert_called_once()
+    exporter._export_in_chunks.assert_called_once()
 
 
 def test_disable_full_table(exporter: types.ModuleType, tmp_path: Path) -> None:
@@ -193,6 +195,6 @@ def test_disable_full_table(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter._export_full_table = MagicMock(
         side_effect=AssertionError("full-table path should not run")
     )
-    exporter._export_with_chunk_size = MagicMock(return_value=1)
+    exporter._export_in_chunks = MagicMock(return_value=1)
     assert exporter.export_symbols(MagicMock(), tmp_path / "symbols.txt") == 1
     exporter._export_full_table.assert_not_called()
