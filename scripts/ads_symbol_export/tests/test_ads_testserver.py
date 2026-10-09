@@ -235,10 +235,10 @@ class FileServiceHandler:
             )
         if command == ADS_READ:
             group, offset, size = struct.unpack_from("<III", data)
-            if group == 122:  # FREAD
-                pos = self.handles.get(offset, len(TPY_CONTENT) + 1)
-                if pos >= len(TPY_CONTENT):
-                    return SymbolTableHandler._error_reply()
+            if group == 122:  # FREAD：EOF 返回成功空负载（adstool 官方语义）
+                pos = self.handles.get(offset)
+                if pos is None:
+                    return SymbolTableHandler._error_reply()  # 无效句柄
                 chunk = TPY_CONTENT[pos : pos + size]
                 self.handles[offset] = pos + len(chunk)
                 return self._read_reply(chunk)
@@ -246,6 +246,13 @@ class FileServiceHandler:
         if command != ADS_READ_WRITE:
             return SymbolTableHandler._error_reply()
         group, offset, read_len, write_len = struct.unpack_from("<IIII", data)
+        if group == 122:  # FREAD（adslib 以 ReadWrite 下发，写侧为空）
+            pos = self.handles.get(offset)
+            if pos is None:
+                return SymbolTableHandler._error_reply()
+            chunk = TPY_CONTENT[pos : pos + read_len]
+            self.handles[offset] = pos + len(chunk)
+            return self._read_reply(chunk)
         payload = data[16 : 16 + write_len]
         if group == 120:  # FOPEN
             if payload.decode("cp1252") != TPY_PATH:

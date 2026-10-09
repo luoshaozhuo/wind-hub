@@ -136,27 +136,16 @@ class FakeFileServiceConn:
             return read_type.from_buffer_copy(bytes(data))
         raise AssertionError(f"unexpected group {group}")
 
-    def read(
-        self,
-        group: int,
-        offset: int,
-        datatype: object,
-        return_ctypes: bool = False,
-        check_length: bool = True,
-    ) -> object:
-        assert group == 122  # FREAD
-        assert not check_length  # 客户端必须容忍末段短读
+    def fread(self, handle: int, size: int) -> bytes:
+        """模拟 FREAD：末段正常短读，EOF 返回 b\"\"（adstool 官方语义）。"""
         self.read_calls += 1
-        path, pos = self.handles[offset]
+        path, pos = self.handles[handle]
         content = self.files[path]
         if pos >= len(content):
-            raise FakeAdsError(0x701)  # EOF
-        size = ctypes.sizeof(datatype)
+            return b""
         chunk = content[pos : pos + size]
-        self.handles[offset] = (path, pos + len(chunk))
-        if len(chunk) < size:
-            chunk = chunk + bytes(size - len(chunk))  # 末段补零，由 XML 解析兜底
-        return datatype.from_buffer_copy(chunk)
+        self.handles[handle] = (path, pos + len(chunk))
+        return chunk
 
 
 def _file_factory(files: dict[str, bytes], conns: list[FakeFileServiceConn]):
@@ -237,10 +226,11 @@ def test_file_service_reads_tpy(exporter: types.ModuleType, tmp_path: Path) -> N
 
     assert count == 3
     text = output.read_text(encoding="utf-8")
-    assert "source=file" in text and "verified=True" in text
+    assert "source=file" in text and "verification=count_matched" in text
     assert text.splitlines()[-3:] == names
     outcome = [o for o in outcomes if o.name == "ads-file"][0]
-    assert outcome.ok and outcome.source == "file" and outcome.verified
+    assert outcome.ok and outcome.source == "file"
+    assert outcome.verification == "count_matched"  # 数量一致，不声称内容一致
     # 所有打开的连接与远端句柄均释放
     assert conns and all(c.conn_closed for c in conns)
     used = [c for c in conns if c.handles or c.closed_handles]
@@ -317,8 +307,8 @@ def test_file_runtime_mismatch_marks_unverified(
 
     assert count == 2
     outcome = [o for o in outcomes if o.name == "ads-file"][0]
-    assert outcome.ok and not outcome.verified
-    assert "verified=False" in output.read_text(encoding="utf-8")
+    assert outcome.ok and outcome.verification == "unverified"
+    assert "verification=unverified" in output.read_text(encoding="utf-8")
 
 
 # ---------- 7/8. OCX 跳过与 Mock COM 枚举 ----------
@@ -369,7 +359,7 @@ def test_strategies_run_in_order_and_stop_early(
     called: list[str] = []
 
     def spy(name: str, result: int | None = None, error: str | None = None):
-        def fn(*args: object) -> int:
+        def fn(*args: object, **kwargs: object) -> int:
             called.append(name)
             if error:
                 raise RuntimeError(error)
@@ -380,7 +370,8 @@ def test_strategies_run_in_order_and_stop_early(
 
     monkeypatch.setattr(exporter, "_export_full_table", spy("full", result=3))
     monkeypatch.setattr(exporter, "_export_in_chunks", spy("chunk", result=3))
-    monkeypatch.setattr(exporter, "_export_via_file_service", spy("file", result=(3, True)))
+    monkeypatch.setattr(
+        exporter, "_export_via_file_service", spy("file", result=(3, "count_matched")))
     monkeypatch.setattr(exporter, "_export_via_ocx", spy("ocx", result=3))
     exporter.TRY_FULL_TABLE_FIRST = True
     exporter.CHUNK_SIZES = (64,)
