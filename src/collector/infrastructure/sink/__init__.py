@@ -12,7 +12,7 @@ from collector.application.sink_port import SinkRegistry
 
 if TYPE_CHECKING:
     from collector.application.sink_port import SinkPort
-    from collector.application.sinks import ResolvedSinkConfig
+    from core.application.sink_config import ResolvedSinkConfig
 
 
 def _file(cfg: ResolvedSinkConfig) -> SinkPort:

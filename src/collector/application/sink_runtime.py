@@ -19,12 +19,12 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.application import ConnectionHealth
+from core.application.sink_config import ResolvedSinkConfig
 
 from ..domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
 from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
-from .sinks import ResolvedSinkConfig
 
 logger = logging.getLogger(__name__)
 

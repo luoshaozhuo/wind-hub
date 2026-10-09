@@ -33,7 +33,6 @@ from pathlib import Path
 
 from collector.application.errors import SinkError
 from collector.application.sink_port import SinkPort
-from collector.application.sinks import FileSinkConnection, SinkConfig
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.file.async_writer import (
     AsyncRotatingFileWriter,
@@ -45,6 +44,7 @@ from collector.infrastructure.sink.file.compression import (
 )
 from collector.infrastructure.sink.file.rotation import build_rotation
 from core.application import ConfigError, ConnectionHealth, PointScalar
+from core.application.sink_config import FileSinkConnection, SinkConfig
 
 logger = logging.getLogger(__name__)
 

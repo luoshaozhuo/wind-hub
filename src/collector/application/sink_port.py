@@ -15,9 +15,9 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from core.application import ConfigError, ConnectionHealth
+from core.application.sink_config import ResolvedSinkConfig
 
 from ..domain.point_value import PointValue
-from .sinks import ResolvedSinkConfig
 
 
 class SinkPort(Protocol):

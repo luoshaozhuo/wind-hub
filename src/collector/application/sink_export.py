@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from collector.application.sinks import ResolvedSinkPoint
 from collector.domain.point_value import PointValue
 from core.application import Quality
+from core.application.sink_config import ResolvedSinkPoint
 
 
 @dataclass(frozen=True, slots=True)

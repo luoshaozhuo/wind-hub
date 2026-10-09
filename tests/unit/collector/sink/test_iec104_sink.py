@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from collector.application.sinks import (
-    IEC104SinkConnection,
-    ResolvedSinkConfig,
-)
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.iec104 import IEC104Sink
 from core.application import ConfigError
+from core.application.sink_config import (
+    IEC104SinkConnection,
+    ResolvedSinkConfig,
+)
 
 c104 = pytest.importorskip("c104")
 
@@ -78,7 +78,7 @@ async def test_open_close_lifecycle() -> None:
 
 def test_invalid_connection_rejected() -> None:
     """错误 connection 类型在构造期即报 ConfigError。"""
-    from collector.application.sinks import FileSinkConnection
+    from core.application.sink_config import FileSinkConnection
 
     with pytest.raises(ConfigError, match="IEC104SinkConnection"):
         IEC104Sink(

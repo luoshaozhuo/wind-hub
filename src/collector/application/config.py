@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
+from core.application.sink_config import ResolvedSinkConfig
 from core.domain import (
     Device,
     DeviceId,
@@ -29,8 +30,6 @@ from core.domain import (
     ProtocolOptions,
 )
 from core.domain.config.lookups import device_options_for, point_table_for_device
-
-from .sinks import ResolvedSinkConfig
 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
 

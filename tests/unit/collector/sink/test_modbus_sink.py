@@ -11,19 +11,19 @@ import dataclasses
 import pytest
 
 from collector.application.sink_export import ExportedSinkPointValue
-from collector.application.sinks import (
-    ModbusSinkAddress,
-    ModbusSinkConnection,
-    ResolvedSinkConfig,
-    ResolvedSinkPoint,
-    SinkSource,
-)
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.sink import ModbusSink
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import ConfigError, Quality
+from core.application.sink_config import (
+    ModbusSinkAddress,
+    ModbusSinkConnection,
+    ResolvedSinkConfig,
+    ResolvedSinkPoint,
+    SinkSource,
+)
 
 
 def _point(
@@ -163,7 +163,7 @@ def _sink_config(**conn: object) -> ResolvedSinkConfig:
 
 
 def test_sink_requires_modbus_connection() -> None:
-    from collector.application.sinks import FileSinkConnection
+    from core.application.sink_config import FileSinkConnection
 
     with pytest.raises(ConfigError, match="ModbusSinkConnection"):
         ModbusSink(
