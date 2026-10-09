@@ -387,6 +387,52 @@ class ModbusDriver:
                 values[point.point_id] = _DECODE_FAILED
         return values
 
+    @staticmethod
+    def _plan_contiguous_writes(
+        points: Sequence[ModbusPoint],
+        *,
+        authorized_point_ids: frozenset[str],
+    ) -> tuple[tuple[ModbusPoint, ...], ...]:
+        """仅规划显式授权的连续保持寄存器写组；不跨空洞或重排命令。
+
+        未获授权的点永远单独成组。本函数不发送任何写入请求。
+        """
+        groups: list[tuple[ModbusPoint, ...]] = []
+        current: list[ModbusPoint] = []
+
+        def flush() -> None:
+            if current:
+                groups.append(tuple(current))
+                current.clear()
+
+        for point in points:
+            if (
+                point.register_type != "holding"
+                or point.point_id not in authorized_point_ids
+            ):
+                flush()
+                groups.append((point,))
+                continue
+
+            if not current:
+                current.append(point)
+                continue
+
+            last = current[-1]
+            start = current[0].address
+            next_end = point.address + point.count
+            if (
+                point.address == last.address + last.count
+                and next_end - start <= 123
+                and point.point_id not in {item.point_id for item in current}
+            ):
+                current.append(point)
+            else:
+                flush()
+                current.append(point)
+        flush()
+        return tuple(groups)
+
     async def _write_single(
         self,
         point: ModbusPoint,
