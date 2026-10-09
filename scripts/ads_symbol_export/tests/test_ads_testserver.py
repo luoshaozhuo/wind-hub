@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import importlib.util
-import socket
 import struct
 from pathlib import Path
 from typing import Any, Iterator
@@ -188,3 +187,21 @@ def test_server_ignores_offset_is_detected(
 
     with pytest.raises(RuntimeError, match="字节偏移"):
         exporter.export_symbols(plc, tmp_path / "symbols.txt")
+
+
+def test_full_table_success_skips_chunk_fallback(
+    server_and_connection: tuple[SymbolTableHandler, pyads.Connection],
+    tmp_path: Path,
+) -> None:
+    """验证成功时不会继续尝试分段策略。"""
+    handler, plc = server_and_connection
+    handler.mode = "normal"
+    exporter = _load_exporter()
+    exporter.TRY_FULL_TABLE_FIRST = True
+    exporter.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+
+    assert exporter.export_symbols(plc, output) == len(SYMBOL_NAMES)
+    assert output.read_text(encoding="utf-8").splitlines() == list(SYMBOL_NAMES)
+    assert handler.full_requests >= 1
+    assert not any(offset > 0 for offset, _ in handler.data_reads)
