@@ -237,3 +237,82 @@ async def test_apply_diff_add_remove_update():
     assert "drop" not in runtime.sinks
     assert len(made) == 2
     await runtime.stop()
+
+
+async def test_unhealthy_sink_dispatch_dropped_not_blocked():
+    """open 失败的 unhealthy Sink 无消费者——block 策略下 dispatch 必须丢弃而非挂起。"""
+    bad = FakeSink()
+    bad.fail_open = True
+    runtime = _runtime({"bad": bad}, policy="block", maxsize=1)
+    await runtime.start()
+    await runtime.dispatch({"bad": [_value(1.0)]})
+    await runtime.dispatch({"bad": [_value(2.0)]})  # 修复前：此处永久阻塞
+    assert runtime.points_routed == 0
+    assert runtime.points_dropped == 2
+
+
+async def test_stop_with_full_unhealthy_queue_does_not_hang():
+    """unhealthy Sink 队列有残留时 stop 不向无消费者队列投哨兵。"""
+    bad = FakeSink()
+    bad.fail_open = True
+    runtime = _runtime({"bad": bad}, policy="block", maxsize=1)
+    await runtime.start()
+    runtime._queues["bad"].put_nowait([_value()])  # 模拟残留数据
+    await asyncio.wait_for(runtime.stop(), timeout=2.0)
+
+
+async def test_blocked_dispatch_wakes_when_sink_removed():
+    """block 策略等待中的 dispatch 在 sink 被移除后必须苏醒并丢弃批次。"""
+    sink = FakeSink()
+    runtime = _runtime({"s1": sink}, policy="block", maxsize=1)
+    await runtime.start()
+
+    write_release = asyncio.Event()
+    original_write = sink.write
+
+    async def slow_write(batch):
+        await write_release.wait()
+        await original_write(batch)
+
+    sink.write = slow_write  # type: ignore[method-assign]
+    await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
+    await asyncio.sleep(0.05)
+    await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
+    blocked = asyncio.create_task(runtime.dispatch({"s1": [_value(3.0)]}))
+    await asyncio.sleep(0.05)
+    assert not blocked.done()
+
+    await runtime.remove_sink("s1")  # 消费者取消、队列移除
+    await asyncio.wait_for(blocked, timeout=2.0)  # 修复前：永久阻塞
+    assert runtime.points_dropped == 1
+    write_release.set()
+
+
+async def test_blocked_dispatch_recovers_after_unhealthy_marked():
+    """独占重建失败标记 unhealthy 后，阻塞中的 dispatch 苏醒并按丢弃处理。"""
+    sink = FakeSink()
+    runtime = _runtime({"s1": sink}, policy="block", maxsize=1)
+    await runtime.start()
+
+    write_release = asyncio.Event()
+    original_write = sink.write
+
+    async def slow_write(batch):
+        await write_release.wait()
+        await original_write(batch)
+
+    sink.write = slow_write  # type: ignore[method-assign]
+    await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
+    await asyncio.sleep(0.05)
+    await runtime.dispatch({"s1": [_value(2.0)]})  # 填满队列
+    blocked = asyncio.create_task(runtime.dispatch({"s1": [_value(3.0)]}))
+    await asyncio.sleep(0.05)
+    assert not blocked.done()
+
+    runtime._unhealthy.add("s1")  # 模拟独占重建失败的 unhealthy 标记
+    await asyncio.wait_for(blocked, timeout=2.0)
+    assert runtime.points_dropped == 1
+
+    write_release.set()
+    runtime._unhealthy.discard("s1")
+    await runtime.stop()
