@@ -245,7 +245,7 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
             command = command_from_proto(request)
             if not command.command_id:
                 command = replace(command, command_id=uuid4().hex)
-            result = await self._app.command.send(command)
+            result = await self._app.dispatcher.send(command)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc
@@ -265,7 +265,7 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
                 replace(command, command_id=uuid4().hex) if not command.command_id else command
                 for command in commands
             ]
-            results = await self._app.command.send_batch(commands)
+            results = await self._app.dispatcher.send_batch(commands)
         except Exception as exc:
             await _abort(context, exc)
             raise AssertionError("context.abort must terminate the RPC") from exc

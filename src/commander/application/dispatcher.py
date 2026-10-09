@@ -35,6 +35,14 @@ class CommandDispatcher:
         self._cache: OrderedDict[str, tuple[str, CommandResult, float]] = OrderedDict()
         self._inflight: dict[str, tuple[str, asyncio.Task[CommandResult]]] = {}
 
+    async def send_batch(self, commands: list[Command]) -> list[CommandResult]:
+        """并发执行多条即时写命令，按输入顺序返回逐条结果。
+
+        单条命令的失败只收敛在其自身 ``CommandResult`` 中，不影响其他
+        命令的执行（错误隔离）。
+        """
+        return list(await asyncio.gather(*(self.send(command) for command in commands)))
+
     async def send(self, command: Command) -> CommandResult:
         """执行单条写命令；相同幂等键只有在命令内容一致时才允许复用。"""
         signature = self._signature(command)
