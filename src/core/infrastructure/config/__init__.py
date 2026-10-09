@@ -8,7 +8,13 @@ from .typed import (
     UnitConfig,
     YamlTypedConfigAdapter,
 )
-from .yaml import YamlConfigReader, fingerprint_config_set, read_yaml_mapping
+from .yaml import (
+    YamlConfigReader,
+    fingerprint_config_files,
+    fingerprint_config_set,
+    fingerprint_config_topics,
+    read_yaml_mapping,
+)
 
 __all__ = [
     "DeviceConfig",
@@ -18,6 +24,8 @@ __all__ = [
     "UnitConfig",
     "YamlConfigReader",
     "YamlTypedConfigAdapter",
+    "fingerprint_config_files",
     "fingerprint_config_set",
+    "fingerprint_config_topics",
     "read_yaml_mapping",
 ]

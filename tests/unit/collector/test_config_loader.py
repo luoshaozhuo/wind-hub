@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from collector.infrastructure.config.fingerprint import fingerprint_config_set
 from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError
+from core.infrastructure.config import fingerprint_config_set
 from core.domain import DeviceId, PointTableId
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_yaml

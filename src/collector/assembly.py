@@ -16,6 +16,7 @@ from core.infrastructure import (
     ADSLocalRouter,
     ProtocolRegistry,
 )
+from core.infrastructure.config import fingerprint_config_set
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import ADSLocalIdentity, CollectorConfig, DeviceView
@@ -26,7 +27,6 @@ from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
 from .application.sink_port import SinkPort
 from .domain.acquisition import AcquisitionEngine
-from .infrastructure.config.fingerprint import fingerprint_config_set
 from .infrastructure.config.loader import load_collector_config
 from .infrastructure.sink import build_sink_registry
 

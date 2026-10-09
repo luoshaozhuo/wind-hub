@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.application import ConfigError
-from core.application.port import TypedConfigReader
+from core.application.port import ConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
 
 
@@ -23,7 +23,7 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
         (tmp_path / f"{name}.yaml").write_text(body, encoding="utf-8")
 
     reader = YamlTypedConfigAdapter(tmp_path)
-    assert isinstance(reader, TypedConfigReader)
+    assert isinstance(reader, ConfigReader)
     assert reader.read_device_config().instances.devices == ()
     assert reader.read_device_config().models.device_models == {}
     assert reader.read_point_config().tables == {}

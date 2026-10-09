@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from core.application.config_types import SystemConfig
-from core.application.port.typed_config import TypedConfigReader
+from core.application.port import ConfigReader
 from core.domain import PointTableId
 from core.infrastructure.config import YamlTypedConfigAdapter
 from core.infrastructure.config.assembly import assemble_core_config
@@ -31,7 +31,7 @@ from .tasks import validate_task_targets
 
 
 def load_collector_config(
-    config_dir: str | Path, *, reader: TypedConfigReader | None = None
+    config_dir: str | Path, *, reader: ConfigReader | None = None
 ) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 

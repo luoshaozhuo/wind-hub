@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.application import ConfigError
-from core.application.port.typed_config import TypedConfigReader
+from core.application.port import ConfigReader
 from core.infrastructure.config import YamlTypedConfigAdapter
 from core.infrastructure.config.assembly import assemble_core_config
 
@@ -18,7 +18,7 @@ from ...application.config import ADSLocalIdentity, CommanderConfig, PointMeta
 
 
 def load_commander_config(
-    config_dir: str | Path, *, reader: TypedConfigReader | None = None
+    config_dir: str | Path, *, reader: ConfigReader | None = None
 ) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 

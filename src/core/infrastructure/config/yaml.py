@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
 
 from core.application import ConfigError
+from core.application.port.config import ConfigTopic
+
+_TOPIC_FILES: dict[ConfigTopic, str] = {
+    ConfigTopic.SYSTEM: "system.yaml",
+    ConfigTopic.DEVICE_MODELS: "device_models.yaml",
+    ConfigTopic.DEVICES: "devices.yaml",
+    ConfigTopic.POINTS: "points.yaml",
+    ConfigTopic.UNITS: "units.yaml",
+    ConfigTopic.TASKS: "tasks.yaml",
+    ConfigTopic.SINKS: "sinks.yaml",
+}
 
 
 class YamlConfigReader:
@@ -43,6 +55,10 @@ class YamlConfigReader:
 
     def fingerprint(self) -> str:
         return fingerprint_config_set(self._base)
+
+    def fingerprint_topics(self, topics: Iterable[ConfigTopic]) -> str:
+        """仅覆盖指定主题文件的指纹；主题与文件的映射由本适配器决定。"""
+        return fingerprint_config_topics(self._base, topics)
 
 
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
@@ -79,5 +95,30 @@ def fingerprint_config_set(config_dir: str | Path) -> str:
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def fingerprint_config_topics(
+    config_dir: str | Path,
+    topics: Iterable[ConfigTopic],
+) -> str:
+    """指定配置主题文件的稳定指纹（主题作用域的版本一致性检查）。"""
+    return fingerprint_config_files(config_dir, [_TOPIC_FILES[topic] for topic in topics])
+
+
+def fingerprint_config_files(config_dir: str | Path, filenames: Iterable[str]) -> str:
+    """指定文件子集的稳定 SHA-256；与目录指纹使用相同的混合算法。
+
+    缺失的主题文件按空内容计入，使"文件被删除"同样表现为指纹变化。
+    """
+    site_dir = Path(config_dir).resolve()
+    digest = hashlib.sha256()
+    for name in sorted(filenames):
+        path = site_dir / name
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        if path.is_file():
+            digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()

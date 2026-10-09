@@ -17,6 +17,7 @@ from core.infrastructure import (
     ADSLocalRouter,
     ProtocolRegistry,
 )
+from core.infrastructure.config import fingerprint_config_set, fingerprint_config_topics
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import CommanderConfig
@@ -27,13 +28,11 @@ from .application.diagnostic import (
 from .application.dispatcher import CommandDispatcher
 from .application.runtime import CommanderRuntime
 from .application.services import (
+    COMMANDER_CONFIG_TOPICS,
     CommanderConfigService,
     CommanderReadService,
 )
-from .infrastructure.config import (
-    fingerprint_config_set,
-    load_commander_config,
-)
+from .infrastructure.config import load_commander_config
 from .infrastructure.probe import (
     AdsDiagnosticProbe,
     ping_host,
@@ -96,14 +95,15 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         ConfigError: 配置非法。
     """
     config_path = Path(config_dir)
-    before_hash = fingerprint_config_set(config_path)
+
+    def consistency_fingerprint(path: Path) -> str:
+        return fingerprint_config_topics(path, COMMANDER_CONFIG_TOPICS)
+
+    before_hash = consistency_fingerprint(config_path)
     config = load_commander_config(config_path)
+    if before_hash != consistency_fingerprint(config_path):
+        raise ValueError("config changed while assembling Commander")
     config_hash = fingerprint_config_set(config_path)
-    if before_hash != config_hash:
-        raise ValueError(
-            "config changed while assembling Commander: "
-            f"before={before_hash} after={config_hash}"
-        )
 
     ads_local_router = ADSLocalRouter()
 
@@ -154,6 +154,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
             runtime,
             load_config=load_commander_config,
             fingerprint=fingerprint_config_set,
+            consistency_fingerprint=consistency_fingerprint,
         ),
         config_dir=config_path,
         config_hash=config_hash,
