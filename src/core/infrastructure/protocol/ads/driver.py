@@ -276,6 +276,51 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
 
+            # Only a unique, fully symbol-addressed batch may use pyads Sum Write.
+            # Index-only or mixed requests retain the existing ordered path.
+            mapped_batch = [self._mapped_point(write.point_id) for write in writes]
+            symbols = [point.symbol for point in mapped_batch]
+            if (
+                len(writes) > 1
+                and all(point.address_resolved for point in mapped_batch)
+                and all(symbol is not None for symbol in symbols)
+                and len(set(symbols)) == len(symbols)
+                and hasattr(self._connection, "write_list_by_name")
+            ):
+                prepared: dict[str, object] = {}
+                try:
+                    for write, point in zip(writes, mapped_batch, strict=True):
+                        _plc_datatype(point.data_type)
+                        assert point.symbol is not None
+                        prepared[point.symbol] = _coerce_write_value(
+                            write.value, point.data_type
+                        )
+                except (ConfigError, TypeError, ValueError):
+                    # Preserve existing per-point validation and error isolation.
+                    pass
+                else:
+                    try:
+                        responses = await asyncio.to_thread(
+                            self._connection.write_list_by_name,
+                            prepared,
+                            ads_sub_commands=self._config.max_subs_per_sum,
+                        )
+                    except Exception as exc:
+                        await self._disconnect_after_failure()
+                        raise ProtocolError(f"ADS sum write failed: {exc}") from exc
+                    return tuple(
+                        ProtocolWriteResult(
+                            point_id=write.point_id,
+                            success=responses.get(point.symbol) in (0, "no error"),
+                            message=(
+                                None
+                                if responses.get(point.symbol) in (0, "no error")
+                                else f"ADS sum write: {responses.get(point.symbol, 'missing status')}"
+                            ),
+                        )
+                        for write, point in zip(writes, mapped_batch, strict=True)
+                    )
+
             results: list[ProtocolWriteResult] = []
             try:
                 for write in writes:
