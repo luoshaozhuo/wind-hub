@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wind-hub-ads-symbol-export"
+version = "0.1.0"
+description = "Standalone TwinCAT ADS symbol name exporter"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "pyads==3.6.0",
+]
+
+[project.scripts]
+ads-symbol-export = "export:main"
+
+[tool.setuptools]
+py-modules = ["export"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
