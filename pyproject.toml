@@ -9,9 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
-    { include = "wind_hub_collector", from = "src" },
     { include = "wind_hub_server", from = "src" },
-    { include = "wind_hub_commander", from = "src" },
     { include = "wind_hub_core", from = "src" },
     { include = "wind_hub_ctl", from = "src" },
 ]
@@ -67,10 +65,10 @@ import-linter = "^2.0"
 types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
-wind-hub-collector = "wind_hub_collector.main:main"
+wind-hub-collector = "collector.main:main"
 wind-hub-ctl = "wind_hub_ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
-wind-hub-commander = "wind_hub_commander.main:main"
+wind-hub-commander = "commander.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -95,8 +93,6 @@ extend-immutable-calls = [
 [tool.ruff.lint.per-file-ignores]
 # gRPC servicer 方法名由 proto service 定义强制（如 StartTask），
 # 框架按方法名分发，无法改为 snake_case。
-"src/wind_hub_collector/adapter/inbound/grpc/server.py" = ["N802"]
-"src/wind_hub_commander/adapter/inbound/grpc/server.py" = ["N802"]
 "src/collector/infrastructure/grpc/server.py" = ["N802"]
 "src/commander/infrastructure/grpc/server.py" = ["N802"]
 
@@ -167,8 +163,6 @@ root_packages = [
     "collector",
     "commander",
     "wind_hub_core",
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
 ]
@@ -182,8 +176,6 @@ type = "forbidden"
 source_modules = ["core"]
 forbidden_modules = [
     "wind_hub_core",
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
 ]
@@ -206,8 +198,6 @@ type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
     "wind_hub_core",
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
     "collector",
@@ -219,8 +209,6 @@ type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
     "wind_hub_core",
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
     "commander",
@@ -253,35 +241,21 @@ name = "core 不得依赖任何进程包"
 type = "forbidden"
 source_modules = ["wind_hub_core"]
 forbidden_modules = [
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
 ]
 
 [[tool.importlinter.contracts]]
-name = "collector 不得依赖 commander / server / ctl"
-type = "forbidden"
-source_modules = ["wind_hub_collector"]
-forbidden_modules = ["wind_hub_commander", "wind_hub_server", "wind_hub_ctl"]
-
-[[tool.importlinter.contracts]]
-name = "commander 不得依赖 collector / server / ctl"
-type = "forbidden"
-source_modules = ["wind_hub_commander"]
-forbidden_modules = ["wind_hub_collector", "wind_hub_server", "wind_hub_ctl"]
-
-[[tool.importlinter.contracts]]
 name = "server 不得依赖 collector / commander / ctl"
 type = "forbidden"
 source_modules = ["wind_hub_server"]
-forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_ctl"]
+forbidden_modules = ["wind_hub_ctl"]
 
 [[tool.importlinter.contracts]]
 name = "ctl 不得依赖 collector / commander / server"
 type = "forbidden"
 source_modules = ["wind_hub_ctl"]
-forbidden_modules = ["wind_hub_collector", "wind_hub_commander", "wind_hub_server"]
+forbidden_modules = ["wind_hub_server"]
 
 # ---- wind_hub_core.config 内部结构 ----
 # 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
@@ -305,12 +279,8 @@ layers = [
 name = "生产代码只经 config façade 访问配置"
 type = "forbidden"
 source_modules = [
-    "wind_hub_collector",
-    "wind_hub_commander",
     "wind_hub_server",
     "wind_hub_ctl",
-    "wind_hub_core.protocol",
-    "wind_hub_core.device",
 ]
 forbidden_modules = [
     "wind_hub_core.config.model",
@@ -322,47 +292,9 @@ forbidden_modules = [
 ]
 allow_indirect_imports = true
 
-# ---- collector 内部分层 ----
-
-[[tool.importlinter.contracts]]
-name = "Domain 不得依赖 Adapter 和 Infra"
-type = "forbidden"
-source_modules = ["wind_hub_collector.domain"]
-forbidden_modules = ["wind_hub_collector.adapter", "wind_hub_collector.infra"]
-
-[[tool.importlinter.contracts]]
-name = "Domain 不得依赖 Application"
-type = "forbidden"
-source_modules = ["wind_hub_collector.domain"]
-forbidden_modules = ["wind_hub_collector.application"]
-
-[[tool.importlinter.contracts]]
-name = "Application 不得依赖 Adapter"
-type = "forbidden"
-source_modules = ["wind_hub_collector.application"]
-forbidden_modules = ["wind_hub_collector.adapter"]
-
-# ---- commander 内部分层 ----
-
-[[tool.importlinter.contracts]]
-name = "commander application 不得依赖 adapter"
-type = "forbidden"
-source_modules = ["wind_hub_commander.application"]
-forbidden_modules = ["wind_hub_commander.adapter"]
-
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
 # 与 ctl client；application/domain 不感知 wire 形态。
-
-[[tool.importlinter.contracts]]
-name = "collector/commander application 与 domain 不得依赖生成的 protobuf"
-type = "forbidden"
-source_modules = [
-    "wind_hub_collector.application",
-    "wind_hub_collector.domain",
-    "wind_hub_commander.application",
-]
-forbidden_modules = ["wind_hub_core.rpc"]
 
 [[tool.importlinter.contracts]]
 name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"

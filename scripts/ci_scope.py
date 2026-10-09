@@ -58,8 +58,8 @@ def _backend_pr_targets(path: str) -> set[str]:
         in {
             "src/wind_hub_server/adapter/outbound/collector_directory.py",
             # Collector 只读查询 / Sink 控制面的应用服务——直接塑造 RPC 响应。
-            "src/wind_hub_collector/application/service/query.py",
-            "src/wind_hub_collector/application/service/sink.py",
+            "src/collector/application/services.py",
+            "src/collector/application/sink_runtime.py",
         }
     ):
         targets.add("integration-rpc")
@@ -67,30 +67,30 @@ def _backend_pr_targets(path: str) -> set[str]:
     if (
         _starts(
             path,
-            "src/wind_hub_collector/adapter/outbound/sink/",
+            "src/collector/infrastructure/sink/",
             "tests/integration/sinks/",
         )
-        or path == "src/wind_hub_collector/application/service/sink.py"
+        or path == "src/collector/application/sink_runtime.py"
     ):
         targets.add("integration-sinks")
-        if path.startswith("src/wind_hub_collector/adapter/outbound/sink/"):
+        if path.startswith("src/collector/infrastructure/sink/"):
             targets.add("system-reload")
 
     if _starts(
         path,
-        "src/wind_hub_collector/application/runtime/",
+        "src/collector/application/",
         "tests/system/acquisition/",
     ) or path in {
-        "src/wind_hub_collector/assembly.py",
-        "src/wind_hub_collector/main.py",
-        "src/wind_hub_collector/application/service/task.py",
+        "src/collector/assembly.py",
+        "src/collector/main.py",
+        "src/collector/application/task_runtime.py",
     }:
         targets.add("system-acquisition")
 
     if _starts(path, "tests/system/command/") or path in {
-        "src/wind_hub_commander/dispatcher.py",
-        "src/wind_hub_commander/runtime.py",
-        "src/wind_hub_commander/application/command.py",
+        "src/commander/application/dispatcher.py",
+        "src/commander/application/runtime.py",
+        "src/commander/application/command.py",
         "src/wind_hub_server/application/device/command.py",
     }:
         targets.add("system-command")
@@ -106,17 +106,17 @@ def _backend_pr_targets(path: str) -> set[str]:
     if _starts(path, "tests/system/reload/") or path in {
         "src/wind_hub_server/application/config/service.py",
         "src/wind_hub_server/application/config/files.py",
-        "src/wind_hub_collector/application/service/config.py",
-        "src/wind_hub_commander/runtime.py",
-        "src/wind_hub_commander/application/config.py",
+        "src/collector/application/config_service.py",
+        "src/commander/application/runtime.py",
+        "src/commander/application/config.py",
     }:
         targets.add("system-reload")
 
     if _starts(path, "tests/system/startup/") or path in {
-        "src/wind_hub_collector/assembly.py",
-        "src/wind_hub_collector/main.py",
-        "src/wind_hub_commander/assembly.py",
-        "src/wind_hub_commander/main.py",
+        "src/collector/assembly.py",
+        "src/collector/main.py",
+        "src/commander/assembly.py",
+        "src/commander/main.py",
         "src/wind_hub_server/assembly.py",
         "src/wind_hub_server/main.py",
         "src/wind_hub_server/server.py",
@@ -132,7 +132,7 @@ def _backend_pr_targets(path: str) -> set[str]:
             "src/wind_hub_server/application/worker/",
         )
         or path in {
-            "src/wind_hub_collector/application/service/task.py",
+            "src/collector/application/task_runtime.py",
             "src/wind_hub_server/application/task/placement.py",
             # reconciler 负责 placement 收敛，collector 身份校验是其安全前提。
             "src/wind_hub_server/application/task/reconcile.py",

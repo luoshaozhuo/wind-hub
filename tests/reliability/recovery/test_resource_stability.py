@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.component.collector.conftest import update_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
     ctl_instance_states,
@@ -30,6 +29,7 @@ from tests.support.control import (
     metrics_snapshot,
     reload_config,
 )
+from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_jsonl, wait_file_rows
 

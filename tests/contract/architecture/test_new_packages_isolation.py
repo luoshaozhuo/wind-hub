@@ -6,14 +6,12 @@
 - collector 与 commander 不得互相 import；
 - core.domain / core.application 保持纯净（不引入 yaml/grpc/配置仓储，
   YAML 适配器统一位于 core.infrastructure）；
-- 旧 wind_hub_* 生产代码相对任务基线零改动；
 - 进程内 proto 副本与旧共享 proto 逐字节一致（wire contract 兼容）。
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -21,12 +19,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC = REPO_ROOT / "src"
 NEW_PACKAGES = (SRC / "core", SRC / "collector", SRC / "commander")
-LEGACY_PACKAGES = (
-    "src/wind_hub_core",
-    "src/wind_hub_collector",
-    "src/wind_hub_commander",
-)
-BASELINE = "5d08aea75ad60c4d0924a353804c2e0572d970ed"
 
 _IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+([a-zA-Z0-9_\.]+)")
 
@@ -81,18 +73,6 @@ def test_core_config_purity() -> None:
     assert not offenders, "core domain/application 引入了配置/传输基础设施：\n" + "\n".join(
         offenders
     )
-
-
-def test_legacy_packages_unmodified_since_baseline() -> None:
-    """旧 wind_hub_* 生产代码相对任务基线零改动（含未提交改动）。"""
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", BASELINE, "--", *LEGACY_PACKAGES],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    assert not diff, f"旧包相对基线 {BASELINE[:8]} 被修改：\n{diff}"
 
 
 def test_proto_copies_byte_identical_to_legacy() -> None:

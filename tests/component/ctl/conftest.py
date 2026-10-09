@@ -25,15 +25,11 @@ from typing import Any, TypeVar
 
 import pytest
 
-from tests.component.collector.conftest import (
-    functional_sink_factory,
-    write_functional_config,
-)
+from collector.assembly import CollectorApp, assemble_collector
+from collector.infrastructure.grpc import CollectorGrpcServer, build_grpc_server
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.functional_config import write_functional_config
 from tests.support.process import free_port
-from wind_hub_collector.adapter.inbound.grpc.server import CollectorGrpcServer, build_grpc_server
-from wind_hub_collector.application.runtime.collector_identity import CollectorIdentity
-from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
 from wind_hub_ctl.main import main as ctl_main
 
 T = TypeVar("T")
@@ -93,22 +89,17 @@ def ctl_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[CtlEnvironment
 
     async def _start() -> tuple[CollectorApp, CollectorGrpcServer]:
         await server.start()
-        rt = assemble(config_dir, sink_factory=functional_sink_factory)
-        await start_runtime(rt)
-        identity = CollectorIdentity(
-            collector_id="ctl-functional",
-            boot_id="boot-ctl-functional",
-            config_hash="hash-ctl-functional",
-        )
-        grpc_server = build_grpc_server(rt, identity, host="127.0.0.1", port=grpc_port)
+        app = assemble_collector(config_dir, collector_id="ctl-functional")
+        await app.start()
+        grpc_server = build_grpc_server(app, app.identity, host="127.0.0.1", port=grpc_port)
         await grpc_server.start()
-        return rt, grpc_server
+        return app, grpc_server
 
-    rt, grpc_server = loop_thread.run(_start())
+    app, grpc_server = loop_thread.run(_start())
     env = CtlEnvironment(
         target=grpc_server.endpoint,
         config_dir=config_dir,
-        rt=rt,
+        rt=app,
         server=server,
         grpc_server=grpc_server,
         _loop_thread=loop_thread,
@@ -118,7 +109,7 @@ def ctl_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[CtlEnvironment
     finally:
         async def _stop() -> None:
             await grpc_server.stop(grace=2.0)
-            await stop_runtime(rt, timeout=10.0)
+            await app.stop()
             await server.stop()
 
         try:

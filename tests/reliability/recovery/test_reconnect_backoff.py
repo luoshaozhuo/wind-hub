@@ -41,7 +41,7 @@ SAMPLE_INTERVAL = 0.25
 
 
 def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
-    from tests.component.collector.conftest import MODBUS_POINTS, modbus_device_dict
+    from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     task = telemetry_task("file_sink")
     task["interval"] = FAST_INTERVAL

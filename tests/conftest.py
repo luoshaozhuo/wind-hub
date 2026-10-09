@@ -20,20 +20,14 @@ root / network / slow）必须在测试文件或 conftest 中显式标注。
 
 from __future__ import annotations
 
-import shutil
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.fixtures.sinks.null_sink import NullSink
-from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.config import ResolvedSinkConfig
-from wind_hub_core.model.errors import ConfigError
 
-FIXTURE_CONFIGS = Path(__file__).resolve().parent / "fixtures" / "configs"
 _TESTS_ROOT = Path(__file__).resolve().parent
 
 _LEVEL_MARKERS = (
@@ -67,27 +61,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
                 item.add_marker(getattr(pytest.mark, protocol))
         if level in {"integration", "system", "reliability"} and "mock" in tokens:
             item.add_marker(pytest.mark.mock_service)
-
-
-@pytest.fixture
-def config_dir(tmp_path: Path) -> Path:
-    """把 fixture 配置目录拷到独立临时目录并返回——测试可自由改写而
-    不污染 fixtures/。"""
-    dst = tmp_path / "configs"
-    shutil.copytree(FIXTURE_CONFIGS, dst)
-    return dst
-
-
-@pytest.fixture
-def sink_factory() -> Callable[[ResolvedSinkConfig], SinkPort]:
-    """``null`` sink 工厂，注入 ``assemble(sink_factory=...)``。"""
-
-    def _factory(cfg: ResolvedSinkConfig) -> SinkPort:
-        if cfg.name == "null_sink":
-            return NullSink()
-        raise ConfigError(f"unknown sink type '{cfg.type}' (test factory)")
-
-    return _factory
 
 
 @pytest.fixture

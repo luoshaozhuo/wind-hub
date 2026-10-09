@@ -19,8 +19,6 @@ SRC_ROOT = REPO_ROOT / "src"
 # generated protobuf 允许出现的前缀（相对 src/）：
 # grpc inbound/outbound adapter、core rpc codec 与生成物自身、ctl RPC client。
 _ALLOWED_PB2_PREFIXES = (
-    "wind_hub_collector/adapter/inbound/grpc/",
-    "wind_hub_commander/adapter/inbound/grpc/",
     "wind_hub_server/adapter/outbound/grpc/",
     "wind_hub_core/rpc/",
     "wind_hub_ctl/",
@@ -30,9 +28,10 @@ _ALLOWED_PB2_PREFIXES = (
 
 # application/domain 一律不感知 wire 形态。
 _NO_PB2_PREFIXES = (
-    "wind_hub_collector/application/",
-    "wind_hub_collector/domain/",
-    "wind_hub_commander/application/",
+    "collector/application/",
+    "collector/domain/",
+    "commander/application/",
+    "commander/domain/",
     "wind_hub_server/application/",
 )
 

@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_ctl_async
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]

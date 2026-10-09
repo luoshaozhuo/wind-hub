@@ -9,12 +9,28 @@ c104/lib60870-C 承担，不经过被测的 server 适配层，保证验证链�
 """
 
 import asyncio
+from enum import IntEnum
 from typing import Any
 
 import c104
 
 from tests.support.wait import wait_until
-from wind_hub_core.protocol.iec104.mapping import value_from_c104
+
+
+def value_from_c104(value: Any) -> Any:
+    """把 c104 点值转换为标量（Double/Step 等 IntEnum 转 int）。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, IntEnum):
+        return int(value)
+    if isinstance(value, str | int | float):
+        return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class IEC104MasterClient:
