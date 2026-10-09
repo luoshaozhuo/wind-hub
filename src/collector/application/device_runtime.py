@@ -18,6 +18,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth
+from core.application.recovery import RecoveryPort
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -68,6 +69,10 @@ class DeviceRuntime:
         self._metrics = metrics_hook
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
+        # RecoveryPort 在读路径内透明重连时对上层不可见——把重连事件接回
+        # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
+        for device_id, device in devices.items():
+            self._wire_reconnect_hook(device_id, device)
 
     @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
@@ -307,6 +312,7 @@ class DeviceRuntime:
         self._devices[device_id] = session
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
+        self._wire_reconnect_hook(device_id, session)
         await self._connect_new(device_id, session, "connected")
 
     async def remove_device(self, device_id: str) -> None:
@@ -348,6 +354,7 @@ class DeviceRuntime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
+        self._wire_reconnect_hook(device_id, session)
         await self._connect_new(device_id, session, "reconnected")
 
     # ------------------------------------------------------------------
@@ -376,6 +383,23 @@ class DeviceRuntime:
                 device_id,
                 exc_info=True,
             )
+
+    def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
+        """把 RecoveryPort 读路径内透明重连事件接回运行状态与指标。"""
+        protocol = session.protocol
+        if isinstance(protocol, RecoveryPort):
+            protocol.set_reconnect_hook(lambda: self._on_transparent_reconnect(device_id))
+
+    def _on_transparent_reconnect(self, device_id: str) -> None:
+        """透明重连成功——恢复 connected 状态并如实记账一次重连。
+
+        状态恢复使下一周期 ``ensure_connected`` 走快路径，避免对同一次
+        断线重复 connect/重复计数。
+        """
+        self._state_for(device_id).mark_success(self._clock())
+        if self._metrics is not None:
+            self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
+        logger.info("Device '%s' reconnected (transparent reconnect in read path)", device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
         """取设备运行状态；缺失时惰性创建（引擎只对已注册设备调用）。"""

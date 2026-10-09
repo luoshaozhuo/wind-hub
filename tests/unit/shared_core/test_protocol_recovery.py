@@ -343,3 +343,44 @@ async def test_connection_timeout_is_enforced() -> None:
     port = RecoveryPort(driver, RecoverySettings(connect_timeout=0.001))
     with pytest.raises(ProtocolError, match="connect timed out"):
         await port.connect()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_hook_fires_once_per_transparent_reconnect() -> None:
+    driver = _Driver()
+    driver.connected = True
+    driver.drop_during_read = True
+    port = RecoveryPort(driver, RecoverySettings())
+    events: list[str] = []
+    port.set_reconnect_hook(lambda: events.append("reconnected"))
+
+    assert (await port.read_one("a")).value == 42
+    assert events == ["reconnected"]
+
+    # 已健康的连接不触发 hook。
+    assert (await port.read_one("a")).value == 42
+    assert events == ["reconnected"]
+
+
+@pytest.mark.asyncio
+async def test_reconnect_hook_not_fired_on_failed_reconnect() -> None:
+    driver = _Driver(fail_connect=5)
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+    events: list[str] = []
+    port.set_reconnect_hook(lambda: events.append("reconnected"))
+
+    with pytest.raises(ProtocolError, match="reconnect"):
+        await port.read_one("a")
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_reconnect_hook_exception_does_not_break_read() -> None:
+    driver = _Driver()
+    port = RecoveryPort(driver, RecoverySettings())
+
+    def bad_hook() -> None:
+        raise RuntimeError("hook boom")
+
+    port.set_reconnect_hook(bad_hook)
+    assert (await port.read_one("a")).value == 42

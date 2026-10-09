@@ -191,3 +191,34 @@ async def test_close_all_bounds_hung_device_close():
     await runtime.close_all()
 
     assert healthy.close_calls == 1
+
+
+async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
+    """RecoveryPort 读路径内透明重连：状态恢复 connected 且 device_reconnected 记账。"""
+    from core.application.recovery import RecoveryPort, RecoverySettings
+
+    events: list[tuple[str, str]] = []
+
+    class _Metrics:
+        def device_reconnected(self, device_id: str, protocol: str) -> None:
+            events.append((device_id, protocol))
+
+    proto = CollectorFakeProtocol()
+    port = RecoveryPort(proto, RecoverySettings(reconnect_attempts=1))
+    config = make_collector_config()
+    session = make_session(config, port)  # type: ignore[arg-type]
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 0.0,
+        metrics_hook=_Metrics(),  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+
+    # 驱动掉线后第一次读触发 RecoveryPort 透明重连。
+    proto.connected = False
+    await port.read_one("p1")
+
+    assert events == [("dev1", "modbus")]
+    state = runtime.device_state("dev1")
+    assert state is not None and state.connected is True

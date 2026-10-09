@@ -133,6 +133,12 @@ class ModbusDriver:
                 port=self._config.port,
                 timeout=self._config.timeout,
                 retries=0,
+                # 禁用 pymodbus transport 层的自动重连（默认 0.1s 起步、
+                # 300s 封顶的后台重连任务；falsy 值即不建重连任务）——
+                # 重连由 RecoveryPort / DeviceRuntime 统一调度，保证连接
+                # 生命周期单一权威、重连事件可观测（否则断连在驱动内部
+                # 静默愈合）。
+                reconnect_delay=0.0,
             )
             try:
                 connected = await client.connect()

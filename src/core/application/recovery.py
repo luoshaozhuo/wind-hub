@@ -7,6 +7,7 @@ timeouts/disconnects are ambiguous and NEVER trigger automatic retransmission.
 from __future__ import annotations  # noqa: I001 - imports follow application layering
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
@@ -25,6 +26,8 @@ from .protocol_contract import (
 
 
 _T = TypeVar("_T")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +55,26 @@ class RecoveryPort:
         self._driver = driver
         self._settings = settings
         self._connect_lock = asyncio.Lock()
+        self._on_reconnect: Callable[[], None] | None = None
+
+    def set_reconnect_hook(self, hook: Callable[[], None] | None) -> None:
+        """Register a listener invoked once per successful transparent reconnect.
+
+        The wrapper reconnects inside read/write when the Driver reports
+        unhealthy; callers above the protocol layer (e.g. Collector device
+        runtime) otherwise cannot observe these reconnections. The hook is
+        invoked synchronously after the connection is verified healthy;
+        hook exceptions are logged and never break the protocol path.
+        """
+        self._on_reconnect = hook
+
+    def _notify_reconnect(self) -> None:
+        if self._on_reconnect is None:
+            return
+        try:
+            self._on_reconnect()
+        except Exception:
+            logger.warning("reconnect hook failed", exc_info=True)
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         return self._driver.capabilities()
@@ -89,6 +112,7 @@ class RecoveryPort:
                     )
                     await self.connect()
                     if self.health().healthy:
+                        self._notify_reconnect()
                         return
                     last_error = ProtocolError("connection not healthy after connect")
                 except Exception as exc:

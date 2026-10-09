@@ -83,7 +83,7 @@ class RuntimeMetricsPort(Protocol):
         ...
 
     def device_reconnected(self, device_id: str, protocol: str) -> None:
-        """断线设备经 ensure 路径重连成功（驱动内部自重连不经 CollectorRuntime，不计入）。"""
+        """断线设备重连成功（ensure 路径与 RecoveryPort 读路径内透明重连均计入）。"""
         ...
 
 
