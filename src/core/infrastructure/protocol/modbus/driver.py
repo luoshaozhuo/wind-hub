@@ -480,7 +480,7 @@ def _decode_registers(
     # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
     from pymodbus.client import ModbusTcpClient
 
-    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.toUpperCase(), None)
+    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
     return ModbusTcpClient.convert_from_registers(
