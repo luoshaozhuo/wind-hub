@@ -209,36 +209,65 @@ class ADSDriver:
         )
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        """读取一个逻辑点。"""
-        return (await self.read_many((point_id,)))[0]
+        """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。
+
+        点级失败（symbol 不存在等）返回 BAD 质量样本；连接/传输级
+        失败统一标记断线并抛 ProtocolError。
+        """
+        mapped = self._mapped_point(point_id)
+        async with self._lock:
+            if not self._connected or self._connection is None:
+                raise ProtocolError("ADS read requires an active connection")
+            if not mapped.address_resolved:
+                return _bad_sample(point_id)
+            try:
+                value = await asyncio.to_thread(
+                    self._connection.read,
+                    mapped.index_group,
+                    mapped.index_offset,
+                    _plc_datatype(mapped.data_type),
+                )
+            except Exception as exc:
+                if _is_point_level_error(exc):
+                    return _bad_sample(point_id)
+                await self._disconnect_after_failure()
+                raise ProtocolError(f"ADS read failed: {exc}") from exc
+            try:
+                scalar = _as_point_scalar(value)
+            except TypeError:
+                return _bad_sample(point_id)
+            return ProtocolSample(point_id=point_id, value=scalar, quality=Quality.GOOD)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        """写入一个逻辑点。"""
-        return (await self.write_many((write,)))[0]
+        """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
 
-    async def read(
-        self,
-        point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        """兼容旧接口；统一转发至 read_many。"""
-        return await self.read_many(point_ids)
+        配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
+        """
+        async with self._lock:
+            if not self._connected or self._connection is None:
+                raise ProtocolError("ADS write requires an active connection")
+            try:
+                return await self._write_single_point(write)
+            except Exception as exc:
+                await self._disconnect_after_failure()
+                raise ProtocolError(f"ADS write failed: {exc}") from exc
 
     async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        """兼容 DTO 协议端口；原始值读取由 read_raw 提供。"""
-        raw = await self.read_raw(point_ids)
+        """按配置的 sum/sequential 策略批量读取，返回按输入顺序排列的样本元组。"""
+        raw = await self._read_values(point_ids)
         return tuple(
             ProtocolSample(point_id=pid, value=value, quality=quality)
             for pid, (value, quality) in zip(point_ids, raw, strict=True)
         )
 
-    async def read_raw(
+    async def _read_values(
         self,
         point_ids: Sequence[str],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """按配置的 sum/sequential 策略读取点。"""
+        """按配置的 sum/sequential 策略读取点，返回原始值及逐点质量。"""
         if not point_ids:
             return ()
 
@@ -262,13 +291,6 @@ class ADSDriver:
             except Exception as exc:
                 await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
-
-    async def write(
-        self,
-        writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]:
-        """兼容旧接口；统一转发至 write_many。"""
-        return await self.write_many(writes)
 
     async def write_many(
         self,
@@ -337,62 +359,58 @@ class ADSDriver:
             results: list[ProtocolWriteResult] = []
             try:
                 for write in writes:
-                    mapped = self._mapped_point(write.point_id)
-                    if not mapped.address_resolved:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message="ADS address is unresolved",
-                            )
-                        )
-                        continue
-
-                    try:
-                        datatype = _plc_datatype(mapped.data_type)
-                    except ConfigError as exc:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=str(exc),
-                            )
-                        )
-                        continue
-
-                    try:
-                        raw_value = _coerce_write_value(
-                            write.value,
-                            mapped.data_type,
-                        )
-                    except (TypeError, ValueError) as exc:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=str(exc),
-                            )
-                        )
-                        continue
-
-                    await asyncio.to_thread(
-                        self._connection.write,
-                        mapped.index_group,
-                        mapped.index_offset,
-                        raw_value,
-                        datatype,
-                    )
-                    results.append(
-                        ProtocolWriteResult(
-                            point_id=mapped.point_id,
-                            success=True,
-                        )
-                    )
+                    results.append(await self._write_single_point(write))
             except Exception as exc:
                 await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
             return tuple(results)
+
+    async def _write_single_point(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """按已解析 index 地址写入单点；配置/取值级问题收敛为单点失败。
+
+        连接/传输级异常原样抛出，由调用方统一断线处理。
+        """
+        mapped = self._mapped_point(write.point_id)
+        if not mapped.address_resolved:
+            return ProtocolWriteResult(
+                point_id=mapped.point_id,
+                success=False,
+                message="ADS address is unresolved",
+            )
+
+        try:
+            datatype = _plc_datatype(mapped.data_type)
+        except ConfigError as exc:
+            return ProtocolWriteResult(
+                point_id=mapped.point_id,
+                success=False,
+                message=str(exc),
+            )
+
+        try:
+            raw_value = _coerce_write_value(
+                write.value,
+                mapped.data_type,
+            )
+        except (TypeError, ValueError) as exc:
+            return ProtocolWriteResult(
+                point_id=mapped.point_id,
+                success=False,
+                message=str(exc),
+            )
+
+        await asyncio.to_thread(
+            self._connection.write,
+            mapped.index_group,
+            mapped.index_offset,
+            raw_value,
+            datatype,
+        )
+        return ProtocolWriteResult(
+            point_id=mapped.point_id,
+            success=True,
+        )
 
     async def interrogate(self) -> None:
         """ADS 不支持 IEC104 式总召能力。"""

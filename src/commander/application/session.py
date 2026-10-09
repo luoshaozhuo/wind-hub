@@ -153,7 +153,7 @@ class DeviceSession:
         """
         for point_id in point_ids:
             self.point(point_id)
-        samples = await self._protocol.read(point_ids)
+        samples = await self._protocol.read_many(point_ids)
         return [self._to_reading(sample) for sample in samples]
 
     def _to_reading(self, sample: ProtocolSample) -> PointReading:

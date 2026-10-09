@@ -77,10 +77,10 @@ class CollectorFakeProtocol(FakeProtocol):
         self.interrogate_calls = 0
         self.read_error: Exception | None = None
 
-    async def read(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
+    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         if self.read_error is not None:
             raise self.read_error
-        return await super().read(point_ids)
+        return await super().read_many(point_ids)
 
     async def subscribe(
         self,

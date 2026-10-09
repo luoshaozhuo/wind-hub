@@ -17,12 +17,10 @@ from .errors import ProtocolError
 from .port import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
 from .protocol_contract import (
     ConnectionHealth,
-    PointScalar,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
-    Quality,
 )
 
 
@@ -122,20 +120,6 @@ class RecoveryPort:
             return ()
         return await self._read_with_recovery(lambda: self._driver.read_many(point_ids))
 
-    async def read(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
-        return await self.read_many(point_ids)
-
-    async def read_raw(
-        self, point_ids: Sequence[str]
-    ) -> tuple[tuple[PointScalar, Quality], ...]:
-        if not point_ids:
-            return ()
-        raw_reader = getattr(self._driver, "read_raw", None)
-        if raw_reader is not None:
-            return await self._read_with_recovery(lambda: raw_reader(point_ids))
-        samples = await self.read_many(point_ids)
-        return tuple((s.value, s.quality) for s in samples)
-
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
         await self._restore_if_needed()
         # No retry after a write has begun: PLC/RTU may have applied the command.
@@ -159,11 +143,6 @@ class RecoveryPort:
         return await self._bounded(
             self._driver.write_many(writes), self._settings.write_timeout, "write"
         )
-
-    async def write(
-        self, writes: Sequence[ProtocolWrite]
-    ) -> tuple[ProtocolWriteResult, ...]:
-        return await self.write_many(writes)
 
     async def subscribe(
         self,

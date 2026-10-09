@@ -113,7 +113,7 @@ async def test_collect_all_bad_batch_is_failure_but_still_dispatched():
             ProtocolSample(point_id=pid, value=None, quality=Quality.BAD) for pid in point_ids
         )
 
-    session._protocol.read = bad_read  # type: ignore[method-assign]
+    session._protocol.read_many = bad_read  # type: ignore[method-assign]
     await engine.collect(session, "g", ["s1"], "t1:dev1")
     assert ports.failure == [("t1:dev1", "no valid values (1/1 BAD)")]
     assert len(ports.dispatched) == 1  # BAD 批次照常派发
@@ -130,7 +130,7 @@ async def test_collect_mixed_quality_is_partial_success():
             ProtocolSample(point_id="p1", value=None, quality=Quality.BAD),
         )
 
-    session._protocol.read = mixed_read  # type: ignore[method-assign]
+    session._protocol.read_many = mixed_read  # type: ignore[method-assign]
     await engine.collect(session, "g", ["s1"], "t1:dev1")
     assert ports.success == [("t1:dev1", True)]
 
@@ -144,7 +144,7 @@ async def test_collect_read_timeout_reports_failure():
         await asyncio.sleep(5)
         return ()
 
-    session._protocol.read = slow_read  # type: ignore[method-assign]
+    session._protocol.read_many = slow_read  # type: ignore[method-assign]
     await engine.collect(session, "g", ["s1"], "t1:dev1")
     assert len(ports.failure) == 1 and "read timeout" in ports.failure[0][1]
     assert ports.read_failure == ["dev1"]

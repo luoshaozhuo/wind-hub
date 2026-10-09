@@ -78,9 +78,9 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
     monkeypatch.setattr(
         ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
     )
-    first = await driver.read(["a", "b"])
+    first = await driver.read_many(["a", "b"])
     plan = driver._read_plan_cache[("a", "b")]
-    second = await driver.read(["a", "b"])
+    second = await driver.read_many(["a", "b"])
     assert [(x.value, x.quality) for x in first] == [(x.value, x.quality) for x in second]
     assert [x.value for x in second] == [11, 22]
     assert driver._read_plan_cache[("a", "b")] is plan
@@ -90,7 +90,7 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
 
 
 @pytest.mark.asyncio
-async def test_modbus_raw_read_does_not_create_sample_dto(monkeypatch):
+async def test_modbus_internal_values_and_wrapped_samples(monkeypatch):
     point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
@@ -103,18 +103,18 @@ async def test_modbus_raw_read_does_not_create_sample_dto(monkeypatch):
         return {"p0": 17}
 
     monkeypatch.setattr(driver, "_read_group", read_group)
-    raw = await driver.read_raw(["p0"])
+    raw = await driver._read_values(["p0"])
     assert raw[0][0] == 17
     from core.application import Quality
 
     assert raw[0][1] is Quality.GOOD
-    wrapped = await driver.read(["p0"])
+    wrapped = await driver.read_many(["p0"])
     assert wrapped[0].point_id == "p0"
     assert wrapped[0].value == 17
 
 
 @pytest.mark.asyncio
-async def test_modbus_raw_read_preserves_bad_quality(monkeypatch):
+async def test_modbus_read_many_preserves_bad_quality(monkeypatch):
     point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
@@ -129,11 +129,12 @@ async def test_modbus_raw_read_preserves_bad_quality(monkeypatch):
     monkeypatch.setattr(driver, "_read_group", read_group)
     from core.application import Quality
 
-    assert await driver.read_raw(["p0"]) == ((None, Quality.BAD),)
+    samples = await driver.read_many(["p0"])
+    assert [(sample.value, sample.quality) for sample in samples] == [(None, Quality.BAD)]
 
 
 @pytest.mark.asyncio
-async def test_ads_raw_read_skips_sample_wrapping_and_preserves_bad(monkeypatch):
+async def test_ads_internal_values_and_wrapped_samples_preserve_bad(monkeypatch):
     from core.application import Quality
 
     points = {
@@ -160,11 +161,11 @@ async def test_ads_raw_read_skips_sample_wrapping_and_preserves_bad(monkeypatch)
         "_decode_value",
         lambda data, _mapped: struct.unpack("<i", data)[0],
     )
-    assert await driver.read_raw(["good", "bad"]) == (
+    assert await driver._read_values(["good", "bad"]) == (
         (23, Quality.GOOD),
         (None, Quality.BAD),
     )
-    wrapped = await driver.read(["good", "bad"])
+    wrapped = await driver.read_many(["good", "bad"])
     assert [sample.point_id for sample in wrapped] == ["good", "bad"]
     assert wrapped[0].value == 23
     assert wrapped[1].quality is Quality.BAD
@@ -198,10 +199,11 @@ async def test_modbus_accepts_tuple_register_buffer_without_copying():
     driver._connected = True
     from core.application import Quality
 
-    assert await driver.read_raw(("a", "b")) == (
+    samples = await driver.read_many(("a", "b"))
+    assert [(sample.value, sample.quality) for sample in samples] == [
         (11, Quality.GOOD),
         (22, Quality.GOOD),
-    )
+    ]
     assert Response.registers == (11, 22)
 
 
@@ -255,7 +257,7 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
         ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
     )
 
-    result = await driver.read(["a"])
+    result = await driver.read_many(["a"])
     from core.application import Quality
 
     assert [(x.value, x.quality) for x in result] == [(11, Quality.GOOD)]
@@ -293,7 +295,7 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch
         ads_module, "_decode_value", lambda raw, _point: struct.unpack("<i", raw)[0]
     )
 
-    result = await driver.read(["a", "s"])
+    result = await driver.read_many(["a", "s"])
     from core.application import Quality
 
     assert [(x.value, x.quality) for x in result] == [(11, Quality.GOOD), ("ok", Quality.GOOD)]

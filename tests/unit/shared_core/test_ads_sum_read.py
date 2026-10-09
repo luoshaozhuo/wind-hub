@@ -53,12 +53,12 @@ async def test_symbol_batch_uses_public_api_and_preserves_duplicates() -> None:
     driver._connection = connection
     driver._connected = True
 
-    result = await driver.read_raw(("b", "a", "a"))
-    assert result == (
+    result = await driver.read_many(("b", "a", "a"))
+    assert [(sample.value, sample.quality) for sample in result] == [
         (2.0, Quality.GOOD),
         (12.5, Quality.GOOD),
         (12.5, Quality.GOOD),
-    )
+    ]
     assert connection.read_calls == [["MAIN.b", "MAIN.a"]]
 
 
@@ -85,10 +85,11 @@ async def test_symbol_read_error_text_is_bad_quality() -> None:
 
     driver._connection = _ErrorConnection()
     driver._connected = True
-    assert await driver.read_raw(("a", "b")) == (
+    samples = await driver.read_many(("a", "b"))
+    assert [(sample.value, sample.quality) for sample in samples] == [
         (12.5, Quality.GOOD),
         (None, Quality.BAD),
-    )
+    ]
 
 
 @pytest.mark.asyncio
@@ -141,10 +142,11 @@ async def test_index_sum_read_falls_back_when_private_api_is_unavailable(
         raise NotImplementedError("internal handle unavailable")
 
     monkeypatch.setattr(driver, "_sum_read_bytes", unavailable)
-    assert await driver.read_raw(("b", "a")) == (
+    samples = await driver.read_many(("b", "a"))
+    assert [(sample.value, sample.quality) for sample in samples] == [
         (16, Quality.GOOD),
         (12, Quality.GOOD),
-    )
+    ]
     assert sorted(connection.calls) == [(0x4020, 12), (0x4020, 16)]
 
 
@@ -206,7 +208,8 @@ async def test_index_sum_read_uses_public_read_write(
     connection = _ConnectionWithSum()
     driver._connection = connection
     driver._connected = True
-    assert await driver.read_raw(("a", "b")) == (
+    samples = await driver.read_many(("a", "b"))
+    assert [(sample.value, sample.quality) for sample in samples] == [
         (123, Quality.GOOD), (456, Quality.GOOD)
-    )
+    ]
     assert connection.calls == 1

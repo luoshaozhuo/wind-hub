@@ -223,21 +223,21 @@ async def test_close_idempotent_and_start_idempotent():
     assert handle._task is None and task is not None and task.done()
 
 
-async def test_raw_driver_path_skips_protocol_sample_wrapping():
+async def test_read_uses_read_many_batch_interface():
     proto = CollectorFakeProtocol()
     proto.read_values["p1"] = 7.0
+    calls: list[tuple[str, ...]] = []
 
-    async def read_raw(point_ids):
-        assert point_ids == ["p1"]
-        return ((7.0, Quality.GOOD),)
+    base_read_many = proto.read_many
 
-    async def reject_legacy_read(_point_ids):
-        raise AssertionError("raw-capable driver should bypass ProtocolSample read")
+    async def recording_read_many(point_ids):
+        calls.append(tuple(point_ids))
+        return await base_read_many(point_ids)
 
-    proto.read_raw = read_raw
-    proto.read = reject_legacy_read
+    proto.read_many = recording_read_many
     session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
     values = await session.read("g")
+    assert calls == [("p1",)]
     assert len(values) == 1
     assert values[0].value == 15.0
     assert values[0].device_id == "dev1"
@@ -258,43 +258,27 @@ async def test_point_group_cache_invalidated_by_set_points():
     assert session.point_ids("changed") == ["p1"]
 
 
-async def test_raw_value_conversion_preserves_bad_and_bool():
+async def test_read_preserves_bad_quality_and_bool():
+    from core.application import ProtocolSample
+
     proto = CollectorFakeProtocol()
+
+    async def read_many(point_ids):
+        assert list(point_ids) == ["p1"]
+        return (ProtocolSample(point_id="p1", value=None, quality=Quality.BAD),)
+
+    proto.read_many = read_many
     session = make_session(make_collector_config(scale=3.0, offset=1.0), proto)
-    bad = session.to_point_values_raw(["p1"], ((None, Quality.BAD),))
+    bad = await session.read("g")
     assert bad[0].value is None
     assert bad[0].quality is Quality.BAD
-    flag = session.to_point_values_raw(["p1"], ((True, Quality.GOOD),))
+
+    async def read_bool(point_ids):
+        return (ProtocolSample(point_id="p1", value=True, quality=Quality.GOOD),)
+
+    proto.read_many = read_bool
+    flag = await session.read("g")
     assert flag[0].value is True
-    with pytest.raises(ValueError, match="length"):
-        session.to_point_values_raw(["p1"], ())
-
-
-async def test_public_raw_session_read_defers_pointvalue_creation():
-    proto = CollectorFakeProtocol()
-    proto.read_values["p1"] = 12.0
-    session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
-    ids, raw = await session.read_raw("g")
-    assert ids == ["p1"]
-    assert raw == ((12.0, Quality.GOOD),)
-    values = session.to_point_values_raw(ids, raw)
-    assert values[0].value == 25.0
-
-
-async def test_public_raw_session_read_uses_raw_capability():
-    proto = CollectorFakeProtocol()
-
-    async def raw_reader(ids):
-        assert ids == ["p1"]
-        return ((42, Quality.GOOD),)
-
-    async def reject(_ids):
-        raise AssertionError("ProtocolSample path must not be used")
-
-    proto.read_raw = raw_reader
-    proto.read = reject
-    session = make_session(make_collector_config(), proto)
-    assert await session.read_raw("g") == (["p1"], ((42, Quality.GOOD),))
 
 
 async def test_set_points_failure_keeps_session_on_old_table():
