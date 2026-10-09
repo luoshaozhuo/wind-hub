@@ -7,18 +7,18 @@ from __future__ import annotations
 
 import pytest
 
-from collector.application.sinks import (
+from collector.infrastructure.sink import build_sink_registry
+from collector.infrastructure.sink.db.postgres import DBSink
+from collector.infrastructure.sink.file.csv import FileSink
+from collector.infrastructure.sink.mq.kafka import KafkaSink
+from core.application import ConfigError
+from core.application.sink_config import (
     DatabaseSinkConnection,
     FileSinkConnection,
     KafkaSinkConnection,
     ResolvedSinkConfig,
     SinkConfig,
 )
-from collector.infrastructure.sink import build_sink_registry
-from collector.infrastructure.sink.db.postgres import DBSink
-from collector.infrastructure.sink.file.csv import FileSink
-from collector.infrastructure.sink.mq.kafka import KafkaSink
-from core.application import ConfigError
 
 # ---------------------------------------------------------------------------
 # registry

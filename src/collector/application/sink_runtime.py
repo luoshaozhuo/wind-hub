@@ -19,12 +19,12 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.application import ConnectionHealth
+from core.application.sink_config import ResolvedSinkConfig
 
 from ..domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
 from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
-from .sinks import ResolvedSinkConfig
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +117,23 @@ class SinkRuntime:
         """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。
 
         drop_new/drop_old 显式累计丢弃点数；block 通过 await queue.put()
-        向采集任务施加背压。
+        向采集任务施加背压。unhealthy Sink（open 失败、无消费者）的批次
+        直接计入丢弃——继续入队只会让无人消费的队列在 block 策略下
+        永久阻塞采集任务。
         """
         for sink_name, batch in routed.items():
             if not batch:
                 continue
             queue = self._queues.get(sink_name)
             if queue is None:
+                continue
+            if sink_name in self._unhealthy:
+                self._points_dropped += len(batch)
+                logger.warning(
+                    "Sink '%s' is unhealthy — dropping batch (%d points)",
+                    sink_name,
+                    len(batch),
+                )
                 continue
             await self._enqueue(queue, batch, sink_name)
 
@@ -160,8 +170,26 @@ class SinkRuntime:
             self._points_routed += len(batch)
 
         elif policy == "block":
-            await queue.put(batch)
-            self._points_routed += len(batch)
+            # block 策略保留背压语义：健康运行时不设超时上限。但等待期间
+            # 消费者可能因 sink 移除 / 重建失败而永久消失，周期性唤醒重新
+            # 评估该队列是否仍有人消费，避免采集任务随孤儿队列永久挂起。
+            while True:
+                if self._queues.get(sink_name) is not queue or sink_name in self._unhealthy:
+                    self._points_dropped += len(batch)
+                    logger.warning(
+                        "Sink '%s' removed or unhealthy while blocked — dropping batch (%d points)",
+                        sink_name,
+                        len(batch),
+                    )
+                    return
+                try:
+                    # 不 shield：Queue.put 取消安全，超时后下一轮重新入队，
+                    # 不会遗留挂在孤儿队列上的等待协程。
+                    await asyncio.wait_for(queue.put(batch), timeout=1.0)
+                except TimeoutError:
+                    continue
+                self._points_routed += len(batch)
+                return
 
     # ------------------------------------------------------------------
     # 生命周期（启停顺序由 CollectorRuntime 协调）
@@ -196,8 +224,11 @@ class SinkRuntime:
         保证先停止采集，本方法返回后不再有新的派发入队。
         """
         self._running = False
-        for queue in self._queues.values():
-            await queue.put([])
+        # 只向仍有消费者的队列投递哨兵——无消费者的队列（open 失败 /
+        # 独占重建失败的 unhealthy Sink）无人取哨兵，满队列会让 put 挂起。
+        for name, queue in self._queues.items():
+            if name in self._consumer_tasks:
+                await queue.put([])
         for task in self._consumer_tasks.values():
             try:
                 await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)

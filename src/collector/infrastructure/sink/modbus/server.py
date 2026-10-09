@@ -12,10 +12,10 @@ from pymodbus.constants import ExcCodes
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.server import ModbusTcpServer
 
-from collector.application.sinks import ModbusSinkConnection
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import ConnectionHealth
+from core.application.sink_config import ModbusSinkConnection
 
 _READ_FUNCTIONS = {
     1: "coil",

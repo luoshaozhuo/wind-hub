@@ -138,6 +138,7 @@ class FakeProtocol:
         self.fail_connect = False
         self.read_values: dict[str, Any] = {}
         self.writes: list[ProtocolWrite] = []
+        self.point_table_updates: list[PointTable] = []
         self.write_success = True
         self.capabilities_value: frozenset[ProtocolCapability] = frozenset(
             {ProtocolCapability.READ, ProtocolCapability.WRITE}
@@ -179,6 +180,9 @@ class FakeProtocol:
             )
             for write in writes
         )
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        self.point_table_updates.append(point_table)
 
     async def subscribe(
         self,

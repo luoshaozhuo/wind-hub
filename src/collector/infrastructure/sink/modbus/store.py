@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from collector.application.sinks import (
+from collector.infrastructure.sink.modbus.codec import EncodedModbusValue
+from core.application.sink_config import (
     MODBUS_WORD_WIDTH,
     ModbusSinkAddress,
     ResolvedSinkPoint,
 )
-from collector.infrastructure.sink.modbus.codec import EncodedModbusValue
 
 
 @dataclass(slots=True)

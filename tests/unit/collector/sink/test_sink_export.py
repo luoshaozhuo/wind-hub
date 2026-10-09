@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 import pytest
 
 from collector.application.sink_export import SinkReferenceExporter
-from collector.application.sinks import (
+from collector.domain.point_value import PointValue
+from core.application import Quality
+from core.application.sink_config import (
     IEC104SinkAddress,
     ResolvedSinkPoint,
     SinkSource,
 )
-from collector.domain.point_value import PointValue
-from core.application import Quality
 
 
 def _definition(

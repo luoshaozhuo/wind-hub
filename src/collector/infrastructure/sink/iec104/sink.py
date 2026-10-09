@@ -11,11 +11,6 @@ from __future__ import annotations
 
 from collector.application.sink_export import SinkReferenceExporter
 from collector.application.sink_port import SinkPort
-from collector.application.sinks import (
-    IEC104SinkAddress,
-    IEC104SinkConnection,
-    ResolvedSinkConfig,
-)
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.iec104.mapping import (
     build_monitor_info,
@@ -23,6 +18,11 @@ from collector.infrastructure.sink.iec104.mapping import (
 )
 from collector.infrastructure.sink.iec104.server import IEC104SlaveServer
 from core.application import ConfigError, ConnectionHealth
+from core.application.sink_config import (
+    IEC104SinkAddress,
+    IEC104SinkConnection,
+    ResolvedSinkConfig,
+)
 
 
 class IEC104Sink(SinkPort):

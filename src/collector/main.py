@@ -35,6 +35,7 @@ async def run_collector(
     collector_id: str | None = None,
     grpc_host: str = "127.0.0.1",
     grpc_port: int = 50051,
+    shutdown_timeout: float = 30.0,
 ) -> int:
     """启动 Collector 与 gRPC 控制面，并阻塞到收到停机信号。
 
@@ -43,6 +44,9 @@ async def run_collector(
         collector_id: Collector 稳定标识；为空时读取环境变量或主机名。
         grpc_host: gRPC 控制面监听地址。
         grpc_port: gRPC 控制面监听端口。
+        shutdown_timeout: 优雅停机整体硬超时（秒）。超时后记录日志并
+            强制退出进程，避免单个卡死的资源释放阻断停机（与旧
+            Collector ``--shutdown-timeout`` 语义一致）。
     """
     app = assemble_collector(config_dir, collector_id=collector_id)
     grpc_server = build_grpc_server(app, app.identity, host=grpc_host, port=grpc_port)
@@ -69,7 +73,13 @@ async def run_collector(
         try:
             await grpc_server.stop()
         finally:
-            await app.stop()
+            try:
+                await asyncio.wait_for(app.stop(), timeout=shutdown_timeout)
+            except TimeoutError:
+                logger.error(
+                    "优雅停机超过 %.1fs 硬超时，强制退出（可能有资源未释放）",
+                    shutdown_timeout,
+                )
 
     logger.info("wind-hub-collector 已干净退出")
     return 0
@@ -89,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--grpc-host", default="127.0.0.1", help="gRPC 控制面监听地址")
     parser.add_argument("--grpc-port", type=int, default=50051, help="gRPC 控制面监听端口")
+    parser.add_argument(
+        "--shutdown-timeout",
+        type=float,
+        default=30.0,
+        help="优雅停机整体硬超时（秒，默认 30）",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -118,6 +134,7 @@ def main() -> int:
             collector_id=args.collector_id,
             grpc_host=args.grpc_host,
             grpc_port=args.grpc_port,
+            shutdown_timeout=args.shutdown_timeout,
         )
     )
 

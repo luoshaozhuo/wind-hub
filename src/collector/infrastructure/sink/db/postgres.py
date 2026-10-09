@@ -37,9 +37,9 @@ import asyncpg  # type: ignore[import-untyped]
 
 from collector.application.errors import SinkError
 from collector.application.sink_port import SinkPort
-from collector.application.sinks import DatabaseSinkConnection, SinkConfig
 from collector.domain.point_value import PointValue
 from core.application import ConfigError, ConnectionHealth
+from core.application.sink_config import DatabaseSinkConnection, SinkConfig
 
 logger = logging.getLogger(__name__)
 

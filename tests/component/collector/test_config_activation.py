@@ -17,7 +17,7 @@ import pytest
 
 from collector.application.config import ADSLocalIdentity, CollectorConfig, RuntimeParams
 from collector.application.config_service import CollectorConfigService
-from tests.support.new_collector import make_collector_config, make_runtime
+from tests.support.new_collector import FakeSink, make_collector_config, make_runtime
 
 _IDENTITY_A = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
 _IDENTITY_B_NET_ID = ADSLocalIdentity(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1")
@@ -178,3 +178,100 @@ async def test_ads_local_identity_unchanged_other_changes_still_reload():
     assert service.current_config is candidate
     assert service.active_revision == "local-1"
     await runtime.stop()
+
+
+# ---------------------------------------------------------------------------
+# 点表内容变化：协议 Driver 寻址必须随轻量重注入同步更新
+# ---------------------------------------------------------------------------
+
+
+async def test_point_table_address_change_updates_driver_mapping():
+    """仅改点地址（表名/绑定不变）激活后，Driver 收到新点表并重建寻址。
+
+    回归：旧实现经 protocol.set_points_mapping 无中断更新寻址；新实现曾
+    只更新会话级点表，Driver 构造期快照不变，导致热重载后仍按旧地址采集。
+    """
+    from core.domain import PointTableId
+
+    config = make_collector_config()
+    old_table = config.point_tables[PointTableId("tab")]
+    moved_point = replace(
+        old_table.points["p1"], ext={"register_type": "holding", "address": 200}
+    )
+    new_table = replace(old_table, points={"p1": moved_point})
+    candidate = replace(config, point_tables={PointTableId("tab"): new_table})
+
+    service, runtime = _service(config, candidate)
+    protocol = next(iter(runtime.devices.values()))._protocol
+
+    result = await service.prepare_config("r1")
+    assert result.success, result.errors
+    assert result.diff.point_tables_changed == ["tab"]
+    result = await service.activate_config("r1")
+    assert result.success, result.errors
+
+    assert protocol.point_table_updates, "Driver 未收到点表热更新"
+    assert protocol.point_table_updates[-1] is new_table
+    session = runtime.devices["dev1"]
+    assert session.point_table is new_table
+
+
+# ---------------------------------------------------------------------------
+# 阶段隔离：单阶段失败不阻断其余阶段，baseline 未提交时可重试收敛
+# ---------------------------------------------------------------------------
+
+
+def _file_sink_cfg(name: str, path: str):
+    from core.application.sink_config import ResolvedSinkConfig
+
+    return ResolvedSinkConfig(name=name, type="file", connection={"path": path})
+
+
+async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
+    """Sink 重建抛错：Task 阶段仍应用，baseline 保持，修复后重试全量收敛。"""
+    from collector.application.config import CollectionTask
+
+    config = make_collector_config(sinks={"s1": _file_sink_cfg("s1", "/tmp/a.jsonl")})
+    candidate = replace(
+        config,
+        sinks={"s1": _file_sink_cfg("s1", "/tmp/b.jsonl")},
+        tasks={
+            "t1": CollectionTask(
+                task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+            )
+        },
+    )
+
+    failures = {"count": 0}
+
+    def flaky_factory(cfg):  # noqa: ANN001, ANN202
+        if failures["count"] == 0:
+            failures["count"] += 1
+            raise RuntimeError("simulated sink build failure")
+        return FakeSink()
+
+    runtime, _ = make_runtime(config, sinks={"s1": FakeSink()}, sink_factory=flaky_factory)
+    state = {"config": candidate, "hash": "h2"}
+    service = CollectorConfigService(
+        runtime,
+        config,
+        load_config=lambda: state["config"],
+        fingerprint=lambda: state["hash"],
+        config_hash="h1",
+    )
+
+    prepared = await service.prepare_config("r1")
+    assert prepared.success, prepared.errors
+    result = await service.activate_config("r1")
+    assert not result.success
+    assert any(error.startswith("sink:") for error in result.errors)
+
+    # Task 阶段隔离：sink 失败未阻断 task 定义更新
+    assert runtime.task_runtime.task_definitions()["t1"].interval == 2.0
+    # baseline 未提交，可重试
+    assert service.current_config is config
+
+    retry = await service.reload()
+    assert retry.success, retry.errors
+    assert service.current_config.sinks["s1"].connection.path == "/tmp/b.jsonl"  # type: ignore[union-attr]
+    assert "s1" in runtime.sinks

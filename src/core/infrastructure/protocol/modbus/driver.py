@@ -81,16 +81,10 @@ class ModbusDriver:
             endpoint,
             device_options,
         )
-        self._points = {
-            point.point_id: parse_modbus_point(
-                point,
-                default_word_order=self._config.word_order,
-            )
-            for point in point_table.points.values()
-        }
-
-        # 点表在 Driver 生命周期内不可变；相同选点序列复用预编译读取组。
+        # 相同选点序列复用预编译读取组；点表热更新时整体失效。
         self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
+        self._points: dict[str, ModbusPoint] = {}
+        self.update_point_table(point_table)
         self._lock = asyncio.Lock()
         self._client: Any = None
         self._connected = False
@@ -103,6 +97,17 @@ class ModbusDriver:
                 ProtocolCapability.WRITE,
             }
         )
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        """热重载点表：重建地址/字序映射并失效读取分组缓存（不断开连接）。"""
+        self._points = {
+            point.point_id: parse_modbus_point(
+                point,
+                default_word_order=self._config.word_order,
+            )
+            for point in point_table.points.values()
+        }
+        self._read_plan_cache.clear()
 
     async def connect(self) -> None:
         """建立一次 Modbus TCP 连接；不在 Driver 内部重试。"""

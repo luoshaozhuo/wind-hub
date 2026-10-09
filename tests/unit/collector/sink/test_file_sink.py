@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from collector.application.errors import SinkError
-from collector.application.sinks import FileSinkConnection, SinkConfig
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.file.compression import (
     GzipCompressor,
@@ -23,6 +22,7 @@ from collector.infrastructure.sink.file.rotation import (
     TimeRotation,
     build_rotation,
 )
+from core.application.sink_config import FileSinkConnection, SinkConfig
 
 
 def _config(path: Path, **conn: object) -> SinkConfig:
