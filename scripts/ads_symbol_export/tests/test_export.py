@@ -58,7 +58,7 @@ class FakePLC:
 def test_streams_across_record_boundaries(exporter: types.ModuleType, tmp_path: Path) -> None:
     payload = _entry("A.x") + _entry("B.中文") + _entry("C.z")
     plc = FakePLC(payload, 3)
-    exporter.CHUNK_SIZE = 35
+    exporter.CHUNK_SIZES = (35,)
     output = tmp_path / "symbols.txt"
     assert exporter.export_symbols(plc, output) == 3
     assert output.read_text(encoding="utf-8") == "A.x\nB.中文\nC.z\n"
@@ -102,3 +102,55 @@ def test_remote_route_disabled_on_failed_connection(exporter: types.ModuleType) 
         exporter._open_connection()
     plc.close.assert_called_once()
     exporter.pyads.add_route_to_plc.assert_not_called()
+
+
+def test_fallback_to_smaller_chunk(exporter: types.ModuleType, tmp_path: Path) -> None:
+    payload = _entry("First.x") + _entry("Second.y")
+    original = exporter._read_bytes
+
+    def limited_read(plc: object, group: int, offset: int, length: int) -> bytes:
+        if group == 0xF00B and length > 128:
+            raise RuntimeError("request too large")
+        return original(plc, group, offset, length)
+
+    exporter._read_bytes = limited_read
+    exporter.CHUNK_SIZES = (4096, 64)
+    output = tmp_path / "symbols.txt"
+    assert exporter.export_symbols(FakePLC(payload, 2), output) == 2
+    assert output.read_text(encoding="utf-8").splitlines() == ["First.x", "Second.y"]
+
+
+def test_all_strategies_fail_without_replacing_output(
+    exporter: types.ModuleType, tmp_path: Path
+) -> None:
+    exporter.CHUNK_SIZES = (64, 35)
+    output = tmp_path / "symbols.txt"
+    output.write_text("old", encoding="utf-8")
+    plc = FakePLC(_entry("First.x") + _entry("Second.y"), 2)
+
+    def reject_offset(group: int, offset: int, datatype: object, *, return_ctypes: bool) -> object:
+        if group == 0xF00B and offset > 0:
+            raise RuntimeError("nonzero offset unsupported")
+        return FakePLC.read(plc, group, offset, datatype, return_ctypes=return_ctypes)
+
+    plc.read = reject_offset  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="所有安全枚举策略"):
+        exporter.export_symbols(plc, output)
+    assert output.read_text(encoding="utf-8") == "old"
+
+
+@pytest.mark.parametrize(("version", "expected_port"), [(2, 801), (3, 851)])
+def test_twincat_version_port(
+    exporter: types.ModuleType, version: int, expected_port: int
+) -> None:
+    exporter.TWINCAT_VERSION = version
+    exporter.PLC_AMS_PORT = None
+    exporter.ADD_LOCAL_ROUTE = False
+    exporter._open_connection()
+    assert exporter.pyads.Connection.call_args.args[1] == expected_port
+
+
+def test_invalid_twincat_version(exporter: types.ModuleType) -> None:
+    exporter.TWINCAT_VERSION = 4
+    with pytest.raises(ValueError, match="只能为"):
+        exporter._open_connection()
