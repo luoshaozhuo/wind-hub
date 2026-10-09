@@ -108,3 +108,21 @@ async def test_distinct_symbols_same_index_address_do_not_sum_write(
     assert all(entry.success for entry in result)
     assert driver._connection.batch == []
     assert len(driver._connection.individual) == 2
+
+
+@pytest.mark.asyncio
+async def test_overlapping_symbol_spans_fall_back_to_ordered_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
+    driver._points["a"] = driver._points["a"].resolved(
+        index_group=0x4020, index_offset=100
+    )
+    driver._points["b"] = driver._points["b"].resolved(
+        index_group=0x4020, index_offset=102
+    )
+    result = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
+    assert [entry.success for entry in result] == [True, True]
+    assert driver._connection.batch == []
+    assert [entry[1] for entry in driver._connection.individual] == [100, 102]

@@ -58,3 +58,17 @@ async def test_active_read_rejected_by_library() -> None:
     driver._points_by_id = {"p": IEC104Point("p", 11, None)}
     with pytest.raises(ProtocolError, match="rejected"):
         await driver.request_read_one("p")
+
+
+@pytest.mark.asyncio
+async def test_active_read_many_uses_ordered_individual_requests() -> None:
+    driver = object.__new__(IEC104Driver)
+    calls: list[str] = []
+
+    async def fake_request(point_id: str) -> None:
+        calls.append(point_id)
+
+    driver.request_read_one = fake_request
+    assert await driver.request_read_many(("b", "a", "b")) is None
+    assert calls == ["b", "a", "b"]
+    assert await driver.request_read_many(()) is None

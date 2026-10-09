@@ -293,8 +293,7 @@ class ADSDriver:
                 and all(point.address_resolved for point in mapped_batch)
                 and all(symbol is not None for symbol in symbols)
                 and len(set(symbols)) == len(symbols)
-                and len({(p.index_group, p.index_offset) for p in mapped_batch})
-                == len(mapped_batch)
+                and self._disjoint_ads_addresses(mapped_batch)
                 and hasattr(self._connection, "write_list_by_name")
             ):
                 prepared: dict[str, object] = {}
@@ -397,6 +396,22 @@ class ADSDriver:
     async def interrogate(self) -> None:
         """ADS 不支持 IEC104 式总召能力。"""
         raise ProtocolCapabilityError("ads does not support interrogation")
+
+    @staticmethod
+    def _disjoint_ads_addresses(points: Sequence[ADSPoint]) -> bool:
+        """Reject overlapping address spans, including differently named aliases."""
+        spans: dict[int, list[tuple[int, int]]] = {}
+        for point in points:
+            if point.size <= 0:
+                # Variable-sized symbols cannot be verified for overlap.
+                return False
+            start, end = point.index_offset, point.index_offset + point.size
+            region = spans.setdefault(point.index_group, [])
+            if any(start < other_end and other_start < end
+                   for other_start, other_end in region):
+                return False
+            region.append((start, end))
+        return True
 
     async def _read_symbol_list_raw(
         self,

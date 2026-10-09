@@ -426,6 +426,13 @@ class IEC104Driver:
         if not accepted:
             raise ProtocolError(f"IEC104 active read rejected for {point_id}")
 
+    async def request_read_many(self, point_ids: Sequence[str]) -> None:
+        """依输入顺序逐点发送主动读请求，不将镜像作为响应返回。"""
+        if not point_ids:
+            return
+        for point_id in point_ids:
+            await self.request_read_one(point_id)
+
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
         if not self._is_open or self._connection is None:
