@@ -1,34 +1,23 @@
 """Shared Core Application ports。"""
 
+from core.domain.config import ConfigTopic
+
 from .config import (
-    CollectorConfigReader,
-    CommanderConfigReader,
-    ConfigFingerprintReader,
-    DeviceConfigReader,
-    DeviceDefinitionReader,
-    DeviceModelConfigReader,
-    PointConfigReader,
-    SinkConfigReader,
-    SystemConfigReader,
-    TaskConfigReader,
-    UnitConfigReader,
+    TOPIC_CONFIG_TYPES,
+    ConfigPort,
+    ConfigSnapshot,
+    ConfigSnapshotPort,
+    ConfigValue,
 )
 from .protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
-from .typed_config import TypedConfigReader
 
 __all__ = [
-    "CollectorConfigReader",
-    "CommanderConfigReader",
-    "ConfigFingerprintReader",
-    "DeviceConfigReader",
-    "DeviceDefinitionReader",
-    "DeviceModelConfigReader",
-    "PointConfigReader",
-    "SinkConfigReader",
-    "SystemConfigReader",
-    "TaskConfigReader",
-    "UnitConfigReader",
-    "TypedConfigReader",
+    "TOPIC_CONFIG_TYPES",
+    "ConfigPort",
+    "ConfigSnapshot",
+    "ConfigSnapshotPort",
+    "ConfigTopic",
+    "ConfigValue",
     "ProtocolPort",
     "ProtocolSampleCallback",
     "SubscriptionHandle",

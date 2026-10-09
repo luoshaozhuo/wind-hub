@@ -68,7 +68,7 @@ def _indexes(
         "devices": {device.device_id: device},
         "business_points": {point.business_point_id: point},
         "point_tables": {table.point_table_id: table},
-        "device_options": {device.device_id: {"unit_id": 1}},
+        "protocol_options_by_device": {device.device_id: {"unit_id": 1}},
     }
 
 

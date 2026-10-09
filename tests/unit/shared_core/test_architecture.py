@@ -126,10 +126,11 @@ def test_point_does_not_define_protocol_specific_fields() -> None:
 
 
 def test_domain_config_is_compact() -> None:
-    """Shared Domain 配置只保留协议参数、索引查找与一致性规则。"""
+    """Shared Domain 配置只保留 VO、协议参数、索引查找、一致性规则与语义 Diff 类型。"""
     config_dir = _CORE / "domain" / "config"
 
-    assert not (config_dir / "diff.py").exists()
+    # diff.py 承载 ConfigDiff/ValueChange 纯值类型（PR #51 补充整改要求）。
+    assert (config_dir / "diff.py").is_file()
     assert not (config_dir / "snapshot.py").exists()
 
 

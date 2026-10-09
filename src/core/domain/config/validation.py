@@ -28,7 +28,7 @@ def validate_core_config(
     devices: Mapping[DeviceId, Device],
     business_points: Mapping[BusinessPointId, BusinessPoint],
     point_tables: Mapping[PointTableId, PointTable],
-    device_options: Mapping[DeviceId, ProtocolOptions],
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
 ) -> None:
     """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
     _validate_identity(device_types, "device_types", "device_type_id")
@@ -41,7 +41,7 @@ def validate_core_config(
     _validate_point_tables(point_tables, business_points)
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
-    _validate_device_options(device_options, devices)
+    _validate_device_options(protocol_options_by_device, devices)
 
 
 def _validate_identity(
@@ -148,10 +148,10 @@ def _validate_devices(
 
 
 def _validate_device_options(
-    device_options: Mapping[DeviceId, ProtocolOptions],
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
     devices: Mapping[DeviceId, Device],
 ) -> None:
-    unknown_devices = set(device_options) - set(devices)
+    unknown_devices = set(protocol_options_by_device) - set(devices)
     if unknown_devices:
         raise ValueError(
             "device options reference unknown devices: "

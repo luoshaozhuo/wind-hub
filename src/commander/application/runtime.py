@@ -21,7 +21,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from core.infrastructure import ProtocolRegistry
+from core.application import ProtocolRegistry
 
 from .config import CommanderConfig
 from .session import DeviceSession
@@ -132,7 +132,7 @@ class CommanderRuntime:
             protocol = self._protocol_registry.create(
                 device.endpoint,
                 point_table,
-                config.device_options_for(device.device_id),
+                config.protocol_options_for(device.device_id),
             )
             devices[str(device.device_id)] = DeviceSession(
                 device,

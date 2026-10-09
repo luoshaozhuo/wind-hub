@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from core.application import ConfigError
-from core.application.config_types import UnitConfig
 from core.application.sink_config import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
@@ -23,6 +22,7 @@ from core.application.sink_config import (
     SinksConfig,
 )
 from core.domain import DeviceId, Point, PointTable
+from core.domain.config import UnitsConfig
 from core.domain.config.lookups import point_table_for_device
 from core.infrastructure.config.assembly import CoreConfigAssembly
 
@@ -32,7 +32,7 @@ _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
 def resolve_sinks(
     raw: SinksConfig,
     assembly: CoreConfigAssembly,
-    unit_config: UnitConfig,
+    unit_config: UnitsConfig,
     disabled_tables: Mapping[str, PointTable] | None = None,
 ) -> dict[str, ResolvedSinkConfig]:
     """解析全部 Sink source 引用并补全稳定外部点元数据。
@@ -65,7 +65,7 @@ def _resolve_point(
     sink: SinkConfig,
     point: SinkPoint,
     assembly: CoreConfigAssembly,
-    unit_config: UnitConfig,
+    unit_config: UnitsConfig,
     disabled_tables: Mapping[str, PointTable],
 ) -> ResolvedSinkPoint:
     device_id = DeviceId(point.source.device_id)

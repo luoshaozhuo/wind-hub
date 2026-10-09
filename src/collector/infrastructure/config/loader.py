@@ -1,8 +1,8 @@
 """Collector 现场配置加载入口。
 
-通过 Core 类型化配置读取端口获取本进程所需主题（system / device /
-points / units / tasks / sinks），完成 Core 快照组装、Sink 引用解析与
-跨文件一致性校验，产出 CollectorConfig。
+通过 Core 统一配置服务获取本进程所需主题（system / device_models /
+devices / points / units / tasks / sinks）的配置 VO，完成 Core 快照
+组装、Sink 引用解析与跨文件一致性校验，产出 CollectorConfig。
 
 加载顺序与旧系统一致：read → parse → resolve → validate → build。
 """
@@ -10,18 +10,26 @@ points / units / tasks / sinks），完成 Core 快照组装、Sink 引用解析
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
-from core.application.config_types import SystemConfig
-from core.application.port.typed_config import TypedConfigReader
+from core.application import ConfigService
+from core.application.port import ConfigSnapshot, ConfigTopic, ConfigValue
+from core.application.sink_config import SinksConfig
 from core.domain import PointTableId
-from core.infrastructure.config import YamlTypedConfigAdapter
+from core.domain.config import (
+    DeviceModelsConfig,
+    DevicesConfig,
+    PointTablesConfig,
+    SystemConfig,
+    TasksConfig,
+    UnitsConfig,
+)
+from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.config.assembly import assemble_core_config
 
 from ...application.config import (
     ADSLocalIdentity,
     BackpressurePolicy,
-    CollectionTask,
     CollectorConfig,
     PointMeta,
     RuntimeParams,
@@ -29,23 +37,45 @@ from ...application.config import (
 from .sinks_resolver import resolve_sinks
 from .tasks import validate_task_targets
 
+COLLECTOR_CONFIG_TOPICS: tuple[ConfigTopic, ...] = tuple(ConfigTopic)
+
+
+class _ConfigSource(Protocol):
+    """配置来源：ConfigPort 或一致性快照（均有 ``read(topic)``）。"""
+
+    def read(self, topic: ConfigTopic) -> ConfigValue: ...
+
 
 def load_collector_config(
-    config_dir: str | Path, *, reader: TypedConfigReader | None = None
+    config_dir: str | Path, *, source: _ConfigSource | None = None
 ) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
-    Raises:
-        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
-    """
-    reader = reader if reader is not None else YamlTypedConfigAdapter(config_dir)
+    默认在一致性快照内读取 Collector 全部主题：会话内不混用不同
+    版本，加载期间的外部并发修改经 ``verify_unchanged`` 检测并中止。
 
-    system = reader.read_system_config()
-    device_config = reader.read_device_config()
-    point_config = reader.read_point_config()
-    unit_config = reader.read_unit_config()
-    task_config = reader.read_task_config()
-    sinks_file = reader.read_sink_config()
+    Raises:
+        ConfigError: 文件缺失、YAML 非法、加载期间配置被修改或任何
+            配置约束违反。
+    """
+    if source is not None:
+        return _load_from(source)
+    adapter = YamlConfigAdapter(config_dir)
+    service = ConfigService(adapter, snapshots=adapter)
+    snapshot = service.open_snapshot(COLLECTOR_CONFIG_TOPICS)
+    config = _load_from(snapshot)
+    snapshot.verify_unchanged()
+    return config
+
+
+def _load_from(source: _ConfigSource | ConfigSnapshot) -> CollectorConfig:
+    system = cast(SystemConfig, source.read(ConfigTopic.SYSTEM))
+    models = cast(DeviceModelsConfig, source.read(ConfigTopic.DEVICE_MODELS))
+    devices = cast(DevicesConfig, source.read(ConfigTopic.DEVICES))
+    points = cast(PointTablesConfig, source.read(ConfigTopic.POINTS))
+    units = cast(UnitsConfig, source.read(ConfigTopic.UNITS))
+    tasks = cast(TasksConfig, source.read(ConfigTopic.TASKS))
+    sinks = cast(SinksConfig, source.read(ConfigTopic.SINKS))
 
     runtime = _runtime_params(system)
     ads_local = (
@@ -58,9 +88,10 @@ def load_collector_config(
     )
 
     assembly = assemble_core_config(
-        device_config=device_config,
-        point_config=point_config,
-        unit_config=unit_config,
+        device_models_config=models,
+        devices_config=devices,
+        point_config=points,
+        unit_config=units,
     )
     point_meta = {
         table_id: {
@@ -68,42 +99,28 @@ def load_collector_config(
                 variable_name=meta.variable_name,
                 point_groups=meta.point_groups,
             )
-            for point_id, meta in points.items()
+            for point_id, meta in table_points.items()
         }
-        for table_id, points in assembly.point_meta.items()
+        for table_id, table_points in assembly.point_meta.items()
     }
 
     # disabled 设备不进索引，但其点表仍可用于 Sink 引用解析（旧行为）。
     disabled_tables = {
         instance.device_id: assembly.point_tables[
-            PointTableId(device_config.models.device_models[instance.model].point_table)
+            PointTableId(models.device_models[instance.model].point_table)
         ]
-        for instance in device_config.instances.devices
+        for instance in devices.devices
         if not instance.enabled
     }
-    sinks = resolve_sinks(sinks_file, assembly, unit_config, disabled_tables)
+    resolved_sinks = resolve_sinks(sinks, assembly, units, disabled_tables)
 
-    tasks = {
-        task.task_id: CollectionTask(
-            task_id=task.task_id,
-            device=task.device,
-            device_group=task.device_group,
-            point_group=task.point_group,
-            interval=task.interval,
-            targets=task.targets,
-            enabled=task.enabled,
-        )
-        for task in task_config.tasks
-    }
-
-    sink_names = {name for name, sink in sinks.items() if sink.enabled}
     # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
     all_device_groups = {
-        instance.device_group
-        for instance in device_config.instances.devices
-        if instance.device_group is not None
+        instance.device_group for instance in devices.devices if instance.device_group is not None
     }
-    for task in tasks.values():
+    sink_names = {name for name, sink in resolved_sinks.items() if sink.enabled}
+    task_map = {task.task_id: task for task in tasks.tasks}
+    for task in task_map.values():
         validate_task_targets(
             task,
             assembly,
@@ -114,14 +131,23 @@ def load_collector_config(
         )
 
     return CollectorConfig(
+        configs={
+            ConfigTopic.SYSTEM: system,
+            ConfigTopic.DEVICE_MODELS: models,
+            ConfigTopic.DEVICES: devices,
+            ConfigTopic.POINTS: points,
+            ConfigTopic.UNITS: units,
+            ConfigTopic.TASKS: tasks,
+            ConfigTopic.SINKS: sinks,
+        },
         devices=assembly.devices,
         device_models=assembly.device_models,
         point_tables=assembly.point_tables,
-        device_options=assembly.device_options,
+        protocol_options_by_device=assembly.protocol_options_by_device,
         runtime=runtime,
         ads_local=ads_local,
-        tasks=tasks,
-        sinks=sinks,
+        tasks=task_map,
+        sinks=resolved_sinks,
         point_meta=point_meta,
         ads_subscribe_devices=assembly.ads_subscribe_devices,
         disabled_devices=assembly.disabled_devices,

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from collector.infrastructure.config.fingerprint import fingerprint_config_set
 from collector.infrastructure.config.loader import load_collector_config
 from core.application import ConfigError
 from core.domain import DeviceId, PointTableId
+from core.infrastructure.config import fingerprint_config_set
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_yaml
 
@@ -87,7 +87,7 @@ def test_unknown_runtime_key_rejected(tmp_path):
 
 
 def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
-    """subscribe_enabled 不进入 device_options，记入 ads_subscribe_devices。"""
+    """subscribe_enabled 不进入 protocol_options_by_device，记入 ads_subscribe_devices。"""
     config_dir = write_collector_config_tree(
         tmp_path,
         protocol="ads",
@@ -107,7 +107,7 @@ def test_ads_subscribe_enabled_extracted_and_stripped(tmp_path):
     )
     config = load_collector_config(config_dir)
     assert config.ads_subscribe_devices == frozenset({DeviceId("dev1")})
-    options = config.device_options_for(DeviceId("dev1"))
+    options = config.protocol_options_for(DeviceId("dev1"))
     assert "subscribe_enabled" not in options
     assert options["target_net_id"] == "1.2.3.4.5.6"
     assert options["read_mode"] == "sum"
@@ -457,3 +457,22 @@ def test_meta_and_point_groups_loaded(tmp_path):
     meta = config.meta_for(PointTableId("tab"), "p1")
     assert meta.variable_name == "风速"
     assert meta.point_groups == ("g", "fast")
+
+
+def test_unknown_protocol_option_is_rejected_at_load(tmp_path):
+    """协议参数合法性在加载阶段校验，不推迟到 Driver 构造。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        connection_defaults={"port": 502, "bogus_option": 1},
+    )
+    with pytest.raises(ConfigError, match="unknown Modbus options"):
+        load_collector_config(config_dir)
+
+
+def test_invalid_protocol_option_value_is_rejected_at_load(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        connection_defaults={"port": 502, "timeout": -1},
+    )
+    with pytest.raises(ConfigError):
+        load_collector_config(config_dir)

@@ -4,10 +4,8 @@
 领域配置索引与进程级 ``CommanderConfig``。
 """
 
-from .fingerprint import fingerprint_config_set
 from .loader import load_commander_config
 
 __all__ = [
-    "fingerprint_config_set",
     "load_commander_config",
 ]

@@ -3,10 +3,9 @@
 只暴露共享协议基础设施。
 """
 
-from .protocol import ADSLocalConfig, ADSLocalRouter, ProtocolRegistry
+from .protocol import ADSLocalConfig, ADSLocalRouter
 
 __all__ = [
     "ADSLocalConfig",
     "ADSLocalRouter",
-    "ProtocolRegistry",
 ]

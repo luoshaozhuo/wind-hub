@@ -179,7 +179,8 @@ async def test_config_service_toctou_and_hash_check(tmp_path):
         tmp_path,
         runtime,
         load_config=fake_load,  # type: ignore[arg-type]
-        fingerprint=lambda path: next(hashes),  # type: ignore[arg-type]
+        fingerprint=lambda path: "h1",  # type: ignore[arg-type]
+        consistency_fingerprint=lambda path: next(hashes),  # type: ignore[arg-type]
     )
     actual = await service.prepare_config("rev-3", "h1")
     assert actual == "h1"
@@ -191,6 +192,7 @@ async def test_config_service_toctou_and_hash_check(tmp_path):
         runtime,
         load_config=fake_load,  # type: ignore[arg-type]
         fingerprint=lambda path: "hX",  # type: ignore[arg-type]
+        consistency_fingerprint=lambda path: "hX",  # type: ignore[arg-type]
     )
     with pytest.raises(ValueError, match="hash mismatch"):
         await service2.prepare_config("rev-4", "hY")
@@ -204,7 +206,8 @@ async def test_config_service_detects_change_during_load(tmp_path):
         tmp_path,
         runtime,
         load_config=lambda path: make_commander_config(),  # type: ignore[arg-type]
-        fingerprint=lambda path: next(hashes),  # type: ignore[arg-type]
+        fingerprint=lambda path: "before",  # type: ignore[arg-type]
+        consistency_fingerprint=lambda path: next(hashes),  # type: ignore[arg-type]
     )
     with pytest.raises(ValueError, match="config changed while preparing"):
         await service.prepare_config("rev-5", "before")

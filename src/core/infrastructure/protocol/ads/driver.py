@@ -60,7 +60,7 @@ class ADSDriver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError(
@@ -71,7 +71,7 @@ class ADSDriver:
         self._point_table_id = point_table.point_table_id
         self._config: ADSConfig = parse_ads_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
 
         self._lock = asyncio.Lock()
@@ -481,8 +481,10 @@ class ADSDriver:
             self._read_variable_cache[key] = tuple(variable)
             self._read_unresolved_cache[key] = tuple(unresolved)
 
+        unresolved_indexes = self._read_unresolved_cache.get(key, ())
+        variable_points = self._read_variable_cache.get(key, ())
         results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
-        for index in self._read_unresolved_cache[key]:
+        for index in unresolved_indexes:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
             try:
@@ -519,7 +521,7 @@ class ADSDriver:
                     continue
                 results[result_index] = (value, Quality.GOOD)
 
-        for result_index, mapped in self._read_variable_cache[key]:
+        for result_index, mapped in variable_points:
             try:
                 value = await asyncio.to_thread(
                     self._connection.read,

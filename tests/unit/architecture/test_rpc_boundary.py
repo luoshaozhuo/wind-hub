@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -95,6 +96,7 @@ def test_no_legacy_usecase_class_names() -> None:
         (_relative(path), name)
         for path in _source_files()
         for name in _LEGACY_USECASE_NAMES
-        if name in path.read_text(encoding="utf-8")
+        # 词边界匹配：DiffConfigUseCase 等带语义前缀的用例名不算旧名残留。
+        if re.search(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])", path.read_text(encoding="utf-8"))
     ]
     assert offenders == []

@@ -3,46 +3,26 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
 
 from core.application import ConfigError
+from core.domain.config import ConfigTopic
 
-
-class YamlConfigReader:
-    """一次构造确定配置根目录；按主题分别读取，调用方自行组合。"""
-
-    def __init__(self, config_dir: str | Path) -> None:
-        self._base = Path(config_dir)
-
-    def read_system(self) -> dict[str, Any]:
-        return self._read("system.yaml")
-
-    def read_devices(self) -> dict[str, Any]:
-        return self._read("devices.yaml")
-
-    def read_device_models(self) -> dict[str, Any]:
-        return self._read("device_models.yaml")
-
-    def read_points(self) -> dict[str, Any]:
-        return self._read("points.yaml")
-
-    def read_units(self) -> dict[str, Any]:
-        return self._read("units.yaml")
-
-    def read_tasks(self) -> dict[str, Any]:
-        return self._read("tasks.yaml")
-
-    def read_sinks(self) -> dict[str, Any]:
-        return self._read("sinks.yaml")
-
-    def _read(self, filename: str) -> dict[str, Any]:
-        return read_yaml_mapping(self._base / filename)
-
-    def fingerprint(self) -> str:
-        return fingerprint_config_set(self._base)
+_TOPIC_FILES: dict[ConfigTopic, str] = {
+    ConfigTopic.SYSTEM: "system.yaml",
+    ConfigTopic.DEVICE_MODELS: "device_models.yaml",
+    ConfigTopic.DEVICES: "devices.yaml",
+    ConfigTopic.POINTS: "points.yaml",
+    ConfigTopic.UNITS: "units.yaml",
+    ConfigTopic.TASKS: "tasks.yaml",
+    ConfigTopic.SINKS: "sinks.yaml",
+}
 
 
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
@@ -62,6 +42,33 @@ def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
     return data
 
 
+def write_yaml_mapping_atomic(path: str | Path, data: Mapping[str, Any]) -> None:
+    """原子写入 YAML 映射：同目录临时文件 → 完整写入 → fsync → 原子替换。
+
+    失败时清理临时文件，目标文件保持原样，不会处于部分写入状态。
+    """
+    target = Path(path)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp_path = Path(handle.name)
+            yaml.safe_dump(dict(data), handle, allow_unicode=True, sort_keys=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def fingerprint_config_set(config_dir: str | Path) -> str:
     """现场 YAML 配置集稳定 SHA-256，保持原有跨进程算法。"""
     site_dir = Path(config_dir).resolve()
@@ -79,5 +86,30 @@ def fingerprint_config_set(config_dir: str | Path) -> str:
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def fingerprint_config_topics(
+    config_dir: str | Path,
+    topics: Iterable[ConfigTopic],
+) -> str:
+    """指定配置主题文件的稳定指纹（主题作用域的版本一致性检查）。"""
+    return fingerprint_config_files(config_dir, [_TOPIC_FILES[topic] for topic in topics])
+
+
+def fingerprint_config_files(config_dir: str | Path, filenames: Iterable[str]) -> str:
+    """指定文件子集的稳定 SHA-256；与目录指纹使用相同的混合算法。
+
+    缺失的主题文件按空内容计入，使"文件被删除"同样表现为指纹变化。
+    """
+    site_dir = Path(config_dir).resolve()
+    digest = hashlib.sha256()
+    for name in sorted(filenames):
+        path = site_dir / name
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        if path.is_file():
+            digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()

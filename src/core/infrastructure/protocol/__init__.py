@@ -7,7 +7,6 @@
 from .ads import ADSDriver, ADSLocalConfig, ADSLocalRouter
 from .iec104 import IEC104Driver
 from .modbus import ModbusDriver
-from .registry import ProtocolFactory, ProtocolRegistry
 
 __all__ = [
     "ADSDriver",
@@ -16,5 +15,4 @@ __all__ = [
     "IEC104Driver",
     "ModbusDriver",
     "ProtocolFactory",
-    "ProtocolRegistry",
 ]

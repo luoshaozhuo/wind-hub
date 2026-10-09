@@ -1,6 +1,7 @@
 """类型化主题配置 → 共享领域配置索引组装。
 
-把 DeviceConfig / PointConfig / UnitConfig 合并为 CoreConfigAssembly——
+把 DeviceModelsConfig / DevicesConfig / PointTablesConfig / UnitsConfig
+合并为 CoreConfigAssembly——
 一组冻结、经过领域一致性校验的配置索引，同时产出进程级附属配置：
 
 - ``point_meta``：点位的 variable_name / point_groups（采集选点分组与
@@ -8,14 +9,14 @@
 - ``disabled_devices``：``enabled: false`` 的设备不进快照，记入本集合；
 - ``ads_subscribe_devices``：ADS 设备 endpoint extensions 中的
   ``subscribe_enabled: true`` 被提取为本集合——新 Core 的 ADS Driver 严格
-  拒绝未知 option，订阅开关不再进入 device_options。
+  拒绝未知 option，订阅开关不再进入 protocol_options_by_device。
 
 映射规则（与旧系统行为对齐）：
 
 - 端点合并：``port`` 取实例 endpoint.port，缺省取型号
   ``connection_defaults.port``，两者皆无是配置错误；其余
   connection_defaults 键与实例 endpoint.extensions 合并（实例优先）成为
-  协议 device_options；ADS 额外注入型号 ``read_mode``（缺省 ``sum``）；
+  协议 protocol_options_by_device；ADS 额外注入型号 ``read_mode``（缺省 ``sum``）；
 - 单位：``point.unit`` 必须是 Core 内置 canonical unit code（引用
   units.yaml 中不存在的 ID、或 ID 非内置单位均为配置错误）；
 - PointAccess 推导：modbus 只读寄存器（discrete_input/input）→ READ，
@@ -33,13 +34,6 @@ from types import MappingProxyType
 from typing import Any
 
 from core.application import ConfigError
-from core.application.config_types import (
-    DeviceConfig,
-    DeviceModelDefinition,
-    PointConfig,
-    PointDefinition,
-    UnitConfig,
-)
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -55,6 +49,7 @@ from core.domain import (
     DeviceTypeId,
     Point,
     PointAccess,
+    PointMeta,
     PointTable,
     PointTableId,
     Protocol,
@@ -63,13 +58,26 @@ from core.domain import (
     freeze_protocol_options,
     validate_core_config,
 )
+from core.domain.config import (
+    DeviceModelConfig,
+    DeviceModelsConfig,
+    DevicesConfig,
+    PointConfig,
+    PointTablesConfig,
+    UnitsConfig,
+)
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
+from core.infrastructure.protocol.ads.config import parse_ads_config
+from core.infrastructure.protocol.iec104.config import parse_iec104_config
+from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
-
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    variable_name: str | None
-    point_groups: tuple[str, ...]
+# 协议名 → 连接参数解析器：装配阶段即完成协议参数合法性校验（第二层
+# 配置领域校验），与 Driver 构造使用同一解析入口，避免两套校验漂移。
+_PROTOCOL_OPTION_PARSERS = {
+    "ads": parse_ads_config,
+    "modbus": parse_modbus_config,
+    "iec104": parse_iec104_config,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +90,7 @@ class CoreConfigAssembly:
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
-    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
@@ -99,9 +107,12 @@ class CoreConfigAssembly:
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(
             self,
-            "device_options",
+            "protocol_options_by_device",
             MappingProxyType(
-                {key: freeze_protocol_options(value) for key, value in self.device_options.items()}
+                {
+                    key: freeze_protocol_options(value)
+                    for key, value in self.protocol_options_by_device.items()
+                }
             ),
         )
         object.__setattr__(
@@ -123,9 +134,10 @@ _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_reg
 
 def assemble_core_config(
     *,
-    device_config: DeviceConfig,
-    point_config: PointConfig,
-    unit_config: UnitConfig,
+    device_models_config: DeviceModelsConfig,
+    devices_config: DevicesConfig,
+    point_config: PointTablesConfig,
+    unit_config: UnitsConfig,
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
@@ -140,7 +152,7 @@ def assemble_core_config(
             device_type_id=DeviceTypeId(type_id),
             name=type_definition.name or type_id,
         )
-        for type_id, type_definition in device_config.models.device_types.items()
+        for type_id, type_definition in device_models_config.device_types.items()
     }
 
     business_points: dict[BusinessPointId, BusinessPoint] = {}
@@ -171,7 +183,7 @@ def assemble_core_config(
         point_meta[table_id] = meta
 
     device_models: dict[DeviceModelId, DeviceModel] = {}
-    for model_id, model_definition in device_config.models.device_models.items():
+    for model_id, model_definition in device_models_config.device_models.items():
         table = point_tables.get(PointTableId(model_definition.point_table))
         if table is None:
             raise ConfigError(
@@ -193,16 +205,16 @@ def assemble_core_config(
         )
 
     devices: dict[DeviceId, Device] = {}
-    device_options: dict[DeviceId, dict[str, ProtocolOptionValue]] = {}
+    protocol_options_by_device: dict[DeviceId, dict[str, ProtocolOptionValue]] = {}
     group_names: set[str] = set()
     disabled: set[DeviceId] = set()
     ads_subscribe: set[DeviceId] = set()
-    for instance in device_config.instances.devices:
+    for instance in devices_config.devices:
         device_id = DeviceId(instance.device_id)
         if not instance.enabled:
             disabled.add(device_id)
             continue
-        model = _lookup_model(instance.device_id, instance.model, device_config)
+        model = _lookup_model(instance.device_id, instance.model, device_models_config)
         model_id = DeviceModelId(instance.model)
         endpoint, options = _merge_endpoint(
             instance.device_id,
@@ -222,11 +234,12 @@ def assemble_core_config(
             device_group_ids=group_ids,
         )
         # ADS 订阅开关是 Collector 采集模式选择，不是 Driver 连接参数：
-        # 从 device_options 剥离（Core ADS Driver 严格拒绝未知 option），
+        # 从 protocol_options_by_device 剥离（Core ADS Driver 严格拒绝未知 option），
         # 记入 ads_subscribe_devices。
         if model.protocol == "ads" and options.pop("subscribe_enabled", False):
             ads_subscribe.add(device_id)
-        device_options[device_id] = options
+        _validate_protocol_options(instance.device_id, model.protocol, endpoint, options)
+        protocol_options_by_device[device_id] = options
 
     device_groups = {
         DeviceGroupId(name): DeviceGroup(
@@ -244,7 +257,7 @@ def assemble_core_config(
             devices=devices,
             business_points=business_points,
             point_tables=point_tables,
-            device_options=device_options,
+            protocol_options_by_device=protocol_options_by_device,
         )
         assembly = CoreConfigAssembly(
             device_types=device_types,
@@ -253,7 +266,7 @@ def assemble_core_config(
             devices=devices,
             business_points=business_points,
             point_tables=point_tables,
-            device_options=device_options,
+            protocol_options_by_device=protocol_options_by_device,
             point_meta=point_meta,
             disabled_devices=frozenset(disabled),
             ads_subscribe_devices=frozenset(ads_subscribe),
@@ -264,16 +277,36 @@ def assemble_core_config(
     return assembly
 
 
+def _validate_protocol_options(
+    device_id: str,
+    protocol: str,
+    endpoint: ConnectionEndpoint,
+    options: Mapping[str, ProtocolOptionValue],
+) -> None:
+    """装配阶段校验协议连接参数（与 Driver 构造共用同一解析器）。
+
+    使非法 option（未知键、非法取值）在配置加载/热更新 prepare 阶段即
+    被拒绝，而不是推迟到 Driver 实例化才暴露。
+    """
+    parser = _PROTOCOL_OPTION_PARSERS.get(protocol)
+    if parser is None:
+        raise ConfigError(f"Device '{device_id}': unsupported protocol '{protocol}'")
+    try:
+        parser(endpoint, options)
+    except ConfigError as exc:
+        raise ConfigError(f"Device '{device_id}': {exc}") from exc
+
+
 def _lookup_model(
     device_id: str,
     model_id: str,
-    device_config: DeviceConfig,
-) -> DeviceModelDefinition:
-    model = device_config.models.device_models.get(model_id)
+    device_models_config: DeviceModelsConfig,
+) -> DeviceModelConfig:
+    model = device_models_config.device_models.get(model_id)
     if model is None:
         raise ConfigError(
             f"Device '{device_id}' references unknown model '{model_id}' "
-            f"(available: {sorted(device_config.models.device_models)})"
+            f"(available: {sorted(device_models_config.device_models)})"
         )
     return model
 
@@ -284,13 +317,13 @@ def _merge_endpoint(
     host: str,
     port: int | None,
     extensions: Mapping[str, Any],
-    model: DeviceModelDefinition,
+    model: DeviceModelConfig,
 ) -> tuple[ConnectionEndpoint, dict[str, ProtocolOptionValue]]:
     """合并型号连接默认值与实例端点（实例优先）。
 
     - ``port``：实例优先，否则取 ``connection_defaults['port']``，
       两者皆无是配置错误；
-    - 其余 connection_defaults 键并入 device_options，实例 extensions
+    - 其余 connection_defaults 键并入 protocol_options_by_device，实例 extensions
       同名键覆盖；ADS 额外注入型号 ``read_mode``。
     """
     defaults = dict(model.connection_defaults)
@@ -330,8 +363,8 @@ def _merge_endpoint(
 def _build_point(
     table_id: PointTableId,
     protocol: str,
-    definition: PointDefinition,
-    unit_config: UnitConfig,
+    definition: PointConfig,
+    unit_config: UnitsConfig,
     business_points: dict[BusinessPointId, BusinessPoint],
 ) -> Point:
     """把单条类型化点定义映射为 Core Domain Point（并合成 BusinessPoint）。"""
@@ -381,7 +414,7 @@ def _build_point(
         raise ConfigError(f"{context} is invalid: {exc}") from exc
 
 
-def _resolve_unit(definition: PointDefinition, unit_config: UnitConfig) -> Unit:
+def _resolve_unit(definition: PointConfig, unit_config: UnitsConfig) -> Unit:
     """把 point.unit ID 解析为 Core canonical Unit。"""
     unit_id = definition.unit
     if unit_id not in unit_config.units:
@@ -401,7 +434,7 @@ def _resolve_unit(definition: PointDefinition, unit_config: UnitConfig) -> Unit:
 
 def _synthesize_business_point(
     table_id: PointTableId,
-    definition: PointDefinition,
+    definition: PointConfig,
     data_type: DataType,
     unit: Unit,
     business_points: dict[BusinessPointId, BusinessPoint],
@@ -431,7 +464,7 @@ def _synthesize_business_point(
     return candidate
 
 
-def _derive_access(protocol: str, definition: PointDefinition) -> PointAccess:
+def _derive_access(protocol: str, definition: PointConfig) -> PointAccess:
     """按协议地址推导点读写能力（配置适配策略）。"""
     if protocol == "ads":
         return PointAccess.READ_WRITE
