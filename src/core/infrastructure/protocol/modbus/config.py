@@ -59,13 +59,13 @@ def parse_modbus_config(
     if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(f"connection '{endpoint}': invalid word_order " f"'{word_order}'")
 
-    raw_groups = options.get("write_groups", ())
+    raw_groups: object = options.get("write_groups", ())
     if not isinstance(raw_groups, list | tuple):
         raise ConfigError("Modbus write_groups must be a sequence of point-id groups")
     groups: list[tuple[str, ...]] = []
     seen: set[str] = set()
-    for raw_group in raw_groups:
-        group: object = raw_group
+    for item in raw_groups:
+        group: object = item
         if not isinstance(group, list | tuple) or len(group) < 2:
             raise ConfigError("each Modbus write group requires at least two point IDs")
         if any(not isinstance(item, str) or not item.strip() for item in group):

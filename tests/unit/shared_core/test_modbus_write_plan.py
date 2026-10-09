@@ -10,7 +10,6 @@ from core.application import ConfigError
 from core.application.protocol_contract import ProtocolWrite
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
-
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
 
@@ -70,7 +69,7 @@ def test_write_groups_validation_rejects_duplicate_membership() -> None:
 
 
 class _Response:
-    def isError(self) -> bool:
+    def isError(self) -> bool:  # noqa: N802 - pymodbus response API
         return False
 
 
