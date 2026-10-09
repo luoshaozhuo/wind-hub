@@ -111,22 +111,30 @@ def _fread_exact(conn: Any, handle: int, size: int) -> bytes:
     if port is not None and hasattr(adr, "amsAddrStruct"):
         from pyads import pyads_ex
 
+        # ABI 依据（pyads 3.6.0 锁定版本）：amsAddrStruct() 返回 AmsAddr 持有的
+        # 持久 SAmsAddr（非临时副本），与 pyads 自身 adsSyncReadWriteReqEx2
+        # 的调用方式一致；仍绑定局部变量保证调用期间引用明确有效。
+        ams_struct = adr.amsAddrStruct()
         buf = (pyads.PLCTYPE_BYTE * size)()
         bytes_read = ctypes.c_ulong(0)
         err = pyads_ex._adsDLL.AdsSyncReadWriteReqEx2(
-            port,
-            ctypes.pointer(adr.amsAddrStruct()),
+            port,  # adsPortOpenEx 返回的 long
+            ctypes.pointer(ams_struct),
             ctypes.c_ulong(_FREAD),
             ctypes.c_ulong(handle),
-            ctypes.c_ulong(size),
+            ctypes.c_ulong(size),  # readLength
             ctypes.pointer(buf),
-            ctypes.c_ulong(0),
+            ctypes.c_ulong(0),  # writeLength
             None,
-            ctypes.pointer(bytes_read),
+            ctypes.pointer(bytes_read),  # bytesRead 输出
         )
         if err:
             raise pyads.ADSError(err)
-        return bytes(buf[: bytes_read.value])
+        actual = bytes_read.value
+        if actual > size:
+            # 缓冲区溢出迹象：结果不可信，拒绝而不是截断。
+            raise ValueError(f"FREAD bytesRead {actual} 超过缓冲区 {size}")
+        return bytes(buf[:actual])
     fread = getattr(conn, "fread", None)
     if callable(fread):
         return bytes(fread(handle, size))
@@ -298,9 +306,15 @@ class _ConnectionManager:
         except Exception as exc:
             _LOG.warning("重连失败: %s", exc)
             return False
+        # 工厂创建的连接归管理器所有：探活失败立即关闭，
+        # 不等待调用者清理，也不把失效对象交给后续方案。
+        if not _connection_usable(candidate):
+            _LOG.warning("重连后的新连接探活失败，立即关闭")
+            _safe_close(candidate)
+            return False
         self.current = candidate
-        self._owned = True  # 工厂创建的连接归管理器所有
-        return self.usable()
+        self._owned = True
+        return True
 
     def close(self) -> None:
         """释放归本管理器所有的连接；调用方所有的连接不触碰。"""
@@ -965,14 +979,21 @@ def _is_local_route_error(exc: Exception) -> bool:
 
 
 def _try_open_plc(port: int) -> pyads.Connection:
-    """按当前已有路由配置建立连接并验证 ADS 服务实际可用。"""
+    """按当前已有路由配置建立连接并验证 ADS 服务实际可用。
+
+    open/set_timeout/read_state 任意一步失败都尝试关闭连接；
+    清理阶段的异常不覆盖原始异常，仅记录日志。
+    """
     plc = pyads.Connection(PLC_AMS_NET_ID, port, PLC_IP)
-    plc.open()
     try:
+        plc.open()
         plc.set_timeout(ADS_TIMEOUT_MS)
         plc.read_state()
     except Exception:
-        plc.close()
+        try:
+            plc.close()
+        except Exception as cleanup_error:
+            _LOG.warning("连接失败后的清理异常（已忽略）: %s", cleanup_error)
         raise
     return plc
 

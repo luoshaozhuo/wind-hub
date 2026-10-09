@@ -421,3 +421,166 @@ def test_count_matched_header_in_output(
     text = output.read_text(encoding="utf-8")
     assert "verification=count_matched" in text
     assert "content_matched" not in text
+
+
+# ---------- 13. _try_open_plc 异常清理 ----------
+def test_open_failure_closes_connection(exporter: types.ModuleType) -> None:
+    plc = MagicMock()
+    plc.open.side_effect = RuntimeError("open failed")
+    exporter.pyads.Connection.return_value = plc
+    with pytest.raises(RuntimeError, match="open failed"):
+        exporter._try_open_plc(801)
+    plc.close.assert_called_once()
+
+
+def test_set_timeout_failure_closes_connection(exporter: types.ModuleType) -> None:
+    plc = MagicMock()
+    plc.set_timeout.side_effect = RuntimeError("timeout config failed")
+    exporter.pyads.Connection.return_value = plc
+    with pytest.raises(RuntimeError, match="timeout config failed"):
+        exporter._try_open_plc(801)
+    plc.close.assert_called_once()
+
+
+def test_read_state_failure_closes_connection(exporter: types.ModuleType) -> None:
+    plc = MagicMock()
+    plc.read_state.side_effect = RuntimeError("state failed")
+    exporter.pyads.Connection.return_value = plc
+    with pytest.raises(RuntimeError, match="state failed"):
+        exporter._try_open_plc(801)
+    plc.close.assert_called_once()
+
+
+def test_cleanup_error_does_not_mask_original(exporter: types.ModuleType) -> None:
+    plc = MagicMock()
+    plc.read_state.side_effect = RuntimeError("original error")
+    plc.close.side_effect = RuntimeError("cleanup error")
+    exporter.pyads.Connection.return_value = plc
+    with pytest.raises(RuntimeError, match="original error"):
+        exporter._try_open_plc(801)
+
+
+def test_success_returns_connection_without_close(exporter: types.ModuleType) -> None:
+    plc = _ok_plc()
+    exporter.pyads.Connection.return_value = plc
+    assert exporter._try_open_plc(801) is plc
+    plc.close.assert_not_called()
+    plc.set_timeout.assert_called_once_with(exporter.ADS_TIMEOUT_MS)
+
+
+# ---------- 14. 重连新连接探活失败立即关闭 ----------
+def test_unusable_reconnect_candidate_closed_immediately(
+    exporter: types.ModuleType, tmp_path: Path
+) -> None:
+    dead = MagicMock()
+    dead.read.side_effect = RuntimeError("connection lost")
+    dead.read_state.side_effect = RuntimeError("dead")
+    bad_candidate = MagicMock()
+    bad_candidate.read_state.side_effect = RuntimeError("still dead")
+    exporter.TRY_FULL_TABLE_FIRST = True
+    exporter.CHUNK_SIZES = (64,)
+
+    with pytest.raises(RuntimeError, match="所有已启用的枚举策略"):
+        exporter.export_symbols(
+            dead, tmp_path / "s.txt", env=_env(exporter, "Linux"),
+            reconnect=lambda: bad_candidate,
+        )
+    bad_candidate.close.assert_called_once()  # 探活失败的新连接立即释放
+    # chunk 未在失效对象上发送请求
+    bad_candidate.read.assert_not_called()
+
+
+def test_file_service_continues_after_unrecoverable_runtime(
+    exporter: types.ModuleType, tmp_path: Path
+) -> None:
+    """运行时连接不可恢复时，独立的文件服务方案仍可成功。"""
+    exporter.TRY_FULL_TABLE_FIRST = True
+    exporter.CHUNK_SIZES = (64,)
+    dead = MagicMock()
+    dead.read.side_effect = RuntimeError("connection lost")
+    dead.read_state.side_effect = RuntimeError("dead")
+    content = _tpy(["MAIN.a"])
+    conn = ScriptedFileConn([content, b""], content)
+
+    count = exporter.export_symbols(
+        dead, tmp_path / "s.txt", env=_env(exporter, "Linux"),
+        reconnect=MagicMock(side_effect=RuntimeError("unreachable")),
+        file_service_factory=lambda: conn,
+    )
+    assert count == 1
+
+
+# ---------- 15. _fread_exact 底层调用 ----------
+class _FakeAmsAddr:
+    def amsAddrStruct(self) -> object:  # noqa: N802 - 与 pyads API 同名
+        return ctypes.create_string_buffer(8)
+
+
+class _FakeDllConn:
+    def __init__(self) -> None:
+        self._port = 30000
+        self._adr = _FakeAmsAddr()
+
+
+def _install_fake_dll(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch, fn: object
+) -> None:
+    pyads_ex = types.ModuleType("pyads.pyads_ex")
+    pyads_ex._adsDLL = types.SimpleNamespace(AdsSyncReadWriteReqEx2=fn)
+    monkeypatch.setitem(sys.modules, "pyads.pyads_ex", pyads_ex)
+    exporter.pyads.pyads_ex = pyads_ex
+
+
+def test_fread_exact_returns_actual_bytes(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def dll(port, p_addr, group, offset, read_len, p_buf, write_len, w_data, p_bytes):
+        assert group.value == 122 and offset.value == 7
+        assert read_len.value == 16 and write_len.value == 0
+        ctypes.memmove(p_buf, b"abc", 3)
+        p_bytes.contents.value = 3  # 短读：请求 16，实际 3
+        return 0
+
+    _install_fake_dll(exporter, monkeypatch, dll)
+    assert exporter._fread_exact(_FakeDllConn(), 7, 16) == b"abc"
+
+
+def test_fread_exact_clean_eof(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def dll(*args: object) -> int:
+        args[-1].contents.value = 0  # 成功且 0 字节 = EOF
+        return 0
+
+    _install_fake_dll(exporter, monkeypatch, dll)
+    assert exporter._fread_exact(_FakeDllConn(), 7, 16) == b""
+
+
+def test_fread_exact_ads_error_raises(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeAdsError(Exception):
+        def __init__(self, code: int) -> None:
+            super().__init__(f"ads error {code}")
+            self.err_code = code
+
+    monkeypatch.setattr(exporter.pyads, "ADSError", FakeAdsError, raising=False)
+
+    def dll(*args: object) -> int:
+        return 0x701
+
+    _install_fake_dll(exporter, monkeypatch, dll)
+    with pytest.raises(FakeAdsError):
+        exporter._fread_exact(_FakeDllConn(), 7, 16)
+
+
+def test_fread_exact_rejects_overflow_bytes_read(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def dll(*args: object) -> int:
+        args[-1].contents.value = 17  # 超过 16 字节缓冲区
+        return 0
+
+    _install_fake_dll(exporter, monkeypatch, dll)
+    with pytest.raises(ValueError, match="超过缓冲区"):
+        exporter._fread_exact(_FakeDllConn(), 7, 16)
