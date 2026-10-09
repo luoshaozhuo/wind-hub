@@ -241,6 +241,7 @@ def make_runtime(
     protocol: CollectorFakeProtocol | None = None,
     sinks: dict[str, FakeSink] | None = None,
     engine: AcquisitionEngine | None = None,
+    sink_factory: Any = None,
 ) -> tuple[CollectorRuntime, CollectorFakeProtocol]:
     """装配内存 CollectorRuntime：单设备会话 + Fake Sink + 会话工厂。
 
@@ -270,6 +271,7 @@ def make_runtime(
         params=config.runtime,
         tasks=dict(config.tasks),
         session_factory=session_factory,
+        sink_factory=sink_factory,
     )
     return runtime, proto
 
