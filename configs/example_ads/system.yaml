@@ -13,6 +13,8 @@ runtime:
   shutdown_timeout: 30.0
   connect_timeout: 10.0
   read_timeout: 5.0
+  # 断线时主动重连次数，0 为禁用，默认 1
+  reconnect_attempts: 1
   write_timeout: 5.0
 
 # 进程级 ADS 本机配置（Linux / WSL mirrored / 容器下本机作为 AMS 路由器）

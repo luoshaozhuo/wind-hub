@@ -364,8 +364,13 @@ class RuntimeSettings:
     connect_timeout: float | None = None
     read_timeout: float | None = None
     write_timeout: float | None = None
+    reconnect_attempts: int = 1
 
     def __post_init__(self) -> None:
+        if isinstance(self.reconnect_attempts, bool) or not isinstance(self.reconnect_attempts, int):
+            raise ValueError("runtime.reconnect_attempts must be an integer")
+        if self.reconnect_attempts < 0:
+            raise ValueError("runtime.reconnect_attempts must be >= 0")
         if self.queue_maxsize is not None:
             if isinstance(self.queue_maxsize, bool) or not isinstance(self.queue_maxsize, int):
                 raise ValueError("runtime.queue_maxsize must be an integer")

@@ -121,6 +121,10 @@ def assemble_collector(
             view.device.endpoint,
             view.point_table,
             view.options,
+            reconnect_attempts=config.runtime.reconnect_attempts,
+            connect_timeout=config.runtime.connect_timeout,
+            read_timeout=config.runtime.read_timeout,
+            write_timeout=config.runtime.write_timeout,
         )
         return CollectorDeviceSession(
             view.device,

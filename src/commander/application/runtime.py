@@ -133,6 +133,10 @@ class CommanderRuntime:
                 device.endpoint,
                 point_table,
                 config.protocol_options_for(device.device_id),
+                reconnect_attempts=config.reconnect_attempts,
+                connect_timeout=config.connect_timeout,
+                read_timeout=config.read_timeout,
+                write_timeout=config.write_timeout,
             )
             devices[str(device.device_id)] = DeviceSession(
                 device,

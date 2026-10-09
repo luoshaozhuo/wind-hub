@@ -44,6 +44,11 @@ class ProtocolRegistry:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         protocol_options: ProtocolOptions,
+        *,
+        reconnect_attempts: int | None = None,
+        connect_timeout: float = 10.0,
+        read_timeout: float | None = None,
+        write_timeout: float | None = None,
     ) -> ProtocolPort:
         """为指定 Endpoint 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
@@ -53,10 +58,19 @@ class ProtocolRegistry:
                 f"unknown protocol driver '{protocol.name}'; "
                 f"registered={list(self.registered_names())}"
             )
-        return factory(
-            endpoint,
-            point_table,
-            protocol_options,
+        driver = factory(endpoint, point_table, protocol_options)
+        if reconnect_attempts is None:
+            return driver
+        from core.application.port.recovery import RecoveryPort, RecoverySettings
+
+        return RecoveryPort(
+            driver,
+            RecoverySettings(
+                reconnect_attempts=reconnect_attempts,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                write_timeout=write_timeout,
+            ),
         )
 
 

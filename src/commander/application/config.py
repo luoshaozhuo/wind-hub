@@ -72,6 +72,8 @@ class CommanderConfig:
     ads_local: ADSLocalIdentity | None = None
     connect_timeout: float = 10.0
     write_timeout: float = 5.0
+    read_timeout: float = 5.0
+    reconnect_attempts: int = 1
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
@@ -80,6 +82,10 @@ class CommanderConfig:
             raise ValueError("connect_timeout must be > 0")
         if self.write_timeout <= 0:
             raise ValueError("write_timeout must be > 0")
+        if self.read_timeout <= 0:
+            raise ValueError("read_timeout must be > 0")
+        if self.reconnect_attempts < 0 or type(self.reconnect_attempts) is not int:
+            raise ValueError("reconnect_attempts must be a nonnegative integer")
         object.__setattr__(
             self,
             "point_meta",

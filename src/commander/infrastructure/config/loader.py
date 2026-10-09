@@ -111,6 +111,8 @@ def _load_from(source: _ConfigSource) -> CommanderConfig:
         ),
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,
+        read_timeout=system.runtime.read_timeout if system.runtime.read_timeout is not None else 5.0,
+        reconnect_attempts=system.runtime.reconnect_attempts,
         disabled_devices=assembly.disabled_devices,
     )
 

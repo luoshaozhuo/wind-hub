@@ -127,6 +127,7 @@ _RUNTIME_KEYS = {
     "connect_timeout",
     "read_timeout",
     "write_timeout",
+    "reconnect_attempts",
 }
 _ADS_KEYS = {"local_ams_net_id", "local_ip", "username", "password"}
 
@@ -184,6 +185,10 @@ def _parse_runtime(value: Any) -> RuntimeSettings:
             connect_timeout=timeouts["connect_timeout"],
             read_timeout=timeouts["read_timeout"],
             write_timeout=timeouts["write_timeout"],
+            reconnect_attempts=_as_int(
+                raw.get("reconnect_attempts", 1),
+                "system.yaml 'runtime.reconnect_attempts'",
+            ),
         )
     except ValueError as exc:
         raise _vo_error("Invalid system.runtime configuration", exc) from exc
@@ -232,6 +237,7 @@ def dump_system_config(config: SystemConfig) -> dict[str, Any]:
         "connect_timeout",
         "read_timeout",
         "write_timeout",
+        "reconnect_attempts",
     ):
         value = getattr(config.runtime, key)
         if value is not None:
