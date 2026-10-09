@@ -11,6 +11,12 @@ dependencies = [
     "pyads==3.6.0",
 ]
 
+# ADS OCX 方案（实验性）仅 Windows 需要；平台标记保证 Linux 环境不受影响。
+[project.optional-dependencies]
+ocx = [
+    "pywin32; sys_platform == 'win32'",
+]
+
 [project.scripts]
 ads-symbol-export = "export:main"
 

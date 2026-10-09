@@ -25,6 +25,8 @@ def exporter(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("_ads_export_test", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # dataclass 解析字符串注解时需要在 sys.modules 中找到模块
+    monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     module.TRY_FULL_TABLE_FIRST = False
     return module
@@ -163,10 +165,6 @@ def test_full_table_is_first_and_skips_chunks(
 ) -> None:
     payload = _entry("A.x") + _entry("B.y")
     plc = FakePLC(payload, 2)
-    plc.get_all_symbols = MagicMock(return_value=[
-        types.SimpleNamespace(name="A.x"),
-        types.SimpleNamespace(name="B.y"),
-    ])
     exporter.TRY_FULL_TABLE_FIRST = True
     exporter._export_in_chunks = MagicMock(
         side_effect=AssertionError("chunk path should not run")
@@ -174,20 +172,51 @@ def test_full_table_is_first_and_skips_chunks(
     output = tmp_path / "symbols.txt"
     assert exporter.export_symbols(plc, output) == 2
     assert output.read_text(encoding="utf-8").splitlines() == ["A.x", "B.y"]
-    plc.get_all_symbols.assert_called_once()
+    # 整表方案直接一次性读取 0xF00B 全量字节
+    assert (0xF00B, 0, len(payload)) in plc.requests
     exporter._export_in_chunks.assert_not_called()
 
 
 def test_full_table_failure_falls_back_to_chunks(
     exporter: types.ModuleType, tmp_path: Path
 ) -> None:
-    plc = FakePLC(_entry("A.x"), 1)
-    plc.get_all_symbols = MagicMock(side_effect=RuntimeError("PLC out of memory"))
+    payload = _entry("A.x")
+    plc = FakePLC(payload, 1)
+
+    def reject_full_read(
+        group: int, offset: int, datatype: object, *, return_ctypes: bool
+    ) -> object:
+        if group == 0xF00B and ctypes.sizeof(datatype) >= len(payload):
+            plc.requests.append((group, offset, ctypes.sizeof(datatype)))
+            raise RuntimeError("PLC out of memory")
+        return FakePLC.read(plc, group, offset, datatype, return_ctypes=return_ctypes)
+
+    plc.read = reject_full_read  # type: ignore[method-assign]
     exporter.TRY_FULL_TABLE_FIRST = True
     exporter._export_in_chunks = MagicMock(return_value=1)
     assert exporter.export_symbols(plc, tmp_path / "symbols.txt") == 1
-    plc.get_all_symbols.assert_called_once()
+    # 整表读取确实尝试过并失败后转入分段方案
+    assert any(group == 0xF00B for group, _, _ in plc.requests)
     exporter._export_in_chunks.assert_called_once()
+
+
+@pytest.mark.parametrize("try_full_first", [True, False])
+def test_windows1252_symbol_names_via_configurable_encoding(
+    exporter: types.ModuleType, tmp_path: Path, try_full_first: bool
+) -> None:
+    """部分 TwinCAT 设备的符号名为 Windows-1252，通过 TEXT_ENCODING 配置解码。"""
+    name = "GVL.Temperatur_°C"
+    raw = name.encode("cp1252")
+    body = raw + b"\0" + b"INT\0" + b"\0"
+    header = bytearray(30)
+    struct.pack_into("<I", header, 0, 30 + len(body))
+    struct.pack_into("<HHH", header, 24, len(raw), 3, 0)
+    exporter.TEXT_ENCODING = "cp1252"
+    exporter.TRY_FULL_TABLE_FIRST = try_full_first
+    exporter.CHUNK_SIZES = (64,)
+    output = tmp_path / "symbols.txt"
+    assert exporter.export_symbols(FakePLC(bytes(header) + body, 1), output) == 1
+    assert output.read_text(encoding="utf-8") == name + "\n"
 
 
 def test_disable_full_table(exporter: types.ModuleType, tmp_path: Path) -> None:
