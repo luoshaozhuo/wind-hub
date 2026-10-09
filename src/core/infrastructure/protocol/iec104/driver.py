@@ -404,6 +404,28 @@ class IEC104Driver:
             ioas = None
         return self._subscriptions.subscribe(ioas, callback)
 
+    async def request_read_one(self, point_id: str) -> None:
+        """显式发送 IEC104 单点读命令；数据仍通过接收回调更新镜像。
+
+        此方法仅确认 c104 已接受发送操作，不保证远端值已经返回。
+        使用方应订阅后续样本；不能把旧镜像作为本次请求的返回值。
+        """
+        if not self._is_open or self._station is None:
+            raise ProtocolError("IEC104 active read requires an OPEN connection")
+        mapped = self._mapped_point(point_id)
+        point = self._station.get_point(mapped.ioa)
+        if point is None:
+            raise ProtocolError(
+                f"IEC104 IOA {mapped.ioa} is not registered; "
+                "subscribe or receive the point before active reading"
+            )
+        try:
+            accepted = await asyncio.to_thread(point.read)
+        except Exception as exc:
+            raise ProtocolError(f"IEC104 active read failed for {point_id}: {exc}") from exc
+        if not accepted:
+            raise ProtocolError(f"IEC104 active read rejected for {point_id}")
+
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
         if not self._is_open or self._connection is None:
