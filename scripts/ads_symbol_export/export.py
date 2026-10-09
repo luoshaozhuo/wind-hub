@@ -134,9 +134,10 @@ def _open_connection() -> pyads.Connection:
         plc.set_timeout(ADS_TIMEOUT_MS)
         plc.read_state()  # 先验证链路；正常则绝不修改 PLC 远端路由
         return plc
-    except Exception:
+    except Exception as exc:
         plc.close()
-        if not ADD_REMOTE_ROUTE_IF_NEEDED:
+        # 只针对明确的路由缺失错误尝试；其它连接/认证/超时错误不得修改路由。
+        if not ADD_REMOTE_ROUTE_IF_NEEDED or "target machine not found" not in str(exc).lower():
             raise
     if not all((LOCAL_AMS_NET_ID, LOCAL_HOST_NAME, PLC_USERNAME, PLC_PASSWORD)):
         raise ValueError("远端路由所需参数未填写")
