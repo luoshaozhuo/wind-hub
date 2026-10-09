@@ -1,4 +1,9 @@
-"""Modbus TCP Sink Server component test。"""
+"""Modbus TCP Sink Server component test（真实 pymodbus 主站 × 新栈 Sink Server）。
+
+单元测试（tests/unit/collector/sink/test_modbus_sink.py）不建立网络连接；
+本文件覆盖其无法替代的真实 wire 语义：外部主站经 TCP 读活寄存器/线圈、
+写请求被拒绝、未声明地址返回异常响应、store 更新不经传输层拷贝即对主站可见。
+"""
 
 from __future__ import annotations
 
@@ -7,16 +12,16 @@ from collections.abc import AsyncIterator
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
-from tests.support.process import free_port
-from wind_hub_collector.adapter.outbound.sink.modbus_pipeline import ModbusSinkDataPath
-from wind_hub_collector.adapter.outbound.sink.modbus_server import ModbusTcpSinkServer
-from wind_hub_core.config import (
+from collector.domain.point_value import PointValue
+from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
+from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
+from core.application.sink_config import (
     ModbusSinkAddress,
     ModbusSinkConnection,
     ResolvedSinkPoint,
     SinkSource,
 )
-from wind_hub_core.model.point import PointValue
+from tests.support.process import free_port
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -117,9 +122,7 @@ async def test_server_reads_store_updates_without_transport_copy(
         before = await client.read_holding_registers(100, count=2, device_id=1)
         assert list(before.registers) == [0x3F80, 0x0000]
 
-        path.update(
-            [PointValue(device_id="wt01", point_id="power", value=2.0)]
-        )
+        path.update([PointValue(device_id="wt01", point_id="power", value=2.0)])
 
         after = await client.read_holding_registers(100, count=2, device_id=1)
         assert not after.isError()

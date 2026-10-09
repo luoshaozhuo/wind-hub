@@ -15,10 +15,11 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 
-from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
-from wind_hub_core.config import SinkConfig
-from wind_hub_core.model.errors import ConfigError, SinkError
-from wind_hub_core.model.point import PointValue
+from collector.application.errors import SinkError
+from collector.domain.point_value import PointValue
+from collector.infrastructure.sink.db.postgres import DBSink
+from core.application.errors import ConfigError
+from core.application.sink_config import SinkConfig
 
 # 默认路径由 Docker Compose 拉起真实服务（外部实例经环境变量接管）；
 # 服务真实性显式标注，不计入 mock。
@@ -29,7 +30,7 @@ def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue
     return PointValue(
         device_id=device_id,
         point_id=point_id,
-        value=value,
+        value=value,  # type: ignore[arg-type]
         timestamp=datetime(2026, 10, 2, 8, 0, 0, tzinfo=UTC),
         source="integration-test",
     )
@@ -44,9 +45,17 @@ def _sink(dsn: str, table: str, **params: object) -> DBSink:
         SinkConfig(
             name="db",
             type="db",
-            connection={"dsn": dsn, "table": table, **params},
+            connection={"dsn": dsn, "table": table, **params},  # type: ignore[arg-type]
         )
     )
+
+
+async def _drop_table(dsn: str, table: str) -> None:
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(f"DROP TABLE IF EXISTS {table}")
+    finally:
+        await conn.close()
 
 
 class TestPostgresWrite:
@@ -79,11 +88,7 @@ class TestPostgresWrite:
             assert sink.health().healthy is True
         finally:
             await sink.close()
-            conn = await asyncpg.connect(postgres_service)
-            try:
-                await conn.execute(f"DROP TABLE IF EXISTS {table}")
-            finally:
-                await conn.close()
+            await _drop_table(postgres_service, table)
 
     async def test_open_creates_table_when_configured(self, postgres_service: str) -> None:
         table = _table()
@@ -101,17 +106,15 @@ class TestPostgresWrite:
             assert exists is True
         finally:
             await sink.close()
-            conn = await asyncpg.connect(postgres_service)
-            try:
-                await conn.execute(f"DROP TABLE IF EXISTS {table}")
-            finally:
-                await conn.close()
+            await _drop_table(postgres_service, table)
 
     async def test_close_is_idempotent(self, postgres_service: str) -> None:
-        sink = _sink(postgres_service, _table(), create_table=True)
+        table = _table()
+        sink = _sink(postgres_service, table, create_table=True)
         await sink.open()
         await sink.close()
         await sink.close()
+        await _drop_table(postgres_service, table)
 
 
 class TestPostgresTimeoutRecovery:
@@ -153,17 +156,13 @@ class TestPostgresTimeoutRecovery:
         finally:
             await blocker.close()
             await sink.close()
-            conn = await asyncpg.connect(postgres_service)
-            try:
-                await conn.execute(f"DROP TABLE IF EXISTS {table}")
-            finally:
-                await conn.close()
+            await _drop_table(postgres_service, table)
 
 
 class TestPostgresConfigValidation:
     def test_missing_dsn_rejected(self) -> None:
         with pytest.raises(ConfigError, match="dsn"):
-            DBSink(SinkConfig(name="db", type="db", connection={"table": "t"}))
+            DBSink(SinkConfig(name="db", type="db", connection={"table": "t"}))  # type: ignore[arg-type]
 
     def test_invalid_table_name_rejected(self, postgres_service: str) -> None:
         with pytest.raises(ConfigError, match="table"):

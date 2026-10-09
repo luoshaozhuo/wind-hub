@@ -7,7 +7,7 @@
 3. 生成压测专用配置（单设备、NullSink——隔离外部 IO
    耗时，专注采集 + 分发链路；背压队列放大到不可能触顶，丢点只可能
    来自网络侧）；
-4. ``assemble`` + ``start_runtime`` 起真实引擎；
+4. ``assemble_collector`` + ``CollectorApp.start`` 起真实引擎；
 5. 预热 ``warmup_s``（不计入统计）→ 重置基线 → 测量 ``duration_s``；
 6. 停引擎、清 netem、返回 :class:`~tests.collector.perf.collector.PerfMetrics`。
 
@@ -28,8 +28,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
-
+from collector.assembly import assemble_collector
+from collector.domain.point_value import PointValue
+from core.application.port.protocol import ProtocolPort
 from tests.fixtures.sinks.null_sink import NullSink
 from tests.performance.collector import MetricsCollector, PerfMetrics
 from tests.performance.netem import NetemController, NetemScenario
@@ -38,11 +39,7 @@ from tests.performance.servers import (
     start_iec104_server,
     start_modbus_server,
 )
-from wind_hub_collector.assembly import assemble, start_runtime, stop_runtime
-from wind_hub_core.config import DeviceConfig, PointConfig
-from wind_hub_core.model.device import Endpoint
-from wind_hub_core.model.point import PointValue
-from wind_hub_core.protocol.port import ProtocolPort
+from tests.support.config_helper import write_config_tree
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +80,12 @@ _OUTAGE_TRIGGER_DELAY_S = 2.0
 # ---------------------------------------------------------------------------
 
 
-def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
-    """生成对应协议的设备配置（决策 5 的采集间隔来自 :data:`PLANS`）。"""
+def get_device_config(protocol: str, host: str, port: int) -> dict[str, object]:
+    """生成对应协议的设备定义（决策 5 的采集间隔来自 :data:`PLANS`）。
+
+    返回旧式便捷写法（``protocol``/``point_table`` 直挂设备），由
+    :func:`tests.support.config_helper.write_config_tree` 派生型号。
+    """
     plan = PLANS[protocol]
     if protocol == "modbus":
         extensions: dict[str, object] = {"unit_id": 1}
@@ -99,22 +100,22 @@ def get_device_config(protocol: str, host: str, port: int) -> DeviceConfig:
             "twincat_version": "2",
             "max_subs_per_sum": 256,
         }
-    return DeviceConfig(
-        device_id=plan.device_id,
-        protocol=protocol,
-        point_table="perf",
-        endpoint=Endpoint(
-            host=host,
-            port=801 if protocol == "ads" else port,
-            extensions=extensions,
-        ),
-        enabled=True,
-    )
+    return {
+        "device_id": plan.device_id,
+        "protocol": protocol,
+        "point_table": "perf",
+        "enabled": True,
+        "endpoint": {
+            "host": host,
+            "port": 801 if protocol == "ads" else port,
+            "extensions": extensions,
+        },
+    }
 
 
-def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
+def get_point_configs(protocol: str, num_points: int) -> list[dict[str, object]]:
     """生成对应协议的点表（地址格式与生产 configs/points.yaml 一致）。"""
-    points: list[PointConfig] = []
+    points: list[dict[str, object]] = []
     for i in range(num_points):
         if protocol == "modbus":
             # step23 起驱动的组合读取按 125 寄存器上限自动切分，
@@ -123,7 +124,7 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
             data_type = "int16"
             point_id = f"r.{i:04d}"
         elif protocol == "iec104":
-            address = {"type": "measured_value", "ioa": 1001 + i}
+            address = {"ioa": 1001 + i}
             data_type = "float32"
             point_id = f"mv.{i:04d}"
         else:  # ads（Sum 批量读要求符号寻址）
@@ -131,12 +132,12 @@ def get_point_configs(protocol: str, num_points: int) -> list[PointConfig]:
             data_type = "float32"
             point_id = f"v.{i:04d}"
         points.append(
-            PointConfig(
-                point_id=point_id,
-                point_groups=["default"],
-                address=address,
-                data_type=data_type,
-            )
+            {
+                "point_id": point_id,
+                "point_groups": ["default"],
+                "address": address,
+                "data_type": data_type,
+            }
         )
     return points
 
@@ -145,42 +146,35 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
     """把压测配置写为自包含配置目录，返回该目录。
 
     背压队列放大到 100 万，确保丢点
-    只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble`` 的
-    ``sink_factory`` 替换为 NullSink，``type`` 字段仅占位。
+    只反映网络/引擎瓶颈而非人为触顶；Sink 由 ``assemble_collector`` 的
+    ``sink_factories`` 覆盖替换为 NullSink，``type`` 字段仅占位。
     """
     plan = PLANS[protocol]
     device = get_device_config(protocol, host, port)
     points = get_point_configs(protocol, plan.num_points)
 
-    device_models = {
-        "device_types": {"turbine": {"name": "风机"}},
-        "device_models": {
-            "perf_model": {
-                "device_type": "turbine",
-                "protocol": device.protocol,
-                "point_table": "perf",
+    return write_config_tree(
+        config_dir,
+        devices=[device],
+        point_tables={"perf": {"protocol": protocol, "points": points}},
+        system={
+            "runtime": {
+                "queue_maxsize": 1_000_000,
+                "backpressure_policy": "drop_old",
+                "shutdown_timeout": 10.0,
+                "connect_timeout": 5.0,
+                "read_timeout": 5.0,
+            },
+        },
+        sinks=[
+            {
+                "name": "perf_null",
+                "type": "file",
+                "enabled": True,
+                "connection": {"path": str(config_dir / "perf-null.jsonl")},
             }
-        },
-    }
-    instance = {
-        "device_id": device.device_id,
-        "model": "perf_model",
-        "enabled": device.enabled,
-        "endpoint": device.endpoint.model_dump(),
-    }
-
-    system = {
-        "runtime": {
-            "queue_maxsize": 1_000_000,
-            "backpressure_policy": "drop_old",
-            "shutdown_timeout": 10.0,
-            "connect_timeout": 5.0,
-            "read_timeout": 5.0,
-        },
-        "interfaces": {"api": {"enabled": False}},
-    }
-    tasks = {
-        "tasks": [
+        ],
+        tasks=[
             {
                 "task_id": "perf",
                 "device": plan.device_id,
@@ -189,38 +183,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
                 "targets": [{"sink": "perf_null"}],
             }
         ],
-    }
-    site = config_dir
-    site.mkdir(parents=True, exist_ok=True)
-    files = {
-        site / "units.yaml": {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
-        site / "device_models.yaml": device_models,
-        site / "points.yaml": {
-            "point_tables": {
-                "perf": {
-                    "protocol": device.protocol,
-                    "points": [p.model_dump() for p in points],
-                }
-            }
-        },
-        site / "system.yaml": system,
-        site / "sinks.yaml": {
-            "sinks": [
-                {
-                    "name": "perf_null",
-                    "type": "file",
-                    "enabled": True,
-                    "connection": {"path": str(site / "perf-null.jsonl")},
-                    "points": [],
-                }
-            ]
-        },
-        site / "devices.yaml": {"devices": [instance]},
-        site / "tasks.yaml": tasks,
-    }
-    for path, payload in files.items():
-        path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
-    return site
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -301,16 +264,18 @@ async def run_benchmark(
             for c in controllers:
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
-            rt = assemble(config_dir, sink_factory=lambda _cfg: NullSink())
-            runtime = rt.runtime
+            app = assemble_collector(
+                config_dir, sink_factories={"file": lambda _cfg: NullSink()}
+            )
+            runtime = app.runtime
             runtime.engine.add_observer(_make_latency_observer(collector))
 
-            await start_runtime(rt)
+            await app.start()
             # 实例注册为 STOPPED，压测需显式启动全部 Task Instance
             for instance in runtime.task_instances().values():
                 await runtime.start_task_instance(instance.instance_id)
             health_task = asyncio.create_task(
-                _health_watch(rt.runtime.devices[plan.device_id].protocol, collector)
+                _health_watch(runtime.devices[plan.device_id].protocol, collector)
             )
             outage_task: asyncio.Task[None] | None = None
             try:
@@ -346,7 +311,7 @@ async def run_benchmark(
                     with contextlib.suppress(asyncio.CancelledError):
                         await outage_task
                 await collector.stop()
-                await stop_runtime(rt)
+                await app.stop()
                 for c in controllers:
                     c.clear()
 

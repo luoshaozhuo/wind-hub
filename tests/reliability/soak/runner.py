@@ -22,17 +22,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
+from collector.assembly import CollectorApp, assemble_collector
+from collector.domain.point_value import PointValue
+from core.application import ProtocolWrite
+from core.application.port.protocol import ProtocolPort
+from core.application.sink_config import ResolvedSinkConfig
 from tests.performance.netem import NetemController, NetemScenario
 from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
 from tests.reliability.soak.sinks import RecordingSink, percentile
-from wind_hub_collector.assembly import CollectorApp, assemble, start_runtime, stop_runtime
-from wind_hub_core.config import ResolvedSinkConfig
-from wind_hub_core.model.command import Command
-from wind_hub_core.model.point import PointValue
-from wind_hub_core.protocol.port import ProtocolPort
+from tests.support.config_helper import write_config_tree
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +179,8 @@ def write_soak_config(
     """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
 
     背压队列放大到 100 万：丢点只反映真实瓶颈而非人为触顶。sink 实例
-    由 ``assemble`` 的 ``sink_factory`` 注入计量包装，``type`` 字段决定
-    工厂创建哪种真实内部 sink。
+    由 ``assemble_collector`` 的 ``sink_factories`` 覆盖注入计量包装，
+    ``type`` 字段决定工厂创建哪种真实内部 sink。
     """
     devices: list[dict[str, object]] = []
     device_models: dict[str, object] = {}
@@ -253,35 +252,23 @@ def write_soak_config(
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
         },
-        "interfaces": {"api": {"enabled": False}},
     }
-    sinks = {
-        "sinks": [
+    return write_config_tree(
+        config_dir,
+        devices=devices,
+        point_tables=point_tables,
+        device_models=device_models,
+        system=system,
+        sinks=[
             {
                 "name": "soak_sink",
                 "type": sink_type,
                 "enabled": True,
                 "connection": sink_connection,
-                "points": [],
             }
-        ]
-    }
-    files = {
-        config_dir / "units.yaml": {"units": {"none": {"symbol": "", "name": "Dimensionless"}}},
-        config_dir / "device_models.yaml": {
-            "device_types": {"turbine": {"name": "风机"}},
-            "device_models": device_models,
-        },
-        config_dir / "points.yaml": {"point_tables": point_tables},
-        config_dir / "system.yaml": system,
-        config_dir / "sinks.yaml": sinks,
-        config_dir / "devices.yaml": {"devices": devices},
-        config_dir / "tasks.yaml": {"tasks": tasks},
-    }
-    config_dir.mkdir(parents=True, exist_ok=True)
-    for path, payload in files.items():
-        path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
-    return config_dir
+        ],
+        tasks=tasks,
+    )
 
 
 async def run_soak(
@@ -323,16 +310,20 @@ async def run_soak(
     def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
         inner = None
         if profile.sink == "kafka":
-            from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
+            from collector.infrastructure.sink.mq.kafka import KafkaSink
 
             inner = KafkaSink(cfg)
         elif profile.sink == "postgres":
-            from wind_hub_collector.adapter.outbound.sink.db.postgres import DBSink
+            from collector.infrastructure.sink.db.postgres import DBSink
 
             inner = DBSink(cfg)
         sink = RecordingSink(inner)
         recording_holder.append(sink)
         return sink
+
+    # null 形态配置里是 file sink（占位），真实 sink 形态对应 kafka/db——
+    # 统一按类型覆盖工厂，注入计量包装。
+    sink_type = {"null": "file", "kafka": "kafka", "postgres": "db"}[profile.sink]
 
     controllers = [NetemController(dev) for dev in (netem_devices or [])]
     task_intervals = {
@@ -359,18 +350,20 @@ async def run_soak(
                 if netem_scenario is not None:
                     c.apply(netem_scenario)
 
-            rt = assemble(config_dir, sink_factory=_sink_factory)
-            runtime = rt.runtime
+            app = assemble_collector(
+                config_dir, sink_factories={sink_type: _sink_factory}
+            )
+            runtime = app.runtime
             runtime.engine.add_observer(_make_cycle_observer(collector))
             collector.set_queue_depth_provider(runtime.sink_queue_depths)
 
-            await start_runtime(rt)
+            await app.start()
             for instance in runtime.task_instances().values():
                 await runtime.start_task_instance(instance.instance_id)
 
             devices = [runtime.devices[did].protocol for did in sorted(runtime.devices)]
             # 风暴场景：包装驱动层建连，精确计数重连事件（健康采样会漏，
-            # 见 _ConnectEventCounter 注释）；在 start_runtime 之后包装，
+            # 见 _ConnectEventCounter 注释）；在 app.start 之后包装，
             # 初次建连不计入。
             connect_events = _ConnectEventCounter()
             if profile.storm is not None:
@@ -399,7 +392,7 @@ async def run_soak(
                     on_ready()
                 if profile.write_interval_s is not None:
                     writer_task = asyncio.create_task(
-                        _write_loop(rt, profile, write_stats)
+                        _write_loop(app, profile, write_stats)
                     )
                 if profile.storm is not None:
                     storm_task = asyncio.create_task(_storm_loop(server, profile.storm))
@@ -419,7 +412,7 @@ async def run_soak(
                 with contextlib.suppress(asyncio.CancelledError):
                     await health_task
                 await collector.stop()
-                await stop_runtime(rt)
+                await app.stop()
                 for c in controllers:
                     c.clear()
         finally:
@@ -526,12 +519,12 @@ async def _health_watch(
             states[idx] = healthy
 
 
-async def _write_loop(rt: CollectorApp, profile: SoakProfile, stats: WriteStats) -> None:
+async def _write_loop(app: CollectorApp, profile: SoakProfile, stats: WriteStats) -> None:
     """混合读写：按 write_interval_s 轮询向各设备下发写命令（值确定性轮换）。
 
-    命令路径与 Commander 一致：经 DeviceSession.write 直达协议 Driver。
-    soak 是单进程场景，无 Commander 幂等/路由层；断连或传输异常按失败
-    计数，不中断写循环。
+    命令路径直达协议 Driver（``ProtocolPort.write_one``）。soak 是单进程
+    场景，无 Commander 幂等/路由层；断连或传输异常按失败计数，不中断
+    写循环。
     """
     assert profile.write_interval_s is not None
     device_ids = [f"{g.name}-{i:03d}" for g in profile.groups for i in range(g.devices)]
@@ -541,21 +534,14 @@ async def _write_loop(rt: CollectorApp, profile: SoakProfile, stats: WriteStats)
         device_id = device_ids[tick % len(device_ids)]
         stats.commands += 1
         try:
-            results = await rt.runtime.devices[device_id].write(
-                [
-                    Command(
-                        command_id=uuid.uuid4().hex,
-                        device_id=device_id,
-                        point_id="r.0000",
-                        value=tick % 0x8000,
-                    )
-                ]
+            result = await app.runtime.devices[device_id].protocol.write_one(
+                ProtocolWrite(point_id="r.0000", value=tick % 0x8000)
             )
         except Exception:
             # 断连/传输失败 = 本次写失败；写循环本身必须持续。
             stats.failures += 1
         else:
-            if not results or not results[0].success:
+            if not result.success:
                 stats.failures += 1
         tick += 1
 
