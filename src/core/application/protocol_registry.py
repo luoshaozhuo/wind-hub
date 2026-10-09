@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application.errors import ConfigError
-from core.application.recovery import RecoveryPort, RecoverySettings
 from core.application.port import ProtocolPort
+from core.application.recovery import RecoveryPort, RecoverySettings
 from core.domain import ConnectionEndpoint, PointTable, Protocol, ProtocolOptions
 
 ProtocolFactory = Callable[

@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 from core.application.errors import ProtocolError
+from core.application.port.protocol import (
+    ProtocolPort,
+    ProtocolSampleCallback,
+    SubscriptionHandle,
+)
 from core.application.protocol_contract import (
     ConnectionHealth,
     PointScalar,
@@ -23,7 +28,6 @@ from core.application.protocol_contract import (
 )
 from core.domain import PointTable
 
-from core.application.port.protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
 
 _T = TypeVar("_T")
 
@@ -170,7 +174,7 @@ class RecoveryPort:
 
     async def request_read_one(self, point_id: str) -> None:
         await self._restore_if_needed()
-        method = getattr(self._driver, "request_read_one")
+        method = getattr(self._driver, "request_read_one")  # noqa: B009 - optional IEC104 API
         await self._bounded(method(point_id), self._settings.read_timeout, "active read")
 
     async def request_read_many(self, point_ids: Sequence[str]) -> None:
@@ -182,7 +186,7 @@ class RecoveryPort:
     ) -> ProtocolSample:
         """IEC104-specific fresh read. Never substitute the local mirror."""
         await self._restore_if_needed()
-        method = getattr(self._driver, "read_active_one")
+        method = getattr(self._driver, "read_active_one")  # noqa: B009 - optional IEC104 API
         limit = self._settings.read_timeout if timeout is None else timeout
         return await self._bounded(method(point_id, timeout=limit), limit, "active read")
 
@@ -192,7 +196,7 @@ class RecoveryPort:
         if not point_ids:
             return ()
         await self._restore_if_needed()
-        method = getattr(self._driver, "read_active_many")
+        method = getattr(self._driver, "read_active_many")  # noqa: B009 - optional IEC104 API
         limit = self._settings.read_timeout if timeout is None else timeout
         return await self._bounded(
             method(point_ids, timeout=limit), limit, "active read"

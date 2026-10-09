@@ -7,7 +7,6 @@ import asyncio
 import pytest
 
 from core.application.errors import ProtocolError
-from core.application.recovery import RecoveryPort, RecoverySettings
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolSample,
@@ -15,6 +14,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
+from core.application.recovery import RecoveryPort, RecoverySettings
 
 
 class _Driver:
