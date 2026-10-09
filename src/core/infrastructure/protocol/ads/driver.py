@@ -73,9 +73,6 @@ class ADSDriver:
             endpoint,
             device_options,
         )
-        self._points = {
-            point.point_id: parse_ads_point(point) for point in point_table.points.values()
-        }
 
         self._lock = asyncio.Lock()
         self._connection: Any = None
@@ -91,6 +88,22 @@ class ADSDriver:
         ] = {}
         self._read_variable_cache: dict[tuple[str, ...], tuple[tuple[int, ADSPoint], ...]] = {}
         self._read_unresolved_cache: dict[tuple[str, ...], tuple[int, ...]] = {}
+        self._points: dict[str, ADSPoint] = {}
+        self.update_point_table(point_table)
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        """热重载点表：重建符号/类型映射并失效读取缓存（不断开连接）。
+
+        进行中的 ADS 订阅仍按旧 symbol 通知，由上层重启订阅后按新映射
+        重新注册。
+        """
+        self._point_table_id = point_table.point_table_id
+        self._points = {
+            point.point_id: parse_ads_point(point) for point in point_table.points.values()
+        }
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""

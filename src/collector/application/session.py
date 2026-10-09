@@ -242,13 +242,14 @@ class CollectorDeviceSession:
     def set_points(self, point_table: PointTable, point_meta: Mapping[str, PointMeta]) -> None:
         """更新点表与点位元数据（只更新内存映射，不触碰协议连接）。
 
-        协议 Driver 的点表寻址在创建时由 ProtocolRegistry 注入；点表内容
-        变化需要重建 Driver 寻址时由 DeviceRuntime 走 rebuild 路径，本方法
-        只服务「点表绑定切换 / 分组元数据变化」的轻量场景。
+        点表绑定切换与表内容（地址/类型）变化共用本轻量路径：会话映射
+        与协议 Driver 寻址一并更新，分组缓存与 Driver 读取缓存同步失效。
+        订阅类设备的已注册通知由 TaskRuntime 重启订阅后按新映射重建。
         """
         self._point_table = point_table
         self._point_meta = dict(point_meta)
         self._point_group_cache.clear()
+        self._protocol.update_point_table(point_table)
 
     # ------------------------------------------------------------------
     # 连接与健康（委托协议 Driver）

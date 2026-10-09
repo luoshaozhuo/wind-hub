@@ -7,7 +7,7 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ..protocol_contract import (
     ConnectionHealth,
@@ -18,6 +18,9 @@ from ..protocol_contract import (
     ProtocolWriteResult,
     Quality,
 )
+
+if TYPE_CHECKING:
+    from core.domain import PointTable
 
 
 class SubscriptionHandle(Protocol):
@@ -49,6 +52,15 @@ class ProtocolPort(Protocol):
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]: ...
+
+    def update_point_table(self, point_table: PointTable) -> None:
+        """用热重载后的点表重建协议寻址映射（纯内存操作，不断开连接）。
+
+        点表内容（地址/数据类型/字序）或绑定变化时由会话层调用。实现方
+        必须同步失效依赖旧寻址的缓存（读取分组、地址解析等）；订阅类
+        Driver 的已注册通知由上层重启订阅后按新映射重建。
+        """
+        ...
 
     async def subscribe(
         self,
