@@ -477,11 +477,17 @@ def _decode_registers(
     if fmt is None:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    words = list(registers)
-    if word_order == "little_endian":
-        words.reverse()
-    raw = b"".join(struct.pack(">H", word) for word in words)
-    return struct.unpack(fmt, raw)[0]
+    # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
+    from pymodbus.client import ModbusTcpClient
+
+    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.toUpperCase(), None)
+    if datatype is None:
+        raise ValueError(f"unsupported PyModbus data type '{data_type}'")
+    return ModbusTcpClient.convert_from_registers(
+        registers,
+        datatype,
+        word_order="little" if word_order == "little_endian" else "big",
+    )
 
 
 def _encode_registers(
@@ -496,21 +502,24 @@ def _encode_registers(
 
     integer_range = _INTEGER_RANGES.get(data_type)
     if integer_range is not None:
-        integer = _strict_integer_value(value, data_type, integer_range)
+        number: int | float = _strict_integer_value(value, data_type, integer_range)
         if data_type in {"int8", "uint8", "int16", "uint16"}:
-            return [integer & 0xFFFF]
-        fmt = _MULTI_REGISTER_FMT[data_type]
-        raw = struct.pack(fmt, integer)
+            return [int(number) & 0xFFFF]
     elif data_type in {"float32", "float64"}:
         number = _strict_float_value(value, data_type)
-        raw = struct.pack(_MULTI_REGISTER_FMT[data_type], number)
     else:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    words = list(struct.unpack(">" + "H" * (len(raw) // 2), raw))
-    if word_order == "little_endian":
-        words.reverse()
-    return words
+    from pymodbus.client import ModbusTcpClient
+
+    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
+    if datatype is None:
+        raise ValueError(f"unsupported PyModbus data type '{data_type}'")
+    return ModbusTcpClient.convert_to_registers(
+        number,
+        datatype,
+        word_order="little" if word_order == "little_endian" else "big",
+    )
 
 
 def _encode_coil(value: object, data_type: str) -> bool:
