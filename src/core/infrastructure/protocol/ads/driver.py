@@ -246,6 +246,14 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
+                    mapped = tuple(self._mapped_point(pid) for pid in point_ids)
+                    if (
+                        len(mapped) > 1
+                        and all(point.symbol is not None and point.address_resolved
+                                for point in mapped)
+                        and hasattr(self._connection, "read_list_by_name")
+                    ):
+                        return await self._read_symbol_list_raw(mapped)
                     return await self._read_sum_raw(point_ids)
                 return await self._read_sequential_raw(point_ids)
             except ProtocolError:
@@ -387,6 +395,32 @@ class ADSDriver:
     async def interrogate(self) -> None:
         """ADS 不支持 IEC104 式总召能力。"""
         raise ProtocolCapabilityError("ads does not support interrogation")
+
+    async def _read_symbol_list_raw(
+        self,
+        points: tuple[ADSPoint, ...],
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
+        """使用 pyads 公开 Sum Read；保留请求位置和重复 symbol。"""
+        connection = self._connection
+        if connection is None:
+            raise ProtocolError("ADS connection is not available")
+        symbols = list(dict.fromkeys(point.symbol for point in points))
+        result = await asyncio.to_thread(
+            connection.read_list_by_name,
+            symbols,
+            ads_sub_commands=self._config.max_subs_per_sum,
+        )
+        values: list[tuple[PointScalar, Quality]] = []
+        for point in points:
+            raw = result.get(point.symbol)
+            if raw is None:
+                values.append((None, Quality.BAD))
+                continue
+            try:
+                values.append((_as_point_scalar(raw), Quality.GOOD))
+            except TypeError:
+                values.append((None, Quality.BAD))
+        return tuple(values)
 
     async def _read_sum_raw(
         self,
