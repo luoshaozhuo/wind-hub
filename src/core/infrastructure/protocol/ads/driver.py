@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ctypes
+import logging
 import struct
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
@@ -30,6 +31,8 @@ from .mapping import ADSPoint, parse_ads_point
 from .subscription import ADSSubscription
 
 _ADSERR_SYMBOL_NOT_FOUND = 1808
+
+logger = logging.getLogger(__name__)
 
 
 def _pyads() -> Any:
@@ -78,6 +81,10 @@ class ADSDriver:
         self._connection: Any = None
         self._connected = False
         self._subscriptions: set[ADSSubscription] = set()
+        # 断连清理 task 的强引用集合——fire-and-forget task 只有弱引用会被
+        # event loop 提前 GC（"Task was destroyed but it is pending"）；
+        # done callback 同时取回异常，避免 "exception was never retrieved"。
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
         # 地址解析与读取分组均绑定当前 ADS session；断连/重连后失效。
         self._read_plan_cache: dict[
             tuple[str, ...],
@@ -703,10 +710,21 @@ class ADSDriver:
         """
         connection, subscriptions = self._detach_runtime()
         for subscription in subscriptions:
-            asyncio.create_task(subscription.close())
+            task = asyncio.create_task(subscription.close())
+            self._cleanup_tasks.add(task)
+            task.add_done_callback(self._on_cleanup_done)
         if connection is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(connection.close)
+
+    def _on_cleanup_done(self, task: asyncio.Task[None]) -> None:
+        """取回后台订阅清理结果：异常如实记日志，不向事件循环泄漏。"""
+        self._cleanup_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("ADS subscription cleanup failed: %s", exc)
 
     def _detach_runtime(
         self,
