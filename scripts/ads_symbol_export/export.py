@@ -90,6 +90,14 @@ def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int
     _LOG.info("PLC symbols: %d, upload bytes: %d", count, total)
     if chunk_size < _HEADER_SIZE + 3:
         raise ValueError("chunk_size 太小")
+    # 以重叠窗口验证 IndexOffset 真的是字节偏移，不接受返回首块的伪支持。
+    probe_length = min(64, total - 1, chunk_size - 1)
+    if probe_length < 16:
+        raise ValueError("点表太短，无法可靠验证分段偏移")
+    probe_first = _read_bytes(plc, _UPLOAD, 0, probe_length + 1)
+    probe_shifted = _read_bytes(plc, _UPLOAD, 1, probe_length)
+    if probe_first[1:] != probe_shifted or probe_first[:probe_length] == probe_shifted:
+        raise ValueError("PLC 不支持可靠的 0xF00B 字节偏移读取")
     buffer = bytearray()
     offset = 0
     exported = 0
