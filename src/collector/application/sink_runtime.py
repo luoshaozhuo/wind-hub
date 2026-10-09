@@ -22,7 +22,6 @@ from core.application import ConnectionHealth
 
 from ..domain.point_value import PointValue
 from .config import RuntimeParams
-from .dispatcher import SinkDispatcher
 from .reload import SinkDiff
 from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
 from .sinks import ResolvedSinkConfig
@@ -59,11 +58,10 @@ class SinkRuntime:
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
         # start() 阶段 open 失败的 Sink 不启动 consumer，并由 health() 持续暴露为 unhealthy。
         self._unhealthy: set[str] = set()
-        # 运行期统计：派发/丢弃在派发侧（SinkDispatcher）计数。
+        # 运行期统计：派发/丢弃在派发路径（dispatch）计数。
         self._points_routed = 0
         self._points_dropped = 0
         self._running = False
-        self._dispatcher = SinkDispatcher(self)
 
     # ------------------------------------------------------------------
     # 只读视图（CollectorRuntime 聚合 / 查询服务经此读取）
@@ -81,7 +79,7 @@ class SinkRuntime:
     def update_params(self, params: RuntimeParams) -> None:
         """热更新运行时参数快照。
 
-        ``backpressure_policy`` 由 SinkDispatcher 每次派发动态读取；
+        ``backpressure_policy`` 由本对象每次派发动态读取；
         ``shutdown_timeout`` 仅影响后续 stop/remove；``queue_maxsize`` 为
         restart-required（既有 queue 容量不随之变化）。
         """
@@ -116,8 +114,54 @@ class SinkRuntime:
     # ------------------------------------------------------------------
 
     async def dispatch(self, routed: dict[str, list[PointValue]]) -> None:
-        """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。"""
-        await self._dispatcher.dispatch(routed)
+        """把按 sink 分组的批次入队，应用背压策略（实现 ``SinkDispatchPort``）。
+
+        drop_new/drop_old 显式累计丢弃点数；block 通过 await queue.put()
+        向采集任务施加背压。
+        """
+        for sink_name, batch in routed.items():
+            if not batch:
+                continue
+            queue = self._queues.get(sink_name)
+            if queue is None:
+                continue
+            await self._enqueue(queue, batch, sink_name)
+
+    async def _enqueue(
+        self,
+        queue: asyncio.Queue[list[PointValue]],
+        batch: list[PointValue],
+        sink_name: str,
+    ) -> None:
+        """按当前背压策略把一个批次写入指定 sink 队列。"""
+        policy = self._params.backpressure_policy
+
+        if policy == "drop_new":
+            if queue.full():
+                self._points_dropped += len(batch)
+                logger.warning(
+                    "Sink '%s' queue full (%d) — dropping new batch (%d points)",
+                    sink_name,
+                    queue.maxsize,
+                    len(batch),
+                )
+                return
+            await queue.put(batch)
+            self._points_routed += len(batch)
+
+        elif policy == "drop_old":
+            while queue.full():
+                try:
+                    evicted = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                self._points_dropped += len(evicted)
+            await queue.put(batch)
+            self._points_routed += len(batch)
+
+        elif policy == "block":
+            await queue.put(batch)
+            self._points_routed += len(batch)
 
     # ------------------------------------------------------------------
     # 生命周期（启停顺序由 CollectorRuntime 协调）

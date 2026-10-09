@@ -150,14 +150,6 @@ class CollectorRuntime:
     # 组件只读视图（查询/控制服务经此读取当前实例，热重载安全）
     # ------------------------------------------------------------------
 
-    def attach_metrics_hook(
-        self,
-        metrics_hook: RuntimeMetricsPort | None,
-    ) -> None:
-        """注入或替换可选 RuntimeMetricsPort（组合边界，不改变采集行为）。"""
-        self._device_runtime.attach_metrics_hook(metrics_hook)
-        self._task_runtime.attach_metrics_hook(metrics_hook)
-
     @property
     def device_runtime(self) -> DeviceRuntime:
         """设备子系统；设备查询与连接状态端口的唯一入口。"""
@@ -503,7 +495,7 @@ class CollectorRuntime:
         # 子系统 owner（restart-required 字段已在 prepare 阶段被拒绝）。
         if diff.runtime_changed:
             try:
-                self.apply_runtime_params(new_config.runtime)
+                self._apply_runtime_params(new_config.runtime)
             except Exception as exc:
                 logger.error("Runtime params apply failed: %s", exc, exc_info=True)
                 errors.append(f"runtime: {exc}")
@@ -519,7 +511,7 @@ class CollectorRuntime:
 
         return errors
 
-    def apply_runtime_params(self, params: RuntimeParams) -> None:
+    def _apply_runtime_params(self, params: RuntimeParams) -> None:
         """把可热更新的 RuntimeParams 快照应用到各子系统 owner。
 
         只替换 params 引用——热更新字段（``backpressure_policy`` /

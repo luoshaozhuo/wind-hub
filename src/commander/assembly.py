@@ -27,7 +27,6 @@ from .application.diagnostic import (
 from .application.dispatcher import CommandDispatcher
 from .application.runtime import CommanderRuntime
 from .application.services import (
-    CommanderCommandService,
     CommanderConfigService,
     CommanderReadService,
 )
@@ -49,8 +48,7 @@ class CommanderApp:
     Attributes:
         boot_config: 进程启动时加载的配置快照；仅表示启动基线。
         runtime: Commander 运行时（generation 生命周期）。
-        dispatcher: 命令分发器。
-        command: 即时写入服务。
+        dispatcher: 命令分发器（即时写入入口，含幂等与批量并发）。
         read: 即时读取服务。
         diagnostic: 诊断服务。
         config: 配置事务服务（prepare / activate / abort）。
@@ -62,7 +60,6 @@ class CommanderApp:
     boot_config: CommanderConfig
     runtime: CommanderRuntime
     dispatcher: CommandDispatcher
-    command: CommanderCommandService
     read: CommanderReadService
     diagnostic: CommanderDiagnosticService
     config: CommanderConfigService
@@ -145,7 +142,6 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         boot_config=config,
         runtime=runtime,
         dispatcher=dispatcher,
-        command=CommanderCommandService(dispatcher),
         read=CommanderReadService(runtime),
         diagnostic=CommanderDiagnosticService(
             runtime,

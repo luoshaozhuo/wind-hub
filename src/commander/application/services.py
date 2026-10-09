@@ -1,19 +1,17 @@
-"""Commander 用例服务——read / command / config 事务。
+"""Commander 用例服务——read / config 事务。
 
 服务只做用例编排：固定 generation、校验输入、委托 Runtime/Dispatcher。
 协议与连接细节在 DeviceSession / CommanderRuntime；配置加载在
-Infrastructure 的 config adapter。
+Infrastructure 的 config adapter。即时写命令无独立用例编排，入口即
+:class:`CommandDispatcher`（连接保证、幂等与错误收敛均在其中）。
 """
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from .command import Command, CommandResult
 from .config import CommanderConfig
-from .dispatcher import CommandDispatcher
 from .errors import CommandError
 from .runtime import CommanderRuntime
 from .session import PointReading
@@ -65,21 +63,6 @@ class CommanderReadService:
                     f"device '{device_id}' returned no values for points " f"{missing_values}"
                 )
             return [by_id[point_id] for point_id in point_ids]
-
-
-class CommanderCommandService:
-    """Commander 即时设备写入入口。"""
-
-    def __init__(self, dispatcher: CommandDispatcher) -> None:
-        self._dispatcher = dispatcher
-
-    async def send(self, command: Command) -> CommandResult:
-        """执行单条写入；连接、幂等和错误收敛统一由 Dispatcher 负责。"""
-        return await self._dispatcher.send(command)
-
-    async def send_batch(self, commands: list[Command]) -> list[CommandResult]:
-        """并发执行多条即时写命令。"""
-        return list(await asyncio.gather(*(self.send(command) for command in commands)))
 
 
 class CommanderConfigService:
