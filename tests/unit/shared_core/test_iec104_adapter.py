@@ -297,3 +297,20 @@ def test_iec104_invalid_point_table_update_is_atomic() -> None:
     assert driver._point_table_id == "iec_pt"
     assert list(driver._points_by_id) == ["power"]
     assert driver._samples[100].value == 42.0
+
+
+@pytest.mark.asyncio
+async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    replacement = _point("wind_speed", ext=_point_ext(ioa=100))
+    driver.update_point_table(
+        PointTable(
+            "iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement}
+        )
+    )
+    driver._store_sample(
+        100, ProtocolSample(point_id="power", value=42.0, quality=Quality.GOOD)
+    )
+    assert 100 not in driver._samples

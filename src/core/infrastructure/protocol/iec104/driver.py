@@ -666,5 +666,9 @@ class IEC104Driver:
     ) -> None:
         if self._closed or not self._is_open:
             return
+        mapped = self._points_by_ioa.get(ioa)
+        if mapped is None or mapped.point_id != sample.point_id:
+            # A queued callback may belong to the previous point-table generation.
+            return
         self._samples[ioa] = sample
         asyncio.create_task(self._subscriptions.dispatch(sample, ioa))
