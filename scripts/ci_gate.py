@@ -79,12 +79,16 @@ def _run_many(commands: Sequence[tuple[str, Sequence[str]]]) -> bool:
     return passed
 
 
-def _isolated_unit_tests() -> bool:
-    """各 unit 子包独立收集，隔离并行迁移期同名 Protobuf 描述符。
+def _isolated_tests(root_name: str) -> bool:
+    """各子包独立收集，隔离并行迁移期同名 Protobuf 描述符。
 
-    不跳过任何 unit 测试：目录与顶层测试文件均逐个启动新的 pytest 进程。
+    不跳过任何测试：目录与顶层测试文件均逐个启动新的 pytest 进程。
+    迁移期新旧两包生成自同名 package 的 *_pb2（如
+    ``wind_hub_core.rpc.collector_pb2`` 与
+    ``collector.infrastructure.grpc.collector_pb2``）在同一进程的默认
+    descriptor pool 中互斥；隔离运行是运行环境隔离，不修改任何测试。
     """
-    root = REPO_ROOT / "tests" / "unit"
+    root = REPO_ROOT / "tests" / root_name
     children = sorted(
         path
         for path in root.iterdir()
@@ -94,7 +98,7 @@ def _isolated_unit_tests() -> bool:
     return _run_many(
         [
             (
-                f"unit/{path.name}",
+                f"{root_name}/{path.name}",
                 _python_module("pytest", str(path.relative_to(REPO_ROOT)), "-q"),
             )
             for path in children
@@ -129,14 +133,19 @@ def fast_gate(part: str, targets: str) -> bool:
         if not selected:
             print("GATE RESULT: NOT_APPLICABLE")
             return True
+        # unit/component 均含并行迁移期同名 pb2 的测试包（如
+        # tests/component/ctl 引旧 collector_pb2，tests/component/collector
+        # 引新 collector_pb2），单进程全目录收集必然 duplicate symbol；
+        # 与 unit 相同的逐子包隔离执行。contract 无此冲突，保持单进程。
         checks = [
             (target, _python_module("pytest", f"tests/{target}", "-q"))
             for target in selected
-            if target != "unit"
+            if target not in {"unit", "component"}
         ]
         other_passed = _run_many(checks)
-        unit_passed = _isolated_unit_tests() if "unit" in selected else True
-        return other_passed and unit_passed
+        unit_passed = _isolated_tests("unit") if "unit" in selected else True
+        component_passed = _isolated_tests("component") if "component" in selected else True
+        return other_passed and unit_passed and component_passed
 
     if part == "frontend":
         return _run_many(
