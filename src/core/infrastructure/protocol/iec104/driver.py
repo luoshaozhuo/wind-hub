@@ -186,6 +186,8 @@ class IEC104Driver:
 
         self._samples: dict[int, ProtocolSample] = {}
         self._command_locks: dict[int, asyncio.Lock] = {}
+        self._active_read_locks: dict[int, asyncio.Lock] = {}
+        self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
 
@@ -206,6 +208,7 @@ class IEC104Driver:
         self._point_table_id = point_table.point_table_id
         self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
         self._samples.clear()
+        self._reject_pending_reads("IEC104 point table changed")
 
     def _validate_write_types(self, point_table: PointTable) -> None:
         """校验全部可写点的命令类型（与构造期校验同一规则）。"""
@@ -306,6 +309,7 @@ class IEC104Driver:
             self._open_event = None
             self._receive_callback_factory = None
             self._samples.clear()
+            self._reject_pending_reads("IEC104 connection closed")
             self._loop = None
 
         await self._subscriptions.close_all()
@@ -438,6 +442,53 @@ class IEC104Driver:
             return
         for point_id in point_ids:
             await self.request_read_one(point_id)
+
+    async def read_active_one(
+        self, point_id: str, *, timeout: float | None = None
+    ) -> ProtocolSample:
+        """主动读取并等待匹配 IOA/COT=REQUEST 的响应，不使用本地旧镜像。
+
+        IEC104 不含每次单点读的事务 ID，因此同 IOA 的请求必须串行。
+        超时后到达的极晚响应与下次请求无法在协议层完全区分。
+        """
+        if not self._is_open:
+            raise ProtocolError("IEC104 active read requires an OPEN connection")
+        mapped = self._mapped_point(point_id)
+        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
+        async with lock:
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[ProtocolSample] = loop.create_future()
+            self._active_reads[mapped.ioa] = future
+            try:
+                await self.request_read_one(point_id)
+                try:
+                    return await asyncio.wait_for(
+                        future, timeout=timeout if timeout is not None else self._config.t1
+                    )
+                except TimeoutError as exc:
+                    raise ProtocolError(f"IEC104 active read timed out for {point_id}") from exc
+            finally:
+                if self._active_reads.get(mapped.ioa) is future:
+                    self._active_reads.pop(mapped.ioa, None)
+
+    async def read_active_many(
+        self, point_ids: Sequence[str], *, timeout: float | None = None
+    ) -> tuple[ProtocolSample, ...]:
+        """并发读不同 IOA，同 IOA 的请求通过独立锁串行执行。"""
+        if not point_ids:
+            return ()
+        return tuple(
+            await asyncio.gather(
+                *(self.read_active_one(point_id, timeout=timeout) for point_id in point_ids)
+            )
+        )
+
+    def _reject_pending_reads(self, reason: str) -> None:
+        pending = tuple(self._active_reads.values())
+        self._active_reads.clear()
+        for future in pending:
+            if not future.done():
+                future.set_exception(ProtocolError(reason))
 
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
@@ -604,6 +655,7 @@ class IEC104Driver:
 
         self._is_open = False
         self._samples.clear()
+        self._reject_pending_reads("IEC104 connection lost")
 
     def _handle_new_point(
         self,
@@ -630,7 +682,7 @@ class IEC104Driver:
             return
         point.on_receive(callable=factory(self._handle_point_receive))
 
-    def _handle_point_receive(self, point: Any) -> Any:
+    def _handle_point_receive(self, point: Any, message: Any) -> Any:
         c104 = _c104()
         ioa = point.io_address
         mapped = self._points_by_ioa.get(ioa)
@@ -656,6 +708,8 @@ class IEC104Driver:
                     self._store_sample,
                     ioa,
                     sample,
+                    message.cot == c104.Cot.REQUEST,
+                    bool(message.is_negative),
                 )
         return c104.ResponseState.NONE
 
@@ -663,6 +717,8 @@ class IEC104Driver:
         self,
         ioa: int,
         sample: ProtocolSample,
+        requested: bool = False,
+        negative: bool = False,
     ) -> None:
         if self._closed or not self._is_open:
             return
@@ -671,4 +727,11 @@ class IEC104Driver:
             # A queued callback may belong to the previous point-table generation.
             return
         self._samples[ioa] = sample
+        if requested:
+            waiter = self._active_reads.get(ioa)
+            if waiter is not None and not waiter.done():
+                if negative:
+                    waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
+                else:
+                    waiter.set_result(sample)
         asyncio.create_task(self._subscriptions.dispatch(sample, ioa))
