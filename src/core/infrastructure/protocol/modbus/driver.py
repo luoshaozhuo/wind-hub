@@ -241,43 +241,88 @@ class ModbusDriver:
 
             results: list[ProtocolWriteResult] = []
             try:
-                for write in writes:
-                    mapped = self._mapped_point(write.point_id)
-                    if mapped.register_type in _READ_ONLY_TYPES:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=f"{mapped.register_type} is read-only",
+                mapped_writes = [self._mapped_point(write.point_id) for write in writes]
+                groups_by_point = {
+                    point_id: group_index
+                    for group_index, group in enumerate(self._config.write_groups)
+                    for point_id in group
+                }
+                authorized = frozenset(groups_by_point)
+                plan = self._plan_contiguous_writes(
+                    mapped_writes, authorized_point_ids=authorized
+                )
+                position = 0
+                for group in plan:
+                    chunk = writes[position : position + len(group)]
+                    position += len(group)
+                    allowed = (
+                        len(group) > 1
+                        and all(groups_by_point.get(point.point_id) ==
+                                groups_by_point.get(group[0].point_id) for point in group)
+                    )
+                    if allowed:
+                        try:
+                            words = [
+                                word
+                                for write, point in zip(chunk, group, strict=True)
+                                for word in _encode_registers(
+                                    write.value, point.data_type, point.word_order
+                                )
+                            ]
+                        except (TypeError, ValueError, struct.error):
+                            # Let each point report its own validation result.
+                            allowed = False
+                        else:
+                            response = await self._client.write_registers(
+                                group[0].address, words, device_id=self._config.unit_id
                             )
-                        )
+                            results.extend(
+                                ProtocolWriteResult(
+                                    point_id=point.point_id,
+                                    success=not response.isError(),
+                                    message=None if not response.isError()
+                                    else "Modbus exception response",
+                                )
+                                for point in group
+                            )
+                    if allowed:
                         continue
-                    try:
-                        accepted = await self._write_single(mapped, write.value)
-                    except (TypeError, ValueError, struct.error) as exc:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=str(exc) or type(exc).__name__,
+                    for write, mapped in zip(chunk, group, strict=True):
+                        if mapped.register_type in _READ_ONLY_TYPES:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message=f"{mapped.register_type} is read-only",
+                                )
                             )
-                        )
-                        continue
-                    if accepted:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=True,
+                            continue
+                        try:
+                            accepted = await self._write_single(mapped, write.value)
+                        except (TypeError, ValueError, struct.error) as exc:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message=str(exc) or type(exc).__name__,
+                                )
                             )
-                        )
-                    else:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message="Modbus exception response",
+                            continue
+                        if accepted:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=True,
+                                )
                             )
-                        )
+                        else:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message="Modbus exception response",
+                                )
+                            )
             except ProtocolError:
                 raise
             except Exception as exc:

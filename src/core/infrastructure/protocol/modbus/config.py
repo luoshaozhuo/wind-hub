@@ -9,7 +9,7 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
-_ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order"})
+_ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order", "write_groups"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +22,7 @@ class ModbusConfig:
     mode: str = "tcp"
     timeout: float = 5.0
     word_order: str = "little_endian"
+    write_groups: tuple[tuple[str, ...], ...] = ()
 
 
 def parse_modbus_config(
@@ -58,6 +59,22 @@ def parse_modbus_config(
     if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(f"connection '{endpoint}': invalid word_order " f"'{word_order}'")
 
+    raw_groups = options.get("write_groups", ())
+    if not isinstance(raw_groups, (list, tuple)):
+        raise ConfigError("Modbus write_groups must be a sequence of point-id groups")
+    groups: list[tuple[str, ...]] = []
+    seen: set[str] = set()
+    for group in raw_groups:
+        if not isinstance(group, (list, tuple)) or len(group) < 2:
+            raise ConfigError("each Modbus write group requires at least two point IDs")
+        if any(not isinstance(pid, str) or not pid.strip() for pid in group):
+            raise ConfigError("Modbus write group point IDs must be nonempty strings")
+        names = tuple(pid.strip() for pid in group)
+        if len(set(names)) != len(names) or seen.intersection(names):
+            raise ConfigError("Modbus write groups contain duplicate point IDs")
+        seen.update(names)
+        groups.append(names)
+
     return ModbusConfig(
         host=endpoint.host,
         port=endpoint.port or 502,
@@ -65,6 +82,7 @@ def parse_modbus_config(
         mode=mode,
         timeout=timeout,
         word_order=word_order,
+        write_groups=tuple(groups),
     )
 
 

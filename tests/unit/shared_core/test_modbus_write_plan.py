@@ -50,3 +50,17 @@ def test_write_groups_never_reorder_input() -> None:
         points, authorized_point_ids=frozenset({"a", "b", "c"})
     )
     assert [p.point_id for group in groups for p in group] == ["b", "a", "c"]
+
+
+def test_write_groups_validation_rejects_duplicate_membership() -> None:
+    import pytest
+
+    from core.application import ConfigError
+    from core.domain import ConnectionEndpoint
+    from core.infrastructure.protocol.modbus.config import parse_modbus_config
+
+    with pytest.raises(ConfigError, match="duplicate"):
+        parse_modbus_config(
+            ConnectionEndpoint("192.0.2.10", 502),
+            {"write_groups": [["a", "b"], ["b", "c"]]},
+        )
