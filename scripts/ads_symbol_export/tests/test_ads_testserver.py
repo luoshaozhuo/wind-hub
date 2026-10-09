@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ SYMBOL_NAMES = ("MAIN.temperature", "MAIN.pressure", "GVL.状态")
 # ==============================================
 
 ADS_READ = 2
+ADS_READ_WRITE = 9
 ADS_READ_STATE = 4
 SYMBOL_INFO = 0xF00F
 SYMBOL_DATA = 0xF00B
@@ -42,6 +44,8 @@ def _load_exporter() -> Any:
     spec = importlib.util.spec_from_file_location("_ads_export_integration", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # dataclass 解析字符串注解时需要在 sys.modules 中找到模块
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -198,6 +202,124 @@ def test_server_ignores_offset_is_detected(
 
     with pytest.raises(RuntimeError, match="字节偏移"):
         exporter.export_symbols(plc, tmp_path / "symbols.txt")
+
+
+TPY_CONTENT = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<TcModuleClass xmlns="http://www.beckhoff.com/schemas/2009/05/TcModule">'
+    "<Modules><Module><Symbols>"
+    "<Symbol><Name>MAIN.temperature</Name></Symbol>"
+    "<Symbol><Name>GVL.状态</Name></Symbol>"
+    "</Symbols></Module></Modules></TcModuleClass>"
+).encode()
+TPY_PATH = r"C:\TwinCAT\Boot\port_801.tmc"
+
+
+class FileServiceHandler:
+    """模拟 TwinCAT System Service 文件协议（FOPEN/FREAD/FCLOSE/FFILEFIND）。
+
+    运行时符号表组（0xF00F/0xF00B）一律返回 ADS 错误，强制转入文件服务方案。
+    """
+
+    def __init__(self) -> None:
+        self.handles: dict[int, int] = {}
+        self.closed: list[int] = []
+        self.find_pending: list[str] = []
+
+    def handle_request(self, request: Any) -> AmsResponseData:
+        command = int.from_bytes(request.ams_header.command_id, "little")
+        data = request.ams_header.data
+        if command == ADS_READ_STATE:
+            return AmsResponseData(
+                b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
+            )
+        if command == ADS_READ:
+            group, offset, size = struct.unpack_from("<III", data)
+            if group == 122:  # FREAD
+                pos = self.handles.get(offset, len(TPY_CONTENT) + 1)
+                if pos >= len(TPY_CONTENT):
+                    return SymbolTableHandler._error_reply()
+                chunk = TPY_CONTENT[pos : pos + size]
+                self.handles[offset] = pos + len(chunk)
+                return self._read_reply(chunk)
+            return SymbolTableHandler._error_reply()
+        if command != ADS_READ_WRITE:
+            return SymbolTableHandler._error_reply()
+        group, offset, read_len, write_len = struct.unpack_from("<IIII", data)
+        payload = data[16 : 16 + write_len]
+        if group == 120:  # FOPEN
+            if payload.decode("cp1252") != TPY_PATH:
+                return SymbolTableHandler._error_reply()
+            handle = len(self.handles) + 1
+            self.handles[handle] = 0
+            return self._read_reply(struct.pack("<I", handle))
+        if group == 121:  # FCLOSE
+            self.handles.pop(offset, None)
+            self.closed.append(offset)
+            return self._read_reply(b"")
+        if group == 133:  # FFILEFIND
+            if offset == 1:
+                directory = payload.decode("cp1252")[:-2]
+                self.find_pending = (
+                    [TPY_PATH[len(directory) + 1 :]]
+                    if TPY_PATH.startswith(directory + "\\")
+                    else []
+                )
+            if not self.find_pending:
+                return AmsResponseData(
+                    b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", 1804, 0)
+                )
+            name = self.find_pending.pop(0).encode("cp1252")
+            entry = bytearray(322)
+            struct.pack_into("<II", entry, 0, offset + 1, 0)
+            entry[48 : 48 + len(name)] = name
+            return self._read_reply(bytes(entry))
+        return SymbolTableHandler._error_reply()
+
+    @staticmethod
+    def _read_reply(payload: bytes) -> AmsResponseData:
+        data = struct.pack("<II", ADS_OK, len(payload)) + payload
+        return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), data)
+
+
+def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
+    """运行时符号表全部拒绝时，通过真实 ADS/TCP 的文件服务方案导出 TPY 符号。"""
+    handler = FileServiceHandler()
+    try:
+        server = AdsTestServer(handler=handler, ip_address=SERVER_IP, logging=False)
+    except OSError as exc:
+        pytest.skip(f"本地 ADS 测试服务端口 48898 不可用：{exc}")
+
+    try:
+        server.start()
+        plc = pyads.Connection(SERVER_AMS_NET_ID, SERVER_ADS_PORT, SERVER_IP)
+        plc.open()
+        plc.set_timeout(3000)
+        exporter = _load_exporter()
+        exporter.TRY_FULL_TABLE_FIRST = True
+        exporter.CHUNK_SIZES = (64,)
+        output = tmp_path / "symbols.txt"
+
+        def file_conn() -> pyads.Connection:
+            conn = pyads.Connection(SERVER_AMS_NET_ID, 10000, SERVER_IP)
+            conn.open()
+            conn.set_timeout(3000)
+            return conn
+
+        count = exporter.export_symbols(
+            plc, output, file_service_factory=file_conn
+        )
+        plc.close()
+
+        assert count == 2
+        text = output.read_text(encoding="utf-8")
+        assert "source=file" in text
+        assert text.splitlines()[-2:] == ["MAIN.temperature", "GVL.状态"]
+        assert handler.closed  # 远端句柄已释放
+    finally:
+        server.close()
+        if server.ident is not None:
+            server.join(timeout=3)
 
 
 def test_full_table_success_skips_chunk_fallback(

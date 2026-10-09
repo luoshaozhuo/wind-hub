@@ -8,4 +8,5 @@ dependencies:
   - wheel
   - pytest
   - pip:
-      - -e .
+      # ocx extra 内的 pywin32 带 sys_platform=='win32' 标记，Linux 不会安装。
+      - -e .[ocx]

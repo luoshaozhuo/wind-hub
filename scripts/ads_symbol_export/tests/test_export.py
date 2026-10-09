@@ -25,6 +25,8 @@ def exporter(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("_ads_export_test", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # dataclass 解析字符串注解时需要在 sys.modules 中找到模块
+    monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     module.TRY_FULL_TABLE_FIRST = False
     return module
