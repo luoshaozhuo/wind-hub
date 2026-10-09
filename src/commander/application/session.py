@@ -190,12 +190,7 @@ class DeviceSession:
             ProtocolError: 协议级写入失败。
         """
         write = self.protocol_write_value(point_id, value)
-        results = await self._protocol.write([write])
-        result = results[0] if results else None
-        if result is None:
-            raise CommandError(
-                f"protocol returned no write result for " f"'{self._device.device_id}/{point_id}'"
-            )
+        result = await self._protocol.write_one(write)
         if not result.success:
             raise CommandError(
                 result.message or f"write rejected by device '{self._device.device_id}'"
