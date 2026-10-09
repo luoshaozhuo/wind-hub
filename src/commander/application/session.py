@@ -24,6 +24,7 @@ from core.application import (
     ProtocolWrite,
     Quality,
     WritableScalar,
+    validate_read_many_results,
 )
 from core.domain import (
     BusinessPoint,
@@ -33,6 +34,8 @@ from core.domain import (
     Point,
     PointAccess,
     PointTable,
+    engineering_value,
+    raw_write_value,
 )
 
 from .config import PointMeta
@@ -141,19 +144,34 @@ class DeviceSession:
         """返回协议缓存的健康状态，不触发实时网络探测。"""
         return self._protocol.health()
 
-    async def read_points(self, point_ids: list[str]) -> list[PointReading]:
-        """按 point_id 批量读取并返回工程值。
+    async def read_point(self, point_id: str) -> PointReading:
+        """单点即时读取（独立公开入口，不经过批量路径）。
 
-        只包含协议实际返回的点；驱动未返回的点由调用方按「设备未返回值」
-        语义处理（read 服务报错、诊断标记失败）。
+        Raises:
+            CommandError: 点位未知。
+            ProtocolError: 协议级读取失败。
+        """
+        self.point(point_id)
+        sample = await self._protocol.read_one(point_id)
+        return self._to_reading(sample)
+
+    async def read_points(self, point_ids: list[str]) -> list[PointReading]:
+        """按 point_id 批量读取并返回工程值，与请求逐位一一对应。
+
+        协议批量结果必须满足 read_many 契约：数量与请求一致、按请求位置
+        返回同名点样本（重复点按出现位置重复返回）。缺失、乱序、错位或
+        多余样本直接以 ProtocolError 显式失败——不允许静默漏点，也不
+        允许把别的点的值错配到请求点上。点级坏质量以 BAD 质量样本正常
+        返回，不视为契约违约。
 
         Raises:
             CommandError: 任一点位未知。
-            ProtocolError: 协议级读取失败。
+            ProtocolError: 协议级读取失败或批量结果违反契约。
         """
         for point_id in point_ids:
             self.point(point_id)
         samples = await self._protocol.read_many(point_ids)
+        validate_read_many_results(point_ids, samples)
         return [self._to_reading(sample) for sample in samples]
 
     def _to_reading(self, sample: ProtocolSample) -> PointReading:
@@ -196,25 +214,3 @@ class DeviceSession:
                 result.message or f"write rejected by device '{self._device.device_id}'"
             )
 
-
-def engineering_value(point: Point, raw: PointScalar) -> PointScalar:
-    """按点表 scale/offset 把协议原始值换算为工程值。
-
-    只转换 int/float 且排除 bool；None、字符串原样保留。
-    """
-    if raw is None or isinstance(raw, bool | str) or (point.scale == 1.0 and point.offset == 0.0):
-        return raw
-    return raw * point.scale + point.offset
-
-
-def raw_write_value(point: Point, value: WritableScalar) -> WritableScalar:
-    """把工程写值按点表 scale/offset 逆变换为协议原始值。
-
-    只转换 int/float 且排除 bool；其余类型原样下发，由协议 Driver
-    按点 data_type 编码并校验。
-    """
-    if isinstance(value, bool | str):
-        return value
-    if point.scale == 1.0 and point.offset == 0.0:
-        return value
-    return (value - point.offset) / point.scale

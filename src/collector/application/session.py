@@ -28,8 +28,9 @@ from core.application import (
     ProtocolCapability,
     ProtocolPort,
     ProtocolSample,
+    validate_read_many_results,
 )
-from core.domain import Device, DeviceId, Point, PointTable
+from core.domain import Device, DeviceId, Point, PointTable, engineering_value
 
 from ..domain.point_value import PointValue
 from .config import PointMeta
@@ -280,8 +281,14 @@ class CollectorDeviceSession:
         return list(cached)
 
     async def read(self, point_group: str) -> list[PointValue]:
-        """读取指定点组并返回已应用 scale/offset 的工程值（盖设备身份）。"""
-        samples = await self._protocol.read_many(self.point_ids(point_group))
+        """读取指定点组并返回已应用 scale/offset 的工程值（盖设备身份）。
+
+        协议批量结果必须满足 read_many 契约（数量一致、逐位同名对应）；
+        违约时以 ProtocolError 显式失败，不允许静默丢点或错配。
+        """
+        point_ids = self.point_ids(point_group)
+        samples = await self._protocol.read_many(point_ids)
+        validate_read_many_results(point_ids, samples)
         return self._to_values(samples)
 
     def _group_points(self, point_group: str) -> list[Point]:
@@ -305,18 +312,11 @@ class CollectorDeviceSession:
     def _to_value(self, sample: ProtocolSample) -> PointValue:
         """把单个协议原始样本换算为工程值 PointValue。
 
-        只转换 int/float 且排除 bool；None、字符串和未知点原样保留，
-        质量、时间戳不变。
+        与 Commander 共用 core.domain 的 scale/offset 换算规则；未知点
+        原样保留，质量不变，时间戳回退到本地采集时刻。
         """
         point = self._point_table.points.get(sample.point_id)
-        value = sample.value
-        if (
-            point is not None
-            and not (point.scale == 1.0 and point.offset == 0.0)
-            and isinstance(value, int | float)
-            and not isinstance(value, bool)
-        ):
-            value = value * point.scale + point.offset
+        value = sample.value if point is None else engineering_value(point, sample.value)
         return PointValue(
             device_id=str(self._device.device_id),
             point_id=sample.point_id,

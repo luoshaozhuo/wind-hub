@@ -124,6 +124,9 @@ async def test_collect_mixed_quality_is_partial_success():
     engine = _engine(ports)
     session = _session()
 
+    # 同一点在组内出现两次（合法重复点）：一次 GOOD、一次 BAD，构成混合质量批次。
+    session._point_group_cache["g"] = ("p1", "p1")
+
     async def mixed_read(point_ids):
         return (
             ProtocolSample(point_id="p1", value=1.0, quality=Quality.GOOD),

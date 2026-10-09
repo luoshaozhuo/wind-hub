@@ -6,6 +6,7 @@ Collector 采集结果模型或 Commander 命令用例模型。
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -87,3 +88,27 @@ class ProtocolSample:
         if self.timestamp is not None and self.timestamp.tzinfo is None:
             raise ValueError("protocol sample timestamp must be timezone-aware")
         object.__setattr__(self, "point_id", point_id)
+
+
+def validate_read_many_results(
+    point_ids: Sequence[str],
+    samples: Sequence[ProtocolSample],
+) -> None:
+    """校验 read_many 结果满足批量契约：数量一致、逐位对应（含重复点）。
+
+    任何缺失、乱序、错位或多余样本都属于协议边界违约——调用方必须
+    显式失败，不允许静默丢点或把别的点的值错配到请求点上。
+    """
+    from .errors import ProtocolError  # 延迟导入避免循环依赖
+
+    if len(samples) != len(point_ids):
+        raise ProtocolError(
+            f"read_many returned {len(samples)} sample(s) for "
+            f"{len(point_ids)} requested point(s)"
+        )
+    for index, (point_id, sample) in enumerate(zip(point_ids, samples, strict=True)):
+        if sample.point_id != point_id:
+            raise ProtocolError(
+                f"read_many result mismatch at position {index}: "
+                f"requested '{point_id}', got '{sample.point_id}'"
+            )
