@@ -21,7 +21,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from core.infrastructure import ProtocolRegistry
+from core.application import ProtocolRegistry
 
 from .config import CommanderConfig
 from .session import DeviceSession

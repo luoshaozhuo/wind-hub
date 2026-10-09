@@ -9,6 +9,7 @@ from core.application import (
     ConnectionHealth,
     ProtocolCapability,
     ProtocolCapabilityError,
+    ProtocolRegistry,
     ProtocolSample,
     ProtocolSampleCallback,
     ProtocolWrite,
@@ -31,7 +32,6 @@ from core.domain import (
     point_table_for_device,
     protocol_options_for,
 )
-from core.infrastructure import ProtocolRegistry
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from core.infrastructure.protocol.modbus import ModbusDriver

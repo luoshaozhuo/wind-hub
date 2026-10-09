@@ -11,10 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.application import ProtocolRegistry
 from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
-    ProtocolRegistry,
 )
 from core.infrastructure.config import fingerprint_config_set
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver

@@ -15,6 +15,7 @@ from .protocol_contract import (
     Quality,
     WritableScalar,
 )
+from .protocol_registry import ProtocolFactory, ProtocolRegistry
 
 __all__ = [
     "ConfigError",
@@ -24,7 +25,9 @@ __all__ = [
     "ProtocolCapability",
     "ProtocolCapabilityError",
     "ProtocolError",
+    "ProtocolFactory",
     "ProtocolPort",
+    "ProtocolRegistry",
     "ProtocolSample",
     "ProtocolSampleCallback",
     "ProtocolWrite",
