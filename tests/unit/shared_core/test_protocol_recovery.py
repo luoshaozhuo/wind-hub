@@ -9,6 +9,7 @@ import pytest
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
+    ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
@@ -29,6 +30,15 @@ class _Driver:
 
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
+
+    def capabilities(self) -> frozenset[ProtocolCapability]:
+        return frozenset(
+            {
+                ProtocolCapability.READ,
+                ProtocolCapability.WRITE,
+                ProtocolCapability.WRITE_MANY,
+            }
+        )
 
     async def connect(self) -> None:
         self.connect_count += 1
@@ -196,6 +206,9 @@ async def test_unsupported_write_many_propagates_without_fallback() -> None:
     """Driver 明确不支持 write_many 时：原样抛出，不降级为逐点写入。"""
 
     class _NoBatchDriver(_Driver):
+        def capabilities(self) -> frozenset[ProtocolCapability]:
+            return frozenset({ProtocolCapability.READ, ProtocolCapability.WRITE})
+
         async def write_many(
             self, writes: tuple[ProtocolWrite, ...]
         ) -> tuple[ProtocolWriteResult, ...]:
@@ -206,8 +219,16 @@ async def test_unsupported_write_many_propagates_without_fallback() -> None:
     port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=3))
     with pytest.raises(NotImplementedError):
         await port.write_many((ProtocolWrite("control", 1),))
+    with pytest.raises(NotImplementedError):
+        await port.write_many(())
     assert driver.write_count == 0
     assert driver.connect_count == 0  # 已连接时不做任何额外动作
+
+    # 断线状态下同样在重连之前拒绝，不做无意义的连接恢复。
+    driver.connected = False
+    with pytest.raises(NotImplementedError):
+        await port.write_many((ProtocolWrite("control", 1),))
+    assert driver.connect_count == 0
 
 
 @pytest.mark.asyncio

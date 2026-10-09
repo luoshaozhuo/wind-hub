@@ -28,25 +28,23 @@ from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 
 if TYPE_CHECKING:
     from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
+    from pymodbus.exceptions import ModbusException
 else:
     try:
         from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
+        from pymodbus.exceptions import ModbusException
     except ImportError:  # pymodbus 是可选依赖；缺失时不影响其它协议模块导入。
         AsyncModbusTcpClient = None
         ModbusTcpClient = None
+        ModbusException = None
 
 _PYMODBUS_MISSING = "Modbus support requires the optional 'pymodbus' dependency"
 
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
-_MULTI_REGISTER_FMT: dict[str, str] = {
-    "int32": ">i",
-    "uint32": ">I",
-    "float32": ">f",
-    "int64": ">q",
-    "uint64": ">Q",
-    "float64": ">d",
-}
+_MULTI_REGISTER_TYPES = frozenset(
+    {"int32", "uint32", "float32", "int64", "uint64", "float64"}
+)
 _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "int8": (-128, 127),
     "uint8": (0, 255),
@@ -163,8 +161,13 @@ class ModbusDriver:
             self._connected = False
 
     def health(self) -> ConnectionHealth:
-        """返回缓存连接状态，不执行网络探测。"""
-        if self._connected:
+        """返回本地已知连接状态（Driver 标志 + pymodbus transport），不执行网络探测。
+
+        该结果只反映本地状态，不保证远端在线；实际 I/O 异常仍由读写路径
+        标记断线。
+        """
+        client = self._client
+        if self._connected and client is not None and client.connected:
             return ConnectionHealth(
                 healthy=True,
                 message=f"connected to {self._config.host}:{self._config.port}",
@@ -188,8 +191,13 @@ class ModbusDriver:
                 )
             except ProtocolError:
                 raise
+            except asyncio.CancelledError:
+                # 上层取消或超时取消：传输状态未知，保守失效连接；取消原样传播。
+                self._signal_disconnect()
+                raise
             except Exception as exc:
                 self._signal_disconnect()
+                _reraise_pymodbus_cancellation(exc)
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
             if response.isError():
@@ -240,8 +248,12 @@ class ModbusDriver:
                 )
             except ProtocolError:
                 raise
+            except asyncio.CancelledError:
+                self._signal_disconnect()
+                raise
             except Exception as exc:
                 self._signal_disconnect()
+                _reraise_pymodbus_cancellation(exc)
                 raise ProtocolError(f"Modbus write failed: {exc}") from exc
         if not accepted:
             return ProtocolWriteResult(
@@ -288,8 +300,12 @@ class ModbusDriver:
                     values.update(await self._read_group(group))
             except ProtocolError:
                 raise
+            except asyncio.CancelledError:
+                self._signal_disconnect()
+                raise
             except Exception as exc:
                 self._signal_disconnect()
+                _reraise_pymodbus_cancellation(exc)
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
             return tuple(
@@ -453,6 +469,22 @@ class ModbusDriver:
                 client.close()
 
 
+def _reraise_pymodbus_cancellation(exc: Exception) -> None:
+    """pymodbus 3.15 把请求取消转换为 ModbusIOException；还原为 CancelledError。
+
+    还原后由外层 asyncio.wait_for/timeout 区分语义：超时触发的取消转换为
+    TimeoutError，上层主动取消则原样传播。只在确证是取消包装时才还原，其他
+    通信异常保持原有 ProtocolError 转换。
+    """
+    cause = exc.__cause__
+    if (
+        ModbusException is not None
+        and isinstance(exc, ModbusException)
+        and isinstance(cause, asyncio.CancelledError)
+    ):
+        raise cause from exc
+
+
 def _decode_point(
     point: ModbusPoint,
     segment: Sequence[object],
@@ -492,8 +524,7 @@ def _decode_registers(
     if data_type == "uint16":
         return first
 
-    fmt = _MULTI_REGISTER_FMT.get(data_type)
-    if fmt is None:
+    if data_type not in _MULTI_REGISTER_TYPES:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
     # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。

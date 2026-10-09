@@ -146,12 +146,16 @@ class RecoveryPort:
     async def write_many(
         self, writes: Sequence[ProtocolWrite]
     ) -> tuple[ProtocolWriteResult, ...]:
+        # 未声明批量写能力的 Driver（如 Modbus）在任何输入下都明确拒绝，
+        # 且在连接恢复之前拒绝，避免无意义的重连；绝不降级为逐点写入。
+        if ProtocolCapability.WRITE_MANY not in self._driver.capabilities():
+            raise NotImplementedError(
+                f"{type(self._driver).__name__} does not support write_many"
+            )
         if not writes:
             return ()
         await self._restore_if_needed()
         # No retry after a write has begun: PLC/RTU may have applied the command.
-        # A driver that does not support batch writes raises NotImplementedError,
-        # which propagates unchanged and is never downgraded to per-point writes.
         return await self._bounded(
             self._driver.write_many(writes), self._settings.write_timeout, "write"
         )

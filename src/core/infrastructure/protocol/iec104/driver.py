@@ -223,6 +223,7 @@ class IEC104Driver:
             {
                 ProtocolCapability.READ,
                 ProtocolCapability.WRITE,
+                ProtocolCapability.WRITE_MANY,
                 ProtocolCapability.SUBSCRIBE,
                 ProtocolCapability.INTERROGATE,
             }

@@ -12,6 +12,7 @@ import pytest
 from core.application import ConfigError
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
+from core.application.recovery import RecoveryPort, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -24,6 +25,15 @@ from core.domain import (
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
+
+try:
+    from pymodbus.exceptions import ModbusIOException
+except ImportError:  # pymodbus 是可选依赖
+    ModbusIOException = None
+
+_requires_pymodbus = pytest.mark.skipif(
+    ModbusIOException is None, reason="pymodbus not installed"
+)
 
 
 def _point(
@@ -75,9 +85,11 @@ class _Client:
         self.read_error: Exception | None = None
         self.write_error: Exception | None = None
         self.write_response_error = False
+        self.connected = True
 
     def close(self) -> None:
         self.close_calls += 1
+        self.connected = False
 
     async def _maybe_raise(self, error: Exception | None) -> None:
         if error is not None:
@@ -494,6 +506,143 @@ class TestWriteOne:
         driver = _driver({}, client)
         with pytest.raises(ConfigError, match="not part of connection"):
             await driver.write_one(ProtocolWrite("ghost", 1))
+        assert client.total_write_calls() == 0
+
+
+# ---------------------------------------------------------------------------
+# 取消/超时后的连接状态一致性
+# ---------------------------------------------------------------------------
+
+
+class TestCancellationState:
+    @pytest.mark.asyncio
+    async def test_cancelled_read_marks_disconnect_and_propagates(self) -> None:
+        client = _Client()
+        client.read_error = asyncio.CancelledError()
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(asyncio.CancelledError):
+            await driver.read_one("h")
+
+        assert driver.health().healthy is False
+        assert client.close_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_cancelled_write_marks_disconnect_and_propagates(self) -> None:
+        client = _Client()
+        client.write_error = asyncio.CancelledError()
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(asyncio.CancelledError):
+            await driver.write_one(ProtocolWrite("h", 1))
+
+        assert client.total_write_calls() == 1  # 已发送的请求绝不重发
+        assert driver.health().healthy is False
+
+    @_requires_pymodbus
+    @pytest.mark.asyncio
+    async def test_pymodbus_wrapped_cancellation_is_unwrapped(self) -> None:
+        """pymodbus 3.15 把 CancelledError 转成 ModbusIOException；Driver 必须
+        还原取消语义（超时→TimeoutError / 主动取消→传播），同时失效连接。"""
+        client = _Client()
+        wrapped = ModbusIOException("Request cancelled outside library.")
+        wrapped.__cause__ = asyncio.CancelledError()
+        client.read_error = wrapped
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(asyncio.CancelledError):
+            await driver.read_one("h")
+
+        assert driver.health().healthy is False
+
+    @pytest.mark.asyncio
+    async def test_read_timeout_marks_disconnect_via_recovery(self) -> None:  # noqa: D103
+        """经 RecoveryPort 的 read 超时：连接必须失效，不允许残留健康状态。
+
+        重连目标指向关闭端口，确保恢复路径确定性失败。
+        """
+        client = _Client()
+
+        async def hanging_read(address: int, *, count: int, device_id: int) -> _Response:
+            await asyncio.sleep(5)
+            return _Response()
+
+        client.read_holding_registers = hanging_read  # type: ignore[method-assign]
+        driver = _driver({"h": _point("h")}, client)
+        driver._config = parse_modbus_config(ConnectionEndpoint("127.0.0.1", 1), {})
+        port = RecoveryPort(driver, RecoverySettings(read_timeout=0.01))
+
+        with pytest.raises(ProtocolError):
+            await port.read_one("h")
+
+        assert driver.health().healthy is False
+
+
+# ---------------------------------------------------------------------------
+# 点表热更新与读写的映射一致性
+# ---------------------------------------------------------------------------
+
+
+def _domain_point(point_id: str, address: int) -> Point:
+    return Point(
+        point_id=point_id,
+        business_point_id=point_id,
+        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        access=PointAccess.READ_WRITE,
+        ext={"register_type": "holding", "address": address, "data_type": "uint16"},
+    )
+
+
+class TestPointTableHotUpdate:
+    """update_point_table 是同步整体置换：单 event loop 内不存在交错，
+    更新后的下一次读写必须使用新映射。"""
+
+    @staticmethod
+    def _updatable_driver(points: list[Point], client: _Client) -> ModbusDriver:
+        driver = ModbusDriver(
+            ConnectionEndpoint("192.0.2.10", 502),
+            PointTable("pt", Protocol("modbus"), {p.point_id: p for p in points}),
+            {},
+        )
+        driver._client = client
+        driver._connected = True
+        return driver
+
+    @pytest.mark.asyncio
+    async def test_read_one_uses_new_address_after_update(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = self._updatable_driver([_domain_point("h", 100)], client)
+
+        driver.update_point_table(
+            PointTable("pt", Protocol("modbus"), {"h": _domain_point("h", 200)})
+        )
+        await driver.read_one("h")
+
+        assert client.read_holding_calls == [(200, 1)]
+
+    @pytest.mark.asyncio
+    async def test_write_one_uses_new_address_after_update(self) -> None:
+        client = _Client()
+        driver = self._updatable_driver([_domain_point("h", 100)], client)
+
+        driver.update_point_table(
+            PointTable("pt", Protocol("modbus"), {"h": _domain_point("h", 200)})
+        )
+        await driver.write_one(ProtocolWrite("h", 10))
+
+        assert client.write_register_calls == [(200, 10)]
+
+    @pytest.mark.asyncio
+    async def test_removed_point_is_rejected_immediately(self) -> None:
+        client = _Client()
+        driver = self._updatable_driver([_domain_point("h", 100)], client)
+
+        driver.update_point_table(PointTable("pt", Protocol("modbus"), {}))
+        with pytest.raises(ConfigError, match="not part of connection"):
+            await driver.read_one("h")
+        with pytest.raises(ConfigError, match="not part of connection"):
+            await driver.write_one(ProtocolWrite("h", 1))
         assert client.total_write_calls() == 0
 
 
