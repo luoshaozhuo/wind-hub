@@ -1,6 +1,7 @@
 """类型化主题配置 → 共享领域配置索引组装。
 
-把 DeviceConfig / PointConfig / UnitConfig 合并为 CoreConfigAssembly——
+把 DeviceModelsConfig / DevicesConfig / PointTablesConfig / UnitsConfig
+合并为 CoreConfigAssembly——
 一组冻结、经过领域一致性校验的配置索引，同时产出进程级附属配置：
 
 - ``point_meta``：点位的 variable_name / point_groups（采集选点分组与
@@ -33,13 +34,6 @@ from types import MappingProxyType
 from typing import Any
 
 from core.application import ConfigError
-from core.application.config_types import (
-    DeviceConfig,
-    DeviceModelDefinition,
-    PointDefinition,
-    PointTablesConfig,
-    UnitConfig,
-)
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -63,6 +57,14 @@ from core.domain import (
     ProtocolOptionValue,
     freeze_protocol_options,
     validate_core_config,
+)
+from core.domain.config import (
+    DeviceModelConfig,
+    DeviceModelsConfig,
+    DevicesConfig,
+    PointConfig,
+    PointTablesConfig,
+    UnitsConfig,
 )
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
 from core.infrastructure.protocol.ads.config import parse_ads_config
@@ -132,9 +134,10 @@ _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_reg
 
 def assemble_core_config(
     *,
-    device_config: DeviceConfig,
+    device_models_config: DeviceModelsConfig,
+    devices_config: DevicesConfig,
     point_config: PointTablesConfig,
-    unit_config: UnitConfig,
+    unit_config: UnitsConfig,
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
@@ -149,7 +152,7 @@ def assemble_core_config(
             device_type_id=DeviceTypeId(type_id),
             name=type_definition.name or type_id,
         )
-        for type_id, type_definition in device_config.models.device_types.items()
+        for type_id, type_definition in device_models_config.device_types.items()
     }
 
     business_points: dict[BusinessPointId, BusinessPoint] = {}
@@ -180,7 +183,7 @@ def assemble_core_config(
         point_meta[table_id] = meta
 
     device_models: dict[DeviceModelId, DeviceModel] = {}
-    for model_id, model_definition in device_config.models.device_models.items():
+    for model_id, model_definition in device_models_config.device_models.items():
         table = point_tables.get(PointTableId(model_definition.point_table))
         if table is None:
             raise ConfigError(
@@ -206,12 +209,12 @@ def assemble_core_config(
     group_names: set[str] = set()
     disabled: set[DeviceId] = set()
     ads_subscribe: set[DeviceId] = set()
-    for instance in device_config.instances.devices:
+    for instance in devices_config.devices:
         device_id = DeviceId(instance.device_id)
         if not instance.enabled:
             disabled.add(device_id)
             continue
-        model = _lookup_model(instance.device_id, instance.model, device_config)
+        model = _lookup_model(instance.device_id, instance.model, device_models_config)
         model_id = DeviceModelId(instance.model)
         endpoint, options = _merge_endpoint(
             instance.device_id,
@@ -297,13 +300,13 @@ def _validate_protocol_options(
 def _lookup_model(
     device_id: str,
     model_id: str,
-    device_config: DeviceConfig,
-) -> DeviceModelDefinition:
-    model = device_config.models.device_models.get(model_id)
+    device_models_config: DeviceModelsConfig,
+) -> DeviceModelConfig:
+    model = device_models_config.device_models.get(model_id)
     if model is None:
         raise ConfigError(
             f"Device '{device_id}' references unknown model '{model_id}' "
-            f"(available: {sorted(device_config.models.device_models)})"
+            f"(available: {sorted(device_models_config.device_models)})"
         )
     return model
 
@@ -314,7 +317,7 @@ def _merge_endpoint(
     host: str,
     port: int | None,
     extensions: Mapping[str, Any],
-    model: DeviceModelDefinition,
+    model: DeviceModelConfig,
 ) -> tuple[ConnectionEndpoint, dict[str, ProtocolOptionValue]]:
     """合并型号连接默认值与实例端点（实例优先）。
 
@@ -360,8 +363,8 @@ def _merge_endpoint(
 def _build_point(
     table_id: PointTableId,
     protocol: str,
-    definition: PointDefinition,
-    unit_config: UnitConfig,
+    definition: PointConfig,
+    unit_config: UnitsConfig,
     business_points: dict[BusinessPointId, BusinessPoint],
 ) -> Point:
     """把单条类型化点定义映射为 Core Domain Point（并合成 BusinessPoint）。"""
@@ -411,7 +414,7 @@ def _build_point(
         raise ConfigError(f"{context} is invalid: {exc}") from exc
 
 
-def _resolve_unit(definition: PointDefinition, unit_config: UnitConfig) -> Unit:
+def _resolve_unit(definition: PointConfig, unit_config: UnitsConfig) -> Unit:
     """把 point.unit ID 解析为 Core canonical Unit。"""
     unit_id = definition.unit
     if unit_id not in unit_config.units:
@@ -431,7 +434,7 @@ def _resolve_unit(definition: PointDefinition, unit_config: UnitConfig) -> Unit:
 
 def _synthesize_business_point(
     table_id: PointTableId,
-    definition: PointDefinition,
+    definition: PointConfig,
     data_type: DataType,
     unit: Unit,
     business_points: dict[BusinessPointId, BusinessPoint],
@@ -461,7 +464,7 @@ def _synthesize_business_point(
     return candidate
 
 
-def _derive_access(protocol: str, definition: PointDefinition) -> PointAccess:
+def _derive_access(protocol: str, definition: PointConfig) -> PointAccess:
     """按协议地址推导点读写能力（配置适配策略）。"""
     if protocol == "ads":
         return PointAccess.READ_WRITE

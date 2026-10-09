@@ -1,33 +1,20 @@
 """可复用的外部配置适配器。"""
 
-from .typed import (
-    DeviceConfig,
-    PointTablesConfig,
-    SystemConfig,
-    TasksConfig,
-    UnitConfig,
-    YamlConfigSnapshot,
-    YamlTypedConfigAdapter,
-)
+from .adapter import YamlConfigAdapter, YamlConfigSnapshot
 from .yaml import (
-    YamlConfigReader,
     fingerprint_config_files,
     fingerprint_config_set,
     fingerprint_config_topics,
     read_yaml_mapping,
+    write_yaml_mapping_atomic,
 )
 
 __all__ = [
-    "DeviceConfig",
-    "PointTablesConfig",
-    "SystemConfig",
-    "TasksConfig",
-    "UnitConfig",
-    "YamlConfigReader",
+    "YamlConfigAdapter",
     "YamlConfigSnapshot",
-    "YamlTypedConfigAdapter",
     "fingerprint_config_files",
     "fingerprint_config_set",
     "fingerprint_config_topics",
     "read_yaml_mapping",
+    "write_yaml_mapping_atomic",
 ]

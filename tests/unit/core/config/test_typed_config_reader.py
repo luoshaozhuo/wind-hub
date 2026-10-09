@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 
 from core.application import ConfigError
-from core.application.port import ConfigReader
-from core.infrastructure.config import YamlTypedConfigAdapter
+from core.application.port import ConfigPort, ConfigTopic
+from core.infrastructure.config import YamlConfigAdapter
 
 
-def test_typed_reader_returns_independent_validated_topics(tmp_path):
+def test_adapter_returns_independent_validated_topics(tmp_path):
     files = {
         "device_models": "device_types: {}\ndevice_models: {}\n",
         "devices": "devices: []\n",
@@ -22,15 +22,15 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     for name, body in files.items():
         (tmp_path / f"{name}.yaml").write_text(body, encoding="utf-8")
 
-    reader = YamlTypedConfigAdapter(tmp_path)
-    assert isinstance(reader, ConfigReader)
-    assert reader.read_device_config().instances.devices == ()
-    assert reader.read_device_config().models.device_models == {}
-    assert reader.read_point_tables_config().tables == {}
-    assert reader.read_tasks_config().tasks == ()
-    assert reader.read_unit_config().units == {}
-    assert reader.read_sink_config().sinks == []
-    assert reader.read_system_config().runtime.connect_timeout == 10.0
+    adapter = YamlConfigAdapter(tmp_path)
+    assert isinstance(adapter, ConfigPort)
+    assert adapter.read(ConfigTopic.DEVICES).devices == ()
+    assert adapter.read(ConfigTopic.DEVICE_MODELS).device_models == {}
+    assert adapter.read(ConfigTopic.POINTS).tables == {}
+    assert adapter.read(ConfigTopic.TASKS).tasks == ()
+    assert adapter.read(ConfigTopic.UNITS).units == {}
+    assert adapter.read(ConfigTopic.SINKS).sinks == []
+    assert adapter.read(ConfigTopic.SYSTEM).runtime.connect_timeout == 10.0
 
 
 def test_invalid_task_is_rejected_without_loading_other_topics(tmp_path):
@@ -44,7 +44,7 @@ def test_invalid_task_is_rejected_without_loading_other_topics(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="exactly one"):
-        YamlTypedConfigAdapter(tmp_path).read_tasks_config()
+        YamlConfigAdapter(tmp_path).read(ConfigTopic.TASKS)
 
 
 def test_point_config_expands_inheritance(tmp_path):
@@ -60,7 +60,7 @@ def test_point_config_expands_inheritance(tmp_path):
         "    extends: base\n",
         encoding="utf-8",
     )
-    points = YamlTypedConfigAdapter(tmp_path).read_point_tables_config()
+    points = YamlConfigAdapter(tmp_path).read(ConfigTopic.POINTS)
     assert "power" in points.tables["child"].points
 
 
@@ -70,7 +70,7 @@ def test_invalid_sink_is_rejected_without_other_topics(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError):
-        YamlTypedConfigAdapter(tmp_path).read_sink_config()
+        YamlConfigAdapter(tmp_path).read(ConfigTopic.SINKS)
 
 
 def test_system_config_is_typed_and_immutable(tmp_path):
@@ -80,7 +80,7 @@ def test_system_config_is_typed_and_immutable(tmp_path):
         "ads: {local_ams_net_id: 1.2.3.4.5.6, local_ip: 127.0.0.1}\n",
         encoding="utf-8",
     )
-    config = YamlTypedConfigAdapter(tmp_path).read_system_config()
+    config = YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
     assert config.site is not None and config.site.site_id == "s1"
     assert config.runtime.queue_maxsize == 500
     assert config.runtime.read_timeout == 2.5
@@ -94,7 +94,7 @@ def test_system_config_is_typed_and_immutable(tmp_path):
 
 def test_system_config_defaults_are_absent(tmp_path):
     (tmp_path / "system.yaml").write_text("site: {site_id: s1}\n", encoding="utf-8")
-    config = YamlTypedConfigAdapter(tmp_path).read_system_config()
+    config = YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
     assert config.ads is None
     assert config.runtime.queue_maxsize is None
     assert config.runtime.backpressure_policy is None
@@ -116,7 +116,7 @@ def test_system_config_rejects_invalid_runtime(tmp_path, runtime_yaml, message):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match=message):
-        YamlTypedConfigAdapter(tmp_path).read_system_config()
+        YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
 
 
 def test_resolved_point_table_index_is_read_only(tmp_path):
@@ -130,7 +130,7 @@ def test_resolved_point_table_index_is_read_only(tmp_path):
         "        address: {type: MAIN.speed}\n",
         encoding="utf-8",
     )
-    config = YamlTypedConfigAdapter(tmp_path).read_point_tables_config()
+    config = YamlConfigAdapter(tmp_path).read(ConfigTopic.POINTS)
     with pytest.raises(TypeError):
         config.tables["main"].points["speed"] = None
 
@@ -140,10 +140,10 @@ def test_device_models_and_instances_are_independently_readable(tmp_path):
         "device_types: {}\ndevice_models: {}\n",
         encoding="utf-8",
     )
-    reader = YamlTypedConfigAdapter(tmp_path)
-    assert reader.read_device_models_config().device_models == {}
+    adapter = YamlConfigAdapter(tmp_path)
+    assert adapter.read(ConfigTopic.DEVICE_MODELS).device_models == {}
     with pytest.raises(ConfigError, match="not found"):
-        reader.read_device_instances_config()
+        adapter.read(ConfigTopic.DEVICES)
 
 
 def test_task_config_returns_immutable_definitions(tmp_path):
@@ -155,7 +155,7 @@ def test_task_config_returns_immutable_definitions(tmp_path):
         "    targets: [{sink: archive}]\n",
         encoding="utf-8",
     )
-    tasks = YamlTypedConfigAdapter(tmp_path).read_tasks_config().tasks
+    tasks = YamlConfigAdapter(tmp_path).read(ConfigTopic.TASKS).tasks
     assert tasks[0].targets == ("archive",)
     with pytest.raises(AttributeError):
         tasks[0].task_id = "changed"
@@ -166,7 +166,7 @@ def test_units_are_independent_and_immutable(tmp_path):
         "units:\n  none:\n    symbol: ''\n    name: Dimensionless\n",
         encoding="utf-8",
     )
-    result = YamlTypedConfigAdapter(tmp_path).read_unit_config()
+    result = YamlConfigAdapter(tmp_path).read(ConfigTopic.UNITS)
     assert result.units["none"].name == "Dimensionless"
     with pytest.raises(TypeError):
         result.units["new"] = None
@@ -193,13 +193,14 @@ def test_device_and_point_contracts_are_deeply_immutable(tmp_path):
         "        point_groups: [fast]\n        address: {type: MAIN.p1}\n",
         encoding="utf-8",
     )
-    reader = YamlTypedConfigAdapter(tmp_path)
-    device = reader.read_device_config()
-    points = reader.read_point_tables_config()
+    adapter = YamlConfigAdapter(tmp_path)
+    models = adapter.read(ConfigTopic.DEVICE_MODELS)
+    devices = adapter.read(ConfigTopic.DEVICES)
+    points = adapter.read(ConfigTopic.POINTS)
     with pytest.raises(TypeError):
-        device.models.device_models["m1"].connection_defaults["port"] = 852
+        models.device_models["m1"].connection_defaults["port"] = 852
     with pytest.raises(TypeError):
-        device.instances.devices[0].endpoint.extensions["nested"][0] = 3
+        devices.devices[0].endpoint.extensions["nested"][0] = 3
     with pytest.raises(AttributeError):
         points.tables["main"].points["p1"].scale = 10.0
 
@@ -211,7 +212,7 @@ def test_system_config_rejects_non_mapping_sections(tmp_path, section):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="must be a mapping"):
-        YamlTypedConfigAdapter(tmp_path).read_system_config()
+        YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
 
 
 def test_system_config_validates_ads_identity(tmp_path):
@@ -222,4 +223,4 @@ def test_system_config_validates_ads_identity(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="AMS Net ID"):
-        YamlTypedConfigAdapter(tmp_path).read_system_config()
+        YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
