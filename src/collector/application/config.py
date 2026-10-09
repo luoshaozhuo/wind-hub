@@ -57,6 +57,8 @@ class RuntimeParams:
     shutdown_timeout: float = 10.0
     connect_timeout: float = 10.0
     read_timeout: float | None = None
+    reconnect_attempts: int = 1
+    write_timeout: float = 5.0
 
     def __post_init__(self) -> None:
         if self.queue_maxsize <= 0:
@@ -70,6 +72,10 @@ class RuntimeParams:
             raise ConfigError("shutdown_timeout must be > 0")
         if self.connect_timeout <= 0:
             raise ConfigError("connect_timeout must be > 0")
+        if self.reconnect_attempts < 0 or type(self.reconnect_attempts) is not int:
+            raise ConfigError("reconnect_attempts must be a nonnegative integer")
+        if self.write_timeout <= 0:
+            raise ConfigError("write_timeout must be > 0")
         if self.read_timeout is not None and self.read_timeout <= 0:
             raise ConfigError("read_timeout must be > 0")
 

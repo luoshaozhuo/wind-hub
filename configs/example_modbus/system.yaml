@@ -18,6 +18,8 @@ runtime:
   connect_timeout: 10.0
   # 单次读取超时（秒）——一次批量读的应用层外层兜底
   read_timeout: 5.0
+  # 断线时主动重连次数，0 为禁用，默认 1
+  # reconnect_attempts: 1  # 新 Core 可启用；旧配置读取器暂不识别
   # 单次写入默认超时（秒）——Command.timeout <= 0 时生效
   write_timeout: 5.0
 

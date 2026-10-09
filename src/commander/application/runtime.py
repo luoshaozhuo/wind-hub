@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from core.application import ProtocolRegistry
+from core.application.recovery import RecoverySettings
 
 from .config import CommanderConfig
 from .session import DeviceSession
@@ -127,6 +128,15 @@ class CommanderRuntime:
         """基于候选配置构造完整 generation，不执行网络 I/O。"""
         devices: dict[str, DeviceSession] = {}
         locks: dict[str, asyncio.Lock] = {}
+        if isinstance(self._protocol_registry, ProtocolRegistry):
+            self._protocol_registry.configure_recovery(
+                RecoverySettings(
+                    reconnect_attempts=config.reconnect_attempts,
+                    connect_timeout=config.connect_timeout,
+                    read_timeout=config.read_timeout,
+                    write_timeout=None,  # Commander handles per-command deadlines.
+                )
+            )
         for device in config.devices.values():
             point_table = config.point_table_for_device(device.device_id)
             protocol = self._protocol_registry.create(

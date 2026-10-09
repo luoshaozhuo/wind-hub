@@ -40,7 +40,7 @@ def new_point_callback(
 
 
 def receive_callback(
-    handler: Callable[[c104.Point], c104.ResponseState],
+    handler: Callable[[c104.Point, c104.IncomingMessage], c104.ResponseState],
 ) -> Callable[
     [c104.Point, c104.Information, c104.IncomingMessage],
     c104.ResponseState,
@@ -52,6 +52,6 @@ def receive_callback(
         previous_info: c104.Information,
         message: c104.IncomingMessage,
     ) -> c104.ResponseState:
-        return handler(point)
+        return handler(point, message)
 
     return callback

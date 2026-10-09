@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolError
@@ -186,35 +186,34 @@ class IEC104Driver:
 
         self._samples: dict[int, ProtocolSample] = {}
         self._command_locks: dict[int, asyncio.Lock] = {}
+        self._active_read_locks: dict[int, asyncio.Lock] = {}
+        self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
 
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建 IOA 寻址索引（不断开连接）。
 
-        先校验后切换：校验失败保留旧映射与样本。切换后清空样本镜像——
-        样本以 IOA 为键且 point_id 在接收时刻按旧映射写入，IOA 复用时
-        不清空会把旧点身份的样本错配给新点。已注册的 c104 通知点由上
-        层重启订阅后按新映射重新注册。
+        已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
+        的残留样本不再被读取（读取按 point_id 经新索引寻址）。
         """
-        new_points_by_id, new_points_by_ioa = build_iec104_index(
+        next_by_id, next_by_ioa = build_iec104_index(
             list(point_table.points.values()),
         )
-        self._validate_write_types(point_table, new_points_by_id)
-        self._point_table_id = point_table.point_table_id
-        self._points_by_id = new_points_by_id
-        self._points_by_ioa = new_points_by_ioa
-        self._samples.clear()
-
-    def _validate_write_types(
-        self,
-        point_table: PointTable,
-        points_by_id: Mapping[str, Any] | None = None,
-    ) -> None:
-        """校验全部可写点的命令类型（与构造期校验同一规则）。"""
-        index = points_by_id if points_by_id is not None else self._points_by_id
         for point in point_table.points.values():
-            mapped = index[point.point_id]
+            if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
+                validate_iec104_write_type(next_by_id[point.point_id])
+        # Commit the new mapping only after complete validation; old samples
+        # must not be exposed under a reassigned IOA or point identity.
+        self._point_table_id = point_table.point_table_id
+        self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
+        self._samples.clear()
+        self._reject_pending_reads("IEC104 point table changed")
+
+    def _validate_write_types(self, point_table: PointTable) -> None:
+        """校验全部可写点的命令类型（与构造期校验同一规则）。"""
+        for point in point_table.points.values():
+            mapped = self._points_by_id[point.point_id]
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
                 validate_iec104_write_type(mapped)
 
@@ -310,6 +309,7 @@ class IEC104Driver:
             self._open_event = None
             self._receive_callback_factory = None
             self._samples.clear()
+            self._reject_pending_reads("IEC104 connection closed")
             self._loop = None
 
         await self._subscriptions.close_all()
@@ -335,7 +335,22 @@ class IEC104Driver:
             message="IEC104 connection is not OPEN",
         )
 
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        """读取一个逻辑点。"""
+        return (await self.read_many((point_id,)))[0]
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """写入一个逻辑点。"""
+        return (await self.write_many((write,)))[0]
+
     async def read(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]:
+        """兼容旧接口；统一转发至 read_many。"""
+        return await self.read_many(point_ids)
+
+    async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
@@ -365,6 +380,13 @@ class IEC104Driver:
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
+        """兼容旧接口；统一转发至 write_many。"""
+        return await self.write_many(writes)
+
+    async def write_many(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
         """执行 IEC104 遥控/设点，并按 ACT_CON 结果返回逐点状态。"""
         if not writes:
             return ()
@@ -391,6 +413,82 @@ class IEC104Driver:
         else:
             ioas = None
         return self._subscriptions.subscribe(ioas, callback)
+
+    async def request_read_one(self, point_id: str) -> None:
+        """显式发送 IEC104 单点读命令；数据仍通过接收回调更新镜像。
+
+        此方法仅确认 c104 已接受发送操作，不保证远端值已经返回。
+        使用方应订阅后续样本；不能把旧镜像作为本次请求的返回值。
+        """
+        if not self._is_open or self._station is None:
+            raise ProtocolError("IEC104 active read requires an OPEN connection")
+        mapped = self._mapped_point(point_id)
+        point = self._station.get_point(mapped.ioa)
+        if point is None:
+            raise ProtocolError(
+                f"IEC104 IOA {mapped.ioa} is not registered; "
+                "subscribe or receive the point before active reading"
+            )
+        try:
+            accepted = await asyncio.to_thread(point.read)
+        except Exception as exc:
+            raise ProtocolError(f"IEC104 active read failed for {point_id}: {exc}") from exc
+        if not accepted:
+            raise ProtocolError(f"IEC104 active read rejected for {point_id}")
+
+    async def request_read_many(self, point_ids: Sequence[str]) -> None:
+        """依输入顺序逐点发送主动读请求，不将镜像作为响应返回。"""
+        if not point_ids:
+            return
+        for point_id in point_ids:
+            await self.request_read_one(point_id)
+
+    async def read_active_one(
+        self, point_id: str, *, timeout: float | None = None
+    ) -> ProtocolSample:
+        """主动读取并等待匹配 IOA/COT=REQUEST 的响应，不使用本地旧镜像。
+
+        IEC104 不含每次单点读的事务 ID，因此同 IOA 的请求必须串行。
+        超时后到达的极晚响应与下次请求无法在协议层完全区分。
+        """
+        if not self._is_open:
+            raise ProtocolError("IEC104 active read requires an OPEN connection")
+        mapped = self._mapped_point(point_id)
+        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
+        async with lock:
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[ProtocolSample] = loop.create_future()
+            self._active_reads[mapped.ioa] = future
+            try:
+                await self.request_read_one(point_id)
+                try:
+                    return await asyncio.wait_for(
+                        future, timeout=timeout if timeout is not None else self._config.t1
+                    )
+                except TimeoutError as exc:
+                    raise ProtocolError(f"IEC104 active read timed out for {point_id}") from exc
+            finally:
+                if self._active_reads.get(mapped.ioa) is future:
+                    self._active_reads.pop(mapped.ioa, None)
+
+    async def read_active_many(
+        self, point_ids: Sequence[str], *, timeout: float | None = None
+    ) -> tuple[ProtocolSample, ...]:
+        """并发读不同 IOA，同 IOA 的请求通过独立锁串行执行。"""
+        if not point_ids:
+            return ()
+        return tuple(
+            await asyncio.gather(
+                *(self.read_active_one(point_id, timeout=timeout) for point_id in point_ids)
+            )
+        )
+
+    def _reject_pending_reads(self, reason: str) -> None:
+        pending = tuple(self._active_reads.values())
+        self._active_reads.clear()
+        for future in pending:
+            if not future.done():
+                future.set_exception(ProtocolError(reason))
 
     async def interrogate(self) -> None:
         """显式发送一次 General Interrogation（QOI=20）。"""
@@ -557,6 +655,7 @@ class IEC104Driver:
 
         self._is_open = False
         self._samples.clear()
+        self._reject_pending_reads("IEC104 connection lost")
 
     def _handle_new_point(
         self,
@@ -583,7 +682,7 @@ class IEC104Driver:
             return
         point.on_receive(callable=factory(self._handle_point_receive))
 
-    def _handle_point_receive(self, point: Any) -> Any:
+    def _handle_point_receive(self, point: Any, message: Any) -> Any:
         c104 = _c104()
         ioa = point.io_address
         mapped = self._points_by_ioa.get(ioa)
@@ -609,6 +708,8 @@ class IEC104Driver:
                     self._store_sample,
                     ioa,
                     sample,
+                    message.cot == c104.Cot.REQUEST,
+                    bool(message.is_negative),
                 )
         return c104.ResponseState.NONE
 
@@ -616,8 +717,28 @@ class IEC104Driver:
         self,
         ioa: int,
         sample: ProtocolSample,
+        requested: bool = False,
+        negative: bool = False,
     ) -> None:
         if self._closed or not self._is_open:
             return
+        mapped = self._points_by_ioa.get(ioa)
+        if mapped is None or mapped.point_id != sample.point_id:
+            # A queued callback may belong to the previous point-table generation.
+            return
+        if negative and requested:
+            waiter = self._active_reads.get(ioa)
+            if waiter is not None and not waiter.done():
+                waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
+            return
         self._samples[ioa] = sample
+        if requested:
+            waiter = self._active_reads.get(ioa)
+            if waiter is not None and not waiter.done():
+                if negative:
+                    waiter.set_exception(
+                        ProtocolError(f"IEC104 negative read response at IOA {ioa}")
+                    )
+                else:
+                    waiter.set_result(sample)
         asyncio.create_task(self._subscriptions.dispatch(sample, ioa))

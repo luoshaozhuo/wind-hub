@@ -164,7 +164,22 @@ class ModbusDriver:
             )
         return ConnectionHealth(healthy=False, message="not connected")
 
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        """读取一个逻辑点。"""
+        return (await self.read_many((point_id,)))[0]
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """写入一个逻辑点。"""
+        return (await self.write_many((write,)))[0]
+
     async def read(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]:
+        """兼容旧接口；统一转发至 read_many。"""
+        return await self.read_many(point_ids)
+
+    async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
@@ -209,6 +224,13 @@ class ModbusDriver:
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
+        """兼容旧接口；统一转发至 write_many。"""
+        return await self.write_many(writes)
+
+    async def write_many(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
         """逐点执行写入；单点配置/设备拒绝不会取消同批其它点。"""
         if not writes:
             return ()
@@ -219,43 +241,88 @@ class ModbusDriver:
 
             results: list[ProtocolWriteResult] = []
             try:
-                for write in writes:
-                    mapped = self._mapped_point(write.point_id)
-                    if mapped.register_type in _READ_ONLY_TYPES:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=f"{mapped.register_type} is read-only",
+                mapped_writes = [self._mapped_point(write.point_id) for write in writes]
+                groups_by_point = {
+                    point_id: group_index
+                    for group_index, group in enumerate(self._config.write_groups)
+                    for point_id in group
+                }
+                authorized = frozenset(groups_by_point)
+                plan = self._plan_contiguous_writes(
+                    mapped_writes, authorized_point_ids=authorized
+                )
+                position = 0
+                for group in plan:
+                    chunk = writes[position : position + len(group)]
+                    position += len(group)
+                    allowed = (
+                        len(group) > 1
+                        and all(groups_by_point.get(point.point_id) ==
+                                groups_by_point.get(group[0].point_id) for point in group)
+                    )
+                    if allowed:
+                        try:
+                            words = [
+                                word
+                                for write, point in zip(chunk, group, strict=True)
+                                for word in _encode_registers(
+                                    write.value, point.data_type, point.word_order
+                                )
+                            ]
+                        except (TypeError, ValueError, struct.error):
+                            # Let each point report its own validation result.
+                            allowed = False
+                        else:
+                            response = await self._client.write_registers(
+                                group[0].address, words, device_id=self._config.unit_id
                             )
-                        )
+                            results.extend(
+                                ProtocolWriteResult(
+                                    point_id=point.point_id,
+                                    success=not response.isError(),
+                                    message=None if not response.isError()
+                                    else "Modbus exception response",
+                                )
+                                for point in group
+                            )
+                    if allowed:
                         continue
-                    try:
-                        accepted = await self._write_single(mapped, write.value)
-                    except (TypeError, ValueError, struct.error) as exc:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message=str(exc) or type(exc).__name__,
+                    for write, mapped in zip(chunk, group, strict=True):
+                        if mapped.register_type in _READ_ONLY_TYPES:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message=f"{mapped.register_type} is read-only",
+                                )
                             )
-                        )
-                        continue
-                    if accepted:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=True,
+                            continue
+                        try:
+                            accepted = await self._write_single(mapped, write.value)
+                        except (TypeError, ValueError, struct.error) as exc:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message=str(exc) or type(exc).__name__,
+                                )
                             )
-                        )
-                    else:
-                        results.append(
-                            ProtocolWriteResult(
-                                point_id=mapped.point_id,
-                                success=False,
-                                message="Modbus exception response",
+                            continue
+                        if accepted:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=True,
+                                )
                             )
-                        )
+                        else:
+                            results.append(
+                                ProtocolWriteResult(
+                                    point_id=mapped.point_id,
+                                    success=False,
+                                    message="Modbus exception response",
+                                )
+                            )
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -365,6 +432,52 @@ class ModbusDriver:
                 values[point.point_id] = _DECODE_FAILED
         return values
 
+    @staticmethod
+    def _plan_contiguous_writes(
+        points: Sequence[ModbusPoint],
+        *,
+        authorized_point_ids: frozenset[str],
+    ) -> tuple[tuple[ModbusPoint, ...], ...]:
+        """仅规划显式授权的连续保持寄存器写组；不跨空洞或重排命令。
+
+        未获授权的点永远单独成组。本函数不发送任何写入请求。
+        """
+        groups: list[tuple[ModbusPoint, ...]] = []
+        current: list[ModbusPoint] = []
+
+        def flush() -> None:
+            if current:
+                groups.append(tuple(current))
+                current.clear()
+
+        for point in points:
+            if (
+                point.register_type != "holding"
+                or point.point_id not in authorized_point_ids
+            ):
+                flush()
+                groups.append((point,))
+                continue
+
+            if not current:
+                current.append(point)
+                continue
+
+            last = current[-1]
+            start = current[0].address
+            next_end = point.address + point.count
+            if (
+                point.address == last.address + last.count
+                and next_end - start <= 123
+                and point.point_id not in {item.point_id for item in current}
+            ):
+                current.append(point)
+            else:
+                flush()
+                current.append(point)
+        flush()
+        return tuple(groups)
+
     async def _write_single(
         self,
         point: ModbusPoint,
@@ -455,11 +568,17 @@ def _decode_registers(
     if fmt is None:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    words = list(registers)
-    if word_order == "little_endian":
-        words.reverse()
-    raw = b"".join(struct.pack(">H", word) for word in words)
-    return struct.unpack(fmt, raw)[0]
+    # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
+    from pymodbus.client import ModbusTcpClient
+
+    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
+    if datatype is None:
+        raise ValueError(f"unsupported PyModbus data type '{data_type}'")
+    return ModbusTcpClient.convert_from_registers(
+        registers,
+        datatype,
+        word_order="little" if word_order == "little_endian" else "big",
+    )
 
 
 def _encode_registers(
@@ -474,21 +593,24 @@ def _encode_registers(
 
     integer_range = _INTEGER_RANGES.get(data_type)
     if integer_range is not None:
-        integer = _strict_integer_value(value, data_type, integer_range)
+        number: int | float = _strict_integer_value(value, data_type, integer_range)
         if data_type in {"int8", "uint8", "int16", "uint16"}:
-            return [integer & 0xFFFF]
-        fmt = _MULTI_REGISTER_FMT[data_type]
-        raw = struct.pack(fmt, integer)
+            return [int(number) & 0xFFFF]
     elif data_type in {"float32", "float64"}:
         number = _strict_float_value(value, data_type)
-        raw = struct.pack(_MULTI_REGISTER_FMT[data_type], number)
     else:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    words = list(struct.unpack(">" + "H" * (len(raw) // 2), raw))
-    if word_order == "little_endian":
-        words.reverse()
-    return words
+    from pymodbus.client import ModbusTcpClient
+
+    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
+    if datatype is None:
+        raise ValueError(f"unsupported PyModbus data type '{data_type}'")
+    return ModbusTcpClient.convert_to_registers(
+        number,
+        datatype,
+        word_order="little" if word_order == "little_endian" else "big",
+    )
 
 
 def _encode_coil(value: object, data_type: str) -> bool:

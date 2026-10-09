@@ -207,7 +207,22 @@ class ADSDriver:
             subscription,
         )
 
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        """读取一个逻辑点。"""
+        return (await self.read_many((point_id,)))[0]
+
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        """写入一个逻辑点。"""
+        return (await self.write_many((write,)))[0]
+
     async def read(
+        self,
+        point_ids: Sequence[str],
+    ) -> tuple[ProtocolSample, ...]:
+        """兼容旧接口；统一转发至 read_many。"""
+        return await self.read_many(point_ids)
+
+    async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
@@ -231,6 +246,14 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
+                    mapped = tuple(self._mapped_point(pid) for pid in point_ids)
+                    if (
+                        len(mapped) > 1
+                        and all(point.symbol is not None and point.address_resolved
+                                for point in mapped)
+                        and hasattr(self._connection, "read_list_by_name")
+                    ):
+                        return await self._read_symbol_list_raw(mapped)
                     return await self._read_sum_raw(point_ids)
                 return await self._read_sequential_raw(point_ids)
             except ProtocolError:
@@ -240,6 +263,13 @@ class ADSDriver:
                 raise ProtocolError(f"ADS read failed: {exc}") from exc
 
     async def write(
+        self,
+        writes: Sequence[ProtocolWrite],
+    ) -> tuple[ProtocolWriteResult, ...]:
+        """兼容旧接口；统一转发至 write_many。"""
+        return await self.write_many(writes)
+
+    async def write_many(
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
@@ -253,6 +283,55 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
+
+            # Only a unique, fully symbol-addressed batch may use pyads Sum Write.
+            # Index-only or mixed requests retain the existing ordered path.
+            mapped_batch = [self._mapped_point(write.point_id) for write in writes]
+            symbols = [point.symbol for point in mapped_batch]
+            if (
+                len(writes) > 1
+                and all(point.address_resolved for point in mapped_batch)
+                and all(symbol is not None for symbol in symbols)
+                and len(set(symbols)) == len(symbols)
+                and self._disjoint_ads_addresses(mapped_batch)
+                and hasattr(self._connection, "write_list_by_name")
+            ):
+                prepared: dict[str, object] = {}
+                try:
+                    for write, point in zip(writes, mapped_batch, strict=True):
+                        _plc_datatype(point.data_type)
+                        assert point.symbol is not None
+                        prepared[point.symbol] = _coerce_write_value(
+                            write.value, point.data_type
+                        )
+                except (ConfigError, TypeError, ValueError):
+                    # Preserve existing per-point validation and error isolation.
+                    pass
+                else:
+                    try:
+                        responses = await asyncio.to_thread(
+                            self._connection.write_list_by_name,
+                            prepared,
+                            ads_sub_commands=self._config.max_subs_per_sum,
+                        )
+                    except Exception as exc:
+                        await self._disconnect_after_failure()
+                        raise ProtocolError(f"ADS sum write failed: {exc}") from exc
+                    return tuple(
+                        ProtocolWriteResult(
+                            point_id=write.point_id,
+                            success=responses.get(point.symbol) in (0, "no error"),
+                            message=(
+                                None
+                                if responses.get(point.symbol) in (0, "no error")
+                                else (
+                                    "ADS sum write: "
+                                    f"{responses.get(point.symbol, 'missing status')}"
+                                )
+                            ),
+                        )
+                        for write, point in zip(writes, mapped_batch, strict=True)
+                    )
 
             results: list[ProtocolWriteResult] = []
             try:
@@ -318,6 +397,53 @@ class ADSDriver:
         """ADS 不支持 IEC104 式总召能力。"""
         raise ProtocolCapabilityError("ads does not support interrogation")
 
+    @staticmethod
+    def _disjoint_ads_addresses(points: Sequence[ADSPoint]) -> bool:
+        """Reject overlapping address spans, including differently named aliases."""
+        spans: dict[int, list[tuple[int, int]]] = {}
+        for point in points:
+            if point.size <= 0:
+                # Variable-sized symbols cannot be verified for overlap.
+                return False
+            start, end = point.index_offset, point.index_offset + point.size
+            region = spans.setdefault(point.index_group, [])
+            if any(start < other_end and other_start < end
+                   for other_start, other_end in region):
+                return False
+            region.append((start, end))
+        return True
+
+    async def _read_symbol_list_raw(
+        self,
+        points: tuple[ADSPoint, ...],
+    ) -> tuple[tuple[PointScalar, Quality], ...]:
+        """使用 pyads 公开 Sum Read；保留请求位置和重复 symbol。"""
+        connection = self._connection
+        if connection is None:
+            raise ProtocolError("ADS connection is not available")
+        symbols = list(dict.fromkeys(point.symbol for point in points))
+        result = await asyncio.to_thread(
+            connection.read_list_by_name,
+            symbols,
+            ads_sub_commands=self._config.max_subs_per_sum,
+        )
+        values: list[tuple[PointScalar, Quality]] = []
+        for point in points:
+            raw = result.get(point.symbol)
+            # pyads represents per-symbol ADS errors as text. A non-string
+            # PLC type receiving text is an error, not a valid GOOD sample.
+            if point.data_type != "STRING" and isinstance(raw, str):
+                values.append((None, Quality.BAD))
+                continue
+            if raw is None:
+                values.append((None, Quality.BAD))
+                continue
+            try:
+                values.append((_as_point_scalar(raw), Quality.GOOD))
+            except TypeError:
+                values.append((None, Quality.BAD))
+        return tuple(values)
+
     async def _read_sum_raw(
         self,
         point_ids: Sequence[str],
@@ -355,20 +481,22 @@ class ADSDriver:
             self._read_variable_cache[key] = tuple(variable)
             self._read_unresolved_cache[key] = tuple(unresolved)
 
-        # 缓存条目先绑定到局部变量：下方 await 让出事件循环期间，
-        # update_point_table 可能清空缓存，直接回读会 KeyError 并被误
-        # 判为传输故障拆连接。取局部快照后本轮读只使用计划自己的数据。
         unresolved_indexes = self._read_unresolved_cache.get(key, ())
         variable_points = self._read_variable_cache.get(key, ())
-
         results: list[tuple[PointScalar, Quality] | None] = [None] * len(key)
         for index in unresolved_indexes:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
-            raw = await asyncio.to_thread(
-                self._sum_read_bytes,
-                addresses,
-            )
+            try:
+                raw = await asyncio.to_thread(
+                    self._sum_read_bytes,
+                    addresses,
+                )
+            except NotImplementedError:
+                # Current pyads lacks public Index-based Sum Read. If its
+                # internal connection handles disappear, retain correctness
+                # using the supported per-address read API.
+                return await self._read_sequential_raw(point_ids)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
@@ -500,22 +628,42 @@ class ADSDriver:
         self,
         addresses: Sequence[tuple[int, int, int]],
     ) -> bytes:
-        """调用 pyads 地址型 Sum Read。"""
-        try:
-            from pyads.pyads_ex import adsSumReadBytes  # type: ignore[import-untyped]
-        except ImportError as exc:
-            raise ProtocolError("installed pyads does not expose adsSumReadBytes") from exc
+        """通过 PyADS 公开 read_write 发送标准 ADS Sum Read 请求。
+
+        请求体是连续 (index_group, index_offset, size) 的 12 字节记录，
+        ADSIGRP_SUMUP_READ 的 index_offset 字段携带子请求数。
+        """
+        from ctypes import Structure, c_uint32
+
+        from pyads.constants import ADSIGRP_SUMUP_READ  # type: ignore[import-untyped]
 
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
-        return bytes(
-            adsSumReadBytes(
-                connection._port,
-                connection._adr,
-                addresses,
-            )
+        if not hasattr(connection, "read_write"):
+            raise NotImplementedError("pyads Connection.read_write unavailable")
+
+        class _SumReadItem(Structure):
+            _fields_ = [
+                ("iGroup", c_uint32),
+                ("iOffset", c_uint32),
+                ("size", c_uint32),
+            ]
+
+        request = (_SumReadItem * len(addresses))(
+            *(_SumReadItem(group, offset, size) for group, offset, size in addresses)
         )
+        response = connection.read_write(
+            ADSIGRP_SUMUP_READ,
+            len(addresses),
+            None,
+            request,
+            None,
+            check_length=False,
+        )
+        if response is None:
+            raise ProtocolError("ADS Sum Read received no response")
+        return bytes(response)
 
     async def _disconnect_after_failure(self) -> None:
         """传输失败后立即摘除运行资源。

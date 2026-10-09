@@ -262,35 +262,55 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
     await asyncio.wait_for(done.wait(), timeout=1.0)
 
 
-def _monitoring_table(point_id: str = "power", *, ioa: int = 1001) -> PointTable:
-    point = _point(point_id, ext=_point_ext(ioa=ioa, type_id="M_ME_NC_1"))
-    return PointTable("iec_pt", DeviceProtocol("iec104"), {point.point_id: point})
-
-
-def test_iec104_update_point_table_clears_sample_mirror() -> None:
-    """切换映射后样本镜像必须清空：样本以 IOA 为键，IOA 复用会把旧点身份错配给新点。"""
-    driver = IEC104Driver(_endpoint(), _monitoring_table(), {})
-    driver._samples[1001] = ProtocolSample(point_id="power", value=1.0)
-
-    driver.update_point_table(_monitoring_table("power_v2"))
-
-    assert driver._samples == {}
-    assert "power_v2" in driver._points_by_id
-
-
-def test_iec104_update_point_table_rejects_invalid_write_and_keeps_old_mapping() -> None:
-    """先校验后切换：新表命令类型非法时保留旧映射与样本。"""
-    driver = IEC104Driver(_endpoint(), _monitoring_table(), {})
-    old_index = driver._points_by_ioa
-    bad_point = _point(
-        "setpoint",
-        access=PointAccess.WRITE,
-        ext=_point_ext(ioa=2001, type_id="M_ME_NC_1"),
+@pytest.mark.asyncio
+async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._is_open = True
+    driver._samples[100] = ProtocolSample(
+        point_id="power", value=42.0, quality=Quality.GOOD
     )
-    bad_table = PointTable("iec_pt", DeviceProtocol("iec104"), {bad_point.point_id: bad_point})
+    replacement = _point("wind_speed", ext=_point_ext(ioa=100))
+    driver.update_point_table(
+        PointTable(
+            "iec_pt",
+            DeviceProtocol("iec104"),
+            {"wind_speed": replacement},
+        )
+    )
+    assert await driver.read_one("wind_speed") == ProtocolSample(
+        point_id="wind_speed", value=None, quality=Quality.BAD
+    )
 
-    with pytest.raises(ConfigError, match="unsupported command type"):
-        driver.update_point_table(bad_table)
 
-    assert driver._points_by_ioa is old_index
-    assert "power" in driver._points_by_id
+def test_iec104_invalid_point_table_update_is_atomic() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._samples[100] = ProtocolSample(
+        point_id="power", value=42.0, quality=Quality.GOOD
+    )
+    invalid = _point(
+        "control", access=PointAccess.WRITE, ext=_point_ext(ioa=200)
+    )
+    with pytest.raises(ConfigError, match="requires type_id"):
+        driver.update_point_table(
+            PointTable("invalid", DeviceProtocol("iec104"), {"control": invalid})
+        )
+    assert driver._point_table_id == "iec_pt"
+    assert list(driver._points_by_id) == ["power"]
+    assert driver._samples[100].value == 42.0
+
+
+@pytest.mark.asyncio
+async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    replacement = _point("wind_speed", ext=_point_ext(ioa=100))
+    driver.update_point_table(
+        PointTable(
+            "iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement}
+        )
+    )
+    driver._store_sample(
+        100, ProtocolSample(point_id="power", value=42.0, quality=Quality.GOOD)
+    )
+    assert 100 not in driver._samples
