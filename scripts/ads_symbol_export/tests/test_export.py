@@ -154,3 +154,45 @@ def test_invalid_twincat_version(exporter: types.ModuleType) -> None:
     exporter.TWINCAT_VERSION = 4
     with pytest.raises(ValueError, match="只能为"):
         exporter._open_connection()
+
+
+def test_full_table_is_first_and_skips_chunks(
+    exporter: types.ModuleType, tmp_path: Path
+) -> None:
+    payload = _entry("A.x") + _entry("B.y")
+    plc = FakePLC(payload, 2)
+    plc.get_all_symbols = MagicMock(return_value=[
+        types.SimpleNamespace(name="A.x"),
+        types.SimpleNamespace(name="B.y"),
+    ])
+    exporter.TRY_FULL_TABLE_FIRST = True
+    exporter._export_with_chunk_size = MagicMock(
+        side_effect=AssertionError("chunk path should not run")
+    )
+    output = tmp_path / "symbols.txt"
+    assert exporter.export_symbols(plc, output) == 2
+    assert output.read_text(encoding="utf-8").splitlines() == ["A.x", "B.y"]
+    plc.get_all_symbols.assert_called_once()
+    exporter._export_with_chunk_size.assert_not_called()
+
+
+def test_full_table_failure_falls_back_to_chunks(
+    exporter: types.ModuleType, tmp_path: Path
+) -> None:
+    plc = FakePLC(_entry("A.x"), 1)
+    plc.get_all_symbols = MagicMock(side_effect=RuntimeError("PLC out of memory"))
+    exporter.TRY_FULL_TABLE_FIRST = True
+    exporter._export_with_chunk_size = MagicMock(return_value=1)
+    assert exporter.export_symbols(plc, tmp_path / "symbols.txt") == 1
+    plc.get_all_symbols.assert_called_once()
+    exporter._export_with_chunk_size.assert_called_once()
+
+
+def test_disable_full_table(exporter: types.ModuleType, tmp_path: Path) -> None:
+    exporter.TRY_FULL_TABLE_FIRST = False
+    exporter._export_full_table = MagicMock(
+        side_effect=AssertionError("full-table path should not run")
+    )
+    exporter._export_with_chunk_size = MagicMock(return_value=1)
+    assert exporter.export_symbols(MagicMock(), tmp_path / "symbols.txt") == 1
+    exporter._export_full_table.assert_not_called()
