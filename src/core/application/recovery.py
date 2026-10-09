@@ -4,7 +4,7 @@ A write is retried ONLY before its first transmission. Once dispatched,
 timeouts/disconnects are ambiguous and NEVER trigger automatic retransmission.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001 - imports follow application layering
 
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
