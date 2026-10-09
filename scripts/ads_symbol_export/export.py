@@ -27,7 +27,8 @@ PLC_PASSWORD = ""  # 可在运行前填写，勿提交真实密码
 REMOTE_ROUTE_NAME = "ads-symbol-export"
 
 ADS_TIMEOUT_MS = 5000
-CHUNK_SIZES = (4096, 1024, 256)  # 从较大块到较小块逐一尝试；绝不整表读取
+TRY_FULL_TABLE_FIRST = True  # PLC 内存风险：部分机型会溢出；可设 False 禁用
+CHUNK_SIZES = (4096, 1024, 256)  # 整表失败后按块大小依次尝试
 # 若 PLC 拒绝非零 IndexOffset，所有方案均会失败并报告，而非伪造成功
 MAX_SYMBOL_BYTES = 8 * 1024 * 1024 * 1024  # 仅用于防范异常长度，不会一次性分配
 OUTPUT_FILENAME = "ads_symbols.txt"  # 输出到运行命令时的当前工作目录
@@ -135,11 +136,42 @@ def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int
     return exported
 
 
+def _export_full_table(plc: pyads.Connection, output: Path) -> int:
+    """直接获取完整 ADS 符号表，并原子写出变量名。"""
+    expected, _ = _symbol_info(plc)
+    symbols = plc.get_all_symbols()
+    if len(symbols) != expected:
+        raise ValueError(f"整表数量不完整：期望 {expected}，实际 {len(symbols)}")
+    temp = output.with_name(output.name + ".partial")
+    try:
+        with temp.open("w", encoding="utf-8", newline="\\n") as handle:
+            for symbol in symbols:
+                if not isinstance(symbol.name, str) or not symbol.name:
+                    raise ValueError("整表包含无效变量名")
+                handle.write(symbol.name + "\\n")
+        temp.replace(output)
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise
+    return expected
+
+
 def export_symbols(plc: pyads.Connection, output: Path) -> int:
     """顺序尝试有限请求策略；仅完整校验的结果才发布到目标文件。"""
-    if not CHUNK_SIZES:
-        raise ValueError("CHUNK_SIZES 不能为空")
+    if not TRY_FULL_TABLE_FIRST and not CHUNK_SIZES:
+        raise ValueError("至少启用一种枚举方案")
     failures: list[str] = []
+    if TRY_FULL_TABLE_FIRST:
+        _LOG.warning("先尝试读取完整符号表；已知部分 PLC 存在内存溢出风险")
+        try:
+            count = _export_full_table(plc, output)
+        except Exception as exc:
+            reason = f"full-table: {type(exc).__name__}: {exc}"
+            failures.append(reason)
+            _LOG.warning("整表失败，转入分段方案：%s", reason)
+        else:
+            _LOG.info("整表方案成功")
+            return count
     for chunk_size in CHUNK_SIZES:
         if chunk_size < _HEADER_SIZE + 3:
             failures.append(f"chunk={chunk_size}: 配置值过小")
@@ -154,7 +186,7 @@ def export_symbols(plc: pyads.Connection, output: Path) -> int:
             continue
         _LOG.info("方案成功：chunk=%d", chunk_size)
         return result
-    raise RuntimeError("所有安全枚举策略均失败（未执行整表读取）：\\n" + "\\n".join(failures))
+    raise RuntimeError("所有已启用的枚举策略均失败：\\n" + "\\n".join(failures))
 
 
 def _open_connection() -> pyads.Connection:
