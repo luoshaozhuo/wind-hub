@@ -114,10 +114,24 @@ class YamlConfigSnapshot:
         self._topics = tuple(dict.fromkeys(topics))
         if not self._topics:
             raise ConfigError("config snapshot requires at least one topic")
-        self._captured: dict[ConfigTopic, dict[str, Any]] = {}
-        for topic in self._topics:
-            self._captured[topic] = read_yaml_mapping(self._base / _TOPIC_FILES[topic])
-        self._opened_fingerprint = fingerprint_config_topics(self._base, self._topics)
+        # 捕获前后双指纹乐观一致性检查：顺序捕获不是跨文件原子操作，
+        # 若捕获窗口内已读文件被外部修改，两次指纹不一致，拒绝创建快照，
+        # 避免 captured 旧内容与指纹对应的新内容混用导致后续
+        # verify_unchanged 误判通过。这不是严格原子快照——并发写入恰
+        # 落在两次指纹计算之间时仍依赖 verify_unchanged 兜底。
+        fingerprint_before = fingerprint_config_topics(self._base, self._topics)
+        captured = {
+            topic: read_yaml_mapping(self._base / _TOPIC_FILES[topic])
+            for topic in self._topics
+        }
+        fingerprint_after = fingerprint_config_topics(self._base, self._topics)
+        if fingerprint_before != fingerprint_after:
+            raise ConfigError(
+                "config changed while capturing snapshot: "
+                f"before={fingerprint_before} after={fingerprint_after}"
+            )
+        self._captured = captured
+        self._opened_fingerprint = fingerprint_after
 
     def read(self, topic: ConfigTopic) -> ConfigValue:
         """读取指定主题的配置 VO；未声明主题抛 ConfigError。"""
