@@ -28,8 +28,8 @@ from core.domain import (
     PointTable,
     Protocol,
     UnitCode,
-    device_options_for,
     point_table_for_device,
+    protocol_options_for,
 )
 from core.infrastructure import ProtocolRegistry
 from core.infrastructure.protocol.ads import ADSDriver
@@ -161,7 +161,7 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
                 {table.point_table_id: table},
                 device.device_id,
             ),
-            device_options_for({}, device.device_id),
+            protocol_options_for({}, device.device_id),
         )
 
 

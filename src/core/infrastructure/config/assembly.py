@@ -8,14 +8,14 @@
 - ``disabled_devices``：``enabled: false`` 的设备不进快照，记入本集合；
 - ``ads_subscribe_devices``：ADS 设备 endpoint extensions 中的
   ``subscribe_enabled: true`` 被提取为本集合——新 Core 的 ADS Driver 严格
-  拒绝未知 option，订阅开关不再进入 device_options。
+  拒绝未知 option，订阅开关不再进入 protocol_options_by_device。
 
 映射规则（与旧系统行为对齐）：
 
 - 端点合并：``port`` 取实例 endpoint.port，缺省取型号
   ``connection_defaults.port``，两者皆无是配置错误；其余
   connection_defaults 键与实例 endpoint.extensions 合并（实例优先）成为
-  协议 device_options；ADS 额外注入型号 ``read_mode``（缺省 ``sum``）；
+  协议 protocol_options_by_device；ADS 额外注入型号 ``read_mode``（缺省 ``sum``）；
 - 单位：``point.unit`` 必须是 Core 内置 canonical unit code（引用
   units.yaml 中不存在的 ID、或 ID 非内置单位均为配置错误）；
 - PointAccess 推导：modbus 只读寄存器（discrete_input/input）→ READ，
@@ -65,6 +65,17 @@ from core.domain import (
     validate_core_config,
 )
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
+from core.infrastructure.protocol.ads.config import parse_ads_config
+from core.infrastructure.protocol.iec104.config import parse_iec104_config
+from core.infrastructure.protocol.modbus.config import parse_modbus_config
+
+# 协议名 → 连接参数解析器：装配阶段即完成协议参数合法性校验（第二层
+# 配置领域校验），与 Driver 构造使用同一解析入口，避免两套校验漂移。
+_PROTOCOL_OPTION_PARSERS = {
+    "ads": parse_ads_config,
+    "modbus": parse_modbus_config,
+    "iec104": parse_iec104_config,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +88,7 @@ class CoreConfigAssembly:
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
-    device_options: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
@@ -94,9 +105,12 @@ class CoreConfigAssembly:
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(
             self,
-            "device_options",
+            "protocol_options_by_device",
             MappingProxyType(
-                {key: freeze_protocol_options(value) for key, value in self.device_options.items()}
+                {
+                    key: freeze_protocol_options(value)
+                    for key, value in self.protocol_options_by_device.items()
+                }
             ),
         )
         object.__setattr__(
@@ -188,7 +202,7 @@ def assemble_core_config(
         )
 
     devices: dict[DeviceId, Device] = {}
-    device_options: dict[DeviceId, dict[str, ProtocolOptionValue]] = {}
+    protocol_options_by_device: dict[DeviceId, dict[str, ProtocolOptionValue]] = {}
     group_names: set[str] = set()
     disabled: set[DeviceId] = set()
     ads_subscribe: set[DeviceId] = set()
@@ -217,11 +231,12 @@ def assemble_core_config(
             device_group_ids=group_ids,
         )
         # ADS 订阅开关是 Collector 采集模式选择，不是 Driver 连接参数：
-        # 从 device_options 剥离（Core ADS Driver 严格拒绝未知 option），
+        # 从 protocol_options_by_device 剥离（Core ADS Driver 严格拒绝未知 option），
         # 记入 ads_subscribe_devices。
         if model.protocol == "ads" and options.pop("subscribe_enabled", False):
             ads_subscribe.add(device_id)
-        device_options[device_id] = options
+        _validate_protocol_options(instance.device_id, model.protocol, endpoint, options)
+        protocol_options_by_device[device_id] = options
 
     device_groups = {
         DeviceGroupId(name): DeviceGroup(
@@ -239,7 +254,7 @@ def assemble_core_config(
             devices=devices,
             business_points=business_points,
             point_tables=point_tables,
-            device_options=device_options,
+            protocol_options_by_device=protocol_options_by_device,
         )
         assembly = CoreConfigAssembly(
             device_types=device_types,
@@ -248,7 +263,7 @@ def assemble_core_config(
             devices=devices,
             business_points=business_points,
             point_tables=point_tables,
-            device_options=device_options,
+            protocol_options_by_device=protocol_options_by_device,
             point_meta=point_meta,
             disabled_devices=frozenset(disabled),
             ads_subscribe_devices=frozenset(ads_subscribe),
@@ -257,6 +272,26 @@ def assemble_core_config(
         raise ConfigError(f"invalid core configuration: {exc}") from exc
 
     return assembly
+
+
+def _validate_protocol_options(
+    device_id: str,
+    protocol: str,
+    endpoint: ConnectionEndpoint,
+    options: Mapping[str, ProtocolOptionValue],
+) -> None:
+    """装配阶段校验协议连接参数（与 Driver 构造共用同一解析器）。
+
+    使非法 option（未知键、非法取值）在配置加载/热更新 prepare 阶段即
+    被拒绝，而不是推迟到 Driver 实例化才暴露。
+    """
+    parser = _PROTOCOL_OPTION_PARSERS.get(protocol)
+    if parser is None:
+        raise ConfigError(f"Device '{device_id}': unsupported protocol '{protocol}'")
+    try:
+        parser(endpoint, options)
+    except ConfigError as exc:
+        raise ConfigError(f"Device '{device_id}': {exc}") from exc
 
 
 def _lookup_model(
@@ -285,7 +320,7 @@ def _merge_endpoint(
 
     - ``port``：实例优先，否则取 ``connection_defaults['port']``，
       两者皆无是配置错误；
-    - 其余 connection_defaults 键并入 device_options，实例 extensions
+    - 其余 connection_defaults 键并入 protocol_options_by_device，实例 extensions
       同名键覆盖；ADS 额外注入型号 ``read_mode``。
     """
     defaults = dict(model.connection_defaults)

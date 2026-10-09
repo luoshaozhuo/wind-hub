@@ -3,9 +3,9 @@
 from .config import (
     ProtocolOptions,
     ProtocolOptionValue,
-    device_options_for,
     freeze_protocol_options,
     point_table_for_device,
+    protocol_options_for,
     validate_core_config,
 )
 from .device import Device, DeviceGroup, DeviceModel, DeviceType
@@ -149,7 +149,7 @@ __all__ = [
     "Protocol",
     "ProtocolOptionValue",
     "ProtocolOptions",
-    "device_options_for",
+    "protocol_options_for",
     "freeze_protocol_options",
     "point_table_for_device",
     "validate_core_config",

@@ -23,12 +23,12 @@ def point_table_for_device(
     return point_tables[model.point_table_id]
 
 
-def device_options_for(
-    device_options: Mapping[DeviceId, ProtocolOptions],
+def protocol_options_for(
+    protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
     device_id: DeviceId,
 ) -> ProtocolOptions:
     """返回指定 Device 的协议专有连接配置；缺省为空映射。"""
-    return device_options.get(device_id, MappingProxyType({}))
+    return protocol_options_by_device.get(device_id, MappingProxyType({}))
 
 
-__all__ = ["device_options_for", "point_table_for_device"]
+__all__ = ["protocol_options_for", "point_table_for_device"]

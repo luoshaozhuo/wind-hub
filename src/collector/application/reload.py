@@ -3,7 +3,7 @@
 compute_diff 比较两个 :class:`CollectorConfig` 快照，产出结构化差异，
 驱动 CollectorRuntime.reconfigure 的最小化重构。与旧实现的关键差异：
 设备「updated」判定不仅比较 Device 聚合本身，还比较其协议参数与点表
-绑定——这些在新架构中分别存于 core 快照的 device_options 与
+绑定——这些在新架构中分别存于 core 快照的 protocol_options_by_device 与
 device_model 绑定关系。
 """
 
@@ -141,7 +141,7 @@ def _device_signature(config: CollectorConfig, device_id: DeviceId) -> object:
     device = config.devices[device_id]
     return (
         device,
-        dict(config.device_options_for(device_id)),
+        dict(config.protocol_options_for(device_id)),
         config.point_table_for_device(device_id).point_table_id,
     )
 

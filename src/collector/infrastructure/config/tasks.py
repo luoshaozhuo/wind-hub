@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from collector.application.config import CollectionTask, PointMeta
 from core.application import ConfigError
 from core.domain import Device, DeviceId, PointTableId
-from core.domain.config.lookups import device_options_for, point_table_for_device
+from core.domain.config.lookups import point_table_for_device, protocol_options_for
 from core.infrastructure.config.assembly import CoreConfigAssembly
 
 
@@ -107,7 +107,7 @@ def _supports_scheduled(assembly: CoreConfigAssembly, device: Device) -> bool:
     """ADS ``sequential`` 设备只允许请求式读取，不参与周期采集。"""
     if _device_protocol(assembly, device) != "ads":
         return True
-    options = device_options_for(assembly.device_options, device.device_id)
+    options = protocol_options_for(assembly.protocol_options_by_device, device.device_id)
     return options.get("read_mode") != "sequential"
 
 

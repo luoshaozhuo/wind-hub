@@ -43,7 +43,7 @@ class ProtocolRegistry:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> ProtocolPort:
         """为指定 Endpoint 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
@@ -56,7 +56,7 @@ class ProtocolRegistry:
         return factory(
             endpoint,
             point_table,
-            device_options,
+            protocol_options,
         )
 
 

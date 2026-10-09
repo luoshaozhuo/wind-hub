@@ -156,7 +156,7 @@ class IEC104Driver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "iec104":
             raise ConfigError(
@@ -167,7 +167,7 @@ class IEC104Driver:
         self._point_table_id = point_table.point_table_id
         self._config: IEC104Config = parse_iec104_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
         self._points_by_id, self._points_by_ioa = build_iec104_index(
             list(point_table.points.values()),

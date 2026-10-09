@@ -55,7 +55,7 @@ def load_commander_config(
         device_groups=assembly.device_groups,
         point_tables=assembly.point_tables,
         business_points=assembly.business_points,
-        device_options=assembly.device_options,
+        protocol_options_by_device=assembly.protocol_options_by_device,
         point_meta={
             table_id: {
                 point_id: PointMeta(

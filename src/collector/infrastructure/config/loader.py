@@ -117,7 +117,7 @@ def load_collector_config(
         devices=assembly.devices,
         device_models=assembly.device_models,
         point_tables=assembly.point_tables,
-        device_options=assembly.device_options,
+        protocol_options_by_device=assembly.protocol_options_by_device,
         runtime=runtime,
         ads_local=ads_local,
         tasks=tasks,

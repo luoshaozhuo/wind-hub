@@ -89,7 +89,7 @@ class CollectorFakeRegistry(FakeRegistry):
 
     instances: list[CollectorFakeProtocol]  # type: ignore[assignment]
 
-    def create(self, endpoint, point_table, device_options):  # type: ignore[no-untyped-def]
+    def create(self, endpoint, point_table, protocol_options_by_device):  # type: ignore[no-untyped-def]
         instance = CollectorFakeProtocol()
         self.instances.append(instance)
         return instance

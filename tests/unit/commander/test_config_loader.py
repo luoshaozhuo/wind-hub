@@ -47,7 +47,7 @@ def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
     config = load_commander_config(config_dir)
     device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 1502
-    options = config.device_options_for(device.device_id)
+    options = config.protocol_options_for(device.device_id)
     assert options["unit_id"] == 9  # 实例 extensions 覆盖型号默认值
     assert options["word_order"] == "little_endian"
 
@@ -235,7 +235,7 @@ def test_ads_read_mode_injected_into_options(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    options = config.device_options_for(DeviceId("dev1"))
+    options = config.protocol_options_for(DeviceId("dev1"))
     assert options["read_mode"] == "sequential"
     assert options["target_net_id"] == "1.2.3.4.5.6"
 

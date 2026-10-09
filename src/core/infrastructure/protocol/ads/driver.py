@@ -60,7 +60,7 @@ class ADSDriver:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> None:
         if point_table.protocol.name != "ads":
             raise ConfigError(
@@ -71,7 +71,7 @@ class ADSDriver:
         self._point_table_id = point_table.point_table_id
         self._config: ADSConfig = parse_ads_config(
             endpoint,
-            device_options,
+            protocol_options,
         )
 
         self._lock = asyncio.Lock()

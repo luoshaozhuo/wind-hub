@@ -207,7 +207,7 @@ class FakeRegistry:
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        device_options: ProtocolOptions,
+        protocol_options_by_device: ProtocolOptions,
     ) -> ProtocolPort:
         instance = FakeProtocol()
         self.instances.append(instance)
@@ -224,7 +224,7 @@ def make_commander_config(
     device_id: str = "dev1",
     protocol: str = "modbus",
     address: dict[str, Any] | None = None,
-    device_options: dict[str, Any] | None = None,
+    protocol_options_by_device: dict[str, Any] | None = None,
     ads_local: ADSLocalIdentity | None = None,
     scale: float = 1.0,
     offset: float = 0.0,
@@ -271,8 +271,10 @@ def make_commander_config(
         },
         business_points={bp.business_point_id: bp},
         point_tables={PointTableId("tab"): table},
-        device_options=(
-            {DeviceId(device_id): dict(device_options)} if device_options is not None else {}
+        protocol_options_by_device=(
+            {DeviceId(device_id): dict(protocol_options_by_device)}
+            if protocol_options_by_device is not None
+            else {}
         ),
         ads_local=ads_local,
         connect_timeout=connect_timeout,
