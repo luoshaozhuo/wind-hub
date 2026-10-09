@@ -146,3 +146,67 @@ async def test_index_sum_read_falls_back_when_private_api_is_unavailable(
         (12, Quality.GOOD),
     )
     assert sorted(connection.calls) == [(0x4020, 12), (0x4020, 16)]
+
+
+@pytest.mark.asyncio
+async def test_index_sum_read_uses_public_read_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ctypes
+    import struct
+
+    from pyads.constants import ADSIGRP_SUMUP_READ
+
+    class _ConnectionWithSum:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def read_write(
+            self,
+            group: int,
+            count: int,
+            plc_read_datatype: object,
+            request: object,
+            plc_write_datatype: object,
+            *,
+            check_length: bool,
+        ) -> bytes:
+            self.calls += 1
+            assert group == ADSIGRP_SUMUP_READ
+            assert count == 2
+            assert plc_read_datatype is None
+            assert plc_write_datatype is None
+            assert check_length is False
+            assert ctypes.sizeof(request) == 24
+            assert [(item.iGroup, item.iOffset, item.size) for item in request] == [
+                (0x4020, 12, 4), (0x4020, 16, 4)
+            ]
+            return struct.pack("<IIII", 0, 0, 123, 456)
+
+    class _FakePyads:
+        PLCTYPE_DINT = ctypes.c_int32
+
+    import core.infrastructure.protocol.ads.driver as driver_module
+
+    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    points = {}
+    for name, offset in (("a", 12), ("b", 16)):
+        points[name] = Point(
+            point_id=name,
+            business_point_id=name,
+            source_unit=UNIT_CATALOG[UnitCode.NONE],
+            access=PointAccess.READ_WRITE,
+            ext={"index_group": 0x4020, "index_offset": offset, "data_type": "DINT"},
+        )
+    driver = ADSDriver(
+        ConnectionEndpoint("192.0.2.20", 801),
+        PointTable("ads", Protocol("ads"), points),
+        {},
+    )
+    connection = _ConnectionWithSum()
+    driver._connection = connection
+    driver._connected = True
+    assert await driver.read_raw(("a", "b")) == (
+        (123, Quality.GOOD), (456, Quality.GOOD)
+    )
+    assert connection.calls == 1
