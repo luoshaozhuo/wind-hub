@@ -16,8 +16,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from core.application.config_types import ADSLocalIdentity as ADSLocalIdentity
-from core.application.config_types import ConfigTopic
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -32,6 +30,8 @@ from core.domain import (
     ProtocolOptions,
 )
 from core.domain import PointMeta as PointMeta
+from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
+from core.domain.config import ConfigTopic
 from core.domain.config.lookups import point_table_for_device, protocol_options_for
 
 # Commander 实际消费的配置主题；tasks/sinks 等无关文件不解析，其

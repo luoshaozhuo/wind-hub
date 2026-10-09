@@ -17,7 +17,15 @@ import pytest
 
 from collector.application.config import ADSLocalIdentity, CollectorConfig, RuntimeParams
 from collector.application.config_service import CollectorConfigService
-from tests.support.new_collector import FakeSink, make_collector_config, make_runtime
+from core.application.port import ConfigTopic
+from core.application.sink_config import SinksConfig
+from core.domain.config import PointTablesConfig, TasksConfig
+from tests.support.new_collector import (
+    FakeSink,
+    make_collector_config,
+    make_runtime,
+    with_config_vo,
+)
 
 _IDENTITY_A = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
 _IDENTITY_B_NET_ID = ADSLocalIdentity(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1")
@@ -199,7 +207,26 @@ async def test_point_table_address_change_updates_driver_mapping():
         old_table.points["p1"], ext={"register_type": "holding", "address": 200}
     )
     new_table = replace(old_table, points={"p1": moved_point})
-    candidate = replace(config, point_tables={PointTableId("tab"): new_table})
+    old_points_vo = config.configs[ConfigTopic.POINTS]
+    old_tab_vo = old_points_vo.tables["tab"]
+    new_points_vo = PointTablesConfig(
+        tables={
+            "tab": replace(
+                old_tab_vo,
+                points={
+                    "p1": replace(
+                        old_tab_vo.points["p1"],
+                        address={"register_type": "holding", "address": 200},
+                    )
+                },
+            )
+        }
+    )
+    candidate = with_config_vo(
+        replace(config, point_tables={PointTableId("tab"): new_table}),
+        ConfigTopic.POINTS,
+        new_points_vo,
+    )
 
     service, runtime = _service(config, candidate)
     protocol = next(iter(runtime.devices.values()))._protocol
@@ -232,14 +259,20 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
     from collector.application.config import CollectionTask
 
     config = make_collector_config(sinks={"s1": _file_sink_cfg("s1", "/tmp/a.jsonl")})
-    candidate = replace(
-        config,
-        sinks={"s1": _file_sink_cfg("s1", "/tmp/b.jsonl")},
-        tasks={
-            "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
-            )
-        },
+    new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.jsonl")}
+    new_tasks = {
+        "t1": CollectionTask(
+            task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+        )
+    }
+    candidate = with_config_vo(
+        with_config_vo(
+            replace(config, sinks=new_sinks, tasks=new_tasks),
+            ConfigTopic.SINKS,
+            SinksConfig(sinks=list(new_sinks.values())),
+        ),
+        ConfigTopic.TASKS,
+        TasksConfig(tasks=tuple(new_tasks.values())),
     )
 
     failures = {"count": 0}

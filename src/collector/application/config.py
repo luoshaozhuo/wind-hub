@@ -19,7 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
-from core.application.config_types import ADSLocalIdentity as ADSLocalIdentity
+from core.application.port import ConfigValue
 from core.application.sink_config import ResolvedSinkConfig
 from core.domain import (
     Device,
@@ -33,6 +33,8 @@ from core.domain import (
 from core.domain import (
     PointMeta as PointMeta,
 )
+from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
+from core.domain.config import ConfigTopic, TaskConfig
 from core.domain.config.lookups import point_table_for_device, protocol_options_for
 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
@@ -72,50 +74,10 @@ class RuntimeParams:
             raise ConfigError("read_timeout must be > 0")
 
 
-@dataclass(frozen=True, slots=True)
-class CollectionTask:
-    """周期采集 Task 的业务定义（Task Definition，不可变快照）。
-
-    语义与旧 ``tasks.yaml`` 一致：
-
-    - ``device`` / ``device_group`` 二选一（XOR）——选择设备范围；
-    - ``point_group`` 单值必填——命中点位 ``point_groups`` 含该值的全部点；
-    - ``interval`` 为采集节拍（秒，> 0）——主动轮询（Modbus、ADS Sum）
-      作为 fixed-rate 采样周期，ADS 订阅作为 notification cycle_time；
-      纯 IEC104 订阅 Task 可为 ``None``；
-    - ``targets`` 为输出目标 Sink 名列表（至少一个，不允许重复）；
-    - ``enabled: false`` 时 Runtime 不创建运行实例。
-    """
-
-    task_id: str
-    point_group: str
-    targets: tuple[str, ...]
-    device: str | None = None
-    device_group: str | None = None
-    interval: float | None = None
-    enabled: bool = True
-
-    def __post_init__(self) -> None:
-        if not self.task_id.strip():
-            raise ConfigError("Collection task: task_id must be non-empty")
-        if (self.device is None) == (self.device_group is None):
-            raise ConfigError(
-                f"Task '{self.task_id}': exactly one of 'device' / 'device_group' "
-                "must be configured (XOR)"
-            )
-        if not self.point_group.strip():
-            raise ConfigError(f"Task '{self.task_id}': point_group must be non-empty")
-        if self.interval is not None and self.interval <= 0:
-            raise ConfigError(f"Task '{self.task_id}': interval must be > 0, got {self.interval}")
-        object.__setattr__(self, "targets", tuple(self.targets))
-        if not self.targets:
-            raise ConfigError(f"Task '{self.task_id}': targets must be non-empty")
-        if any(not sink.strip() for sink in self.targets):
-            raise ConfigError(f"Task '{self.task_id}': target sink names must be non-empty")
-        if len(set(self.targets)) != len(self.targets):
-            raise ConfigError(
-                f"Task '{self.task_id}': duplicate target sinks: {list(self.targets)}"
-            )
+#: 周期采集 Task 的业务定义——直接使用 Core Domain 的 TaskConfig VO
+#: （语义与旧 ``tasks.yaml`` 一致：device/device_group XOR、point_group
+#: 必填、interval > 0、targets 非空不重复、enabled 控制运行实例创建）。
+CollectionTask = TaskConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,8 +123,11 @@ class CollectorConfig:
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
             restart-required——热重载 prepare 阶段拒绝其任何变化。
+        configs: 本快照对应的各主题配置 VO（``{ConfigTopic: ConfigValue}``）——
+            热重载时由 Core Diff 在 VO 层面计算语义差异的基线。
     """
 
+    configs: Mapping[ConfigTopic, ConfigValue] = field(default_factory=dict)
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
@@ -176,6 +141,7 @@ class CollectorConfig:
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "configs", MappingProxyType(dict(self.configs)))
         object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
         object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
         object.__setattr__(self, "point_tables", MappingProxyType(dict(self.point_tables)))

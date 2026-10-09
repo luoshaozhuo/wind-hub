@@ -25,7 +25,9 @@ from core.application import (
     ProtocolSample,
     Quality,
 )
+from core.application.port import ConfigTopic
 from core.application.port.protocol import SubscriptionHandle
+from core.application.sink_config import SinksConfig
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -42,6 +44,21 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
+)
+from core.domain.config import (
+    DeviceInstanceConfig,
+    DeviceModelConfig,
+    DeviceModelsConfig,
+    DevicesConfig,
+    DeviceTypeConfig,
+    EndpointConfig,
+    PointConfig,
+    PointTableConfig,
+    PointTablesConfig,
+    SystemConfig,
+    TasksConfig,
+    UnitDefinitionConfig,
+    UnitsConfig,
 )
 from core.domain.unit import UNIT_CATALOG, UnitCode
 from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
@@ -205,7 +222,62 @@ def make_collector_config(
                 targets=("s1",),
             )
         }
+    config_vos = {
+        ConfigTopic.SYSTEM: SystemConfig(),
+        ConfigTopic.DEVICE_MODELS: DeviceModelsConfig(
+            device_types={"turbine": DeviceTypeConfig(name=None)},
+            device_models={
+                "mod": DeviceModelConfig(
+                    device_type="turbine",
+                    manufacturer=None,
+                    model=None,
+                    protocol=protocol,
+                    point_table="tab",
+                    read_mode=None,
+                    properties={},
+                    connection_defaults={},
+                )
+            },
+        ),
+        ConfigTopic.DEVICES: DevicesConfig(
+            devices=(
+                DeviceInstanceConfig(
+                    device_id=device_id,
+                    model="mod",
+                    device_group=device_group,
+                    endpoint=EndpointConfig(host="127.0.0.1", port=502, extensions={}),
+                    enabled=True,
+                ),
+            )
+        ),
+        ConfigTopic.POINTS: PointTablesConfig(
+            tables={
+                "tab": PointTableConfig(
+                    protocol=protocol,
+                    points={
+                        "p1": PointConfig(
+                            point_id="p1",
+                            variable_name="P1",
+                            point_groups=point_groups,
+                            address={"register_type": "holding", "address": 100},
+                            data_type="float32",
+                            scale=scale,
+                            offset=offset,
+                            unit="none",
+                            description=None,
+                        )
+                    },
+                )
+            }
+        ),
+        ConfigTopic.UNITS: UnitsConfig(
+            units={"none": UnitDefinitionConfig(symbol="", name=None)}
+        ),
+        ConfigTopic.TASKS: TasksConfig(tasks=tuple(tasks.values())),
+        ConfigTopic.SINKS: SinksConfig(sinks=list((sinks or {}).values())),
+    }
     return CollectorConfig(
+        configs=config_vos,
         **device_indexes,
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
@@ -215,6 +287,13 @@ def make_collector_config(
         },
         ads_subscribe_devices=frozenset({DeviceId(device_id)}) if ads_subscribe else frozenset(),
     )
+
+
+def with_config_vo(config: CollectorConfig, topic: ConfigTopic, value: Any) -> CollectorConfig:
+    """返回替换单个主题配置 VO 基线后的新 CollectorConfig（不可变更新）。"""
+    from dataclasses import replace
+
+    return replace(config, configs={**config.configs, topic: value})
 
 
 def make_session(
@@ -283,6 +362,7 @@ __all__ = [
     "make_collector_config",
     "make_runtime",
     "make_session",
+    "with_config_vo",
 ]
 
 
