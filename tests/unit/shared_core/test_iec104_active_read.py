@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.application import ProtocolError
+from core.application import ProtocolError, ProtocolSample
 from core.infrastructure.protocol.iec104.driver import IEC104Driver
 from core.infrastructure.protocol.iec104.mapping import IEC104Point
 
@@ -99,7 +99,6 @@ async def test_active_read_waits_for_matching_requested_response() -> None:
     task = asyncio.create_task(driver.read_active_one("p"))
     await asyncio.sleep(0)
     sample = ProtocolSample(point_id="p", value=7)
-    driver._active_reads[11].done() is False
     # A spontaneous notification must not resolve the explicit request.
     future = driver._active_reads[11]
     assert not future.done()
