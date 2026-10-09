@@ -367,7 +367,9 @@ class RuntimeSettings:
     reconnect_attempts: int = 1
 
     def __post_init__(self) -> None:
-        if isinstance(self.reconnect_attempts, bool) or not isinstance(self.reconnect_attempts, int):
+        if isinstance(self.reconnect_attempts, bool) or not isinstance(
+            self.reconnect_attempts, int
+        ):
             raise ValueError("runtime.reconnect_attempts must be an integer")
         if self.reconnect_attempts < 0:
             raise ValueError("runtime.reconnect_attempts must be >= 0")

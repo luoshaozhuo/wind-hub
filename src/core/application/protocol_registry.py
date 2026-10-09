@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application.errors import ConfigError
+from core.application.recovery import RecoveryPort, RecoverySettings
 from core.application.port import ProtocolPort
 from core.domain import ConnectionEndpoint, PointTable, Protocol, ProtocolOptions
 
@@ -23,6 +24,11 @@ class ProtocolRegistry:
 
     def __init__(self) -> None:
         self._factories: dict[str, ProtocolFactory] = {}
+        self._recovery_settings: RecoverySettings | None = None
+
+    def configure_recovery(self, settings: RecoverySettings) -> None:
+        """Set the runtime recovery policy for drivers created afterward."""
+        self._recovery_settings = settings
 
     def register(
         self,
@@ -44,11 +50,6 @@ class ProtocolRegistry:
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
         protocol_options: ProtocolOptions,
-        *,
-        reconnect_attempts: int | None = None,
-        connect_timeout: float = 10.0,
-        read_timeout: float | None = None,
-        write_timeout: float | None = None,
     ) -> ProtocolPort:
         """为指定 Endpoint 与 resolved PointTable 创建协议实例。"""
         protocol = point_table.protocol
@@ -59,19 +60,9 @@ class ProtocolRegistry:
                 f"registered={list(self.registered_names())}"
             )
         driver = factory(endpoint, point_table, protocol_options)
-        if reconnect_attempts is None:
+        if self._recovery_settings is None:
             return driver
-        from core.application.port.recovery import RecoveryPort, RecoverySettings
-
-        return RecoveryPort(
-            driver,
-            RecoverySettings(
-                reconnect_attempts=reconnect_attempts,
-                connect_timeout=connect_timeout,
-                read_timeout=read_timeout,
-                write_timeout=write_timeout,
-            ),
-        )
+        return RecoveryPort(driver, self._recovery_settings)
 
 
 def _protocol_name(protocol: Protocol | str) -> str:

@@ -736,7 +736,9 @@ class IEC104Driver:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
                 if negative:
-                    waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
+                    waiter.set_exception(
+                        ProtocolError(f"IEC104 negative read response at IOA {ioa}")
+                    )
                 else:
                     waiter.set_result(sample)
         asyncio.create_task(self._subscriptions.dispatch(sample, ioa))

@@ -635,7 +635,7 @@ class ADSDriver:
         """
         from ctypes import Structure, c_uint32
 
-        from pyads.constants import ADSIGRP_SUMUP_READ
+        from pyads.constants import ADSIGRP_SUMUP_READ  # type: ignore[import-untyped]
 
         connection = self._connection
         if connection is None:

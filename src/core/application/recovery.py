@@ -23,7 +23,7 @@ from core.application.protocol_contract import (
 )
 from core.domain import PointTable
 
-from .protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
+from core.application.port.protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
 
 _T = TypeVar("_T")
 

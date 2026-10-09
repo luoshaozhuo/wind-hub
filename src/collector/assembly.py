@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.application.recovery import RecoverySettings
 from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
@@ -115,16 +116,20 @@ def assemble_collector(
         )
 
     protocol_registry = build_protocol_registry()
+    protocol_registry.configure_recovery(
+        RecoverySettings(
+            reconnect_attempts=config.runtime.reconnect_attempts,
+            connect_timeout=config.runtime.connect_timeout,
+            read_timeout=config.runtime.read_timeout,
+            write_timeout=config.runtime.write_timeout,
+        )
+    )
 
     def session_factory(view: DeviceView) -> CollectorDeviceSession:
         protocol = protocol_registry.create(
             view.device.endpoint,
             view.point_table,
             view.options,
-            reconnect_attempts=config.runtime.reconnect_attempts,
-            connect_timeout=config.runtime.connect_timeout,
-            read_timeout=config.runtime.read_timeout,
-            write_timeout=config.runtime.write_timeout,
         )
         return CollectorDeviceSession(
             view.device,
