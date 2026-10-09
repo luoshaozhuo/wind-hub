@@ -232,6 +232,107 @@ async def test_unsupported_write_many_propagates_without_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_read_many_returns_empty_without_connect() -> None:
+    """空批量读取直接返回空 tuple，不触发连接恢复或 Driver 调用。"""
+    driver = _Driver()
+    port = RecoveryPort(driver, RecoverySettings())
+    assert await port.read_many(()) == ()
+    assert driver.connect_count == 0
+    assert driver.read_count == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_write_many_returns_empty_without_connect() -> None:
+    """空批量写（已声明能力）直接返回空 tuple，不触发连接恢复。"""
+    driver = _Driver()
+    port = RecoveryPort(driver, RecoverySettings())
+    assert await port.write_many(()) == ()
+    assert driver.connect_count == 0
+    assert driver.write_count == 0
+
+
+@pytest.mark.asyncio
+async def test_read_one_forwards_to_single_read_not_many() -> None:
+    """单点读转发单点读：RecoveryPort 不得用 read_many 模拟 read_one。"""
+    driver = _Driver()
+
+    async def fail_read_many(point_ids: tuple[str, ...]) -> tuple[ProtocolSample, ...]:
+        raise AssertionError(f"read_one must not be served by read_many: {point_ids}")
+
+    driver.read_many = fail_read_many  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings())
+    assert (await port.read_one("a")).value == 42
+
+
+@pytest.mark.asyncio
+async def test_write_many_forwards_to_batch_write_not_single() -> None:
+    """批量写转发批量写：RecoveryPort 不得降级为逐点 write_one。"""
+    driver = _Driver()
+    driver.connected = True
+
+    async def fail_write_one(write: ProtocolWrite) -> ProtocolWriteResult:
+        raise AssertionError(f"write_many must not degrade to write_one: {write}")
+
+    driver.write_one = fail_write_one  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings())
+    results = await port.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
+    assert [r.point_id for r in results] == ["a", "b"]
+    assert driver.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancellation_propagates_without_retry() -> None:
+    """读操作被取消：CancelledError 原样传播，不做恢复重试。"""
+    driver = _Driver()
+    driver.connected = True
+
+    async def hanging_read(point_id: str) -> ProtocolSample:
+        await asyncio.sleep(5)
+        raise AssertionError("unreachable")
+
+    driver.read_one = hanging_read  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(read_timeout=None, reconnect_attempts=3))
+    task = asyncio.create_task(port.read_one("a"))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert driver.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_reconnect_failure_leaves_no_half_initialized_state() -> None:
+    """重连全部失败：抛 ProtocolError，且健康状态如实反映未连接。"""
+    driver = _Driver(fail_connect=99)
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+    with pytest.raises(ProtocolError, match="2 reconnect"):
+        await port.read_one("a")
+    assert driver.health().healthy is False
+    assert driver.connect_count == 2
+    assert driver.read_count == 0
+
+
+@pytest.mark.asyncio
+async def test_close_failure_during_restore_still_attempts_connect() -> None:
+    """恢复路径中 close 失败计入一次尝试，剩余尝试继续，不留失效连接。"""
+    driver = _Driver()
+    close_calls = 0
+
+    async def flaky_close() -> None:
+        nonlocal close_calls
+        close_calls += 1
+        if close_calls == 1:
+            raise ProtocolError("close blew up")
+        driver.connected = False
+
+    driver.close = flaky_close  # type: ignore[method-assign]
+    port = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+    assert (await port.read_one("a")).value == 42
+    assert close_calls == 2
+    assert driver.connect_count == 1
+
+
+@pytest.mark.asyncio
 async def test_connection_timeout_is_enforced() -> None:
     driver = _Driver()
 

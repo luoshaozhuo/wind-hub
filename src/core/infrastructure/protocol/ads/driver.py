@@ -400,13 +400,24 @@ class ADSDriver:
                 message=str(exc),
             )
 
-        await asyncio.to_thread(
-            self._connection.write,
-            mapped.index_group,
-            mapped.index_offset,
-            raw_value,
-            datatype,
-        )
+        try:
+            await asyncio.to_thread(
+                self._connection.write,
+                mapped.index_group,
+                mapped.index_offset,
+                raw_value,
+                datatype,
+            )
+        except Exception as exc:
+            # 点级 ADS 错误（如 symbol 在 PLC 侧已删除）只收敛为单点失败；
+            # 连接/传输级异常继续抛出，由调用方统一断线处理。
+            if _is_point_level_error(exc):
+                return ProtocolWriteResult(
+                    point_id=mapped.point_id,
+                    success=False,
+                    message=str(exc) or type(exc).__name__,
+                )
+            raise
         return ProtocolWriteResult(
             point_id=mapped.point_id,
             success=True,
