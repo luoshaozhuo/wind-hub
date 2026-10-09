@@ -72,8 +72,10 @@ async def test_unique_symbols_use_public_sum_write(
     monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
     driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
     # Normally performed during connect: bind symbol addresses to this session.
-    for key, point in driver._points.items():
-        driver._points[key] = point.resolved(index_group=0x4020, index_offset=10)
+    for index, (key, point) in enumerate(driver._points.items()):
+        driver._points[key] = point.resolved(
+            index_group=0x4020, index_offset=10 + index * 4
+        )
 
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
     assert [result.success for result in results] == [True, False]
