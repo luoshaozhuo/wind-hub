@@ -157,18 +157,18 @@ async def test_startup_timeout_and_shutdown_failure_do_not_block_other_devices()
     healthy.close.assert_awaited_once()
 
 
-async def test_reconnect_backoff_and_metrics_hook_replacement() -> None:
+async def test_reconnect_backoff_and_metrics() -> None:
     now = 10.0
     protocol = _protocol()
     protocol.connect.side_effect = OSError("offline")
-    first, replacement = CollectorMetricsState(), CollectorMetricsState()
+    metrics = CollectorMetricsState()
     collector = CollectorRuntime(
         devices={"d1": CollectorDeviceSession(_config(), [], protocol)},
         sinks={},
         engine=AcquisitionEngine(),
         config=RuntimeConfig(),
         clock=lambda: now,
-        metrics_hook=first,
+        metrics_hook=metrics,
     )
     devices = collector.device_runtime
     await collector.start()
@@ -177,7 +177,6 @@ async def test_reconnect_backoff_and_metrics_hook_replacement() -> None:
         assert state.next_retry_at == 11.0
         assert await devices.ensure_connected("d1") is False
         protocol.connect.assert_awaited_once()
-        collector.attach_metrics_hook(replacement)
         now = 11.0
         assert await devices.ensure_connected("d1") is False
         assert state.next_retry_at == 13.0
@@ -191,16 +190,13 @@ async def test_reconnect_backoff_and_metrics_hook_replacement() -> None:
         assert state.connected is True
         assert state.consecutive_failures == 0
         assert state.last_success_at == 13.0
-        assert first.snapshot()["device_connect_failures"] == {"d1": 1}
-        assert first.snapshot()["device_reconnects"] == {}
-        assert replacement.snapshot()["device_connect_failures"] == {"d1": 1}
-        assert replacement.snapshot()["device_reconnects"] == {"d1": 1}
-        collector.attach_metrics_hook(None)
+        assert metrics.snapshot()["device_connect_failures"] == {"d1": 2}
+        assert metrics.snapshot()["device_reconnects"] == {"d1": 1}
         devices.report_read_failure("d1", OSError("connection lost"))
         assert state.connected is False
         now = 14.0
         assert await devices.ensure_connected("d1") is True
-        assert replacement.snapshot()["device_reconnects"] == {"d1": 1}
+        assert metrics.snapshot()["device_reconnects"] == {"d1": 2}
     finally:
         await collector.stop()
 

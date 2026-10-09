@@ -80,10 +80,6 @@ class TaskRuntime:
     # 只读视图（查询/控制服务经此读取，热重载安全）
     # ------------------------------------------------------------------
 
-    def attach_metrics_hook(self, metrics_hook: RuntimeMetricsPort | None) -> None:
-        """与 Collector 的指标 observer 同步替换，不改变实例启停状态。"""
-        self._metrics = metrics_hook
-
     def task_definitions(self) -> dict[str, CollectionTask]:
         """当前 Task Definition 注册表（浅拷贝）。"""
         return dict(self._task_defs)

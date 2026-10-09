@@ -85,6 +85,23 @@ async def test_concurrent_same_command_shares_inflight():
     assert len(registry.instances[0].writes) == 1
 
 
+async def test_send_batch_preserves_order_and_isolates_failures():
+    """批量写并发执行：单条失败只收敛在自身结果，按输入顺序返回。"""
+    registry = FakeRegistry()
+    dispatcher = CommandDispatcher(_runtime(registry))
+    results = await dispatcher.send_batch(
+        [
+            Command(command_id="b1", device_id="ghost", point_id="p1", value=1.0),
+            Command(command_id="b2", device_id="dev1", point_id="p1", value=1.0),
+        ]
+    )
+    assert [result.command_id for result in results] == ["b1", "b2"]
+    assert not results[0].success
+    assert "unknown device" in (results[0].error or "")
+    assert results[1].success
+    assert len(registry.instances[0].writes) == 1
+
+
 async def test_protocol_rejection_maps_to_failure_result():
     registry = FakeRegistry()
     runtime = _runtime(registry)
