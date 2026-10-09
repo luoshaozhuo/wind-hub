@@ -1,4 +1,4 @@
-"""独立 ADS 点表导出工具：分段读取，逐条写出变量名。"""
+"""独立 TwinCAT ADS 符号名导出工具。"""
 
 from __future__ import annotations
 
@@ -37,9 +37,9 @@ LOG_EVERY = 1000
 # ====================================================
 
 _LOG = logging.getLogger(__name__)
-_UPLOAD_INFO2 = 0xF00F
-_UPLOAD = 0xF00B
-_HEADER_SIZE = 30
+_SYMBOL_INFO_GROUP = 0xF00F
+_SYMBOL_DATA_GROUP = 0xF00B
+_SYMBOL_SYMBOL_HEADER_SIZE = 30
 
 
 def _read_bytes(plc: pyads.Connection, group: int, offset: int, length: int) -> bytes:
@@ -53,50 +53,53 @@ def _read_bytes(plc: pyads.Connection, group: int, offset: int, length: int) -> 
     return data
 
 
-def _symbol_info(plc: pyads.Connection) -> tuple[int, int]:
-    data = _read_bytes(plc, _UPLOAD_INFO2, 0, 8)
+def _read_symbol_table_info(plc: pyads.Connection) -> tuple[int, int]:
+    data = _read_bytes(plc, _SYMBOL_INFO_GROUP, 0, 8)
     count, total = struct.unpack_from("<II", data)
-    if not count or total < count * (_HEADER_SIZE + 3):
+    if count == 0 or total < count * (_SYMBOL_HEADER_SIZE + 3):
         raise ValueError(f"无效点表信息: count={count}, size={total}")
     if total > MAX_SYMBOL_BYTES:
         raise ValueError(f"点表长度 {total} 超过安全上限 {MAX_SYMBOL_BYTES}")
     return count, total
 
 
-def _parse_entry(data: bytearray) -> tuple[str, int] | None:
+def _parse_symbol_entry(data: bytearray) -> tuple[str, int] | None:
     """解析一个完整的 AdsSymbolEntry；不足一条则保留缓冲区。"""
-    if len(data) < _HEADER_SIZE:
+    if len(data) < _SYMBOL_HEADER_SIZE:
         return None
     length = struct.unpack_from("<I", data)[0]
-    if length < _HEADER_SIZE + 3:
+    if length < _SYMBOL_HEADER_SIZE + 3:
         raise ValueError(f"非法符号记录长度: {length}")
+    if length > MAX_SYMBOL_BYTES:
+        raise ValueError(f"符号记录长度超限: {length}")
     if length > len(data):
         return None
+    # AdsSymbolEntry: entryLength(4) + indexGroup/indexOffset/size/dataType/flags(20)。
     name_len, type_len, comment_len = struct.unpack_from("<HHH", data, 24)
-    required = _HEADER_SIZE + name_len + 1 + type_len + 1 + comment_len + 1
+    required = _SYMBOL_HEADER_SIZE + name_len + 1 + type_len + 1 + comment_len + 1
     if required > length:
         raise ValueError(f"符号记录字段长度超过记录总长度: {length}")
-    name_raw = bytes(data[_HEADER_SIZE : _HEADER_SIZE + name_len])
+    name_raw = bytes(data[_SYMBOL_HEADER_SIZE : _SYMBOL_HEADER_SIZE + name_len])
     name = name_raw.decode(TEXT_ENCODING)
     if not name:
         raise ValueError("收到空符号名")
-    if data[_HEADER_SIZE + name_len] != 0:
+    if data[_SYMBOL_HEADER_SIZE + name_len] != 0:
         raise ValueError("符号名未以 NUL 结尾")
     return name, length
 
 
-def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int) -> int:
+def _export_in_chunks(plc: pyads.Connection, output: Path, chunk_size: int) -> int:
     """使用指定小块大小逐次读取符号表，失败时丢弃当前结果。"""
-    count, total = _symbol_info(plc)
+    count, total = _read_symbol_table_info(plc)
     _LOG.info("PLC symbols: %d, upload bytes: %d", count, total)
-    if chunk_size < _HEADER_SIZE + 3:
+    if chunk_size < _SYMBOL_HEADER_SIZE + 3:
         raise ValueError("chunk_size 太小")
     # 以重叠窗口验证 IndexOffset 真的是字节偏移，不接受返回首块的伪支持。
     probe_length = min(64, total - 1, chunk_size - 1)
     if probe_length < 16:
         raise ValueError("点表太短，无法可靠验证分段偏移")
-    probe_first = _read_bytes(plc, _UPLOAD, 0, probe_length + 1)
-    probe_shifted = _read_bytes(plc, _UPLOAD, 1, probe_length)
+    probe_first = _read_bytes(plc, _SYMBOL_DATA_GROUP, 0, probe_length + 1)
+    probe_shifted = _read_bytes(plc, _SYMBOL_DATA_GROUP, 1, probe_length)
     if probe_first[1:] != probe_shifted or probe_first[:probe_length] == probe_shifted:
         raise ValueError("PLC 不支持可靠的 0xF00B 字节偏移读取")
     buffer = bytearray()
@@ -108,11 +111,11 @@ def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int
         with temp.open("w", encoding="utf-8", newline="\n") as handle:
             while offset < total:
                 length = min(chunk_size, total - offset)
-                chunk = _read_bytes(plc, _UPLOAD, offset, length)
+                chunk = _read_bytes(plc, _SYMBOL_DATA_GROUP, offset, length)
                 buffer.extend(chunk)
                 offset += length
-                while len(buffer) >= _HEADER_SIZE:
-                    entry = _parse_entry(buffer)
+                while len(buffer) >= _SYMBOL_HEADER_SIZE:
+                    entry = _parse_symbol_entry(buffer)
                     if entry is None:
                         # 单个记录超过 CHUNK_SIZE 也能跨多次读取。
                         break
@@ -127,7 +130,7 @@ def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int
         if exported != count or buffer:
             raise ValueError(
                 f"符号流不完整：声明 {count} 条，解析 {exported} 条，剩余 {len(buffer)} 字节；"
-                "可能是 PLC 不支持 ADSIGRP_SYM_UPLOAD 分段偏移读取"
+                "可能是 PLC 不支持 ADSIGRP_SYM_SYMBOL_DATA_GROUP 分段偏移读取"
             )
         temp.replace(output)
     except Exception:
@@ -138,7 +141,7 @@ def _export_with_chunk_size(plc: pyads.Connection, output: Path, chunk_size: int
 
 def _export_full_table(plc: pyads.Connection, output: Path) -> int:
     """直接获取完整 ADS 符号表，并原子写出变量名。"""
-    expected, _ = _symbol_info(plc)
+    expected, _ = _read_symbol_table_info(plc)
     symbols = plc.get_all_symbols()
     if len(symbols) != expected:
         raise ValueError(f"整表数量不完整：期望 {expected}，实际 {len(symbols)}")
@@ -157,7 +160,7 @@ def _export_full_table(plc: pyads.Connection, output: Path) -> int:
 
 
 def export_symbols(plc: pyads.Connection, output: Path) -> int:
-    """顺序尝试有限请求策略；仅完整校验的结果才发布到目标文件。"""
+    """先整表、后逐级缩小分块；所有候选结果必须校验完整。"""
     if not TRY_FULL_TABLE_FIRST and not CHUNK_SIZES:
         raise ValueError("至少启用一种枚举方案")
     failures: list[str] = []
@@ -173,12 +176,12 @@ def export_symbols(plc: pyads.Connection, output: Path) -> int:
             _LOG.info("整表方案成功")
             return count
     for chunk_size in CHUNK_SIZES:
-        if chunk_size < _HEADER_SIZE + 3:
+        if chunk_size < _SYMBOL_HEADER_SIZE + 3:
             failures.append(f"chunk={chunk_size}: 配置值过小")
             continue
         _LOG.info("尝试 ADS 符号表分段读取：chunk=%d", chunk_size)
         try:
-            result = _export_with_chunk_size(plc, output, chunk_size)
+            result = _export_in_chunks(plc, output, chunk_size)
         except Exception as exc:
             reason = f"chunk={chunk_size}: {type(exc).__name__}: {exc}"
             failures.append(reason)
@@ -186,7 +189,7 @@ def export_symbols(plc: pyads.Connection, output: Path) -> int:
             continue
         _LOG.info("方案成功：chunk=%d", chunk_size)
         return result
-    raise RuntimeError("所有已启用的枚举策略均失败：\\n" + "\\n".join(failures))
+    raise RuntimeError("所有已启用的枚举策略均失败：\n" + "\n".join(failures))
 
 
 def _open_connection() -> pyads.Connection:
