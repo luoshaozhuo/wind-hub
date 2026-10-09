@@ -89,3 +89,60 @@ async def test_symbol_read_error_text_is_bad_quality() -> None:
         (12.5, Quality.GOOD),
         (None, Quality.BAD),
     )
+
+
+@pytest.mark.asyncio
+async def test_index_sum_read_falls_back_when_private_api_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.infrastructure.protocol.ads.driver as driver_module
+
+    class _FakePyads:
+        PLCTYPE_DINT = object()
+
+    class _IndexConnection:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def read(self, index_group: int, index_offset: int, datatype: object) -> int:
+            del datatype
+            self.calls.append((index_group, index_offset))
+            return index_offset
+
+    def _index_point(point_id: str, offset: int) -> Point:
+        return Point(
+            point_id=point_id,
+            business_point_id=point_id,
+            source_unit=UNIT_CATALOG[UnitCode.NONE],
+            access=PointAccess.READ_WRITE,
+            ext={
+                "index_group": 0x4020,
+                "index_offset": offset,
+                "data_type": "DINT",
+            },
+        )
+
+    driver = ADSDriver(
+        ConnectionEndpoint("192.0.2.20", 801),
+        PointTable(
+            "ads",
+            Protocol("ads"),
+            {"a": _index_point("a", 12), "b": _index_point("b", 16)},
+        ),
+        {},
+    )
+    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    connection = _IndexConnection()
+    driver._connection = connection
+    driver._connected = True
+
+    def unavailable(addresses: object) -> bytes:
+        del addresses
+        raise NotImplementedError("internal handle unavailable")
+
+    monkeypatch.setattr(driver, "_sum_read_bytes", unavailable)
+    assert await driver.read_raw(("b", "a")) == (
+        (16, Quality.GOOD),
+        (12, Quality.GOOD),
+    )
+    assert connection.calls == [(0x4020, 16), (0x4020, 12)]
