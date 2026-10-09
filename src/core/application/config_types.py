@@ -7,7 +7,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
+
+
+class ConfigTopic(StrEnum):
+    """配置主题；与磁盘文件名的映射由 Infrastructure Adapter 决定。"""
+
+    SYSTEM = "system"
+    DEVICE_MODELS = "device_models"
+    DEVICES = "devices"
+    POINTS = "points"
+    UNITS = "units"
+    TASKS = "tasks"
+    SINKS = "sinks"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +93,7 @@ class PointTableDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class PointConfig:
+class PointTablesConfig:
     tables: Mapping[str, PointTableDefinition]
 
 
@@ -96,7 +109,7 @@ class TaskDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class TaskConfig:
+class TasksConfig:
     tasks: tuple[TaskDefinition, ...]
 
 
@@ -109,8 +122,20 @@ class SiteIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class ADSLocalIdentity:
+    """进程级 ADS 本机身份（restart-required，不含凭据）。
+
+    Collector 与 Commander 共享的身份契约；本机 AMS Net ID 绑定路由与
+    已建立的 ADS 连接，变化必须重启进程生效。
+    """
+
+    local_ams_net_id: str
+    local_ip: str
+
+
+@dataclass(frozen=True, slots=True)
 class ADSLocalConfig:
-    """进程级 ADS 本机身份与凭据（restart-required）。"""
+    """system.yaml ``ads`` 段的完整契约：本机身份与凭据（restart-required）。"""
 
     local_ams_net_id: str
     local_ip: str

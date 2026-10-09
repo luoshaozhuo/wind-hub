@@ -42,9 +42,9 @@ def load_collector_config(
 
     system = reader.read_system_config()
     device_config = reader.read_device_config()
-    point_config = reader.read_point_config()
+    point_config = reader.read_point_tables_config()
     unit_config = reader.read_unit_config()
-    task_config = reader.read_task_config()
+    task_config = reader.read_tasks_config()
     sinks_file = reader.read_sink_config()
 
     runtime = _runtime_params(system)

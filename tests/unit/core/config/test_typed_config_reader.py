@@ -26,8 +26,8 @@ def test_typed_reader_returns_independent_validated_topics(tmp_path):
     assert isinstance(reader, ConfigReader)
     assert reader.read_device_config().instances.devices == ()
     assert reader.read_device_config().models.device_models == {}
-    assert reader.read_point_config().tables == {}
-    assert reader.read_task_config().tasks == ()
+    assert reader.read_point_tables_config().tables == {}
+    assert reader.read_tasks_config().tasks == ()
     assert reader.read_unit_config().units == {}
     assert reader.read_sink_config().sinks == []
     assert reader.read_system_config().runtime.connect_timeout == 10.0
@@ -44,7 +44,7 @@ def test_invalid_task_is_rejected_without_loading_other_topics(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="exactly one"):
-        YamlTypedConfigAdapter(tmp_path).read_task_config()
+        YamlTypedConfigAdapter(tmp_path).read_tasks_config()
 
 
 def test_point_config_expands_inheritance(tmp_path):
@@ -60,7 +60,7 @@ def test_point_config_expands_inheritance(tmp_path):
         "    extends: base\n",
         encoding="utf-8",
     )
-    points = YamlTypedConfigAdapter(tmp_path).read_point_config()
+    points = YamlTypedConfigAdapter(tmp_path).read_point_tables_config()
     assert "power" in points.tables["child"].points
 
 
@@ -130,7 +130,7 @@ def test_resolved_point_table_index_is_read_only(tmp_path):
         "        address: {type: MAIN.speed}\n",
         encoding="utf-8",
     )
-    config = YamlTypedConfigAdapter(tmp_path).read_point_config()
+    config = YamlTypedConfigAdapter(tmp_path).read_point_tables_config()
     with pytest.raises(TypeError):
         config.tables["main"].points["speed"] = None
 
@@ -155,7 +155,7 @@ def test_task_config_returns_immutable_definitions(tmp_path):
         "    targets: [{sink: archive}]\n",
         encoding="utf-8",
     )
-    tasks = YamlTypedConfigAdapter(tmp_path).read_task_config().tasks
+    tasks = YamlTypedConfigAdapter(tmp_path).read_tasks_config().tasks
     assert tasks[0].targets == ("archive",)
     with pytest.raises(AttributeError):
         tasks[0].task_id = "changed"
@@ -195,7 +195,7 @@ def test_device_and_point_contracts_are_deeply_immutable(tmp_path):
     )
     reader = YamlTypedConfigAdapter(tmp_path)
     device = reader.read_device_config()
-    points = reader.read_point_config()
+    points = reader.read_point_tables_config()
     with pytest.raises(TypeError):
         device.models.device_models["m1"].connection_defaults["port"] = 852
     with pytest.raises(TypeError):

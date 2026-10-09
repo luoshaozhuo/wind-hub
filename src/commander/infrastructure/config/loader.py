@@ -29,7 +29,7 @@ def load_commander_config(
 
     system = reader.read_system_config()
     device_config = reader.read_device_config()
-    point_config = reader.read_point_config()
+    point_config = reader.read_point_tables_config()
     unit_config = reader.read_unit_config()
 
     connect_timeout = (

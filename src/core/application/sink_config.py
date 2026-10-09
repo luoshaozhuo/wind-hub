@@ -15,24 +15,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.application import ConfigError
+from core.domain import DataType
 
 SINK_TYPES = frozenset({"file", "kafka", "db", "iec104", "opcua", "modbus"})
-SINK_DATA_TYPES = frozenset(
-    {
-        "float32",
-        "float64",
-        "int8",
-        "int16",
-        "int32",
-        "int64",
-        "uint8",
-        "uint16",
-        "uint32",
-        "uint64",
-        "bool",
-        "str",
-    }
-)
+SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
     {

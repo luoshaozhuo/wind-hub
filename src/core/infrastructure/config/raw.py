@@ -16,33 +16,17 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.application import ConfigError
+from core.domain import DataType
+from core.infrastructure.protocol.ads.config import ADS_READ_MODES, is_valid_ams_net_id
 
 SUPPORTED_PROTOCOLS = frozenset({"ads", "modbus", "iec104"})
 
-ALLOWED_DATA_TYPES = frozenset(
-    {
-        "float32",
-        "float64",
-        "int8",
-        "int16",
-        "int32",
-        "int64",
-        "uint8",
-        "uint16",
-        "uint32",
-        "uint64",
-        "bool",
-        "str",
-    }
-)
-
-ADS_READ_MODES = frozenset({"sum", "sequential"})
+ALLOWED_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 
 
 def validate_ams_net_id(net_id: str) -> str:
     """校验六段十进制 AMS Net ID，非法时抛 ConfigError。"""
-    parts = net_id.split(".")
-    if len(parts) != 6 or not all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
+    if not is_valid_ams_net_id(net_id):
         raise ConfigError(f"Invalid AMS Net ID '{net_id}'; expected dotted-numeric 'a.b.c.d.e.f'")
     return net_id
 
@@ -192,7 +176,7 @@ class PointAddressRaw(BaseModel):
     type: str | None = None
 
 
-class PointConfigRaw(BaseModel):
+class PointRaw(BaseModel):
     """继承展开后的完整点定义。"""
 
     model_config = ConfigDict(extra="forbid")
@@ -208,7 +192,7 @@ class PointConfigRaw(BaseModel):
     description: str | None = None
 
     @model_validator(mode="after")
-    def _validate_point(self) -> PointConfigRaw:
+    def _validate_point(self) -> PointRaw:
         if not self.point_groups:
             raise ConfigError(f"Point '{self.point_id}': point_groups must be non-empty")
         if len(self.point_groups) != len(set(self.point_groups)):
@@ -312,7 +296,7 @@ __all__ = [
     "DeviceTypeRaw",
     "InstanceEndpointRaw",
     "PointAddressRaw",
-    "PointConfigRaw",
+    "PointRaw",
     "PointPatchRaw",
     "PointTableRaw",
     "PointTablesFile",

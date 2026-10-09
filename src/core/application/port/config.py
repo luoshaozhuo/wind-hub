@@ -7,31 +7,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from core.application.config_types import (
+    ConfigTopic,
     DeviceConfig,
     DeviceInstancesConfig,
     DeviceModelsConfig,
-    PointConfig,
+    PointTablesConfig,
     SystemConfig,
-    TaskConfig,
+    TasksConfig,
     UnitConfig,
 )
 from core.application.sink_config import SinksConfig
-
-
-class ConfigTopic(StrEnum):
-    """配置主题；与磁盘文件名的映射由 Infrastructure Adapter 决定。"""
-
-    SYSTEM = "system"
-    DEVICE_MODELS = "device_models"
-    DEVICES = "devices"
-    POINTS = "points"
-    UNITS = "units"
-    TASKS = "tasks"
-    SINKS = "sinks"
 
 
 @runtime_checkable
@@ -46,9 +34,9 @@ class ConfigReader(Protocol):
 
     def read_device_config(self) -> DeviceConfig: ...
 
-    def read_point_config(self) -> PointConfig: ...
+    def read_point_tables_config(self) -> PointTablesConfig: ...
 
-    def read_task_config(self) -> TaskConfig: ...
+    def read_tasks_config(self) -> TasksConfig: ...
 
     def read_sink_config(self) -> SinksConfig: ...
 

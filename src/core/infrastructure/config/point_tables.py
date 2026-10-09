@@ -9,7 +9,7 @@
         protocol → 基础表必填；子表缺省继承父表，显式配置必须与父表一致
         remove_points → 逐个点校验存在后删除
         points → point_id 已存在则 merge（override），否则新建（append）
-        全部结果经 PointConfigRaw.model_validate 完整校验
+        全部结果经 PointRaw.model_validate 完整校验
 
 merge 语义与旧系统一致：以 ``model_fields_set`` 区分「未写」（继承父值）
 与「写了（含显式 null）」（覆盖父值）；``address`` 为整体覆盖。
@@ -23,7 +23,7 @@ from typing import Any
 
 from core.application import ConfigError
 
-from .raw import PointConfigRaw, PointPatchRaw, PointTableRaw
+from .raw import PointPatchRaw, PointRaw, PointTableRaw
 
 
 class ResolvedTable:
@@ -31,9 +31,9 @@ class ResolvedTable:
 
     __slots__ = ("protocol", "points")
 
-    def __init__(self, protocol: str, points: dict[str, PointConfigRaw]) -> None:
+    def __init__(self, protocol: str, points: dict[str, PointRaw]) -> None:
         self.protocol = protocol
-        self.points: Mapping[str, PointConfigRaw] = MappingProxyType(dict(points))
+        self.points: Mapping[str, PointRaw] = MappingProxyType(dict(points))
 
 
 def resolve_point_tables(
@@ -68,7 +68,7 @@ def _resolve_table(
         parent = stack[-1] if stack else "<unknown>"
         raise ConfigError(f"Point table '{parent}' extends unknown table '{name}'")
 
-    points: dict[str, PointConfigRaw] = {}
+    points: dict[str, PointRaw] = {}
     parent_protocol: str | None = None
     if table.extends is not None:
         base = _resolve_table(table.extends, tables, [*stack, name], cache)
@@ -119,10 +119,10 @@ def _resolve_protocol(
 
 
 def _merge_point(
-    base: PointConfigRaw,
+    base: PointRaw,
     patch: PointPatchRaw,
     table: str,
-) -> PointConfigRaw:
+) -> PointRaw:
     """override：以 patch 中实际写出的字段覆盖父表点。"""
     data = base.model_dump()
     for field in patch.model_fields_set:
@@ -132,16 +132,16 @@ def _merge_point(
     return _validate_resolved_point(data, table)
 
 
-def _create_point(patch: PointPatchRaw, table: str) -> PointConfigRaw:
+def _create_point(patch: PointPatchRaw, table: str) -> PointRaw:
     """append：patch 的 point_id 在父表结果中不存在——由补丁新建完整点。"""
     data = {field: getattr(patch, field) for field in patch.model_fields_set}
     return _validate_resolved_point(data, table)
 
 
-def _validate_resolved_point(data: dict[str, Any], table: str) -> PointConfigRaw:
-    """把 merge/新建结果校验为完整 PointConfigRaw。"""
+def _validate_resolved_point(data: dict[str, Any], table: str) -> PointRaw:
+    """把 merge/新建结果校验为完整 PointRaw。"""
     try:
-        return PointConfigRaw.model_validate(data)
+        return PointRaw.model_validate(data)
     except ConfigError:
         raise
     except Exception as exc:

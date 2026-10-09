@@ -17,7 +17,7 @@ from .identities import (
     DeviceTypeId,
     PointTableId,
 )
-from .point import BusinessPoint, Point, PointTable
+from .point import BusinessPoint, Point, PointMeta, PointTable
 from .unit import (
     AMPERE,
     BAR,
@@ -143,6 +143,7 @@ __all__ = [
     "DeviceTypeId",
     "Point",
     "PointAccess",
+    "PointMeta",
     "PointTable",
     "PointTableId",
     "Protocol",

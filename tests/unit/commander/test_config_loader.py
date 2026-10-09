@@ -6,8 +6,8 @@ import pytest
 
 from commander.infrastructure.config import load_commander_config
 from core.application import ConfigError
-from core.infrastructure.config import fingerprint_config_set
 from core.domain import DeviceId, PointAccess, PointTableId
+from core.infrastructure.config import fingerprint_config_set
 from tests.support.new_commander import (
     write_minimal_config_tree,
     write_yaml,

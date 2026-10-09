@@ -2,9 +2,9 @@
 
 from .typed import (
     DeviceConfig,
-    PointConfig,
+    PointTablesConfig,
     SystemConfig,
-    TaskConfig,
+    TasksConfig,
     UnitConfig,
     YamlTypedConfigAdapter,
 )
@@ -18,9 +18,9 @@ from .yaml import (
 
 __all__ = [
     "DeviceConfig",
-    "PointConfig",
+    "PointTablesConfig",
     "SystemConfig",
-    "TaskConfig",
+    "TasksConfig",
     "UnitConfig",
     "YamlConfigReader",
     "YamlTypedConfigAdapter",

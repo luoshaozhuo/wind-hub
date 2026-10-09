@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
+from core.application.config_types import ADSLocalIdentity as ADSLocalIdentity
 from core.application.sink_config import ResolvedSinkConfig
 from core.domain import (
     Device,
@@ -28,6 +29,9 @@ from core.domain import (
     PointTable,
     PointTableId,
     ProtocolOptions,
+)
+from core.domain import (
+    PointMeta as PointMeta,
 )
 from core.domain.config.lookups import device_options_for, point_table_for_device
 
@@ -66,34 +70,6 @@ class RuntimeParams:
             raise ConfigError("connect_timeout must be > 0")
         if self.read_timeout is not None and self.read_timeout <= 0:
             raise ConfigError("read_timeout must be > 0")
-
-
-@dataclass(frozen=True, slots=True)
-class ADSLocalIdentity:
-    """进程级 ADS 本机身份（system.yaml ``ads`` 段的 Collector 子集）。
-
-    属于进程级启动配置：本机 AMS Net ID 绑定路由与已建立的 ADS 连接，
-    不支持热重载——变化在 prepare 阶段拒绝，必须重启进程生效。
-
-    Application 层不直接引用 ``core.infrastructure`` 的 ADSLocalConfig；
-    组合根在装配时把本模型转换为 Core 的 ADSLocalConfig。
-    """
-
-    local_ams_net_id: str
-    local_ip: str
-
-
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    """点位的进程级元数据（采集分组与展示用，不属于协议寻址）。
-
-    Attributes:
-        variable_name: 业务变量名（状态/诊断输出展示）。
-        point_groups: 采集分组集合——Task 按 point_group 选点。
-    """
-
-    variable_name: str | None
-    point_groups: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

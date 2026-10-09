@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from core.application.port import ConfigTopic
+from core.application.config_types import ConfigTopic
 
 from .config import CommanderConfig
 from .errors import CommandError

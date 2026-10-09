@@ -7,7 +7,8 @@ import hashlib
 import pytest
 
 from core.application import ConfigError
-from core.application.port import ConfigReader, ConfigTopic
+from core.application.config_types import ConfigTopic
+from core.application.port import ConfigReader
 from core.infrastructure.config import (
     YamlConfigReader,
     YamlTypedConfigAdapter,

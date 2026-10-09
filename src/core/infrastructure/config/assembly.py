@@ -36,8 +36,8 @@ from core.application import ConfigError
 from core.application.config_types import (
     DeviceConfig,
     DeviceModelDefinition,
-    PointConfig,
     PointDefinition,
+    PointTablesConfig,
     UnitConfig,
 )
 from core.domain import (
@@ -55,6 +55,7 @@ from core.domain import (
     DeviceTypeId,
     Point,
     PointAccess,
+    PointMeta,
     PointTable,
     PointTableId,
     Protocol,
@@ -64,12 +65,6 @@ from core.domain import (
     validate_core_config,
 )
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
-
-
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    variable_name: str | None
-    point_groups: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +119,7 @@ _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_reg
 def assemble_core_config(
     *,
     device_config: DeviceConfig,
-    point_config: PointConfig,
+    point_config: PointTablesConfig,
     unit_config: UnitConfig,
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。

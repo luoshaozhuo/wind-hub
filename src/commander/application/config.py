@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from core.application.config_types import ADSLocalIdentity as ADSLocalIdentity
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -29,32 +30,10 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
+from core.domain import (
+    PointMeta as PointMeta,
+)
 from core.domain.config.lookups import device_options_for, point_table_for_device
-
-
-@dataclass(frozen=True, slots=True)
-class ADSLocalIdentity:
-    """进程级 ADS 本机身份（system.yaml ``ads`` 段的 Commander 子集）。
-
-    Application 层不直接引用 ``core.infrastructure`` 的 ADSLocalConfig；
-    组合根在装配时把本模型转换为 Core 的 ADSLocalConfig。
-    """
-
-    local_ams_net_id: str
-    local_ip: str
-
-
-@dataclass(frozen=True, slots=True)
-class PointMeta:
-    """点位的进程级元数据（诊断/展示用，不属于协议寻址）。
-
-    Attributes:
-        variable_name: 业务变量名（诊断输出展示）。
-        point_groups: 采集分组集合；诊断按 point_group 批量验证时使用。
-    """
-
-    variable_name: str | None
-    point_groups: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

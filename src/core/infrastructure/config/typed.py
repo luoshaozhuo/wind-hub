@@ -21,14 +21,14 @@ from core.application.config_types import (
     DeviceModelsConfig,
     DeviceTypeDefinition,
     EndpointDefinition,
-    PointConfig,
     PointDefinition,
     PointTableDefinition,
+    PointTablesConfig,
     RuntimeSettings,
     SiteIdentity,
     SystemConfig,
-    TaskConfig,
     TaskDefinition,
+    TasksConfig,
     UnitConfig,
     UnitDefinition,
 )
@@ -218,10 +218,10 @@ class YamlTypedConfigAdapter(YamlConfigReader):
             instances=self.read_device_instances_config(),
         )
 
-    def read_point_config(self) -> PointConfig:
+    def read_point_tables_config(self) -> PointTablesConfig:
         definition = self._validate(PointTablesFile, self.read_points(), "points")
         tables = resolve_point_tables(definition.point_tables)
-        return PointConfig(
+        return PointTablesConfig(
             tables=MappingProxyType({
                 name: PointTableDefinition(
                     protocol=table.protocol,
@@ -244,9 +244,9 @@ class YamlTypedConfigAdapter(YamlConfigReader):
             })
         )
 
-    def read_task_config(self) -> TaskConfig:
+    def read_tasks_config(self) -> TasksConfig:
         definition = self._validate(TasksFile, self.read_tasks(), "tasks")
-        return TaskConfig(
+        return TasksConfig(
             tasks=tuple(
                 TaskDefinition(
                     task_id=task.task_id,
@@ -275,9 +275,9 @@ class YamlTypedConfigAdapter(YamlConfigReader):
 
 __all__ = [
     "DeviceConfig",
-    "PointConfig",
-    "TaskConfig",
+    "PointTablesConfig",
     "SystemConfig",
+    "TasksConfig",
     "UnitConfig",
     "YamlTypedConfigAdapter",
 ]

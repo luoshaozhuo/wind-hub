@@ -10,7 +10,7 @@ from typing import Any, cast
 import yaml
 
 from core.application import ConfigError
-from core.application.port.config import ConfigTopic
+from core.application.config_types import ConfigTopic
 
 _TOPIC_FILES: dict[ConfigTopic, str] = {
     ConfigTopic.SYSTEM: "system.yaml",
