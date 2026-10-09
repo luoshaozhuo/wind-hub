@@ -144,11 +144,11 @@ def _export_full_table(plc: pyads.Connection, output: Path) -> int:
         raise ValueError(f"整表数量不完整：期望 {expected}，实际 {len(symbols)}")
     temp = output.with_name(output.name + ".partial")
     try:
-        with temp.open("w", encoding="utf-8", newline="\\n") as handle:
+        with temp.open("w", encoding="utf-8", newline="\n") as handle:
             for symbol in symbols:
                 if not isinstance(symbol.name, str) or not symbol.name:
                     raise ValueError("整表包含无效变量名")
-                handle.write(symbol.name + "\\n")
+                handle.write(symbol.name + "\n")
         temp.replace(output)
     except Exception:
         temp.unlink(missing_ok=True)
