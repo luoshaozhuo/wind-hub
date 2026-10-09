@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("pymodbus")
-
 from core.infrastructure.protocol.modbus.driver import _decode_registers, _encode_registers
+
+pytest.importorskip("pymodbus")
 
 
 @pytest.mark.parametrize(
