@@ -198,3 +198,14 @@ def test_disable_full_table(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter._export_in_chunks = MagicMock(return_value=1)
     assert exporter.export_symbols(MagicMock(), tmp_path / "symbols.txt") == 1
     exporter._export_full_table.assert_not_called()
+
+
+def test_environment_detection_does_not_modify_plc(
+    exporter: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(exporter.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(exporter.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(exporter.shutil, "which", lambda name: None)
+    exporter._inspect_environment()
+    exporter.pyads.Connection.assert_not_called()
+    exporter.pyads.add_route_to_plc.assert_not_called()
