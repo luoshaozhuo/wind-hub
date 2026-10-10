@@ -396,3 +396,97 @@ def _device_catalog(
             description=data.get("description"),
         )
     return types, models, groups, devices, options_by_device
+
+
+def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
+    _keys(raw, {"tasks"}, "tasks.yaml")
+    result: dict[str, Task] = {}
+    for entry in _list(raw.get("tasks", []), "tasks.yaml"):
+        data = _map(entry, "task")
+        _keys(data, {
+            "task_id", "device_group", "point_group", "interval", "targets", "enabled",
+        }, "task")
+        identity = _name(data.get("task_id"), "task.task_id")
+        if identity in result:
+            raise ConfigError(f"duplicate task '{identity}'")
+        targets = []
+        for target in _list(data.get("targets"), f"task '{identity}'.targets"):
+            mapping = _map(target, f"task '{identity}'.target")
+            _keys(mapping, {"sink"}, f"task '{identity}'.target")
+            targets.append(_name(mapping.get("sink"), "target.sink"))
+        result[identity] = Task(
+            task_id=identity,
+            device_group_id=DeviceGroupId(_name(data.get("device_group"), "task.device_group")),
+            point_group=_name(data.get("point_group"), "task.point_group"),
+            sink_ids=tuple(targets),
+            interval=_number(data.get("interval"), "task.interval"),
+            enabled=_flag(data.get("enabled", True), "task.enabled"),
+        )
+    return result
+
+
+def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
+    from core.application.sink_config import SinksConfig
+
+    try:
+        definitions = SinksConfig.model_validate(raw)
+    except Exception as exc:
+        raise ConfigError(f"invalid sinks.yaml: {exc}") from exc
+    sinks: dict[str, Sink] = {}
+    for definition in definitions.sinks:
+        entry = _yaml_plain(definition.model_dump(mode="python", by_alias=True))
+        sinks[definition.name] = Sink(
+            sink_id=definition.name,
+            kind=definition.type,
+            enabled=definition.enabled,
+            connection=entry["connection"],
+            points=tuple(entry.get("points", ())),
+        )
+    return sinks
+
+
+def load_domain(config_dir: Path) -> ConfigSnapshot:
+    """一次性解析完整 YAML 集合，构建并验证领域快照。"""
+    base = Path(config_dir)
+    system = read_yaml_mapping(base / "system.yaml")
+    model_document = read_yaml_mapping(base / "device_models.yaml")
+    device_document = read_yaml_mapping(base / "devices.yaml")
+    point_document = read_yaml_mapping(base / "points.yaml")
+    task_document = read_yaml_mapping(base / "tasks.yaml")
+    sink_document = read_yaml_mapping(base / "sinks.yaml")
+    business_document = read_yaml_mapping(base / "business_points.yaml")
+    try:
+        site_id, site_name, settings = _system(system)
+        business_points = parse_business_points(business_document)
+        point_tables = _point_tables(point_document, business_points)
+        types, models, groups, devices, options = _device_catalog(
+            model_document, device_document, point_tables,
+        )
+        tasks = _tasks(task_document)
+        sinks = _sinks(sink_document)
+        validate_core_config(
+            device_types=types,
+            device_models=models,
+            device_groups=groups,
+            devices=devices,
+            business_points=business_points,
+            point_tables=point_tables,
+            protocol_options_by_device=options,
+            tasks=tasks,
+            sink_ids=set(sinks),
+        )
+        site = Site(site_id=site_id, name=site_name, devices=devices)
+        return ConfigSnapshot(
+            system=settings,
+            site=site,
+            device_types=types,
+            device_models=models,
+            device_groups=groups,
+            point_tables=point_tables,
+            business_points=business_points,
+            tasks=tasks,
+            sinks=sinks,
+            protocol_options_by_device=options,
+        )
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ConfigError(f"invalid configuration: {exc}") from exc
