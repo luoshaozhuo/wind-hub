@@ -102,7 +102,7 @@ class TestReconnectBackoff:
     ) -> None:
         port = free_port()
         server = ModbusMockServer(port=port)
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _write_fast_config(tmp_path / "cfg", port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
