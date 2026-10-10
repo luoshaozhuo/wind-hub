@@ -111,3 +111,40 @@ async def test_stop_retires_active_and_prepared_sessions():
     assert all(instance.close_calls == 1 for instance in registry.instances)
     with pytest.raises(RuntimeError, match="stopping"):
         await runtime.prepare_config("r3", make_commander_config(), "hash-c")
+
+
+async def test_watchdog_created_only_after_first_connection():
+    runtime, registry = _runtime()
+    generation = runtime._current
+    assert generation.watchdogs == {}
+    assert await runtime.ensure_connected("dev1")
+    assert "dev1" in generation.watchdogs
+    assert await runtime.ensure_connected("dev1")
+    assert registry.instances[0].connect_calls == 1
+    await runtime.stop()
+
+
+async def test_watchdog_reconnects_without_lazy_connect_duplication():
+    runtime, registry = _runtime()
+    assert await runtime.ensure_connected("dev1")
+    protocol = registry.instances[0]
+    protocol.connected = False
+    generation = runtime._current
+    watchdog = generation.watchdogs["dev1"]
+    assert not await runtime.ensure_connected("dev1")
+    await watchdog.check_once()
+    assert protocol.connected
+    assert protocol.connect_calls == 2
+    await runtime.stop()
+
+
+async def test_activation_stops_old_generation_watchdog():
+    runtime, registry = _runtime()
+    assert await runtime.ensure_connected("dev1")
+    old_watchdog = runtime._current.watchdogs["dev1"]
+    await runtime.prepare_config("r2", make_commander_config(), "hash-b")
+    await runtime.activate_config("r2")
+    await asyncio.sleep(0.05)
+    assert old_watchdog._task is None
+    assert registry.instances[0].close_calls == 1
+    await runtime.stop()
