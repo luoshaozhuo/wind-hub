@@ -86,7 +86,6 @@ class DeviceModel:
     point_table_id: PointTableId
     name: str | None = None
     manufacturer: str | None = None
-    read_mode: str | None = None
     properties: Mapping[str, Any] = field(default_factory=dict)
     connection_defaults: Mapping[str, Any] = field(default_factory=dict)
 
@@ -105,8 +104,6 @@ class DeviceModel:
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "device_type_id", DeviceTypeId(device_type_id))
         object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
-        if self.read_mode is not None and self.read_mode != "sum":
-            raise ValueError("only ADS sum read mode is supported")
         object.__setattr__(self, "properties", _freeze_model_mapping(self.properties))
         object.__setattr__(
             self, "connection_defaults", _freeze_model_mapping(self.connection_defaults)
