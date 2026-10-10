@@ -51,6 +51,7 @@ def validate_core_config(
         _validate_sinks(sinks, devices, device_models, point_tables)
     if tasks is not None:
         validate_task_references(tasks, device_groups, sink_ids)
+        _validate_task_point_groups(tasks, devices, device_models, point_tables)
 
 
 def _validate_identity(
@@ -230,3 +231,24 @@ def _validate_sinks(
             table = tables[models[device.device_model_id].point_table_id]
             if point_id not in table.points:
                 raise ValueError(f"sink '{sink_id}' unknown point '{point_id}' on '{device_id}'")
+
+
+def _validate_task_point_groups(
+    tasks: Mapping[str, Task],
+    devices: Mapping[DeviceId, Device],
+    models: Mapping[DeviceModelId, DeviceModel],
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """确保每台参与任务的启用设备至少有一个可采集测点。"""
+    for task in tasks.values():
+        if not task.enabled:
+            continue
+        for device in devices.values():
+            if not device.enabled or task.device_group_id not in device.device_group_ids:
+                continue
+            table = tables[models[device.device_model_id].point_table_id]
+            if not any(task.point_group in point.point_groups for point in table.points.values()):
+                raise ValueError(
+                    f"task '{task.task_id}' point group '{task.point_group}' "
+                    f"is absent on device '{device.device_id}'"
+                )
