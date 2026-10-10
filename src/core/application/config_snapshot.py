@@ -16,7 +16,6 @@ from core.domain import (
     DeviceModelId,
     DeviceType,
     DeviceTypeId,
-    PointMeta,
     PointTable,
     PointTableId,
     Site,
@@ -41,7 +40,6 @@ class ConfigSnapshot:
     tasks: Mapping[str, Task]
     sinks: Mapping[str, SinkConfig]
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions]
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]]
 
     def __post_init__(self) -> None:
         for name in (
@@ -50,10 +48,3 @@ class ConfigSnapshot:
             "protocol_options_by_device",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
-        object.__setattr__(
-            self, "point_meta",
-            MappingProxyType({
-                key: MappingProxyType(dict(value))
-                for key, value in self.point_meta.items()
-            }),
-        )
