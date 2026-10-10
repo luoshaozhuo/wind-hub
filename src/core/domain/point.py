@@ -20,6 +20,8 @@ class BusinessPoint:
     data_type: DataType
     standard_unit: Unit
     description: str | None = None
+    variable_name: str | None = None
+    point_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         business_point_id = self.business_point_id.strip()
@@ -83,6 +85,12 @@ class Point:
             "business_point_id",
             BusinessPointId(business_point_id),
         )
+        groups = tuple(self.point_groups)
+        if any(not isinstance(group, str) or not group.strip() for group in groups):
+            raise ValueError("point_groups must contain non-empty names")
+        if len(groups) != len(set(groups)):
+            raise ValueError("point_groups must not contain duplicates")
+        object.__setattr__(self, "point_groups", groups)
         object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
