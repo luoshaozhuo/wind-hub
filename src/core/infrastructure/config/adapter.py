@@ -14,7 +14,7 @@ from core.application.errors import ConfigError
 
 from .parse_domain import load_domain
 from .snapshot_writer import dump_snapshot
-from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
+from .yaml import active_config_dir, read_yaml_mapping, write_yaml_mapping_atomic
 
 
 class YamlConfigAdapter:
@@ -27,18 +27,7 @@ class YamlConfigAdapter:
         self._base = Path(config_dir)
 
     def _active_base(self) -> Path:
-        pointer = self._base / self._ACTIVE_FILE
-        if not pointer.exists():
-            return self._base
-        generation = pointer.read_text(encoding="ascii").strip()
-        if not generation or len(generation) != 32 or any(
-            symbol not in "0123456789abcdef" for symbol in generation
-        ):
-            raise ConfigError("Invalid active configuration generation")
-        version = self._base / self._VERSION_ROOT / generation
-        if not version.is_dir():
-            raise ConfigError(f"Active configuration version is missing: {generation}")
-        return version
+        return active_config_dir(self._base)
 
     def load(self) -> ConfigSnapshot:
         """只解析一个已发布的配置版本，不会读到跨文件混合状态。"""
@@ -56,7 +45,6 @@ class YamlConfigAdapter:
         staging = Path(tempfile.mkdtemp(prefix=".stage-", dir=version_root))
         generation = uuid4().hex
         final = version_root / generation
-        published = False
         try:
             for original in source.glob("*.yaml"):
                 if original.name != "units.yaml":
@@ -85,7 +73,6 @@ class YamlConfigAdapter:
                 os.replace(pointer_tmp, self._base / self._ACTIVE_FILE)
             finally:
                 pointer_tmp.unlink(missing_ok=True)
-            published = True
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
