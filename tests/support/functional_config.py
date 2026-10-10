@@ -4,8 +4,8 @@
 目录的写出与改写能力，不依赖任何协议栈实现（新旧 Collector/Commander
 进程均可消费写出的配置树）。
 
-运行时读取重试参数在新栈归属 ``system.yaml`` 的 ``runtime.read_retries`` /
-``runtime.retry_interval``，不再作为 Modbus 连接扩展下发。
+运行时通信恢复由 ``system.yaml`` 的 ``runtime.watchdog_interval`` /
+``runtime.health_timeout`` 控制；协议读写本身不执行自动重试。
 """
 
 from __future__ import annotations
@@ -118,6 +118,8 @@ def write_functional_config(
                 "read_timeout": 2.0,
                 "write_timeout": 2.0,
                 "shutdown_timeout": 5.0,
+                "watchdog_interval": 0.5,
+                "health_timeout": 0.5,
                 **((system or {}).get("runtime") or {}),
             },
             **{k: v for k, v in (system or {}).items() if k != "runtime"},
