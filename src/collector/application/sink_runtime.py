@@ -362,6 +362,9 @@ class SinkRuntime:
             return
 
         await self._stop_consumer(sink_name)
+        old_watchdog = self._watchdogs.pop(sink_name, None)
+        if old_watchdog is not None:
+            await old_watchdog.stop()
         if old_sink is not None:
             await self._flush_and_close(sink_name, old_sink, "during exclusive rebuild")
 
@@ -380,12 +383,13 @@ class SinkRuntime:
                     self._unhealthy.add(sink_name)
                 else:
                     self._sinks[sink_name] = old_sink
+                    restored_watchdog = self._make_watchdog(sink_name, old_sink)
+                    self._watchdogs[sink_name] = restored_watchdog
                     self._restart_consumer(sink_name, old_sink)
+                    if self._running:
+                        await restored_watchdog.start()
             raise
 
-        old_watchdog = self._watchdogs.pop(sink_name, None)
-        if old_watchdog is not None:
-            await old_watchdog.stop()
         self._sinks[sink_name] = new_sink
         self._unhealthy.discard(sink_name)
         watchdog = self._make_watchdog(sink_name, new_sink)
@@ -464,11 +468,11 @@ class SinkRuntime:
     ) -> None:
         """切换一个已经成功 open 的普通 Sink。"""
         await self._stop_consumer(sink_name)
-        if old_sink is not None:
-            await self._flush_and_close(sink_name, old_sink, "during rebuild")
         old_watchdog = self._watchdogs.pop(sink_name, None)
         if old_watchdog is not None:
             await old_watchdog.stop()
+        if old_sink is not None:
+            await self._flush_and_close(sink_name, old_sink, "during rebuild")
         self._sinks[sink_name] = new_sink
         self._unhealthy.discard(sink_name)
         watchdog = self._make_watchdog(sink_name, new_sink)
