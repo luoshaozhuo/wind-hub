@@ -27,8 +27,8 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-    Site,
     Sink,
+    Site,
     Task,
     validate_core_config,
 )
@@ -36,10 +36,10 @@ from core.domain.unit import UNIT_CATALOG, UnitCode
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
+
 from .business_points import parse_business_points
 from .snapshot_writer import _yaml_plain
 from .yaml import read_yaml_mapping
-
 
 _OPTION_PARSERS = {
     "ads": parse_ads_config,
