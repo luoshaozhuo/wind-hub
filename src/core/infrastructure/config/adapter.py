@@ -110,7 +110,10 @@ class YamlConfigAdapter:
 
     def save(self, snapshot: ConfigSnapshot) -> None:
         """先在临时目录完整验证，避免将不等价快照写回配置目录。"""
-        documents = dump_snapshot(snapshot)
+        documents = dump_snapshot(
+            snapshot,
+            read_yaml_mapping(self._base / "device_models.yaml"),
+        )
         original = read_yaml_mapping(self._base / 'system.yaml')
         documents['system.yaml'] = {**original, **documents['system.yaml']}
         with TemporaryDirectory(prefix="wind-hub-config-") as directory:
@@ -127,8 +130,19 @@ class YamlConfigAdapter:
                     f"changed sections={tuple(name for name, part in difference.sections.items() if part.has_changes)}, "
                     f"site_changed={difference.site_changed}, system_changed={difference.system_changed}"
                 )
-            for filename, data in documents.items():
-                write_yaml_mapping_atomic(self._base / filename, data)
+            # Keep a recoverable copy of every overwritten file.
+            with TemporaryDirectory(prefix="wind-hub-backup-") as backup_dir:
+                backup = Path(backup_dir)
+                for filename in documents:
+                    copy2(self._base / filename, backup / filename)
+                try:
+                    for filename, data in documents.items():
+                        write_yaml_mapping_atomic(self._base / filename, data)
+                except BaseException:
+                    # Restore all originals, including files overwritten before failure.
+                    for filename in documents:
+                        copy2(backup / filename, self._base / filename)
+                    raise
 
     def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
         """根据完整父子 PointTable 差异保存 points.yaml。"""
