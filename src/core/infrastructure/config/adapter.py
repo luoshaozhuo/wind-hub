@@ -1,86 +1,106 @@
-"""通用 YAML Config Adapter——ConfigPort 的文件系统实现。
-
-职责：YAML 文件读取、反序列化、Config VO 构建、Config VO 序列化、
-单文件原子写入、文件错误转换。严格的字段校验由
-:mod:`core.infrastructure.config.codec` 完成。
-
-读取按主题独立进行——读取一个主题不会隐式加载其他主题文件。
-"""
+"""全量 YAML 读取入口：一次构造完整领域快照。"""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
 
-from core.application import ConfigError
-from core.application.port import TOPIC_CONFIG_TYPES, ConfigTopic, ConfigValue
+from core.application.config_snapshot import ConfigSnapshot
+from core.application.errors import ConfigError
+from core.domain import Task, validate_core_config
 
+from .assembly import assemble_core_config
+from .business_points import parse_business_points
 from .codec import (
-    dump_device_models_config,
-    dump_devices_config,
-    dump_point_tables_config,
-    dump_sinks_config,
-    dump_system_config,
-    dump_tasks_config,
-    dump_units_config,
     parse_device_models_config,
     parse_devices_config,
     parse_point_tables_config,
     parse_sinks_config,
     parse_system_config,
     parse_tasks_config,
-    parse_units_config,
 )
-from .yaml import _TOPIC_FILES, read_yaml_mapping, write_yaml_mapping_atomic
-
-_PARSERS: dict[ConfigTopic, Callable[[Mapping[str, Any]], ConfigValue]] = {
-    ConfigTopic.SYSTEM: parse_system_config,
-    ConfigTopic.DEVICE_MODELS: parse_device_models_config,
-    ConfigTopic.DEVICES: parse_devices_config,
-    ConfigTopic.POINTS: parse_point_tables_config,
-    ConfigTopic.UNITS: parse_units_config,
-    ConfigTopic.TASKS: parse_tasks_config,
-    ConfigTopic.SINKS: parse_sinks_config,
-}
-
-_DUMPERS: dict[ConfigTopic, Callable[[Any], dict[str, Any]]] = {
-    ConfigTopic.SYSTEM: dump_system_config,
-    ConfigTopic.DEVICE_MODELS: dump_device_models_config,
-    ConfigTopic.DEVICES: dump_devices_config,
-    ConfigTopic.POINTS: dump_point_tables_config,
-    ConfigTopic.UNITS: dump_units_config,
-    ConfigTopic.TASKS: dump_tasks_config,
-    ConfigTopic.SINKS: dump_sinks_config,
-}
+from .point_table_writer import dump_point_tables
+from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 
 class YamlConfigAdapter:
-    """一次构造确定配置根目录；按主题读写配置 VO。"""
+    """读取整个现场配置目录，不向调用方暴露按主题加载。"""
 
     def __init__(self, config_dir: str | Path) -> None:
         self._base = Path(config_dir)
 
-    def read(self, topic: ConfigTopic) -> ConfigValue:
-        """读取指定主题的配置 VO；不隐式加载其他主题文件。"""
-        raw = read_yaml_mapping(self._base / _TOPIC_FILES[topic])
-        return _PARSERS[topic](raw)
+    def load(self) -> ConfigSnapshot:
+        """读取、构建并统一进行领域关系校验。"""
+        base = self._base
+        system = parse_system_config(read_yaml_mapping(base / "system.yaml"))
+        models = parse_device_models_config(read_yaml_mapping(base / "device_models.yaml"))
+        devices = parse_devices_config(read_yaml_mapping(base / "devices.yaml"))
+        tables = parse_point_tables_config(read_yaml_mapping(base / "points.yaml"))
+        tasks = parse_tasks_config(read_yaml_mapping(base / "tasks.yaml"))
+        sinks = parse_sinks_config(read_yaml_mapping(base / "sinks.yaml"))
 
-    def save(self, topic: ConfigTopic, config: ConfigValue) -> None:
-        """原子写入指定主题；topic 与 config 类型必须匹配。
+        business_points = parse_business_points(
+            read_yaml_mapping(base / "business_points.yaml")
+        )
 
-        每次只保存一个主题的配置；写入原子性（临时文件 + fsync +
-        原子替换）保证失败不破坏原文件。保存语义：配置以规范化完整
-        形式输出——点表输出继承展开后的完整点位（不含
-        extends/remove_points 声明）。
-        """
-        expected = TOPIC_CONFIG_TYPES[topic]
-        if not isinstance(config, expected):
-            raise ConfigError(
-                f"topic '{topic}' expects config of type {expected.__name__}, "
-                f"got {type(config).__name__}"
+        assembly = assemble_core_config(
+            defined_business_points=business_points,
+            device_models_config=models,
+            devices_config=devices,
+            point_config=tables,
+        )
+
+        domain_tasks: dict[str, Task] = {}
+        try:
+            for task in tasks.tasks.values():
+                if task.device_group is None:
+                    raise ValueError(
+                        f"task '{task.task_id}' must specify device_group, not device"
+                    )
+                if task.device is not None:
+                    raise ValueError(f"task '{task.task_id}' cannot specify device")
+                if task.interval is None:
+                    raise ValueError(f"task '{task.task_id}' must specify interval")
+                domain_tasks[task.task_id] = Task(
+                    task_id=task.task_id,
+                    device_group_id=task.device_group,
+                    point_group=task.point_group,
+                    sink_ids=task.targets,
+                    interval=task.interval,
+                    enabled=task.enabled,
+                )
+
+            sink_map = {sink.name: sink for sink in sinks.sinks}
+            validate_core_config(
+                device_types=assembly.device_types,
+                device_models=assembly.device_models,
+                device_groups=assembly.device_groups,
+                devices=assembly.devices,
+                business_points=assembly.business_points,
+                point_tables=assembly.point_tables,
+                protocol_options_by_device=assembly.protocol_options_by_device,
+                tasks=domain_tasks,
+                sink_ids=set(sink_map),
             )
-        write_yaml_mapping_atomic(self._base / _TOPIC_FILES[topic], _DUMPERS[topic](config))
+        except ValueError as exc:
+            raise ConfigError(f"Invalid domain configuration: {exc}") from exc
 
+        return ConfigSnapshot(
+            system=system,
+            device_types=assembly.device_types,
+            device_models=assembly.device_models,
+            device_groups=assembly.device_groups,
+            devices=assembly.devices,
+            point_tables=assembly.point_tables,
+            business_points=assembly.business_points,
+            tasks=domain_tasks,
+            sinks=sink_map,
+            protocol_options_by_device=assembly.protocol_options_by_device,
+            point_meta=assembly.point_meta,
+        )
 
-__all__ = ["YamlConfigAdapter"]
+    def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
+        """根据完整父子 PointTable 差异保存 points.yaml。"""
+        write_yaml_mapping_atomic(
+            self._base / "points.yaml",
+            dump_point_tables(snapshot.point_tables, snapshot.point_meta),
+        )
