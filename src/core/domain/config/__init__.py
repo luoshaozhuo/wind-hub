@@ -1,6 +1,6 @@
 """Shared Domain 配置模型、值对象与规则。"""
 
-from .diff import ConfigDiff, ValueChange
+from .diff import ConfigDiff, ValueChange, diff
 from .lookups import point_table_for_device, protocol_options_for
 from .models import (
     ADS_READ_MODES,
@@ -61,6 +61,7 @@ __all__ = [
     "UnitDefinitionConfig",
     "UnitsConfig",
     "ValueChange",
+    "diff",
     "freeze_config_value",
     "freeze_protocol_options",
     "point_table_for_device",
