@@ -1,6 +1,5 @@
 """Shared Core Domain 公共门面。"""
 
-from .config import validate_core_config
 from .device import (
     Device,
     DeviceGroup,
@@ -82,6 +81,7 @@ from .unit import (
     UnitCode,
     convert_value,
 )
+from .validation import validate_core_config
 from .value_objects import ConnectionEndpoint, DataType, PointAccess, Protocol
 
 __all__ = [
