@@ -403,21 +403,21 @@ def test_commander_load_ignores_missing_or_invalid_unrelated_topics(tmp_path):
     assert config.devices
 
 
-def test_read_retries_and_retry_interval_loaded(tmp_path):
+def test_watchdog_timing_loaded(tmp_path):
     config_dir = write_minimal_config_tree(
-        tmp_path, runtime={"read_retries": 3, "retry_interval": 0.5}
+        tmp_path, runtime={"watchdog_interval": 2.0, "health_timeout": 0.5}
     )
     config = load_commander_config(config_dir)
-    assert config.read_retries == 3
-    assert config.retry_interval == 0.5
+    assert config.watchdog_interval == 2.0
+    assert config.health_timeout == 0.5
 
 
-def test_read_retries_defaults_and_validation(tmp_path):
+def test_watchdog_timing_defaults_and_validation(tmp_path):
     config_dir = write_minimal_config_tree(tmp_path)
     config = load_commander_config(config_dir)
-    assert config.read_retries == 1
-    assert config.retry_interval == 1.0
+    assert config.watchdog_interval == 5.0
+    assert config.health_timeout == 1.0
 
-    bad_dir = write_minimal_config_tree(tmp_path / "bad", runtime={"read_retries": -2})
+    bad_dir = write_minimal_config_tree(tmp_path / "bad", runtime={"health_timeout": 0})
     with pytest.raises(ConfigError):
         load_commander_config(bad_dir)
