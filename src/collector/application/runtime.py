@@ -186,9 +186,9 @@ class CollectorRuntime:
         """主动检查全部设备健康状态（委托 DeviceRuntime）。"""
         return await self._device_runtime.health()
 
-    def sink_health(self) -> dict[str, ConnectionHealth]:
-        """全部 Sink 的健康状态（委托 SinkRuntime）。"""
-        return self._sink_runtime.health()
+    async def sink_health(self) -> dict[str, ConnectionHealth]:
+        """主动检查全部 Sink 健康状态（委托 SinkRuntime）。"""
+        return await self._sink_runtime.health()
 
     @property
     def engine(self) -> AcquisitionEngine:
@@ -245,8 +245,12 @@ class CollectorRuntime:
 
     async def health(self) -> dict[str, ConnectionHealth]:
         """主动检查设备并合并当前 Sink 健康状态。"""
-        result = await self._device_runtime.health()
-        result.update(self._sink_runtime.health())
+        device_health, sink_health = await asyncio.gather(
+            self._device_runtime.health(),
+            self._sink_runtime.health(),
+        )
+        result = dict(device_health)
+        result.update(sink_health)
         return result
 
     @property
