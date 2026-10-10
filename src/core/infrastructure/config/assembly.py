@@ -17,8 +17,7 @@
   ``connection_defaults.port``，两者皆无是配置错误；其余
   connection_defaults 键与实例 endpoint.extensions 合并（实例优先）成为
   协议 protocol_options_by_device；ADS 额外注入型号 ``read_mode``（缺省 ``sum``）；
-- 单位：``point.unit`` 必须是 Core 内置 canonical unit code（引用
-  units.yaml 中不存在的 ID、或 ID 非内置单位均为配置错误）；
+- 单位：``point.unit`` 必须是 Core 内置 canonical unit code，不读取 units.yaml；
 - PointAccess 推导：modbus 只读寄存器（discrete_input/input）→ READ，
   其余 → READ_WRITE；ads → READ_WRITE；iec104 type_id 以 ``C_`` 开头
   → READ_WRITE，否则 → READ；
@@ -64,7 +63,6 @@ from core.domain.config import (
     DevicesConfig,
     PointConfig,
     PointTablesConfig,
-    UnitsConfig,
 )
 from core.domain.unit import UNIT_CATALOG, Unit, UnitCode
 from core.infrastructure.protocol.ads.config import parse_ads_config
@@ -147,7 +145,6 @@ def assemble_core_config(
     device_models_config: DeviceModelsConfig,
     devices_config: DevicesConfig,
     point_config: PointTablesConfig,
-    unit_config: UnitsConfig,
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
@@ -177,7 +174,6 @@ def assemble_core_config(
                 table_id,
                 table_definition.protocol,
                 point_definition,
-                unit_config,
                 business_points,
             )
             points[point.point_id] = point
@@ -374,11 +370,10 @@ def _build_point(
     table_id: PointTableId,
     protocol: str,
     definition: PointConfig,
-    unit_config: UnitsConfig,
     business_points: dict[BusinessPointId, BusinessPoint],
 ) -> Point:
     """把单条类型化点定义映射为 Core Domain Point（并合成 BusinessPoint）。"""
-    unit = _resolve_unit(definition, unit_config)
+    unit = _resolve_unit(definition)
     data_type = DataType(definition.data_type)
     context = f"point table '{table_id}' point '{definition.point_id}'"
 
@@ -424,20 +419,13 @@ def _build_point(
         raise ConfigError(f"{context} is invalid: {exc}") from exc
 
 
-def _resolve_unit(definition: PointConfig, unit_config: UnitsConfig) -> Unit:
-    """把 point.unit ID 解析为 Core canonical Unit。"""
-    unit_id = definition.unit
-    if unit_id not in unit_config.units:
-        raise ConfigError(
-            f"Point '{definition.point_id}': unknown unit '{unit_id}' "
-            "(not defined in units.yaml)"
-        )
+def _resolve_unit(definition: PointConfig) -> Unit:
+    """直接从内置标准单位目录解析，不使用 units.yaml。"""
     try:
-        code = UnitCode(unit_id)
+        code = UnitCode(definition.unit)
     except ValueError as exc:
         raise ConfigError(
-            f"Point '{definition.point_id}': unit '{unit_id}' is not a "
-            "built-in canonical unit code"
+            f"Point '{definition.point_id}': unknown built-in unit '{definition.unit}'"
         ) from exc
     return UNIT_CATALOG[code]
 
