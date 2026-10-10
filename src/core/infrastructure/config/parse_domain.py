@@ -77,7 +77,7 @@ def _name(value: Any, context: str) -> str:
 
 
 def _number(value: Any, context: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
         raise ConfigError(f"{context} must be a finite number")
     return float(value)
 
@@ -96,7 +96,10 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     runtime_raw = _map(raw.get("runtime", {}), "system.runtime")
     _keys(runtime_raw, set(RuntimeSettings.__dataclass_fields__), "system.runtime")
     settings = dict(runtime_raw)
-    for key in ("shutdown_timeout", "connect_timeout", "read_timeout", "write_timeout", "retry_interval"):
+    for key in (
+        "shutdown_timeout", "connect_timeout", "read_timeout",
+        "write_timeout", "retry_interval",
+    ):
         if key in settings and settings[key] is not None:
             settings[key] = _number(settings[key], f"runtime.{key}")
     if "queue_maxsize" in settings and settings["queue_maxsize"] is not None:
@@ -133,7 +136,9 @@ def _point(
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
-    identity = BusinessPointId(_name(entry.get("business_point_id"), f"{context}.business_point_id"))
+    identity = BusinessPointId(
+        _name(entry.get("business_point_id"), f"{context}.business_point_id")
+    )
     business_point = business_points.get(identity)
     if business_point is None:
         raise ConfigError(f"{context} unknown business point '{identity}'")
@@ -142,18 +147,22 @@ def _point(
         unit = UNIT_CATALOG[UnitCode(_name(entry.get("unit", "none"), f"{context}.unit"))]
     except (ValueError, KeyError) as exc:
         raise ConfigError(f"{context}: invalid data type or unit: {exc}") from exc
-    if data_type != business_point.data_type or unit.quantity != business_point.standard_unit.quantity:
+    if (
+        data_type != business_point.data_type
+        or unit.quantity != business_point.standard_unit.quantity
+    ):
         raise ConfigError(f"{context}: incompatible business point '{identity}'")
     scale = _number(entry.get("scale", 1.0), f"{context}.scale")
     offset = _number(entry.get("offset", 0.0), f"{context}.offset")
-    if data_type in (DataType.BOOL, DataType.STRING):
-        if unit.code != UnitCode.NONE or scale != 1.0 or offset != 0.0:
-            raise ConfigError(f"{context}: bool/string must be dimensionless without scaling")
+    if data_type in (DataType.BOOL, DataType.STRING) and (
+        unit.code != UnitCode.NONE or scale != 1.0 or offset != 0.0
+    ):
+        raise ConfigError(f"{context}: bool/string must be dimensionless without scaling")
 
     address = _map(entry.get("address"), f"{context}.address")
     extensions: dict[str, Any] = {}
     for key, value in address.items():
-        if value is None or not isinstance(value, (str, int, float, bool)):
+        if value is None or not isinstance(value, str | int | float | bool):
             raise ConfigError(f"{context}.address.{key} must be a scalar")
         if isinstance(value, float) and not isfinite(value):
             raise ConfigError(f"{context}.address.{key} must be finite")
@@ -210,7 +219,10 @@ def _point_tables(
             raise ConfigError(f"point table '{name}' not found")
         visiting.add(name)
         definition = _map(definitions[name], f"point table '{name}'")
-        _keys(definition, {"protocol", "extends", "remove_points", "points"}, f"point table '{name}'")
+        _keys(
+            definition, {"protocol", "extends", "remove_points", "points"},
+            f"point table '{name}'",
+        )
         parent_id = definition.get("extends")
         parent = resolve(_name(parent_id, f"{name}.extends")) if parent_id is not None else None
         protocol = definition.get("protocol", parent.protocol.name if parent else None)
@@ -358,7 +370,7 @@ def _device_catalog(
         defaults.pop("port", None)
         if port is None:
             raise ConfigError(f"device '{device_identity}' requires endpoint port or model default")
-        if isinstance(port, bool) or not isinstance(port, (int, str)):
+        if isinstance(port, bool) or not isinstance(port, int | str):
             raise ConfigError(f"device '{device_identity}' invalid port")
         if isinstance(port, str) and not port.isdecimal():
             raise ConfigError(f"device '{device_identity}' port must be numeric")
@@ -374,13 +386,15 @@ def _device_catalog(
                 ads_subscriptions.add(device_identity)
         for key, value in options.items():
             if not isinstance(key, str) or value is not None and not isinstance(
-                value, (str, int, float, bool)
+                value, str | int | float | bool
             ):
                 raise ConfigError(f"device '{device_identity}' invalid protocol option '{key}'")
         try:
             _OPTION_PARSERS[protocol](endpoint, options)
         except Exception as exc:
-            raise ConfigError(f"device '{device_identity}' invalid protocol options: {exc}") from exc
+            raise ConfigError(
+                f"device '{device_identity}' invalid protocol options: {exc}"
+            ) from exc
         devices[device_identity] = Device(
             device_id=device_identity,
             device_model_id=model_id,
