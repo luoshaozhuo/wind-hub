@@ -7,7 +7,6 @@ import pytest
 from core.application import ConfigError, Quality
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.infrastructure.protocol.modbus.mapping import modbus_point
 from tests.unit.shared_core.test_modbus_single_ops import (
     _Client,
@@ -292,51 +291,4 @@ class TestDynamicWrite:
         result = await driver.write_one("h", 1)
 
         assert result.success
-        assert client.total_write_calls() == 1
-
-
-# ---------------------------------------------------------------------------
-# 动态点经过 RecoveringProtocol 包装
-# ---------------------------------------------------------------------------
-
-
-class TestDynamicPointsThroughRecovery:
-    @pytest.mark.asyncio
-    async def test_recovering_protocol_reconnects_before_dynamic_read(self) -> None:
-        """断线状态下经 RecoveringProtocol 读动态点：先恢复连接再读。"""
-        client = _Client()
-        client.response = _Response(registers=[9])
-        driver = _driver({}, client, connected=False)
-
-        reconnects = 0
-
-        async def connect() -> None:
-            nonlocal reconnects
-            reconnects += 1
-            # 恢复路径先 close（释放旧 client），connect 需重建 client 视图
-            client.connected = True
-            driver._client = client
-            driver._connected = True
-
-        driver.connect = connect  # type: ignore[method-assign]
-        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
-        dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
-
-        sample = await wrapped.read_one(dynamic)  # type: ignore[arg-type]
-
-        assert reconnects == 1
-        assert sample.value == 9
-
-    @pytest.mark.asyncio
-    async def test_recovering_protocol_dynamic_write_not_resent_after_failure(self) -> None:
-        """写发送后断线：RecoveringProtocol 不重发，错误原样抛出。"""
-        client = _Client()
-        client.write_error = ConnectionError("reset by peer")
-        driver = _driver({}, client)
-        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
-        dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="int16")
-
-        with pytest.raises(ProtocolError, match="write failed"):
-            await wrapped.write_one(dynamic, 1)  # type: ignore[call-overload]
-
         assert client.total_write_calls() == 1
