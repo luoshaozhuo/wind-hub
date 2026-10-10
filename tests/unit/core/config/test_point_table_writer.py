@@ -2,15 +2,14 @@
 
 from core.domain import (
     BusinessPointId,
+    KILOWATT,
     Point,
     PointAccess,
     PointTable,
     PointTableId,
     Protocol,
-    KILOWATT,
 )
 from core.infrastructure.config.point_table_writer import dump_point_tables
-
 
 def test_expanded_child_serializes_as_parent_difference() -> None:
     base_point = Point(
