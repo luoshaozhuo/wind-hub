@@ -7,7 +7,6 @@ from core.application.config_diff import diff_config_snapshots
 from core.domain import Site
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-
 ROOT = Path(__file__).resolve().parents[4]
 
 
