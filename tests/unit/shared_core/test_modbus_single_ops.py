@@ -12,7 +12,6 @@ import pytest
 from core.application import ConfigError
 from core.application.errors import ProtocolConnectionError, ProtocolError
 from core.application.protocol_contract import ProtocolWrite, Quality
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -260,7 +259,7 @@ class TestReadOne:
 
         assert sample.value is None
         assert sample.quality == "bad"
-        assert driver.health().healthy is True  # 解码失败 ≠ 断线
+        assert (await driver.health()).healthy is True  # 解码失败 ≠ 断线
 
     @pytest.mark.asyncio
     async def test_exception_response_raises_without_disconnect(self) -> None:
@@ -271,7 +270,7 @@ class TestReadOne:
         with pytest.raises(ProtocolError, match="exception response"):
             await driver.read_one("h")
 
-        assert driver.health().healthy is True
+        assert (await driver.health()).healthy is True
 
     @pytest.mark.asyncio
     async def test_communication_error_keeps_open_connection_reusable(self) -> None:
@@ -290,7 +289,7 @@ class TestReadOne:
         client.read_error = None
         client.response = _Response(registers=[7])
         assert (await driver.read_one("h")).value == 7
-        assert driver.health().healthy is True
+        assert (await driver.health()).healthy is True
 
     @_requires_pymodbus
     @pytest.mark.asyncio
@@ -305,7 +304,7 @@ class TestReadOne:
 
         assert client.close_calls == 1
         assert driver.is_open() is False
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
 
     @pytest.mark.asyncio
     async def test_read_one_requires_connection(self) -> None:
@@ -522,7 +521,7 @@ class TestWriteOne:
 
         assert not result.success
         assert result.message == "Modbus exception response"
-        assert driver.health().healthy is True
+        assert (await driver.health()).healthy is True
 
     @pytest.mark.asyncio
     async def test_communication_error_single_send_no_resend(self) -> None:
@@ -568,7 +567,7 @@ class TestCancellationState:
         with pytest.raises(asyncio.CancelledError):
             await driver.read_one("h")
 
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
         assert client.close_calls == 1
 
     @pytest.mark.asyncio
@@ -581,7 +580,7 @@ class TestCancellationState:
             await driver.write_one(ProtocolWrite("h", 1))
 
         assert client.total_write_calls() == 1  # 已发送的请求绝不重发
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
 
     @_requires_pymodbus
     @pytest.mark.asyncio
@@ -597,31 +596,26 @@ class TestCancellationState:
         with pytest.raises(asyncio.CancelledError):
             await driver.read_one("h")
 
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
 
     @pytest.mark.asyncio
-    async def test_read_timeout_marks_disconnect_via_recovery(self) -> None:  # noqa: D103
-        """经 RecoveringProtocol 的 read 超时：连接必须失效，不允许残留健康状态。
-
-        重连目标指向关闭端口，确保恢复路径确定性失败。
-        """
+    async def test_read_timeout_cancellation_marks_disconnect(self) -> None:
+        """上层单次 I/O 超时取消请求后，Driver 失效连接且不自动重试。"""
         client = _Client()
 
         async def hanging_read(address: int, *, count: int, device_id: int) -> _Response:
+            del address, count, device_id
             await asyncio.sleep(5)
             return _Response()
 
         client.read_holding_registers = hanging_read  # type: ignore[method-assign]
         driver = _driver({"h": _point("h")}, client)
-        driver._config = parse_modbus_config(ConnectionEndpoint("127.0.0.1", 1), {})
-        port = RecoveringProtocol(
-            driver, RecoverySettings(read_timeout=0.01, retry_interval=0)
-        )
 
-        with pytest.raises(ProtocolError):
-            await port.read_one("h")
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(driver.read_one("h"), timeout=0.01)
 
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
+        assert client.read_holding_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -767,7 +761,7 @@ class TestHealthSemantics:
         client = _Client()
         driver = _driver({"h": _point("h")}, client, connected=False)
         assert driver.is_open() is False
-        assert driver.health().healthy is False
+        assert (await driver.health()).healthy is False
 
     @pytest.mark.asyncio
     async def test_exception_response_keeps_connection_open(self) -> None:
@@ -789,7 +783,7 @@ class TestHealthSemantics:
         sample = await driver.read_one("h")
         assert sample.quality is Quality.BAD
         assert driver.is_open() is True
-        assert driver.health().healthy is True
+        assert (await driver.health()).healthy is True
 
     @pytest.mark.asyncio
     async def test_explicit_close_resets_state(self) -> None:
