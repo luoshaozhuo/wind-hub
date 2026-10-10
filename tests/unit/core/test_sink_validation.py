@@ -90,3 +90,24 @@ def test_modbus_config_rejects_overlapping_registers() -> None:
 def test_redis_rejects_empty_host_or_prefix(field: str) -> None:
     with pytest.raises(ValidationError):
         RedisSinkConnection.model_validate({field: " "})
+
+
+def test_wildcard_listener_conflicts_with_specific_address() -> None:
+    all_interfaces = ModbusSinkConfig(
+        name="all", connection=ModbusSinkConnection(host="0.0.0.0", port=1502)
+    )
+    loopback = ModbusSinkConfig(
+        name="local", connection=ModbusSinkConnection(host="127.0.0.1", port=1502)
+    )
+    with pytest.raises(ValueError, match="duplicate Modbus listener"):
+        validate_sink_definitions([all_interfaces, loopback])
+
+
+def test_distinct_ports_are_allowed() -> None:
+    first = ModbusSinkConfig(
+        name="first", connection=ModbusSinkConnection(host="0.0.0.0", port=1502)
+    )
+    second = ModbusSinkConfig(
+        name="second", connection=ModbusSinkConnection(host="127.0.0.1", port=1503)
+    )
+    validate_sink_definitions([first, second])
