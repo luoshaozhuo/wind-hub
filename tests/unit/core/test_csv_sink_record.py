@@ -31,3 +31,17 @@ def test_csv_escapes_quotes_commas_and_newlines() -> None:
 def test_empty_batch_has_no_content_unless_header_requested() -> None:
     assert encode_csv_batch([]) == b""
     assert encode_csv_batch([], include_header=True).startswith(b"timestamp,")
+
+
+def test_each_encoded_row_is_indivisible() -> None:
+    from core.application.csv_sink_record import iter_csv_rows
+
+    values = [
+        PointValue("WT001", "power", 1.0),
+        PointValue("WT001", "note", "a,b\\nc"),
+    ]
+    rows = list(iter_csv_rows(values, include_header=True))
+    assert len(rows) == 3
+    assert b"timestamp," in rows[0]
+    assert b'"a,b' in rows[2]
+    assert b"".join(rows) == encode_csv_batch(values, include_header=True)
