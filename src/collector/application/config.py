@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from math import isfinite
 from types import MappingProxyType
 from typing import Literal
 
@@ -57,9 +56,9 @@ class RuntimeParams:
     shutdown_timeout: float = 10.0
     connect_timeout: float = 1.0
     read_timeout: float | None = 1.0
-    read_retries: int = 1
-    retry_interval: float = 1.0
     write_timeout: float = 1.0
+    watchdog_interval: float = 5.0
+    health_timeout: float = 1.0
 
     def __post_init__(self) -> None:
         if self.queue_maxsize <= 0:
@@ -73,10 +72,10 @@ class RuntimeParams:
             raise ConfigError("shutdown_timeout must be > 0")
         if self.connect_timeout <= 0:
             raise ConfigError("connect_timeout must be > 0")
-        if type(self.read_retries) is not int or self.read_retries < -1:
-            raise ConfigError("read_retries must be an integer >= -1")
-        if not isfinite(self.retry_interval) or self.retry_interval < 0:
-            raise ConfigError("retry_interval must be a finite number >= 0")
+        if self.watchdog_interval <= 0:
+            raise ConfigError("watchdog_interval must be > 0")
+        if self.health_timeout <= 0:
+            raise ConfigError("health_timeout must be > 0")
         if self.write_timeout <= 0:
             raise ConfigError("write_timeout must be > 0")
         if self.read_timeout is not None and self.read_timeout <= 0:
@@ -101,8 +100,7 @@ class DeviceView:
             extensions，ADS read_mode 已注入）。
         subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
             IEC104 恒为订阅、Modbus 恒为轮询，由会话按协议判定）。
-        supports_scheduled_collection: 是否支持周期采集（ADS
-            ``read_mode='sequential'`` 为单读模式，不支持）。
+        supports_scheduled_collection: 是否支持周期采集。
     """
 
     device: Device
@@ -205,15 +203,13 @@ class CollectorConfig:
             raise ConfigError(f"unknown device '{device_id}'")
         point_table = self.point_table_for_device(device_id)
         options = self.protocol_options_for(device_id)
-        protocol = point_table.protocol.name
-        read_mode = options.get("read_mode")
         return DeviceView(
             device=device,
             point_table=point_table,
             point_meta=self.table_meta(point_table.point_table_id),
             options=options,
             subscribe_enabled=device_id in self.ads_subscribe_devices,
-            supports_scheduled_collection=not (protocol == "ads" and read_mode == "sequential"),
+            supports_scheduled_collection=True,
         )
 
     def device_views(self) -> dict[DeviceId, DeviceView]:
