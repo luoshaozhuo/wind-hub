@@ -30,7 +30,7 @@ class TestGracefulShutdown:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(
             tmp_path / "cfg",
             modbus_server.port,
@@ -69,7 +69,7 @@ class TestGracefulShutdown:
         tmp_path: Path,
     ) -> None:
         """设备断连状态下的 SIGTERM：停机不能被卡死的重连/读超时拖住。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
