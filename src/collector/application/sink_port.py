@@ -14,7 +14,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application import ConfigError
-from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
+from core.application.port.sink import (
+    ExclusiveOpenSinkPort as ExclusiveOpenSinkPort,
+    SinkPort as SinkPort,
+)
 from core.application.sink_config import ResolvedSinkConfig
 
 
