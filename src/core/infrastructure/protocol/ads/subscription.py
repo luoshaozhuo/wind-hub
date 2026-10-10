@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolError
-from core.application.protocol_contract import ProtocolSample, Quality
+from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .config import ADSConfig
 from .mapping import ADSPoint
@@ -279,11 +279,13 @@ class ADSSubscription:
                 scalar = None
                 quality = Quality.BAD
 
+            normalized = _normalize_timestamp(timestamp)
             sample = ProtocolSample(
                 point_id=point.point_id,
                 value=scalar,
                 quality=quality,
-                timestamp=_normalize_timestamp(timestamp),
+                timestamp=normalized[0],
+                timestamp_source=normalized[1],
             )
             with contextlib.suppress(RuntimeError):
                 self._loop.call_soon_threadsafe(
@@ -310,14 +312,13 @@ class ADSSubscription:
             )
 
 
-def _normalize_timestamp(value: object) -> datetime:
-    if value is None:
-        return datetime.now(UTC)
+def _normalize_timestamp(value: object) -> tuple[datetime, TimestampSource]:
+    """返回 (UTC 时间戳, 来源)；通知缺失/非法时间戳时回退本地接收时刻。"""
     if not isinstance(value, datetime):
-        return datetime.now(UTC)
+        return datetime.now(UTC), "local"
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+        return value.replace(tzinfo=UTC), "device"
+    return value.astimezone(UTC), "device"
 
 
 def _as_scalar(value: object) -> float | int | bool | str | None:

@@ -77,6 +77,16 @@ class TestExceptionResponseClassification:
         app = ctx.app
         base = app.metrics.snapshot()
 
+        # 等待首个采集周期完成：连接建立但尚未通信时 health 不声称健康
+        # （传输打开 ≠ 设备可应答），首次真实通信后异常响应计为链路健康。
+        protocol = app.runtime.devices["modbus-1"].protocol
+        for _ in range(50):
+            if protocol.health().healthy:
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("首个采集周期后 health 仍未反映通信结果")
+
         # 3s（约 15 个采集周期）内持续采样：连接必须保持。
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:

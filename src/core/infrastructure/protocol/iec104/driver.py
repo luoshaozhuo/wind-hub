@@ -11,6 +11,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolError
@@ -322,6 +323,10 @@ class IEC104Driver:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
 
+    def is_open(self) -> bool:
+        """IEC104 连接是否处于 OPEN 状态（c104 协议级握手完成）。"""
+        return self._is_open
+
     def health(self) -> ConnectionHealth:
         """返回缓存的 OPEN 状态，不触发网络 I/O。"""
         if self._is_open:
@@ -347,6 +352,7 @@ class IEC104Driver:
                 point_id=point_id,
                 value=None,
                 quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
             )
         return sample
 
@@ -376,6 +382,7 @@ class IEC104Driver:
                         point_id=point_id,
                         value=None,
                         quality=Quality.BAD,
+                        timestamp=datetime.now(UTC),
                     )
                 )
             else:
@@ -698,6 +705,7 @@ class IEC104Driver:
                 point_id=mapped.point_id,
                 value=None,
                 quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
             )
 
         loop = self._loop

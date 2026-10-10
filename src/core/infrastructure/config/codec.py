@@ -127,7 +127,8 @@ _RUNTIME_KEYS = {
     "connect_timeout",
     "read_timeout",
     "write_timeout",
-    "reconnect_attempts",
+    "read_retries",
+    "retry_interval",
 }
 _ADS_KEYS = {"local_ams_net_id", "local_ip", "username", "password"}
 
@@ -185,9 +186,13 @@ def _parse_runtime(value: Any) -> RuntimeSettings:
             connect_timeout=timeouts["connect_timeout"],
             read_timeout=timeouts["read_timeout"],
             write_timeout=timeouts["write_timeout"],
-            reconnect_attempts=_as_int(
-                raw.get("reconnect_attempts", 1),
-                "system.yaml 'runtime.reconnect_attempts'",
+            read_retries=_as_int(
+                raw.get("read_retries", 1),
+                "system.yaml 'runtime.read_retries'",
+            ),
+            retry_interval=_as_float(
+                raw.get("retry_interval", 1.0),
+                "system.yaml 'runtime.retry_interval'",
             ),
         )
     except ValueError as exc:
@@ -237,10 +242,12 @@ def dump_system_config(config: SystemConfig) -> dict[str, Any]:
         "connect_timeout",
         "read_timeout",
         "write_timeout",
-        "reconnect_attempts",
+        "read_retries",
+        "retry_interval",
     ):
         value = getattr(config.runtime, key)
-        if value is not None and (key != "reconnect_attempts" or value != 1):
+        default = {"read_retries": 1, "retry_interval": 1.0}.get(key)
+        if value is not None and value != default:
             runtime[key] = value
     if runtime:
         data["runtime"] = runtime

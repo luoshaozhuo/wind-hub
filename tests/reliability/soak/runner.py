@@ -470,28 +470,28 @@ def _make_cycle_observer(
 class _ConnectEventCounter:
     """精确统计驱动层 TCP 建连成功次数（风暴场景的重连计数）。
 
-    为什么不能依赖 1s 健康采样：pymodbus 内部重试会吸收停服——在途读
-    要等重试预算耗尽（约 3 × transaction timeout）才向驱动抛出失败，
-    期间 ``driver.health()`` 自认健康；真正断连后驱动的后台 monitor 又
-    在百毫秒内重连成功。不健康窗口可能只有 ~0.1s，任何固定频率采样
+    为什么不能依赖 1s 健康采样：在途读要等底层超时耗尽才向驱动抛出
+    失败，期间 ``driver.health()`` 自认健康；断连后的透明恢复又可能在
+    两次采样之间完成。不健康窗口可能远小于采样周期，任何固定频率采样
     都会漏计，且漏不漏取决于停服与轮询的相位对齐（抖动即 flake）。
 
-    驱动每次成功建立 TCP 连接都要经过 ``_do_connect``（显式 connect 与
-    后台 monitor 两条路径共用）——「重连发生」的精确边界信号，不存在
-    采样混叠。风暴 profile 只用 modbus，故按鸭子类型包装该私有方法。
+    RecoveringProtocol 每次真正发起建连都要经过 ``_connect_once``
+    （显式 connect 与读路径透明恢复两条路径共用）——「重连发生」的
+    精确边界信号，不存在采样混叠。风暴 profile 只用 modbus，故按鸭子
+    类型包装该私有方法。
     """
 
     def __init__(self) -> None:
         self.count = 0
 
     def wrap(self, driver: object) -> None:
-        original = driver._do_connect  # type: ignore[attr-defined]
+        original = driver._connect_once  # type: ignore[attr-defined]
 
         async def _spy() -> None:
             await original()
             self.count += 1
 
-        driver._do_connect = _spy  # type: ignore[attr-defined, method-assign]
+        driver._connect_once = _spy  # type: ignore[attr-defined, method-assign]
 
 
 async def _health_watch(

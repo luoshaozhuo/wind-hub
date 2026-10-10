@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 
 from core.domain import (
@@ -70,10 +71,11 @@ class CommanderConfig:
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     ads_local: ADSLocalIdentity | None = None
-    connect_timeout: float = 10.0
-    write_timeout: float = 5.0
-    read_timeout: float = 5.0
-    reconnect_attempts: int = 1
+    connect_timeout: float = 1.0
+    write_timeout: float = 1.0
+    read_timeout: float = 1.0
+    read_retries: int = 1
+    retry_interval: float = 1.0
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
@@ -84,8 +86,15 @@ class CommanderConfig:
             raise ValueError("write_timeout must be > 0")
         if self.read_timeout <= 0:
             raise ValueError("read_timeout must be > 0")
-        if self.reconnect_attempts < 0 or type(self.reconnect_attempts) is not int:
-            raise ValueError("reconnect_attempts must be a nonnegative integer")
+        if type(self.read_retries) is not int or self.read_retries < -1:
+            raise ValueError("read_retries must be an integer >= -1")
+        if (
+            isinstance(self.retry_interval, bool)
+            or not isinstance(self.retry_interval, int | float)
+            or not isfinite(self.retry_interval)
+            or self.retry_interval < 0
+        ):
+            raise ValueError("retry_interval must be a finite number >= 0")
         object.__setattr__(
             self,
             "point_meta",

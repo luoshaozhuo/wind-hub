@@ -122,12 +122,11 @@ def assemble_collector(
     protocol_registry = build_protocol_registry()
     protocol_registry.configure_recovery(
         RecoverySettings(
-            reconnect_attempts=config.runtime.reconnect_attempts,
+            read_retries=config.runtime.read_retries,
+            retry_interval=config.runtime.retry_interval,
             connect_timeout=config.runtime.connect_timeout,
             read_timeout=(
-                config.runtime.read_timeout
-                if config.runtime.read_timeout is not None
-                else 5.0
+                config.runtime.read_timeout if config.runtime.read_timeout is not None else 1.0
             ),
             write_timeout=config.runtime.write_timeout,
         )

@@ -24,8 +24,8 @@ def test_load_minimal_modbus_config(tmp_path):
     table = config.point_table_for_device(device.device_id)
     assert table.protocol.name == "modbus"
     assert "p1" in table.points
-    assert config.connect_timeout == 10.0
-    assert config.write_timeout == 5.0
+    assert config.connect_timeout == 1.0
+    assert config.write_timeout == 1.0
 
 
 def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
@@ -401,3 +401,23 @@ def test_commander_load_ignores_missing_or_invalid_unrelated_topics(tmp_path):
     (config_dir / "sinks.yaml").unlink()
     config = load_commander_config(config_dir)
     assert config.devices
+
+
+def test_read_retries_and_retry_interval_loaded(tmp_path):
+    config_dir = write_minimal_config_tree(
+        tmp_path, runtime={"read_retries": 3, "retry_interval": 0.5}
+    )
+    config = load_commander_config(config_dir)
+    assert config.read_retries == 3
+    assert config.retry_interval == 0.5
+
+
+def test_read_retries_defaults_and_validation(tmp_path):
+    config_dir = write_minimal_config_tree(tmp_path)
+    config = load_commander_config(config_dir)
+    assert config.read_retries == 1
+    assert config.retry_interval == 1.0
+
+    bad_dir = write_minimal_config_tree(tmp_path / "bad", runtime={"read_retries": -2})
+    with pytest.raises(ConfigError):
+        load_commander_config(bad_dir)

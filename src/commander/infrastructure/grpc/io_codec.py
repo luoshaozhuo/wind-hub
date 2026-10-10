@@ -50,9 +50,9 @@ def point_value_to_proto(value: PointReading) -> pb.PointValueMessage:
         value=encode_scalar(value.value),
         quality=value.quality.value,
         source=value.source or "",
+        timestamp_source=value.timestamp_source,
     )
-    if value.timestamp is not None:
-        message.timestamp.FromDatetime(value.timestamp)
+    message.timestamp.FromDatetime(value.timestamp)
     return message
 
 

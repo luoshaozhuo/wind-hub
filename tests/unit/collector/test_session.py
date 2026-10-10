@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 
@@ -265,7 +266,14 @@ async def test_read_preserves_bad_quality_and_bool():
 
     async def read_many(point_ids):
         assert list(point_ids) == ["p1"]
-        return (ProtocolSample(point_id="p1", value=None, quality=Quality.BAD),)
+        return (
+            ProtocolSample(
+                point_id="p1",
+                value=None,
+                quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
+            ),
+        )
 
     proto.read_many = read_many
     session = make_session(make_collector_config(scale=3.0, offset=1.0), proto)
@@ -274,11 +282,44 @@ async def test_read_preserves_bad_quality_and_bool():
     assert bad[0].quality is Quality.BAD
 
     async def read_bool(point_ids):
-        return (ProtocolSample(point_id="p1", value=True, quality=Quality.GOOD),)
+        return (
+            ProtocolSample(
+                point_id="p1",
+                value=True,
+                quality=Quality.GOOD,
+                timestamp=datetime.now(UTC),
+            ),
+        )
 
     proto.read_many = read_bool
     flag = await session.read("g")
     assert flag[0].value is True
+
+
+async def test_read_passes_through_protocol_timestamp_and_source():
+    """协议样本的时间戳与来源（device/local）透传到 PointValue，不再兜底补时间。"""
+    from core.application import ProtocolSample
+
+    device_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    proto = CollectorFakeProtocol()
+
+    async def read_many(point_ids):
+        return (
+            ProtocolSample(
+                point_id="p1",
+                value=1.0,
+                quality=Quality.GOOD,
+                timestamp=device_time,
+                timestamp_source="device",
+            ),
+        )
+
+    proto.read_many = read_many
+    session = make_session(make_collector_config(), proto)
+    values = await session.read("g")
+
+    assert values[0].timestamp == device_time
+    assert values[0].timestamp_source == "device"
 
 
 async def test_set_points_failure_keeps_session_on_old_table():

@@ -39,6 +39,14 @@ class ProtocolPort(Protocol):
 
     async def close(self) -> None: ...
 
+    def is_open(self) -> bool:
+        """本地传输连接当前是否处于打开状态（纯本地查询，不执行网络 I/O）。
+
+        只回答「连接能否直接用于下一次 I/O」，不回答「对端设备是否能
+        正常应答」——后者由 ``health()`` 的最近通信结果表达。
+        """
+        ...
+
     def health(self) -> ConnectionHealth: ...
 
     async def read_one(self, point_id: str) -> ProtocolSample: ...

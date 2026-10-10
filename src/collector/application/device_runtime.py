@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth
-from core.application.recovery import RecoveryPort
+from core.application.recovery import RecoveringProtocol
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -73,7 +73,7 @@ class DeviceRuntime:
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
-        # RecoveryPort 在读路径内透明重连时对上层不可见——把重连事件接回
+        # RecoveringProtocol 在读路径内透明重连时对上层不可见——把重连事件接回
         # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
         for device_id, device in devices.items():
             self._wire_reconnect_hook(device_id, device)
@@ -217,8 +217,9 @@ class DeviceRuntime:
         - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
           高频轮询不会形成 connect 风暴；
         - ``force=True`` 用于显式控制/诊断请求：若 DeviceRuntime 状态显示已连接，
-          还会检查协议 Driver health；health 不健康时忽略重连节流窗口并立即
-          执行一次幂等 ``connect()``；
+          还会检查协议传输是否打开（``is_open``）；传输已断开时忽略重连
+          节流窗口并立即执行一次幂等 ``connect()``（可复用的连接不会被
+          无意义重建）；
         - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
           （失败计数清零），失败则按指数 backoff 推迟下次窗口
           （1 s → 2 s → … → 30 s 封顶）。
@@ -231,14 +232,10 @@ class DeviceRuntime:
         if state.connected:
             if not force:
                 return True
-            try:
-                health = device.health()
-            except Exception:
-                health = ConnectionHealth(healthy=False, message="health check failed")
-            if health.healthy:
+            if _transport_open(device):
                 return True
             logger.info(
-                "Device '%s' runtime state is connected but protocol health is unhealthy; "
+                "Device '%s' runtime state is connected but transport is not open; "
                 "forcing reconnect",
                 device_id,
             )
@@ -257,11 +254,7 @@ class DeviceRuntime:
             if state.connected:
                 if not force:
                     return True
-                try:
-                    health = device.health()
-                except Exception:
-                    health = ConnectionHealth(healthy=False, message="health check failed")
-                if health.healthy:
+                if _transport_open(device):
                     return True
             now = self._clock()
             if not force and now < state.next_retry_at:
@@ -277,7 +270,7 @@ class DeviceRuntime:
         """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
         now = self._clock()
         # 读路径的透明重连回调（sync hook）可能在 connect 等待期间抢先完成
-        # 恢复并已记账——此时本次 connect 在 RecoveryPort 内幂等返回，
+        # 恢复并已记账——此时本次 connect 在 RecoveringProtocol 内幂等返回，
         # 不再重复计一次重连指标。
         pre_success_at = state.last_success_at
         try:
@@ -320,14 +313,7 @@ class DeviceRuntime:
         if not connection_level:
             device = self._devices.get(device_id)
             if device is not None:
-                try:
-                    connection_level = not device.health().healthy
-                except Exception:
-                    logger.debug(
-                        "Device '%s' health check failed while classifying read error",
-                        device_id,
-                        exc_info=True,
-                    )
+                connection_level = not _transport_open(device)
         self._state_for(device_id).mark_read_failure(
             self._clock(), error, connection_level=connection_level
         )
@@ -424,15 +410,15 @@ class DeviceRuntime:
             )
 
     def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
-        """把 RecoveryPort 读路径内透明重连事件接回运行状态与指标。
+        """把 RecoveringProtocol 读路径内透明重连事件接回运行状态与指标。
 
-        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveryPort
+        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveringProtocol
         的迟到重连回调（在途读触发的恢复晚于新会话注册）不得改写新会话的
         运行状态或重复记账指标——以注册表中的会话身份做失效判定，无需额外
         generation 计数。
         """
         protocol = session.protocol
-        if isinstance(protocol, RecoveryPort):
+        if isinstance(protocol, RecoveringProtocol):
 
             def _on_reconnect(session: CollectorDeviceSession = session) -> None:
                 if self._devices.get(device_id) is session:
@@ -465,6 +451,15 @@ class DeviceRuntime:
         """设备协议名（指标标签用）；设备已从注册表移除时回退 'unknown'。"""
         device = self._devices.get(device_id)
         return device.protocol_name if device is not None else "unknown"
+
+
+def _transport_open(device: CollectorDeviceSession) -> bool:
+    """查询协议传输连接是否打开；查询失败按不可达处理。"""
+    try:
+        return device.is_open()
+    except Exception:
+        logger.debug("Device is_open check failed while classifying", exc_info=True)
+        return False
 
 
 def _view_signature(view: DeviceView) -> object:

@@ -476,3 +476,20 @@ def test_invalid_protocol_option_value_is_rejected_at_load(tmp_path):
     )
     with pytest.raises(ConfigError):
         load_collector_config(config_dir)
+
+
+def test_read_retries_and_retry_interval_parsed(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        runtime={"read_retries": -1, "retry_interval": 0.25},
+    )
+    config = load_collector_config(config_dir)
+    assert config.runtime.read_retries == -1
+    assert config.runtime.retry_interval == 0.25
+
+
+def test_read_retries_defaults(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path)
+    config = load_collector_config(config_dir)
+    assert config.runtime.read_retries == 1
+    assert config.runtime.retry_interval == 1.0

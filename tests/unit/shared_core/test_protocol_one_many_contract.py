@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -127,13 +128,14 @@ def _connected_modbus_driver(client: _ModbusClient) -> ModbusDriver:
     driver._config = parse_modbus_config(ConnectionEndpoint("192.0.2.10", 502), {})
     driver._points = {"p1": _modbus_point("p1")}
     driver._client = client
-    driver._connected = True
+    driver._last_exchange = None
+    client.connected = True
     return driver
 
 
 def _bare_modbus_driver() -> ModbusDriver:
     driver = _connected_modbus_driver(_ModbusClient())
-    driver._connected = False
+    driver._client.connected = False
     return driver
 
 
@@ -281,7 +283,12 @@ def _connected_iec104_driver() -> IEC104Driver:
     driver._is_open = True
     driver._points_by_id = {"p1": IEC104Point(point_id="p1", ioa=100, type_id="C_SC_NA_1")}
     driver._samples = {
-        100: ProtocolSample(point_id="p1", value=True, quality=Quality.GOOD),
+        100: ProtocolSample(
+            point_id="p1",
+            value=True,
+            quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
+        ),
     }
     driver._command_locks = {}
     command_point = _IEC104CommandPoint(c104.Type.C_SC_NA_1)

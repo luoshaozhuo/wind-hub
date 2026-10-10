@@ -111,10 +111,12 @@ class PointValueMessage(_message.Message):
     QUALITY_FIELD_NUMBER: _builtins.int
     TIMESTAMP_FIELD_NUMBER: _builtins.int
     SOURCE_FIELD_NUMBER: _builtins.int
+    TIMESTAMP_SOURCE_FIELD_NUMBER: _builtins.int
     device_id: _builtins.str
     point_id: _builtins.str
     quality: _builtins.str
     source: _builtins.str
+    timestamp_source: _builtins.str
     @_builtins.property
     def value(self) -> Global___ScalarValue: ...
     @_builtins.property
@@ -128,10 +130,11 @@ class PointValueMessage(_message.Message):
         quality: _builtins.str = ...,
         timestamp: _timestamp_pb2.Timestamp | None = ...,
         source: _builtins.str = ...,
+        timestamp_source: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["timestamp", b"timestamp", "value", b"value"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "point_id", b"point_id", "quality", b"quality", "source", b"source", "timestamp", b"timestamp", "value", b"value"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "point_id", b"point_id", "quality", b"quality", "source", b"source", "timestamp", b"timestamp", "timestamp_source", b"timestamp_source", "value", b"value"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

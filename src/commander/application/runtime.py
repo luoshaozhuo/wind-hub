@@ -131,7 +131,8 @@ class CommanderRuntime:
         if isinstance(self._protocol_registry, ProtocolRegistry):
             self._protocol_registry.configure_recovery(
                 RecoverySettings(
-                    reconnect_attempts=config.reconnect_attempts,
+                    read_retries=config.read_retries,
+                    retry_interval=config.retry_interval,
                     connect_timeout=config.connect_timeout,
                     read_timeout=config.read_timeout,
                     write_timeout=None,  # Commander handles per-command deadlines.
@@ -389,8 +390,10 @@ class CommanderRuntime:
     async def ensure_connected(self, device_id: str) -> bool:
         """确保固定 generation 中的设备连接可用。
 
-        并发 ensure 由 per-device lock 串行化；重连前先尽力关闭旧会话，
-        connect 应用配置级超时；失败返回 False 而不抛出。
+        以协议传输状态（``is_open``）判定：传输仍打开的连接直接复用，
+        不做无意义的 close/connect。并发 ensure 由 per-device lock 串行化；
+        重连前先尽力关闭旧会话，connect 应用配置级超时；失败返回 False
+        而不抛出。
         """
         generation = self._generation()
         try:
@@ -399,11 +402,11 @@ class CommanderRuntime:
         except KeyError as exc:
             raise KeyError(f"unknown device '{device_id}'") from exc
 
-        if device.health().healthy:
+        if device.is_open():
             return True
 
         async with lock:
-            if device.health().healthy:
+            if device.is_open():
                 return True
             try:
                 await device.close()
@@ -425,4 +428,4 @@ class CommanderRuntime:
                     exc,
                 )
                 return False
-            return device.health().healthy
+            return device.is_open()

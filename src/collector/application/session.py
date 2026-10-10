@@ -18,7 +18,6 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import UTC, datetime
 from enum import Enum
 from typing import Protocol
 
@@ -264,6 +263,10 @@ class CollectorDeviceSession:
         """关闭底层协议连接并释放资源；重复调用由 Driver 保证安全。"""
         await self._protocol.close()
 
+    def is_open(self) -> bool:
+        """底层协议传输连接当前是否打开（本地查询，不触发网络 I/O）。"""
+        return self._protocol.is_open()
+
     def health(self) -> ConnectionHealth:
         """返回协议缓存的健康状态，不触发实时网络探测。"""
         return self._protocol.health()
@@ -313,7 +316,8 @@ class CollectorDeviceSession:
         """把单个协议原始样本换算为工程值 PointValue。
 
         与 Commander 共用 core.domain 的 scale/offset 换算规则；未知点
-        原样保留，质量不变，时间戳回退到本地采集时刻。
+        原样保留，质量不变。协议样本时间戳为必填（UTC），连同时间来源
+        （device/local）一并透传，不再由 Collector 兜底补时间。
         """
         point = self._point_table.points.get(sample.point_id)
         value = sample.value if point is None else engineering_value(point, sample.value)
@@ -322,8 +326,8 @@ class CollectorDeviceSession:
             point_id=sample.point_id,
             value=value,
             quality=sample.quality,
-            # 协议未提供采样时间时回退到本地采集时刻（UTC）。
-            timestamp=sample.timestamp or datetime.now(UTC),
+            timestamp=sample.timestamp,
+            timestamp_source=sample.timestamp_source,
             source=self.protocol_name,
         )
 
