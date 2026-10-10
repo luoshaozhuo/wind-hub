@@ -27,7 +27,7 @@ class MemorySink:
     async def flush(self) -> None:
         return None
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
 
