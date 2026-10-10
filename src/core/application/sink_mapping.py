@@ -8,9 +8,6 @@ from typing import Literal
 
 
 RegisterType = Literal["holding", "input", "coil", "discrete"]
-NumericType = Literal[
-    "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64"
-]
 ModbusType = Literal[
     "bool", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64"
 ]
