@@ -102,6 +102,7 @@ class Device:
     endpoint: ConnectionEndpoint
     name: str | None = None
     device_group_ids: tuple[DeviceGroupId, ...] = ()
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         device_id = self.device_id.strip()
@@ -115,6 +116,8 @@ class Device:
         if name == "":
             name = None
 
+        if not isinstance(self.enabled, bool):
+            raise ValueError("device enabled must be bool")
         group_ids = tuple(DeviceGroupId(group_id.strip()) for group_id in self.device_group_ids)
         if not group_ids:
             raise ValueError("device must belong to at least one device group")
