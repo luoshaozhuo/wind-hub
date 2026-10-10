@@ -25,10 +25,7 @@ def _yaml_plain(value: Any) -> Any:
     return value
 
 
-def dump_snapshot(
-    snapshot: ConfigSnapshot,
-    model_definitions: dict[str, Any] | None = None,
-) -> dict[str, dict[str, Any]]:
+def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
     system: dict[str, Any] = {}
     runtime = {
         name: getattr(snapshot.system.runtime, name)
