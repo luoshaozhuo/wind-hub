@@ -22,7 +22,7 @@ from tests.support.control import apply_placement_and_start_instance, stop_insta
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.wait import (
-    read_jsonl,
+    read_csv,
     wait_file_rows,
     wait_kafka_messages,
     wait_postgres_rows,
@@ -88,7 +88,7 @@ class TestModbusToFile:
         assert all(r["value"] == pytest.approx(1200.5) for r in rows)
         assert all(r["quality"] == "good" for r in rows)
         # 同一任务周期应同时产出组内其余点位。
-        point_ids = {r["point_id"] for r in read_jsonl(sink_path)}
+        point_ids = {r["point_id"] for r in read_csv(sink_path)}
         assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
 
     async def test_stopped_task_halts_delivery(
@@ -110,9 +110,9 @@ class TestModbusToFile:
         # 静默验证（不是就绪等待）：先等残余缓冲落盘，再确认行数在
         # 数个采集周期内不再增长——停止后不允许有新采集写入。
         await asyncio.sleep(1.0)
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await asyncio.sleep(0.8)
-        assert len(read_jsonl(sink_path)) == settled
+        assert len(read_csv(sink_path)) == settled
 
 
 @pytest.mark.kafka
