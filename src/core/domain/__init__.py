@@ -20,7 +20,6 @@ from .identities import (
 from .point import (
     BusinessPoint,
     Point,
-    PointMeta,
     PointTable,
     engineering_value,
     raw_write_value,
@@ -157,7 +156,6 @@ __all__ = [
     "DeviceTypeId",
     "Point",
     "PointAccess",
-    "PointMeta",
     "PointTable",
     "PointTableId",
     "Protocol",
