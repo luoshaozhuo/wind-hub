@@ -21,7 +21,7 @@ from core.domain import (
     Site,
     Task,
 )
-from core.domain.device import ProtocolOptions
+from core.domain.device import ProtocolOptions, freeze_protocol_options
 from core.domain.config import SystemConfig
 from core.application.sink_config import SinkConfig
 
@@ -45,6 +45,14 @@ class ConfigSnapshot:
         for name in (
             "device_types", "device_models", "device_groups",
             "point_tables", "business_points", "tasks", "sinks",
-            "protocol_options_by_device",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        object.__setattr__(
+            self,
+            "protocol_options_by_device",
+            MappingProxyType({
+                device_id: freeze_protocol_options(options)
+                for device_id, options in self.protocol_options_by_device.items()
+            }),
+        )
+
