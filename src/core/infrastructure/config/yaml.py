@@ -12,6 +12,7 @@ import yaml
 
 from core.application import ConfigError
 
+
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
     """安全读取 YAML 根映射，保留既有配置异常语义。"""
     source = Path(path)
