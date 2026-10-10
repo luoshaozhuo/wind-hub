@@ -70,7 +70,7 @@ async def _start_stack(
     collector_factory, link: NetemLink, tmp_path: Path
 ) -> tuple[CollectorProcess, Path]:
     """起 Collector 并确认故障前基线：设备已连接、数据在出。"""
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = _write_config(tmp_path / "cfg", link, sink_path)
     proc: CollectorProcess = await collector_factory(config_dir)
     await apply_placement_and_start_instance(
