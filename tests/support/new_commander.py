@@ -161,7 +161,7 @@ class FakeProtocol:
     def is_open(self) -> bool:
         return self.connected
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
 
     async def read_one(self, point_id: str) -> ProtocolSample:
