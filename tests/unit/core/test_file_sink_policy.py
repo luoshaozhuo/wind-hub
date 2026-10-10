@@ -6,9 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from core.application.errors import ConfigError
-
 from core.application.csv_sink_record import FileSegment, expired_segments, should_rotate
+from core.application.errors import ConfigError
 from core.application.sink_config import FileSinkConnection
 
 

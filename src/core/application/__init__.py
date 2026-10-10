@@ -20,11 +20,10 @@ from .port import (
     ConfigSnapshotPort,
     ConfigTopic,
     ConfigValue,
+    ExclusiveOpenSinkPort,
     ProtocolPort,
     ProtocolSampleCallback,
     SinkPort,
-    ExclusiveOpenSinkPort,
-
     SubscriptionHandle,
 )
 from .protocol_contract import (

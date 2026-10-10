@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+from contextlib import suppress
 import inspect
 import json
 import time
@@ -167,10 +168,8 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
             elif value == "False":
                 row["value"] = False
             else:
-                try:
+                with suppress(ValueError, TypeError):
                     row["value"] = json.loads(value)
-                except (ValueError, TypeError):
-                    pass
             rows.append(row)
     return rows
 
