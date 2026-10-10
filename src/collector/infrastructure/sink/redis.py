@@ -46,7 +46,10 @@ class RedisSink:
                 await client.ping()
             except Exception as exc:
                 if client is not None:
-                    await client.aclose()
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        pass
                 self._healthy = False
                 self._message = str(exc)
                 raise SinkError(f"Redis connection failed: {exc}") from exc
