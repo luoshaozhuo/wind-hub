@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+import os
 from typing import BinaryIO
 
 from collector.application.errors import SinkError
@@ -159,5 +160,27 @@ class FileSink:
             self._segment = None
             self._healthy, self._error = False, "closed"
 
-    def health(self) -> ConnectionHealth:
-        return ConnectionHealth(healthy=self._healthy, message=self._error)
+    async def health(self) -> ConnectionHealth:
+        """检查活动文件与目标目录实际可写性，不写入业务记录。"""
+        async with self._lock:
+            if self._file is None or self._file.closed:
+                return ConnectionHealth(healthy=False, message=self._error or "not opened")
+
+            def _probe() -> None:
+                # 打开现有文件的 append fd 验证权限/文件系统状态，不写字节；
+                # 同时要求父目录仍可写，以保证后续轮转 rename/create 可执行。
+                fd = os.open(self._path, os.O_WRONLY | os.O_APPEND)
+                os.close(fd)
+                if not os.access(self._path.parent, os.W_OK):
+                    raise PermissionError(f"directory is not writable: {self._path.parent}")
+
+            try:
+                await self._blocking(_probe)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._healthy, self._error = False, str(exc)
+                return ConnectionHealth(healthy=False, message=self._error)
+
+            self._healthy, self._error = True, None
+            return ConnectionHealth(healthy=True)
