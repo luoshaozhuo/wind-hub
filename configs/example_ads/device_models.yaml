@@ -5,8 +5,6 @@
 # 三层抽象：DeviceType（业务分类）→ DeviceModel（协议、点表绑定、读取
 # 策略、连接默认值）→ DeviceInstance（devices.yaml，只写连接差异）。
 #
-# read_mode 仅 ADS 型号可配置：sum（Symbol 批量周期采集，缺省）/
-# sequential（逐点 Read，仅单次读取与诊断，不参与周期采集）。
 
 device_types:
 
@@ -21,7 +19,6 @@ device_models:
     device_type: turbine
     protocol: ads
     point_table: wtg_ads_site_v1
-    read_mode: sum
     connection_defaults:
       port: 801                # AMS Runtime Port；TwinCAT 2 第一 PLC 默认 801
       twincat_version: "2"
