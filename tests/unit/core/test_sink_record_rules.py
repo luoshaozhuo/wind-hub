@@ -7,7 +7,7 @@ import pytest
 
 from core.application.file_sink_segments import is_owned_segment, segment_filename
 from core.application.redis_sink_record import encode_redis_record
-from core.application.sink_config import RedisSinkConnection
+from core.infrastructure.config.sink_schema import RedisSinkConnection
 from core.domain.point_value import PointValue
 
 
