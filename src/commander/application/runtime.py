@@ -21,7 +21,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from core.application import ProtocolRegistry
+from core.application import ProtocolRegistry, WatchdogUseCase
 
 from .config import CommanderConfig
 from .session import DeviceSession
@@ -43,6 +43,7 @@ class _Generation:
     config: CommanderConfig
     devices: dict[str, DeviceSession]
     connect_locks: dict[str, asyncio.Lock]
+    watchdogs: dict[str, WatchdogUseCase] = field(default_factory=dict)
     active_operations: int = 0
     drained: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -353,7 +354,10 @@ class CommanderRuntime:
         *,
         reason: str,
     ) -> None:
-        """并发关闭一代设备会话；单设备失败不阻断其他资源释放。"""
+        """停止该代 Watchdog，再关闭设备会话。"""
+        for watchdog in tuple(generation.watchdogs.values()):
+            await watchdog.stop()
+        generation.watchdogs.clear()
         items = list(generation.devices.items())
         results = await asyncio.gather(
             *(device.close() for _device_id, device in items),
@@ -417,4 +421,49 @@ class CommanderRuntime:
                     exc,
                 )
                 return False
-            return device.is_open()
+            connected = device.is_open()
+            if connected and generation is self._current and not self._stopping:
+                watchdog = generation.watchdogs.get(device_id)
+                if watchdog is None:
+                    watchdog = self._create_watchdog(generation, device_id, device)
+                    generation.watchdogs[device_id] = watchdog
+                await watchdog.start()
+            return connected
+
+    def _create_watchdog(
+        self,
+        generation: _Generation,
+        device_id: str,
+        device: DeviceSession,
+    ) -> WatchdogUseCase:
+        """只监测已建立连接的会话；检查与重连不跨 generation。"""
+        lock = generation.connect_locks[device_id]
+
+        async def close() -> None:
+            await device.close()
+
+        async def connect() -> None:
+            await device.connect()
+
+        # Watchdog 自身以串行锁保护 close/connect；Commander 的显式
+        # ensure_connected 仍可能同时操作，故共享设备连接锁。
+        async def health():
+            async with lock:
+                return await device.health()
+
+        async def close_locked() -> None:
+            async with lock:
+                await close()
+
+        async def connect_locked() -> None:
+            async with lock:
+                await connect()
+
+        return WatchdogUseCase(
+            health=health,
+            close=close_locked,
+            connect=connect_locked,
+            interval=generation.config.watchdog_interval,
+            health_timeout=generation.config.health_timeout,
+            connect_timeout=generation.config.connect_timeout,
+        )
