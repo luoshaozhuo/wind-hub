@@ -11,18 +11,6 @@ from typing import Any, cast
 import yaml
 
 from core.application import ConfigError
-from core.domain.config import ConfigTopic
-
-_TOPIC_FILES: dict[ConfigTopic, str] = {
-    ConfigTopic.SYSTEM: "system.yaml",
-    ConfigTopic.DEVICE_MODELS: "device_models.yaml",
-    ConfigTopic.DEVICES: "devices.yaml",
-    ConfigTopic.POINTS: "points.yaml",
-    ConfigTopic.UNITS: "units.yaml",
-    ConfigTopic.TASKS: "tasks.yaml",
-    ConfigTopic.SINKS: "sinks.yaml",
-}
-
 
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
     """安全读取 YAML 根映射，保留既有配置异常语义。"""
