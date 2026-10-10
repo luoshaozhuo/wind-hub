@@ -97,7 +97,7 @@ class DeviceView:
         point_table: 设备型号绑定的 resolved 点表。
         point_meta: 本点表的进程级点位元数据（按 point_id 索引）。
         options: 合并后的协议参数（model connection_defaults + endpoint
-            extensions，ADS read_mode 已注入）。
+            extensions）。
         subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
             IEC104 恒为订阅、Modbus 恒为轮询，由会话按协议判定）。
     """
@@ -118,7 +118,7 @@ class CollectorConfig:
         device_models: 设备型号索引（设备查找点表用）。
         point_tables: resolved 点表索引。
         protocol_options_by_device: 合并后的协议参数索引（model connection_defaults +
-            endpoint extensions，ADS read_mode 已注入）。
+            endpoint extensions）。
         runtime: 运行时参数（队列/背压/超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
         sinks: resolved Sink 契约注册表（``{name: ResolvedSinkConfig}``，
