@@ -17,7 +17,6 @@ import contextlib
 import logging
 import tempfile
 import time
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,7 +69,7 @@ class SoakProfile:
     name: str
     groups: tuple[LoadGroup, ...]
     sink: str = "null"
-    """``null``（仅计量）/ ``kafka`` / ``postgres``（真实 sink + 计量包装）。"""
+    """当前只使用 null 计量 Sink。"""
     write_interval_s: float | None = None
     """混合读写：测量窗口内按该间隔轮询下发写命令；None 表示纯采集。"""
     storm: ReconnectStorm | None = None
@@ -110,17 +109,6 @@ PROFILES: dict[str, SoakProfile] = {
         name="mixed_read_write",
         groups=(LoadGroup(name="rw", devices=2, points_per_device=50, interval_s=0.2),),
         write_interval_s=0.2,
-    ),
-    # 真实 sink 输出开销。
-    "kafka_output": SoakProfile(
-        name="kafka_output",
-        groups=(LoadGroup(name="out", devices=2, points_per_device=100, interval_s=0.2),),
-        sink="kafka",
-    ),
-    "postgres_output": SoakProfile(
-        name="postgres_output",
-        groups=(LoadGroup(name="out", devices=2, points_per_device=100, interval_s=0.2),),
-        sink="postgres",
     ),
     # 重连风暴：5 次停起（每次停 2s，间隔 4s），验证节拍在反复断连下的
     # 保持能力。风暴总时长 = 5 × (4 + 2) = 30s，测量窗口须覆盖。
@@ -171,10 +159,6 @@ def write_soak_config(
     host: str,
     port: int,
     *,
-    kafka_bootstrap: str | None = None,
-    kafka_topic: str | None = None,
-    postgres_dsn: str | None = None,
-    postgres_table: str | None = None,
 ) -> Path:
     """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
 
@@ -223,27 +207,8 @@ def write_soak_config(
                 }
             )
 
-    sink_connection: dict[str, object] = {}
-    if profile.sink == "kafka":
-        if kafka_bootstrap is None or kafka_topic is None:
-            raise ValueError("kafka profile 需要 kafka_bootstrap / kafka_topic")
-        sink_connection = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
-    elif profile.sink == "postgres":
-        if postgres_dsn is None or postgres_table is None:
-            raise ValueError("postgres profile 需要 postgres_dsn / postgres_table")
-        sink_connection = {
-            "dsn": postgres_dsn,
-            "table": postgres_table,
-            "create_table": True,
-        }
-
-    sink_type = {
-        "null": "file",
-        "kafka": "kafka",
-        "postgres": "db",
-    }[profile.sink]
-    if profile.sink == "null":
-        sink_connection = {"path": str(config_dir / "soak-null.jsonl")}
+    sink_type = "file"
+    sink_connection: dict[str, object] = {"path": str(config_dir / "soak-null.csv")}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -278,10 +243,6 @@ async def run_soak(
     port: int = DEFAULT_SOAK_PORT,
     duration_s: float = 30.0,
     warmup_s: float = 3.0,
-    kafka_bootstrap: str | None = None,
-    postgres_dsn: str | None = None,
-    kafka_topic: str | None = None,
-    postgres_table: str | None = None,
     netem_devices: list[str] | None = None,
     netem_scenario: NetemScenario | None = None,
     on_ready: Callable[[], None] | None = None,
@@ -303,27 +264,15 @@ async def run_soak(
     if duration_s <= 0 or warmup_s < 0:
         raise ValueError("duration_s 必须为正，warmup_s 不能为负")
 
-    topic = kafka_topic or f"windhub-soak-{uuid.uuid4().hex[:12]}"
-    table = postgres_table or f"windhub_soak_{uuid.uuid4().hex[:12]}"
     recording_holder: list[RecordingSink] = []
 
     def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
-        inner = None
-        if profile.sink == "kafka":
-            from collector.infrastructure.sink.mq.kafka import KafkaSink
-
-            inner = KafkaSink(cfg)
-        elif profile.sink == "postgres":
-            from collector.infrastructure.sink.db.postgres import DBSink
-
-            inner = DBSink(cfg)
-        sink = RecordingSink(inner)
+        del cfg
+        sink = RecordingSink()
         recording_holder.append(sink)
         return sink
 
-    # null 形态配置里是 file sink（占位），真实 sink 形态对应 kafka/db——
-    # 统一按类型覆盖工厂，注入计量包装。
-    sink_type = {"null": "file", "kafka": "kafka", "postgres": "db"}[profile.sink]
+    sink_type = "file"
 
     controllers = [NetemController(dev) for dev in (netem_devices or [])]
     task_intervals = {
@@ -339,10 +288,6 @@ async def run_soak(
             profile,
             host,
             port,
-            kafka_bootstrap=kafka_bootstrap,
-            kafka_topic=topic,
-            postgres_dsn=postgres_dsn,
-            postgres_table=table,
         )
         await server.start()
         try:
