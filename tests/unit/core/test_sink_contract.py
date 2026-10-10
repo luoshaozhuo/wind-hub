@@ -4,7 +4,6 @@ from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
 
 from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from core.application.protocol_contract import ConnectionHealth
