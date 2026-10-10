@@ -54,6 +54,21 @@ class WatchdogUseCase:
         self._enabled = True
         self._generation = 0
 
+    def configure(
+        self,
+        *,
+        interval: float,
+        health_timeout: float,
+        connect_timeout: float,
+    ) -> None:
+        """更新后续周期使用的时序参数。"""
+        if interval <= 0 or health_timeout <= 0 or connect_timeout <= 0:
+            raise ValueError("watchdog timing values must be > 0")
+        self._interval = float(interval)
+        self._health_timeout = float(health_timeout)
+        self._connect_timeout = float(connect_timeout)
+        self._wake.set()
+
     async def check_once(self) -> ConnectionHealth:
         """执行一次有界健康检查；需要时最多触发一次重连。"""
         generation = self._generation
