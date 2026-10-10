@@ -518,11 +518,10 @@ class ADSDriver:
         for index in unresolved_indexes:
             results[index] = (None, Quality.BAD)
         for chunk, addresses, expected in cached:
-            try:
-                raw = await asyncio.to_thread(
-                    self._sum_read_bytes,
-                    addresses,
-                )
+            raw = await asyncio.to_thread(
+                self._sum_read_bytes,
+                addresses,
+            )
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
