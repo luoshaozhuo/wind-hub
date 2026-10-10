@@ -219,8 +219,11 @@ def _validate_sinks(
             source = point.get("source")
             if not isinstance(source, Mapping):
                 raise ValueError(f"sink '{sink_id}' point requires a source mapping")
-            device_id = source.get("device_id")
+            device_value = source.get("device_id")
             point_id = source.get("point_id")
+            if not isinstance(device_value, str) or not device_value:
+                raise ValueError(f"sink '{sink_id}' invalid source device_id")
+            device_id = DeviceId(device_value)
             device = devices.get(device_id)
             if device is None:
                 raise ValueError(f"sink '{sink_id}' unknown device '{device_id}'")
