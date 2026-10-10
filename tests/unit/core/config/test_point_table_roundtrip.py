@@ -58,4 +58,5 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
     assert "rotor_speed" not in restored.point_tables[child.point_table_id].points
     assert restored.point_tables[child.point_table_id] == changed
     assert restored.point_tables[parent.point_table_id] == parent
-    assert "remove_points:" in (active_config_dir(tmp_path) / "points.yaml").read_text(encoding="utf-8")
+    content = (active_config_dir(tmp_path) / "points.yaml").read_text(encoding="utf-8")
+    assert "remove_points:" in content
