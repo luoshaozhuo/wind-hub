@@ -14,6 +14,7 @@ from .codec import (
     parse_devices_config,
     parse_point_tables_config,
     parse_sinks_config,
+    parse_system_config,
     parse_tasks_config,
 )
 from .yaml import read_yaml_mapping
@@ -28,6 +29,7 @@ class FullYamlConfigAdapter:
     def load(self) -> Config:
         """读取、构建并统一进行领域关系校验。"""
         base = self._base
+        system = parse_system_config(read_yaml_mapping(base / "system.yaml"))
         models = parse_device_models_config(read_yaml_mapping(base / "device_models.yaml"))
         devices = parse_devices_config(read_yaml_mapping(base / "devices.yaml"))
         tables = parse_point_tables_config(read_yaml_mapping(base / "points.yaml"))
@@ -76,6 +78,7 @@ class FullYamlConfigAdapter:
             raise ConfigError(f"Invalid domain configuration: {exc}") from exc
 
         return Config(
+            system=system,
             device_types=assembly.device_types,
             device_models=assembly.device_models,
             device_groups=assembly.device_groups,
