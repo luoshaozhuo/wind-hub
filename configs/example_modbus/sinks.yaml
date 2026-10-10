@@ -27,7 +27,7 @@ sinks:
     type: file
     enabled: true
     connection:
-      path: /var/tmp/wind-hub/archive.jsonl
+      path: /var/tmp/wind-hub/archive.csv
       format: jsonl
       compress: false
     points: []
