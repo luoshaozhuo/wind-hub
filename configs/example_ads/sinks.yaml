@@ -1,42 +1,20 @@
-# ---------------------------------------------------------------------------
-# wind-hub Sink 配置 — 数据输出目标
-# ---------------------------------------------------------------------------
-# Task 的 targets 通过 name 引用 Sink。connection 是各 Sink 类型的强类型配置。
-# points 用于定义对外点映射与二次 scale/offset；空列表表示当前流式 Sink
-# 接收 Task 路由来的全部 PointValue。
-
+# Sink 输出配置：仅支持 CSV File、Modbus TCP Server、Redis
 sinks:
-  - name: kafka_main
-    type: kafka
-    enabled: false
-    connection:
-      bootstrap_servers: "localhost:9092"
-      topic: wind-hub.raw
-    points: []
-
-  - name: db_main
-    type: db
-    enabled: false
-    connection:
-      dsn: "postgresql://windhub:windhub@localhost:5432/windhub"
-      table: points
-      batch_size: 1000
-    points: []
-
   - name: file_archive
     type: file
     enabled: true
     connection:
       path: /var/tmp/wind-hub/archive.csv
-      format: jsonl
-      compress: false
+      max_size_mb: 100
+      max_files: 30
     points: []
 
-  - name: iec104_scada
-    type: iec104
+  - name: redis_cache
+    type: redis
     enabled: false
     connection:
-      host: "0.0.0.0"
-      port: 2404
-      common_address: 1
+      host: localhost
+      port: 6379
+      database: 0
+      key_prefix: wind-hub
     points: []
