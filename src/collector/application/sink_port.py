@@ -12,12 +12,10 @@ SinkRegistry 与 ``core.infrastructure.ProtocolRegistry`` 同一设计语言：
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol
 
 from core.application import ConfigError
-from core.application.port.sink import SinkPort, ExclusiveOpenSinkPort
+from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from core.application.sink_config import ResolvedSinkConfig
-
 
 
 SinkFactory = Callable[[ResolvedSinkConfig], SinkPort]
