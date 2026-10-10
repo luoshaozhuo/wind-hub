@@ -31,6 +31,7 @@ from .protocol_contract import (
     validate_read_many_results,
 )
 from .protocol_registry import ProtocolFactory, ProtocolRegistry
+from .watchdog import WatchdogUseCase
 
 __all__ = [
     "ConfigError",
@@ -55,5 +56,6 @@ __all__ = [
     "SubscriptionHandle",
     "TimestampSource",
     "WritableScalar",
+    "WatchdogUseCase",
     "validate_read_many_results",
 ]
