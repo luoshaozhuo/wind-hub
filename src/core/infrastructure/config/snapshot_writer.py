@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Mapping
 from enum import Enum
+from typing import Any
 
 from pydantic import SecretStr
 
 from core.application.config_snapshot import ConfigSnapshot
-from .point_table_writer import dump_point_tables
 
+from .point_table_writer import dump_point_tables
 
 def _yaml_plain(value: Any) -> Any:
     """Convert typed sink values to YAML without masking configured secrets."""
