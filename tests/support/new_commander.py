@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -157,6 +158,9 @@ class FakeProtocol:
         self.close_calls += 1
         self.connected = False
 
+    def is_open(self) -> bool:
+        return self.connected
+
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
 
@@ -165,6 +169,7 @@ class FakeProtocol:
             point_id=point_id,
             value=self.read_values.get(point_id, 1.0),
             quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
         )
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -173,6 +178,7 @@ class FakeProtocol:
                 point_id=point_id,
                 value=self.read_values.get(point_id, 1.0),
                 quality=Quality.GOOD,
+                timestamp=datetime.now(UTC),
             )
             for point_id in point_ids
         )

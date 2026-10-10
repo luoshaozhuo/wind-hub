@@ -4,8 +4,8 @@
 目录的写出与改写能力，不依赖任何协议栈实现（新旧 Collector/Commander
 进程均可消费写出的配置树）。
 
-运行时重连参数在新栈归属 ``system.yaml`` 的 ``runtime.reconnect_attempts``，
-不再作为 Modbus 连接扩展下发。
+运行时读取重试参数在新栈归属 ``system.yaml`` 的 ``runtime.read_retries`` /
+``runtime.retry_interval``，不再作为 Modbus 连接扩展下发。
 """
 
 from __future__ import annotations

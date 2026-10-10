@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 
@@ -110,7 +111,13 @@ async def test_collect_all_bad_batch_is_failure_but_still_dispatched():
 
     async def bad_read(point_ids):
         return tuple(
-            ProtocolSample(point_id=pid, value=None, quality=Quality.BAD) for pid in point_ids
+            ProtocolSample(
+                point_id=pid,
+                value=None,
+                quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
+            )
+            for pid in point_ids
         )
 
     session._protocol.read_many = bad_read  # type: ignore[method-assign]
@@ -129,8 +136,18 @@ async def test_collect_mixed_quality_is_partial_success():
 
     async def mixed_read(point_ids):
         return (
-            ProtocolSample(point_id="p1", value=1.0, quality=Quality.GOOD),
-            ProtocolSample(point_id="p1", value=None, quality=Quality.BAD),
+            ProtocolSample(
+                point_id="p1",
+                value=1.0,
+                quality=Quality.GOOD,
+                timestamp=datetime.now(UTC),
+            ),
+            ProtocolSample(
+                point_id="p1",
+                value=None,
+                quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
+            ),
         )
 
     session._protocol.read_many = mixed_read  # type: ignore[method-assign]

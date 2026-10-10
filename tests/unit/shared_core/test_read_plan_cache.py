@@ -19,6 +19,12 @@ from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 
 
+class _StubClient:
+    """仅提供连接状态的最小 pymodbus client 替身（读写已被 monkeypatch）。"""
+
+    connected = True
+
+
 def _point(
     point_id: str,
     ext: dict[str, object],
@@ -97,13 +103,15 @@ async def test_modbus_internal_values_and_wrapped_samples(monkeypatch):
         PointTable("mb", Protocol("modbus"), {"p0": point}),
         {},
     )
-    driver._connected = True
+    driver._client = _StubClient()
 
-    async def read_group(_group):
-        return {"p0": 17}
+    async def read_group(group):
+        # 值字典以 ModbusPoint（完整地址定义）为键
+        return {point: 17 for point in group.points}
 
     monkeypatch.setattr(driver, "_read_group", read_group)
-    raw = await driver._read_values(["p0"])
+    mapped_points, raw = await driver._read_values(["p0"])
+    assert mapped_points[0].point_id == "p0"
     assert raw[0][0] == 17
     from core.application import Quality
 
@@ -121,7 +129,7 @@ async def test_modbus_read_many_preserves_bad_quality(monkeypatch):
         PointTable("mb", Protocol("modbus"), {"p0": point}),
         {},
     )
-    driver._connected = True
+    driver._client = _StubClient()
 
     async def read_group(_group):
         return {}
@@ -191,12 +199,13 @@ async def test_modbus_accepts_tuple_register_buffer_without_copying():
             return False
 
     class Client:
+        connected = True
+
         async def read_holding_registers(self, address, *, count, device_id):
             assert (address, count) == (10, 2)
             return Response()
 
     driver._client = Client()
-    driver._connected = True
     from core.application import Quality
 
     samples = await driver.read_many(("a", "b"))

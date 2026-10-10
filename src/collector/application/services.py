@@ -73,7 +73,9 @@ class CollectorQueryService:
 
     async def status(self) -> SystemStatus:
         """返回 CollectorRuntime 聚合状态快照。"""
-        devices_connected = sum(1 for h in self._runtime.device_health().values() if h.healthy)
+        devices_connected = sum(
+            1 for session in self._runtime.devices.values() if session.is_open()
+        )
         sinks_healthy = sum(1 for h in self._runtime.sink_health().values() if h.healthy)
         return SystemStatus(
             running=self._runtime.running,
@@ -102,12 +104,12 @@ class CollectorQueryService:
     def _device_info(self, device_id: str) -> DeviceInfo:
         """从协议健康状态 + DeviceRuntime 设备运行状态构造 DeviceInfo。
 
-        connected 以驱动实时 health 为准；consecutive_failures/last_error
-        来自 DeviceRuntime 的重连节流状态。
+        connected 以协议传输连接状态（is_open）为准；
+        consecutive_failures/last_error 来自 DeviceRuntime 的重连节流状态。
         """
         session = self._runtime.devices.get(device_id)
         state = self._runtime.device_state(device_id)
-        connected = session.health().healthy if session is not None else False
+        connected = session.is_open() if session is not None else False
         protocol = session.protocol_name if session is not None else ""
         return DeviceInfo(
             device_id=device_id,

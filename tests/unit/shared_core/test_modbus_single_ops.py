@@ -10,9 +10,9 @@ import sys
 import pytest
 
 from core.application import ConfigError
-from core.application.errors import ProtocolError
-from core.application.protocol_contract import ProtocolWrite
-from core.application.recovery import RecoveryPort, RecoverySettings
+from core.application.errors import ProtocolConnectionError, ProtocolError
+from core.application.protocol_contract import ProtocolWrite, Quality
+from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -173,7 +173,8 @@ def _driver(
     driver._points = points
     driver._read_plan_cache = {}
     driver._client = client
-    driver._connected = connected
+    client.connected = connected
+    driver._last_exchange = None
     driver._lock = asyncio.Lock()
     return driver
 
@@ -274,16 +275,39 @@ class TestReadOne:
         assert driver.health().healthy is True
 
     @pytest.mark.asyncio
-    async def test_communication_error_marks_disconnect(self) -> None:
+    async def test_communication_error_keeps_open_connection_reusable(self) -> None:
+        """普通通信异常（非在途歧义）：记账通信失败，不无条件关闭仍打开的连接。"""
         client = _Client()
         client.read_error = ConnectionError("reset by peer")
         driver = _driver({"h": _point("h")}, client)
 
-        with pytest.raises(ProtocolError, match="read failed"):
+        with pytest.raises(ProtocolConnectionError, match="read failed"):
             await driver.read_one("h")
 
         assert driver.health().healthy is False
+        assert client.close_calls == 0
+        assert driver.is_open() is True
+
+        # 连接仍可复用：故障清除后直接读成功，无需 connect。
+        client.read_error = None
+        client.response = _Response(registers=[7])
+        assert (await driver.read_one("h")).value == 7
+        assert driver.health().healthy is True
+
+    @_requires_pymodbus
+    @pytest.mark.asyncio
+    async def test_inflight_io_exception_discards_connection(self) -> None:
+        """ModbusIOException（对端无响应等在途歧义）：连接标记不可复用并释放。"""
+        client = _Client()
+        client.read_error = ModbusIOException("No response received")
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(ProtocolConnectionError, match="read failed"):
+            await driver.read_one("h")
+
         assert client.close_calls == 1
+        assert driver.is_open() is False
+        assert driver.health().healthy is False
 
     @pytest.mark.asyncio
     async def test_read_one_requires_connection(self) -> None:
@@ -402,6 +426,31 @@ class TestReadMany:
 
         assert driver.health().healthy is False
 
+    @pytest.mark.asyncio
+    async def test_read_many_exception_response_counts_as_exchange(self) -> None:
+        """设备返回 Modbus 异常响应：已应答证明链路健康，计为通信成功。"""
+        client = _Client()
+        client.response = _Response(error=True)
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(ProtocolError, match="exception response"):
+            await driver.read_many(("h",))
+
+        assert driver.health().healthy is True
+
+    @pytest.mark.asyncio
+    async def test_read_many_link_level_protocol_error_not_marked_success(self) -> None:
+        """链路级 ProtocolConnectionError 原样上抛，绝不误记为通信成功。"""
+        client = _Client()
+        client.read_error = ProtocolConnectionError("link down")
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(ProtocolConnectionError, match="link down"):
+            await driver.read_many(("h",))
+
+        assert driver.health().healthy is False
+        assert "exception response" not in (driver.health().message or "")
+
 
 # ---------------------------------------------------------------------------
 # write_one
@@ -465,7 +514,9 @@ class TestWriteOne:
 
         assert not result.success
         assert client.total_write_calls() == 0
-        assert driver.health().healthy is True  # 校验失败 ≠ 断线
+        # 发送前校验失败：不是通信也不是断线——连接保持打开，无通信记录。
+        assert driver.is_open() is True
+        assert driver.health().healthy is False  # 尚无真实通信，不声称健康
 
     @pytest.mark.asyncio
     async def test_exception_response_fails_write_but_keeps_connection(self) -> None:
@@ -557,7 +608,7 @@ class TestCancellationState:
 
     @pytest.mark.asyncio
     async def test_read_timeout_marks_disconnect_via_recovery(self) -> None:  # noqa: D103
-        """经 RecoveryPort 的 read 超时：连接必须失效，不允许残留健康状态。
+        """经 RecoveringProtocol 的 read 超时：连接必须失效，不允许残留健康状态。
 
         重连目标指向关闭端口，确保恢复路径确定性失败。
         """
@@ -570,7 +621,9 @@ class TestCancellationState:
         client.read_holding_registers = hanging_read  # type: ignore[method-assign]
         driver = _driver({"h": _point("h")}, client)
         driver._config = parse_modbus_config(ConnectionEndpoint("127.0.0.1", 1), {})
-        port = RecoveryPort(driver, RecoverySettings(read_timeout=0.01))
+        port = RecoveringProtocol(
+            driver, RecoverySettings(read_timeout=0.01, retry_interval=0)
+        )
 
         with pytest.raises(ProtocolError):
             await port.read_one("h")
@@ -605,7 +658,7 @@ class TestPointTableHotUpdate:
             {},
         )
         driver._client = client
-        driver._connected = True
+        client.connected = True
         return driver
 
     @pytest.mark.asyncio
@@ -699,3 +752,66 @@ def test_protocol_modules_import_without_pymodbus() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# is_open / health 语义
+# ---------------------------------------------------------------------------
+
+
+class TestHealthSemantics:
+    def test_fresh_connection_is_open_but_not_verified(self) -> None:
+        """传输打开 ≠ 通信健康：未通信的连接不声称健康。"""
+        driver = _driver({"h": _point("h")}, _Client())
+        assert driver.is_open() is True
+        health = driver.health()
+        assert health.healthy is False
+        assert "no Modbus exchange yet" in (health.message or "")
+
+    def test_closed_transport_reports_not_open(self) -> None:
+        client = _Client()
+        driver = _driver({"h": _point("h")}, client, connected=False)
+        assert driver.is_open() is False
+        assert driver.health().healthy is False
+
+    @pytest.mark.asyncio
+    async def test_successful_read_marks_exchange_healthy(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = _driver({"h": _point("h")}, client)
+        await driver.read_one("h")
+        assert driver.health().healthy is True
+
+    @pytest.mark.asyncio
+    async def test_exception_response_counts_as_successful_exchange(self) -> None:
+        """设备异常响应：业务失败（ProtocolError），但通信链路健康。"""
+        client = _Client()
+        client.response = _Response(error=True)
+        driver = _driver({"h": _point("h")}, client)
+        with pytest.raises(ProtocolError, match="exception response"):
+            await driver.read_one("h")
+        assert driver.is_open() is True
+        assert driver.health().healthy is True
+
+    @pytest.mark.asyncio
+    async def test_decode_failure_is_bad_sample_not_disconnect(self) -> None:
+        """解码失败返回 BAD 样本，通信仍计为成功，不误判断线。"""
+        client = _Client()
+        client.response = _Response(registers=[])  # 空段 → 解码失败
+        driver = _driver({"h": _point("h")}, client)
+        sample = await driver.read_one("h")
+        assert sample.quality is Quality.BAD
+        assert driver.is_open() is True
+        assert driver.health().healthy is True
+
+    @pytest.mark.asyncio
+    async def test_explicit_close_resets_state(self) -> None:
+        client = _Client()
+        client.response = _Response(registers=[7])
+        driver = _driver({"h": _point("h")}, client)
+        await driver.read_one("h")
+        await driver.close()
+        assert driver.is_open() is False
+        health = driver.health()
+        assert health.healthy is False
+        assert health.message == "not connected"

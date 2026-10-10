@@ -1,7 +1,7 @@
 """新 Core ModbusDriver × 真实 pymodbus TCP server 集成测试。
 
 被测组件是 ``src/core/infrastructure/protocol/modbus/driver.py`` 的
-ModbusDriver（含 RecoveryPort 恢复路径）；对端是 pymodbus 进程内
+ModbusDriver（含 RecoveringProtocol 恢复路径）；对端是 pymodbus 进程内
 ModbusTcpServer（真实 TCP，127.0.0.1 动态端口）。网络故障类场景使用
 受控的静默 TCP server（接受连接但不应答）做确定性故障注入。
 """
@@ -16,7 +16,7 @@ import pytest
 
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
-from core.application.recovery import RecoveryPort, RecoverySettings
+from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -158,11 +158,19 @@ async def modbus_env() -> AsyncIterator[tuple[ModbusDriver, object, int]]:
 
 
 class TestRealServerIO:
-    async def test_connect_reports_healthy(
+    async def test_connect_reports_open_but_unverified_until_first_exchange(
         self, modbus_env: tuple[ModbusDriver, object, int]
     ) -> None:
+        """传输打开 ≠ 通信健康：connect 后 is_open 立即为真，health 在首次
+        真实 Modbus 通信成功前不声称健康。"""
         driver, _, _ = modbus_env
-        assert driver.health().healthy is True
+        assert driver.is_open() is True
+        assert driver.health().healthy is False
+        assert "no Modbus exchange yet" in (driver.health().message or "")
+
+        await driver.read_one("hr.int")
+        health = driver.health()
+        assert health.healthy is True
 
     async def test_read_one_all_register_types(
         self, modbus_env: tuple[ModbusDriver, object, int]
@@ -249,7 +257,7 @@ class TestRealServerIO:
 
 
 # ---------------------------------------------------------------------------
-# Server 停止/恢复 与 RecoveryPort 重连
+# Server 停止/恢复 与 RecoveringProtocol 重连
 # ---------------------------------------------------------------------------
 
 
@@ -258,7 +266,7 @@ class TestRecoveryOverRealTcp:
         port = free_port()
         server = await _start_server(port)
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+        port_if = RecoveringProtocol(driver, RecoverySettings(read_retries=2, retry_interval=0.05))
         await port_if.connect()
         try:
             assert (await port_if.read_one("hr.int")).value == 4321
@@ -321,8 +329,8 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(
-            driver, RecoverySettings(reconnect_attempts=1, read_timeout=0.2)
+        port_if = RecoveringProtocol(
+            driver, RecoverySettings(read_retries=1, retry_interval=0.05, read_timeout=0.2)
         )
         await port_if.connect()
         try:
@@ -338,7 +346,7 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(write_timeout=0.2))
+        port_if = RecoveringProtocol(driver, RecoverySettings(write_timeout=0.2))
         await port_if.connect()
         try:
             with pytest.raises(ProtocolError, match="timed out"):
@@ -354,7 +362,7 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(read_timeout=5.0))
+        port_if = RecoveringProtocol(driver, RecoverySettings(read_timeout=5.0))
         await port_if.connect()
         try:
             task = asyncio.create_task(port_if.read_one("hr.int"))
@@ -368,3 +376,92 @@ class TestTimeoutAndCancellation:
         finally:
             await port_if.close()  # 不死锁即通过
             await silent.stop()
+
+
+class TestConnectionReuseAndTransactionSafety:
+    async def test_connect_reuses_open_transport(self) -> None:
+        """transport 仍打开时 connect 是 no-op：不关闭、不替换现有 client。"""
+        port = free_port()
+        server = await _start_server(port)
+        driver = _driver(port)
+        try:
+            await driver.connect()
+            client = driver._client
+            await driver.connect()
+            assert driver._client is client
+            assert (await driver.read_one("hr.int")).value == 4321
+        finally:
+            await driver.close()
+            await server.shutdown()
+
+    async def test_connect_replaces_dead_transport(self) -> None:
+        """transport 真正断开时 connect 替换失效 client，不凭历史标志直接返回。"""
+        port = free_port()
+        server = await _start_server(port)
+        driver = _driver(port)
+        try:
+            await driver.connect()
+            stale = driver._client
+            stale.close()  # 模拟 transport 真正断开
+            assert driver.is_open() is False
+
+            await driver.connect()
+            assert driver._client is not stale
+            assert driver.is_open() is True
+            assert (await driver.read_one("hr.int")).value == 4321
+        finally:
+            await driver.close()
+            await server.shutdown()
+
+    async def test_timeout_discards_connection_next_read_has_no_mismatch(self) -> None:
+        """请求超时（取消在途请求）后：连接被丢弃并重建，迟到响应不会造成
+        事务错配——下一次读取在新连接上取得正确值。"""
+        silent = _SilentServer()
+        port = await silent.start()
+        driver = _driver(port)
+        port_if = RecoveringProtocol(
+            driver, RecoverySettings(read_retries=1, retry_interval=0.05, read_timeout=0.2)
+        )
+        await port_if.connect()
+        try:
+            with pytest.raises(ProtocolError, match="timed out"):
+                await port_if.read_one("hr.int")
+            # 在途歧义 ⇒ 连接标记不可复用并已释放。
+            assert driver.is_open() is False
+        finally:
+            await silent.stop()
+
+        server = await _start_server(port)
+        try:
+            assert (await port_if.read_one("hr.int")).value == 4321
+            assert driver.is_open() is True
+            assert driver.health().healthy is True
+        finally:
+            await port_if.close()
+            await server.shutdown()
+
+    async def test_cancelled_read_recovers_on_fresh_connection(self) -> None:
+        """上层取消在途读后：恢复路径重建连接，后续读取不受迟到响应污染。"""
+        silent = _SilentServer()
+        port = await silent.start()
+        driver = _driver(port)
+        port_if = RecoveringProtocol(
+            driver, RecoverySettings(read_retries=1, retry_interval=0.05, read_timeout=5.0)
+        )
+        await port_if.connect()
+        try:
+            task = asyncio.create_task(port_if.read_one("hr.int"))
+            await asyncio.sleep(0.1)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert driver.is_open() is False
+        finally:
+            await silent.stop()
+
+        server = await _start_server(port, hr_overrides={_HR_INT: 7777})
+        try:
+            assert (await port_if.read_one("hr.int")).value == 7777
+        finally:
+            await port_if.close()
+            await server.shutdown()

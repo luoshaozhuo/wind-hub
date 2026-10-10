@@ -21,6 +21,7 @@ message ReadPointsRequest { string device_id = 1; repeated string point_ids = 2;
 message PointValueMessage {
   string device_id = 1; string point_id = 2; ScalarValue value = 3;
   string quality = 4; google.protobuf.Timestamp timestamp = 5; string source = 6;
+  string timestamp_source = 7;
 }
 message ReadPointsResponse { repeated PointValueMessage values = 1; }
 message WritePointRequest {

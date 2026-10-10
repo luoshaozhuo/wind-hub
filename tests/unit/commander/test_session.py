@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from commander.application.errors import CommandError
@@ -32,6 +34,28 @@ async def test_read_applies_scale_offset():
     readings = await session.read_points(["p1"])
     assert readings[0].value == pytest.approx(30.0 * 0.1 + 2.0)
     assert readings[0].source == "modbus"
+
+
+async def test_reading_timestamp_required_and_source_passed_through():
+    """PointReading 时间戳必填，timestamp_source 随样本透传。"""
+    session, protocol = _session()
+
+    device_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    async def read_one(point_id):  # noqa: ANN001, ANN202
+        return ProtocolSample(
+            point_id=point_id,
+            value=1.0,
+            quality=Quality.GOOD,
+            timestamp=device_time,
+            timestamp_source="device",
+        )
+
+    protocol.read_one = read_one  # type: ignore[method-assign]
+    reading = await session.read_point("p1")
+
+    assert reading.timestamp == device_time
+    assert reading.timestamp_source == "device"
 
 
 async def test_read_unknown_point_rejected():
@@ -126,7 +150,12 @@ async def test_read_points_rejects_mismatched_order():
 
     async def shuffled_read(point_ids):  # noqa: ANN001, ANN202
         return tuple(
-            ProtocolSample(point_id="other", value=1.0, quality=Quality.GOOD)
+            ProtocolSample(
+                point_id="other",
+                value=1.0,
+                quality=Quality.GOOD,
+                timestamp=datetime.now(UTC),
+            )
             for _ in point_ids
         )
 

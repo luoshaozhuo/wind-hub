@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
-from core.application.recovery import RecoveryPort, RecoverySettings
+from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import ConnectionEndpoint, PointTable, Protocol, ProtocolOptions
 
 ProtocolFactory = Callable[
@@ -62,7 +62,7 @@ class ProtocolRegistry:
         driver = factory(endpoint, point_table, protocol_options)
         if self._recovery_settings is None:
             return driver
-        return RecoveryPort(driver, self._recovery_settings)
+        return RecoveringProtocol(driver, self._recovery_settings)
 
 
 def _protocol_name(protocol: Protocol | str) -> str:

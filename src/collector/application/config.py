@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import isfinite
 from types import MappingProxyType
 from typing import Literal
 
@@ -55,10 +56,11 @@ class RuntimeParams:
     queue_maxsize: int = 1000
     backpressure_policy: BackpressurePolicy = "drop_old"
     shutdown_timeout: float = 10.0
-    connect_timeout: float = 10.0
-    read_timeout: float | None = None
-    reconnect_attempts: int = 1
-    write_timeout: float = 5.0
+    connect_timeout: float = 1.0
+    read_timeout: float | None = 1.0
+    read_retries: int = 1
+    retry_interval: float = 1.0
+    write_timeout: float = 1.0
 
     def __post_init__(self) -> None:
         if self.queue_maxsize <= 0:
@@ -72,8 +74,10 @@ class RuntimeParams:
             raise ConfigError("shutdown_timeout must be > 0")
         if self.connect_timeout <= 0:
             raise ConfigError("connect_timeout must be > 0")
-        if self.reconnect_attempts < 0 or type(self.reconnect_attempts) is not int:
-            raise ConfigError("reconnect_attempts must be a nonnegative integer")
+        if type(self.read_retries) is not int or self.read_retries < -1:
+            raise ConfigError("read_retries must be an integer >= -1")
+        if not isfinite(self.retry_interval) or self.retry_interval < 0:
+            raise ConfigError("retry_interval must be a finite number >= 0")
         if self.write_timeout <= 0:
             raise ConfigError("write_timeout must be > 0")
         if self.read_timeout is not None and self.read_timeout <= 0:
