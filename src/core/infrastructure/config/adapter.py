@@ -111,6 +111,8 @@ class YamlConfigAdapter:
     def save(self, snapshot: ConfigSnapshot) -> None:
         """先在临时目录完整验证，避免将不等价快照写回配置目录。"""
         documents = dump_snapshot(snapshot)
+        original = read_yaml_mapping(self._base / 'system.yaml')
+        documents['system.yaml'] = {**original, **documents['system.yaml']}
         with TemporaryDirectory(prefix="wind-hub-config-") as directory:
             staging = Path(directory)
             for path in self._base.glob("*.yaml"):
