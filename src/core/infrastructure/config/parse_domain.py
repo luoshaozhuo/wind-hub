@@ -315,6 +315,9 @@ def _device_catalog(
             point_table_id=table_id,
             name=definition.get("model"),
             manufacturer=definition.get("manufacturer"),
+            read_mode=definition.get("read_mode"),
+            properties=definition.get("properties") or {},
+            connection_defaults=definition.get("connection_defaults") or {},
         )
 
     _keys(device_doc, {"devices", "device_groups"}, "devices.yaml")
