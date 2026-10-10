@@ -227,3 +227,249 @@ def test_task_point_group_must_exist(tmp_path):
         load_collector_config(config_dir)
 
 
+def test_interval_required_except_pure_iec104(tmp_path):
+    # modbus 任务缺 interval → 配置错误
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        tasks=[
+            {
+                "task_id": "t1",
+                "device": "dev1",
+                "point_group": "g",
+                "targets": [{"sink": "s1"}],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="interval is required"):
+        load_collector_config(config_dir)
+
+    # 纯 iec104 订阅任务可省略 interval
+    iec_dir = write_collector_config_tree(
+        tmp_path / "iec",
+        protocol="iec104",
+        address={"ioa": 100, "type": "M_ME_NC_1"},
+        tasks=[
+            {
+                "task_id": "t1",
+                "device": "dev1",
+                "point_group": "g",
+                "targets": [{"sink": "s1"}],
+            }
+        ],
+    )
+    config = load_collector_config(iec_dir)
+    assert config.tasks["t1"].interval is None
+
+
+def test_sink_scale_offset_on_numeric_source(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks=[
+            {
+                "name": "s1",
+                "type": "file",
+                "connection": {"path": str(tmp_path / "o.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "ref": "scada.p1",
+                        "scale": 2.0,
+                        "offset": 1.0,
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        ],
+    )
+    config = load_collector_config(config_dir)
+    point = config.sinks["s1"].points[0]
+    assert point.ref == "scada.p1"
+    assert point.scale == 2.0
+
+
+def test_sink_unknown_point_rejected(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks=[
+            {
+                "name": "s1",
+                "type": "file",
+                "connection": {"path": str(tmp_path / "o.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "ghost"},
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="unknown point"):
+        load_collector_config(config_dir)
+
+
+def test_sink_scale_on_bool_source_rejected(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        points=[
+            {
+                "point_id": "p1",
+                "point_groups": ["g"],
+                "address": {"register_type": "coil", "address": 1},
+                "data_type": "bool",
+            }
+        ],
+        sinks=[
+            {
+                "name": "s1",
+                "type": "file",
+                "connection": {"path": str(tmp_path / "o.csv")},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "scale": 2.0,
+                        "address": {"field": "value"},
+                    }
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="numeric source"):
+        load_collector_config(config_dir)
+
+
+def test_modbus_sink_layout_overlap_rejected(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks=[
+            {
+                "name": "s1",
+                "type": "modbus",
+                "connection": {"host": "127.0.0.1", "port": 15020},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {
+                            "unit_id": 1,
+                            "register_type": "holding",
+                            "address": 100,
+                        },
+                    },
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "ref": "dup",
+                        "address": {
+                            "unit_id": 1,
+                            "register_type": "holding",
+                            "address": 101,  # float32 占 100..101 → 重叠
+                        },
+                    },
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="overlap"):
+        load_collector_config(config_dir)
+
+
+def test_retired_iec104_sink_type_rejected(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks=[
+            {
+                "name": "s1",
+                "type": "iec104",
+                "connection": {"host": "127.0.0.1", "port": 12404},
+                "points": [
+                    {
+                        "source": {"device_id": "dev1", "point_id": "p1"},
+                        "address": {"ioa": 1001, "type_id": "M_SP_NA_1"},  # 需 bool
+                    }
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="Invalid sinks configuration"):
+        load_collector_config(config_dir)
+
+
+def test_disabled_sink_not_a_valid_task_target(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        sinks=[
+            {
+                "name": "s1",
+                "type": "file",
+                "enabled": False,
+                "connection": {"path": str(tmp_path / "o.csv")},
+                "points": [],
+            }
+        ],
+    )
+    with pytest.raises(ConfigError, match="unknown sink"):
+        load_collector_config(config_dir)
+
+
+def test_config_dir_digest_stable(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path)
+    first = config_dir_digest(config_dir)
+    assert first == config_dir_digest(config_dir)
+    history = config_dir / ".history"
+    history.mkdir()
+    write_yaml(history, "points.yaml", {"point_tables": {}})
+    assert config_dir_digest(config_dir) == first
+
+
+def test_meta_and_point_groups_loaded(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        points=[
+            {
+                "point_id": "p1",
+                "variable_name": "风速",
+                "point_groups": ["g", "fast"],
+                "address": {"register_type": "holding", "address": 100},
+                "data_type": "float32",
+            }
+        ],
+    )
+    config = load_collector_config(config_dir)
+    meta = config.meta_for(PointTableId("tab"), "p1")
+    assert meta.variable_name == "风速"
+    assert meta.point_groups == ("g", "fast")
+
+
+def test_unknown_protocol_option_is_rejected_at_load(tmp_path):
+    """协议参数合法性在加载阶段校验，不推迟到 Driver 构造。"""
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        connection_defaults={"port": 502, "bogus_option": 1},
+    )
+    with pytest.raises(ConfigError, match="unknown Modbus options"):
+        load_collector_config(config_dir)
+
+
+def test_invalid_protocol_option_value_is_rejected_at_load(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        connection_defaults={"port": 502, "timeout": -1},
+    )
+    with pytest.raises(ConfigError):
+        load_collector_config(config_dir)
+
+
+def test_watchdog_interval_and_health_timeout_parsed(tmp_path):
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        runtime={"watchdog_interval": -1, "health_timeout": 0.25},
+    )
+    config = load_collector_config(config_dir)
+    assert config.runtime.watchdog_interval == -1
+    assert config.runtime.health_timeout == 0.25
+
+
+def test_watchdog_interval_defaults(tmp_path):
+    config_dir = write_collector_config_tree(tmp_path)
+    config = load_collector_config(config_dir)
+    assert config.runtime.watchdog_interval == 1
+    assert config.runtime.health_timeout == 1.0
