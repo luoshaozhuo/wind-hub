@@ -211,10 +211,8 @@ def assemble_core_config(
             extensions=instance.endpoint.extensions,
             model=model,
         )
-        if instance.device_group is None:
-            raise ConfigError(f"Device '{instance.device_id}' requires device_group")
-        group_names.add(instance.device_group)
-        group_ids = (DeviceGroupId(instance.device_group),)
+        group_names.update(instance.device_groups)
+        group_ids = tuple(DeviceGroupId(name) for name in instance.device_groups)
         devices[device_id] = Device(
             device_id=device_id,
             device_model_id=model_id,
