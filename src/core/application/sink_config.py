@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from core.application.errors import ConfigError
 from core.domain import DataType
 
-SINK_TYPES = frozenset({"file", "kafka", "db", "iec104", "opcua", "modbus"})
+SINK_TYPES = frozenset({"file", "modbus", "redis"})
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
@@ -69,9 +69,10 @@ class FileSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     path: str
-    format: Literal["jsonl", "csv"] = "jsonl"
-    max_size_mb: float | None = Field(default=None, gt=0)
-    max_age_hours: float | None = Field(default=None, gt=0)
+    format: Literal["csv"] = "csv"
+    max_size_mb: float = Field(default=100, gt=0)
+    max_age_hours: float = Field(default=24, gt=0)
+    max_files: int = Field(default=30, ge=1)
     compress: bool = False
     compress_level: int = Field(default=6, ge=1, le=9)
     buffer_size: int = Field(default=100, ge=1)
@@ -83,6 +84,25 @@ class FileSinkConnection(BaseModel):
     def _validate_path(cls, value: str) -> str:
         if not value.strip():
             raise ConfigError("File sink path must be non-empty")
+        return value
+
+
+class RedisSinkConnection(BaseModel):
+    """Redis 最新点值输出连接。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str = "localhost"
+    port: int = Field(default=6379, ge=1, le=65535)
+    database: int = Field(default=0, ge=0)
+    password: str | None = None
+    key_prefix: str = "wind-hub"
+
+    @field_validator("host", "key_prefix")
+    @classmethod
+    def _nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ConfigError("Redis host/key_prefix must not be empty")
         return value
 
 
@@ -175,6 +195,7 @@ SinkConnection = (
     | IEC104SinkConnection
     | OPCUASinkConnection
     | ModbusSinkConnection
+    | RedisSinkConnection
 )
 
 
@@ -225,6 +246,7 @@ _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
     "iec104": IEC104SinkConnection,
     "opcua": OPCUASinkConnection,
     "modbus": ModbusSinkConnection,
+    "redis": RedisSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
@@ -234,6 +256,7 @@ _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
     "iec104": (IEC104SinkAddress,),
     "opcua": (OPCUASinkAddress,),
     "modbus": (ModbusSinkAddress,),
+    "redis": (StreamSinkAddress,),
 }
 
 
@@ -441,6 +464,7 @@ __all__ = [
     "IEC104SinkConnection",
     "OPCUASinkConnection",
     "ModbusSinkConnection",
+    "RedisSinkConnection",
     "StreamSinkAddress",
     "IEC104SinkAddress",
     "OPCUASinkAddress",
