@@ -38,7 +38,8 @@ class RedisSink:
                     host=self._cfg.host,
                     port=self._cfg.port,
                     db=self._cfg.database,
-                    password=self._cfg.password,
+                    password=(self._cfg.password.get_secret_value()
+                              if self._cfg.password is not None else None),
                     decode_responses=True,
                 )
                 await client.ping()
