@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from types import MappingProxyType
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Generic, TypeVar
 
 from .config_snapshot import ConfigSnapshot
