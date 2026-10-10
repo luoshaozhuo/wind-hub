@@ -48,8 +48,6 @@ async def collector(
                 "type": "file",
                 "connection": {
                     "path": str(tmp_path / "out" / "telemetry.csv"),
-                    "buffer_size": 4,
-                    "flush_interval": 0.5,
                 },
             }
         ],

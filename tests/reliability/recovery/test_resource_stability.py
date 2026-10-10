@@ -113,7 +113,7 @@ class TestReloadStability:
         """RES-02：10 次 reload（task 重启 + sink 重建）后实例唯一、FD 不增长。
 
         每轮同时变更 task interval（触发 acquisition handle 重启）与 sink
-        buffer_size（触发 sink 重建、consumer 协程替换）——两条重建路径
+        max_files（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
         sink_path = tmp_path / "out" / "telemetry.csv"
@@ -127,13 +127,13 @@ class TestReloadStability:
 
         for cycle in range(CYCLES):
             interval = 0.2 if cycle % 2 == 0 else 0.3
-            buffer_size = 4 if cycle % 2 == 0 else 8
+            max_files = 4 if cycle % 2 == 0 else 8
 
             def _mutate_tasks(data: dict, iv: float = interval) -> None:
                 data["tasks"][0]["interval"] = iv
 
-            def _mutate_sinks(data: dict, bs: int = buffer_size) -> None:
-                data["sinks"][0]["connection"]["buffer_size"] = bs
+            def _mutate_sinks(data: dict, mf: int = max_files) -> None:
+                data["sinks"][0]["connection"]["max_files"] = mf
 
             update_yaml(config_dir, "tasks.yaml", _mutate_tasks)
             update_yaml(config_dir, "sinks.yaml", _mutate_sinks)

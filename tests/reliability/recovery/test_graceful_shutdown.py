@@ -35,8 +35,7 @@ class TestGracefulShutdown:
             tmp_path / "cfg",
             modbus_server.port,
             sink_path,
-            buffer_size=100000,
-            flush_interval=3600.0,
+            max_files=100000,
         )
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 

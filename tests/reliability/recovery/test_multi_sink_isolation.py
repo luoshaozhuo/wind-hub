@@ -69,8 +69,6 @@ class TestKafkaOutageIsolation:
                     "type": "file",
                     "connection": {
                         "path": str(sink_path),
-                        "buffer_size": 4,
-                        "flush_interval": 0.5,
                     },
                 },
                 {
@@ -133,8 +131,6 @@ class TestPostgresOutageIsolation:
                     "type": "file",
                     "connection": {
                         "path": str(sink_path),
-                        "buffer_size": 4,
-                        "flush_interval": 0.5,
                     },
                 },
                 {

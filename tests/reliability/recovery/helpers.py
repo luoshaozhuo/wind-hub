@@ -39,7 +39,7 @@ def write_modbus_file_config(
     **sink_params: Any,
 ) -> Path:
     """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。"""
-    params = {"path": str(sink_path), "buffer_size": 4, "flush_interval": 0.5}
+    params = {"path": str(sink_path)}
     params.update(sink_params)
     return write_functional_config(
         base,
