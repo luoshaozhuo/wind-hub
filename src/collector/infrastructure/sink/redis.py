@@ -9,7 +9,6 @@ from typing import Any
 from collector.application.errors import SinkError
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_config import RedisSinkConnection, ResolvedSinkConfig
-from core.application.sink_contract import RedisSinkConnection as RedisRecordConfig
 from core.application.redis_sink_record import encode_redis_record
 from core.domain.point_value import PointValue
 
@@ -22,13 +21,7 @@ class RedisSink:
         if not isinstance(connection, RedisSinkConnection):
             raise ValueError("RedisSink requires RedisSinkConnection")
         self._cfg = connection
-        self._record_cfg = RedisRecordConfig(
-            host=connection.host,
-            port=connection.port,
-            database=connection.database,
-            password=connection.password,
-            key_prefix=connection.key_prefix,
-        )
+        self._record_cfg = connection
         self._client: Any = None
         self._lock = asyncio.Lock()
         self._healthy = False
