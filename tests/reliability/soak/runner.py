@@ -69,7 +69,7 @@ class SoakProfile:
     name: str
     groups: tuple[LoadGroup, ...]
     sink: str = "null"
-    """当前只使用 null 计量 Sink。"""
+    """当前仅支持 null 计量 Sink。"""
     write_interval_s: float | None = None
     """混合读写：测量窗口内按该间隔轮询下发写命令；None 表示纯采集。"""
     storm: ReconnectStorm | None = None
@@ -255,9 +255,6 @@ async def run_soak(
         port: Modbus server 端口。
         duration_s: 测量时长（秒）。
         warmup_s: 预热时长（秒，不计入统计）。
-        kafka_bootstrap / postgres_dsn: 真实 sink profile 的服务地址。
-        kafka_topic / postgres_table: 显式 topic/表名（测试要做独立消费/
-            SQL 核验时传入）；缺省每次运行随机生成，避免历史数据干扰计数。
         netem_devices / netem_scenario: 同时给出时在测量前应用 netem 场景。
         on_ready: 预热结束、测量窗口开始的回调（长 soak 用来打边界日志）。
     """
