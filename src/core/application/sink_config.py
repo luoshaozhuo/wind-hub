@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 
 from core.application.errors import ConfigError
 from core.domain import DataType
-from core.domain.config import ConfigDiff, diff_mapping
+from core.application.config_diff import MappingDiff, _diff_mapping
 
 SINK_TYPES = frozenset({"file", "modbus", "redis"})
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
@@ -325,13 +325,13 @@ class SinksConfig(BaseModel):
         validate_sink_definitions(self.sinks)
         return self
 
-    def diff(self, new: SinksConfig) -> ConfigDiff:
+    def diff(self, new: SinksConfig) -> MappingDiff[object]:
         """按 sink name 比较；变化的 Sink 整对象记入 changed。"""
         if not isinstance(new, SinksConfig):
             raise TypeError(f"diff requires another SinksConfig, got {type(new).__name__}")
         old_by_name = {sink.name: sink for sink in self.sinks}
         new_by_name = {sink.name: sink for sink in new.sinks}
-        return diff_mapping(old_by_name, new_by_name)
+        return _diff_mapping(old_by_name, new_by_name)
 
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
