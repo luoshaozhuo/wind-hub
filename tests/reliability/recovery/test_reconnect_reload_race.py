@@ -27,7 +27,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows, wait_until
+from tests.support.wait import read_csv, wait_file_rows, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -90,12 +90,12 @@ class TestPointTableChangeWhileOffline:
         )
         await asyncio.sleep(1.0)
         scaled = [
-            r for r in read_jsonl(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
+            r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
         ]
         settled = len(scaled)
         await asyncio.sleep(1.0)
         scaled = [
-            r for r in read_jsonl(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
+            r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
         ]
         assert len(scaled) == settled, "stale point table still in use after recovery"
 
@@ -144,6 +144,6 @@ class TestStopTaskDuringReconnect:
 
         # 数据面保持静默（等残余缓冲落盘后行数不再增长）。
         await asyncio.sleep(1.0)
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await asyncio.sleep(1.0)
-        assert len(read_jsonl(sink_path)) == settled
+        assert len(read_csv(sink_path)) == settled
