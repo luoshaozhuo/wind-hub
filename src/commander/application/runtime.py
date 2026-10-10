@@ -425,32 +425,14 @@ class CommanderRuntime:
         device_id: str,
         device: DeviceSession,
     ) -> WatchdogUseCase:
-        """每台已连接设备一个 Watchdog，与显式连接共享生命周期锁。"""
+        """Watchdog 的 close/connect 事务与 Commander 显式连接互斥。"""
         lock = generation.connect_locks[device_id]
-
-        async def health():
-            async with lock:
-                return await device.health()
-
-        async def reconnect_close() -> None:
-            await lock.acquire()
-            try:
-                await device.close()
-            except BaseException:
-                lock.release()
-                raise
-
-        async def reconnect_connect() -> None:
-            try:
-                await device.connect()
-            finally:
-                lock.release()
-
         return WatchdogUseCase(
-            health=health,
-            close=reconnect_close,
-            connect=reconnect_connect,
+            health=device.health,
+            close=device.close,
+            connect=device.connect,
             interval=generation.config.watchdog_interval,
             health_timeout=generation.config.health_timeout,
             connect_timeout=generation.config.connect_timeout,
+            lifecycle_lock=lock,
         )
