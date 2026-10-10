@@ -25,7 +25,7 @@ from tests.support.control import apply_placement_and_start_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.wait import (
-    read_jsonl,
+    read_csv,
     wait_file_rows,
     wait_kafka_messages,
     wait_postgres_rows,
@@ -95,7 +95,7 @@ class TestKafkaOutageIsolation:
             broker_stopped = True
 
             # ---- 隔离：File 数据流不停，采集与进程不受影响 ----
-            rows_before = len(read_jsonl(sink_path))
+            rows_before = len(read_csv(sink_path))
             await _assert_file_flow_continues(sink_path, rows_before)
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)
@@ -163,7 +163,7 @@ class TestPostgresOutageIsolation:
             db_stopped = True
 
             # ---- 隔离：File 数据流不停，采集与进程不受影响 ----
-            rows_before = len(read_jsonl(sink_path))
+            rows_before = len(read_csv(sink_path))
             await _assert_file_flow_continues(sink_path, rows_before)
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)
