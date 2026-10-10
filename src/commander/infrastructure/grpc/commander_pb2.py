@@ -27,7 +27,7 @@ from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__
 from google.protobuf import wrappers_pb2 as google_dot_protobuf_dot_wrappers__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!wind_hub_core/rpc/commander.proto\x12\x14windhub.commander.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xa2\x01\n\x0bScalarValue\x12\x14\n\nbool_value\x18\x01 \x01(\x08H\x00\x12\x16\n\x0csint64_value\x18\x02 \x01(\x12H\x00\x12\x16\n\x0cuint64_value\x18\x03 \x01(\x04H\x00\x12\x16\n\x0c\x64ouble_value\x18\x04 \x01(\x01H\x00\x12\x16\n\x0cstring_value\x18\x05 \x01(\tH\x00\x12\x15\n\x0b\x62ytes_value\x18\x06 \x01(\x0cH\x00\x42\x06\n\x04kind\"7\n\x10ReadPointRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\"9\n\x11ReadPointsRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x11\n\tpoint_ids\x18\x02 \x03(\t\"\xba\x01\n\x11PointValueMessage\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\x12\x30\n\x05value\x18\x03 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07quality\x18\x04 \x01(\t\x12-\n\ttimestamp\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06source\x18\x06 \x01(\t\"M\n\x12ReadPointsResponse\x12\x37\n\x06values\x18\x01 \x03(\x0b\x32\'.windhub.commander.v1.PointValueMessage\"\x8f\x01\n\x11WritePointRequest\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x11\n\tdevice_id\x18\x02 \x01(\t\x12\x10\n\x08point_id\x18\x03 \x01(\t\x12\x30\n\x05value\x18\x04 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07timeout\x18\x05 \x01(\x01\"O\n\x12WritePointsRequest\x12\x39\n\x08\x63ommands\x18\x01 \x03(\x0b\x32\'.windhub.commander.v1.WritePointRequest\"{\n\x14\x43ommandResultMessage\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\r\n\x05\x65rror\x18\x03 \x01(\t\x12/\n\x0b\x66inished_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"R\n\x13WritePointsResponse\x12;\n\x07results\x18\x01 \x03(\x0b\x32*.windhub.commander.v1.CommandResultMessage\"\xc7\x01\n\x17\x43ommanderStatusResponse\x12\x0f\n\x07running\x18\x01 \x01(\x08\x12\x14\n\x0c\x64\x65vice_count\x18\x02 \x01(\x04\x12\x17\n\x0fhealthy_devices\x18\x03 \x01(\x04\x12\x17\n\x0f\x61\x63tive_revision\x18\x04 \x01(\t\x12\x1a\n\x12\x61\x63tive_config_hash\x18\x05 \x01(\t\x12\x19\n\x11prepared_revision\x18\x06 \x01(\t\x12\x1c\n\x14prepared_config_hash\x18\x07 \x01(\t\"r\n\rDeviceSummary\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08protocol\x18\x02 \x01(\t\x12\x0c\n\x04host\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x04\x12\x0f\n\x07\x65nabled\x18\x05 \x01(\x08\x12\x0f\n\x07healthy\x18\x06 \x01(\x08\"K\n\x13ListDevicesResponse\x12\x34\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32#.windhub.commander.v1.DeviceSummary\"@\n\x14PrepareConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\x12\x13\n\x0b\x63onfig_hash\x18\x02 \x01(\t\"R\n\x15PrepareConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x13\n\x0b\x63onfig_hash\x18\x03 \x01(\t\",\n\x15\x41\x63tivateConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\"Z\n\x16\x41\x63tivateConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x1a\n\x12\x61\x63tive_config_hash\x18\x03 \x01(\t\")\n\x12\x41\x62ortConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\"L\n\x13\x41\x62ortConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x0f\n\x07\x61\x62orted\x18\x03 \x01(\x08\"9\n\x13VerifyDeviceRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x0f\n\x07timeout\x18\x02 \x01(\x01\"c\n\x16\x44iagnosticStageMessage\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\n\n\x02ok\x18\x02 \x01(\x08\x12\x0c\n\x04\x63ode\x18\x03 \x01(\t\x12\x10\n\x08severity\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\"\xa1\x01\n\x14\x44\x65viceVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08protocol\x18\x02 \x01(\t\x12\x0c\n\x04host\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x04\x12\n\n\x02ok\x18\x05 \x01(\x08\x12<\n\x06stages\x18\x06 \x03(\x0b\x32,.windhub.commander.v1.DiagnosticStageMessage\"3\n\x0cPointRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\"=\n\x13VerifyPointsRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x13\n\x0bpoint_group\x18\x02 \x01(\t\"M\n\x0c\x41\x64\x64ressField\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x30\n\x05value\x18\x02 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\"\x9f\x04\n\x13PointVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\x12\x15\n\rvariable_name\x18\x03 \x01(\t\x12\x10\n\x08protocol\x18\x04 \x01(\t\x12>\n\x12\x63onfigured_address\x18\x05 \x03(\x0b\x32\".windhub.commander.v1.AddressField\x12<\n\x10resolved_address\x18\x06 \x03(\x0b\x32\".windhub.commander.v1.AddressField\x12\x11\n\tdata_type\x18\x07 \x01(\t\x12\r\n\x05scale\x18\x08 \x01(\x01\x12\x0e\n\x06offset\x18\t \x01(\x01\x12\x0c\n\x04unit\x18\n \x01(\t\x12,\n\x08readable\x18\x0b \x01(\x0b\x32\x1a.google.protobuf.BoolValue\x12\n\n\x02ok\x18\x0c \x01(\x08\x12\x0c\n\x04\x63ode\x18\r \x01(\t\x12\x10\n\x08severity\x18\x0e \x01(\t\x12\x34\n\traw_value\x18\x0f \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12<\n\x11\x65ngineering_value\x18\x10 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07quality\x18\x11 \x01(\t\x12\x0e\n\x06source\x18\x12 \x01(\t\x12\r\n\x05\x65rror\x18\x13 \x01(\t\"\xb6\x01\n\x14PointsVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x13\n\x0bpoint_group\x18\x02 \x01(\t\x12\x0f\n\x07\x63hecked\x18\x03 \x01(\x04\x12\x0e\n\x06passed\x18\x04 \x01(\x04\x12\x0e\n\x06\x66\x61iled\x18\x05 \x01(\x04\x12\n\n\x02ok\x18\x06 \x01(\x08\x12\x39\n\x06points\x18\x07 \x03(\x0b\x32).windhub.commander.v1.PointVerifyResponse2\x84\n\n\x10\x43ommanderService\x12R\n\tGetStatus\x12\x16.google.protobuf.Empty\x1a-.windhub.commander.v1.CommanderStatusResponse\x12P\n\x0bListDevices\x12\x16.google.protobuf.Empty\x1a).windhub.commander.v1.ListDevicesResponse\x12h\n\rPrepareConfig\x12*.windhub.commander.v1.PrepareConfigRequest\x1a+.windhub.commander.v1.PrepareConfigResponse\x12k\n\x0e\x41\x63tivateConfig\x12+.windhub.commander.v1.ActivateConfigRequest\x1a,.windhub.commander.v1.ActivateConfigResponse\x12\x62\n\x0b\x41\x62ortConfig\x12(.windhub.commander.v1.AbortConfigRequest\x1a).windhub.commander.v1.AbortConfigResponse\x12\\\n\tReadPoint\x12&.windhub.commander.v1.ReadPointRequest\x1a\'.windhub.commander.v1.PointValueMessage\x12_\n\nReadPoints\x12\'.windhub.commander.v1.ReadPointsRequest\x1a(.windhub.commander.v1.ReadPointsResponse\x12\x61\n\nWritePoint\x12\'.windhub.commander.v1.WritePointRequest\x1a*.windhub.commander.v1.CommandResultMessage\x12\x62\n\x0bWritePoints\x12(.windhub.commander.v1.WritePointsRequest\x1a).windhub.commander.v1.WritePointsResponse\x12\x65\n\x0cVerifyDevice\x12).windhub.commander.v1.VerifyDeviceRequest\x1a*.windhub.commander.v1.DeviceVerifyResponse\x12]\n\x0cResolvePoint\x12\".windhub.commander.v1.PointRequest\x1a).windhub.commander.v1.PointVerifyResponse\x12\\\n\x0bVerifyPoint\x12\".windhub.commander.v1.PointRequest\x1a).windhub.commander.v1.PointVerifyResponse\x12\x65\n\x0cVerifyPoints\x12).windhub.commander.v1.VerifyPointsRequest\x1a*.windhub.commander.v1.PointsVerifyResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!wind_hub_core/rpc/commander.proto\x12\x14windhub.commander.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xa2\x01\n\x0bScalarValue\x12\x14\n\nbool_value\x18\x01 \x01(\x08H\x00\x12\x16\n\x0csint64_value\x18\x02 \x01(\x12H\x00\x12\x16\n\x0cuint64_value\x18\x03 \x01(\x04H\x00\x12\x16\n\x0c\x64ouble_value\x18\x04 \x01(\x01H\x00\x12\x16\n\x0cstring_value\x18\x05 \x01(\tH\x00\x12\x15\n\x0b\x62ytes_value\x18\x06 \x01(\x0cH\x00\x42\x06\n\x04kind\"7\n\x10ReadPointRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\"9\n\x11ReadPointsRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x11\n\tpoint_ids\x18\x02 \x03(\t\"\xd4\x01\n\x11PointValueMessage\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\x12\x30\n\x05value\x18\x03 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07quality\x18\x04 \x01(\t\x12-\n\ttimestamp\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06source\x18\x06 \x01(\t\x12\x18\n\x10timestamp_source\x18\x07 \x01(\t\"M\n\x12ReadPointsResponse\x12\x37\n\x06values\x18\x01 \x03(\x0b\x32\'.windhub.commander.v1.PointValueMessage\"\x8f\x01\n\x11WritePointRequest\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x11\n\tdevice_id\x18\x02 \x01(\t\x12\x10\n\x08point_id\x18\x03 \x01(\t\x12\x30\n\x05value\x18\x04 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07timeout\x18\x05 \x01(\x01\"O\n\x12WritePointsRequest\x12\x39\n\x08\x63ommands\x18\x01 \x03(\x0b\x32\'.windhub.commander.v1.WritePointRequest\"{\n\x14\x43ommandResultMessage\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\r\n\x05\x65rror\x18\x03 \x01(\t\x12/\n\x0b\x66inished_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"R\n\x13WritePointsResponse\x12;\n\x07results\x18\x01 \x03(\x0b\x32*.windhub.commander.v1.CommandResultMessage\"\xc7\x01\n\x17\x43ommanderStatusResponse\x12\x0f\n\x07running\x18\x01 \x01(\x08\x12\x14\n\x0c\x64\x65vice_count\x18\x02 \x01(\x04\x12\x17\n\x0fhealthy_devices\x18\x03 \x01(\x04\x12\x17\n\x0f\x61\x63tive_revision\x18\x04 \x01(\t\x12\x1a\n\x12\x61\x63tive_config_hash\x18\x05 \x01(\t\x12\x19\n\x11prepared_revision\x18\x06 \x01(\t\x12\x1c\n\x14prepared_config_hash\x18\x07 \x01(\t\"r\n\rDeviceSummary\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08protocol\x18\x02 \x01(\t\x12\x0c\n\x04host\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x04\x12\x0f\n\x07\x65nabled\x18\x05 \x01(\x08\x12\x0f\n\x07healthy\x18\x06 \x01(\x08\"K\n\x13ListDevicesResponse\x12\x34\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32#.windhub.commander.v1.DeviceSummary\"@\n\x14PrepareConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\x12\x13\n\x0b\x63onfig_hash\x18\x02 \x01(\t\"R\n\x15PrepareConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x13\n\x0b\x63onfig_hash\x18\x03 \x01(\t\",\n\x15\x41\x63tivateConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\"Z\n\x16\x41\x63tivateConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x1a\n\x12\x61\x63tive_config_hash\x18\x03 \x01(\t\")\n\x12\x41\x62ortConfigRequest\x12\x13\n\x0brevision_id\x18\x01 \x01(\t\"L\n\x13\x41\x62ortConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0brevision_id\x18\x02 \x01(\t\x12\x0f\n\x07\x61\x62orted\x18\x03 \x01(\x08\"9\n\x13VerifyDeviceRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x0f\n\x07timeout\x18\x02 \x01(\x01\"c\n\x16\x44iagnosticStageMessage\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\n\n\x02ok\x18\x02 \x01(\x08\x12\x0c\n\x04\x63ode\x18\x03 \x01(\t\x12\x10\n\x08severity\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\"\xa1\x01\n\x14\x44\x65viceVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08protocol\x18\x02 \x01(\t\x12\x0c\n\x04host\x18\x03 \x01(\t\x12\x0c\n\x04port\x18\x04 \x01(\x04\x12\n\n\x02ok\x18\x05 \x01(\x08\x12<\n\x06stages\x18\x06 \x03(\x0b\x32,.windhub.commander.v1.DiagnosticStageMessage\"3\n\x0cPointRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\"=\n\x13VerifyPointsRequest\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x13\n\x0bpoint_group\x18\x02 \x01(\t\"M\n\x0c\x41\x64\x64ressField\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x30\n\x05value\x18\x02 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\"\x9f\x04\n\x13PointVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x10\n\x08point_id\x18\x02 \x01(\t\x12\x15\n\rvariable_name\x18\x03 \x01(\t\x12\x10\n\x08protocol\x18\x04 \x01(\t\x12>\n\x12\x63onfigured_address\x18\x05 \x03(\x0b\x32\".windhub.commander.v1.AddressField\x12<\n\x10resolved_address\x18\x06 \x03(\x0b\x32\".windhub.commander.v1.AddressField\x12\x11\n\tdata_type\x18\x07 \x01(\t\x12\r\n\x05scale\x18\x08 \x01(\x01\x12\x0e\n\x06offset\x18\t \x01(\x01\x12\x0c\n\x04unit\x18\n \x01(\t\x12,\n\x08readable\x18\x0b \x01(\x0b\x32\x1a.google.protobuf.BoolValue\x12\n\n\x02ok\x18\x0c \x01(\x08\x12\x0c\n\x04\x63ode\x18\r \x01(\t\x12\x10\n\x08severity\x18\x0e \x01(\t\x12\x34\n\traw_value\x18\x0f \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12<\n\x11\x65ngineering_value\x18\x10 \x01(\x0b\x32!.windhub.commander.v1.ScalarValue\x12\x0f\n\x07quality\x18\x11 \x01(\t\x12\x0e\n\x06source\x18\x12 \x01(\t\x12\r\n\x05\x65rror\x18\x13 \x01(\t\"\xb6\x01\n\x14PointsVerifyResponse\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12\x13\n\x0bpoint_group\x18\x02 \x01(\t\x12\x0f\n\x07\x63hecked\x18\x03 \x01(\x04\x12\x0e\n\x06passed\x18\x04 \x01(\x04\x12\x0e\n\x06\x66\x61iled\x18\x05 \x01(\x04\x12\n\n\x02ok\x18\x06 \x01(\x08\x12\x39\n\x06points\x18\x07 \x03(\x0b\x32).windhub.commander.v1.PointVerifyResponse2\x84\n\n\x10\x43ommanderService\x12R\n\tGetStatus\x12\x16.google.protobuf.Empty\x1a-.windhub.commander.v1.CommanderStatusResponse\x12P\n\x0bListDevices\x12\x16.google.protobuf.Empty\x1a).windhub.commander.v1.ListDevicesResponse\x12h\n\rPrepareConfig\x12*.windhub.commander.v1.PrepareConfigRequest\x1a+.windhub.commander.v1.PrepareConfigResponse\x12k\n\x0e\x41\x63tivateConfig\x12+.windhub.commander.v1.ActivateConfigRequest\x1a,.windhub.commander.v1.ActivateConfigResponse\x12\x62\n\x0b\x41\x62ortConfig\x12(.windhub.commander.v1.AbortConfigRequest\x1a).windhub.commander.v1.AbortConfigResponse\x12\\\n\tReadPoint\x12&.windhub.commander.v1.ReadPointRequest\x1a\'.windhub.commander.v1.PointValueMessage\x12_\n\nReadPoints\x12\'.windhub.commander.v1.ReadPointsRequest\x1a(.windhub.commander.v1.ReadPointsResponse\x12\x61\n\nWritePoint\x12\'.windhub.commander.v1.WritePointRequest\x1a*.windhub.commander.v1.CommandResultMessage\x12\x62\n\x0bWritePoints\x12(.windhub.commander.v1.WritePointsRequest\x1a).windhub.commander.v1.WritePointsResponse\x12\x65\n\x0cVerifyDevice\x12).windhub.commander.v1.VerifyDeviceRequest\x1a*.windhub.commander.v1.DeviceVerifyResponse\x12]\n\x0cResolvePoint\x12\".windhub.commander.v1.PointRequest\x1a).windhub.commander.v1.PointVerifyResponse\x12\\\n\x0bVerifyPoint\x12\".windhub.commander.v1.PointRequest\x1a).windhub.commander.v1.PointVerifyResponse\x12\x65\n\x0cVerifyPoints\x12).windhub.commander.v1.VerifyPointsRequest\x1a*.windhub.commander.v1.PointsVerifyResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,51 +41,51 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_READPOINTSREQUEST']._serialized_start=387
   _globals['_READPOINTSREQUEST']._serialized_end=444
   _globals['_POINTVALUEMESSAGE']._serialized_start=447
-  _globals['_POINTVALUEMESSAGE']._serialized_end=633
-  _globals['_READPOINTSRESPONSE']._serialized_start=635
-  _globals['_READPOINTSRESPONSE']._serialized_end=712
-  _globals['_WRITEPOINTREQUEST']._serialized_start=715
-  _globals['_WRITEPOINTREQUEST']._serialized_end=858
-  _globals['_WRITEPOINTSREQUEST']._serialized_start=860
-  _globals['_WRITEPOINTSREQUEST']._serialized_end=939
-  _globals['_COMMANDRESULTMESSAGE']._serialized_start=941
-  _globals['_COMMANDRESULTMESSAGE']._serialized_end=1064
-  _globals['_WRITEPOINTSRESPONSE']._serialized_start=1066
-  _globals['_WRITEPOINTSRESPONSE']._serialized_end=1148
-  _globals['_COMMANDERSTATUSRESPONSE']._serialized_start=1151
-  _globals['_COMMANDERSTATUSRESPONSE']._serialized_end=1350
-  _globals['_DEVICESUMMARY']._serialized_start=1352
-  _globals['_DEVICESUMMARY']._serialized_end=1466
-  _globals['_LISTDEVICESRESPONSE']._serialized_start=1468
-  _globals['_LISTDEVICESRESPONSE']._serialized_end=1543
-  _globals['_PREPARECONFIGREQUEST']._serialized_start=1545
-  _globals['_PREPARECONFIGREQUEST']._serialized_end=1609
-  _globals['_PREPARECONFIGRESPONSE']._serialized_start=1611
-  _globals['_PREPARECONFIGRESPONSE']._serialized_end=1693
-  _globals['_ACTIVATECONFIGREQUEST']._serialized_start=1695
-  _globals['_ACTIVATECONFIGREQUEST']._serialized_end=1739
-  _globals['_ACTIVATECONFIGRESPONSE']._serialized_start=1741
-  _globals['_ACTIVATECONFIGRESPONSE']._serialized_end=1831
-  _globals['_ABORTCONFIGREQUEST']._serialized_start=1833
-  _globals['_ABORTCONFIGREQUEST']._serialized_end=1874
-  _globals['_ABORTCONFIGRESPONSE']._serialized_start=1876
-  _globals['_ABORTCONFIGRESPONSE']._serialized_end=1952
-  _globals['_VERIFYDEVICEREQUEST']._serialized_start=1954
-  _globals['_VERIFYDEVICEREQUEST']._serialized_end=2011
-  _globals['_DIAGNOSTICSTAGEMESSAGE']._serialized_start=2013
-  _globals['_DIAGNOSTICSTAGEMESSAGE']._serialized_end=2112
-  _globals['_DEVICEVERIFYRESPONSE']._serialized_start=2115
-  _globals['_DEVICEVERIFYRESPONSE']._serialized_end=2276
-  _globals['_POINTREQUEST']._serialized_start=2278
-  _globals['_POINTREQUEST']._serialized_end=2329
-  _globals['_VERIFYPOINTSREQUEST']._serialized_start=2331
-  _globals['_VERIFYPOINTSREQUEST']._serialized_end=2392
-  _globals['_ADDRESSFIELD']._serialized_start=2394
-  _globals['_ADDRESSFIELD']._serialized_end=2471
-  _globals['_POINTVERIFYRESPONSE']._serialized_start=2474
-  _globals['_POINTVERIFYRESPONSE']._serialized_end=3017
-  _globals['_POINTSVERIFYRESPONSE']._serialized_start=3020
-  _globals['_POINTSVERIFYRESPONSE']._serialized_end=3202
-  _globals['_COMMANDERSERVICE']._serialized_start=3205
-  _globals['_COMMANDERSERVICE']._serialized_end=4489
+  _globals['_POINTVALUEMESSAGE']._serialized_end=659
+  _globals['_READPOINTSRESPONSE']._serialized_start=661
+  _globals['_READPOINTSRESPONSE']._serialized_end=738
+  _globals['_WRITEPOINTREQUEST']._serialized_start=741
+  _globals['_WRITEPOINTREQUEST']._serialized_end=884
+  _globals['_WRITEPOINTSREQUEST']._serialized_start=886
+  _globals['_WRITEPOINTSREQUEST']._serialized_end=965
+  _globals['_COMMANDRESULTMESSAGE']._serialized_start=967
+  _globals['_COMMANDRESULTMESSAGE']._serialized_end=1090
+  _globals['_WRITEPOINTSRESPONSE']._serialized_start=1092
+  _globals['_WRITEPOINTSRESPONSE']._serialized_end=1174
+  _globals['_COMMANDERSTATUSRESPONSE']._serialized_start=1177
+  _globals['_COMMANDERSTATUSRESPONSE']._serialized_end=1376
+  _globals['_DEVICESUMMARY']._serialized_start=1378
+  _globals['_DEVICESUMMARY']._serialized_end=1492
+  _globals['_LISTDEVICESRESPONSE']._serialized_start=1494
+  _globals['_LISTDEVICESRESPONSE']._serialized_end=1569
+  _globals['_PREPARECONFIGREQUEST']._serialized_start=1571
+  _globals['_PREPARECONFIGREQUEST']._serialized_end=1635
+  _globals['_PREPARECONFIGRESPONSE']._serialized_start=1637
+  _globals['_PREPARECONFIGRESPONSE']._serialized_end=1719
+  _globals['_ACTIVATECONFIGREQUEST']._serialized_start=1721
+  _globals['_ACTIVATECONFIGREQUEST']._serialized_end=1765
+  _globals['_ACTIVATECONFIGRESPONSE']._serialized_start=1767
+  _globals['_ACTIVATECONFIGRESPONSE']._serialized_end=1857
+  _globals['_ABORTCONFIGREQUEST']._serialized_start=1859
+  _globals['_ABORTCONFIGREQUEST']._serialized_end=1900
+  _globals['_ABORTCONFIGRESPONSE']._serialized_start=1902
+  _globals['_ABORTCONFIGRESPONSE']._serialized_end=1978
+  _globals['_VERIFYDEVICEREQUEST']._serialized_start=1980
+  _globals['_VERIFYDEVICEREQUEST']._serialized_end=2037
+  _globals['_DIAGNOSTICSTAGEMESSAGE']._serialized_start=2039
+  _globals['_DIAGNOSTICSTAGEMESSAGE']._serialized_end=2138
+  _globals['_DEVICEVERIFYRESPONSE']._serialized_start=2141
+  _globals['_DEVICEVERIFYRESPONSE']._serialized_end=2302
+  _globals['_POINTREQUEST']._serialized_start=2304
+  _globals['_POINTREQUEST']._serialized_end=2355
+  _globals['_VERIFYPOINTSREQUEST']._serialized_start=2357
+  _globals['_VERIFYPOINTSREQUEST']._serialized_end=2418
+  _globals['_ADDRESSFIELD']._serialized_start=2420
+  _globals['_ADDRESSFIELD']._serialized_end=2497
+  _globals['_POINTVERIFYRESPONSE']._serialized_start=2500
+  _globals['_POINTVERIFYRESPONSE']._serialized_end=3043
+  _globals['_POINTSVERIFYRESPONSE']._serialized_start=3046
+  _globals['_POINTSVERIFYRESPONSE']._serialized_end=3228
+  _globals['_COMMANDERSERVICE']._serialized_start=3231
+  _globals['_COMMANDERSERVICE']._serialized_end=4515
 # @@protoc_insertion_point(module_scope)

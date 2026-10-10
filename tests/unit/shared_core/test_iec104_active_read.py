@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from core.application import ProtocolError, ProtocolSample
@@ -98,7 +100,11 @@ async def test_active_read_waits_for_matching_requested_response() -> None:
     driver.request_read_one = send
     task = asyncio.create_task(driver.read_active_one("p"))
     await asyncio.sleep(0)
-    sample = ProtocolSample(point_id="p", value=7)
+    sample = ProtocolSample(
+        point_id="p",
+        value=7,
+        timestamp=datetime.now(UTC),
+    )
     # A spontaneous notification must not resolve the explicit request.
     future = driver._active_reads[11]
     assert not future.done()

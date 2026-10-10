@@ -23,6 +23,7 @@ from core.application import (
     ProtocolSample,
     ProtocolWrite,
     Quality,
+    TimestampSource,
     WritableScalar,
     validate_read_many_results,
 )
@@ -51,7 +52,8 @@ class PointReading:
         point_id: 设备点表内 point_id。
         value: 已应用 scale/offset 的工程值；协议失败点为 None。
         quality: 统一数据质量。
-        timestamp: 协议采样时间（协议提供时）。
+        timestamp: 采样时间（UTC，必填）——协议原生时间戳或本地接收时刻。
+        timestamp_source: 时间戳来源（``device`` / ``local``）。
         source: 产生该值的协议名。
     """
 
@@ -59,7 +61,8 @@ class PointReading:
     point_id: str
     value: PointScalar
     quality: Quality
-    timestamp: datetime | None
+    timestamp: datetime
+    timestamp_source: TimestampSource
     source: str
 
 
@@ -183,6 +186,7 @@ class DeviceSession:
             value=engineering_value(point, sample.value),
             quality=sample.quality,
             timestamp=sample.timestamp,
+            timestamp_source=sample.timestamp_source,
             source=self.protocol_name,
         )
 
@@ -213,4 +217,3 @@ class DeviceSession:
             raise CommandError(
                 result.message or f"write rejected by device '{self._device.device_id}'"
             )
-

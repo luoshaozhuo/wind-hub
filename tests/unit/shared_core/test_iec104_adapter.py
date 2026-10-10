@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Protocol
 
 import pytest
@@ -211,6 +212,7 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
             point_id="power",
             value=42.0,
             quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
         ),
     )
     await started.wait()
@@ -229,6 +231,7 @@ async def test_iec104_subscription_close_drains_inflight_callback() -> None:
             point_id="power",
             value=43.0,
             quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
         ),
     )
     await asyncio.sleep(0)
@@ -256,6 +259,7 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
             point_id="power",
             value=1.0,
             quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
         ),
     )
 
@@ -267,7 +271,10 @@ async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
     driver, _ = _driver_for_monitoring_point()
     driver._is_open = True
     driver._samples[100] = ProtocolSample(
-        point_id="power", value=42.0, quality=Quality.GOOD
+        point_id="power",
+        value=42.0,
+        quality=Quality.GOOD,
+        timestamp=datetime.now(UTC),
     )
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
@@ -277,19 +284,24 @@ async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
             {"wind_speed": replacement},
         )
     )
-    assert await driver.read_one("wind_speed") == ProtocolSample(
-        point_id="wind_speed", value=None, quality=Quality.BAD
-    )
+    sample = await driver.read_one("wind_speed")
+    assert sample.point_id == "wind_speed"
+    assert sample.value is None
+    assert sample.quality == Quality.BAD
+    # BAD 镜像缺失样本同样携带必填的本地接收时间戳
+    assert sample.timestamp.tzinfo is not None
+    assert sample.timestamp_source == "local"
 
 
 def test_iec104_invalid_point_table_update_is_atomic() -> None:
     driver, _ = _driver_for_monitoring_point()
     driver._samples[100] = ProtocolSample(
-        point_id="power", value=42.0, quality=Quality.GOOD
+        point_id="power",
+        value=42.0,
+        quality=Quality.GOOD,
+        timestamp=datetime.now(UTC),
     )
-    invalid = _point(
-        "control", access=PointAccess.WRITE, ext=_point_ext(ioa=200)
-    )
+    invalid = _point("control", access=PointAccess.WRITE, ext=_point_ext(ioa=200))
     with pytest.raises(ConfigError, match="requires type_id"):
         driver.update_point_table(
             PointTable("invalid", DeviceProtocol("iec104"), {"control": invalid})
@@ -306,11 +318,15 @@ async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
     driver._is_open = True
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
-        PointTable(
-            "iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement}
-        )
+        PointTable("iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement})
     )
     driver._store_sample(
-        100, ProtocolSample(point_id="power", value=42.0, quality=Quality.GOOD)
+        100,
+        ProtocolSample(
+            point_id="power",
+            value=42.0,
+            quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
+        ),
     )
     assert 100 not in driver._samples

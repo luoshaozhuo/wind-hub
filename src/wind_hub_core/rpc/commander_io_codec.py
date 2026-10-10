@@ -51,6 +51,8 @@ def point_value_to_proto(value: PointValue) -> pb.PointValueMessage:
         value=encode_scalar(value.value),
         quality=value.quality.value,
         source=value.source or "",
+        # 遗留栈模型不区分时间来源，统一按本地采集时刻标记。
+        timestamp_source="local",
     )
     message.timestamp.FromDatetime(value.timestamp)
     return message

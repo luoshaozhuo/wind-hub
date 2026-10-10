@@ -26,6 +26,7 @@ from .protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    TimestampSource,
     WritableScalar,
     validate_read_many_results,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "ProtocolWriteResult",
     "Quality",
     "SubscriptionHandle",
+    "TimestampSource",
     "WritableScalar",
     "validate_read_many_results",
 ]

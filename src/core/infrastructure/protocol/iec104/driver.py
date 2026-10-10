@@ -11,6 +11,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolError
@@ -347,6 +348,7 @@ class IEC104Driver:
                 point_id=point_id,
                 value=None,
                 quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
             )
         return sample
 
@@ -376,6 +378,7 @@ class IEC104Driver:
                         point_id=point_id,
                         value=None,
                         quality=Quality.BAD,
+                        timestamp=datetime.now(UTC),
                     )
                 )
             else:
@@ -698,6 +701,7 @@ class IEC104Driver:
                 point_id=mapped.point_id,
                 value=None,
                 quality=Quality.BAD,
+                timestamp=datetime.now(UTC),
             )
 
         loop = self._loop

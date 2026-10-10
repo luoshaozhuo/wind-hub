@@ -7,6 +7,7 @@ Fake Protocol/Sink，供 unit/component 层复用；不 import 任何 wind_hub_*
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +99,14 @@ class CollectorFakeProtocol(FakeProtocol):
     async def emit(self, index: int, point_id: str, value: Any, quality: Quality = Quality.GOOD):
         """向第 index 个订阅回调推送一条样本（模拟协议上送）。"""
         _, callback, _ = self.subscriptions[index]
-        await callback(ProtocolSample(point_id=point_id, value=value, quality=quality))
+        await callback(
+            ProtocolSample(
+                point_id=point_id,
+                value=value,
+                quality=quality,
+                timestamp=datetime.now(UTC),
+            )
+        )
 
 
 class CollectorFakeRegistry(FakeRegistry):

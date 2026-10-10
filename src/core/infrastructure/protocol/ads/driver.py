@@ -12,6 +12,7 @@ import ctypes
 import logging
 import struct
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
@@ -243,7 +244,12 @@ class ADSDriver:
                 scalar = _as_point_scalar(value)
             except TypeError:
                 return _bad_sample(point_id)
-            return ProtocolSample(point_id=point_id, value=scalar, quality=Quality.GOOD)
+            return ProtocolSample(
+                point_id=point_id,
+                value=scalar,
+                timestamp=datetime.now(UTC),
+                quality=Quality.GOOD,
+            )
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
@@ -265,8 +271,10 @@ class ADSDriver:
     ) -> tuple[ProtocolSample, ...]:
         """按配置的 sum/sequential 策略批量读取，返回按输入顺序排列的样本元组。"""
         raw = await self._read_values(point_ids)
+        # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
+        received_at = datetime.now(UTC)
         return tuple(
-            ProtocolSample(point_id=pid, value=value, quality=quality)
+            ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality)
             for pid, (value, quality) in zip(point_ids, raw, strict=True)
         )
 
@@ -779,6 +787,7 @@ def _bad_sample(point_id: str) -> ProtocolSample:
     return ProtocolSample(
         point_id=point_id,
         value=None,
+        timestamp=datetime.now(UTC),
         quality=Quality.BAD,
     )
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -165,6 +166,7 @@ class FakeProtocol:
             point_id=point_id,
             value=self.read_values.get(point_id, 1.0),
             quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
         )
 
     async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
@@ -173,6 +175,7 @@ class FakeProtocol:
                 point_id=point_id,
                 value=self.read_values.get(point_id, 1.0),
                 quality=Quality.GOOD,
+                timestamp=datetime.now(UTC),
             )
             for point_id in point_ids
         )

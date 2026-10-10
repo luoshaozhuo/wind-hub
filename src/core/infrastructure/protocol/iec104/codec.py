@@ -7,18 +7,24 @@ from enum import IntEnum
 from typing import Any, cast
 
 from core.application.errors import ConfigError
-from core.application.protocol_contract import ProtocolSample, Quality
+from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .mapping import IEC104Point
 
 
 def sample_from_c104(point: Any, point_id: str) -> ProtocolSample:
-    """把 c104 Point 当前状态转换为共享 ProtocolSample。"""
+    """把 c104 Point 当前状态转换为共享 ProtocolSample。
+
+    具备原生时标（CP56Time2a）的点使用设备采样时刻（``device``）；
+    无时标点以本地接收时刻兜底（``local``），不伪装成设备时间。
+    """
+    timestamp, source = _timestamp_from_c104(getattr(point, "recorded_at", None))
     return ProtocolSample(
         point_id=point_id,
         value=_value_from_c104(getattr(point, "value", None)),
         quality=_quality_from_c104(getattr(point, "quality", None)),
-        timestamp=_timestamp_from_c104(getattr(point, "recorded_at", None)),
+        timestamp=timestamp,
+        timestamp_source=source,
     )
 
 
@@ -86,14 +92,15 @@ def _quality_from_c104(quality: Any) -> Quality:
     return Quality.GOOD
 
 
-def _timestamp_from_c104(value: object) -> datetime | None:
+def _timestamp_from_c104(value: object) -> tuple[datetime, TimestampSource]:
+    """返回 (UTC 时间戳, 来源)；无原生时标的点回退本地接收时刻。"""
     if value is None:
-        return None
+        return datetime.now(UTC), "local"
     if not isinstance(value, datetime):
         raise TypeError("c104 recorded_at must be datetime or None")
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+        return value.replace(tzinfo=UTC), "device"
+    return value.astimezone(UTC), "device"
 
 
 def _value_from_c104(value: object) -> float | int | bool | str | None:

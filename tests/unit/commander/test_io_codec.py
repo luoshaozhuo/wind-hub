@@ -46,32 +46,38 @@ def test_scalar_unsupported_type_rejected():
         encode_scalar(object())
 
 
-def test_point_value_to_proto_with_and_without_timestamp():
+def test_point_value_to_proto_encodes_timestamp_and_source():
     reading = PointReading(
         device_id="dev1",
         point_id="p1",
         value=1.5,
         quality=Quality.GOOD,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-        source="modbus",
+        timestamp_source="device",
+        source="iec104",
     )
     message = point_value_to_proto(reading)
     assert message.device_id == "dev1"
     assert message.value.double_value == 1.5
     assert message.quality == "good"
     assert message.HasField("timestamp")
+    assert message.timestamp.ToDatetime(tzinfo=UTC) == datetime(2026, 1, 1, tzinfo=UTC)
+    assert message.timestamp_source == "device"
 
-    no_ts = PointReading(
+    bad = PointReading(
         device_id="dev1",
         point_id="p1",
         value=None,
         quality=Quality.BAD,
-        timestamp=None,
+        timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+        timestamp_source="local",
         source="modbus",
     )
-    message = point_value_to_proto(no_ts)
+    message = point_value_to_proto(bad)
     assert message.value.WhichOneof("kind") is None
     assert message.quality == "bad"
+    assert message.HasField("timestamp")
+    assert message.timestamp_source == "local"
 
 
 def test_command_roundtrip_and_result():
