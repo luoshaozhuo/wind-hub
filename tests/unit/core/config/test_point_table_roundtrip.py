@@ -3,7 +3,7 @@
 from pathlib import Path
 from shutil import copyfile
 
-from core.infrastructure.config.full_adapter import FullYamlConfigAdapter
+from core.infrastructure.config.adapter import YamlConfigAdapter
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -17,7 +17,7 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
     ):
         copyfile(source / filename, tmp_path / filename)
 
-    adapter = FullYamlConfigAdapter(tmp_path)
+    adapter = YamlConfigAdapter(tmp_path)
     before = adapter.load()
     adapter.save_point_tables(before)
     after = adapter.load()
@@ -44,7 +44,7 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
         "points.yaml", "tasks.yaml", "sinks.yaml", "business_points.yaml",
     ):
         copyfile(source / filename, tmp_path / filename)
-    adapter = FullYamlConfigAdapter(tmp_path)
+    adapter = YamlConfigAdapter(tmp_path)
     original = adapter.load()
     parent = original.point_tables[PointTableId("beckhoff_base_v1")]
     child = original.point_tables[PointTableId("beckhoff_wtg_v1")]
