@@ -32,7 +32,6 @@ from core.domain import (
 )
 from core.domain import PointMeta as PointMeta
 from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
-from core.domain.config.lookups import point_table_for_device, protocol_options_for
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,13 +112,10 @@ class CommanderConfig:
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""
-        return point_table_for_device(
-            self.devices,
-            self.device_models,
-            self.point_tables,
-            device_id,
-        )
+        device = self.devices[device_id]
+        model = self.device_models[device.device_model_id]
+        return self.point_tables[model.point_table_id]
 
     def protocol_options_for(self, device_id: DeviceId) -> ProtocolOptions:
-        """返回指定 Device 的协议专有连接配置。"""
-        return protocol_options_for(self.protocol_options_by_device, device_id)
+        """返回指定 Device 的协议专有连接配置；缺省为空映射。"""
+        return self.protocol_options_by_device.get(device_id, MappingProxyType({}))

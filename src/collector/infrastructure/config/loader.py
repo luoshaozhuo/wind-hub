@@ -94,17 +94,19 @@ def _load_from(source: ConfigPort) -> CollectorConfig:
         instance.device_id: assembly.point_tables[
             PointTableId(models.device_models[instance.model].point_table)
         ]
-        for instance in devices.devices
+        for instance in devices.devices.values()
         if not instance.enabled
     }
     resolved_sinks = resolve_sinks(sinks, assembly, units, disabled_tables)
 
     # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
     all_device_groups = {
-        instance.device_group for instance in devices.devices if instance.device_group is not None
+        instance.device_group
+        for instance in devices.devices.values()
+        if instance.device_group is not None
     }
     sink_names = {name for name, sink in resolved_sinks.items() if sink.enabled}
-    task_map = {task.task_id: task for task in tasks.tasks}
+    task_map = dict(tasks.tasks)
     for task in task_map.values():
         validate_task_targets(
             task,

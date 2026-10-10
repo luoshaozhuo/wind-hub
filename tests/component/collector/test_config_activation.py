@@ -295,7 +295,7 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
             SinksConfig(sinks=list(new_sinks.values())),
         ),
         ConfigTopic.TASKS,
-        TasksConfig(tasks=tuple(new_tasks.values())),
+        TasksConfig(tasks=dict(new_tasks)),
     )
 
     failures = {"count": 0}

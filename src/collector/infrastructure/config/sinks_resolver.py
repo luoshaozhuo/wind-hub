@@ -22,7 +22,6 @@ from core.application.sink_config import (
 )
 from core.domain import DeviceId, Point, PointTable
 from core.domain.config import UnitsConfig
-from core.domain.config.lookups import point_table_for_device
 from core.infrastructure.config.assembly import CoreConfigAssembly
 
 _MODBUS_BIT_REGISTER_TYPES = frozenset({"coil", "discrete"})
@@ -69,9 +68,7 @@ def _resolve_point(
 ) -> ResolvedSinkPoint:
     device_id = DeviceId(point.source.device_id)
     if device_id in assembly.devices:
-        table = point_table_for_device(
-            assembly.devices, assembly.device_models, assembly.point_tables, device_id
-        )
+        table = assembly.point_table_for_device(device_id)
     elif point.source.device_id in disabled_tables:
         table = disabled_tables[point.source.device_id]
     else:

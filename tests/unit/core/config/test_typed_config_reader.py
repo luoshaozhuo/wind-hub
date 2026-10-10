@@ -24,10 +24,10 @@ def test_adapter_returns_independent_validated_topics(tmp_path):
 
     adapter = YamlConfigAdapter(tmp_path)
     assert isinstance(adapter, ConfigPort)
-    assert adapter.read(ConfigTopic.DEVICES).devices == ()
+    assert adapter.read(ConfigTopic.DEVICES).devices == {}
     assert adapter.read(ConfigTopic.DEVICE_MODELS).device_models == {}
     assert adapter.read(ConfigTopic.POINTS).tables == {}
-    assert adapter.read(ConfigTopic.TASKS).tasks == ()
+    assert adapter.read(ConfigTopic.TASKS).tasks == {}
     assert adapter.read(ConfigTopic.UNITS).units == {}
     assert adapter.read(ConfigTopic.SINKS).sinks == []
     assert adapter.read(ConfigTopic.SYSTEM).runtime.connect_timeout == 10.0
@@ -81,7 +81,7 @@ def test_system_config_is_typed_and_immutable(tmp_path):
         encoding="utf-8",
     )
     config = YamlConfigAdapter(tmp_path).read(ConfigTopic.SYSTEM)
-    assert config.site is not None and config.site.site_id == "s1"
+    assert config.site_id == "s1"
     assert config.runtime.queue_maxsize == 500
     assert config.runtime.read_timeout == 2.5
     assert config.runtime.connect_timeout is None
@@ -156,9 +156,9 @@ def test_task_config_returns_immutable_definitions(tmp_path):
         encoding="utf-8",
     )
     tasks = YamlConfigAdapter(tmp_path).read(ConfigTopic.TASKS).tasks
-    assert tasks[0].targets == ("archive",)
+    assert tasks["sample"].targets == ("archive",)
     with pytest.raises(AttributeError):
-        tasks[0].task_id = "changed"
+        tasks["sample"].task_id = "changed"
 
 
 def test_units_are_independent_and_immutable(tmp_path):
@@ -200,7 +200,7 @@ def test_device_and_point_contracts_are_deeply_immutable(tmp_path):
     with pytest.raises(TypeError):
         models.device_models["m1"].connection_defaults["port"] = 852
     with pytest.raises(TypeError):
-        devices.devices[0].endpoint.extensions["nested"][0] = 3
+        devices.devices["d1"].endpoint.extensions["nested"][0] = 3
     with pytest.raises(AttributeError):
         points.tables["main"].points["p1"].scale = 10.0
 

@@ -1,10 +1,8 @@
 """Shared Core Application 公共门面。
 
-Application 暴露共享协议边界、协议契约、应用错误、只读配置端口契约，
-以及跨主题配置引用校验函数。
+Application 暴露共享协议边界、协议契约、应用错误与只读配置端口契约。
 """
 
-from .config_validation import validate_config
 from .errors import (
     ConfigError,
     CoreError,
@@ -63,6 +61,5 @@ __all__ = [
     "SubscriptionHandle",
     "TimestampSource",
     "WritableScalar",
-    "validate_config",
     "validate_read_many_results",
 ]

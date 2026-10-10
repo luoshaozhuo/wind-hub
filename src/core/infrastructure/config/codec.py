@@ -33,12 +33,10 @@ from core.domain.config import (
     DeviceModelConfig,
     DeviceModelsConfig,
     DevicesConfig,
-    DeviceTypeConfig,
     EndpointConfig,
     PointTableConfig,
     PointTablesConfig,
     RuntimeSettings,
-    SiteIdentity,
     SystemConfig,
     TaskConfig,
     TasksConfig,
@@ -135,9 +133,11 @@ _ADS_KEYS = {"local_ams_net_id", "local_ip", "username", "password"}
 
 def parse_system_config(raw: Mapping[str, Any]) -> SystemConfig:
     """解析 system.yaml 共享段；进程专属的未知顶层段保持忽略（旧行为）。"""
+    site_id, site_name = _parse_site(raw.get("site"))
     try:
         return SystemConfig(
-            site=_parse_site(raw.get("site")),
+            site_id=site_id,
+            site_name=site_name,
             runtime=_parse_runtime(raw.get("runtime")),
             ads=_parse_ads(raw.get("ads")),
         )
@@ -145,19 +145,20 @@ def parse_system_config(raw: Mapping[str, Any]) -> SystemConfig:
         raise _vo_error("Invalid system configuration", exc) from exc
 
 
-def _parse_site(value: Any) -> SiteIdentity | None:
+def _parse_site(value: Any) -> tuple[str | None, str | None]:
     if value is None:
-        return None
+        return None, None
     raw = _expect_mapping(value, "system.yaml 'site'")
     _reject_unknown(raw, _SITE_KEYS, "system.yaml 'site'")
     name = raw.get("name")
     if name is not None and not isinstance(name, str):
         raise ConfigError("system.yaml 'site.name' must be a string")
-    try:
-        site_id = _as_str(raw.get("site_id"), "system.yaml 'site.site_id'")
-        return SiteIdentity(site_id=site_id, name=name)
-    except ValueError as exc:
-        raise _vo_error("Invalid system.site configuration", exc) from exc
+    site_id = raw.get("site_id")
+    if site_id is None:
+        if name is not None:
+            raise ConfigError("system.yaml 'site.name' requires 'site.site_id'")
+        return None, None
+    return _as_str(site_id, "system.yaml 'site.site_id'"), name
 
 
 def _parse_runtime(value: Any) -> RuntimeSettings:
@@ -229,10 +230,10 @@ def _parse_ads(value: Any) -> ADSLocalConfig | None:
 def dump_system_config(config: SystemConfig) -> dict[str, Any]:
     """把 SystemConfig 序列化为标准 YAML 结构（None 字段省略）。"""
     data: dict[str, Any] = {}
-    if config.site is not None:
-        site: dict[str, Any] = {"site_id": config.site.site_id}
-        if config.site.name is not None:
-            site["name"] = config.site.name
+    if config.site_id is not None:
+        site: dict[str, Any] = {"site_id": config.site_id}
+        if config.site_name is not None:
+            site["name"] = config.site_name
         data["site"] = site
     runtime: dict[str, Any] = {}
     for key in (
@@ -287,7 +288,7 @@ def parse_device_models_config(raw: Mapping[str, Any]) -> DeviceModelsConfig:
         raw.get("device_models") or {}, "device_models.yaml 'device_models'"
     )
 
-    device_types: dict[str, DeviceTypeConfig] = {}
+    device_types: dict[str, str | None] = {}
     for type_id, item in types_raw.items():
         label = f"device_type '{type_id}'"
         item = _expect_mapping(item, label)
@@ -295,7 +296,7 @@ def parse_device_models_config(raw: Mapping[str, Any]) -> DeviceModelsConfig:
         name = item.get("name")
         if name is not None and not isinstance(name, str):
             raise ConfigError(f"{label}.name must be a string")
-        device_types[_as_str(type_id, "device_type id")] = DeviceTypeConfig(name=name)
+        device_types[_as_str(type_id, "device_type id")] = name
 
     device_models: dict[str, DeviceModelConfig] = {}
     for model_id, item in models_raw.items():
@@ -340,8 +341,8 @@ def parse_device_models_config(raw: Mapping[str, Any]) -> DeviceModelsConfig:
 def dump_device_models_config(config: DeviceModelsConfig) -> dict[str, Any]:
     return {
         "device_types": {
-            type_id: ({"name": item.name} if item.name is not None else {})
-            for type_id, item in config.device_types.items()
+            type_id: ({"name": name} if name is not None else {})
+            for type_id, name in config.device_types.items()
         },
         "device_models": {
             model_id: _dump_device_model(model) for model_id, model in config.device_models.items()
@@ -385,7 +386,7 @@ def parse_devices_config(raw: Mapping[str, Any]) -> DevicesConfig:
     items = _required(raw, "devices", "devices.yaml")
     if not isinstance(items, list):
         raise ConfigError("devices.yaml 'devices' must be a list")
-    devices: list[DeviceInstanceConfig] = []
+    devices: dict[str, DeviceInstanceConfig] = {}
     for item in items:
         label = f"device '{item.get('device_id') if isinstance(item, Mapping) else '?'}'"
         item = _expect_mapping(item, "devices.yaml entry")
@@ -394,8 +395,10 @@ def parse_devices_config(raw: Mapping[str, Any]) -> DevicesConfig:
         _reject_unknown(endpoint, _ENDPOINT_KEYS, f"{label}.endpoint")
         port = endpoint.get("port")
         device_id = _as_str(_required(item, "device_id", label), f"{label}.device_id")
+        if device_id in devices:
+            raise ConfigError(f"Duplicate device_id: '{device_id}'")
         try:
-            devices.append(
+            devices[device_id] = (
                 DeviceInstanceConfig(
                     device_id=device_id,
                     model=_as_str(_required(item, "model", label), f"{label}.model"),
@@ -418,13 +421,13 @@ def parse_devices_config(raw: Mapping[str, Any]) -> DevicesConfig:
         except ValueError as exc:
             raise _vo_error(f"Invalid {label}", exc) from exc
     try:
-        return DevicesConfig(devices=tuple(devices))
+        return DevicesConfig(devices=devices)
     except ValueError as exc:
         raise _vo_error("Invalid devices configuration", exc) from exc
 
 
 def dump_devices_config(config: DevicesConfig) -> dict[str, Any]:
-    return {"devices": [_dump_device(device) for device in config.devices]}
+    return {"devices": [_dump_device(device) for device in config.devices.values()]}
 
 
 def _dump_device(device: DeviceInstanceConfig) -> dict[str, Any]:
@@ -584,7 +587,7 @@ def parse_tasks_config(raw: Mapping[str, Any]) -> TasksConfig:
     items = raw.get("tasks") or []
     if not isinstance(items, list):
         raise ConfigError("tasks.yaml 'tasks' must be a list")
-    tasks: list[TaskConfig] = []
+    tasks: dict[str, TaskConfig] = {}
     for item in items:
         label = f"task '{item.get('task_id') if isinstance(item, Mapping) else '?'}'"
         item = _expect_mapping(item, "tasks.yaml entry")
@@ -600,9 +603,11 @@ def parse_tasks_config(raw: Mapping[str, Any]) -> TasksConfig:
             targets.append(
                 _as_str(_required(target, "sink", f"{label}.targets"), f"{label}.targets.sink")
             )
+        if task_id in tasks:
+            raise ConfigError(f"Duplicate task_id: '{task_id}'")
         interval = item.get("interval")
         try:
-            tasks.append(
+            tasks[task_id] = (
                 TaskConfig(
                     task_id=task_id,
                     device=_opt_str(item, "device", label),
@@ -620,7 +625,7 @@ def parse_tasks_config(raw: Mapping[str, Any]) -> TasksConfig:
         except ValueError as exc:
             raise _vo_error(f"Invalid {label}", exc) from exc
     try:
-        return TasksConfig(tasks=tuple(tasks))
+        return TasksConfig(tasks=tasks)
     except ValueError as exc:
         raise _vo_error("Invalid tasks configuration", exc) from exc
 
@@ -637,7 +642,7 @@ def dump_tasks_config(config: TasksConfig) -> dict[str, Any]:
                 "targets": [{"sink": sink} for sink in task.targets],
                 "enabled": task.enabled,
             }
-            for task in config.tasks
+            for task in config.tasks.values()
         ]
     }
 

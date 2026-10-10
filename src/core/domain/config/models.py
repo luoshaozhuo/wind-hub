@@ -4,9 +4,13 @@
 的结构与领域不变量，不依赖 YAML / Pydantic / 文件路径，不包含运行状态
 与持久化代码。Collector、Commander 直接引用这些对象。
 
-跨文件引用一致性（设备→型号→点表等）不属于单个 VO 的职责，由共享配置
-校验规则统一处理（见 ``core.application.config_validation`` 与
-``core.infrastructure.config.assembly``）。
+跨文件引用一致性（设备→型号→点表等）不属于单个 VO 的职责，由配置组装
+边界统一处理（见 ``core.infrastructure.config.assembly`` 及各进程的
+配置加载入口）。
+
+差异比较由 Config VO 自己决定粒度：每个顶层配置 VO 提供
+``diff(new) -> ConfigDiff``，按键对齐（设备按 device_id、任务按
+task_id、点表按表名整表比较等），不做任意嵌套对象的通用递归比较。
 
 不变量违反抛出 :class:`ValueError`；文件解析层负责将其转换为
 ``ConfigError``。
@@ -19,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypeVar
 
 from ..value_objects import DataType
 
@@ -73,15 +77,76 @@ def _require_protocol(protocol: str, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# device_models.yaml
+# 配置差异
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
-class DeviceTypeConfig:
-    """设备业务类型。"""
+class ValueChange:
+    """同一配置键上新旧两个语义值。"""
 
-    name: str | None
+    old: object
+    new: object
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigDiff:
+    """两个相同主题配置 VO 之间的语义差异（键为业务 ID 或段名）。
+
+    - ``added``：旧配置不存在、新配置存在的对象；
+    - ``removed``：旧配置存在、新配置不存在的对象；
+    - ``changed``：两边都存在但不等的键及新旧完整对象（不展开字段路径）。
+    """
+
+    added: Mapping[str, object] = field(default_factory=dict)
+    removed: Mapping[str, object] = field(default_factory=dict)
+    changed: Mapping[str, ValueChange] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "added", MappingProxyType(dict(self.added)))
+        object.__setattr__(self, "removed", MappingProxyType(dict(self.removed)))
+        object.__setattr__(self, "changed", MappingProxyType(dict(self.changed)))
+
+    @property
+    def has_any_changes(self) -> bool:
+        """任一差异存在时为 True。"""
+        return bool(self.added or self.removed or self.changed)
+
+
+def _config_equal(old: object, new: object) -> bool:
+    """严格配置语义相等：类型与值都相等（VO 均为冻结 dataclass / 冻结容器）。"""
+    return type(old) is type(new) and old == new
+
+
+def diff_mapping(old: Mapping[str, Any], new: Mapping[str, Any]) -> ConfigDiff:
+    """按键比较两个配置映射：added / removed / changed（整对象记录）。"""
+    old_keys = set(old)
+    new_keys = set(new)
+    return ConfigDiff(
+        added={key: new[key] for key in sorted(new_keys - old_keys)},
+        removed={key: old[key] for key in sorted(old_keys - new_keys)},
+        changed={
+            key: ValueChange(old=old[key], new=new[key])
+            for key in sorted(old_keys & new_keys)
+            if not _config_equal(old[key], new[key])
+        },
+    )
+
+
+_T = TypeVar("_T")
+
+
+def _require_same_type(old: object, new: object, expected: type[_T]) -> _T:
+    if not isinstance(new, expected):
+        raise TypeError(
+            f"diff requires another {expected.__name__}, got {type(new).__name__}"
+        )
+    return new
+
+
+# ---------------------------------------------------------------------------
+# device_models.yaml
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,14 +185,35 @@ class DeviceModelConfig:
 
 @dataclass(frozen=True, slots=True)
 class DeviceModelsConfig:
-    """``device_models.yaml`` 主题配置。"""
+    """``device_models.yaml`` 主题配置。
 
-    device_types: Mapping[str, DeviceTypeConfig]
+    ``device_types`` 为 ``{类型 ID: 显示名或 None}``；``device_models``
+    为 ``{型号 ID: DeviceModelConfig}``。
+    """
+
+    device_types: Mapping[str, str | None]
     device_models: Mapping[str, DeviceModelConfig]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "device_types", MappingProxyType(dict(self.device_types)))
         object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
+        for type_id, name in self.device_types.items():
+            _require_non_empty(type_id, "device_type id")
+            if name is not None and not isinstance(name, str):
+                raise ValueError(f"device_type '{type_id}' name must be a string or None")
+
+    def diff(self, new: DeviceModelsConfig) -> ConfigDiff:
+        """比较两个型号主题配置；键为 ``device_types.<id>`` / ``device_models.<id>``。"""
+        new = _require_same_type(self, new, DeviceModelsConfig)
+        old_items = {
+            **{f"device_types.{key}": value for key, value in self.device_types.items()},
+            **{f"device_models.{key}": value for key, value in self.device_models.items()},
+        }
+        new_items = {
+            **{f"device_types.{key}": value for key, value in new.device_types.items()},
+            **{f"device_models.{key}": value for key, value in new.device_models.items()},
+        }
+        return diff_mapping(old_items, new_items)
 
 
 # ---------------------------------------------------------------------------
@@ -171,17 +257,22 @@ class DeviceInstanceConfig:
 
 @dataclass(frozen=True, slots=True)
 class DevicesConfig:
-    """``devices.yaml`` 主题配置。"""
+    """``devices.yaml`` 主题配置：``{device_id: DeviceInstanceConfig}``。"""
 
-    devices: tuple[DeviceInstanceConfig, ...]
+    devices: Mapping[str, DeviceInstanceConfig]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "devices", tuple(self.devices))
-        seen: set[str] = set()
-        for device in self.devices:
-            if device.device_id in seen:
-                raise ValueError(f"Duplicate device_id: '{device.device_id}'")
-            seen.add(device.device_id)
+        object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
+        for key, device in self.devices.items():
+            if key != device.device_id:
+                raise ValueError(
+                    f"devices key '{key}' does not match device_id '{device.device_id}'"
+                )
+
+    def diff(self, new: DevicesConfig) -> ConfigDiff:
+        """按 device_id 比较；变化设备整对象记入 changed。"""
+        new = _require_same_type(self, new, DevicesConfig)
+        return diff_mapping(self.devices, new.devices)
 
 
 # ---------------------------------------------------------------------------
@@ -244,12 +335,17 @@ class PointTableConfig:
 
 @dataclass(frozen=True, slots=True)
 class PointTablesConfig:
-    """``points.yaml`` 主题配置。"""
+    """``points.yaml`` 主题配置：``{表名: PointTableConfig}``。"""
 
     tables: Mapping[str, PointTableConfig]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
+
+    def diff(self, new: PointTablesConfig) -> ConfigDiff:
+        """按表名整表比较——任一测点变化视为整表变化（触发整表重注入）。"""
+        new = _require_same_type(self, new, PointTablesConfig)
+        return diff_mapping(self.tables, new.tables)
 
 
 # ---------------------------------------------------------------------------
@@ -299,33 +395,27 @@ class TaskConfig:
 
 @dataclass(frozen=True, slots=True)
 class TasksConfig:
-    """``tasks.yaml`` 主题配置。"""
+    """``tasks.yaml`` 主题配置：``{task_id: TaskConfig}``。"""
 
-    tasks: tuple[TaskConfig, ...]
+    tasks: Mapping[str, TaskConfig]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "tasks", tuple(self.tasks))
-        seen: set[str] = set()
-        for task in self.tasks:
-            if task.task_id in seen:
-                raise ValueError(f"Duplicate task_id: '{task.task_id}'")
-            seen.add(task.task_id)
+        object.__setattr__(self, "tasks", MappingProxyType(dict(self.tasks)))
+        for key, task in self.tasks.items():
+            if key != task.task_id:
+                raise ValueError(
+                    f"tasks key '{key}' does not match task_id '{task.task_id}'"
+                )
+
+    def diff(self, new: TasksConfig) -> ConfigDiff:
+        """按 task_id 比较；变化任务整对象记入 changed。"""
+        new = _require_same_type(self, new, TasksConfig)
+        return diff_mapping(self.tasks, new.tasks)
 
 
 # ---------------------------------------------------------------------------
 # system.yaml
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class SiteIdentity:
-    """当前部署实例所属现场的身份（仅标识用途）。"""
-
-    site_id: str
-    name: str | None
-
-    def __post_init__(self) -> None:
-        _require_non_empty(self.site_id, "site.site_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -404,11 +494,39 @@ class RuntimeSettings:
 
 @dataclass(frozen=True, slots=True)
 class SystemConfig:
-    """system.yaml 的共享段；进程专属段（如 interfaces）不进公共契约。"""
+    """system.yaml 的共享段；进程专属段（如 interfaces）不进公共契约。
 
-    site: SiteIdentity | None = None
+    ``site_id`` / ``site_name`` 为部署实例所属现场的可选标识（仅标识用途）；
+    ``site_name`` 不得脱离 ``site_id`` 单独配置。
+    """
+
+    site_id: str | None = None
+    site_name: str | None = None
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
     ads: ADSLocalConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.site_id is not None:
+            _require_non_empty(self.site_id, "site.site_id")
+        if self.site_name is not None and self.site_id is None:
+            raise ValueError("site.name requires site.site_id")
+
+    def diff(self, new: SystemConfig) -> ConfigDiff:
+        """按共享段（site_id / site_name / runtime / ads）比较。"""
+        new = _require_same_type(self, new, SystemConfig)
+        old_parts = {
+            "site_id": self.site_id,
+            "site_name": self.site_name,
+            "runtime": self.runtime,
+            "ads": self.ads,
+        }
+        new_parts = {
+            "site_id": new.site_id,
+            "site_name": new.site_name,
+            "runtime": new.runtime,
+            "ads": new.ads,
+        }
+        return diff_mapping(old_parts, new_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +536,7 @@ class SystemConfig:
 
 @dataclass(frozen=True, slots=True)
 class UnitDefinitionConfig:
-    """单位定义——point.unit 引用 ``units`` 的键。"""
+    """单位定义——point.unit 引用 ``units`` 的键；symbol/name 仅作展示语义。"""
 
     symbol: str
     name: str | None
@@ -426,12 +544,17 @@ class UnitDefinitionConfig:
 
 @dataclass(frozen=True, slots=True)
 class UnitsConfig:
-    """``units.yaml`` 主题配置。"""
+    """``units.yaml`` 主题配置：``{单位 ID: UnitDefinitionConfig}``。"""
 
     units: Mapping[str, UnitDefinitionConfig]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "units", MappingProxyType(dict(self.units)))
+
+    def diff(self, new: UnitsConfig) -> ConfigDiff:
+        """按单位 ID 比较。"""
+        new = _require_same_type(self, new, UnitsConfig)
+        return diff_mapping(self.units, new.units)
 
 
 __all__ = [
@@ -440,22 +563,23 @@ __all__ = [
     "SUPPORTED_PROTOCOLS",
     "ADSLocalConfig",
     "ADSLocalIdentity",
+    "ConfigDiff",
     "ConfigTopic",
     "DeviceInstanceConfig",
     "DeviceModelConfig",
     "DeviceModelsConfig",
-    "DeviceTypeConfig",
     "DevicesConfig",
     "EndpointConfig",
     "PointConfig",
     "PointTableConfig",
     "PointTablesConfig",
     "RuntimeSettings",
-    "SiteIdentity",
     "SystemConfig",
     "TaskConfig",
     "TasksConfig",
     "UnitDefinitionConfig",
     "UnitsConfig",
+    "ValueChange",
+    "diff_mapping",
     "freeze_config_value",
 ]

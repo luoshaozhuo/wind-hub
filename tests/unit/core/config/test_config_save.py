@@ -17,13 +17,11 @@ from core.domain.config import (
     DeviceModelConfig,
     DeviceModelsConfig,
     DevicesConfig,
-    DeviceTypeConfig,
     EndpointConfig,
     PointConfig,
     PointTableConfig,
     PointTablesConfig,
     RuntimeSettings,
-    SiteIdentity,
     SystemConfig,
     TaskConfig,
     TasksConfig,
@@ -125,27 +123,19 @@ def test_save_rejects_topic_type_mismatch(site):
 
 
 def test_save_validates_before_writing(site):
-    """非法 VO（无法构造）之外，跨字段语义错误在写盘前被拒绝。"""
+    """非法 VO（键与业务 ID 不一致）在写盘前被拒绝。"""
     before = (site / "devices.yaml").read_bytes()
-    # 重复 device_id 在 VO 构造期即拒绝——save 不会写入半态文件。
-    with pytest.raises(ValueError, match="Duplicate device_id"):
+    with pytest.raises(ValueError, match="does not match device_id"):
         DevicesConfig(
-            devices=(
-                DeviceInstanceConfig(
+            devices={
+                "other": DeviceInstanceConfig(
                     device_id="d",
                     model="mod",
                     device_group=None,
                     endpoint=EndpointConfig(host="h", port=1, extensions={}),
                     enabled=True,
-                ),
-                DeviceInstanceConfig(
-                    device_id="d",
-                    model="mod",
-                    device_group=None,
-                    endpoint=EndpointConfig(host="h", port=2, extensions={}),
-                    enabled=True,
-                ),
-            )
+                )
+            }
         )
     assert (site / "devices.yaml").read_bytes() == before
 
@@ -162,11 +152,11 @@ def test_failed_save_leaves_no_temp_files_and_preserves_original(site, monkeypat
         service.save(
             ConfigTopic.TASKS,
             TasksConfig(
-                tasks=(
-                    TaskConfig(
+                tasks={
+                    "t2": TaskConfig(
                         task_id="t2", point_group="g", targets=("s1",), device="dev1"
-                    ),
-                )
+                    )
+                }
             ),
         )
     assert (site / "tasks.yaml").read_bytes() == original_bytes
@@ -209,14 +199,15 @@ def test_save_constructed_vos_roundtrip(tmp_path):
     service = YamlConfigAdapter(site)
 
     system = SystemConfig(
-        site=SiteIdentity(site_id="s2", name="现场"),
+        site_id="s2",
+        site_name="现场",
         runtime=RuntimeSettings(queue_maxsize=64),
     )
     service.save(ConfigTopic.SYSTEM, system)
     assert service.read(ConfigTopic.SYSTEM) == system
 
     models = DeviceModelsConfig(
-        device_types={"turbine": DeviceTypeConfig(name=None)},
+        device_types={"turbine": None},
         device_models={
             "mod": DeviceModelConfig(
                 device_type="turbine",
@@ -261,7 +252,7 @@ def test_save_constructed_vos_roundtrip(tmp_path):
     assert service.read(ConfigTopic.UNITS) == units
 
     tasks = TasksConfig(
-        tasks=(TaskConfig(task_id="t", point_group="g", targets=("s1",), device_group="grp"),)
+        tasks={"t": TaskConfig(task_id="t", point_group="g", targets=("s1",), device_group="grp")}
     )
     service.save(ConfigTopic.TASKS, tasks)
     assert service.read(ConfigTopic.TASKS) == tasks

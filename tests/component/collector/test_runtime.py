@@ -122,11 +122,11 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
     view = config.device_view(DeviceId("dev1"))
     new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
     old_devices_vo = config.configs[ConfigTopic.DEVICES]
-    old_instance = old_devices_vo.devices[0]
+    old_instance = old_devices_vo.devices["dev1"]
     new_devices_vo = DevicesConfig(
-        devices=(
-            replace(old_instance, endpoint=replace(old_instance.endpoint, port=503)),
-        )
+        devices={
+            "dev1": replace(old_instance, endpoint=replace(old_instance.endpoint, port=503))
+        }
     )
     new_config = with_config_vo(
         replace(config, devices={DeviceId("dev1"): new_device}),

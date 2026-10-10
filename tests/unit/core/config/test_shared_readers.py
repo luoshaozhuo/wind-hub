@@ -33,12 +33,12 @@ def test_adapter_implements_config_port(site):
 
 def test_adapter_reads_each_topic_independently(site):
     adapter = YamlConfigAdapter(site)
-    assert adapter.read(ConfigTopic.SYSTEM).site.site_id == "s1"
+    assert adapter.read(ConfigTopic.SYSTEM).site_id == "s1"
     assert "turbine" in adapter.read(ConfigTopic.DEVICE_MODELS).device_types
-    assert adapter.read(ConfigTopic.DEVICES).devices == ()
+    assert adapter.read(ConfigTopic.DEVICES).devices == {}
     assert adapter.read(ConfigTopic.POINTS).tables == {}
     assert adapter.read(ConfigTopic.UNITS).units == {}
-    assert adapter.read(ConfigTopic.TASKS).tasks == ()
+    assert adapter.read(ConfigTopic.TASKS).tasks == {}
     assert adapter.read(ConfigTopic.SINKS).sinks == []
 
 

@@ -14,7 +14,6 @@ from core.domain.config import (
     DeviceModelConfig,
     DeviceModelsConfig,
     DevicesConfig,
-    DeviceTypeConfig,
     EndpointConfig,
     PointConfig,
     PointTableConfig,
@@ -94,9 +93,9 @@ def test_endpoint_port_must_be_int_not_bool():
     assert EndpointConfig(host="h", port=None, extensions={}).port is None
 
 
-def test_devices_config_rejects_duplicate_device_id():
-    with pytest.raises(ValueError, match="Duplicate device_id"):
-        DevicesConfig(devices=(_device("d1"), _device("d1")))
+def test_devices_config_key_must_match_device_id():
+    with pytest.raises(ValueError, match="does not match device_id"):
+        DevicesConfig(devices={"other": _device("d1")})
 
 
 def test_point_rejects_bad_groups_and_data_type():
@@ -147,9 +146,9 @@ def test_task_validates_interval_targets_enabled():
         TaskConfig(task_id="t", point_group="g", targets=("s",), device="d", enabled=1)
 
 
-def test_tasks_config_rejects_duplicate_task_id():
-    with pytest.raises(ValueError, match="Duplicate task_id"):
-        TasksConfig(tasks=(_task("t"), _task("t")))
+def test_tasks_config_key_must_match_task_id():
+    with pytest.raises(ValueError, match="does not match task_id"):
+        TasksConfig(tasks={"other": _task("t")})
 
 
 def test_runtime_settings_invariants():
@@ -173,9 +172,9 @@ def test_vos_are_frozen():
     point = _point()
     with pytest.raises(AttributeError):
         point.scale = 2.0  # type: ignore[misc]
-    devices = DevicesConfig(devices=(_device(),))
+    devices = DevicesConfig(devices={"dev1": _device()})
     with pytest.raises(AttributeError):
-        devices.devices = ()  # type: ignore[misc]
+        devices.devices = {}  # type: ignore[misc]
 
 
 def test_collections_are_defensively_frozen():
@@ -196,7 +195,7 @@ def test_collections_are_defensively_frozen():
         model.properties["a"] = ()  # type: ignore[index]
 
     models = DeviceModelsConfig(
-        device_types={"turbine": DeviceTypeConfig(name=None)}, device_models={"m": _model()}
+        device_types={"turbine": None}, device_models={"m": _model()}
     )
     with pytest.raises(TypeError):
         models.device_models["x"] = _model()  # type: ignore[index]
@@ -209,8 +208,13 @@ def test_collections_are_defensively_frozen():
     with pytest.raises(TypeError):
         units.units["x"] = None  # type: ignore[index]
 
-    tasks = TasksConfig(tasks=[_task()])
-    assert isinstance(tasks.tasks, tuple)
+    tasks = TasksConfig(tasks={"t1": _task()})
+    assert isinstance(tasks.tasks, MappingProxyType)
+    with pytest.raises(TypeError):
+        tasks.tasks["x"] = None  # type: ignore[index]
+
+    devices_map = DevicesConfig(devices={"dev1": _device()})
+    assert isinstance(devices_map.devices, MappingProxyType)
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +225,8 @@ def test_collections_are_defensively_frozen():
 def test_vo_equality_by_value():
     assert _point() == _point()
     assert _point() != _point(scale=2.0)
-    assert DevicesConfig(devices=[_device()]) == DevicesConfig(devices=(_device(),))
+    assert DevicesConfig(devices={"dev1": _device()}) == DevicesConfig(
+        devices={"dev1": _device()}
+    )
     assert _task() == _task()
     assert RuntimeSettings(queue_maxsize=10) == RuntimeSettings(queue_maxsize=10)

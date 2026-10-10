@@ -1,14 +1,11 @@
-"""core.domain.config.diff 语义比较规则测试。
+"""配置 VO diff 单元测试：按业务 ID 粒度的语义差异。
 
-路径格式：``devices.WTG001.endpoint.host``、
-``tables.TABLE_A.points.WindSpeed.address``、``tasks.TASK_A.interval``、
-``device_models.MODEL_A.protocol``、``sinks.ARCHIVE.enabled``。
+差异比较由 Config VO 自己决定粒度：设备按 device_id、任务按 task_id、
+点表按表名整表比较、型号按 ``device_models.<id>`` / ``device_types.<id>``、
+SystemConfig 按共享段、SinksConfig 按 sink name。
 """
 
 from __future__ import annotations
-
-from dataclasses import replace
-from types import MappingProxyType
 
 import pytest
 
@@ -19,36 +16,38 @@ from core.domain.config import (
     DeviceModelConfig,
     DeviceModelsConfig,
     DevicesConfig,
-    DeviceTypeConfig,
     EndpointConfig,
     PointConfig,
     PointTableConfig,
     PointTablesConfig,
+    RuntimeSettings,
+    SystemConfig,
     TaskConfig,
     TasksConfig,
     UnitDefinitionConfig,
     UnitsConfig,
     ValueChange,
-    diff,
+    diff_mapping,
 )
 
 
-def _endpoint(port: int = 502) -> EndpointConfig:
+def _endpoint(port: int | None = 502) -> EndpointConfig:
     return EndpointConfig(host="127.0.0.1", port=port, extensions={})
 
 
-def _device(device_id: str = "dev1", *, port: int = 502, enabled: bool = True):
-    return DeviceInstanceConfig(
-        device_id=device_id,
-        model="mod",
-        device_group=None,
-        endpoint=_endpoint(port),
-        enabled=enabled,
-    )
+def _device(port: int | None = 502, **overrides) -> DeviceInstanceConfig:
+    data = {
+        "device_id": "dev1",
+        "model": "mod",
+        "device_group": None,
+        "endpoint": _endpoint(port),
+        "enabled": True,
+    }
+    return DeviceInstanceConfig(**(data | overrides))
 
 
 def _devices(*devices: DeviceInstanceConfig) -> DevicesConfig:
-    return DevicesConfig(devices=tuple(devices))
+    return DevicesConfig(devices={d.device_id: d for d in devices})
 
 
 def _model(protocol: str = "modbus") -> DeviceModelConfig:
@@ -66,274 +65,265 @@ def _model(protocol: str = "modbus") -> DeviceModelConfig:
 
 def _models(protocol: str = "modbus") -> DeviceModelsConfig:
     return DeviceModelsConfig(
-        device_types={"turbine": DeviceTypeConfig(name=None)},
+        device_types={"turbine": None},
         device_models={"mod": _model(protocol)},
     )
 
 
-def _point(address: int = 100) -> PointConfig:
+def _point(scale: float = 1.0) -> PointConfig:
     return PointConfig(
         point_id="p1",
         variable_name=None,
         point_groups=("g",),
-        address={"register_type": "holding", "address": address},
+        address={"address": 100},
         data_type="float32",
-        scale=1.0,
+        scale=scale,
         offset=0.0,
         unit="none",
         description=None,
     )
 
 
-def _tables(address: int = 100) -> PointTablesConfig:
+def _tables(scale: float = 1.0) -> PointTablesConfig:
     return PointTablesConfig(
-        tables={"tab": PointTableConfig(protocol="modbus", points={"p1": _point(address)})}
+        tables={"tab": PointTableConfig(protocol="modbus", points={"p1": _point(scale)})}
     )
 
 
-def _task(task_id: str = "t1", interval: float = 1.0) -> TaskConfig:
-    return TaskConfig(
-        task_id=task_id, point_group="g", targets=("s1",), device="dev1", interval=interval
+def _tasks(interval: float = 1.0) -> TasksConfig:
+    return TasksConfig(
+        tasks={
+            "t1": TaskConfig(
+                task_id="t1",
+                point_group="g",
+                targets=("s1",),
+                device="dev1",
+                interval=interval,
+            )
+        }
     )
 
 
 def _sinks(*names: str) -> SinksConfig:
-    return SinksConfig.model_validate({
-        "sinks": [
+    return SinksConfig(
+        sinks=[
             {
                 "name": name,
                 "type": "file",
-                "connection": {"path": "/tmp/out"},
+                "connection": {"path": f"/tmp/{name}.csv"},
                 "points": [],
             }
-            for name in names
+            for name in names or ("s1",)
         ]
-    })
+    )
 
 
 # ---------------------------------------------------------------------------
-# 基本规则：无变化 / 类型校验
+# diff_mapping 共享函数
 # ---------------------------------------------------------------------------
 
 
-def test_identical_configs_have_no_changes():
-    for config in (
-        _devices(_device()),
-        _models(),
-        _tables(),
-        TasksConfig(tasks=(_task(),)),
-        UnitsConfig(units={"none": UnitDefinitionConfig("", None)}),
-        _sinks("s1"),
-    ):
-        result = diff(config, config)
-        assert not result.has_any_changes
-        assert result.added == {} and result.removed == {} and result.changed == {}
+def test_diff_mapping_added_removed_changed():
+    result = diff_mapping({"a": 1, "b": 2}, {"b": 3, "c": 4})
+    assert result.added == {"c": 4}
+    assert result.removed == {"a": 1}
+    assert result.changed == {"b": ValueChange(old=2, new=3)}
+    assert result.has_any_changes
 
 
-def test_diff_rejects_different_types():
-    with pytest.raises(TypeError, match="same config type"):
-        diff(_devices(_device()), _models())  # type: ignore[arg-type]
+def test_diff_mapping_strict_scalar_semantics():
+    # 类型与值都相等才算相同（1 与 1.0 视为不同配置值）。
+    result = diff_mapping({"a": 1}, {"a": 1.0})
+    assert result.changed == {"a": ValueChange(old=1, new=1.0)}
 
 
-def test_diff_rejects_non_config_values():
-    with pytest.raises(TypeError, match="does not support"):
-        diff({"a": 1}, {"a": 1})  # type: ignore[arg-type]
+def test_config_diff_result_is_immutable():
+    result = diff_mapping({}, {"a": 1})
+    with pytest.raises(TypeError):
+        result.added["x"] = 1  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
-# changed 定位到实际变化字段
+# DevicesConfig.diff——按 device_id
 # ---------------------------------------------------------------------------
 
 
-def test_device_endpoint_change_located_at_leaf():
-    result = diff(_devices(_device(port=502)), _devices(_device(port=503)))
-    assert result.changed == {"devices.dev1.endpoint.port": ValueChange(old=502, new=503)}
-    assert result.added == {} and result.removed == {}
+def test_devices_diff_identical():
+    config = _devices(_device())
+    assert not config.diff(config).has_any_changes
 
 
-def test_point_address_change_located_at_leaf():
-    result = diff(_tables(100), _tables(200))
-    assert set(result.changed) == {"tables.tab.points.p1.address.address"}
-    change = result.changed["tables.tab.points.p1.address.address"]
-    assert change == ValueChange(old=100, new=200)
+def test_devices_diff_changed_whole_object():
+    result = _devices(_device(port=502)).diff(_devices(_device(port=503)))
+    assert result.added == {}
+    assert result.removed == {}
+    assert set(result.changed) == {"dev1"}
+    change = result.changed["dev1"]
+    assert isinstance(change.old, DeviceInstanceConfig)
+    assert change.old.endpoint.port == 502
+    assert change.new.endpoint.port == 503
 
 
-def test_task_interval_change_located_at_leaf():
-    old = TasksConfig(tasks=(_task(interval=1.0),))
-    new = TasksConfig(tasks=(_task(interval=5.0),))
-    result = diff(old, new)
-    assert set(result.changed) == {"tasks.t1.interval"}
-    assert result.changed["tasks.t1.interval"] == ValueChange(old=1.0, new=5.0)
+def test_devices_diff_added_removed():
+    new_device = _device(device_id="dev2")
+    result = _devices(_device()).diff(_devices(_device(), new_device))
+    assert set(result.added) == {"dev2"}
+    assert result.added["dev2"] == new_device
+
+    result = _devices(_device(), new_device).diff(_devices(_device()))
+    assert set(result.removed) == {"dev2"}
 
 
-def test_device_model_protocol_change_located_at_leaf():
-    result = diff(_models("modbus"), _models("iec104"))
-    assert set(result.changed) == {"device_models.mod.protocol"}
+def test_devices_diff_rejects_other_type():
+    with pytest.raises(TypeError):
+        _devices().diff(_models())  # type: ignore[arg-type]
 
 
-def test_sink_change_uses_sink_name_as_id():
-    old = _sinks("s1")
-    new = SinksConfig.model_validate({
-        "sinks": [
+# ---------------------------------------------------------------------------
+# DeviceModelsConfig.diff——device_models / device_types 前缀
+# ---------------------------------------------------------------------------
+
+
+def test_models_diff_changed_model_and_type():
+    old = _models("modbus")
+    new = DeviceModelsConfig(
+        device_types={"turbine": "风机"},
+        device_models={"mod": _model("iec104")},
+    )
+    result = old.diff(new)
+    assert set(result.changed) == {"device_types.turbine", "device_models.mod"}
+    assert result.changed["device_models.mod"].old == _model("modbus")
+    assert result.changed["device_models.mod"].new == _model("iec104")
+
+
+def test_models_diff_added_removed():
+    result = DeviceModelsConfig(device_types={}, device_models={}).diff(_models())
+    assert set(result.added) == {"device_types.turbine", "device_models.mod"}
+    result = _models().diff(DeviceModelsConfig(device_types={}, device_models={}))
+    assert set(result.removed) == {"device_types.turbine", "device_models.mod"}
+
+
+# ---------------------------------------------------------------------------
+# PointTablesConfig.diff——整表粒度
+# ---------------------------------------------------------------------------
+
+
+def test_point_tables_diff_point_change_is_whole_table_change():
+    result = _tables(1.0).diff(_tables(2.0))
+    assert set(result.changed) == {"tab"}
+    change = result.changed["tab"]
+    assert isinstance(change.old, PointTableConfig)
+    assert change.old.points["p1"].scale == 1.0
+    assert change.new.points["p1"].scale == 2.0
+
+
+def test_point_tables_diff_added_removed():
+    result = _tables().diff(PointTablesConfig(tables={}))
+    assert set(result.removed) == {"tab"}
+
+
+# ---------------------------------------------------------------------------
+# TasksConfig.diff——按 task_id
+# ---------------------------------------------------------------------------
+
+
+def test_tasks_diff_changed_whole_object():
+    result = _tasks(1.0).diff(_tasks(5.0))
+    assert set(result.changed) == {"t1"}
+    assert result.changed["t1"].old.interval == 1.0  # type: ignore[union-attr]
+    assert result.changed["t1"].new.interval == 5.0  # type: ignore[union-attr]
+
+
+def test_tasks_diff_added_removed():
+    result = _tasks().diff(TasksConfig(tasks={}))
+    assert set(result.removed) == {"t1"}
+
+
+# ---------------------------------------------------------------------------
+# SystemConfig.diff——按共享段
+# ---------------------------------------------------------------------------
+
+
+def test_system_diff_by_section():
+    old = SystemConfig(runtime=RuntimeSettings(queue_maxsize=64))
+    new = SystemConfig(runtime=RuntimeSettings(queue_maxsize=128))
+    result = old.diff(new)
+    assert set(result.changed) == {"runtime"}
+    assert result.changed["runtime"] == ValueChange(old=old.runtime, new=new.runtime)
+
+
+def test_system_diff_site_fields():
+    old = SystemConfig()
+    new = SystemConfig(site_id="s1", site_name="现场")
+    result = old.diff(new)
+    assert result.added == {}
+    assert set(result.changed) == {"site_id", "site_name"}
+
+
+def test_system_diff_ads_added_removed():
+    from core.domain.config import ADSLocalConfig
+
+    ads = ADSLocalConfig(
+        local_ams_net_id="1.2.3.4.5.6", local_ip="127.0.0.1", username="u", password=""
+    )
+    result = SystemConfig().diff(SystemConfig(ads=ads))
+    assert result.changed["ads"] == ValueChange(old=None, new=ads)
+
+
+# ---------------------------------------------------------------------------
+# UnitsConfig.diff / SinksConfig.diff
+# ---------------------------------------------------------------------------
+
+
+def test_units_diff():
+    old = UnitsConfig(units={"a": UnitDefinitionConfig("A", None)})
+    new = UnitsConfig(units={"a": UnitDefinitionConfig("B", None)})
+    result = old.diff(new)
+    assert set(result.changed) == {"a"}
+    assert not old.diff(old).has_any_changes
+
+
+def test_sinks_diff_by_name():
+    result = _sinks("s1").diff(_sinks("s1", "s2"))
+    assert set(result.added) == {"s2"}
+    assert result.changed == {}
+
+    result = _sinks("s1", "s2").diff(_sinks("s1"))
+    assert set(result.removed) == {"s2"}
+
+
+def test_sinks_diff_changed_whole_object():
+    old = _sinks()
+    new = SinksConfig(
+        sinks=[
             {
                 "name": "s1",
                 "type": "file",
                 "enabled": False,
-                "connection": {"path": "/tmp/out"},
+                "connection": {"path": "/tmp/s1.csv"},
                 "points": [],
             }
         ]
-    })
-    result = diff(old, new)
-    assert set(result.changed) == {"sinks.s1.enabled"}
-    assert result.changed["sinks.s1.enabled"] == ValueChange(old=True, new=False)
-
-
-# ---------------------------------------------------------------------------
-# added/removed 整体记录于对象路径，不展开叶子
-# ---------------------------------------------------------------------------
-
-
-def test_added_device_recorded_whole_at_object_path():
-    new_device = _device("dev2")
-    result = diff(_devices(_device()), _devices(_device(), new_device))
-    assert set(result.added) == {"devices.dev2"}
-    assert result.added["devices.dev2"] == new_device
-    assert result.removed == {} and result.changed == {}
-
-
-def test_removed_task_recorded_whole_at_object_path():
-    removed = _task("t2")
-    old = TasksConfig(tasks=(_task(), removed))
-    new = TasksConfig(tasks=(_task(),))
-    result = diff(old, new)
-    assert set(result.removed) == {"tasks.t2"}
-    assert result.removed["tasks.t2"] == removed
-
-
-def test_added_point_recorded_whole():
-    old = _tables()
-    new_table = PointTableConfig(
-        protocol="modbus",
-        points={"p1": _point(), "p2": replace(_point(), point_id="p2")},
     )
-    new = PointTablesConfig(tables={"tab": new_table})
-    result = diff(old, new)
-    assert set(result.added) == {"tables.tab.points.p2"}
-    assert result.added["tables.tab.points.p2"] == new_table.points["p2"]
+    result = old.diff(new)
+    assert set(result.changed) == {"s1"}
+    assert result.changed["s1"].old.enabled is True  # type: ignore[union-attr]
+    assert result.changed["s1"].new.enabled is False  # type: ignore[union-attr]
 
 
-def test_added_sink_recorded_whole_without_mutable_references():
-    result = diff(_sinks(), _sinks("s1"))
-    assert set(result.added) == {"sinks.s1"}
-    added = result.added["sinks.s1"]
-    # pydantic 模型记录为冻结 plain 结构，不保留对源 list 字段的引用。
-    assert isinstance(added, MappingProxyType)
-    assert added["name"] == "s1"
+def test_sinks_diff_rejects_other_type():
     with pytest.raises(TypeError):
-        added["points"] = []  # type: ignore[index]
+        _sinks().diff(_units_default())  # type: ignore[arg-type]
 
 
-# ---------------------------------------------------------------------------
-# 比较语义：Mapping 顺序无关 / ID 键集合 / 严格标量
-# ---------------------------------------------------------------------------
-
-
-def test_mapping_order_is_irrelevant():
-    a = UnitsConfig(
-        units={"a": UnitDefinitionConfig("A", None), "b": UnitDefinitionConfig("B", None)}
-    )
-    b = UnitsConfig(
-        units={"b": UnitDefinitionConfig("B", None), "a": UnitDefinitionConfig("A", None)}
-    )
-    assert not diff(a, b).has_any_changes
-
-
-def test_id_keyed_collection_ignores_list_position():
-    a = _devices(_device("d1"), _device("d2", port=503))
-    b = _devices(_device("d2", port=503), _device("d1"))
-    assert not diff(a, b).has_any_changes
-
-    c = _devices(_device("d1"), _device("d2", port=504))
-    result = diff(a, c)
-    assert set(result.changed) == {"devices.d2.endpoint.port"}
-
-
-def test_strict_scalar_equality_no_float_tolerance():
-    old = TasksConfig(tasks=(_task(interval=1.0),))
-    new = TasksConfig(tasks=(_task(interval=1.0 + 1e-12),))
-    result = diff(old, new)
-    assert set(result.changed) == {"tasks.t1.interval"}
-
-
-def test_scalar_type_change_is_changed():
-    old = _devices(_device(port=502))
-    new_device = replace(
-        _device(), endpoint=EndpointConfig(host="127.0.0.1", port=None, extensions={})
-    )
-    result = diff(old, _devices(new_device))
-    assert result.changed["devices.dev1.endpoint.port"] == ValueChange(old=502, new=None)
-
-
-def test_sequence_length_mismatch_recorded_at_field():
-    old_point = _point()
-    new_point = replace(_point(), point_groups=("g", "g2"))
-    old = PointTablesConfig(
-        tables={"tab": PointTableConfig(protocol="modbus", points={"p1": old_point})}
-    )
-    new = PointTablesConfig(
-        tables={"tab": PointTableConfig(protocol="modbus", points={"p1": new_point})}
-    )
-    result = diff(old, new)
-    assert set(result.changed) == {"tables.tab.points.p1.point_groups"}
-    change = result.changed["tables.tab.points.p1.point_groups"]
-    assert change.old == ("g",) and change.new == ("g", "g2")
-
-
-def test_device_type_changes_under_device_types_key():
-    old = _models()
-    new = DeviceModelsConfig(
-        device_types={"turbine": DeviceTypeConfig(name="风机")},
-        device_models={"mod": _model()},
-    )
-    result = diff(old, new)
-    assert set(result.changed) == {"device_types.turbine.name"}
-
-
-# ---------------------------------------------------------------------------
-# 结果不可变 / 输入不被修改 / 确定性
-# ---------------------------------------------------------------------------
-
-
-def test_result_is_immutable():
-    result = diff(_devices(_device()), _devices(_device(port=1)))
-    assert isinstance(result, ConfigDiff)
-    assert isinstance(result.changed, MappingProxyType)
-    with pytest.raises(TypeError):
-        result.changed["x"] = None  # type: ignore[index]
-    with pytest.raises(AttributeError):
-        result.added = {}  # type: ignore[misc]
-
-
-def test_diff_does_not_mutate_inputs():
-    old = _devices(_device())
-    new = _devices(_device(port=503), _device("dev2"))
-    diff(old, new)
-    assert old == _devices(_device())
-    assert new == _devices(_device(port=503), _device("dev2"))
+def _units_default() -> UnitsConfig:
+    return UnitsConfig(units={"none": UnitDefinitionConfig("", None)})
 
 
 def test_diff_is_deterministic():
-    old = _devices(_device())
-    new = _devices(_device(port=503), _device("dev2"), _device("dev3"))
-    first = diff(old, new)
-    second = diff(old, new)
+    old = _devices(_device(port=502))
+    new = _devices(_device(port=503))
+    first = old.diff(new)
+    second = old.diff(new)
     assert first == second
-
-
-def test_recorded_mapping_values_are_frozen():
-    old = _tables(100)
-    removed_table = diff(old, PointTablesConfig(tables={})).removed["tables.tab"]
-    assert isinstance(removed_table, PointTableConfig)
-    with pytest.raises(TypeError):
-        removed_table.points["x"] = None  # type: ignore[index]
+    assert isinstance(first, ConfigDiff)

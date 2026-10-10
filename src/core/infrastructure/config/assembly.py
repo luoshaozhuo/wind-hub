@@ -128,6 +128,16 @@ class CoreConfigAssembly:
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
         object.__setattr__(self, "ads_subscribe_devices", frozenset(self.ads_subscribe_devices))
 
+    def point_table_for_device(self, device_id: DeviceId) -> PointTable:
+        """解析 Device -> DeviceModel -> PointTable。"""
+        device = self.devices[device_id]
+        model = self.device_models[device.device_model_id]
+        return self.point_tables[model.point_table_id]
+
+    def protocol_options_for(self, device_id: DeviceId) -> ProtocolOptions:
+        """返回指定 Device 的协议专有连接配置；缺省为空映射。"""
+        return self.protocol_options_by_device.get(device_id, MappingProxyType({}))
+
 
 _MODBUS_READ_ONLY = frozenset({"discrete_input", "discrete", "input", "input_register"})
 
@@ -150,9 +160,9 @@ def assemble_core_config(
     device_types = {
         DeviceTypeId(type_id): DeviceType(
             device_type_id=DeviceTypeId(type_id),
-            name=type_definition.name or type_id,
+            name=type_name or type_id,
         )
-        for type_id, type_definition in device_models_config.device_types.items()
+        for type_id, type_name in device_models_config.device_types.items()
     }
 
     business_points: dict[BusinessPointId, BusinessPoint] = {}
@@ -209,7 +219,7 @@ def assemble_core_config(
     group_names: set[str] = set()
     disabled: set[DeviceId] = set()
     ads_subscribe: set[DeviceId] = set()
-    for instance in devices_config.devices:
+    for instance in devices_config.devices.values():
         device_id = DeviceId(instance.device_id)
         if not instance.enabled:
             disabled.add(device_id)
