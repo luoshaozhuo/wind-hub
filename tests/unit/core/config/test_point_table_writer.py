@@ -1,8 +1,8 @@
 """领域点表展开与继承式 YAML 输出测试。"""
 
 from core.domain import (
-    BusinessPointId,
     KILOWATT,
+    BusinessPointId,
     Point,
     PointAccess,
     PointTable,
