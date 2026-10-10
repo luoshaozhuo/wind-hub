@@ -20,7 +20,7 @@ from tests.support.functional_config import (
     MODBUS_POINTS,
     update_yaml,
 )
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -127,7 +127,7 @@ class TestExceptionResponseClassification:
         await ctx.start_instances()
         app = ctx.app
         await asyncio.sleep(1.0)  # 确认故障配置下无数据落盘
-        assert not sink_path.exists() or len(read_jsonl(sink_path)) == 0
+        assert not sink_path.exists() or len(read_csv(sink_path)) == 0
 
         # ---- 修复点表（去掉非法地址点）并 reload ----
         def mutate(data: dict[str, Any]) -> None:
