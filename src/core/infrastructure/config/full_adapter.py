@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.application.config_snapshot import Config
+from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.domain import Task, validate_core_config
 
@@ -26,7 +26,7 @@ class FullYamlConfigAdapter:
     def __init__(self, config_dir: str | Path) -> None:
         self._base = Path(config_dir)
 
-    def load(self) -> Config:
+    def load(self) -> ConfigSnapshot:
         """读取、构建并统一进行领域关系校验。"""
         base = self._base
         system = parse_system_config(read_yaml_mapping(base / "system.yaml"))
@@ -77,7 +77,7 @@ class FullYamlConfigAdapter:
         except ValueError as exc:
             raise ConfigError(f"Invalid domain configuration: {exc}") from exc
 
-        return Config(
+        return ConfigSnapshot(
             system=system,
             device_types=assembly.device_types,
             device_models=assembly.device_models,
