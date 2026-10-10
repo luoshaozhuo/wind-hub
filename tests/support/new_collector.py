@@ -51,7 +51,6 @@ from core.domain.config import (
     DeviceModelConfig,
     DeviceModelsConfig,
     DevicesConfig,
-    DeviceTypeConfig,
     EndpointConfig,
     PointConfig,
     PointTableConfig,
@@ -233,7 +232,7 @@ def make_collector_config(
     config_vos = {
         ConfigTopic.SYSTEM: SystemConfig(),
         ConfigTopic.DEVICE_MODELS: DeviceModelsConfig(
-            device_types={"turbine": DeviceTypeConfig(name=None)},
+            device_types={"turbine": None},
             device_models={
                 "mod": DeviceModelConfig(
                     device_type="turbine",
@@ -248,15 +247,15 @@ def make_collector_config(
             },
         ),
         ConfigTopic.DEVICES: DevicesConfig(
-            devices=(
-                DeviceInstanceConfig(
+            devices={
+                device_id: DeviceInstanceConfig(
                     device_id=device_id,
                     model="mod",
                     device_group=device_group,
                     endpoint=EndpointConfig(host="127.0.0.1", port=502, extensions={}),
                     enabled=True,
-                ),
-            )
+                )
+            }
         ),
         ConfigTopic.POINTS: PointTablesConfig(
             tables={
@@ -281,7 +280,7 @@ def make_collector_config(
         ConfigTopic.UNITS: UnitsConfig(
             units={"none": UnitDefinitionConfig(symbol="", name=None)}
         ),
-        ConfigTopic.TASKS: TasksConfig(tasks=tuple(tasks.values())),
+        ConfigTopic.TASKS: TasksConfig(tasks=dict(tasks)),
         ConfigTopic.SINKS: SinksConfig(sinks=list((sinks or {}).values())),
     }
     return CollectorConfig(
