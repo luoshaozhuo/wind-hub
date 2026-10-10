@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC
 
-from core.application.sink_contract import RedisSinkConnection
+from core.application.sink_config import RedisSinkConnection
 from core.domain.point_value import PointValue
 
 
