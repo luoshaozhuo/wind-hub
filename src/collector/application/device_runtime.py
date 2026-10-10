@@ -147,7 +147,6 @@ class DeviceRuntime:
             and dict(existing.options) == dict(view.options)
             and existing.device.device_model_id == view.device.device_model_id
             and existing.subscribe_enabled == view.subscribe_enabled
-            and existing.supports_scheduled_collection == view.supports_scheduled_collection
         )
 
     def update_device(self, device_id: str, view: DeviceView) -> None:
@@ -486,5 +485,4 @@ def _view_signature(view: DeviceView) -> object:
         dict(view.options),
         view.point_table.point_table_id,
         view.subscribe_enabled,
-        view.supports_scheduled_collection,
     )
