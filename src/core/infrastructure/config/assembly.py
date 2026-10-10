@@ -145,7 +145,7 @@ def assemble_core_config(
     device_models_config: DeviceModelsConfig,
     devices_config: DevicesConfig,
     point_config: PointTablesConfig,
-    defined_business_points: Mapping[BusinessPointId, BusinessPoint] | None = None,
+    defined_business_points: Mapping[BusinessPointId, BusinessPoint],
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
@@ -163,7 +163,7 @@ def assemble_core_config(
         for type_id, type_definition in device_models_config.device_types.items()
     }
 
-    business_points: dict[BusinessPointId, BusinessPoint] = dict(defined_business_points or {})
+    business_points: dict[BusinessPointId, BusinessPoint] = dict(defined_business_points)
     point_tables: dict[PointTableId, PointTable] = {}
     point_meta: dict[PointTableId, dict[str, PointMeta]] = {}
     for table_name, table_definition in point_config.tables.items():
@@ -438,41 +438,23 @@ def _synthesize_business_point(
     business_points: dict[BusinessPointId, BusinessPoint],
 ) -> BusinessPointId:
     """合成 BusinessPoint：默认 id == point_id，跨表冲突加表前缀。"""
-    if definition.business_point_id is not None:
-        candidate = BusinessPointId(definition.business_point_id)
-        existing = business_points.get(candidate)
-        if existing is None:
-            raise ConfigError(
-                f"point table '{table_id}' point '{definition.point_id}' references "
-                f"unknown business point '{candidate}'"
-            )
-        if existing.data_type is not data_type or existing.standard_unit.quantity != unit.quantity:
-            raise ConfigError(
-                f"point table '{table_id}' point '{definition.point_id}' "
-                f"incompatible with business point '{candidate}'"
-            )
-        return candidate
-    candidate = BusinessPointId(definition.point_id)
+    if definition.business_point_id is None:
+        raise ConfigError(
+            f"point table '{table_id}' point '{definition.point_id}' "
+            "must specify business_point_id"
+        )
+    candidate = BusinessPointId(definition.business_point_id)
     existing = business_points.get(candidate)
-    if existing is not None:
-        if existing.data_type is data_type and existing.standard_unit == unit:
-            return candidate
-        candidate = BusinessPointId(f"{table_id}:{definition.point_id}")
-        existing = business_points.get(candidate)
-        if existing is not None and (
-            existing.data_type is not data_type or existing.standard_unit != unit
-        ):
-            raise ConfigError(
-                f"business point id collision for '{candidate}' with " "conflicting data_type/unit"
-            )
-        if existing is not None:
-            return candidate
-    business_points[candidate] = BusinessPoint(
-        business_point_id=candidate,
-        data_type=data_type,
-        standard_unit=unit,
-        description=definition.description,
-    )
+    if existing is None:
+        raise ConfigError(
+            f"point table '{table_id}' point '{definition.point_id}' "
+            f"references unknown business point '{candidate}'"
+        )
+    if existing.data_type is not data_type or existing.standard_unit.quantity != unit.quantity:
+        raise ConfigError(
+            f"point table '{table_id}' point '{definition.point_id}' "
+            f"incompatible with business point '{candidate}'"
+        )
     return candidate
 
 
