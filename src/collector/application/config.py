@@ -100,7 +100,6 @@ class DeviceView:
             extensions，ADS read_mode 已注入）。
         subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
             IEC104 恒为订阅、Modbus 恒为轮询，由会话按协议判定）。
-        supports_scheduled_collection: 是否支持周期采集。
     """
 
     device: Device
@@ -108,7 +107,6 @@ class DeviceView:
     point_meta: Mapping[str, PointMeta]
     options: ProtocolOptions
     subscribe_enabled: bool
-    supports_scheduled_collection: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +207,6 @@ class CollectorConfig:
             point_meta=self.table_meta(point_table.point_table_id),
             options=options,
             subscribe_enabled=device_id in self.ads_subscribe_devices,
-            supports_scheduled_collection=True,
         )
 
     def device_views(self) -> dict[DeviceId, DeviceView]:
