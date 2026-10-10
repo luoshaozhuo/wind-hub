@@ -334,12 +334,20 @@ class IEC104Driver:
         """IEC104 连接是否处于 OPEN 状态（c104 协议级握手完成）。"""
         return self._is_open
 
-    def health(self) -> ConnectionHealth:
-        """返回缓存的 OPEN 状态，不触发网络 I/O。"""
+    async def health(self) -> ConnectionHealth:
+        """返回 c104 APCI 状态机维护的连接健康结果。
+
+        c104 使用配置的 t3 keep-alive/TESTFR 与连接状态回调维护 OPEN 状态；
+        Watchdog 只消费该协议栈状态，不读取本地数据镜像，也不重复实现
+        IEC104 心跳。
+        """
         if self._is_open:
             return ConnectionHealth(
                 healthy=True,
-                message=f"connected to {self._config.host}:{self._config.port}",
+                message=(
+                    f"IEC104 OPEN {self._config.host}:{self._config.port}; "
+                    f"keep_alive={self._config.t3}s"
+                ),
             )
         if self._client is None:
             return ConnectionHealth(healthy=False, message="not connected")
