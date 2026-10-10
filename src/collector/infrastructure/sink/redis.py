@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
 from typing import Any
 
 from collector.application.errors import SinkError
@@ -21,7 +20,6 @@ class RedisSink:
         if not isinstance(connection, RedisSinkConnection):
             raise ValueError("RedisSink requires RedisSinkConnection")
         self._cfg = connection
-        self._record_cfg = connection
         self._client: Any = None
         self._lock = asyncio.Lock()
         self._healthy = False
@@ -57,16 +55,18 @@ class RedisSink:
             self._healthy = True
             self._message = None
 
-    async def write(self, batch: Sequence[PointValue]) -> None:
+    async def write(self, batch: list[PointValue]) -> None:
         if not batch:
             return
         async with self._lock:
             if self._client is None:
+                self._healthy = False
+                self._message = "not opened"
                 raise SinkError("Redis sink is not opened")
             try:
                 async with self._client.pipeline(transaction=False) as pipe:
                     for point in batch:
-                        record = encode_redis_record(self._record_cfg, point)
+                        record = encode_redis_record(self._cfg, point)
                         pipe.set(record.key, record.payload)
                     await pipe.execute()
             except Exception as exc:
