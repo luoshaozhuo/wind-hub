@@ -240,7 +240,6 @@ def make_collector_config(
                     model=None,
                     protocol=protocol,
                     point_table="tab",
-                    read_mode=None,
                     properties={},
                     connection_defaults={},
                 )
@@ -387,7 +386,6 @@ def write_collector_config_tree(
     connection_defaults: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
-    read_mode: str | None = None,
     tasks: list[dict[str, Any]] | None = None,
     sinks: list[dict[str, Any]] | None = None,
 ) -> Path:
@@ -409,7 +407,6 @@ def write_collector_config_tree(
         connection_defaults=connection_defaults,
         runtime=runtime,
         ads=ads,
-        read_mode=read_mode,
     )
     if sinks is None:
         sinks = [
