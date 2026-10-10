@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.domain import Task
+from core.domain import DeviceGroup, Task, devices_for_task, validate_task_references
 from core.domain.identities import DeviceGroupId
 
 
@@ -53,3 +53,35 @@ def test_task_copies_sink_ids_to_tuple() -> None:
     task = make_task(sink_ids=sink_ids)
     sink_ids.append("other")
     assert task.sink_ids == ("file", "redis")
+
+
+def test_task_reference_validation() -> None:
+    task = make_task()
+    groups = {DeviceGroupId("wind-turbines"): DeviceGroup(DeviceGroupId("wind-turbines"), "风机")}
+    validate_task_references({task.task_id: task}, groups, {"file", "redis"})
+
+    with pytest.raises(ValueError, match="unknown device group"):
+        validate_task_references({"task-1": task}, {}, {"file", "redis"})
+    with pytest.raises(ValueError, match="unknown sinks"):
+        validate_task_references({"task-1": task}, groups, {"file"})
+    with pytest.raises(ValueError, match="does not match task_id"):
+        validate_task_references({"wrong": task}, groups, {"file", "redis"})
+
+
+def test_task_device_selection_supports_multiple_groups() -> None:
+    from core.domain import ConnectionEndpoint, Device
+    from core.domain.identities import DeviceId, DeviceModelId
+
+    def device(device_id: str, *groups: str) -> Device:
+        return Device(
+            device_id=DeviceId(device_id),
+            device_model_id=DeviceModelId("model"),
+            endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
+            device_group_ids=tuple(DeviceGroupId(group) for group in groups),
+        )
+
+    devices = {
+        DeviceId("d1"): device("d1", "wind-turbines", "all"),
+        DeviceId("d2"): device("d2", "other"),
+    }
+    assert tuple(item.device_id for item in devices_for_task(make_task(), devices)) == ("d1",)
