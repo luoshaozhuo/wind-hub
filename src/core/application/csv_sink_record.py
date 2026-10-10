@@ -83,6 +83,6 @@ def iter_csv_rows(
 
 def _encode_row(fields: Sequence[object]) -> bytes:
     buffer = io.StringIO(newline="")
-    writer = csv.writer(buffer, lineterminator="\\n")
+    writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(fields)
     return buffer.getvalue().encode("utf-8")
