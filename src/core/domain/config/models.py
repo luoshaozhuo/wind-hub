@@ -320,10 +320,11 @@ class PointConfig:
 
 @dataclass(frozen=True, slots=True)
 class PointTableConfig:
-    """一张已完成继承展开、字段完整、可直接交给业务模块使用的点表配置。"""
+    """过渡期已展开的点表解析结果（包括父表 ID）。"""
 
     protocol: str
     points: Mapping[str, PointConfig]
+    parent_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_protocol(self.protocol, "Point table")
