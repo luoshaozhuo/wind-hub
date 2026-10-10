@@ -15,6 +15,8 @@ from .port import (
     ConfigTopic,
     ConfigValue,
     ProtocolPort,
+    SinkPort,
+    ExclusiveOpenSinkPort,
     ProtocolSampleCallback,
     SubscriptionHandle,
 )
@@ -49,6 +51,8 @@ __all__ = [
     "ProtocolError",
     "ProtocolFactory",
     "ProtocolPort",
+    "SinkPort",
+    "ExclusiveOpenSinkPort",
     "ProtocolRegistry",
     "ProtocolSample",
     "ProtocolSampleCallback",
