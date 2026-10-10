@@ -157,9 +157,9 @@ def assemble_core_config(
     device_types = {
         DeviceTypeId(type_id): DeviceType(
             device_type_id=DeviceTypeId(type_id),
-            name=type_name or type_id,
+            name=type_definition.name or type_id,
         )
-        for type_id, type_name in device_models_config.device_types.items()
+        for type_id, type_definition in device_models_config.device_types.items()
     }
 
     business_points: dict[BusinessPointId, BusinessPoint] = {}
@@ -219,7 +219,6 @@ def assemble_core_config(
         device_id = DeviceId(instance.device_id)
         if not instance.enabled:
             disabled.add(device_id)
-            continue
         model = _lookup_model(instance.device_id, instance.model, device_models_config)
         model_id = DeviceModelId(instance.model)
         endpoint, options = _merge_endpoint(
@@ -229,10 +228,10 @@ def assemble_core_config(
             extensions=instance.endpoint.extensions,
             model=model,
         )
-        group_ids: tuple[DeviceGroupId, ...] = ()
-        if instance.device_group is not None:
-            group_names.add(instance.device_group)
-            group_ids = (DeviceGroupId(instance.device_group),)
+        if instance.device_group is None:
+            raise ConfigError(f"Device '{instance.device_id}' requires device_group")
+        group_names.add(instance.device_group)
+        group_ids = (DeviceGroupId(instance.device_group),)
         devices[device_id] = Device(
             device_id=device_id,
             device_model_id=model_id,
