@@ -87,6 +87,43 @@ class ADSPoint:
         return replace(self, address_resolved=False)
 
 
+def ads_point(
+    point_id: str,
+    *,
+    index_group: int,
+    index_offset: int,
+    data_type: str,
+    size: int | None = None,
+) -> ADSPoint:
+    """构造并校验一个动态 ADSPoint（显式 index 地址，无需点表登记）。
+
+    校验规则与 ``parse_ads_point`` 一致：index 地址为非负整数（拒绝布尔
+    冒充）、data_type 归一化、size 与类型宽度匹配（STRING 允许显式长度）。
+    动态点不携带 symbol，``address_resolved`` 恒为 True——显式 index 地址
+    不依赖 ADS session 的符号解析。
+    """
+    group = _non_negative_int(index_group, "index_group", point_id)
+    offset = _non_negative_int(index_offset, "index_offset", point_id)
+    ads_type = _normalize_ads_type(data_type, point_id=point_id)
+    resolved_size = (
+        _ADS_TYPE_SIZES[ads_type]
+        if size is None
+        else _non_negative_int(size, "size", point_id)
+    )
+    if ads_type != "STRING" and resolved_size != _ADS_TYPE_SIZES[ads_type]:
+        raise ConfigError(
+            f"ADS point '{point_id}': size {resolved_size} does not match "
+            f"{ads_type} width {_ADS_TYPE_SIZES[ads_type]}"
+        )
+    return ADSPoint(
+        point_id=point_id,
+        index_group=group,
+        index_offset=offset,
+        data_type=ads_type,
+        size=resolved_size,
+    )
+
+
 def parse_ads_point(
     point: Point,
 ) -> ADSPoint:

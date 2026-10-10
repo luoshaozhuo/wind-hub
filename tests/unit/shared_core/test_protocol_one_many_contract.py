@@ -282,6 +282,8 @@ def _connected_iec104_driver() -> IEC104Driver:
     driver = object.__new__(IEC104Driver)
     driver._is_open = True
     driver._points_by_id = {"p1": IEC104Point(point_id="p1", ioa=100, type_id="C_SC_NA_1")}
+    driver._points_by_ioa = {100: driver._points_by_id["p1"]}
+    driver._dynamic_points = {}
     driver._samples = {
         100: ProtocolSample(
             point_id="p1",

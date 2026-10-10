@@ -26,7 +26,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from core.domain import PointTable
 
@@ -248,27 +248,32 @@ class RecoveringProtocol:
                 retries += 1
                 await self._wait_before_retry()
 
-    async def read_one(self, point_id: str) -> ProtocolSample:
-        return await self._read_with_recovery(lambda: self._driver.read_one(point_id))
+    async def read_one(self, point: Any) -> ProtocolSample:
+        """读取一个点；``point`` 为注册点 point_id（str）或协议专有动态点。
 
-    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
-        if not point_ids:
+        动态点（如 ModbusPoint/ADSPoint/IEC104Point）原样透传给 Driver，
+        恢复层保持协议中立，不解释其地址语义。
+        """
+        return await self._read_with_recovery(lambda: self._driver.read_one(point))
+
+    async def read_many(self, points: Sequence[Any]) -> tuple[ProtocolSample, ...]:
+        if not points:
             return ()
         # 重试整体重新执行 read_many：Driver 的批量读是全有或全无语义，
         # 只有成功的那一次尝试产生结果，顺序/质量/时间戳不会跨尝试拼接。
-        return await self._read_with_recovery(lambda: self._driver.read_many(point_ids))
+        return await self._read_with_recovery(lambda: self._driver.read_many(points))
 
     async def write_one(
         self,
-        write: ProtocolWrite | str,
+        write: Any,
         value: WritableScalar | None = None,
     ) -> ProtocolWriteResult:
         """写入一个点；发送前最多一次必要 connect，发送后绝不自动重发。
 
         契约形式为 ``write_one(ProtocolWrite)``；Driver 声明扩展写签名时
-        （如 Modbus 动态点 ``write_one(point, value)``），第二参数原样
-        转发给 Driver——与 ``request_read_one``/``read_active_one`` 相同
-        的可选扩展 API 转发模式，恢复与超时语义不变。
+        （如动态点 ``write_one(point, value)``，point 为协议专有动态点），
+        两个参数原样转发给 Driver——与 ``request_read_one``/
+        ``read_active_one`` 相同的可选扩展 API 转发模式，恢复与超时语义不变。
         """
         await self._recover_open()
         coro: Awaitable[ProtocolWriteResult]
@@ -309,30 +314,31 @@ class RecoveringProtocol:
         await self._recover_open()
         await self._bounded(self._driver.interrogate(), self._settings.read_timeout, "interrogate")
 
-    async def request_read_one(self, point_id: str) -> None:
+    async def request_read_one(self, point: Any) -> None:
+        """发送单点主动读请求；``point`` 为注册 point_id 或协议专有动态点。"""
         await self._recover_open()
         method = getattr(self._driver, "request_read_one")  # noqa: B009 - optional IEC104 API
-        await self._bounded(method(point_id), self._settings.read_timeout, "active read")
+        await self._bounded(method(point), self._settings.read_timeout, "active read")
 
-    async def request_read_many(self, point_ids: Sequence[str]) -> None:
-        for point_id in point_ids:
-            await self.request_read_one(point_id)
+    async def request_read_many(self, points: Sequence[Any]) -> None:
+        for point in points:
+            await self.request_read_one(point)
 
     async def read_active_one(
-        self, point_id: str, *, timeout: float | None = None
+        self, point: Any, *, timeout: float | None = None
     ) -> ProtocolSample:
         """IEC104-specific fresh read. Never substitute the local mirror."""
         await self._recover_open()
         method = getattr(self._driver, "read_active_one")  # noqa: B009 - optional IEC104 API
         limit = self._settings.read_timeout if timeout is None else timeout
-        return await self._bounded(method(point_id, timeout=limit), limit, "active read")
+        return await self._bounded(method(point, timeout=limit), limit, "active read")
 
     async def read_active_many(
-        self, point_ids: Sequence[str], *, timeout: float | None = None
+        self, points: Sequence[Any], *, timeout: float | None = None
     ) -> tuple[ProtocolSample, ...]:
-        if not point_ids:
+        if not points:
             return ()
         await self._recover_open()
         method = getattr(self._driver, "read_active_many")  # noqa: B009 - optional IEC104 API
         limit = self._settings.read_timeout if timeout is None else timeout
-        return await self._bounded(method(point_ids, timeout=limit), limit, "active read")
+        return await self._bounded(method(points, timeout=limit), limit, "active read")

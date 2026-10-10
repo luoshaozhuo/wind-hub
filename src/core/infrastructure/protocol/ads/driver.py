@@ -24,6 +24,7 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    WritableScalar,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
@@ -88,14 +89,16 @@ class ADSDriver:
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         # 地址解析与读取分组均绑定当前 ADS session；断连/重连后失效。
         self._read_plan_cache: dict[
-            tuple[str, ...],
+            tuple[str | ADSPoint, ...],
             tuple[
                 tuple[tuple[tuple[int, ADSPoint], ...], tuple[tuple[int, int, int], ...], int],
                 ...,
             ],
         ] = {}
-        self._read_variable_cache: dict[tuple[str, ...], tuple[tuple[int, ADSPoint], ...]] = {}
-        self._read_unresolved_cache: dict[tuple[str, ...], tuple[int, ...]] = {}
+        self._read_variable_cache: dict[
+            tuple[str | ADSPoint, ...], tuple[tuple[int, ADSPoint], ...]
+        ] = {}
+        self._read_unresolved_cache: dict[tuple[str | ADSPoint, ...], tuple[int, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
         self.update_point_table(point_table)
 
@@ -220,13 +223,15 @@ class ADSDriver:
             subscription,
         )
 
-    async def read_one(self, point_id: str) -> ProtocolSample:
+    async def read_one(self, point: str | ADSPoint) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走 Sum Read、分段或读取分组缓存。
 
-        点级失败（symbol 不存在等）返回 BAD 质量样本；连接/传输级
-        失败统一标记断线并抛 ProtocolError。
+        接受注册点 point_id（str）或动态 ADSPoint（显式 index 地址，
+        不查点表、不做 symbol 解析）。点级失败（symbol 不存在等）返回
+        BAD 质量样本；连接/传输级失败统一标记断线并抛 ProtocolError。
         """
-        mapped = self._mapped_point(point_id)
+        mapped = self._resolve_point(point)
+        point_id = mapped.point_id
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
@@ -255,39 +260,62 @@ class ADSDriver:
                 quality=Quality.GOOD,
             )
 
-    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+    async def write_one(
+        self,
+        write: ProtocolWrite | ADSPoint,
+        value: WritableScalar | None = None,
+    ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不使用 Sum Write 批量规划。
+
+        两种调用形式：
+        - ``write_one(ProtocolWrite(point_id, value))``——注册点写入；
+        - ``write_one(ads_point, value)``——动态点按显式 index 地址直写，
+          不查点表、不做 symbol 解析，校验与注册点完全相同。
 
         配置/取值级问题返回失败结果；连接/传输级问题统一抛 ProtocolError。
         """
+        if isinstance(write, ProtocolWrite):
+            if value is not None:
+                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
+            mapped = self._mapped_point(write.point_id)
+            write_value: object = write.value
+        else:
+            if value is None:
+                raise TypeError("write_one(point, value) requires an explicit value")
+            mapped = write
+            write_value = value
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
             try:
-                return await self._write_single_point(write)
+                return await self._write_single_point(mapped, write_value)
             except Exception as exc:
                 await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
     async def read_many(
         self,
-        point_ids: Sequence[str],
+        points: Sequence[str | ADSPoint],
     ) -> tuple[ProtocolSample, ...]:
-        """按配置的 sum/sequential 策略批量读取，返回按输入顺序排列的样本元组。"""
-        raw = await self._read_values(point_ids)
+        """按配置的 sum/sequential 策略批量读取，返回按输入顺序排列的样本元组。
+
+        支持注册点 point_id 与动态 ADSPoint 混合；动态点按显式 index 地址
+        参与 Sum Read，不降级为逐点读取，也不使用 read_list_by_name。
+        """
+        raw = await self._read_values(points)
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
         received_at = datetime.now(UTC)
         return tuple(
             ProtocolSample(point_id=pid, value=value, timestamp=received_at, quality=quality)
-            for pid, (value, quality) in zip(point_ids, raw, strict=True)
+            for pid, (value, quality) in zip(_point_identities(points), raw, strict=True)
         )
 
     async def _read_values(
         self,
-        point_ids: Sequence[str],
+        points: Sequence[str | ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
         """按配置的 sum/sequential 策略读取点，返回原始值及逐点质量。"""
-        if not point_ids:
+        if not points:
             return ()
 
         async with self._lock:
@@ -295,7 +323,7 @@ class ADSDriver:
                 raise ProtocolError("ADS read requires an active connection")
             try:
                 if self._config.read_mode == "sum":
-                    mapped = tuple(self._mapped_point(pid) for pid in point_ids)
+                    mapped = tuple(self._resolve_point(point) for point in points)
                     if (
                         len(mapped) > 1
                         and all(point.symbol is not None and point.address_resolved
@@ -303,8 +331,8 @@ class ADSDriver:
                         and hasattr(self._connection, "read_list_by_name")
                     ):
                         return await self._read_symbol_list_raw(mapped)
-                    return await self._read_sum_raw(point_ids)
-                return await self._read_sequential_raw(point_ids)
+                    return await self._read_sum_raw(points)
+                return await self._read_sequential_raw(points)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -377,20 +405,23 @@ class ADSDriver:
 
             results: list[ProtocolWriteResult] = []
             try:
-                for write in writes:
-                    results.append(await self._write_single_point(write))
+                for write, mapped in zip(writes, mapped_batch, strict=True):
+                    results.append(await self._write_single_point(mapped, write.value))
             except Exception as exc:
                 await self._disconnect_after_failure()
                 raise ProtocolError(f"ADS write failed: {exc}") from exc
 
             return tuple(results)
 
-    async def _write_single_point(self, write: ProtocolWrite) -> ProtocolWriteResult:
+    async def _write_single_point(
+        self,
+        mapped: ADSPoint,
+        value: object,
+    ) -> ProtocolWriteResult:
         """按已解析 index 地址写入单点；配置/取值级问题收敛为单点失败。
 
         连接/传输级异常原样抛出，由调用方统一断线处理。
         """
-        mapped = self._mapped_point(write.point_id)
         if not mapped.address_resolved:
             return ProtocolWriteResult(
                 point_id=mapped.point_id,
@@ -409,7 +440,7 @@ class ADSDriver:
 
         try:
             raw_value = _coerce_write_value(
-                write.value,
+                value,
                 mapped.data_type,
             )
         except (TypeError, ValueError) as exc:
@@ -495,16 +526,16 @@ class ADSDriver:
 
     async def _read_sum_raw(
         self,
-        point_ids: Sequence[str],
+        points: Sequence[str | ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        key = tuple(point_ids)
+        key = tuple(points)
         cached = self._read_plan_cache.get(key)
         if cached is None:
             unresolved: list[int] = []
             fixed: list[tuple[int, ADSPoint]] = []
             variable: list[tuple[int, ADSPoint]] = []
-            for index, point_id in enumerate(key):
-                mapped = self._mapped_point(point_id)
+            for index, point in enumerate(key):
+                mapped = self._resolve_point(point)
                 if not mapped.address_resolved:
                     unresolved.append(index)
                 elif mapped.size > 0:
@@ -545,7 +576,7 @@ class ADSDriver:
                 # Current pyads lacks public Index-based Sum Read. If its
                 # internal connection handles disappear, retain correctness
                 # using the supported per-address read API.
-                return await self._read_sequential_raw(point_ids)
+                return await self._read_sequential_raw(points)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
@@ -591,12 +622,12 @@ class ADSDriver:
 
     async def _read_sequential_raw(
         self,
-        point_ids: Sequence[str],
+        points: Sequence[str | ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
         semaphore = asyncio.Semaphore(self._config.max_concurrent_reads)
 
-        async def read_one(point_id: str) -> tuple[PointScalar, Quality]:
-            mapped = self._mapped_point(point_id)
+        async def read_one(point: str | ADSPoint) -> tuple[PointScalar, Quality]:
+            mapped = self._resolve_point(point)
             if not mapped.address_resolved:
                 return (None, Quality.BAD)
             try:
@@ -613,7 +644,7 @@ class ADSDriver:
                 raise
             return (_as_point_scalar(value), Quality.GOOD)
 
-        return tuple(await asyncio.gather(*(read_one(point_id) for point_id in point_ids)))
+        return tuple(await asyncio.gather(*(read_one(point) for point in points)))
 
     async def _resolve_symbols(self) -> None:
         self._read_plan_cache.clear()
@@ -672,6 +703,17 @@ class ADSDriver:
                 f"point '{point_id}' is not part of connection " f"'{self._point_table_id}'"
             )
         return mapped
+
+    def _resolve_point(self, point: str | ADSPoint) -> ADSPoint:
+        """把注册点 point_id 或动态 ADSPoint 统一解析为 ADSPoint。
+
+        动态点不进点表映射，直接使用自身携带的显式 index 地址，也不参与
+        ``_resolve_symbols()``/``_invalidate_symbol_addresses()``——其字段
+        合法性由构造方（如 ``ads_point()`` 工厂）保证。
+        """
+        if isinstance(point, ADSPoint):
+            return point
+        return self._mapped_point(point)
 
     def _sum_read_bytes(
         self,
@@ -785,6 +827,11 @@ def _as_point_scalar(
     if value is None or isinstance(value, str | int | float | bool):
         return value
     raise TypeError(f"unsupported ADS value type '{type(value).__name__}'")
+
+
+def _point_identities(points: Sequence[str | ADSPoint]) -> tuple[str, ...]:
+    """批量读返回样本的身份：str 输入即 point_id，动态点取其 point_id。"""
+    return tuple(point if isinstance(point, str) else point.point_id for point in points)
 
 
 def _bad_sample(point_id: str) -> ProtocolSample:
