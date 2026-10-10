@@ -83,7 +83,7 @@ def site(tmp_path):
         "sinks:\n"
         "  - name: s1\n"
         "    type: file\n"
-        "    connection: {path: /tmp/out.jsonl}\n"
+        "    connection: {path: /tmp/out.csv}\n"
         "    points:\n"
         "      - source: {device_id: dev1, point_id: p1}\n"
         "        address: {field: value}\n",
