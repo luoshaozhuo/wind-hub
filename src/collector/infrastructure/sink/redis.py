@@ -31,6 +31,7 @@ class RedisSink:
         async with self._lock:
             if self._client is not None:
                 return
+            client = None
             try:
                 from redis.asyncio import Redis
 
@@ -44,6 +45,8 @@ class RedisSink:
                 )
                 await client.ping()
             except Exception as exc:
+                if client is not None:
+                    await client.aclose()
                 self._healthy = False
                 self._message = str(exc)
                 raise SinkError(f"Redis connection failed: {exc}") from exc
