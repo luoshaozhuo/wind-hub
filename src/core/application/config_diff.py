@@ -58,6 +58,10 @@ def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigSna
         for name in names
     }
     sections["devices"] = _diff_mapping(old.site.devices, new.site.devices)
+    sections["ads_subscribe_devices"] = _diff_mapping(
+        {key: True for key in old.ads_subscribe_devices},
+        {key: True for key in new.ads_subscribe_devices},
+    )
     return ConfigSnapshotDiff(
         sections=MappingProxyType(sections),
         system_changed=old.system != new.system,
