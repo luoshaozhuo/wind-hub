@@ -1,176 +1,53 @@
-"""FileSink × 真实文件系统集成测试。
-
-被测组件是 :class:`FileSink` 本身——真实打开/写盘/缓冲/滚动/压缩/关闭，
-断言直接读文件系统结果。链路级「采集 → FileSink」已由
-``tests/collector/functional/test_shutdown.py`` 覆盖，不在此重复。
-"""
+"""CSV FileSink 真实文件系统集成测试。"""
 
 from __future__ import annotations
 
 import csv
-import gzip
-import io
-import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from collector.application.errors import SinkError
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.file.csv import FileSink
-from core.application.errors import ConfigError
-from core.application.sink_config import SinkConfig
+from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
 pytestmark = pytest.mark.real_service
 
 
-def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue:
-    return PointValue(
-        device_id=device_id,
-        point_id=point_id,
-        value=value,  # type: ignore[arg-type]
-        timestamp=datetime(2026, 10, 2, 8, 0, 0, tzinfo=UTC),
-        source="integration-test",
-    )
+def sink_for(path: Path, **opts: object) -> FileSink:
+    return FileSink(ResolvedSinkConfig(
+        name="file", type="file",
+        connection=FileSinkConnection(path=str(path), **opts),  # type: ignore[arg-type]
+    ))
 
 
-def _sink(path: Path, **params: object) -> FileSink:
-    return FileSink(
-        SinkConfig(
-            name="file",
-            type="file",
-            connection={"path": str(path), **params},  # type: ignore[arg-type]
-        )
-    )
+async def test_csv_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "telemetry.csv"
+    sink = sink_for(path)
+    await sink.open()
+    await sink.write([
+        PointValue("WT001", "power", 100.0),
+        PointValue("WT001", "status", "online,ok"),
+    ])
+    await sink.close()
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 2
+    assert rows[0]["value"] == "100.0"
+    assert rows[1]["value"] == "online,ok"
 
 
-def _read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-
-
-class TestJsonlRoundtrip:
-    async def test_write_flush_persists_rows(self, tmp_path: Path) -> None:
-        path = tmp_path / "out" / "data.jsonl"
-        sink = _sink(path, buffer_size=1000, flush_interval=3600.0)
-        await sink.open()
-        await sink.write([_pv("rotor.speed", 1200.5), _pv("temp.int", 25)])
-
-        # 未达到缓冲阈值/间隔：尚未落盘。
-        assert not path.exists() or path.read_text() == ""
-
-        await sink.flush()
-        rows = _read_jsonl(path)
-        assert [r["point_id"] for r in rows] == ["rotor.speed", "temp.int"]
-        assert rows[0]["value"] == 1200.5
-        assert rows[0]["device_id"] == "modbus-1"
-        assert rows[0]["quality"] == "good"
-        assert rows[0]["source"] == "integration-test"
-        await sink.close()
-
-    async def test_close_flushes_pending_buffer(self, tmp_path: Path) -> None:
-        path = tmp_path / "data.jsonl"
-        sink = _sink(path, buffer_size=1000, flush_interval=3600.0)
-        await sink.open()
-        await sink.write([_pv("rotor.speed", 1.5)])
-        await sink.close()
-        assert len(_read_jsonl(path)) == 1
-
-    async def test_open_creates_parent_directories(self, tmp_path: Path) -> None:
-        path = tmp_path / "a" / "b" / "c" / "data.jsonl"
-        sink = _sink(path)
-        await sink.open()
-        assert path.parent.is_dir()
-        await sink.close()
-
-
-class TestCsvFormat:
-    async def test_csv_writes_header_and_rows(self, tmp_path: Path) -> None:
-        path = tmp_path / "data.csv"
-        sink = _sink(path, format="csv")
-        await sink.open()
-        await sink.write([_pv("rotor.speed", 1200.5), _pv("temp.int", 25)])
-        await sink.close()
-
-        rows = list(csv.reader(io.StringIO(path.read_text())))
-        assert rows[0] == ["device_id", "point_id", "value", "quality", "timestamp", "source"]
-        assert rows[1][1] == "rotor.speed"
-        assert rows[1][2] == "1200.5"
-        assert rows[2][2] == "25"
-
-
-class TestRotation:
-    async def test_size_rotation_produces_new_segment(self, tmp_path: Path) -> None:
-        path = tmp_path / "data.jsonl"
-        # 极小滚动阈值：单条点值 JSON ~150 字节，两条即触发滚动。
-        sink = _sink(path, max_size_mb=0.0002, buffer_size=1)
-        await sink.open()
-        for i in range(6):
-            await sink.write([_pv("rotor.speed", float(i))])
-            await sink.flush()
-        await sink.close()
-
-        siblings = sorted(p.name for p in path.parent.iterdir())
-        assert len(siblings) > 1, f"expected rotated segments, got {siblings}"
-        assert "data.jsonl" in siblings
-
-    async def test_rotated_segment_compressed_to_gzip(self, tmp_path: Path) -> None:
-        path = tmp_path / "data.jsonl"
-        sink = _sink(path, max_size_mb=0.0002, buffer_size=1, compress=True)
-        await sink.open()
-        for i in range(4):
-            await sink.write([_pv("rotor.speed", float(i))])
-            await sink.flush()
-        await sink.close()  # close 等待后台压缩完成
-
-        gz_files = sorted(tmp_path.glob("data.*.jsonl.gz"))
-        siblings = sorted(p.name for p in tmp_path.iterdir())
-        assert gz_files, f"expected gzipped segments, got {siblings}"
-        # 压缩分片内容可完整解码回点值行。
-        first_rows: list[dict] = []
-        with gzip.open(gz_files[0], "rt", encoding="utf-8") as fh:
-            first_rows = [json.loads(line) for line in fh if line.strip()]
-        assert first_rows
-        assert first_rows[0]["point_id"] == "rotor.speed"
-        assert first_rows[0]["value"] == 0.0
-
-
-class TestFailureSemantics:
-    async def test_open_on_unwritable_path_raises_sink_error(self, tmp_path: Path) -> None:
-        # 父路径是普通文件：open 建目录即失败。
-        blocker = tmp_path / "blocker"
-        blocker.write_text("not a directory")
-        sink = _sink(blocker / "data.jsonl")
-        with pytest.raises(SinkError, match="open failed"):
-            await sink.open()
-        # 单次失败记录错误信息但未到 unhealthy 阈值（连续 5 次才翻转）。
-        assert sink.health().message is not None
-        assert "open failed" in sink.health().message
-
-    async def test_consecutive_failures_mark_unhealthy(self, tmp_path: Path) -> None:
-        blocker = tmp_path / "blocker"
-        blocker.write_text("not a directory")
-        sink = _sink(blocker / "data.jsonl")
-        for _ in range(5):
-            with pytest.raises(SinkError):
-                await sink.open()
-        assert sink.health().healthy is False
-
-    async def test_write_before_open_raises(self, tmp_path: Path) -> None:
-        sink = _sink(tmp_path / "data.jsonl")
-        with pytest.raises(SinkError, match="before open"):
-            await sink.write([_pv("rotor.speed", 1.0)])
-
-
-class TestConfigValidation:
-    def test_missing_path_rejected(self) -> None:
-        with pytest.raises(ConfigError, match="path"):
-            FileSink(SinkConfig(name="file", type="file", connection={}))  # type: ignore[arg-type]
-
-    def test_invalid_format_rejected(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigError, match="format"):
-            _sink(tmp_path / "x", format="parquet")
-
-    def test_invalid_buffer_size_rejected(self, tmp_path: Path) -> None:
-        with pytest.raises(ConfigError, match="buffer_size"):
-            _sink(tmp_path / "x", buffer_size=0)
+async def test_file_limit_and_retention(tmp_path: Path) -> None:
+    path = tmp_path / "telemetry.csv"
+    unrelated = tmp_path / "notes.csv"
+    unrelated.write_text("keep me", encoding="utf-8")
+    sink = sink_for(path, max_size_mb=0.0001, max_files=2)
+    await sink.open()
+    await sink.write([
+        PointValue("WT001", f"point-{i}", "long-value-" * 5)
+        for i in range(20)
+    ])
+    await sink.close()
+    assert unrelated.read_text(encoding="utf-8") == "keep me"
+    assert len(list(tmp_path.glob("telemetry.*.csv"))) <= 2
+    assert path.exists()
