@@ -246,8 +246,8 @@ class DeviceInstanceConfig:
     model: str
     device_group: str | None
     endpoint: EndpointConfig
-    device_groups: tuple[str, ...] = ()
     enabled: bool
+    device_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_non_empty(self.device_id, "Device device_id")
