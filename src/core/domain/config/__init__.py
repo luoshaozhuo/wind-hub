@@ -26,7 +26,7 @@ from .models import (
     diff_mapping,
     freeze_config_value,
 )
-from .validation import validate_core_config
+from ..validation import validate_core_config
 
 __all__ = [
     "ADS_READ_MODES",
