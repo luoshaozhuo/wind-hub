@@ -23,3 +23,12 @@ business_points:
   reactive_power_setpoint:
     data_type: int32
     unit: kilovar
+  fault_code:
+    data_type: int16
+    unit: none
+  turbine_status:
+    data_type: int16
+    unit: none
+  turbine_command:
+    data_type: int16
+    unit: none
