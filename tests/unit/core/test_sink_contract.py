@@ -7,9 +7,8 @@ import pytest
 
 from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from core.application.protocol_contract import ConnectionHealth
-from core.infrastructure.config.sink_schema import _SinkSchema
 from core.domain.point_value import PointValue
-
+from core.infrastructure.config.sink_schema import _SinkSchema
 
 class MemorySink:
     def __init__(self) -> None:
