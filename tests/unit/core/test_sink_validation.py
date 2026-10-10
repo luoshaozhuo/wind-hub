@@ -7,8 +7,8 @@ from core.infrastructure.config.sink_schema import (
     FileSinkConnection,
     RedisSinkConnection,
     _SinkSchema,
+    validate_sink_definitions,
 )
-from core.infrastructure.config.sink_schema import validate_sink_definitions
 
 
 def sink(name: str, kind: str, connection: dict, enabled: bool = True) -> _SinkSchema:
