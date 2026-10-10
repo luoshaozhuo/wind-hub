@@ -6,8 +6,12 @@ import json
 from dataclasses import dataclass
 from datetime import UTC
 
-from core.application.sink_config import RedisSinkConnection
+from typing import Protocol
 from core.domain.point_value import PointValue
+
+
+class RedisKeyOptions(Protocol):
+    key_prefix: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +22,7 @@ class RedisRecord:
     payload: str
 
 
-def encode_redis_record(config: RedisSinkConnection, point: PointValue) -> RedisRecord:
+def encode_redis_record(config: RedisKeyOptions, point: PointValue) -> RedisRecord:
     """一设备一点一个 key，覆盖最新值，保留采样时间和质量。
 
     为防止设备/点名称中的冒号导致键路径歧义，使用长度前缀编码。
