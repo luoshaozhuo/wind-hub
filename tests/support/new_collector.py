@@ -317,7 +317,6 @@ def make_session(
         view.point_meta,
         protocol or CollectorFakeProtocol(),
         subscribe_enabled=view.subscribe_enabled,
-        supports_scheduled_collection=view.supports_scheduled_collection,
     )
 
 
@@ -346,7 +345,6 @@ def make_runtime(
             view.point_meta,
             registry.create(view.device.endpoint, view.point_table, view.options),
             subscribe_enabled=view.subscribe_enabled,
-            supports_scheduled_collection=view.supports_scheduled_collection,
         )
 
     runtime = CollectorRuntime(
