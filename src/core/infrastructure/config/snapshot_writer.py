@@ -9,13 +9,19 @@ from .codec import dump_system_config
 from .point_table_writer import dump_point_tables
 
 
-def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
+def dump_snapshot(
+    snapshot: ConfigSnapshot,
+    model_definitions: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     system = dump_system_config(snapshot.system)
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
     models = {}
+    previous_models = (model_definitions or {}).get("device_models", {})
     for key, model in snapshot.device_models.items():
         table = snapshot.point_tables[model.point_table_id]
+        previous = previous_models.get(str(key), {})
         models[str(key)] = {
+            **previous,
             "device_type": str(model.device_type_id),
             "model": model.name,
             "manufacturer": model.manufacturer,
