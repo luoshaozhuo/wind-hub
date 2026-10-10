@@ -67,6 +67,7 @@ def dump_snapshot(
         devices.append({
             "device_id": str(key),
             "model": str(device.device_model_id),
+            **({"name": device.name} if device.name is not None else {}),
             "device_groups": [str(group_id) for group_id in device.device_group_ids],
             "endpoint": endpoint,
             "enabled": device.enabled,
@@ -91,7 +92,10 @@ def dump_snapshot(
         "system.yaml": system,
         "device_models.yaml": {
             "device_types": {
-                str(key): {"name": value.name}
+                str(key): {
+                    "name": value.name,
+                    **({"description": value.description} if value.description is not None else {}),
+                }
                 for key, value in snapshot.device_types.items()
             },
             "device_models": models,
