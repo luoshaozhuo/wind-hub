@@ -16,7 +16,6 @@ from core.application.file_sink_segments import (
 )
 from core.application.protocol_contract import ConnectionHealth
 from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
-from core.application.sink_contract import FileSinkConnection as FilePolicy
 from core.domain.point_value import PointValue
 
 
@@ -29,7 +28,7 @@ class FileSink:
             raise ValueError("FileSink requires FileSinkConnection")
         path = Path(cfg.path)
         self._path = path / "telemetry.csv" if path.suffix.lower() != ".csv" else path
-        self._policy = FilePolicy(
+        self._policy = FileSinkConnection(
             path=str(self._path),
             max_size_mb=cfg.max_size_mb,
             max_files=cfg.max_files,
