@@ -375,7 +375,7 @@ async def test_watchdog_stops_consumer_before_reopening_failed_sink():
             return ConnectionHealth(healthy=False, message="connection lost")
         return await original_health()
 
-    sink.health = probe  # type: ignore[method-assign]
+    runtime._watchdogs["s1"]._health = probe
     await runtime._watchdogs["s1"].check_once()
     assert sink.close_calls == 1
     assert sink.open_calls == 2
