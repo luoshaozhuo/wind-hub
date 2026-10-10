@@ -24,6 +24,7 @@ from .point import (
     engineering_value,
     raw_write_value,
 )
+from .sink import Sink
 from .site import Site
 from .task import Task, devices_for_task, validate_task_references
 from .unit import (
@@ -132,6 +133,7 @@ __all__ = [
     "UNIT_CATALOG",
     "Unit",
     "Site",
+    "Sink",
     "Task",
     "devices_for_task",
     "validate_task_references",
