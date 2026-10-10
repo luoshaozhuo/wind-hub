@@ -59,8 +59,6 @@ class YamlConfigAdapter:
         if not isinstance(group_values, dict):
             raise ConfigError("devices.yaml device_groups must be a mapping")
         for group_id, values in group_values.items():
-            if group_id not in groups:
-                raise ConfigError(f"Unknown device group definition: {group_id}")
             if not isinstance(values, dict) or set(values) - {"name", "description"}:
                 raise ConfigError(f"Invalid device group: {group_id}")
             try:
