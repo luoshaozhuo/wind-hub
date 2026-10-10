@@ -28,7 +28,7 @@ from core.application.sink_config import SinkConfig
 
 
 @dataclass(frozen=True, slots=True)
-class Config:
+class ConfigSnapshot:
     """共享领域配置快照；没有 YAML 包装类型。"""
 
     system: SystemConfig
