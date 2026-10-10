@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from core.application.protocol_contract import PointScalar, Quality
+from .sample_value import PointScalar, Quality
 
 
 @dataclass(frozen=True, slots=True)
