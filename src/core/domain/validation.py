@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from .device import Device, DeviceGroup, DeviceModel, DeviceType, ProtocolOptions
@@ -15,6 +15,7 @@ from .identities import (
     PointTableId,
 )
 from .point import BusinessPoint, PointTable
+from .task import Task, validate_task_references
 from .unit import UNIT_CATALOG, Quantity, Unit
 from .value_objects import DataType
 
@@ -28,6 +29,8 @@ def validate_core_config(
     business_points: Mapping[BusinessPointId, BusinessPoint],
     point_tables: Mapping[PointTableId, PointTable],
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
+    tasks: Mapping[str, Task] | None = None,
+    sink_ids: Collection[str] = (),
 ) -> None:
     """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
     _validate_identity(device_types, "device_types", "device_type_id")
@@ -41,6 +44,8 @@ def validate_core_config(
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
     _validate_device_options(protocol_options_by_device, devices)
+    if tasks is not None:
+        validate_task_references(tasks, device_groups, sink_ids)
 
 
 def _validate_identity(
