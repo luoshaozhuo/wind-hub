@@ -36,5 +36,5 @@ class SlowSink:
     async def flush(self) -> None:
         """无缓冲数据。"""
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
