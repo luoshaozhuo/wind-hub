@@ -377,7 +377,7 @@ def _plain(value: Any) -> Any:
 # devices.yaml
 # ---------------------------------------------------------------------------
 
-_DEVICE_KEYS = {"device_id", "model", "device_group", "endpoint", "enabled"}
+_DEVICE_KEYS = {"device_id", "model", "device_group", "device_groups", "endpoint", "enabled"}
 _ENDPOINT_KEYS = {"host", "port", "extensions"}
 
 
@@ -403,6 +403,7 @@ def parse_devices_config(raw: Mapping[str, Any]) -> DevicesConfig:
                     device_id=device_id,
                     model=_as_str(_required(item, "model", label), f"{label}.model"),
                     device_group=_opt_str(item, "device_group", label),
+                    device_groups=tuple(_as_str_list(item["device_groups"], f"{label}.device_groups")) if "device_groups" in item else (),
                     endpoint=EndpointConfig(
                         host=_as_str(
                             _required(endpoint, "host", f"{label}.endpoint"),
@@ -439,7 +440,7 @@ def _dump_device(device: DeviceInstanceConfig) -> dict[str, Any]:
     return {
         "device_id": device.device_id,
         "model": device.model,
-        "device_group": device.device_group,
+        "device_groups": list(device.device_groups),
         "endpoint": endpoint,
         "enabled": device.enabled,
     }
