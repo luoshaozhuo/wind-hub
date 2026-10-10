@@ -38,6 +38,7 @@ _PATCH_FIELDS = (
     "offset",
     "unit",
     "description",
+    "business_point_id",
 )
 
 
@@ -55,6 +56,7 @@ class PointPatch:
     offset: float | None = None
     unit: str | None = None
     description: str | None = None
+    business_point_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +163,7 @@ def _merge_point(base: PointConfig, patch: PointPatch, table: str) -> PointConfi
         "offset": base.offset,
         "unit": base.unit,
         "description": base.description,
+        "business_point_id": base.business_point_id,
     }
     for name in _PATCH_FIELDS:
         if name in patch.declared:
@@ -186,9 +189,10 @@ _DEFAULTS: dict[str, Any] = {
     "offset": 0.0,
     "unit": "none",
     "description": None,
+    "business_point_id": None,
 }
 
-_NULLABLE_FIELDS = frozenset({"variable_name", "description"})
+_NULLABLE_FIELDS = frozenset({"variable_name", "description", "business_point_id"})
 
 
 def _build_point(data: dict[str, Any], table: str) -> PointConfig:
@@ -219,6 +223,7 @@ def _build_point(data: dict[str, Any], table: str) -> PointConfig:
             offset=values["offset"],
             unit=values["unit"],
             description=values["description"],
+            business_point_id=values["business_point_id"],
         )
     except ValueError as exc:
         raise ConfigError(f"{context} is invalid: {exc}") from exc
