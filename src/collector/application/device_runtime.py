@@ -50,8 +50,8 @@ def is_connection_level(exc: BaseException) -> bool:
 class DeviceRuntime:
     """持有设备会话与连接状态，并负责连接、重连及设备热更新。
 
-    接管传入的会话注册表；不保存 Task、采集句柄或 Sink 状态。连接超时、
-    重试窗口和指标上报沿用 Collector 的既有策略。
+    接管传入的会话注册表；不保存 Task、采集句柄或 Sink 状态。周期健康检查
+    与一次重连由每设备 Watchdog 执行。
     """
 
     def __init__(
@@ -325,7 +325,7 @@ class DeviceRuntime:
     async def add_device(
         self, device_id: str, view: DeviceView, session: CollectorDeviceSession
     ) -> None:
-        """运行时新增设备会话并立即尝试连接；失败记账后保留会话（周期重试）。
+        """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
         调用方负责重复热增的收敛判定（``requires_rebuild``）与 Task 实例
         的 suspend/resume 协调。
@@ -384,8 +384,11 @@ class DeviceRuntime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
-        self._wire_reconnect_hook(device_id, session)
+        watchdog = self._make_watchdog(device_id, session)
+        self._watchdogs[device_id] = watchdog
         await self._connect_new(device_id, session, "reconnected")
+        if self._watchdogs_running:
+            await watchdog.start()
 
     # ------------------------------------------------------------------
     # 私有
