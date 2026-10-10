@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from core.application.sink_config import (
     FileSinkConnection,
-    ModbusSinkConnection,
     RedisSinkConnection,
     SinkConfig,
 )
