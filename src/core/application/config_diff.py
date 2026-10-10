@@ -36,7 +36,9 @@ class ConfigSnapshotDiff:
         )
 
 
-def _diff_mapping(old: Mapping[Any, Any], new: Mapping[Any, Any]) -> MappingDiff[object]:
+def _diff_mapping(
+    old: Mapping[Any, Any], new: Mapping[Any, Any]
+) -> MappingDiff[object]:
     old_keys = set(old)
     new_keys = set(new)
     common = old_keys & new_keys
