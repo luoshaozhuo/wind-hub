@@ -37,11 +37,8 @@ class FullYamlConfigAdapter:
         tasks = parse_tasks_config(read_yaml_mapping(base / "tasks.yaml"))
         sinks = parse_sinks_config(read_yaml_mapping(base / "sinks.yaml"))
 
-        catalog_path = base / "business_points.yaml"
-        business_points = (
-            parse_business_points(read_yaml_mapping(catalog_path))
-            if catalog_path.is_file()
-            else {}
+        business_points = parse_business_points(
+            read_yaml_mapping(base / "business_points.yaml")
         )
 
         assembly = assemble_core_config(
