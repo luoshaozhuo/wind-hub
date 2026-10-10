@@ -98,7 +98,7 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     settings = dict(runtime_raw)
     for key in (
         "shutdown_timeout", "connect_timeout", "read_timeout",
-        "write_timeout", "retry_interval",
+        "write_timeout", "watchdog_interval", "health_timeout",
     ):
         if key in settings and settings[key] is not None:
             settings[key] = _number(settings[key], f"runtime.{key}")
@@ -106,10 +106,6 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
         value = settings["queue_maxsize"]
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError("runtime.queue_maxsize must be an integer")
-    if "read_retries" in settings:
-        value = settings["read_retries"]
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ConfigError("runtime.read_retries must be an integer")
     runtime = RuntimeSettings(**settings)
     ads_raw = raw.get("ads")
     ads = None
