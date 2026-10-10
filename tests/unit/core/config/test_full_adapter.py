@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[4]
 def test_load_example_modbus_without_units_file() -> None:
     config = FullYamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
     assert type(config).__name__ == "ConfigSnapshot"
-    assert config.business_points["active_power"].description == "有功功率"
+    assert config.business_points["active_power"].standard_unit.code.value == "kilowatt"
     assert config.point_tables["wtg_modbus_site_v1"].points["active_power"].business_point_id == "active_power"
     assert config.system.site_id == "example_modbus"
     assert config.devices
