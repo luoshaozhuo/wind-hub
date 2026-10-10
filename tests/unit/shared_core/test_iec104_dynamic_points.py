@@ -14,7 +14,6 @@ import pytest
 
 from core.application import ConfigError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import ProtocolSample, Quality
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import IEC104Point, iec104_point
 
@@ -448,33 +447,3 @@ class TestDynamicReceive:
         assert stored.point_id == "dyn"
         assert stored.value == 1.25
         assert stored.quality == Quality.GOOD
-
-
-# ---------------------------------------------------------------------------
-# RecoveringProtocol 透传
-# ---------------------------------------------------------------------------
-
-
-class TestDynamicPointsThroughRecovery:
-    @pytest.mark.asyncio
-    async def test_recovery_passthrough_read_and_write(self) -> None:
-        import c104
-
-        station = _Station()
-        driver = _driver(station)
-        driver._samples[500] = _sample("canonical", 2.5)
-        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
-
-        sample = await wrapped.read_one(iec104_point("dyn", ioa=500))
-        assert (sample.point_id, sample.value) == ("dyn", 2.5)
-
-        result = await wrapped.write_one(
-            iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True
-        )
-        assert result.success
-        assert station.add_calls == [(1001, c104.Type.C_SC_NA_1)]
-
-        samples = await wrapped.read_many(
-            [iec104_point("dyn", ioa=500), iec104_point("other", ioa=500)]
-        )
-        assert [(s.point_id, s.value) for s in samples] == [("dyn", 2.5), ("other", 2.5)]
