@@ -1,0 +1,28 @@
+"""新配置入口的真实 YAML 加载测试。"""
+
+from pathlib import Path
+
+import pytest
+
+from core.infrastructure.config.full_adapter import FullYamlConfigAdapter
+
+
+ROOT = Path(__file__).resolve().parents[4]
+
+
+def test_load_example_modbus_without_units_file() -> None:
+    config = FullYamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    assert config.devices
+    assert config.device_models
+    assert config.point_tables
+    assert config.tasks
+    assert config.sinks
+
+    task = config.tasks["turbine-modbus-all"]
+    assert task.device_group_id == "turbine_modbus"
+    assert task.sink_ids == ("file_archive",)
+
+
+def test_full_loader_rejects_absent_yaml(tmp_path: Path) -> None:
+    with pytest.raises(Exception, match="Configuration file not found"):
+        FullYamlConfigAdapter(tmp_path).load()
