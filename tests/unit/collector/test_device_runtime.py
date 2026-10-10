@@ -194,10 +194,8 @@ async def test_close_all_bounds_hung_device_close():
     assert healthy.close_calls == 1
 
 
-async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
-    """RecoveringProtocol 读路径内透明重连：状态恢复 connected 且 device_reconnected 记账。"""
-    from core.application.recovery import RecoveringProtocol, RecoverySettings
-
+async def test_watchdog_reconnect_marks_state_and_metric():
+    """读路径不再透明重连，Watchdog 成功恢复后更新状态和指标。"""
     events: list[tuple[str, str]] = []
 
     class _Metrics:
@@ -205,9 +203,8 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
             events.append((device_id, protocol))
 
     proto = CollectorFakeProtocol()
-    port = RecoveringProtocol(proto, RecoverySettings(read_retries=1))
     config = make_collector_config()
-    session = make_session(config, port)  # type: ignore[arg-type]
+    session = make_session(config, proto)
     runtime = DeviceRuntime(
         {"dev1": session},
         RuntimeParams(connect_timeout=0.2),
@@ -215,23 +212,12 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
         metrics_hook=_Metrics(),  # type: ignore[arg-type]
     )
     await runtime.connect_all()
-
-    # 驱动掉线后第一次读触发 RecoveringProtocol 透明重连。
     proto.connected = False
-    await port.read_one("p1")
-
+    await runtime._watchdogs["dev1"].check_once()
     assert events == [("dev1", "modbus")]
-    state = runtime.device_state("dev1")
-    assert state is not None and state.connected is True
-
-
-def _recovery_session(proto, config=None):  # type: ignore[no-untyped-def]
-    """构造包裹 RecoveringProtocol 的会话（透明重连测试用）。"""
-    from core.application.recovery import RecoveringProtocol, RecoverySettings
-
-    port = RecoveringProtocol(proto, RecoverySettings(read_retries=1))
-    session = make_session(config or make_collector_config(), port)  # type: ignore[arg-type]
-    return session, port
+    assert proto.connect_calls == 2
+    assert runtime.device_state("dev1").connected  # type: ignore[union-attr]
+    await runtime.close_all()
 
 
 class _RecordingMetrics:
@@ -246,48 +232,11 @@ class _RecordingMetrics:
         self.connect_failed.append((device_id, protocol))
 
 
-async def test_stale_session_reconnect_hook_does_not_pollute_new_session():
-    """设备重建后，旧会话 RecoveringProtocol 的迟到透明重连不得改写新会话状态/指标。"""
-    from core.application.recovery import RecoveringProtocol
-
+async def test_rebuild_stops_old_watchdog_and_isolates_state():
     metrics = _RecordingMetrics()
-    old_proto = CollectorFakeProtocol()
-    old_session, old_port = _recovery_session(old_proto)
     config = make_collector_config()
-    runtime = DeviceRuntime(
-        {"dev1": old_session},
-        RuntimeParams(connect_timeout=0.2),
-        clock=lambda: 0.0,
-        metrics_hook=metrics,  # type: ignore[arg-type]
-    )
-    await runtime.connect_all()
-    assert isinstance(old_session.protocol, RecoveringProtocol)
-
-    # 重建设备：旧会话关闭，新会话接入。
-    new_proto = CollectorFakeProtocol()
-    new_session, _ = _recovery_session(new_proto)
-    await runtime.rebuild_device("dev1", config.device_view("dev1"), new_session)  # type: ignore[arg-type]
-    state = runtime.device_state("dev1")
-    assert state is not None and state.connected and state.last_success_at == 0.0
-    assert metrics.reconnected == []
-
-    # 旧会话已随 rebuild 关闭：RecoveringProtocol 禁止其再重建连接，
-    # 迟到的在途读直接失败，回调不得触及运行时状态与指标。
-    old_proto.connected = False
-    with pytest.raises(ProtocolError, match="closed"):
-        await old_port.read_one("p1")
-    assert old_proto.connect_calls == 1  # 仅启动时 connect_all 的一次
-    assert metrics.reconnected == []
-    state = runtime.device_state("dev1")
-    assert state is not None and state.last_success_at == 0.0
-    assert state.consecutive_failures == 0
-
-
-async def test_removed_device_reconnect_hook_is_inert():
-    """设备移除后，旧会话的迟到重连回调安全无效（无状态、无指标、无异常）。"""
-    metrics = _RecordingMetrics()
     old_proto = CollectorFakeProtocol()
-    old_session, old_port = _recovery_session(old_proto)
+    old_session = make_session(config, old_proto)
     runtime = DeviceRuntime(
         {"dev1": old_session},
         RuntimeParams(connect_timeout=0.2),
@@ -295,13 +244,33 @@ async def test_removed_device_reconnect_hook_is_inert():
         metrics_hook=metrics,  # type: ignore[arg-type]
     )
     await runtime.connect_all()
-    await runtime.remove_device("dev1")
-
-    old_proto.connected = False
-    with pytest.raises(ProtocolError, match="closed"):
-        await old_port.read_one("p1")  # 已关闭会话禁止重建连接，回调亦不得触及运行时
-    assert old_proto.connect_calls == 1
+    old_watchdog = runtime._watchdogs["dev1"]
+    new_proto = CollectorFakeProtocol()
+    new_session = make_session(config, new_proto)
+    await runtime.rebuild_device("dev1", config.device_view("dev1"), new_session)
+    assert old_watchdog._task is None
+    assert runtime.devices["dev1"] is new_session
     assert metrics.reconnected == []
+    await runtime.close_all()
+
+
+async def test_removed_device_watchdog_cannot_reconnect():
+    metrics = _RecordingMetrics()
+    config = make_collector_config()
+    proto = CollectorFakeProtocol()
+    session = make_session(config, proto)
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 0.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+    watchdog = runtime._watchdogs["dev1"]
+    await runtime.remove_device("dev1")
+    proto.connected = False
+    await watchdog.check_once()
+    assert proto.connect_calls == 1
     assert runtime.device_state("dev1") is None
 
 
