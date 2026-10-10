@@ -164,7 +164,7 @@ async def test_point_level_write_error_isolated_without_disconnect(
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
 
     assert [r.success for r in results] == [False, True]
-    assert driver.health().healthy is True
+    assert (await driver.health()).healthy is True
 
 
 @pytest.mark.asyncio
@@ -179,4 +179,4 @@ async def test_transport_write_error_marks_disconnect(
 
     with pytest.raises(Exception, match="write failed"):
         await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert driver.health().healthy is False
+    assert (await driver.health()).healthy is False
