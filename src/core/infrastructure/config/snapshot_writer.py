@@ -44,17 +44,17 @@ def dump_snapshot(
         }
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
     models = {}
-    previous_models = (model_definitions or {}).get("device_models", {})
     for key, model in snapshot.device_models.items():
         table = snapshot.point_tables[model.point_table_id]
-        previous = previous_models.get(str(key), {})
         models[str(key)] = {
-            **previous,
             "device_type": str(model.device_type_id),
             "model": model.name,
             "manufacturer": model.manufacturer,
             "protocol": table.protocol.name,
             "point_table": str(model.point_table_id),
+            "read_mode": model.read_mode,
+            "properties": _yaml_plain(model.properties),
+            "connection_defaults": _yaml_plain(model.connection_defaults),
         }
     devices = []
     for key, device in snapshot.site.devices.items():
