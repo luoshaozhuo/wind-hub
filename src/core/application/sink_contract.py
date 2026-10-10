@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+
+from core.application.sink_mapping import SinkPointMapping, validate_modbus_mappings
 
 
 class FileSinkConnection(BaseModel):
@@ -38,6 +40,12 @@ class ModbusSinkConnection(BaseModel):
 
     host: str = "0.0.0.0"
     port: int = Field(default=502, ge=1, le=65535)
+    points: tuple[SinkPointMapping, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_points(self) -> ModbusSinkConnection:
+        validate_modbus_mappings(list(self.points))
+        return self
 
 
 class RedisSinkConnection(BaseModel):
@@ -50,6 +58,13 @@ class RedisSinkConnection(BaseModel):
     database: int = Field(default=0, ge=0)
     password: SecretStr | None = None
     key_prefix: str = "wind-hub"
+
+    @field_validator("host", "key_prefix")
+    @classmethod
+    def nonempty_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must not be empty")
+        return value
 
 
 class FileSinkConfig(BaseModel):
