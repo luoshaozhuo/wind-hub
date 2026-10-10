@@ -24,8 +24,6 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         }
     devices = []
     for key, device in snapshot.site.devices.items():
-        if len(device.device_group_ids) != 1:
-            raise ValueError(f"device '{key}': multiple groups not yet supported by YAML")
         endpoint: dict[str, Any] = {"host": device.endpoint.host}
         if device.endpoint.port is not None:
             endpoint["port"] = device.endpoint.port
@@ -35,7 +33,7 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         devices.append({
             "device_id": str(key),
             "model": str(device.device_model_id),
-            "device_group": str(device.device_group_ids[0]),
+            "device_groups": [str(group_id) for group_id in device.device_group_ids],
             "endpoint": endpoint,
             "enabled": True,
         })
