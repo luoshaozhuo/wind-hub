@@ -6,15 +6,4 @@ sinks:
     connection:
       path: /var/tmp/wind-hub/archive.csv
       max_size_mb: 100
-      max_files: 30
-    points: []
-
-  - name: redis_cache
-    type: redis
-    enabled: false
-    connection:
-      host: localhost
-      port: 6379
-      database: 0
-      key_prefix: wind-hub
     points: []

@@ -409,7 +409,7 @@ def test_retired_iec104_sink_type_rejected(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="type 'iec104'"):
+    with pytest.raises(ConfigError, match="Invalid sinks configuration"):
         load_collector_config(config_dir)
 
 

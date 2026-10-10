@@ -6,7 +6,6 @@ sinks:
     connection:
       path: /var/tmp/wind-hub/archive.csv
       max_size_mb: 100
-      max_files: 30
     points: []
 
   - name: modbus_scada
@@ -16,14 +15,4 @@ sinks:
       host: "0.0.0.0"
       port: 1502
     # points 使用 source + address 映射 Modbus 寄存器
-    points: []
-
-  - name: redis_cache
-    type: redis
-    enabled: false
-    connection:
-      host: localhost
-      port: 6379
-      database: 0
-      key_prefix: wind-hub
     points: []
