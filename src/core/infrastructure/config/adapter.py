@@ -21,7 +21,6 @@ from .codec import (
     parse_system_config,
     parse_tasks_config,
 )
-from .point_table_writer import dump_point_tables
 from .snapshot_writer import dump_snapshot
 from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
@@ -143,10 +142,3 @@ class YamlConfigAdapter:
                     for filename in documents:
                         copy2(backup / filename, self._base / filename)
                     raise
-
-    def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
-        """根据完整父子 PointTable 差异保存 points.yaml。"""
-        write_yaml_mapping_atomic(
-            self._base / "points.yaml",
-            dump_point_tables(snapshot.point_tables),
-        )
