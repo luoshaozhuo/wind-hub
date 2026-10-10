@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from core.application.sink_contract import FileSinkConnection
+from core.application.sink_config import FileSinkConnection
 from core.domain.point_value import PointValue
 
 CSV_COLUMNS = ("timestamp", "device_id", "point_id", "value", "quality", "source")
@@ -50,7 +50,7 @@ def should_rotate(
         return False
     return (
         now.astimezone(UTC).date() != segment.opened_at.astimezone(UTC).date()
-        or segment.byte_size + next_row_bytes > config.max_size_bytes
+        or segment.byte_size + next_row_bytes > int(config.max_size_mb * 1024 * 1024)
     )
 
 
