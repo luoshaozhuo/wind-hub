@@ -426,6 +426,31 @@ class TestReadMany:
 
         assert driver.health().healthy is False
 
+    @pytest.mark.asyncio
+    async def test_read_many_exception_response_counts_as_exchange(self) -> None:
+        """设备返回 Modbus 异常响应：已应答证明链路健康，计为通信成功。"""
+        client = _Client()
+        client.response = _Response(error=True)
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(ProtocolError, match="exception response"):
+            await driver.read_many(("h",))
+
+        assert driver.health().healthy is True
+
+    @pytest.mark.asyncio
+    async def test_read_many_link_level_protocol_error_not_marked_success(self) -> None:
+        """链路级 ProtocolConnectionError 原样上抛，绝不误记为通信成功。"""
+        client = _Client()
+        client.read_error = ProtocolConnectionError("link down")
+        driver = _driver({"h": _point("h")}, client)
+
+        with pytest.raises(ProtocolConnectionError, match="link down"):
+            await driver.read_many(("h",))
+
+        assert driver.health().healthy is False
+        assert "exception response" not in (driver.health().message or "")
+
 
 # ---------------------------------------------------------------------------
 # write_one

@@ -237,6 +237,52 @@ async def test_close_terminates_infinite_retry_promptly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_retry_loop_does_not_cross_close_reconnect_boundary() -> None:
+    """旧生命周期的无限重试在 close→显式 connect 后必须退出，不得借新连接执行 I/O。
+
+    显式 connect 会复位 _closed/_close_event；仅靠这两个标志，关闭前启动的
+    重试循环会在新连接上继续读取（跨越关闭—重连边界）。代际守卫使其退出。
+    """
+    driver = _Driver(fail_connect=10**9)
+    port = RecoveringProtocol(
+        driver, RecoverySettings(read_retries=-1, retry_interval=0.01)
+    )
+    task = asyncio.create_task(port.read_one("a"))
+    await asyncio.sleep(0.05)  # 旧循环在 connect 失败的重试中
+    assert driver.connect_count > 1
+
+    await port.close()
+    # 显式 connect 进入新生命周期：复位关闭标志并成功建连。
+    driver.fail_connect = 0
+    await port.connect()
+    assert driver.is_open()
+
+    with pytest.raises(ProtocolError, match="closed"):
+        await asyncio.wait_for(task, timeout=1.0)
+    # 旧循环从未在新连接上执行读取。
+    assert driver.read_count == 0
+
+    # 新生命周期的读取正常工作。
+    sample = await port.read_one("a")
+    assert sample.value == 42
+
+
+@pytest.mark.asyncio
+async def test_concurrent_close_and_connect_leave_consistent_state() -> None:
+    """并发 close 与显式 connect 经连接锁串行化；无论谁先，结果状态一致可用。"""
+    driver = _Driver()
+    port = RecoveringProtocol(driver, RecoverySettings())
+    await port.connect()
+    await asyncio.gather(port.close(), port.connect())
+    # 两种交错都合法（先 connect 后 close → 关闭；先 close 后 connect → 打开），
+    # 但标志与 driver 状态必须一致，且不存在半初始化。
+    assert port.is_open() == driver.is_open()
+    # 后续显式 connect 后读取可用。
+    await port.connect()
+    assert (await port.read_one("a")).value == 42
+
+
+@pytest.mark.asyncio
 async def test_read_after_close_is_rejected() -> None:
     driver = _Driver()
     port = RecoveringProtocol(driver, RecoverySettings())

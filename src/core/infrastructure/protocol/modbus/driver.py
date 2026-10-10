@@ -375,8 +375,12 @@ class ModbusDriver:
                 values: dict[ModbusPoint, object] = {}
                 for group in plan:
                     values.update(await self._read_group(group))
+            except ProtocolConnectionError:
+                # 链路级失败（传输断开、对端无响应）：不计通信成功，原样上抛。
+                raise
             except ProtocolError:
-                # Modbus 异常响应来自 _read_group：设备已应答，通信链路健康。
+                # 其余 ProtocolError 来自 _read_group 的 Modbus 异常响应：
+                # 设备已应答，通信链路健康，业务失败不计为断线。
                 self._note_exchange_success("device returned an exception response")
                 raise
             except asyncio.CancelledError:

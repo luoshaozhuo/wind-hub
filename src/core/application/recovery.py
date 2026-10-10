@@ -97,6 +97,10 @@ class RecoveringProtocol:
         # close 后禁止任何路径重建连接；close_event 用于及时唤醒重试等待。
         self._closed = False
         self._close_event = asyncio.Event()
+        # 生命周期代际：close() 递增。显式 connect() 会复位 _closed/_close_event
+        # 解除禁止重建，因此仅靠这两个标志无法识别“关闭前启动、关闭—重连后仍在
+        # 重试循环里”的旧任务；旧循环持有过期代际，在下一次尝试前退出。
+        self._generation = 0
         self._on_reconnect: Callable[[], None] | None = None
 
     def set_reconnect_hook(self, hook: Callable[[], None] | None) -> None:
@@ -150,6 +154,7 @@ class RecoveringProtocol:
         async with self._connect_lock:
             self._closed = True
             self._close_event.set()
+            self._generation += 1
             await self._driver.close()
 
     async def _bounded(self, op: Awaitable[_T], limit: float | None, label: str) -> _T:
@@ -213,9 +218,17 @@ class RecoveringProtocol:
             await asyncio.sleep(0)
 
     async def _read_with_recovery(self, operation: Callable[[], Awaitable[_T]]) -> _T:
-        """唯一的读取重试循环：连接失败与可恢复读取失败共享同一预算。"""
+        """唯一的读取重试循环：连接失败与可恢复读取失败共享同一预算。
+
+        进入时捕获生命周期代际：循环期间一旦发生 close()，即使随后显式
+        connect() 复位了 _closed/_close_event，本循环也属于旧生命周期，
+        在下一次尝试前退出，绝不跨越关闭—重连边界继续执行 I/O。
+        """
         retries = 0
+        generation = self._generation
         while True:
+            if generation != self._generation:
+                raise ProtocolError("protocol connection was closed")
             try:
                 await self._recover_open()
                 return await self._bounded(
