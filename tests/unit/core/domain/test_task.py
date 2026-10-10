@@ -2,7 +2,13 @@
 
 import pytest
 
-from core.domain import DeviceGroup, Task, devices_for_task, validate_task_references
+from core.domain import (
+    DeviceGroup,
+    Task,
+    devices_for_task,
+    validate_core_config,
+    validate_task_references,
+)
 from core.domain.identities import DeviceGroupId
 
 
@@ -85,3 +91,21 @@ def test_task_device_selection_supports_multiple_groups() -> None:
         DeviceId("d2"): device("d2", "other"),
     }
     assert tuple(item.device_id for item in devices_for_task(make_task(), devices)) == ("d1",)
+
+
+def test_central_domain_validation_checks_tasks() -> None:
+    task = make_task()
+    group = DeviceGroup(DeviceGroupId("wind-turbines"), "Wind Turbines")
+    args = {
+        "device_types": {},
+        "device_models": {},
+        "device_groups": {group.device_group_id: group},
+        "devices": {},
+        "business_points": {},
+        "point_tables": {},
+        "protocol_options_by_device": {},
+        "tasks": {task.task_id: task},
+    }
+    validate_core_config(**args, sink_ids={"file", "redis"})
+    with pytest.raises(ValueError, match="unknown sinks"):
+        validate_core_config(**args, sink_ids={"file"})
