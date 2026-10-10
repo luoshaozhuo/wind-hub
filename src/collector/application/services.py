@@ -76,7 +76,8 @@ class CollectorQueryService:
         devices_connected = sum(
             1 for session in self._runtime.devices.values() if session.is_open()
         )
-        sinks_healthy = sum(1 for h in self._runtime.sink_health().values() if h.healthy)
+        sink_health = await self._runtime.sink_health()
+        sinks_healthy = sum(1 for h in sink_health.values() if h.healthy)
         return SystemStatus(
             running=self._runtime.running,
             device_count=self._runtime.device_count,
@@ -338,7 +339,7 @@ class CollectorSinkService:
 
     async def list_sinks(self) -> list[SinkInfo]:
         """列出当前运行 Sink 的健康状态与队列深度。"""
-        health = self._runtime.sink_health()
+        health = await self._runtime.sink_health()
         depths = self._runtime.sink_queue_depths()
         items: list[SinkInfo] = []
         for name in self._runtime.sinks:
@@ -362,7 +363,7 @@ class CollectorSinkService:
         sink = self._runtime.sinks.get(name)
         if sink is None:
             raise KeyError(name)
-        health = sink.health()
+        health = await sink.health()
         return SinkInfo(
             name=name,
             healthy=bool(health.healthy),
