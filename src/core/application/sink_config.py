@@ -70,13 +70,13 @@ class FileSinkConnection(BaseModel):
 
     path: str
     format: Literal["csv"] = "csv"
-    max_size_mb: float = Field(default=100, gt=0)
+    max_size_mb: float = Field(default=100, gt=0, allow_inf_nan=False)
     max_age_hours: float = Field(default=24, gt=0)
     max_files: int = Field(default=30, ge=1)
     compress: bool = False
     compress_level: int = Field(default=6, ge=1, le=9)
     buffer_size: int = Field(default=100, ge=1)
-    flush_interval: float = Field(default=1.0, ge=0)
+    flush_interval: float = Field(default=1.0, ge=0, allow_inf_nan=False)
     write_header: bool = True
 
     @field_validator("path")
@@ -85,6 +85,10 @@ class FileSinkConnection(BaseModel):
         if not value.strip():
             raise ConfigError("File sink path must be non-empty")
         return value
+
+    @property
+    def max_size_bytes(self) -> int:
+        return max(1, int(self.max_size_mb * 1024 * 1024))
 
 
 class RedisSinkConnection(BaseModel):
