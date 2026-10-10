@@ -99,11 +99,13 @@ async def test_modbus_internal_values_and_wrapped_samples(monkeypatch):
     )
     driver._connected = True
 
-    async def read_group(_group):
-        return {"p0": 17}
+    async def read_group(group):
+        # 值字典以 ModbusPoint（完整地址定义）为键
+        return {point: 17 for point in group.points}
 
     monkeypatch.setattr(driver, "_read_group", read_group)
-    raw = await driver._read_values(["p0"])
+    mapped_points, raw = await driver._read_values(["p0"])
+    assert mapped_points[0].point_id == "p0"
     assert raw[0][0] == 17
     from core.application import Quality
 

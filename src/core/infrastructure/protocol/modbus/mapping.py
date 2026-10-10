@@ -127,6 +127,54 @@ def parse_modbus_point(
     )
 
 
+def modbus_point(
+    point_id: str,
+    *,
+    register_type: str,
+    address: int,
+    data_type: str,
+    count: int | None = None,
+    word_order: str = "big_endian",
+) -> ModbusPoint:
+    """构造并校验一个动态 ModbusPoint（无需 Point 领域对象/点表登记）。
+
+    校验规则与 ``parse_modbus_point`` 一致：寄存器类型别名归一化、
+    地址范围、count 与 data_type 匹配、字序合法；只读类型（discrete_input/
+    input）在这里不禁止——是否允许写入由 Driver 写路径按 register_type
+    在发送前拒绝。
+    """
+    normalized_type = _normalize_register_type(register_type)
+    if isinstance(address, bool) or not isinstance(address, int):
+        raise ConfigError(f"Modbus point '{point_id}': address must be an integer")
+    if not 0 <= address <= _MAX_ADDRESS:
+        raise ConfigError(f"Modbus point '{point_id}': address must be in 0..{_MAX_ADDRESS}")
+    resolved_data_type = _required_data_type(data_type, point_id)
+    expected_count = _count_for_data_type(normalized_type, resolved_data_type)
+    resolved_count = expected_count if count is None else count
+    if isinstance(resolved_count, bool) or not isinstance(resolved_count, int):
+        raise ConfigError(f"Modbus point '{point_id}': count must be an integer")
+    if resolved_count <= 0:
+        raise ConfigError(f"Modbus point '{point_id}': count must be > 0")
+    if resolved_count != expected_count:
+        raise ConfigError(
+            f"Modbus point '{point_id}': count {resolved_count} does not match "
+            f"{resolved_data_type} requirement {expected_count}"
+        )
+    if address + resolved_count > _MAX_ADDRESS + 1:
+        raise ConfigError(f"Modbus point '{point_id}': address span exceeds {_MAX_ADDRESS}")
+    resolved_order = word_order.strip().lower()
+    if resolved_order not in _VALID_WORD_ORDERS:
+        raise ConfigError(f"Modbus point '{point_id}': invalid word_order '{word_order}'")
+    return ModbusPoint(
+        point_id=point_id,
+        register_type=normalized_type,
+        address=address,
+        count=resolved_count,
+        data_type=resolved_data_type,
+        word_order=resolved_order,
+    )
+
+
 def group_consecutive_reads(
     points: list[ModbusPoint],
     *,

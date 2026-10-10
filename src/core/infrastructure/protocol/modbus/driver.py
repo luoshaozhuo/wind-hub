@@ -7,8 +7,9 @@ import contextlib
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from math import isfinite
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.port import ProtocolSampleCallback, SubscriptionHandle
@@ -20,6 +21,7 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    WritableScalar,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
@@ -42,9 +44,7 @@ _PYMODBUS_MISSING = "Modbus support requires the optional 'pymodbus' dependency"
 
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
-_MULTI_REGISTER_TYPES = frozenset(
-    {"int32", "uint32", "float32", "int64", "uint64", "float64"}
-)
+_MULTI_REGISTER_TYPES = frozenset({"int32", "uint32", "float32", "int64", "uint64", "float64"})
 _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "int8": (-128, 127),
     "uint8": (0, 255),
@@ -91,7 +91,10 @@ class ModbusDriver:
             protocol_options,
         )
         # 相同选点序列复用预编译读取组；点表热更新时整体失效。
-        self._read_plan_cache: dict[tuple[str, ...], tuple[_ReadGroupPlan, ...]] = {}
+        # 缓存键混用注册点 point_id（str）与动态 ModbusPoint 对象本身——
+        # 同名不同地址的动态点与注册点、以及彼此之间的读取计划天然隔离，
+        # 不会发生同 point_id 不同地址的结果错配。
+        self._read_plan_cache: dict[tuple[str | ModbusPoint, ...], tuple[_ReadGroupPlan, ...]] = {}
         self._points: dict[str, ModbusPoint] = {}
         self.update_point_table(point_table)
         self._lock = asyncio.Lock()
@@ -135,7 +138,7 @@ class ModbusDriver:
                 retries=0,
                 # 禁用 pymodbus transport 层的自动重连（默认 0.1s 起步、
                 # 300s 封顶的后台重连任务；falsy 值即不建重连任务）——
-                # 重连由 RecoveryPort / DeviceRuntime 统一调度，保证连接
+                # 重连由 RecoveringProtocol / DeviceRuntime 统一调度，保证连接
                 # 生命周期单一权威、重连事件可观测（否则断连在驱动内部
                 # 静默愈合）。
                 reconnect_delay=0.0,
@@ -180,20 +183,22 @@ class ModbusDriver:
             )
         return ConnectionHealth(healthy=False, message="not connected")
 
-    async def read_one(self, point_id: str) -> ProtocolSample:
+    async def read_one(self, point: str | ModbusPoint) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
 
-        一个逻辑点可能占多个寄存器（如 float32 占 2 个），但仍只发送
-        一次 Modbus 读取请求。解码失败返回 BAD 质量样本；Modbus 异常
-        响应与通信错误分别抛出 ProtocolError，只有通信错误标记断线。
+        接受注册点 point_id（str）或动态 ModbusPoint（未在点表中登记的
+        临时地址）。一个逻辑点可能占多个寄存器（如 float32 占 2 个），但
+        仍只发送一次 Modbus 读取请求。解码失败返回 BAD 质量样本；Modbus
+        异常响应与通信错误分别抛出 ProtocolError，只有通信错误标记断线。
         """
-        point = self._mapped_point(point_id)
+        mapped = self._resolve_point(point)
+        point_id = mapped.point_id
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("Modbus read requires an active connection")
             try:
                 response = await self._read_request(
-                    point.register_type, point.address, point.count
+                    mapped.register_type, mapped.address, mapped.count
                 )
             except ProtocolError:
                 raise
@@ -208,47 +213,81 @@ class ModbusDriver:
 
             if response.isError():
                 raise ProtocolError(
-                    f"Modbus {point.register_type} read at {point.address} "
-                    f"count={point.count} returned an exception response"
+                    f"Modbus {mapped.register_type} read at {mapped.address} "
+                    f"count={mapped.count} returned an exception response"
                 )
 
             raw: Sequence[object] = (
-                response.bits
-                if point.register_type in _BIT_TYPES
-                else response.registers
+                response.bits if mapped.register_type in _BIT_TYPES else response.registers
             )
             try:
-                value = _decode_point(point, raw[: point.count])
+                value = _decode_point(mapped, raw[: mapped.count])
             except (IndexError, TypeError, ValueError, struct.error):
-                return ProtocolSample(point_id=point_id, value=None, quality=Quality.BAD)
+                return ProtocolSample(
+                    point_id=point_id,
+                    value=None,
+                    timestamp=datetime.now(UTC),
+                    quality=Quality.BAD,
+                )
             return ProtocolSample(
                 point_id=point_id,
                 value=_as_point_scalar(value),
+                timestamp=datetime.now(UTC),
                 quality=Quality.GOOD,
             )
 
-    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+    @overload
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
+
+    @overload
+    async def write_one(
+        self,
+        write: str | ModbusPoint,
+        value: WritableScalar,
+    ) -> ProtocolWriteResult: ...
+
+    async def write_one(
+        self,
+        write: ProtocolWrite | str | ModbusPoint,
+        value: WritableScalar | None = None,
+    ) -> ProtocolWriteResult:
         """写入一个逻辑点；低频路径，不做多点合并或写规划。
+
+        两种调用形式：
+        - ``write_one(ProtocolWrite(point_id, value))``——注册点写入，
+          与通用 ProtocolPort 契约一致；
+        - ``write_one(modbus_point, value)`` 或 ``write_one("p1", value)``——
+          动态点/注册点的直写便捷形式，校验与第一种完全相同。
 
         一个逻辑点最多触发一次实际写请求：coil 用 write_coil，单寄存器
         用 write_register，多寄存器逻辑点用一次 write_registers(FC16)。
-        配置或取值不合法时不向设备发送任何请求。
+        只读寄存器类型与取值不合法时在发送前拒绝，不向设备发任何请求。
         """
-        point = self._mapped_point(write.point_id)
-        if point.register_type in _READ_ONLY_TYPES:
+        if isinstance(write, ProtocolWrite):
+            if value is not None:
+                raise TypeError("write_one(ProtocolWrite) does not take a separate value")
+            mapped = self._mapped_point(write.point_id)
+            write_value: WritableScalar = write.value
+        else:
+            if value is None:
+                raise TypeError("write_one(point, value) requires an explicit value")
+            mapped = self._resolve_point(write)
+            write_value = value
+        point_id = mapped.point_id
+        if mapped.register_type in _READ_ONLY_TYPES:
             return ProtocolWriteResult(
-                point_id=write.point_id,
+                point_id=point_id,
                 success=False,
-                message=f"{point.register_type} is read-only",
+                message=f"{mapped.register_type} is read-only",
             )
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("Modbus write requires an active connection")
             try:
-                accepted = await self._write_single(point, write.value)
+                accepted = await self._write_single(mapped, write_value)
             except (TypeError, ValueError, struct.error) as exc:
                 return ProtocolWriteResult(
-                    point_id=write.point_id,
+                    point_id=point_id,
                     success=False,
                     message=str(exc) or type(exc).__name__,
                 )
@@ -263,38 +302,52 @@ class ModbusDriver:
                 raise ProtocolError(f"Modbus write failed: {exc}") from exc
         if not accepted:
             return ProtocolWriteResult(
-                point_id=write.point_id,
+                point_id=point_id,
                 success=False,
                 message="Modbus exception response",
             )
-        return ProtocolWriteResult(point_id=write.point_id, success=True)
+        return ProtocolWriteResult(point_id=point_id, success=True)
 
     async def read_many(
         self,
-        point_ids: Sequence[str],
+        points: Sequence[str | ModbusPoint],
     ) -> tuple[ProtocolSample, ...]:
-        """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。"""
-        values = await self._read_values(point_ids)
+        """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。
+
+        支持注册点 point_id 与动态 ModbusPoint 的混合序列；重复项（同一
+        point_id 或地址定义完全相同的 ModbusPoint）按出现位置重复返回，
+        顺序与输入严格一致。读取结果以 ModbusPoint（含地址定义）为键，
+        同 point_id 不同地址的动态点不会互相覆盖或与注册点混淆。
+        """
+        mapped_points, values = await self._read_values(points)
+        # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
+        received_at = datetime.now(UTC)
         return tuple(
-            ProtocolSample(point_id=point_id, value=value, quality=quality)
-            for point_id, (value, quality) in zip(point_ids, values, strict=True)
+            ProtocolSample(
+                point_id=mapped.point_id,
+                value=value,
+                timestamp=received_at,
+                quality=quality,
+            )
+            for mapped, (value, quality) in zip(mapped_points, values, strict=True)
         )
 
     async def _read_values(
         self,
-        point_ids: Sequence[str],
-    ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """执行分组批量读取，返回原始值及逐点质量；不创建 ProtocolSample。"""
-        if not point_ids:
-            return ()
+        points: Sequence[str | ModbusPoint],
+    ) -> tuple[tuple[ModbusPoint, ...], tuple[tuple[PointScalar, Quality], ...]]:
+        """执行分组批量读取，返回解析后的点序列与逐点 (原始值, 质量)。"""
+        if not points:
+            return (), ()
 
+        mapped_points = tuple(self._resolve_point(point) for point in points)
         async with self._lock:
             if not self._connected:
                 raise ProtocolError("Modbus read requires an active connection")
 
-            plan = self._read_plan(point_ids)
+            plan = self._read_plan(points)
             try:
-                values: dict[str, object] = {}
+                values: dict[ModbusPoint, object] = {}
                 for group in plan:
                     values.update(await self._read_group(group))
             except ProtocolError:
@@ -307,11 +360,11 @@ class ModbusDriver:
                 _reraise_pymodbus_cancellation(exc)
                 raise ProtocolError(f"Modbus read failed: {exc}") from exc
 
-            return tuple(
+            return mapped_points, tuple(
                 (None, Quality.BAD)
-                if values.get(point_id, _DECODE_FAILED) is _DECODE_FAILED
-                else (_as_point_scalar(values[point_id]), Quality.GOOD)
-                for point_id in point_ids
+                if values.get(mapped, _DECODE_FAILED) is _DECODE_FAILED
+                else (_as_point_scalar(values[mapped]), Quality.GOOD)
+                for mapped in mapped_points
             )
 
     async def write_many(
@@ -345,13 +398,23 @@ class ModbusDriver:
             )
         return mapped
 
-    def _read_plan(self, point_ids: Sequence[str]) -> tuple[_ReadGroupPlan, ...]:
+    def _resolve_point(self, point: str | ModbusPoint) -> ModbusPoint:
+        """把注册点 point_id 或动态 ModbusPoint 统一解析为 ModbusPoint。
+
+        动态点不进点表映射，只要求调用方给出完整地址定义；其字段合法性
+        由 ModbusPoint 构造方（如 ``modbus_point()`` 工厂）保证。
+        """
+        if isinstance(point, ModbusPoint):
+            return point
+        return self._mapped_point(point)
+
+    def _read_plan(self, points: Sequence[str | ModbusPoint]) -> tuple[_ReadGroupPlan, ...]:
         """按点位有序序列缓存寄存器分组；命中时跳过映射及分组合并。"""
-        key = tuple(point_ids)
+        key = tuple(points)
         cached = self._read_plan_cache.get(key)
         if cached is not None:
             return cached
-        mapped = [self._mapped_point(point_id) for point_id in key]
+        mapped = [self._resolve_point(point) for point in key]
         plan = tuple(
             _ReadGroupPlan(
                 points=tuple(group),
@@ -388,7 +451,7 @@ class ModbusDriver:
     async def _read_group(
         self,
         group: _ReadGroupPlan,
-    ) -> dict[str, object]:
+    ) -> dict[ModbusPoint, object]:
         register_type = group.register_type
         start = group.start
         count = group.count
@@ -405,14 +468,16 @@ class ModbusDriver:
         raw: Sequence[object]
         raw = response.bits if register_type in _BIT_TYPES else response.registers
 
-        values: dict[str, object] = {}
+        # 以完整地址定义（ModbusPoint，frozen 可哈希）为键：同 point_id
+        # 不同地址的动态点在同组内也不会互相覆盖。
+        values: dict[ModbusPoint, object] = {}
         for point in group.points:
             offset = point.address - start
             segment = raw[offset : offset + point.count]
             try:
-                values[point.point_id] = _decode_point(point, segment)
+                values[point] = _decode_point(point, segment)
             except (IndexError, TypeError, ValueError, struct.error):
-                values[point.point_id] = _DECODE_FAILED
+                values[point] = _DECODE_FAILED
         return values
 
     async def _write_single(
