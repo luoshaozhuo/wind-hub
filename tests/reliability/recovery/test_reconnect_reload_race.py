@@ -47,7 +47,7 @@ class TestPointTableChangeWhileOffline:
         tmp_path: Path,
     ) -> None:
         """CFG-02：掉线期间改点表——设备恢复后必须使用新点表出数。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -108,7 +108,7 @@ class TestStopTaskDuringReconnect:
         tmp_path: Path,
     ) -> None:
         """CFG-03：backoff 期间 stop task——设备恢复后 Task 必须保持 STOPPED。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
