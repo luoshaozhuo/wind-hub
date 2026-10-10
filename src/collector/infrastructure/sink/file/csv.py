@@ -58,11 +58,16 @@ class FileSink:
         existing_size = self._path.stat().st_size if self._path.exists() else 0
         now = (datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
                if existing_size else datetime.now(UTC))
-        self._file = self._path.open("ab")
-        if existing_size == 0:
-            header = next(iter_csv_rows([], include_header=True))
-            self._file.write(header)
-            existing_size = len(header)
+        file = self._path.open("ab")
+        try:
+            if existing_size == 0:
+                header = next(iter_csv_rows([], include_header=True))
+                file.write(header)
+                existing_size = len(header)
+        except BaseException:
+            file.close()
+            raise
+        self._file = file
         header_length = len(next(iter_csv_rows([], include_header=True)))
         self._segment = FileSegment(now, existing_size, existing_size > header_length)
 
