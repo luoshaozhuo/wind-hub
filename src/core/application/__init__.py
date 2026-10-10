@@ -21,9 +21,10 @@ from .port import (
     ConfigTopic,
     ConfigValue,
     ProtocolPort,
+    ProtocolSampleCallback,
     SinkPort,
     ExclusiveOpenSinkPort,
-    ProtocolSampleCallback,
+
     SubscriptionHandle,
 )
 from .protocol_contract import (
