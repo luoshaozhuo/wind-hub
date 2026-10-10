@@ -12,14 +12,11 @@ _ALLOWED_OPTIONS = frozenset(
         "target_net_id",
         "timeout",
         "twincat_version",
-        "read_mode",
         "max_subs_per_sum",
-        "max_concurrent_reads",
         "max_delay",
         "max_notifications_per_connection",
     }
 )
-ADS_READ_MODES = frozenset({"sum"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,9 +28,7 @@ class ADSConfig:
     target_port: int
     timeout: float = 5.0
     twincat_version: str = "2"
-    read_mode: str = "sum"
     max_subs_per_sum: int = 500
-    max_concurrent_reads: int = 16
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
 
@@ -64,14 +59,6 @@ def parse_ads_config(
     if twincat_version not in {"2", "3"}:
         raise ConfigError(f"connection '{endpoint}': twincat_version must be " "'2' or '3'")
 
-    read_mode = _string_option(
-        options.get("read_mode"),
-        "read_mode",
-        default="sum",
-    ).lower()
-    if read_mode not in ADS_READ_MODES:
-        raise ConfigError(f"connection '{endpoint}': invalid ADS read_mode " f"'{read_mode}'")
-
     timeout = _float_option(options.get("timeout"), "timeout", default=5.0)
     if timeout <= 0:
         raise ConfigError(f"connection '{endpoint}': timeout must be > 0")
@@ -83,14 +70,6 @@ def parse_ads_config(
     )
     if max_subs <= 0:
         raise ConfigError(f"connection '{endpoint}': max_subs_per_sum must be > 0")
-
-    max_concurrent = _int_option(
-        options.get("max_concurrent_reads"),
-        "max_concurrent_reads",
-        default=16,
-    )
-    if max_concurrent <= 0:
-        raise ConfigError(f"connection '{endpoint}': " "max_concurrent_reads must be > 0")
 
     max_delay = _float_option(
         options.get("max_delay"),
@@ -119,9 +98,7 @@ def parse_ads_config(
         target_port=target_port,
         timeout=timeout,
         twincat_version=twincat_version,
-        read_mode=read_mode,
         max_subs_per_sum=max_subs,
-        max_concurrent_reads=max_concurrent,
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,
     )
