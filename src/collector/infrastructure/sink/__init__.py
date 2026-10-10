@@ -45,6 +45,12 @@ def _modbus(cfg: ResolvedSinkConfig) -> SinkPort:
     return ModbusSink(cfg)
 
 
+def _redis(cfg: ResolvedSinkConfig) -> SinkPort:
+    from collector.infrastructure.sink.redis import RedisSink
+
+    return RedisSink(cfg)
+
+
 def build_sink_registry() -> SinkRegistry:
     """构造注册好全部内置 Sink 类型的注册表。
 
@@ -53,10 +59,8 @@ def build_sink_registry() -> SinkRegistry:
     """
     registry = SinkRegistry()
     registry.register("file", _file)
-    registry.register("kafka", _kafka)
-    registry.register("db", _db)
-    registry.register("iec104", _iec104)
     registry.register("modbus", _modbus)
+    registry.register("redis", _redis)
     return registry
 
 
