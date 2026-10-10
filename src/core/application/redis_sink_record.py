@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC
-
 from typing import Protocol
-from core.domain.point_value import PointValue
 
+from core.domain.point_value import PointValue
 
 class RedisKeyOptions(Protocol):
     key_prefix: str
