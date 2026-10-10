@@ -42,22 +42,10 @@ class RuntimeSettings:
     connect_timeout: float | None = None
     read_timeout: float | None = None
     write_timeout: float | None = None
-    read_retries: int = 1
-    retry_interval: float = 1.0
+    watchdog_interval: float = 5.0
+    health_timeout: float = 1.0
 
     def __post_init__(self) -> None:
-        if isinstance(self.read_retries, bool) or not isinstance(self.read_retries, int):
-            raise ValueError("runtime.read_retries must be an integer")
-        if self.read_retries < -1:
-            raise ValueError("runtime.read_retries must be >= -1")
-        if isinstance(self.retry_interval, bool) or not isinstance(
-            self.retry_interval, int | float
-        ):
-            raise ValueError("runtime.retry_interval must be a number")
-        _require_finite(self.retry_interval, "runtime.retry_interval")
-        if self.retry_interval < 0:
-            raise ValueError("runtime.retry_interval must be >= 0")
-        object.__setattr__(self, "retry_interval", float(self.retry_interval))
         if self.queue_maxsize is not None:
             if isinstance(self.queue_maxsize, bool) or not isinstance(self.queue_maxsize, int):
                 raise ValueError("runtime.queue_maxsize must be an integer")
@@ -70,7 +58,14 @@ class RuntimeSettings:
                 f"Invalid backpressure_policy '{self.backpressure_policy}'; "
                 f"must be one of {sorted(_BACKPRESSURE_POLICIES)}"
             )
-        for name in ("shutdown_timeout", "connect_timeout", "read_timeout", "write_timeout"):
+        for name in (
+            "shutdown_timeout",
+            "connect_timeout",
+            "read_timeout",
+            "write_timeout",
+            "watchdog_interval",
+            "health_timeout",
+        ):
             value = getattr(self, name)
             if value is None:
                 continue
