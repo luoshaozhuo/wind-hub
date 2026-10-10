@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
@@ -99,7 +99,7 @@ class RedisSinkConnection(BaseModel):
     host: str = "localhost"
     port: int = Field(default=6379, ge=1, le=65535)
     database: int = Field(default=0, ge=0)
-    password: str | None = None
+    password: SecretStr | None = None
     key_prefix: str = "wind-hub"
 
     @field_validator("host", "key_prefix")
@@ -438,6 +438,9 @@ class SinksConfig(BaseModel):
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
+        from core.application.sink_validation import validate_sink_definitions
+
+        validate_sink_definitions(self.sinks)
         return self
 
 
