@@ -53,3 +53,18 @@ def test_segment_rejects_negative_sequence(sequence: int) -> None:
             "telemetry.csv", opened_at=datetime(2026, 10, 10, tzinfo=UTC),
             sequence=sequence,
         )
+
+
+def test_restart_sequence_never_reuses_archived_segment() -> None:
+    from core.application.file_sink_segments import next_segment_sequence
+
+    stamp = datetime(2026, 10, 10, tzinfo=UTC)
+    existing = [segment_filename("telemetry.csv", opened_at=stamp, sequence=i) for i in (1, 3, 2)]
+    existing.append("other.20261010T000000000000Z.999999.csv")
+    assert next_segment_sequence(existing, base="telemetry.csv") == 4
+
+
+def test_restart_sequence_starts_from_zero() -> None:
+    from core.application.file_sink_segments import next_segment_sequence
+
+    assert next_segment_sequence([], base="telemetry.csv") == 0
