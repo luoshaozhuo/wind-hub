@@ -32,8 +32,6 @@ class FileSink:
             path=str(self._path),
             max_size_mb=cfg.max_size_mb,
             max_files=cfg.max_files,
-            buffer_size=cfg.buffer_size,
-            flush_interval=cfg.flush_interval,
         )
         self._file: BinaryIO | None = None
         self._segment: FileSegment | None = None
