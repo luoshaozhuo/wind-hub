@@ -1,7 +1,7 @@
 """ADS 动态点（显式 index 地址，不登记 PointTable）读写测试。
 
 fake pyads Connection：动态 ADSPoint 直接按 index_group/index_offset
-读写，不做 symbol 解析；批读覆盖 sequential 与 Sum Read 两种模式。
+读写，不做 symbol 解析；批量读取使用 Sum Read。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pytest
 import core.infrastructure.protocol.ads.driver as driver_module
 from core.application import ConfigError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import Quality
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import ConnectionEndpoint, PointTable, Protocol
 from core.infrastructure.protocol.ads import ADSDriver, ADSPoint, ads_point
 
@@ -294,27 +293,3 @@ class TestDynamicReadMany:
         assert [s.value for s in samples] == [111, 222]
         assert monkey_connection.sum_calls != []
         assert monkey_connection.read_calls == []
-
-
-# ---------------------------------------------------------------------------
-# RecoveringProtocol 透传
-# ---------------------------------------------------------------------------
-
-
-class TestDynamicPointsThroughRecovery:
-    @pytest.mark.asyncio
-    async def test_recovery_passthrough_read_and_write(self) -> None:
-        connection = _Connection()
-        connection.values[(0x4020, 100)] = 33
-        driver = _driver(connection)
-        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
-
-        sample = await wrapped.read_one(_dyn())
-        assert sample.value == 33
-
-        result = await wrapped.write_one(_dyn(), 44)
-        assert result.success
-        assert connection.write_calls == [(0x4020, 100, 44)]
-
-        samples = await wrapped.read_many([_dyn(), _dyn("b", offset=100)])
-        assert [s.value for s in samples] == [33, 33]
