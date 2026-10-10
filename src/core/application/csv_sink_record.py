@@ -12,6 +12,7 @@ from typing import Protocol
 
 from core.domain.point_value import PointValue
 
+
 class FileRotationOptions(Protocol):
     max_size_mb: float
 
