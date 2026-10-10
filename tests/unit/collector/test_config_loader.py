@@ -478,18 +478,18 @@ def test_invalid_protocol_option_value_is_rejected_at_load(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_read_retries_and_retry_interval_parsed(tmp_path):
+def test_watchdog_timing_parsed(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
-        runtime={"read_retries": -1, "retry_interval": 0.25},
+        runtime={"watchdog_interval": 2.5, "health_timeout": 0.25},
     )
     config = load_collector_config(config_dir)
-    assert config.runtime.read_retries == -1
-    assert config.runtime.retry_interval == 0.25
+    assert config.runtime.watchdog_interval == 2.5
+    assert config.runtime.health_timeout == 0.25
 
 
-def test_read_retries_defaults(tmp_path):
+def test_watchdog_timing_defaults(tmp_path):
     config_dir = write_collector_config_tree(tmp_path)
     config = load_collector_config(config_dir)
-    assert config.runtime.read_retries == 1
-    assert config.runtime.retry_interval == 1.0
+    assert config.runtime.watchdog_interval == 5.0
+    assert config.runtime.health_timeout == 1.0
