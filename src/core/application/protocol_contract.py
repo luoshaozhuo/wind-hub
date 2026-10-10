@@ -17,7 +17,7 @@ from core.domain.sample_value import PointScalar, Quality, WritableScalar
 
 @dataclass(frozen=True, slots=True)
 class ConnectionHealth:
-    """协议连接的轻量缓存状态。"""
+    """一次协议或 Sink 健康检查的结果。"""
 
     healthy: bool
     message: str | None = None
