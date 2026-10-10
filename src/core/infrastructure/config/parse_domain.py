@@ -272,6 +272,7 @@ def _device_catalog(
     dict[DeviceGroupId, DeviceGroup],
     dict[DeviceId, Device],
     dict[DeviceId, dict[str, Any]],
+    frozenset[DeviceId],
 ]:
     _keys(model_doc, {"device_types", "device_models"}, "device_models.yaml")
     types: dict[DeviceTypeId, DeviceType] = {}
@@ -324,6 +325,7 @@ def _device_catalog(
     groups: dict[DeviceGroupId, DeviceGroup] = {}
     devices: dict[DeviceId, Device] = {}
     options_by_device: dict[DeviceId, dict[str, Any]] = {}
+    ads_subscriptions: set[DeviceId] = set()
     for item in _list(device_doc.get("devices"), "devices"):
         definition = _map(item, "devices entry")
         _keys(definition, {
@@ -368,7 +370,8 @@ def _device_catalog(
         options = {**defaults, **extensions}
         if protocol == "ads":
             options["read_mode"] = model.get("read_mode", "sum") or "sum"
-            options.pop("subscribe_enabled", None)
+            if options.pop("subscribe_enabled", False):
+                ads_subscriptions.add(identity)
         for key, value in options.items():
             if not isinstance(key, str) or value is not None and not isinstance(
                 value, (str, int, float, bool)
@@ -398,7 +401,7 @@ def _device_catalog(
             name=_name(data.get("name", key), f"device group '{key}'.name"),
             description=data.get("description"),
         )
-    return types, models, groups, devices, options_by_device
+    return types, models, groups, devices, options_by_device, frozenset(ads_subscriptions)
 
 
 def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
@@ -462,7 +465,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         site_id, site_name, settings = _system(system)
         business_points = parse_business_points(business_document)
         point_tables = _point_tables(point_document, business_points)
-        types, models, groups, devices, options = _device_catalog(
+        types, models, groups, devices, options, ads_subscriptions = _device_catalog(
             model_document, device_document, point_tables,
         )
         tasks = _tasks(task_document)
@@ -490,6 +493,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             tasks=tasks,
             sinks=sinks,
             protocol_options_by_device=options,
+            ads_subscribe_devices=ads_subscriptions,
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f"invalid configuration: {exc}") from exc
