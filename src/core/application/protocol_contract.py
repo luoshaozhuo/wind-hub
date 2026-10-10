@@ -10,10 +10,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import TypeAlias
 
-PointScalar: TypeAlias = float | int | bool | str | None
-WritableScalar: TypeAlias = float | int | bool | str
+from core.domain.sample_value import PointScalar, Quality, WritableScalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,14 +60,6 @@ class ProtocolCapability(StrEnum):
     WRITE_MANY = "write_many"
     SUBSCRIBE = "subscribe"
     INTERROGATE = "interrogate"
-
-
-class Quality(StrEnum):
-    """统一协议点值质量。"""
-
-    GOOD = "good"
-    BAD = "bad"
-    UNCERTAIN = "uncertain"
 
 
 @dataclass(frozen=True, slots=True)
