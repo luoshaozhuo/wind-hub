@@ -72,8 +72,8 @@ class TestFileSinkFsFaults:
         """启动期 EACCES：坏 sink open failed，好 sink 正常；修复+reload 后恢复。"""
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir()
-        bad_path = readonly_dir / "out" / "telemetry.jsonl"
-        good_path = tmp_path / "good" / "telemetry.jsonl"
+        bad_path = readonly_dir / "out" / "telemetry.csv"
+        good_path = tmp_path / "good" / "telemetry.csv"
         readonly_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # 0o500：不可写
 
         try:
@@ -135,7 +135,7 @@ class TestFileSinkFsFaults:
         if not os.path.exists("/dev/full"):
             pytest.skip("/dev/full 不存在（非标准 Linux 环境）——NOT_RUN")
 
-        good_path = tmp_path / "good" / "telemetry.jsonl"
+        good_path = tmp_path / "good" / "telemetry.csv"
         ctx = await app_factory(
             sinks=_two_file_sinks(Path("/dev/full"), good_path),
             tasks=_task_both_sinks(),
