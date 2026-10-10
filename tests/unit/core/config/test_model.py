@@ -48,9 +48,9 @@ class TestSinkConfig:
             sinks=[
                 self._file("archive"),
                 SinkConfig(
-                    name="redis",
-                    type="redis",
-                    connection={"host": "localhost", "port": 6379},
+                    name="kafka",
+                    type="kafka",
+                    connection={"bootstrap_servers": "localhost:9092", "topic": "raw"},
                 ),
             ]
         )
