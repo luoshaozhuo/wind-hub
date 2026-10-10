@@ -414,6 +414,7 @@ def _build_point(
             access=_derive_access(protocol, definition),
             scale=definition.scale,
             offset=definition.offset,
+            description=definition.description,
             ext=ext,
         )
     except ValueError as exc:
