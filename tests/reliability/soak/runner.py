@@ -215,6 +215,8 @@ def write_soak_config(
             "shutdown_timeout": 10.0,
             "connect_timeout": 5.0,
             "read_timeout": 5.0,
+            "watchdog_interval": 1.0,
+            "health_timeout": 1.0,
         },
     }
     return write_config_tree(
@@ -409,31 +411,21 @@ def _make_cycle_observer(
 
 
 class _ConnectEventCounter:
-    """精确统计驱动层 TCP 建连成功次数（风暴场景的重连计数）。
-
-    为什么不能依赖 1s 健康采样：pymodbus 内部重试会吸收停服——在途读
-    要等重试预算耗尽（约 3 × transaction timeout）才向驱动抛出失败，
-    期间 ``driver.health()`` 自认健康；真正断连后驱动的后台 monitor 又
-    在百毫秒内重连成功。不健康窗口可能只有 ~0.1s，任何固定频率采样
-    都会漏计，且漏不漏取决于停服与轮询的相位对齐（抖动即 flake）。
-
-    RecoveringProtocol 每次真正发起建连都要经过 ``_connect_locked``
-    （显式 connect 与读路径透明恢复两条路径共用）——「重连发生」的
-    精确边界信号，不存在采样混叠。风暴 profile 只用 modbus，故按鸭子
-    类型包装该私有方法。
-    """
+    """精确统计 Watchdog 触发的 Driver connect 成功次数。"""
 
     def __init__(self) -> None:
         self.count = 0
 
     def wrap(self, driver: object) -> None:
-        original = driver._connect_locked  # type: ignore[attr-defined]
+        original = driver.connect  # type: ignore[attr-defined]
 
         async def _spy() -> None:
+            was_open = driver.is_open()  # type: ignore[attr-defined]
             await original()
-            self.count += 1
+            if not was_open and driver.is_open():  # type: ignore[attr-defined]
+                self.count += 1
 
-        driver._connect_locked = _spy  # type: ignore[attr-defined, method-assign]
+        driver.connect = _spy  # type: ignore[attr-defined, method-assign]
 
 
 async def _health_watch(
@@ -442,14 +434,14 @@ async def _health_watch(
     """每秒轮询全部驱动健康；任一「健康 → 不健康 → 健康」计一次重连。
 
     首次采样只建基线（启动建连不记为恢复）。风暴场景设备少；200 设备
-    场景的 health() 是缓存同步读，每秒 200 次开销可忽略。
+    场景由协议 health() 执行主动检查。
     """
     states: dict[int, bool] = {}
     down_since: dict[int, float] = {}
     while True:
         await asyncio.sleep(1.0)
         for idx, driver in enumerate(drivers):
-            healthy = driver.health().healthy
+            healthy = (await driver.health()).healthy
             if idx not in states:
                 states[idx] = healthy
                 continue
