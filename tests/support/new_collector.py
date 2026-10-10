@@ -419,7 +419,7 @@ def write_collector_config_tree(
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(base / "out.jsonl")},
+                "connection": {"path": str(base / "out.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
