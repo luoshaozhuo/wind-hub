@@ -1,0 +1,34 @@
+business_points:
+  active_power:
+    data_type: int32
+    unit: kilowatt
+  active_power_1min:
+    data_type: int32
+    unit: kilowatt
+  reactive_power:
+    data_type: int32
+    unit: kilovar
+  wind_speed:
+    data_type: int16
+    unit: meter_per_second
+  generator_speed:
+    data_type: int32
+    unit: rpm
+  pitch_angle:
+    data_type: int32
+    unit: degree
+  active_power_setpoint:
+    data_type: int32
+    unit: kilowatt
+  reactive_power_setpoint:
+    data_type: int32
+    unit: kilovar
+  fault_code:
+    data_type: int16
+    unit: none
+  turbine_status:
+    data_type: int16
+    unit: none
+  turbine_command:
+    data_type: int16
+    unit: none

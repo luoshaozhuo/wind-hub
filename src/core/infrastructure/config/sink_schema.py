@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 
 from core.application.errors import ConfigError
 from core.domain import DataType
-from core.domain.config import ConfigDiff, diff_mapping
 
 SINK_TYPES = frozenset({"file", "modbus", "redis"})
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
@@ -206,7 +205,7 @@ class ResolvedSinkPoint(BaseModel):
         return self
 
 
-class SinkConfig(BaseModel):
+class _SinkSchema(BaseModel):
     """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -215,7 +214,7 @@ class SinkConfig(BaseModel):
     type: str
     enabled: bool = True
     connection: SinkConnection
-    points: list[SinkPoint] = Field(default_factory=list)
+    points: tuple[SinkPoint, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
@@ -263,7 +262,7 @@ class SinkConfig(BaseModel):
         return parsed
 
     @model_validator(mode="after")
-    def _validate_sink(self) -> SinkConfig:
+    def _validate_sink(self) -> _SinkSchema:
         if not self.name.strip():
             raise ConfigError("Sink name must be non-empty")
         if self.type not in SINK_TYPES:
@@ -298,13 +297,13 @@ class SinkConfig(BaseModel):
         return self
 
 
-class ResolvedSinkConfig(SinkConfig):
+class _ResolvedSinkSchema(_SinkSchema):
     """Runtime 直接消费的 Sink 定义；points 已全部解析为稳定引用。"""
 
     points: list[ResolvedSinkPoint] = Field(default_factory=list)  # type: ignore[assignment]
 
 
-class SinksConfig(BaseModel):
+class _SinksSchema(BaseModel):
     """Raw YAML root model——``sinks.yaml`` 顶层配置（文件级 wrapper）。
 
     Sink name 唯一性在此校验；resolve 阶段保持 name 不变，因此 resolved
@@ -313,25 +312,15 @@ class SinksConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    sinks: list[SinkConfig] = Field(default_factory=list)
+    sinks: list[_SinkSchema] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _validate_unique_names(self) -> SinksConfig:
+    def _validate_unique_names(self) -> _SinksSchema:
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
-        from core.application.sink_validation import validate_sink_definitions
-
         validate_sink_definitions(self.sinks)
         return self
-
-    def diff(self, new: SinksConfig) -> ConfigDiff:
-        """按 sink name 比较；变化的 Sink 整对象记入 changed。"""
-        if not isinstance(new, SinksConfig):
-            raise TypeError(f"diff requires another SinksConfig, got {type(new).__name__}")
-        old_by_name = {sink.name: sink for sink in self.sinks}
-        new_by_name = {sink.name: sink for sink in new.sinks}
-        return diff_mapping(old_by_name, new_by_name)
 
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
@@ -354,7 +343,30 @@ __all__ = [
     "SinkAddress",
     "SinkPoint",
     "ResolvedSinkPoint",
-    "SinkConfig",
-    "ResolvedSinkConfig",
-    "SinksConfig",
 ]
+
+
+
+
+
+def validate_sink_definitions(sinks: Sequence[_SinkSchema]) -> None:
+    """检查名称重复及 Modbus TCP 端口的绑定冲突。"""
+    names: set[str] = set()
+    listeners: set[tuple[str, int]] = set()
+    for sink in sinks:
+        name = sink.name.strip()
+        if not name or name in names:
+            raise ValueError(f"empty or duplicate sink name: {sink.name}")
+        names.add(name)
+        if not sink.enabled or not isinstance(sink.connection, ModbusSinkConnection):
+            continue
+        host = sink.connection.host
+        port = sink.connection.port
+        if any(
+            used_port == port
+            and (used_host == host or used_host in ("0.0.0.0", "::")
+                 or host in ("0.0.0.0", "::"))
+            for used_host, used_port in listeners
+        ):
+            raise ValueError(f"duplicate Modbus listener: {(host, port)}")
+        listeners.add((host, port))

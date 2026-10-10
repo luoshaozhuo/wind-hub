@@ -51,6 +51,9 @@ class Point:
     scale: float = 1.0
     offset: float = 0.0
     ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
+    description: str | None = None
+    variable_name: str | None = None
+    point_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
@@ -82,6 +85,12 @@ class Point:
             "business_point_id",
             BusinessPointId(business_point_id),
         )
+        groups = tuple(self.point_groups)
+        if any(not isinstance(group, str) or not group.strip() for group in groups):
+            raise ValueError("point_groups must contain non-empty names")
+        if len(groups) != len(set(groups)):
+            raise ValueError("point_groups must not contain duplicates")
+        object.__setattr__(self, "point_groups", groups)
         object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
@@ -113,31 +122,24 @@ def raw_write_value(point: Point, value: WritableScalarValue) -> WritableScalarV
 
 
 @dataclass(frozen=True, slots=True)
-class PointMeta:
-    """点位的进程级元数据（采集分组与诊断/展示用，不属于协议寻址）。
-
-    Attributes:
-        variable_name: 业务变量名（状态/诊断输出展示）。
-        point_groups: 采集分组集合——Task 按 point_group 选点，诊断按
-            point_group 批量验证。
-    """
-
-    variable_name: str | None
-    point_groups: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class PointTable:
     """某类设备在一种 Protocol 下的可复用点表。"""
 
     point_table_id: PointTableId
     protocol: Protocol
     points: Mapping[str, Point]
+    parent_id: PointTableId | None = None
 
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
         if not point_table_id:
             raise ValueError("point_table_id must not be empty")
+
+        if self.parent_id is not None:
+            parent_id = self.parent_id.strip()
+            if not parent_id or parent_id == point_table_id:
+                raise ValueError("parent_id must be non-empty and different from point_table_id")
+            object.__setattr__(self, "parent_id", PointTableId(parent_id))
 
         points = dict(self.points)
         for point_id, point in points.items():

@@ -38,7 +38,6 @@ _NO_PB2_PREFIXES = (
 _LEGACY_USECASE_NAMES = (
     "QueryUseCase",
     "TaskUseCase",
-    "ConfigUseCase",
     "CommandUseCase",
     "ReadUseCase",
     "DiagnosticUseCase",

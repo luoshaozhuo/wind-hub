@@ -11,17 +11,6 @@ from typing import Any, cast
 import yaml
 
 from core.application import ConfigError
-from core.domain.config import ConfigTopic
-
-_TOPIC_FILES: dict[ConfigTopic, str] = {
-    ConfigTopic.SYSTEM: "system.yaml",
-    ConfigTopic.DEVICE_MODELS: "device_models.yaml",
-    ConfigTopic.DEVICES: "devices.yaml",
-    ConfigTopic.POINTS: "points.yaml",
-    ConfigTopic.UNITS: "units.yaml",
-    ConfigTopic.TASKS: "tasks.yaml",
-    ConfigTopic.SINKS: "sinks.yaml",
-}
 
 
 def read_yaml_mapping(path: str | Path) -> dict[str, Any]:
@@ -66,3 +55,18 @@ def write_yaml_mapping_atomic(path: str | Path, data: Mapping[str, Any]) -> None
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def active_config_dir(root: str | Path) -> Path:
+    """Resolve one consistent published YAML generation from a config root."""
+    base = Path(root)
+    pointer = base / ".active-config"
+    if not pointer.exists():
+        return base
+    generation = pointer.read_text(encoding="ascii").strip()
+    if len(generation) != 32 or any(letter not in "0123456789abcdef" for letter in generation):
+        raise ConfigError("Invalid active configuration generation")
+    version = base / ".config-versions" / generation
+    if not version.is_dir():
+        raise ConfigError(f"Active configuration version is missing: {generation}")
+    return version

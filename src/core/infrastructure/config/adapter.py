@@ -1,86 +1,98 @@
-"""通用 YAML Config Adapter——ConfigPort 的文件系统实现。
-
-职责：YAML 文件读取、反序列化、Config VO 构建、Config VO 序列化、
-单文件原子写入、文件错误转换。严格的字段校验由
-:mod:`core.infrastructure.config.codec` 完成。
-
-读取按主题独立进行——读取一个主题不会隐式加载其他主题文件。
-"""
+"""完整快照 YAML Adapter：版本目录 + 原子活跃版本切换。"""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import os
+import shutil
+import tempfile
 from pathlib import Path
-from typing import Any
+from uuid import uuid4
 
-from core.application import ConfigError
-from core.application.port import TOPIC_CONFIG_TYPES, ConfigTopic, ConfigValue
+from core.application.config_diff import diff_config_snapshots
+from core.application.config_snapshot import ConfigSnapshot
+from core.application.errors import ConfigError
 
-from .codec import (
-    dump_device_models_config,
-    dump_devices_config,
-    dump_point_tables_config,
-    dump_sinks_config,
-    dump_system_config,
-    dump_tasks_config,
-    dump_units_config,
-    parse_device_models_config,
-    parse_devices_config,
-    parse_point_tables_config,
-    parse_sinks_config,
-    parse_system_config,
-    parse_tasks_config,
-    parse_units_config,
-)
-from .yaml import _TOPIC_FILES, read_yaml_mapping, write_yaml_mapping_atomic
+from .parse_domain import load_domain
+from .snapshot_writer import dump_snapshot
+from .yaml import active_config_dir, read_yaml_mapping, write_yaml_mapping_atomic
 
-_PARSERS: dict[ConfigTopic, Callable[[Mapping[str, Any]], ConfigValue]] = {
-    ConfigTopic.SYSTEM: parse_system_config,
-    ConfigTopic.DEVICE_MODELS: parse_device_models_config,
-    ConfigTopic.DEVICES: parse_devices_config,
-    ConfigTopic.POINTS: parse_point_tables_config,
-    ConfigTopic.UNITS: parse_units_config,
-    ConfigTopic.TASKS: parse_tasks_config,
-    ConfigTopic.SINKS: parse_sinks_config,
-}
 
-_DUMPERS: dict[ConfigTopic, Callable[[Any], dict[str, Any]]] = {
-    ConfigTopic.SYSTEM: dump_system_config,
-    ConfigTopic.DEVICE_MODELS: dump_device_models_config,
-    ConfigTopic.DEVICES: dump_devices_config,
-    ConfigTopic.POINTS: dump_point_tables_config,
-    ConfigTopic.UNITS: dump_units_config,
-    ConfigTopic.TASKS: dump_tasks_config,
-    ConfigTopic.SINKS: dump_sinks_config,
-}
+def _sync_dir(path: Path) -> None:
+    """Persist directory entries after atomic rename on POSIX."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 class YamlConfigAdapter:
-    """一次构造确定配置根目录；按主题读写配置 VO。"""
+    """load() 读取单个一致版本；save() 验证后一次切换全部配置。"""
+
+    _VERSION_ROOT = ".config-versions"
+    _ACTIVE_FILE = ".active-config"
 
     def __init__(self, config_dir: str | Path) -> None:
         self._base = Path(config_dir)
 
-    def read(self, topic: ConfigTopic) -> ConfigValue:
-        """读取指定主题的配置 VO；不隐式加载其他主题文件。"""
-        raw = read_yaml_mapping(self._base / _TOPIC_FILES[topic])
-        return _PARSERS[topic](raw)
+    def _active_base(self) -> Path:
+        return active_config_dir(self._base)
 
-    def save(self, topic: ConfigTopic, config: ConfigValue) -> None:
-        """原子写入指定主题；topic 与 config 类型必须匹配。
+    def load(self) -> ConfigSnapshot:
+        """只解析一个已发布的配置版本，不会读到跨文件混合状态。"""
+        return load_domain(self._active_base())
 
-        每次只保存一个主题的配置；写入原子性（临时文件 + fsync +
-        原子替换）保证失败不破坏原文件。保存语义：配置以规范化完整
-        形式输出——点表输出继承展开后的完整点位（不含
-        extends/remove_points 声明）。
-        """
-        expected = TOPIC_CONFIG_TYPES[topic]
-        if not isinstance(config, expected):
-            raise ConfigError(
-                f"topic '{topic}' expects config of type {expected.__name__}, "
-                f"got {type(config).__name__}"
-            )
-        write_yaml_mapping_atomic(self._base / _TOPIC_FILES[topic], _DUMPERS[topic](config))
+    def save(self, snapshot: ConfigSnapshot) -> None:
+        """原子发布经完整往返验证的快照；任何异常均保留旧版本。"""
+        source = self._active_base()
+        documents = dump_snapshot(snapshot)
+        current_system = read_yaml_mapping(source / "system.yaml")
+        external_system = {
+            name: value for name, value in current_system.items()
+            if name not in {"site", "runtime", "ads"}
+        }
+        documents["system.yaml"] = {**external_system, **documents["system.yaml"]}
 
-
-__all__ = ["YamlConfigAdapter"]
+        version_root = self._base / self._VERSION_ROOT
+        version_root.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=".stage-", dir=version_root))
+        generation = uuid4().hex
+        final = version_root / generation
+        try:
+            for original in source.glob("*.yaml"):
+                if original.name != "units.yaml":
+                    shutil.copy2(original, staging / original.name)
+            for filename, data in documents.items():
+                write_yaml_mapping_atomic(staging / filename, data)
+            reloaded = load_domain(staging)
+            diff = diff_config_snapshots(snapshot, reloaded)
+            if diff.has_changes:
+                changed = tuple(
+                    name for name, section in diff.sections.items()
+                    if section.has_changes
+                )
+                raise ConfigError(
+                    "Configuration cannot be saved losslessly: "
+                    f"sections={changed}, site={diff.site_changed}, "
+                    f"system={diff.system_changed}"
+                )
+            _sync_dir(staging)
+            os.replace(staging, final)
+            _sync_dir(version_root)
+            pointer_tmp = version_root / f".pointer-{generation}"
+            try:
+                with pointer_tmp.open("w", encoding="ascii") as handle:
+                    handle.write(generation + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(pointer_tmp, self._base / self._ACTIVE_FILE)
+                _sync_dir(self._base)
+            finally:
+                pointer_tmp.unlink(missing_ok=True)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+            # A failed pointer swap leaves a harmless unreferenced generation.
+            # Keep old generations: concurrent readers may still use them.

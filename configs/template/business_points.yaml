@@ -1,0 +1,16 @@
+business_points:
+  active_power:
+    data_type: int32
+    unit: kilowatt
+  wind_speed:
+    data_type: int16
+    unit: meter_per_second
+  rotor_speed:
+    data_type: float32
+    unit: rpm
+  gen_power:
+    data_type: float32
+    unit: kilowatt
+  converter_temp:
+    data_type: float32
+    unit: celsius
