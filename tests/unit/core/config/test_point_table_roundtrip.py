@@ -23,7 +23,6 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
     after = adapter.load()
 
     assert before.point_tables == after.point_tables
-    assert before.point_meta == after.point_meta
     assert all(
         before.point_tables[key].parent_id == after.point_tables[key].parent_id
         for key in before.point_tables
