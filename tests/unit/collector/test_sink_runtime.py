@@ -185,7 +185,7 @@ async def test_rebuild_close_first_for_exclusive_sink_and_restores_on_failure():
         ResolvedSinkConfig,
     )
 
-    cfg = ResolvedSinkConfig(name="s1", type="modbus", connection=IEC104SinkConnection())
+    cfg = ResolvedSinkConfig(name="s1", type="modbus", connection=ModbusSinkConnection())
     with pytest.raises(ConnectionError):
         await runtime.rebuild_sink("s1", cfg, new)
     # close-first：旧实例已关闭；open 失败后尽力恢复旧实例
