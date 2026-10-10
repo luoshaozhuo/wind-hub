@@ -59,4 +59,4 @@ def test_retention_only_selects_old_archives() -> None:
 )
 def test_invalid_config(options: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
-        FileSinkConnection(path="./data", **options)
+        FileSinkConnection(**({"path": "./data"} | options))
