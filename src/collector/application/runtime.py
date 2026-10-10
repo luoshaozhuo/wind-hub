@@ -593,5 +593,4 @@ def _views_match(current: DeviceView, target: DeviceView) -> bool:
         and dict(current.options) == dict(target.options)
         and current.point_table.point_table_id == target.point_table.point_table_id
         and current.subscribe_enabled == target.subscribe_enabled
-        and current.supports_scheduled_collection == target.supports_scheduled_collection
     )
