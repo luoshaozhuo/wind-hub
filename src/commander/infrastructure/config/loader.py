@@ -98,8 +98,8 @@ def _load_from(source: ConfigPort) -> CommanderConfig:
         read_timeout=(
             system.runtime.read_timeout if system.runtime.read_timeout is not None else 1.0
         ),
-        read_retries=system.runtime.read_retries,
-        retry_interval=system.runtime.retry_interval,
+        watchdog_interval=system.runtime.watchdog_interval,
+        health_timeout=system.runtime.health_timeout,
         disabled_devices=assembly.disabled_devices,
     )
 
