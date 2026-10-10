@@ -15,5 +15,9 @@ class ConfigPort(Protocol):
         """读取并校验全部配置，返回完整快照。"""
         ...
 
+    def save(self, snapshot: ConfigSnapshot) -> None:
+        """持久化完整配置快照。"""
+        ...
+
 
 __all__ = ["ConfigPort"]
