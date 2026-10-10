@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 from tests.system.conftest import SYSTEM_TASK_ID, FullStack
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
@@ -44,9 +44,9 @@ class TestAcquisitionViaRest:
 
         # 静默验证：先等残余缓冲落盘，再确认行数不再增长。
         await asyncio.sleep(1.0)
-        settled = len(read_jsonl(full_stack.sink_path))
+        settled = len(read_csv(full_stack.sink_path))
         await asyncio.sleep(0.8)
-        assert len(read_jsonl(full_stack.sink_path)) == settled
+        assert len(read_csv(full_stack.sink_path)) == settled
 
     async def test_start_unknown_task_returns_404(self, full_stack: FullStack) -> None:
         response = await full_stack.http.post("/api/v1/tasks/ghost-task/start")
