@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from shutil import copy2
 
 from core.application.config_snapshot import ConfigSnapshot
+from core.application.settings import ADSLocalConfig, RuntimeSettings, SystemSettings
 from core.application.config_diff import diff_config_snapshots
 from core.application.errors import ConfigError
 from core.domain import DeviceGroup, DeviceGroupId, Site, Task, validate_core_config
@@ -113,8 +114,16 @@ class YamlConfigAdapter:
             name=system.site_name or system.site_id,
             devices=assembly.devices,
         )
+        runtime = RuntimeSettings(**{
+            key: getattr(system.runtime, key)
+            for key in RuntimeSettings.__dataclass_fields__
+        })
+        ads = None if system.ads is None else ADSLocalConfig(**{
+            key: getattr(system.ads, key)
+            for key in ADSLocalConfig.__dataclass_fields__
+        })
         return ConfigSnapshot(
-            system=system,
+            system=SystemSettings(runtime=runtime, ads=ads),
             site=site,
             device_types=assembly.device_types,
             device_models=assembly.device_models,
