@@ -71,7 +71,7 @@ class TestModbusToFile:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
@@ -97,7 +97,7 @@ class TestModbusToFile:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
