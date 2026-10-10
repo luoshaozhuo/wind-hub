@@ -39,3 +39,39 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "endpoint": endpoint,
             "enabled": True,
         })
+    tasks = [{
+        "task_id": task.task_id,
+        "device_group": str(task.device_group_id),
+        "point_group": task.point_group,
+        "interval": task.interval,
+        "targets": [{"sink": sink_id} for sink_id in task.sink_ids],
+        "enabled": task.enabled,
+    } for task in snapshot.tasks.values()]
+    catalog = {
+        str(key): {
+            "data_type": point.data_type.value,
+            "unit": point.standard_unit.code.value,
+            "description": point.description,
+        }
+        for key, point in snapshot.business_points.items()
+    }
+    return {
+        "system.yaml": system,
+        "device_models.yaml": {
+            "device_types": {
+                str(key): {"name": value.name}
+                for key, value in snapshot.device_types.items()
+            },
+            "device_models": models,
+        },
+        "devices.yaml": {"devices": devices},
+        "points.yaml": dump_point_tables(snapshot.point_tables),
+        "business_points.yaml": {"business_points": catalog},
+        "tasks.yaml": {"tasks": tasks},
+        "sinks.yaml": {
+            "sinks": [
+                sink.model_dump(mode="json", by_alias=True)
+                for sink in snapshot.sinks.values()
+            ],
+        },
+    }
