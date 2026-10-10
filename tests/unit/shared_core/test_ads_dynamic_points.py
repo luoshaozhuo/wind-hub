@@ -34,6 +34,26 @@ class _Connection:
             raise self.read_error
         return self.values[(index_group, index_offset)]
 
+    def read_write(
+        self,
+        index_group: int,
+        index_offset: int,
+        read_datatype: object,
+        value: object,
+        write_datatype: object,
+        *,
+        check_length: bool,
+    ) -> bytes:
+        del index_group, read_datatype, write_datatype, check_length
+        addresses = [
+            (value[i].iGroup, value[i].iOffset, value[i].size)
+            for i in range(index_offset)
+        ]
+        return bytes(4 * len(addresses)) + b"".join(
+            struct.pack("<i", self.values[(group, offset)])
+            for group, offset, _size in addresses
+        )
+
     def write(
         self, index_group: int, index_offset: int, value: object, datatype: object
     ) -> None:
@@ -274,7 +294,7 @@ class TestDynamicReadMany:
         import pyads
 
         monkey_connection = _SumConnection()
-        driver = _driver(monkey_connection, )
+        driver = _driver(monkey_connection)
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(driver_module, "_pyads", lambda: pyads)
         try:
