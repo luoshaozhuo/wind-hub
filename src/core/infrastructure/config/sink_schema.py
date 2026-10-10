@@ -262,7 +262,7 @@ class _SinkSchema(BaseModel):
         return parsed
 
     @model_validator(mode="after")
-    def _validate_sink(self) -> SinkConfig:
+    def _validate_sink(self) -> _SinkSchema:
         if not self.name.strip():
             raise ConfigError("Sink name must be non-empty")
         if self.type not in SINK_TYPES:
@@ -297,7 +297,7 @@ class _SinkSchema(BaseModel):
         return self
 
 
-class _ResolvedSinkSchema(SinkConfig):
+class _ResolvedSinkSchema(_SinkSchema):
     """Runtime 直接消费的 Sink 定义；points 已全部解析为稳定引用。"""
 
     points: list[ResolvedSinkPoint] = Field(default_factory=list)  # type: ignore[assignment]
