@@ -89,7 +89,7 @@ def test_load_config_resolves_ref_datatype_and_unit_from_source() -> None:
 
 def test_wrong_connection_type_rejected() -> None:
     raw = _iec104_sink()
-    raw["connection"] = {"path": "/tmp/not-iec104.jsonl"}
+    raw["connection"] = {"path": "/tmp/not-iec104.csv"}
     with pytest.raises(ConfigError, match="connection"):
         SinkConfig.model_validate(raw)
 
