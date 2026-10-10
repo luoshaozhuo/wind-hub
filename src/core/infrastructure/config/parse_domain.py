@@ -480,6 +480,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
             protocol_options_by_device=options,
             tasks=tasks,
             sink_ids=set(sinks),
+            sinks=sinks,
         )
         site = Site(site_id=site_id, name=site_name, devices=devices)
         return ConfigSnapshot(
