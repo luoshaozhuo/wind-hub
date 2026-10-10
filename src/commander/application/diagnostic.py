@@ -199,9 +199,10 @@ class CommanderDiagnosticService:
         protocol_ok = False
         protocol_message = ""
         if port_ok:
-            if device.health().healthy:
+            health = await device.health()
+            if health.healthy:
                 protocol_ok = True
-                protocol_message = "protocol session is healthy"
+                protocol_message = health.message or "protocol session is healthy"
             else:
                 protocol_ok = await self._runtime.ensure_connected(device_id)
                 protocol_message = (
