@@ -417,7 +417,7 @@ class _ConnectEventCounter:
     在百毫秒内重连成功。不健康窗口可能只有 ~0.1s，任何固定频率采样
     都会漏计，且漏不漏取决于停服与轮询的相位对齐（抖动即 flake）。
 
-    RecoveringProtocol 每次真正发起建连都要经过 ``_connect_once``
+    RecoveringProtocol 每次真正发起建连都要经过 ``_connect_locked``
     （显式 connect 与读路径透明恢复两条路径共用）——「重连发生」的
     精确边界信号，不存在采样混叠。风暴 profile 只用 modbus，故按鸭子
     类型包装该私有方法。
@@ -427,13 +427,13 @@ class _ConnectEventCounter:
         self.count = 0
 
     def wrap(self, driver: object) -> None:
-        original = driver._connect_once  # type: ignore[attr-defined]
+        original = driver._connect_locked  # type: ignore[attr-defined]
 
         async def _spy() -> None:
             await original()
             self.count += 1
 
-        driver._connect_once = _spy  # type: ignore[attr-defined, method-assign]
+        driver._connect_locked = _spy  # type: ignore[attr-defined, method-assign]
 
 
 async def _health_watch(
