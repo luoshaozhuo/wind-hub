@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO, Sequence
+from collections.abc import Callable, Sequence
+from typing import BinaryIO
 
 from collector.application.errors import SinkError
 from core.application.csv_sink_record import FileSegment, iter_csv_rows, should_rotate
@@ -109,10 +110,22 @@ class FileSink:
             )
         self._file.flush()
 
+    @staticmethod
+    async def _blocking(operation: Callable[[], None]) -> None:
+        """等待线程完成后才允许释放文件状态锁，即使调用者已取消。"""
+        task = asyncio.create_task(asyncio.to_thread(operation))
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            finally:
+                raise
+
     async def open(self) -> None:
         async with self._lock:
             try:
-                await asyncio.to_thread(self._open)
+                await self._blocking(self._open)
             except Exception as exc:
                 self._healthy, self._error = False, str(exc)
                 raise SinkError(f"CSV open failed: {exc}") from exc
@@ -123,7 +136,7 @@ class FileSink:
             return
         async with self._lock:
             try:
-                await asyncio.to_thread(self._write, batch)
+                await self._blocking(lambda: self._write(batch))
             except Exception as exc:
                 self._healthy, self._error = False, str(exc)
                 raise SinkError(f"CSV write failed: {exc}") from exc
@@ -133,7 +146,7 @@ class FileSink:
         async with self._lock:
             if self._file is not None:
                 try:
-                    await asyncio.to_thread(self._file.flush)
+                    await self._blocking(self._file.flush)
                 except Exception as exc:
                     self._healthy, self._error = False, str(exc)
                     raise SinkError(f"CSV flush failed: {exc}") from exc
@@ -142,7 +155,7 @@ class FileSink:
         async with self._lock:
             if self._file is not None:
                 file, self._file = self._file, None
-                await asyncio.to_thread(file.close)
+                await self._blocking(file.close)
             self._segment = None
             self._healthy, self._error = False, "closed"
 
