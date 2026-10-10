@@ -31,6 +31,7 @@ point_tables:
 
       - point_id: active_power
         business_point_id: active_power
+        business_point_id: active_power
         variable_name: active_power
         point_groups: [all]
         address:
@@ -43,6 +44,7 @@ point_tables:
         description: "有功功率瞬时值"
 
       - point_id: active_power_1min
+        business_point_id: active_power_1min
         variable_name: active_power_1min
         point_groups: [all]
         address:
@@ -55,6 +57,7 @@ point_tables:
         description: "有功功率1分钟值"
 
       - point_id: reactive_power
+        business_point_id: reactive_power
         variable_name: reactive_power
         point_groups: [all]
         address:
@@ -67,6 +70,7 @@ point_tables:
         description: "无功功率瞬时值"
 
       - point_id: wind_speed
+        business_point_id: wind_speed
         variable_name: wind_speed
         point_groups: [all]
         address:
@@ -79,6 +83,7 @@ point_tables:
         description: "风速"
 
       - point_id: generator_speed
+        business_point_id: generator_speed
         variable_name: generator_speed
         point_groups: [all]
         address:
@@ -91,6 +96,7 @@ point_tables:
         description: "发电机转速"
 
       - point_id: pitch_angle
+        business_point_id: pitch_angle
         variable_name: pitch_angle
         point_groups: [all]
         address:
@@ -103,6 +109,7 @@ point_tables:
         description: "桨距角"
 
       - point_id: fault_code
+        business_point_id: fault_code
         variable_name: fault_code
         point_groups: [all]
         address:
@@ -114,6 +121,7 @@ point_tables:
         description: "最新故障代码"
 
       - point_id: turbine_status
+        business_point_id: turbine_status
         variable_name: turbine_status
         point_groups: [all]
         address:
@@ -127,6 +135,7 @@ point_tables:
       # ---- 控制点（point_group: control，holding register，可写） ----
 
       - point_id: active_power_setpoint
+        business_point_id: active_power_setpoint
         variable_name: active_power_setpoint
         point_groups: [control]
         address:
@@ -139,6 +148,7 @@ point_tables:
         description: "有功功率最大设定值"
 
       - point_id: reactive_power_setpoint
+        business_point_id: reactive_power_setpoint
         variable_name: reactive_power_setpoint
         point_groups: [control]
         address:
@@ -151,6 +161,7 @@ point_tables:
         description: "无功功率最大设定值"
 
       - point_id: turbine_command
+        business_point_id: turbine_command
         variable_name: turbine_command
         point_groups: [control]
         address:
