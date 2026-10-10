@@ -59,7 +59,7 @@ class TestKafkaOutageIsolation:
     ) -> None:
         """SINK-01：Kafka 挂掉期间 File 持续增长；Kafka 恢复后重新出数。"""
         topic = f"windhub-iso-{uuid.uuid4().hex[:12]}"
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
@@ -123,7 +123,7 @@ class TestPostgresOutageIsolation:
     ) -> None:
         """SINK-02：PostgreSQL 挂掉期间 File 持续增长；DB 恢复后重新落库。"""
         table = f"windhub_iso_{uuid.uuid4().hex[:12]}"
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
