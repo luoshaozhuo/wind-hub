@@ -40,6 +40,7 @@ def validate_core_config(
     _validate_identity(business_points, "business_points", "business_point_id")
     _validate_identity(point_tables, "point_tables", "point_table_id")
     _validate_business_points(business_points)
+    _validate_point_table_parents(point_tables)
     _validate_point_tables(point_tables, business_points)
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
@@ -77,6 +78,38 @@ def _validate_business_points(
                 f"business point '{point.business_point_id}' with "
                 f"{point.data_type.value} value must use dimensionless unit"
             )
+
+
+def _validate_point_table_parents(
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """检查父表存在、协议一致和继承关系无环。"""
+    visited: set[PointTableId] = set()
+    visiting: set[PointTableId] = set()
+
+    def visit(table_id: PointTableId) -> None:
+        if table_id in visiting:
+            raise ValueError(f"point table inheritance cycle at '{table_id}'")
+        if table_id in visited:
+            return
+        visiting.add(table_id)
+        table = tables[table_id]
+        if table.parent_id is not None:
+            parent = tables.get(table.parent_id)
+            if parent is None:
+                raise ValueError(
+                    f"point table '{table_id}' references unknown parent '{table.parent_id}'"
+                )
+            if table.protocol != parent.protocol:
+                raise ValueError(
+                    f"point table '{table_id}' protocol differs from parent '{table.parent_id}'"
+                )
+            visit(table.parent_id)
+        visiting.remove(table_id)
+        visited.add(table_id)
+
+    for table_id in tables:
+        visit(table_id)
 
 
 def _validate_point_tables(
