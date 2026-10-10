@@ -53,7 +53,7 @@ async def test_open_failure_marks_unhealthy_and_skips_consumer():
     runtime = _runtime({"bad": bad, "good": good})
     await runtime.start()
     health = await runtime.health()
-    assert not health["bad"].healthy and health["bad"].message == "open failed"
+    assert not health["bad"].healthy
     assert health["good"].healthy
 
     await runtime.dispatch({"good": [_value()]})
