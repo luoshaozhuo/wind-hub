@@ -19,11 +19,11 @@ from core.domain import (
     PointTable,
     PointTableId,
     Site,
+    Sink,
     Task,
 )
 from core.domain.device import ProtocolOptions, freeze_protocol_options
 from .settings import SystemSettings
-from core.application.sink_config import SinkConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class ConfigSnapshot:
     point_tables: Mapping[PointTableId, PointTable]
     business_points: Mapping[BusinessPointId, BusinessPoint]
     tasks: Mapping[str, Task]
-    sinks: Mapping[str, SinkConfig]
+    sinks: Mapping[str, Sink]
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions]
 
     def __post_init__(self) -> None:
