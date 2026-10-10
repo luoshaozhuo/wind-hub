@@ -129,6 +129,12 @@ class ModbusDriver:
             )
             for point in point_table.points.values()
         }
+        health_point_id = self._config.health_point_id
+        if health_point_id is not None and health_point_id not in self._points:
+            raise ConfigError(
+                f"Modbus health point '{health_point_id}' is not part of "
+                f"point table '{point_table.point_table_id}'"
+            )
         self._read_plan_cache.clear()
 
     async def connect(self) -> None:
@@ -150,7 +156,7 @@ class ModbusDriver:
                 retries=0,
                 # 禁用 pymodbus transport 层的自动重连（默认 0.1s 起步、
                 # 300s 封顶的后台重连任务；falsy 值即不建重连任务）——
-                # 重连由 RecoveringProtocol / DeviceRuntime 统一调度，保证连接
+                # 重连由 Watchdog / 上层 Runtime 统一调度，保证连接
                 # 生命周期单一权威、重连事件可观测（否则断连在驱动内部
                 # 静默愈合）。
                 reconnect_delay=0.0,
@@ -184,20 +190,38 @@ class ModbusDriver:
         client = self._client
         return client is not None and client.connected
 
-    def health(self) -> ConnectionHealth:
-        """以本地传输状态报告连接健康，不执行网络探测、不记账通信历史。
+    async def health(self) -> ConnectionHealth:
+        """读取一个无副作用测点验证 Modbus 应用层通信。
 
-        与 ADS/IEC104 Driver 同口径：只反映「连接当前能否用于 I/O」。
-        逐次通信的成败由读写调用本身的异常/结果表达，设备运行状态由上层
-        DeviceRuntime 基于 ``is_open()`` 与异常分类维护；无任何功能决策
-        依赖 health 的通信历史语义。
+        优先使用配置的 health_point_id；未配置时使用点表中的第一个点，
+        便于旧配置平滑迁移。协议异常响应说明远端仍可达，因此报告通信
+        healthy 并保留诊断信息；链路级异常才触发 Watchdog 重连。
         """
-        if self.is_open():
+        if not self.is_open():
+            return ConnectionHealth(healthy=False, message="not connected")
+
+        point_id = self._config.health_point_id or next(iter(self._points), None)
+        if point_id is None:
+            return ConnectionHealth(
+                healthy=False,
+                message="no readable Modbus point available for health check",
+            )
+
+        try:
+            sample = await self.read_one(point_id)
+        except ProtocolConnectionError as exc:
+            return ConnectionHealth(healthy=False, message=str(exc))
+        except ProtocolError as exc:
             return ConnectionHealth(
                 healthy=True,
-                message=f"connected to {self._config.host}:{self._config.port}",
+                message=f"Modbus reachable; health probe rejected: {exc}",
             )
-        return ConnectionHealth(healthy=False, message="not connected")
+
+        detail = "" if sample.quality is Quality.GOOD else "; probe decoded BAD quality"
+        return ConnectionHealth(
+            healthy=True,
+            message=f"Modbus health point '{point_id}' responded{detail}",
+        )
 
     async def read_one(self, point: str | ModbusPoint) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
