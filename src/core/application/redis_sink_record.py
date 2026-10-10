@@ -9,6 +9,7 @@ from typing import Protocol
 
 from core.domain.point_value import PointValue
 
+
 class RedisKeyOptions(Protocol):
     key_prefix: str
 
