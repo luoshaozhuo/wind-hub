@@ -84,6 +84,7 @@ class RedisSink:
         async with self._lock:
             if self._writer is not None:
                 return
+            self._closed = False
             await self._connect()
 
     async def write(self, batch: list[PointValue]) -> None:
@@ -91,11 +92,8 @@ class RedisSink:
             return
         async with self._lock:
             if self._writer is None:
-                if self._closed:
-                    self._healthy = False
-                    raise SinkError("Redis sink is closed")
-                # 断线后按批次惰性重连：服务恢复即重新出数，无需外部介入。
-                await self._connect()
+                self._healthy = False
+                raise SinkError("Redis sink is not connected")
             assert self._writer is not None
             try:
                 commands = [
@@ -123,5 +121,20 @@ class RedisSink:
             await self._disconnect()
             self._message = "closed"
 
-    def health(self) -> ConnectionHealth:
-        return ConnectionHealth(healthy=self._healthy, message=self._message)
+    async def health(self) -> ConnectionHealth:
+        """通过真实 PING 检查 Redis 连接，不执行重连。"""
+        async with self._lock:
+            if self._writer is None:
+                return ConnectionHealth(healthy=False, message=self._message or "not connected")
+            try:
+                response = await self._request("PING")
+                if response != "PONG":
+                    raise SinkError(f"Redis PING returned {response!r}")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await self._disconnect()
+                self._message = str(exc)
+                return ConnectionHealth(healthy=False, message=self._message)
+            self._healthy, self._message = True, None
+            return ConnectionHealth(healthy=True)
