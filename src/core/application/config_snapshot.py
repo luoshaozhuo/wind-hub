@@ -26,6 +26,7 @@ from core.domain.device import ProtocolOptions, freeze_protocol_options
 
 from .settings import SystemSettings
 
+
 @dataclass(frozen=True, slots=True)
 class ConfigSnapshot:
     """共享领域配置快照；没有 YAML 包装类型。"""
