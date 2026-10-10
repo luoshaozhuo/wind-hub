@@ -11,10 +11,7 @@ from .errors import (
     ProtocolError,
 )
 from .port import (
-    TOPIC_CONFIG_TYPES,
     ConfigPort,
-    ConfigTopic,
-    ConfigValue,
     ExclusiveOpenSinkPort,
     ProtocolPort,
     ProtocolSampleCallback,
@@ -36,11 +33,8 @@ from .protocol_contract import (
 from .protocol_registry import ProtocolFactory, ProtocolRegistry
 
 __all__ = [
-    "TOPIC_CONFIG_TYPES",
     "ConfigError",
     "ConfigPort",
-    "ConfigTopic",
-    "ConfigValue",
     "ConnectionHealth",
     "CoreError",
     "PointScalar",
