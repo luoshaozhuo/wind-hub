@@ -17,10 +17,10 @@ from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
 )
-from core.infrastructure.config import fingerprint_config_set, fingerprint_config_topics
+from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import COMMANDER_CONFIG_TOPICS, CommanderConfig
+from .application.config import CommanderConfig
 from .application.diagnostic import (
     CommanderDiagnosticService,
     SymbolProbe,
@@ -51,7 +51,7 @@ class CommanderApp:
         diagnostic: 诊断服务。
         config: 配置事务服务（prepare / activate / abort）。
         config_dir: 现场配置目录。
-        config_hash: 启动配置集指纹。
+        config_hash: 启动配置集摘要。
         ads_local_router: 进程级 ADS 本机身份 owner；stop 时关闭。
     """
 
@@ -95,14 +95,14 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
     """
     config_path = Path(config_dir)
 
-    def consistency_fingerprint(path: Path) -> str:
-        return fingerprint_config_topics(path, COMMANDER_CONFIG_TOPICS)
-
-    before_hash = consistency_fingerprint(config_path)
+    before_hash = config_dir_digest(config_path)
     config = load_commander_config(config_path)
-    if before_hash != consistency_fingerprint(config_path):
-        raise ValueError("config changed while assembling Commander")
-    config_hash = fingerprint_config_set(config_path)
+    config_hash = config_dir_digest(config_path)
+    if before_hash != config_hash:
+        raise ValueError(
+            "config changed while assembling Commander: "
+            f"before={before_hash} after={config_hash}"
+        )
 
     ads_local_router = ADSLocalRouter()
 
@@ -152,8 +152,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
             config_path,
             runtime,
             load_config=load_commander_config,
-            fingerprint=fingerprint_config_set,
-            consistency_fingerprint=consistency_fingerprint,
+            config_digest=config_dir_digest,
         ),
         config_dir=config_path,
         config_hash=config_hash,

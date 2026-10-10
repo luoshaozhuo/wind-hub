@@ -1,8 +1,8 @@
 """Collector 现场配置加载入口。
 
-通过 Core 统一配置服务获取本进程所需主题（system / device_models /
-devices / points / units / tasks / sinks）的配置 VO，完成 Core 快照
-组装、Sink 引用解析与跨文件一致性校验，产出 CollectorConfig。
+经 :class:`ConfigPort` 按主题读取本进程所需配置 VO（system /
+device_models / devices / points / units / tasks / sinks），完成 Core
+配置组装、Sink 引用解析与跨文件一致性校验，产出 CollectorConfig。
 
 加载顺序与旧系统一致：read → parse → resolve → validate → build。
 """
@@ -10,10 +10,9 @@ devices / points / units / tasks / sinks）的配置 VO，完成 Core 快照
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 
-from core.application import ConfigService
-from core.application.port import ConfigSnapshot, ConfigTopic, ConfigValue
+from core.application.port import ConfigPort, ConfigTopic
 from core.application.sink_config import SinksConfig
 from core.domain import PointTableId
 from core.domain.config import (
@@ -40,35 +39,21 @@ from .tasks import validate_task_targets
 COLLECTOR_CONFIG_TOPICS: tuple[ConfigTopic, ...] = tuple(ConfigTopic)
 
 
-class _ConfigSource(Protocol):
-    """配置来源：ConfigPort 或一致性快照（均有 ``read(topic)``）。"""
-
-    def read(self, topic: ConfigTopic) -> ConfigValue: ...
-
-
 def load_collector_config(
-    config_dir: str | Path, *, source: _ConfigSource | None = None
+    config_dir: str | Path, *, source: ConfigPort | None = None
 ) -> CollectorConfig:
     """加载 Collector 配置并完成跨文件一致性校验。
 
-    默认在一致性快照内读取 Collector 全部主题：会话内不混用不同
-    版本，加载期间的外部并发修改经 ``verify_unchanged`` 检测并中止。
+    默认经 :class:`YamlConfigAdapter` 按主题读取；``source`` 允许测试
+    注入任意 ConfigPort 实现。
 
     Raises:
-        ConfigError: 文件缺失、YAML 非法、加载期间配置被修改或任何
-            配置约束违反。
+        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    if source is not None:
-        return _load_from(source)
-    adapter = YamlConfigAdapter(config_dir)
-    service = ConfigService(adapter, snapshots=adapter)
-    snapshot = service.open_snapshot(COLLECTOR_CONFIG_TOPICS)
-    config = _load_from(snapshot)
-    snapshot.verify_unchanged()
-    return config
+    return _load_from(source if source is not None else YamlConfigAdapter(config_dir))
 
 
-def _load_from(source: _ConfigSource | ConfigSnapshot) -> CollectorConfig:
+def _load_from(source: ConfigPort) -> CollectorConfig:
     system = cast(SystemConfig, source.read(ConfigTopic.SYSTEM))
     models = cast(DeviceModelsConfig, source.read(ConfigTopic.DEVICE_MODELS))
     devices = cast(DevicesConfig, source.read(ConfigTopic.DEVICES))

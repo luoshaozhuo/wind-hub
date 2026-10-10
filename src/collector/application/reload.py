@@ -13,10 +13,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from core.application import ConfigError, DiffConfigUseCase
+from core.application import ConfigError
 from core.application.port import ConfigTopic, ConfigValue
 from core.application.sink_config import SinksConfig
 from core.domain.config import DeviceModelsConfig, DevicesConfig
+from core.domain.config import diff as config_diff
 
 from .config import CollectorConfig, RuntimeParams
 
@@ -147,8 +148,6 @@ class ReloadResult:
     """reload 完成时间，UTC。"""
 
 
-_DIFF_USE_CASE = DiffConfigUseCase()
-
 #: compute_diff 消费的主题（SYSTEM 由 RuntimeParams/ADS 身份的专门比较覆盖，
 #: UNITS 的 symbol/name 变化不改变任何装配结果与已解析引用——unit id 增删
 #: 会被加载期引用校验拦截，因此不参与运行时差异）。
@@ -183,12 +182,12 @@ def _object_ids(paths: Iterable[str] | Mapping[str, object], prefix: str) -> set
 def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     """计算两个完整配置快照的结构化差异。
 
-    基础比较由 Core 的 :class:`DiffConfigUseCase` 在配置 VO 层面完成；
-    本函数只把语义差异翻译为 Collector 的运行时重构决策（设备/ Sink/
-    Task 增删改、点表重注入、运行参数应用），不触碰任何运行时组件。
+    基础比较由 Core 的 :func:`core.domain.config.diff` 在配置 VO 层面
+    完成；本函数只把语义差异翻译为 Collector 的运行时重构决策（设备/
+    Sink/Task 增删改、点表重注入、运行参数应用），不触碰任何运行时组件。
     """
     diffs = {
-        topic: _DIFF_USE_CASE.execute(topic, _topic_config(old, topic), _topic_config(new, topic))
+        topic: config_diff(_topic_config(old, topic), _topic_config(new, topic))
         for topic in _DIFF_TOPICS
     }
 
@@ -203,10 +202,10 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         removed=sorted(old_enabled - new_enabled),
     )
     common = old_enabled & new_enabled
-    modified_ids = _object_ids(diffs[ConfigTopic.DEVICES].modified, "devices") & common
+    modified_ids = _object_ids(diffs[ConfigTopic.DEVICES].changed, "devices") & common
     # 型号变化（连接默认值 / 点表绑定 / 协议）影响其全部实例的设备签名。
     changed_models = _object_ids(
-        diffs[ConfigTopic.DEVICE_MODELS].modified, "device_models"
+        diffs[ConfigTopic.DEVICE_MODELS].changed, "device_models"
     ) | _object_ids(diffs[ConfigTopic.DEVICE_MODELS].added, "device_models")
     model_by_device = {d.device_id: d.model for d in (*old_devices.devices, *new_devices.devices)}
     devices.updated = sorted(
@@ -218,9 +217,9 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     # 点表差异连带点位元数据（variable_name/point_groups 是 PointConfig
     # 的字段，自然被 Core Diff 覆盖）。
     changed_tables = sorted(
-        _object_ids(diffs[ConfigTopic.POINTS].added, "points")
-        | _object_ids(diffs[ConfigTopic.POINTS].removed, "points")
-        | _object_ids(diffs[ConfigTopic.POINTS].modified, "points")
+        _object_ids(diffs[ConfigTopic.POINTS].added, "tables")
+        | _object_ids(diffs[ConfigTopic.POINTS].removed, "tables")
+        | _object_ids(diffs[ConfigTopic.POINTS].changed, "tables")
     )
 
     sinks_diff = diffs[ConfigTopic.SINKS]
@@ -231,7 +230,7 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     common_sinks = set(_sink_names(_topic_config(old, ConfigTopic.SINKS))) & set(
         _sink_names(_topic_config(new, ConfigTopic.SINKS))
     )
-    sink_updated = _object_ids(sinks_diff.modified, "sinks") & common_sinks
+    sink_updated = _object_ids(sinks_diff.changed, "sinks") & common_sinks
     # 点表内容或设备→型号→点表绑定的变化可能改变 Sink 点的解析结果
     # （缺省 datatype/unit 继承源点、source 引用换表）。
     affected_tables = set(changed_tables) | _bound_tables_of_models(old, new, changed_models)
@@ -248,7 +247,7 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         removed=sorted(old_task_ids - new_task_ids),
     )
     tasks.updated = sorted(
-        _object_ids(tasks_diff.modified, "tasks") & old_task_ids & new_task_ids
+        _object_ids(tasks_diff.changed, "tasks") & old_task_ids & new_task_ids
     )
     tasks.unchanged = sorted((old_task_ids & new_task_ids) - set(tasks.updated))
 

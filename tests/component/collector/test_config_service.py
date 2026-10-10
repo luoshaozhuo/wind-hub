@@ -16,7 +16,7 @@ def _service(config=None, runtime=None):
         runtime,
         config,
         load_config=lambda: state["config"],
-        fingerprint=lambda: state["hash"],
+        config_digest=lambda: state["hash"],
         config_hash=state["hash"],
     )
     return service, runtime, state
@@ -67,7 +67,7 @@ async def test_prepare_toctou_detects_change_during_load():
         runtime,
         config,
         load_config=lambda: config,
-        fingerprint=lambda: next(hashes),
+        config_digest=lambda: next(hashes),
         config_hash="h1",
     )
     result = await service.prepare_config("r1")
@@ -92,7 +92,7 @@ async def test_prepare_load_failure_aborts_without_side_effects():
         raise ValueError("bad yaml")
 
     service = CollectorConfigService(
-        runtime, config, load_config=broken, fingerprint=lambda: "h1", config_hash="h1"
+        runtime, config, load_config=broken, config_digest=lambda: "h1", config_hash="h1"
     )
     result = await service.prepare_config("r1")
     assert not result.success and "bad yaml" in result.errors[0]
@@ -130,7 +130,7 @@ async def test_partial_reconfigure_failure_keeps_baseline():
         runtime,
         config,
         load_config=lambda: state["config"],
-        fingerprint=lambda: state["hash"],
+        config_digest=lambda: state["hash"],
         config_hash="h1",
     )
 

@@ -32,18 +32,7 @@ from core.domain import (
 )
 from core.domain import PointMeta as PointMeta
 from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
-from core.domain.config import ConfigTopic
 from core.domain.config.lookups import point_table_for_device, protocol_options_for
-
-# Commander 实际消费的配置主题；tasks/sinks 等无关文件不解析，其
-# 变更也不影响本进程的配置一致性检查。
-COMMANDER_CONFIG_TOPICS: tuple[ConfigTopic, ...] = (
-    ConfigTopic.SYSTEM,
-    ConfigTopic.DEVICE_MODELS,
-    ConfigTopic.DEVICES,
-    ConfigTopic.POINTS,
-    ConfigTopic.UNITS,
-)
 
 
 @dataclass(frozen=True, slots=True)

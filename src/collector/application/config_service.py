@@ -5,8 +5,8 @@ commit current config」的编排；具体的设备/sink 增删重建、Task Ins
 重新展开与点表重注入全部由 :meth:`CollectorRuntime.reconfigure` 执行——
 本服务不直接触碰任何运行时组件。
 
-配置加载与指纹计算是 Infrastructure 关注点，经构造注入的可调用对象完成
-（与 Commander 同一模式）——Application 层不 import Infrastructure。
+配置加载与目录摘要计算是 Infrastructure 关注点，经构造注入的可调用对象
+完成（与 Commander 同一模式）——Application 层不 import Infrastructure。
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 #: 配置加载器——Infrastructure 注入；加载失败抛 ConfigError。
 ConfigLoader = Callable[[], CollectorConfig]
 
-#: 配置目录指纹——Infrastructure 注入（TOCTOU 校验用）。
-ConfigFingerprint = Callable[[], str]
+#: 配置目录摘要——Infrastructure 注入（TOCTOU 校验与 RPC config_hash 契约）。
+ConfigDigest = Callable[[], str]
 
 
 class CollectorConfigService:
@@ -57,12 +57,12 @@ class CollectorConfigService:
         current_config: CollectorConfig,
         *,
         load_config: ConfigLoader,
-        fingerprint: ConfigFingerprint,
+        config_digest: ConfigDigest,
         config_hash: str,
     ) -> None:
         self._runtime = runtime
         self._load_config = load_config
-        self._fingerprint = fingerprint
+        self._config_digest = config_digest
         self._config_hash = config_hash
         self._active_revision = "startup"
         self._prepared_revision: str | None = None
@@ -98,7 +98,7 @@ class CollectorConfigService:
 
     @property
     def config_hash(self) -> str:
-        """当前已提交配置快照对应的 YAML 指纹。"""
+        """当前已提交配置快照对应的配置目录摘要。"""
         return self._config_hash
 
     @property
@@ -113,7 +113,7 @@ class CollectorConfigService:
 
     @property
     def prepared_hash(self) -> str | None:
-        """返回当前已准备配置的指纹。"""
+        """返回当前已准备配置的摘要。"""
         return self._prepared_hash
 
     async def prepare_config(
@@ -123,7 +123,7 @@ class CollectorConfigService:
         *,
         force_reconfigure: bool = False,
     ) -> ReloadResult:
-        """加载并校验候选配置，校验指纹后保存候选快照。"""
+        """加载并校验候选配置，校验摘要后保存候选快照。"""
         started = time.monotonic()
         if not revision_id:
             return ReloadResult(
@@ -134,9 +134,9 @@ class CollectorConfigService:
             )
 
         try:
-            before_hash = self._fingerprint()
+            before_hash = self._config_digest()
             candidate = self._load_config()
-            candidate_hash = self._fingerprint()
+            candidate_hash = self._config_digest()
             if before_hash != candidate_hash:
                 raise ValueError(
                     "config changed while preparing: "

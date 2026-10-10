@@ -7,7 +7,7 @@ import pytest
 from commander.infrastructure.config import load_commander_config
 from core.application import ConfigError
 from core.domain import DeviceId, PointAccess, PointTableId
-from core.infrastructure.config import fingerprint_config_set
+from core.infrastructure.config import config_dir_digest
 from tests.support.new_commander import (
     write_minimal_config_tree,
     write_yaml,
@@ -360,14 +360,14 @@ def test_unsupported_protocol_rejected(tmp_path):
         load_commander_config(config_dir)
 
 
-def test_fingerprint_stable_and_history_skipped(tmp_path):
+def test_config_dir_digest_stable_and_history_skipped(tmp_path):
     config_dir = write_minimal_config_tree(tmp_path)
-    first = fingerprint_config_set(config_dir)
-    assert first == fingerprint_config_set(config_dir)
+    first = config_dir_digest(config_dir)
+    assert first == config_dir_digest(config_dir)
     history = config_dir / ".history"
     history.mkdir()
     write_yaml(history, "points.yaml", {"point_tables": {}})
-    assert fingerprint_config_set(config_dir) == first
+    assert config_dir_digest(config_dir) == first
 
 
 def test_ads_local_identity_loaded(tmp_path):

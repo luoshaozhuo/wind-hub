@@ -39,7 +39,7 @@ def _service(config: CollectorConfig, candidate: CollectorConfig):
         runtime,
         config,
         load_config=lambda: state["config"],
-        fingerprint=lambda: state["hash"],
+        config_digest=lambda: state["hash"],
         config_hash="h1",
     )
     return service, runtime
@@ -312,7 +312,7 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
         runtime,
         config,
         load_config=lambda: state["config"],
-        fingerprint=lambda: state["hash"],
+        config_digest=lambda: state["hash"],
         config_hash="h1",
     )
 
