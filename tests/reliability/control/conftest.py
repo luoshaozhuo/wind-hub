@@ -60,7 +60,7 @@ async def proxied_stack(
     proxy = WriteResponseDropProxy("127.0.0.1", modbus_server.port, free_port())
     await proxy.start()
 
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = write_functional_config(
         tmp_path / "cfg",
         proxy.port,

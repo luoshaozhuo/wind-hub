@@ -179,7 +179,7 @@ def write_config_tree(
                 {
                     "name": "s1",
                     "type": "file",
-                    "connection": {"path": "/tmp/wind-hub-test.jsonl"},
+                    "connection": {"path": "/tmp/wind-hub-test.csv"},
                 }
             ]
         },

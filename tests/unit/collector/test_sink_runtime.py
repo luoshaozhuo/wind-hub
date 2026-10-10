@@ -120,7 +120,7 @@ async def test_add_sink_after_start_opens_and_consumes():
     )
 
     cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.jsonl")
+        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.csv")
     )
     await runtime.add_sink("s1", cfg, sink)
     assert sink.open_calls == 1
@@ -138,7 +138,7 @@ async def test_add_sink_open_failure_leaves_registry_unchanged():
     from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.jsonl")
+        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.csv")
     )
     with pytest.raises(ConnectionError):
         await runtime.add_sink("s1", cfg, sink)
@@ -165,7 +165,7 @@ async def test_rebuild_open_first_for_regular_sink():
     from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/y.jsonl")
+        name="s1", type="file", connection=FileSinkConnection(path="/tmp/y.csv")
     )
     await runtime.rebuild_sink("s1", cfg, new)
     assert new.open_calls == 1
@@ -181,11 +181,11 @@ async def test_rebuild_close_first_for_exclusive_sink_and_restores_on_failure():
     new = FakeSink(exclusive=True)
     new.fail_open = True
     from core.application.sink_config import (
-        IEC104SinkConnection,
+        ModbusSinkConnection,
         ResolvedSinkConfig,
     )
 
-    cfg = ResolvedSinkConfig(name="s1", type="iec104", connection=IEC104SinkConnection())
+    cfg = ResolvedSinkConfig(name="s1", type="modbus", connection=ModbusSinkConnection())
     with pytest.raises(ConnectionError):
         await runtime.rebuild_sink("s1", cfg, new)
     # close-first：旧实例已关闭；open 失败后尽力恢复旧实例
@@ -202,7 +202,7 @@ async def test_apply_diff_requires_factory_before_any_removal():
     from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     new_cfg = ResolvedSinkConfig(
-        name="new", type="file", connection=FileSinkConnection(path="/tmp/z.jsonl")
+        name="new", type="file", connection=FileSinkConnection(path="/tmp/z.csv")
     )
     diff = SinkDiff(added=["new"], removed=["old"])
     with pytest.raises(RuntimeError, match="sink factory"):
@@ -226,10 +226,10 @@ async def test_apply_diff_add_remove_update():
 
     runtime._sink_factory = factory
     cfg_keep = ResolvedSinkConfig(
-        name="keep", type="file", connection=FileSinkConnection(path="/tmp/k2.jsonl")
+        name="keep", type="file", connection=FileSinkConnection(path="/tmp/k2.csv")
     )
     cfg_new = ResolvedSinkConfig(
-        name="new", type="file", connection=FileSinkConnection(path="/tmp/n.jsonl")
+        name="new", type="file", connection=FileSinkConnection(path="/tmp/n.csv")
     )
     diff = SinkDiff(added=["new"], removed=["drop"], updated=["keep"])
     await runtime.apply_diff(diff, {"keep": cfg_keep, "new": cfg_new})

@@ -458,7 +458,7 @@ class TestCrossFileValidation:
                         "name": "s1",
                         "type": "file",
                         "enabled": False,
-                        "connection": {"path": "/tmp/disabled.jsonl"},
+                        "connection": {"path": "/tmp/disabled.csv"},
                     }
                 ],
                 tasks=[_task()],

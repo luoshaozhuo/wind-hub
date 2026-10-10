@@ -17,7 +17,6 @@ import contextlib
 import logging
 import tempfile
 import time
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,7 +69,7 @@ class SoakProfile:
     name: str
     groups: tuple[LoadGroup, ...]
     sink: str = "null"
-    """``null``（仅计量）/ ``kafka`` / ``postgres``（真实 sink + 计量包装）。"""
+    """当前仅支持 null 计量 Sink。"""
     write_interval_s: float | None = None
     """混合读写：测量窗口内按该间隔轮询下发写命令；None 表示纯采集。"""
     storm: ReconnectStorm | None = None
@@ -110,17 +109,6 @@ PROFILES: dict[str, SoakProfile] = {
         name="mixed_read_write",
         groups=(LoadGroup(name="rw", devices=2, points_per_device=50, interval_s=0.2),),
         write_interval_s=0.2,
-    ),
-    # 真实 sink 输出开销。
-    "kafka_output": SoakProfile(
-        name="kafka_output",
-        groups=(LoadGroup(name="out", devices=2, points_per_device=100, interval_s=0.2),),
-        sink="kafka",
-    ),
-    "postgres_output": SoakProfile(
-        name="postgres_output",
-        groups=(LoadGroup(name="out", devices=2, points_per_device=100, interval_s=0.2),),
-        sink="postgres",
     ),
     # 重连风暴：5 次停起（每次停 2s，间隔 4s），验证节拍在反复断连下的
     # 保持能力。风暴总时长 = 5 × (4 + 2) = 30s，测量窗口须覆盖。
@@ -170,11 +158,6 @@ def write_soak_config(
     profile: SoakProfile,
     host: str,
     port: int,
-    *,
-    kafka_bootstrap: str | None = None,
-    kafka_topic: str | None = None,
-    postgres_dsn: str | None = None,
-    postgres_table: str | None = None,
 ) -> Path:
     """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
 
@@ -223,27 +206,8 @@ def write_soak_config(
                 }
             )
 
-    sink_connection: dict[str, object] = {}
-    if profile.sink == "kafka":
-        if kafka_bootstrap is None or kafka_topic is None:
-            raise ValueError("kafka profile 需要 kafka_bootstrap / kafka_topic")
-        sink_connection = {"bootstrap_servers": kafka_bootstrap, "topic": kafka_topic}
-    elif profile.sink == "postgres":
-        if postgres_dsn is None or postgres_table is None:
-            raise ValueError("postgres profile 需要 postgres_dsn / postgres_table")
-        sink_connection = {
-            "dsn": postgres_dsn,
-            "table": postgres_table,
-            "create_table": True,
-        }
-
-    sink_type = {
-        "null": "file",
-        "kafka": "kafka",
-        "postgres": "db",
-    }[profile.sink]
-    if profile.sink == "null":
-        sink_connection = {"path": str(config_dir / "soak-null.jsonl")}
+    sink_type = "file"
+    sink_connection: dict[str, object] = {"path": str(config_dir / "soak-null.csv")}
     system = {
         "runtime": {
             "queue_maxsize": 1_000_000,
@@ -278,10 +242,6 @@ async def run_soak(
     port: int = DEFAULT_SOAK_PORT,
     duration_s: float = 30.0,
     warmup_s: float = 3.0,
-    kafka_bootstrap: str | None = None,
-    postgres_dsn: str | None = None,
-    kafka_topic: str | None = None,
-    postgres_table: str | None = None,
     netem_devices: list[str] | None = None,
     netem_scenario: NetemScenario | None = None,
     on_ready: Callable[[], None] | None = None,
@@ -294,36 +254,21 @@ async def run_soak(
         port: Modbus server 端口。
         duration_s: 测量时长（秒）。
         warmup_s: 预热时长（秒，不计入统计）。
-        kafka_bootstrap / postgres_dsn: 真实 sink profile 的服务地址。
-        kafka_topic / postgres_table: 显式 topic/表名（测试要做独立消费/
-            SQL 核验时传入）；缺省每次运行随机生成，避免历史数据干扰计数。
         netem_devices / netem_scenario: 同时给出时在测量前应用 netem 场景。
         on_ready: 预热结束、测量窗口开始的回调（长 soak 用来打边界日志）。
     """
     if duration_s <= 0 or warmup_s < 0:
         raise ValueError("duration_s 必须为正，warmup_s 不能为负")
 
-    topic = kafka_topic or f"windhub-soak-{uuid.uuid4().hex[:12]}"
-    table = postgres_table or f"windhub_soak_{uuid.uuid4().hex[:12]}"
     recording_holder: list[RecordingSink] = []
 
     def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
-        inner = None
-        if profile.sink == "kafka":
-            from collector.infrastructure.sink.mq.kafka import KafkaSink
-
-            inner = KafkaSink(cfg)
-        elif profile.sink == "postgres":
-            from collector.infrastructure.sink.db.postgres import DBSink
-
-            inner = DBSink(cfg)
-        sink = RecordingSink(inner)
+        del cfg
+        sink = RecordingSink()
         recording_holder.append(sink)
         return sink
 
-    # null 形态配置里是 file sink（占位），真实 sink 形态对应 kafka/db——
-    # 统一按类型覆盖工厂，注入计量包装。
-    sink_type = {"null": "file", "kafka": "kafka", "postgres": "db"}[profile.sink]
+    sink_type = "file"
 
     controllers = [NetemController(dev) for dev in (netem_devices or [])]
     task_intervals = {
@@ -339,10 +284,6 @@ async def run_soak(
             profile,
             host,
             port,
-            kafka_bootstrap=kafka_bootstrap,
-            kafka_topic=topic,
-            postgres_dsn=postgres_dsn,
-            postgres_table=table,
         )
         await server.start()
         try:
@@ -470,9 +411,10 @@ def _make_cycle_observer(
 class _ConnectEventCounter:
     """精确统计驱动层 TCP 建连成功次数（风暴场景的重连计数）。
 
-    为什么不能依赖 1s 健康采样：在途读要等底层超时耗尽才向驱动抛出
-    失败，期间 ``driver.health()`` 自认健康；断连后的透明恢复又可能在
-    两次采样之间完成。不健康窗口可能远小于采样周期，任何固定频率采样
+    为什么不能依赖 1s 健康采样：pymodbus 内部重试会吸收停服——在途读
+    要等重试预算耗尽（约 3 × transaction timeout）才向驱动抛出失败，
+    期间 ``driver.health()`` 自认健康；真正断连后驱动的后台 monitor 又
+    在百毫秒内重连成功。不健康窗口可能只有 ~0.1s，任何固定频率采样
     都会漏计，且漏不漏取决于停服与轮询的相位对齐（抖动即 flake）。
 
     RecoveringProtocol 每次真正发起建连都要经过 ``_connect_once``

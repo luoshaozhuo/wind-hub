@@ -23,7 +23,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = pytest.mark.real_service
 
@@ -115,7 +115,7 @@ class TestCollectorRestart:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
 
         # ---- 第一个实例：正常采集后优雅停机 ----
@@ -131,7 +131,7 @@ class TestCollectorRestart:
         await wait_file_rows(sink_path, min_rows=3)
         exit_code = proc_a.terminate()
         assert exit_code == 0
-        baseline = len(read_jsonl(sink_path))
+        baseline = len(read_csv(sink_path))
         assert baseline >= 3
 
         # ---- 同配置重启：控制面恢复、读可用、采集可重新启动 ----
@@ -159,7 +159,7 @@ class TestSubscriptionRestartPending:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
@@ -211,7 +211,7 @@ class TestSubscriptionRestartPending:
         )
 
         # ---- 下一次 reload 重试 pending 的订阅重建：成功且数据恢复 ----
-        rows_before = len(read_jsonl(sink_path))
+        rows_before = len(read_csv(sink_path))
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-recovered"
         )

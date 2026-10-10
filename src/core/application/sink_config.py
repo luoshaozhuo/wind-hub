@@ -9,15 +9,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from core.application.errors import ConfigError
 from core.domain import DataType
 
-SINK_TYPES = frozenset({"file", "kafka", "db", "iec104", "opcua", "modbus"})
+SINK_TYPES = frozenset({"file", "modbus", "redis"})
 SINK_DATA_TYPES = frozenset(data_type.value for data_type in DataType)
 
 SINK_NUMERIC_DATA_TYPES = frozenset(
@@ -69,97 +70,38 @@ class FileSinkConnection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     path: str
-    format: Literal["jsonl", "csv"] = "jsonl"
-    max_size_mb: float | None = Field(default=None, gt=0)
-    max_age_hours: float | None = Field(default=None, gt=0)
-    compress: bool = False
-    compress_level: int = Field(default=6, ge=1, le=9)
-    buffer_size: int = Field(default=100, ge=1)
-    flush_interval: float = Field(default=1.0, ge=0)
-    write_header: bool = True
+    max_size_mb: float = Field(default=100, gt=0, allow_inf_nan=False)
+    max_files: int = Field(default=30, ge=1)
 
     @field_validator("path")
     @classmethod
     def _validate_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ConfigError("File sink path must be non-empty")
+        if not value.strip() or Path(value).suffix.lower() not in ("", ".csv"):
+            raise ConfigError("File sink path must be a directory or .csv file")
         return value
 
+    @property
+    def max_size_bytes(self) -> int:
+        return max(1, int(self.max_size_mb * 1024 * 1024))
 
-class KafkaSinkConnection(BaseModel):
+
+class RedisSinkConnection(BaseModel):
+    """Redis 最新点值输出连接。"""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    bootstrap_servers: str | list[str]
-    topic: str
-    key_field: Literal["device_id", "point_id", "source"] | None = None
-    compression_type: Literal["gzip", "snappy", "lz4", "zstd"] | None = None
-    acks: Literal["all", 0, 1] = "all"
-    batch_size: int = Field(default=16384, ge=1)
-    linger_ms: int = Field(default=0, ge=0)
+    host: str = "localhost"
+    port: int = Field(default=6379, ge=1, le=65535)
+    database: int = Field(default=0, ge=0)
+    password: SecretStr | None = None
+    key_prefix: str = "wind-hub"
 
-    @model_validator(mode="after")
-    def _validate_required_text(self) -> KafkaSinkConnection:
-        servers = self.bootstrap_servers
-        if isinstance(servers, str):
-            valid_servers = bool(servers.strip())
-        else:
-            valid_servers = bool(servers) and all(
-                isinstance(item, str) and bool(item.strip()) for item in servers
-            )
-        if not valid_servers:
-            raise ConfigError("Kafka sink bootstrap_servers must be non-empty")
-        if not self.topic.strip():
-            raise ConfigError("Kafka sink topic must be non-empty")
-        return self
-
-
-class DatabaseSinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True, frozen=True)
-
-    dsn: str
-    table: str
-    batch_size: int = Field(default=1000, ge=1)
-    create_table: bool = False
-    table_schema: dict[str, str] | None = Field(default=None, alias="schema")
-    pool_min_size: int = Field(default=1, ge=1)
-    pool_max_size: int = Field(default=10, ge=1)
-    write_timeout: float = Field(default=5.0, gt=0)
-
-    @field_validator("write_timeout", mode="before")
+    @field_validator("host", "key_prefix")
     @classmethod
-    def _reject_bool_write_timeout(cls, value: object) -> object:
-        if isinstance(value, bool):
-            raise ConfigError("Database sink write_timeout must be a positive number")
+    def _nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ConfigError("Redis host/key_prefix must not be empty")
         return value
-
-    @model_validator(mode="after")
-    def _validate_required_text(self) -> DatabaseSinkConnection:
-        if not self.dsn.strip():
-            raise ConfigError("Database sink dsn must be non-empty")
-        if not self.table.strip():
-            raise ConfigError("Database sink table must be non-empty")
-        return self
-
-    @model_validator(mode="after")
-    def _validate_pool_sizes(self) -> DatabaseSinkConnection:
-        if self.pool_min_size > self.pool_max_size:
-            raise ConfigError("Database sink pool_min_size must be <= pool_max_size")
-        return self
-
-
-class IEC104SinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    host: str = "0.0.0.0"
-    port: int = Field(default=2404, ge=1, le=65535)
-    common_address: int = Field(default=1, ge=0, le=0xFFFF)
-
-
-class OPCUASinkConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    host: str = "0.0.0.0"
-    port: int = Field(default=4840, ge=1, le=65535)
-    endpoint: str = "/wind-hub"
-    namespace: int = Field(default=2, ge=1)
 
 
 class ModbusSinkConnection(BaseModel):
@@ -168,14 +110,7 @@ class ModbusSinkConnection(BaseModel):
     port: int = Field(default=502, ge=1, le=65535)
 
 
-SinkConnection = (
-    FileSinkConnection
-    | KafkaSinkConnection
-    | DatabaseSinkConnection
-    | IEC104SinkConnection
-    | OPCUASinkConnection
-    | ModbusSinkConnection
-)
+SinkConnection = FileSinkConnection | ModbusSinkConnection | RedisSinkConnection
 
 
 class StreamSinkAddress(BaseModel):
@@ -184,27 +119,6 @@ class StreamSinkAddress(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     field: str
-
-
-class IEC104SinkAddress(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    ioa: int = Field(ge=0, le=0xFFFFFF)
-    type_id: Literal[
-        "M_SP_NA_1",
-        "M_DP_NA_1",
-        "M_ME_NA_1",
-        "M_ME_NB_1",
-        "M_ME_NC_1",
-        "M_SP_TB_1",
-        "M_DP_TB_1",
-        "M_ME_TF_1",
-    ]
-
-
-class OPCUASinkAddress(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    node_id: str
-    browse_name: str | None = None
 
 
 class ModbusSinkAddress(BaseModel):
@@ -216,24 +130,18 @@ class ModbusSinkAddress(BaseModel):
     word_order: Literal["big", "little"] = "big"
 
 
-SinkAddress = StreamSinkAddress | IEC104SinkAddress | OPCUASinkAddress | ModbusSinkAddress
+SinkAddress = StreamSinkAddress | ModbusSinkAddress
 
 _CONNECTION_TYPES: dict[str, type[BaseModel]] = {
     "file": FileSinkConnection,
-    "kafka": KafkaSinkConnection,
-    "db": DatabaseSinkConnection,
-    "iec104": IEC104SinkConnection,
-    "opcua": OPCUASinkConnection,
     "modbus": ModbusSinkConnection,
+    "redis": RedisSinkConnection,
 }
 
 _ADDRESS_TYPES: dict[str, tuple[type[BaseModel], ...]] = {
     "file": (StreamSinkAddress,),
-    "kafka": (StreamSinkAddress,),
-    "db": (StreamSinkAddress,),
-    "iec104": (IEC104SinkAddress,),
-    "opcua": (OPCUASinkAddress,),
     "modbus": (ModbusSinkAddress,),
+    "redis": (StreamSinkAddress,),
 }
 
 
@@ -411,22 +319,16 @@ class SinksConfig(BaseModel):
         names = [sink.name for sink in self.sinks]
         if len(names) != len(set(names)):
             raise ConfigError(f"Duplicate sink names: {names}")
+        from core.application.sink_validation import validate_sink_definitions
+
+        validate_sink_definitions(self.sinks)
         return self
 
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
     if isinstance(address, StreamSinkAddress):
         return ("stream", address.field)
-    if isinstance(address, IEC104SinkAddress):
-        return ("iec104", address.ioa)
-    if isinstance(address, OPCUASinkAddress):
-        return ("opcua", address.node_id)
-    return (
-        "modbus",
-        address.unit_id,
-        address.register_type,
-        address.address,
-    )
+    return ("modbus", address.unit_id, address.register_type, address.address)
 
 
 __all__ = [
@@ -436,14 +338,9 @@ __all__ = [
     "MODBUS_WORD_WIDTH",
     "SinkSource",
     "FileSinkConnection",
-    "KafkaSinkConnection",
-    "DatabaseSinkConnection",
-    "IEC104SinkConnection",
-    "OPCUASinkConnection",
     "ModbusSinkConnection",
+    "RedisSinkConnection",
     "StreamSinkAddress",
-    "IEC104SinkAddress",
-    "OPCUASinkAddress",
     "ModbusSinkAddress",
     "SinkAddress",
     "SinkPoint",

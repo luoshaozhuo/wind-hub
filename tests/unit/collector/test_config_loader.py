@@ -288,7 +288,7 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
@@ -314,7 +314,7 @@ def test_sink_unknown_point_rejected(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "ghost"},
@@ -343,7 +343,7 @@ def test_sink_scale_on_bool_source_rejected(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
@@ -392,7 +392,7 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_iec104_sink_type_id_datatype_mismatch_rejected(tmp_path):
+def test_retired_iec104_sink_type_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
         sinks=[
@@ -409,7 +409,7 @@ def test_iec104_sink_type_id_datatype_mismatch_rejected(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="requires datatype 'bool'"):
+    with pytest.raises(ConfigError, match="Invalid sinks configuration"):
         load_collector_config(config_dir)
 
 
@@ -421,7 +421,7 @@ def test_disabled_sink_not_a_valid_task_target(tmp_path):
                 "name": "s1",
                 "type": "file",
                 "enabled": False,
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [],
             }
         ],

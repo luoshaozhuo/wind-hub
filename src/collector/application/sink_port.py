@@ -12,65 +12,10 @@ SinkRegistry 与 ``core.infrastructure.ProtocolRegistry`` 同一设计语言：
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
 
-from core.application import ConfigError, ConnectionHealth
+from core.application import ConfigError
+from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.application.sink_config import ResolvedSinkConfig
-
-from ..domain.point_value import PointValue
-
-
-class SinkPort(Protocol):
-    """点值批量交付的 outbound port。
-
-    实现可以是文件、Kafka、数据库等外部介质。Sink 只接收 Runtime 已
-    路由好的 PointValue，不感知 Task Definition、设备协议或控制面。
-    """
-
-    async def open(self) -> None:
-        """初始化外部 Sink 资源。"""
-        ...
-
-    async def close(self) -> None:
-        """释放 Sink 资源。
-
-        必须支持幂等调用；实现应在关闭前处理自己的缓存和连接。
-        """
-        ...
-
-    async def write(self, batch: list[PointValue]) -> None:
-        """写入一批 PointValue。
-
-        Args:
-            batch: Runtime 已决定路由到该 Sink 的点值。
-        """
-        ...
-
-    async def flush(self) -> None:
-        """强制把实现内部缓冲提交到底层介质。
-
-        优雅停机阶段会调用该方法，以尽量降低已进入 Sink 的数据丢失风险。
-        """
-        ...
-
-    def health(self) -> ConnectionHealth:
-        """返回缓存的 Sink 健康状态；不得在该同步接口中执行阻塞 I/O。"""
-        ...
-
-
-@runtime_checkable
-class ExclusiveOpenSinkPort(Protocol):
-    """可选 Sink 能力：重建时必须先关闭旧实例才能打开新实例。
-
-    典型场景是监听固定 TCP 端口的 server 型 Sink。Runtime 仅在实现该
-    能力且 exclusive_open 为 True 时采用 close-first 替换策略。
-    """
-
-    @property
-    def exclusive_open(self) -> bool:
-        """是否要求同名 Sink 重建采用 close-first。"""
-        ...
-
 
 SinkFactory = Callable[[ResolvedSinkConfig], SinkPort]
 
@@ -127,3 +72,5 @@ class SinkRegistry:
                 f"Unknown sink type '{cfg.type}'. " f"Registered types: {sorted(self._factories)}"
             )
         return factory(cfg)
+
+__all__ = ["SinkPort", "ExclusiveOpenSinkPort", "SinkFactory", "SinkRegistry"]

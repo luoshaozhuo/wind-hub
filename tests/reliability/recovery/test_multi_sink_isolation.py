@@ -25,7 +25,7 @@ from tests.support.control import apply_placement_and_start_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.wait import (
-    read_jsonl,
+    read_csv,
     wait_file_rows,
     wait_kafka_messages,
     wait_postgres_rows,
@@ -59,7 +59,7 @@ class TestKafkaOutageIsolation:
     ) -> None:
         """SINK-01：Kafka 挂掉期间 File 持续增长；Kafka 恢复后重新出数。"""
         topic = f"windhub-iso-{uuid.uuid4().hex[:12]}"
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
@@ -95,7 +95,7 @@ class TestKafkaOutageIsolation:
             broker_stopped = True
 
             # ---- 隔离：File 数据流不停，采集与进程不受影响 ----
-            rows_before = len(read_jsonl(sink_path))
+            rows_before = len(read_csv(sink_path))
             await _assert_file_flow_continues(sink_path, rows_before)
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)
@@ -123,7 +123,7 @@ class TestPostgresOutageIsolation:
     ) -> None:
         """SINK-02：PostgreSQL 挂掉期间 File 持续增长；DB 恢复后重新落库。"""
         table = f"windhub_iso_{uuid.uuid4().hex[:12]}"
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
@@ -163,7 +163,7 @@ class TestPostgresOutageIsolation:
             db_stopped = True
 
             # ---- 隔离：File 数据流不停，采集与进程不受影响 ----
-            rows_before = len(read_jsonl(sink_path))
+            rows_before = len(read_csv(sink_path))
             await _assert_file_flow_continues(sink_path, rows_before)
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)

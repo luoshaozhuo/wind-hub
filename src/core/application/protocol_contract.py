@@ -12,8 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal, TypeAlias
 
-PointScalar: TypeAlias = float | int | bool | str | None
-WritableScalar: TypeAlias = float | int | bool | str
+from core.domain.sample_value import PointScalar, Quality, WritableScalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,13 +62,6 @@ class ProtocolCapability(StrEnum):
     SUBSCRIBE = "subscribe"
     INTERROGATE = "interrogate"
 
-
-class Quality(StrEnum):
-    """统一协议点值质量。"""
-
-    GOOD = "good"
-    BAD = "bad"
-    UNCERTAIN = "uncertain"
 
 
 TimestampSource: TypeAlias = Literal["device", "local"]
@@ -129,3 +121,9 @@ def validate_read_many_results(
                 f"read_many result mismatch at position {index}: "
                 f"requested '{point_id}', got '{sample.point_id}'"
             )
+
+__all__ = [
+    "PointScalar", "WritableScalar", "Quality", "TimestampSource",
+    "ConnectionHealth", "ProtocolWrite", "ProtocolWriteResult",
+    "ProtocolCapability", "ProtocolSample", "validate_read_many_results",
+]

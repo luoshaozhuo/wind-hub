@@ -31,7 +31,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -59,7 +59,7 @@ class TestReconnectFlapStability:
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -88,7 +88,7 @@ class TestReconnectFlapStability:
             await _single_running_instance(proc)
 
         # 数据面在最后一次恢复后继续出数。
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=settled + 2)
 
         reconnects = (
@@ -116,7 +116,7 @@ class TestReloadStability:
         buffer_size（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -144,7 +144,7 @@ class TestReloadStability:
             await _single_running_instance(proc)
 
         # 采集在最后一轮配置下继续出数。
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=settled + 2)
         await asyncio.sleep(1.0)  # 等最后一轮重建的旧句柄完成释放
 

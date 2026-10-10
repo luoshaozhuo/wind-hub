@@ -17,7 +17,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess, run_ctl_async
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -33,7 +33,7 @@ class TestProcessKillRecovery:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
@@ -58,7 +58,7 @@ class TestProcessKillRecovery:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 
-        baseline = len(read_jsonl(sink_path))
+        baseline = len(read_csv(sink_path))
         await apply_placement_and_start_instance(
             proc_b.grpc_target,
             task_id=TASK_ID,
@@ -74,7 +74,7 @@ class TestProcessKillRecovery:
         tmp_path: Path,
     ) -> None:
         """采集中途 SIGKILL：已落盘数据不得损坏（JSONL 每行可解析）。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(
             config_dir, collector_id=WORKER_ID
@@ -89,6 +89,6 @@ class TestProcessKillRecovery:
         proc.kill_tree()
 
         # 落盘文件必须保持可解析——不允许半截行破坏后续消费。
-        rows = read_jsonl(sink_path)
+        rows = read_csv(sink_path)
         assert rows, "rows flushed before kill must survive"
         assert all(r["device_id"] == "modbus-1" for r in rows)

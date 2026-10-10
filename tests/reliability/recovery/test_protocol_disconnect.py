@@ -18,7 +18,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import ctl_status, wait_status, write_modbus_file_config
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -33,7 +33,7 @@ class TestProtocolDisconnectRecovery:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
@@ -54,9 +54,9 @@ class TestProtocolDisconnectRecovery:
         )
         # 数据面静默：先等残余缓冲落盘，再确认行数在数个采集周期内不再增长。
         await asyncio.sleep(1.0)
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await asyncio.sleep(0.8)
-        assert len(read_jsonl(sink_path)) == settled
+        assert len(read_csv(sink_path)) == settled
 
         # ---- 主进程存活：控制面正常应答 ----
         assert proc.is_running()

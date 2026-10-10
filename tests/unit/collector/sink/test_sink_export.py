@@ -10,9 +10,9 @@ from collector.application.sink_export import SinkReferenceExporter
 from collector.domain.point_value import PointValue
 from core.application import Quality
 from core.application.sink_config import (
-    IEC104SinkAddress,
     ResolvedSinkPoint,
     SinkSource,
+    StreamSinkAddress,
 )
 
 
@@ -31,7 +31,7 @@ def _definition(
         unit="meter_per_second",
         scale=scale,
         offset=offset,
-        address=IEC104SinkAddress(ioa=40101, type_id="M_ME_NC_1"),
+        address=StreamSinkAddress(field="wind_speed"),
     )
 
 

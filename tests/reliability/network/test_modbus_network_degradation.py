@@ -29,7 +29,7 @@ from tests.reliability.recovery.helpers import ctl_status, telemetry_task, wait_
 from tests.support.config_helper import write_config_tree
 from tests.support.control import apply_placement_and_start_instance, metrics_snapshot
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -70,7 +70,7 @@ async def _start_stack(
     collector_factory, link: NetemLink, tmp_path: Path
 ) -> tuple[CollectorProcess, Path]:
     """起 Collector 并确认故障前基线：设备已连接、数据在出。"""
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = _write_config(tmp_path / "cfg", link, sink_path)
     proc: CollectorProcess = await collector_factory(config_dir)
     await apply_placement_and_start_instance(
@@ -99,7 +99,7 @@ async def _assert_link_healthy(
     采样是严格断言（不是 wait_until）——任何一次 ``devices_connected``
     掉 0 都是假断连，测试失败。
     """
-    rows_before = len(read_jsonl(sink_path))
+    rows_before = len(read_csv(sink_path))
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
         status = await ctl_status(proc)

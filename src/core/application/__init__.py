@@ -20,8 +20,10 @@ from .port import (
     ConfigSnapshotPort,
     ConfigTopic,
     ConfigValue,
+    ExclusiveOpenSinkPort,
     ProtocolPort,
     ProtocolSampleCallback,
+    SinkPort,
     SubscriptionHandle,
 )
 from .protocol_contract import (
@@ -57,6 +59,8 @@ __all__ = [
     "ProtocolError",
     "ProtocolFactory",
     "ProtocolPort",
+    "SinkPort",
+    "ExclusiveOpenSinkPort",
     "ProtocolRegistry",
     "ProtocolSample",
     "ProtocolSampleCallback",

@@ -108,7 +108,7 @@ def write_functional_config(
             {
                 "name": "null_sink",
                 "type": "file",
-                "connection": {"path": "/tmp/wind-hub-null.jsonl"},
+                "connection": {"path": "/tmp/wind-hub-null.csv"},
             }
         ],
         tasks=tasks if tasks is not None else [dict(DEFAULT_TASK)],

@@ -23,7 +23,7 @@ from tests.reliability.recovery.helpers import wait_status, write_modbus_file_co
 from tests.support.control import apply_placement_and_start_instance, reload_config
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -51,7 +51,7 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
 def _rows_with_value(sink_path: Path, value: float) -> list[dict]:
     return [
         r
-        for r in read_jsonl(sink_path)
+        for r in read_csv(sink_path)
         if r["point_id"] == "rotor.speed" and r["value"] == pytest.approx(value)
     ]
 
@@ -72,7 +72,7 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-03a：在线迁移 port——Sink 出现 B 值后不再读到 A，连接数保持 1。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -113,7 +113,7 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-03b：在线迁移 host（127.0.0.1 → 127.0.0.2）——真实修改 host 字段。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -148,7 +148,7 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-04：掉线期间迁移 endpoint——A 不恢复，reload 后直连 B 并出数。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -187,7 +187,7 @@ class TestEndpointMigration:
         tmp_path: Path,
     ) -> None:
         """DEV-05：迁移到不可达 endpoint——不得残留假 healthy，修正后恢复。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -242,7 +242,7 @@ class TestReloadDuringReconnect:
         8s 以后；正确行为是重建状态、立即连接（<5s）。最后重启 A，验证旧
         协议实例不会复活（不再出现 A 值）。
         """
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(

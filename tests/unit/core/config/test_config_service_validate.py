@@ -231,7 +231,7 @@ def _sinks(**point_kwargs):
             SinkConfig(
                 name="s1",
                 type="file",
-                connection={"path": "/tmp/out.jsonl"},
+                connection={"path": "/tmp/out.csv"},
                 points=[_sink_point(**point_kwargs)],
             )
         ]

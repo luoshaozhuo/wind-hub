@@ -171,7 +171,7 @@ def write_perf_config(config_dir: Path, protocol: str, host: str, port: int) -> 
                 "name": "perf_null",
                 "type": "file",
                 "enabled": True,
-                "connection": {"path": str(config_dir / "perf-null.jsonl")},
+                "connection": {"path": str(config_dir / "perf-null.csv")},
             }
         ],
         tasks=[

@@ -36,7 +36,7 @@ class TestSinkConfig:
         return SinkConfig(
             name=name,
             type="file",
-            connection={"path": f"/tmp/{name}.jsonl"},
+            connection={"path": f"/tmp/{name}.csv"},
         )
 
     def test_duplicate_sink_names_raises(self) -> None:

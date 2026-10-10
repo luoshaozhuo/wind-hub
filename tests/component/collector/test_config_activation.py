@@ -281,8 +281,8 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
     """Sink 重建抛错：Task 阶段仍应用，baseline 保持，修复后重试全量收敛。"""
     from collector.application.config import CollectionTask
 
-    config = make_collector_config(sinks={"s1": _file_sink_cfg("s1", "/tmp/a.jsonl")})
-    new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.jsonl")}
+    config = make_collector_config(sinks={"s1": _file_sink_cfg("s1", "/tmp/a.csv")})
+    new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.csv")}
     new_tasks = {
         "t1": CollectionTask(
             task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
@@ -329,5 +329,5 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
 
     retry = await service.reload()
     assert retry.success, retry.errors
-    assert service.current_config.sinks["s1"].connection.path == "/tmp/b.jsonl"  # type: ignore[union-attr]
+    assert service.current_config.sinks["s1"].connection.path == "/tmp/b.csv"  # type: ignore[union-attr]
     assert "s1" in runtime.sinks
