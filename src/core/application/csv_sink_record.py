@@ -8,8 +8,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-
 from typing import Protocol
+
 from core.domain.point_value import PointValue
 
 class FileRotationOptions(Protocol):
