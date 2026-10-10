@@ -18,7 +18,8 @@ from .codec import (
     parse_system_config,
     parse_tasks_config,
 )
-from .yaml import read_yaml_mapping
+from .point_table_writer import dump_point_tables
+from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 
 class FullYamlConfigAdapter:
@@ -95,4 +96,11 @@ class FullYamlConfigAdapter:
             sinks=sink_map,
             protocol_options_by_device=assembly.protocol_options_by_device,
             point_meta=assembly.point_meta,
+        )
+
+    def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
+        """根据完整父子 PointTable 差异保存 points.yaml。"""
+        write_yaml_mapping_atomic(
+            self._base / "points.yaml",
+            dump_point_tables(snapshot.point_tables, snapshot.point_meta),
         )
