@@ -186,6 +186,7 @@ def assemble_core_config(
             point_table_id=table_id,
             protocol=Protocol(table_definition.protocol),
             points=points,
+            parent_id=(PointTableId(table_definition.parent_id) if table_definition.parent_id else None),
         )
         point_meta[table_id] = meta
 
