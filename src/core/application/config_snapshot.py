@@ -22,7 +22,7 @@ from core.domain import (
     Task,
 )
 from core.domain.device import ProtocolOptions, freeze_protocol_options
-from core.domain.config import SystemConfig
+from .settings import SystemSettings
 from core.application.sink_config import SinkConfig
 
 
@@ -30,7 +30,7 @@ from core.application.sink_config import SinkConfig
 class ConfigSnapshot:
     """共享领域配置快照；没有 YAML 包装类型。"""
 
-    system: SystemConfig
+    system: SystemSettings
     device_types: Mapping[DeviceTypeId, DeviceType]
     device_models: Mapping[DeviceModelId, DeviceModel]
     device_groups: Mapping[DeviceGroupId, DeviceGroup]
