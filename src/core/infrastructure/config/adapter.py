@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from shutil import copy2
 
 from core.application.config_snapshot import ConfigSnapshot
+from core.application.config_diff import diff_config_snapshots
 from core.application.errors import ConfigError
 from core.domain import Site, Task, validate_core_config
 
@@ -19,6 +22,7 @@ from .codec import (
     parse_tasks_config,
 )
 from .point_table_writer import dump_point_tables
+from .snapshot_writer import dump_snapshot
 from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 
@@ -105,8 +109,24 @@ class YamlConfigAdapter:
         )
 
     def save(self, snapshot: ConfigSnapshot) -> None:
-        """完整保存尚未实现；拒绝静默丢弃其他配置节。"""
-        raise NotImplementedError("Full configuration save is not implemented")
+        """先在临时目录完整验证，避免将不等价快照写回配置目录。"""
+        documents = dump_snapshot(snapshot)
+        with TemporaryDirectory(prefix="wind-hub-config-") as directory:
+            staging = Path(directory)
+            for path in self._base.glob("*.yaml"):
+                copy2(path, staging / path.name)
+            for filename, data in documents.items():
+                write_yaml_mapping_atomic(staging / filename, data)
+            restored = YamlConfigAdapter(staging).load()
+            difference = diff_config_snapshots(snapshot, restored)
+            if difference.has_changes:
+                raise ConfigError(
+                    "Cannot save configuration losslessly: "
+                    f"changed sections={tuple(name for name, part in difference.sections.items() if part.has_changes)}, "
+                    f"site_changed={difference.site_changed}, system_changed={difference.system_changed}"
+                )
+            for filename, data in documents.items():
+                write_yaml_mapping_atomic(self._base / filename, data)
 
     def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
         """根据完整父子 PointTable 差异保存 points.yaml。"""
