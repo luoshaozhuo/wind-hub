@@ -1,6 +1,5 @@
 """完整 Core YAML 配置关键不变量与无损往返。"""
 
-from dataclasses import replace
 from pathlib import Path
 from shutil import copy2
 
