@@ -15,6 +15,7 @@ from .identities import (
     PointTableId,
 )
 from .point import BusinessPoint, PointTable
+from .sink import Sink
 from .task import Task, validate_task_references
 from .unit import UNIT_CATALOG, Quantity, Unit
 from .value_objects import DataType
@@ -31,6 +32,7 @@ def validate_core_config(
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
     tasks: Mapping[str, Task] | None = None,
     sink_ids: Collection[str] = (),
+    sinks: Mapping[str, Sink] | None = None,
 ) -> None:
     """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
     _validate_identity(device_types, "device_types", "device_type_id")
@@ -45,6 +47,8 @@ def validate_core_config(
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
     _validate_device_options(protocol_options_by_device, devices)
+    if sinks is not None:
+        _validate_sinks(sinks, devices, device_models, point_tables)
     if tasks is not None:
         validate_task_references(tasks, device_groups, sink_ids)
 
@@ -200,3 +204,26 @@ def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
     canonical = UNIT_CATALOG.get(unit.code)
     if canonical is None or unit != canonical:
         raise ValueError(f"{context} must use canonical built-in unit '{unit.code.value}'")
+
+
+def _validate_sinks(
+    sinks: Mapping[str, Sink],
+    devices: Mapping[DeviceId, Device],
+    models: Mapping[DeviceModelId, DeviceModel],
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """检查 Sink 的稳定引用；连接与地址类型由 YAML Adapter 校验。"""
+    _validate_identity(sinks, "sinks", "sink_id")
+    for sink_id, sink in sinks.items():
+        for point in sink.points:
+            source = point.get("source")
+            if not isinstance(source, Mapping):
+                raise ValueError(f"sink '{sink_id}' point requires a source mapping")
+            device_id = source.get("device_id")
+            point_id = source.get("point_id")
+            device = devices.get(device_id)
+            if device is None:
+                raise ValueError(f"sink '{sink_id}' unknown device '{device_id}'")
+            table = tables[models[device.device_model_id].point_table_id]
+            if point_id not in table.points:
+                raise ValueError(f"sink '{sink_id}' unknown point '{point_id}' on '{device_id}'")
