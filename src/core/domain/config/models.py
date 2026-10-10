@@ -246,11 +246,22 @@ class DeviceInstanceConfig:
     model: str
     device_group: str | None
     endpoint: EndpointConfig
+    device_groups: tuple[str, ...] = ()
     enabled: bool
 
     def __post_init__(self) -> None:
         _require_non_empty(self.device_id, "Device device_id")
         _require_non_empty(self.model, f"Device '{self.device_id}' model")
+        groups = tuple(self.device_groups)
+        if self.device_group is not None:
+            if groups:
+                raise ValueError("device_group and device_groups are mutually exclusive")
+            groups = (self.device_group,)
+        if not groups or any(not isinstance(group, str) or not group.strip() for group in groups):
+            raise ValueError(f"Device '{self.device_id}': at least one group is required")
+        if len(set(groups)) != len(groups):
+            raise ValueError(f"Device '{self.device_id}': duplicate groups")
+        object.__setattr__(self, "device_groups", groups)
         if not isinstance(self.enabled, bool):
             raise ValueError(f"Device '{self.device_id}': enabled must be a boolean")
 
