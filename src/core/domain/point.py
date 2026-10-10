@@ -20,8 +20,6 @@ class BusinessPoint:
     data_type: DataType
     standard_unit: Unit
     description: str | None = None
-    variable_name: str | None = None
-    point_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         business_point_id = self.business_point_id.strip()
@@ -54,6 +52,8 @@ class Point:
     offset: float = 0.0
     ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
     description: str | None = None
+    variable_name: str | None = None
+    point_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
