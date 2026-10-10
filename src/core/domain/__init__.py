@@ -25,6 +25,7 @@ from .point import (
     engineering_value,
     raw_write_value,
 )
+from .site import Site
 from .task import Task, devices_for_task, validate_task_references
 from .unit import (
     AMPERE,
@@ -131,6 +132,7 @@ __all__ = [
     "STANDARD_GRAVITY",
     "UNIT_CATALOG",
     "Unit",
+    "Site",
     "Task",
     "devices_for_task",
     "validate_task_references",
