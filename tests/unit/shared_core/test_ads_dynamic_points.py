@@ -46,16 +46,10 @@ class _Connection:
 def _driver(
     connection: _Connection,
     *,
-    read_mode: str = "sequential",
     point_table: PointTable | None = None,
 ) -> ADSDriver:
-    table = (
-        point_table
-        if point_table is not None
-        else PointTable("ads", Protocol("ads"), {})
-    )
-    options = {"read_mode": read_mode} if read_mode != "sum" else {}
-    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, options)
+    table = point_table if point_table is not None else PointTable("ads", Protocol("ads"), {})
+    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     driver._connection = connection
     driver._connected = True
     return driver
@@ -280,7 +274,7 @@ class TestDynamicReadMany:
         import pyads
 
         monkey_connection = _SumConnection()
-        driver = _driver(monkey_connection, read_mode="sum")
+        driver = _driver(monkey_connection, )
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(driver_module, "_pyads", lambda: pyads)
         try:
