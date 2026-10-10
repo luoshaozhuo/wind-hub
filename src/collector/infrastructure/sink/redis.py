@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 from collector.application.errors import SinkError
 from core.application.protocol_contract import ConnectionHealth
@@ -56,10 +57,8 @@ class RedisSink:
         self._reader = None
         if writer is not None:
             writer.close()
-            try:
+            with suppress(ConnectionError, OSError, TimeoutError):
                 await asyncio.wait_for(writer.wait_closed(), timeout=5.0)
-            except (ConnectionError, OSError, TimeoutError):
-                pass
         self._healthy = False
 
     async def open(self) -> None:
