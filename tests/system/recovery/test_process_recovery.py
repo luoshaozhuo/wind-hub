@@ -26,7 +26,7 @@ from tests.support.process import (
     start_server,
 )
 from tests.support.wait import (
-    read_jsonl,
+    read_csv,
     wait_commander_ready,
     wait_file_rows,
     wait_grpc_ready,
@@ -49,7 +49,7 @@ async def _start_task(stack: FullStack) -> None:
 
 async def _rows_grow(path: Path, *, window: float = 3.0, min_growth: int = 2) -> None:
     """在测量窗口内 sink 行数必须增长（采集自治性判据）。"""
-    before = len(read_jsonl(path))
+    before = len(read_csv(path))
     await wait_file_rows(path, min_rows=before + min_growth, timeout=window + 7.0)
 
 
