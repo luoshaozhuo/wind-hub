@@ -41,7 +41,7 @@ def _points_with_bad_address() -> dict[str, Any]:
 
 
 def _file_sink(tmp_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Path]:
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     sinks = [
         {
             "name": "file_sink",
