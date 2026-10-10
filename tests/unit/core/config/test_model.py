@@ -36,7 +36,7 @@ class TestSinkConfig:
         return SinkConfig(
             name=name,
             type="file",
-            connection={"path": f"/tmp/{name}.jsonl"},
+            connection={"path": f"/tmp/{name}.csv"},
         )
 
     def test_duplicate_sink_names_raises(self) -> None:
@@ -48,9 +48,9 @@ class TestSinkConfig:
             sinks=[
                 self._file("archive"),
                 SinkConfig(
-                    name="kafka",
-                    type="kafka",
-                    connection={"bootstrap_servers": "localhost:9092", "topic": "raw"},
+                    name="redis",
+                    type="redis",
+                    connection={"host": "localhost", "port": 6379},
                 ),
             ]
         )
