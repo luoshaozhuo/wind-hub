@@ -18,13 +18,13 @@ from core.domain import (
     DeviceTypeId,
     PointTable,
     PointTableId,
-    Site,
     Sink,
+    Site,
     Task,
 )
 from core.domain.device import ProtocolOptions, freeze_protocol_options
-from .settings import SystemSettings
 
+from .settings import SystemSettings
 
 @dataclass(frozen=True, slots=True)
 class ConfigSnapshot:
