@@ -108,7 +108,13 @@ def dump_snapshot(
         "tasks.yaml": {"tasks": tasks},
         "sinks.yaml": {
             "sinks": [
-                _yaml_plain(sink.model_dump(mode="python", by_alias=True))
+                {
+                    "name": sink.sink_id,
+                    "type": sink.kind,
+                    "enabled": sink.enabled,
+                    "connection": _yaml_plain(sink.connection),
+                    "points": _yaml_plain(sink.points),
+                }
                 for sink in snapshot.sinks.values()
             ],
         },
