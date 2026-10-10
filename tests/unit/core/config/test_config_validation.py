@@ -1,10 +1,10 @@
-"""ConfigService.validate 单主题与跨主题校验测试。"""
+"""validate_config 单主题与跨主题校验测试。"""
 
 from __future__ import annotations
 
 import pytest
 
-from core.application import ConfigError, ConfigService
+from core.application import ConfigError, validate_config
 from core.application.port import ConfigTopic
 from core.domain.config import (
     DeviceInstanceConfig,
@@ -21,21 +21,6 @@ from core.domain.config import (
     UnitDefinitionConfig,
     UnitsConfig,
 )
-
-
-class _NullPort:
-    """validate 不访问 Port——read/save 不应被调用。"""
-
-    def read(self, topic):  # pragma: no cover
-        raise AssertionError("validate must not read")
-
-    def save(self, topic, config):  # pragma: no cover
-        raise AssertionError("validate must not save")
-
-
-@pytest.fixture
-def service():
-    return ConfigService(_NullPort())
 
 
 def _models(point_table: str = "tab", protocol: str = "modbus") -> DeviceModelsConfig:
@@ -102,16 +87,16 @@ def _units() -> UnitsConfig:
 # ---------------------------------------------------------------------------
 
 
-def test_validate_single_topic_without_related(service):
-    service.validate(ConfigTopic.DEVICE_MODELS, _models())
-    service.validate(ConfigTopic.DEVICES, _devices(model="anything"))
-    service.validate(ConfigTopic.POINTS, _points(unit="anything"))
-    service.validate(ConfigTopic.UNITS, _units())
+def test_validate_single_topic_without_related():
+    validate_config(ConfigTopic.DEVICE_MODELS, _models())
+    validate_config(ConfigTopic.DEVICES, _devices(model="anything"))
+    validate_config(ConfigTopic.POINTS, _points(unit="anything"))
+    validate_config(ConfigTopic.UNITS, _units())
 
 
-def test_validate_rejects_topic_type_mismatch(service):
+def test_validate_rejects_topic_type_mismatch():
     with pytest.raises(ConfigError, match="expects config of type"):
-        service.validate(ConfigTopic.DEVICES, _units())
+        validate_config(ConfigTopic.DEVICES, _units())
 
 
 # ---------------------------------------------------------------------------
@@ -119,60 +104,60 @@ def test_validate_rejects_topic_type_mismatch(service):
 # ---------------------------------------------------------------------------
 
 
-def test_validate_reports_missing_related_topics(service):
+def test_validate_reports_missing_related_topics():
     with pytest.raises(ConfigError, match="cannot fully validate"):
-        service.validate(ConfigTopic.DEVICES, _devices(), related={})
+        validate_config(ConfigTopic.DEVICES, _devices(), related={})
     with pytest.raises(ConfigError, match="cannot fully validate"):
-        service.validate(ConfigTopic.TASKS, TasksConfig(tasks=()), related={})
+        validate_config(ConfigTopic.TASKS, TasksConfig(tasks=()), related={})
 
 
-def test_validate_device_models_against_points(service):
-    service.validate(
+def test_validate_device_models_against_points():
+    validate_config(
         ConfigTopic.DEVICE_MODELS,
         _models(),
         related={ConfigTopic.POINTS: _points()},
     )
     with pytest.raises(ConfigError, match="unknown point_table"):
-        service.validate(
+        validate_config(
             ConfigTopic.DEVICE_MODELS,
             _models(point_table="ghost"),
             related={ConfigTopic.POINTS: _points()},
         )
     with pytest.raises(ConfigError, match="does not match"):
-        service.validate(
+        validate_config(
             ConfigTopic.DEVICE_MODELS,
             _models(protocol="iec104"),
             related={ConfigTopic.POINTS: _points()},
         )
 
 
-def test_validate_devices_against_models(service):
-    service.validate(
+def test_validate_devices_against_models():
+    validate_config(
         ConfigTopic.DEVICES,
         _devices(),
         related={ConfigTopic.DEVICE_MODELS: _models()},
     )
     with pytest.raises(ConfigError, match="unknown model"):
-        service.validate(
+        validate_config(
             ConfigTopic.DEVICES,
             _devices(model="ghost"),
             related={ConfigTopic.DEVICE_MODELS: _models()},
         )
 
 
-def test_validate_points_against_units(service):
-    service.validate(
+def test_validate_points_against_units():
+    validate_config(
         ConfigTopic.POINTS, _points(), related={ConfigTopic.UNITS: _units()}
     )
     with pytest.raises(ConfigError, match="unknown unit"):
-        service.validate(
+        validate_config(
             ConfigTopic.POINTS,
             _points(unit="m/s"),
             related={ConfigTopic.UNITS: _units()},
         )
 
 
-def test_validate_tasks_cross_references(service):
+def test_validate_tasks_cross_references():
     related = {
         ConfigTopic.DEVICE_MODELS: _models(),
         ConfigTopic.DEVICES: _devices(),
@@ -182,13 +167,13 @@ def test_validate_tasks_cross_references(service):
     ok = TasksConfig(
         tasks=(TaskConfig(task_id="t", point_group="g", targets=("s1",), device="dev1"),)
     )
-    service.validate(ConfigTopic.TASKS, ok, related=related)
+    validate_config(ConfigTopic.TASKS, ok, related=related)
 
     bad_device = TasksConfig(
         tasks=(TaskConfig(task_id="t", point_group="g", targets=("s1",), device="ghost"),)
     )
     with pytest.raises(ConfigError, match="unknown device"):
-        service.validate(ConfigTopic.TASKS, bad_device, related=related)
+        validate_config(ConfigTopic.TASKS, bad_device, related=related)
 
     bad_group = TasksConfig(
         tasks=(
@@ -196,7 +181,7 @@ def test_validate_tasks_cross_references(service):
         )
     )
     with pytest.raises(ConfigError, match="unknown device_group"):
-        service.validate(ConfigTopic.TASKS, bad_group, related=related)
+        validate_config(ConfigTopic.TASKS, bad_group, related=related)
 
     bad_point_group = TasksConfig(
         tasks=(
@@ -204,13 +189,13 @@ def test_validate_tasks_cross_references(service):
         )
     )
     with pytest.raises(ConfigError, match="matches no point"):
-        service.validate(ConfigTopic.TASKS, bad_point_group, related=related)
+        validate_config(ConfigTopic.TASKS, bad_point_group, related=related)
 
     bad_sink = TasksConfig(
         tasks=(TaskConfig(task_id="t", point_group="g", targets=("ghost",), device="dev1"),)
     )
     with pytest.raises(ConfigError, match="unknown sink"):
-        service.validate(ConfigTopic.TASKS, bad_sink, related=related)
+        validate_config(ConfigTopic.TASKS, bad_sink, related=related)
 
 
 def _sink_point(device_id: str = "dev1", point_id: str = "p1", unit: str | None = None):
@@ -238,23 +223,23 @@ def _sinks(**point_kwargs):
     )
 
 
-def test_validate_sinks_cross_references(service):
+def test_validate_sinks_cross_references():
     related = {
         ConfigTopic.DEVICE_MODELS: _models(),
         ConfigTopic.DEVICES: _devices(),
         ConfigTopic.POINTS: _points(),
         ConfigTopic.UNITS: _units(),
     }
-    service.validate(ConfigTopic.SINKS, _sinks(), related=related)
+    validate_config(ConfigTopic.SINKS, _sinks(), related=related)
 
     with pytest.raises(ConfigError, match="unknown device"):
-        service.validate(ConfigTopic.SINKS, _sinks(device_id="ghost"), related=related)
+        validate_config(ConfigTopic.SINKS, _sinks(device_id="ghost"), related=related)
 
     with pytest.raises(ConfigError, match="unknown point"):
-        service.validate(ConfigTopic.SINKS, _sinks(point_id="ghost"), related=related)
+        validate_config(ConfigTopic.SINKS, _sinks(point_id="ghost"), related=related)
 
     with pytest.raises(ConfigError, match="unknown unit"):
-        service.validate(ConfigTopic.SINKS, _sinks(unit="m/s"), related=related)
+        validate_config(ConfigTopic.SINKS, _sinks(unit="m/s"), related=related)
 
 
 # ---------------------------------------------------------------------------
@@ -347,35 +332,35 @@ def _group_related(
     }
 
 
-def test_group_task_same_table_passes(service):
+def test_group_task_same_table_passes():
     """同组两设备共用同一张含目标组的点表：通过。"""
     related = _group_related(
         devices_order=(("dev1", "mod_a"), ("dev2", "mod_a")),
         tab_a_group="g",
     )
-    service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+    validate_config(ConfigTopic.TASKS, _group_task(), related=related)
 
 
-def test_group_task_different_tables_all_contain_group_passes(service):
+def test_group_task_different_tables_all_contain_group_passes():
     """同组两设备不同点表、两张表都含目标组：通过。"""
-    service.validate(ConfigTopic.TASKS, _group_task(), related=_group_related())
+    validate_config(ConfigTopic.TASKS, _group_task(), related=_group_related())
 
 
-def test_group_task_partial_table_coverage_rejected(service):
+def test_group_task_partial_table_coverage_rejected():
     """同组两张点表只有一张含目标组：拒绝（与运行时逐设备校验一致）。"""
     related = _group_related(tab_a_group="g", tab_b_group=None)
     with pytest.raises(ConfigError, match="matches no point"):
-        service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+        validate_config(ConfigTopic.TASKS, _group_task(), related=related)
 
 
-def test_group_task_no_table_contains_group_rejected(service):
+def test_group_task_no_table_contains_group_rejected():
     """同组所有点表均不含目标组：拒绝。"""
     related = _group_related(tab_a_group=None, tab_b_group=None)
     with pytest.raises(ConfigError, match="matches no point"):
-        service.validate(ConfigTopic.TASKS, _group_task(point_group="g"), related=related)
+        validate_config(ConfigTopic.TASKS, _group_task(point_group="g"), related=related)
 
 
-def test_group_task_validation_is_order_independent(service):
+def test_group_task_validation_is_order_independent():
     """devices.yaml 中设备声明顺序调换，校验结果不变。"""
     forward = _group_related(
         devices_order=(("dev1", "mod_a"), ("dev2", "mod_b")),
@@ -389,7 +374,7 @@ def test_group_task_validation_is_order_independent(service):
     )
     for related in (forward, reversed_order):
         with pytest.raises(ConfigError, match="matches no point"):
-            service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+            validate_config(ConfigTopic.TASKS, _group_task(), related=related)
 
     ok_forward = _group_related(
         devices_order=(("dev1", "mod_a"), ("dev2", "mod_b")),
@@ -397,20 +382,20 @@ def test_group_task_validation_is_order_independent(service):
     ok_reversed = _group_related(
         devices_order=(("dev2", "mod_b"), ("dev1", "mod_a")),
     )
-    service.validate(ConfigTopic.TASKS, _group_task(), related=ok_forward)
-    service.validate(ConfigTopic.TASKS, _group_task(), related=ok_reversed)
+    validate_config(ConfigTopic.TASKS, _group_task(), related=ok_forward)
+    validate_config(ConfigTopic.TASKS, _group_task(), related=ok_reversed)
 
 
-def test_group_tables_do_not_leak_across_groups(service):
+def test_group_tables_do_not_leak_across_groups():
     """不同设备组的点表互不影响：wind 组校验不看 solar 组的表。"""
     related = _group_related(tab_a_group="g", tab_b_group=None)
     # wind 组：dev1(mod_a, tab_a 含 g) + dev2(mod_b, tab_b 不含 g) → 拒绝
     with pytest.raises(ConfigError, match="matches no point"):
-        service.validate(ConfigTopic.TASKS, _group_task(), related=related)
+        validate_config(ConfigTopic.TASKS, _group_task(), related=related)
     # 只含 dev1 的 solar 组任务：tab_a 含 g → 通过
     solar_related = _group_related(
         devices_order=(("dev1", "mod_a"),),
         tab_a_group="g",
         group="solar",
     )
-    service.validate(ConfigTopic.TASKS, _group_task(group="solar"), related=solar_related)
+    validate_config(ConfigTopic.TASKS, _group_task(group="solar"), related=solar_related)

@@ -5,7 +5,7 @@
 与持久化代码。Collector、Commander 直接引用这些对象。
 
 跨文件引用一致性（设备→型号→点表等）不属于单个 VO 的职责，由共享配置
-校验规则统一处理（见 ``core.application.config_service`` 与
+校验规则统一处理（见 ``core.application.config_validation`` 与
 ``core.infrastructure.config.assembly``）。
 
 不变量违反抛出 :class:`ValueError`；文件解析层负责将其转换为

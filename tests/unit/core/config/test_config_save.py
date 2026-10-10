@@ -1,4 +1,4 @@
-"""ConfigService.save / YamlConfigAdapter.save 语义测试。
+"""YamlConfigAdapter.save 语义测试。
 
 - 各主题 read→save→read 语义等价；
 - 点表保存为继承展开后的完整形式（无 extends/remove_points）；
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.application import ConfigError, ConfigService
+from core.application import ConfigError
 from core.application.port import ConfigTopic
 from core.application.sink_config import SinksConfig
 from core.domain.config import (
@@ -92,7 +92,7 @@ def site(tmp_path):
 
 
 def test_read_save_read_roundtrip_all_topics(site):
-    service = ConfigService(YamlConfigAdapter(site))
+    service = YamlConfigAdapter(site)
     for topic in ALL_TOPICS:
         original = service.read(topic)
         service.save(topic, original)
@@ -102,7 +102,7 @@ def test_read_save_read_roundtrip_all_topics(site):
 
 def test_save_points_expands_inheritance(site):
     """保存后的 points.yaml 不含 extends/remove_points，点位为完整展开形式。"""
-    service = ConfigService(YamlConfigAdapter(site))
+    service = YamlConfigAdapter(site)
     points = service.read(ConfigTopic.POINTS)
     service.save(ConfigTopic.POINTS, points)
 
@@ -115,7 +115,7 @@ def test_save_points_expands_inheritance(site):
 
 
 def test_save_rejects_topic_type_mismatch(site):
-    service = ConfigService(YamlConfigAdapter(site))
+    service = YamlConfigAdapter(site)
     units = service.read(ConfigTopic.UNITS)
     with pytest.raises(ConfigError, match="expects config of type"):
         service.save(ConfigTopic.DEVICES, units)
@@ -151,7 +151,7 @@ def test_save_validates_before_writing(site):
 
 
 def test_failed_save_leaves_no_temp_files_and_preserves_original(site, monkeypatch):
-    service = ConfigService(YamlConfigAdapter(site))
+    service = YamlConfigAdapter(site)
     original_bytes = (site / "tasks.yaml").read_bytes()
 
     def boom(*args, **kwargs):
@@ -175,7 +175,7 @@ def test_failed_save_leaves_no_temp_files_and_preserves_original(site, monkeypat
 
 
 def test_save_does_not_touch_other_topic_files(site):
-    service = ConfigService(YamlConfigAdapter(site))
+    service = YamlConfigAdapter(site)
     before = {p.name: p.read_bytes() for p in site.glob("*.yaml")}
     service.save(ConfigTopic.UNITS, service.read(ConfigTopic.UNITS))
     for name, content in before.items():
@@ -206,8 +206,7 @@ def test_save_constructed_vos_roundtrip(tmp_path):
     _write(site / "units.yaml", "units: {}\n")
     _write(site / "tasks.yaml", "tasks: []\n")
     _write(site / "sinks.yaml", "sinks: []\n")
-    adapter = YamlConfigAdapter(site)
-    service = ConfigService(adapter)
+    service = YamlConfigAdapter(site)
 
     system = SystemConfig(
         site=SiteIdentity(site_id="s2", name="现场"),
