@@ -27,7 +27,6 @@ def validate_task_targets(
     - ``device`` 必须存在（含 disabled——disabled 设备不命中实例展开，
       但引用本身合法，与旧行为一致由 ``matched`` 为空体现）；
     - ``device_group`` 至少匹配一台设备（含 disabled，与旧行为一致）；
-    - 命中的 enabled 设备必须全部支持周期采集（ADS ``sequential`` 报错）；
     - interval 是否必填按命中设备的协议采集能力判定；
     - ``point_group`` 必须在每台命中 enabled 设备的绑定点表中存在；
     - 每个 target sink 必须已定义且 enabled。
@@ -64,13 +63,6 @@ def validate_task_targets(
                 f"Task '{task.task_id}': device_group '{task.device_group}' " "matches no device"
             )
 
-    unsupported = [str(d.device_id) for d in matched if not _supports_scheduled(assembly, d)]
-    if unsupported:
-        raise ConfigError(
-            f"Task '{task.task_id}': devices {unsupported} do not support "
-            "scheduled collection (ADS read_mode='sequential' is single-read only)"
-        )
-
     # interval 是否必填按命中设备的协议采集能力判定：主动轮询（Modbus、
     # ADS Sum）与 ADS 订阅（notification cycle_time）都需要节拍；纯
     # IEC104 订阅由远端决定数据到达时机，不要求 interval。混合命中时
@@ -98,14 +90,6 @@ def validate_task_targets(
 
 def _device_protocol(assembly: CoreConfigAssembly, device: Device) -> str:
     return assembly.point_table_for_device(device.device_id).protocol.name
-
-
-def _supports_scheduled(assembly: CoreConfigAssembly, device: Device) -> bool:
-    """ADS ``sequential`` 设备只允许请求式读取，不参与周期采集。"""
-    if _device_protocol(assembly, device) != "ads":
-        return True
-    options = assembly.protocol_options_for(device.device_id)
-    return options.get("read_mode") != "sequential"
 
 
 def _point_groups(
