@@ -18,7 +18,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth
-from core.application.recovery import RecoveringProtocol
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -73,10 +72,6 @@ class DeviceRuntime:
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
-        # RecoveringProtocol 在读路径内透明重连时对上层不可见——把重连事件接回
-        # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
-        for device_id, device in devices.items():
-            self._wire_reconnect_hook(device_id, device)
 
     @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
@@ -91,9 +86,23 @@ class DeviceRuntime:
         """热更新运行时参数快照——``connect_timeout`` 在每次 connect 动态读取。"""
         self._params = params
 
-    def health(self) -> dict[str, ConnectionHealth]:
-        """按注册顺序读取设备协议健康状态。"""
-        return {device_id: device.health() for device_id, device in self._devices.items()}
+    async def health(self) -> dict[str, ConnectionHealth]:
+        """并发执行全部设备的协议级健康检查。"""
+        items = list(self._devices.items())
+        results = await asyncio.gather(
+            *(device.health() for _device_id, device in items),
+            return_exceptions=True,
+        )
+        health: dict[str, ConnectionHealth] = {}
+        for (device_id, _device), result in zip(items, results, strict=True):
+            if isinstance(result, BaseException):
+                health[device_id] = ConnectionHealth(
+                    healthy=False,
+                    message=f"health check failed: {result}",
+                )
+            else:
+                health[device_id] = result
+        return health
 
     # ------------------------------------------------------------------
     # 热更新判定（CollectorRuntime 在 reconfigure 时调用）
@@ -269,10 +278,6 @@ class DeviceRuntime:
     ) -> bool:
         """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
         now = self._clock()
-        # 读路径的透明重连回调（sync hook）可能在 connect 等待期间抢先完成
-        # 恢复并已记账——此时本次 connect 在 RecoveringProtocol 内幂等返回，
-        # 不再重复计一次重连指标。
-        pre_success_at = state.last_success_at
         try:
             await asyncio.wait_for(device.connect(), timeout=self._params.connect_timeout)
         except TimeoutError:
@@ -290,9 +295,8 @@ class DeviceRuntime:
             else:
                 logger.warning("Device '%s' reconnect attempt failed", device_id, exc_info=True)
             return False
-        recovered_by_hook = state.last_success_at != pre_success_at
         state.mark_success(now)
-        if self._metrics is not None and not recovered_by_hook:
+        if self._metrics is not None:
             self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
         logger.info("Device '%s' reconnected", device_id)
         return True
@@ -337,7 +341,6 @@ class DeviceRuntime:
         self._devices[device_id] = session
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
-        self._wire_reconnect_hook(device_id, session)
         await self._connect_new(device_id, session, "connected")
 
     async def remove_device(self, device_id: str) -> None:
@@ -408,34 +411,6 @@ class DeviceRuntime:
                 device_id,
                 exc_info=True,
             )
-
-    def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
-        """把 RecoveringProtocol 读路径内透明重连事件接回运行状态与指标。
-
-        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveringProtocol
-        的迟到重连回调（在途读触发的恢复晚于新会话注册）不得改写新会话的
-        运行状态或重复记账指标——以注册表中的会话身份做失效判定，无需额外
-        generation 计数。
-        """
-        protocol = session.protocol
-        if isinstance(protocol, RecoveringProtocol):
-
-            def _on_reconnect(session: CollectorDeviceSession = session) -> None:
-                if self._devices.get(device_id) is session:
-                    self._on_transparent_reconnect(device_id)
-
-            protocol.set_reconnect_hook(_on_reconnect)
-
-    def _on_transparent_reconnect(self, device_id: str) -> None:
-        """透明重连成功——恢复 connected 状态并如实记账一次重连。
-
-        状态恢复使下一周期 ``ensure_connected`` 走快路径，避免对同一次
-        断线重复 connect/重复计数。
-        """
-        self._state_for(device_id).mark_success(self._clock())
-        if self._metrics is not None:
-            self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
-        logger.info("Device '%s' reconnected (transparent reconnect in read path)", device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
         """取设备运行状态；缺失时惰性创建（引擎只对已注册设备调用）。"""
