@@ -31,3 +31,21 @@ def test_load_example_modbus_without_units_file() -> None:
 def test_full_loader_rejects_absent_yaml(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="Configuration file not found"):
         FullYamlConfigAdapter(tmp_path).load()
+
+
+def test_full_loader_requires_business_point_catalog(tmp_path: Path) -> None:
+    """不再隐式合成 BusinessPoint；目录必须提供 business_points.yaml。"""
+    import shutil
+
+    source = ROOT / "configs" / "example_modbus"
+    for filename in (
+        "system.yaml",
+        "device_models.yaml",
+        "devices.yaml",
+        "points.yaml",
+        "tasks.yaml",
+        "sinks.yaml",
+    ):
+        shutil.copyfile(source / filename, tmp_path / filename)
+    with pytest.raises(Exception, match="business_points.yaml"):
+        FullYamlConfigAdapter(tmp_path).load()
