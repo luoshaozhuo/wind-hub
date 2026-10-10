@@ -9,11 +9,9 @@ from types import MappingProxyType
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
-    Device,
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
-    Site,
     DeviceModel,
     DeviceModelId,
     DeviceType,
@@ -21,6 +19,7 @@ from core.domain import (
     PointMeta,
     PointTable,
     PointTableId,
+    Site,
     Task,
 )
 from core.domain.device import ProtocolOptions
