@@ -382,7 +382,7 @@ _ENDPOINT_KEYS = {"host", "port", "extensions"}
 
 
 def parse_devices_config(raw: Mapping[str, Any]) -> DevicesConfig:
-    _reject_unknown(raw, {"devices"}, "devices.yaml")
+    _reject_unknown(raw, {"devices", "device_groups"}, "devices.yaml")
     items = _required(raw, "devices", "devices.yaml")
     if not isinstance(items, list):
         raise ConfigError("devices.yaml 'devices' must be a list")
