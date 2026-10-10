@@ -95,6 +95,22 @@ class SinkRegistry:
             raise ConfigError(f"Sink type '{type_name}' is already registered")
         self._factories[type_name] = factory
 
+    def override(self, type_name: str, factory: SinkFactory) -> None:
+        """替换已注册类型的 factory（测试/资格工具注入计量或空 Sink 的 seam）。
+
+        与 :meth:`register` 不同，本方法要求类型已存在——只允许替换内置
+        类型的构造行为，不允许借覆盖路径新增配置白名单外的类型。
+
+        Raises:
+            ConfigError: 类型未注册。
+        """
+        if type_name not in self._factories:
+            raise ConfigError(
+                f"Sink type '{type_name}' is not registered. "
+                f"Registered types: {sorted(self._factories)}"
+            )
+        self._factories[type_name] = factory
+
     def registered_types(self) -> tuple[str, ...]:
         """返回已注册 Sink 类型名（排序后快照）。"""
         return tuple(sorted(self._factories))

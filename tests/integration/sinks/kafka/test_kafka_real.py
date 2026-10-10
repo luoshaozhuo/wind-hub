@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 
 import pytest
 
+from collector.domain.point_value import PointValue
+from collector.infrastructure.sink.mq.kafka import KafkaSink
+from core.application.errors import ConfigError
+from core.application.sink_config import SinkConfig
 from tests.support.wait import wait_kafka_messages
-from wind_hub_collector.adapter.outbound.sink.mq.kafka import KafkaSink
-from wind_hub_core.config import SinkConfig
-from wind_hub_core.model.errors import ConfigError
-from wind_hub_core.model.point import PointValue
 
 # 默认路径由 Docker Compose 拉起真实服务（外部实例经环境变量接管）；
 # 服务真实性显式标注，不计入 mock。
@@ -28,7 +28,7 @@ def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue
     return PointValue(
         device_id=device_id,
         point_id=point_id,
-        value=value,
+        value=value,  # type: ignore[arg-type]
         timestamp=datetime(2026, 10, 2, 8, 0, 0, tzinfo=UTC),
         source="integration-test",
     )
@@ -43,7 +43,7 @@ def _sink(bootstrap: str, topic: str, **params: object) -> KafkaSink:
         SinkConfig(
             name="kafka",
             type="kafka",
-            connection={"bootstrap_servers": bootstrap, "topic": topic, **params},
+            connection={"bootstrap_servers": bootstrap, "topic": topic, **params},  # type: ignore[arg-type]
         )
     )
 
@@ -94,7 +94,7 @@ class TestKafkaProduce:
 class TestKafkaConfigValidation:
     def test_missing_bootstrap_rejected(self) -> None:
         with pytest.raises(ConfigError, match="bootstrap_servers"):
-            KafkaSink(SinkConfig(name="kafka", type="kafka", connection={"topic": "t"}))
+            KafkaSink(SinkConfig(name="kafka", type="kafka", connection={"topic": "t"}))  # type: ignore[arg-type]
 
     def test_missing_topic_rejected(self, kafka_service: str) -> None:
         with pytest.raises(ConfigError, match="topic"):
@@ -102,7 +102,7 @@ class TestKafkaConfigValidation:
                 SinkConfig(
                     name="kafka",
                     type="kafka",
-                    connection={"bootstrap_servers": kafka_service},
+                    connection={"bootstrap_servers": kafka_service},  # type: ignore[arg-type]
                 )
             )
 

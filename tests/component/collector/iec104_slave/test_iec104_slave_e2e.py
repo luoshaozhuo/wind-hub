@@ -1,14 +1,21 @@
-"""IEC104 Sink TCP component test（c104 从站 × c104 测试主站）。"""
+"""IEC104 Sink TCP component test（c104 从站 × c104 测试主站）。
+
+单元测试（tests/unit/collector/sink/test_iec104_sink.py）不建立外部主站
+连接；本文件保留真实 wire 覆盖：真实 IEC104Sink 从站 × 独立 c104 主站
+（tests/support/iec104_master.py）总召回收值，经真实 TCP/ASDU 往返验证。
+"""
 
 from __future__ import annotations
 
 import pytest
 
+from collector.domain.point_value import PointValue
+from collector.infrastructure.sink.iec104 import IEC104Sink
+from core.application.sink_config import ResolvedSinkConfig
 from tests.support.iec104_master import IEC104MasterClient
 from tests.support.process import free_port
-from wind_hub_collector.adapter.outbound.sink.iec104 import IEC104Sink
-from wind_hub_core.config import ResolvedSinkConfig
-from wind_hub_core.model.point import PointValue
+
+c104 = pytest.importorskip("c104")
 
 
 def _config(port: int) -> ResolvedSinkConfig:

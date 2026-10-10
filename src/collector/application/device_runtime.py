@@ -18,6 +18,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth
+from core.application.recovery import RecoveryPort
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -66,8 +67,16 @@ class DeviceRuntime:
         self._params = params
         self._clock = clock
         self._metrics = metrics_hook
+        # 每台设备的 connect 串行化锁：并发 ensure_connected（多个采集实例、
+        # force 控制路径）在同一断线事件上只允许一个协程真正发起 connect，
+        # 其余协程在锁内复查状态后直接收敛，避免重复连接与重复指标记账。
+        self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
+        # RecoveryPort 在读路径内透明重连时对上层不可见——把重连事件接回
+        # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
+        for device_id, device in devices.items():
+            self._wire_reconnect_hook(device_id, device)
 
     @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
@@ -237,6 +246,40 @@ class DeviceRuntime:
         now = self._clock()
         if not force and now < state.next_retry_at:
             return False
+
+        async with self._connect_locks.setdefault(device_id, asyncio.Lock()):
+            # 等锁期间设备可能被移除/重建——旧会话不再归本调用管理。
+            if self._devices.get(device_id) is not device:
+                return False
+            # 等锁期间其他协程可能已完成重连（或透明重连回调已标记恢复）——
+            # 复查状态，避免对同一次断线重复 connect、重复记账。
+            state = self._state_for(device_id)
+            if state.connected:
+                if not force:
+                    return True
+                try:
+                    health = device.health()
+                except Exception:
+                    health = ConnectionHealth(healthy=False, message="health check failed")
+                if health.healthy:
+                    return True
+            now = self._clock()
+            if not force and now < state.next_retry_at:
+                return False
+            return await self._connect_locked(device_id, device, state)
+
+    async def _connect_locked(
+        self,
+        device_id: str,
+        device: CollectorDeviceSession,
+        state: DeviceRuntimeState,
+    ) -> bool:
+        """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
+        now = self._clock()
+        # 读路径的透明重连回调（sync hook）可能在 connect 等待期间抢先完成
+        # 恢复并已记账——此时本次 connect 在 RecoveryPort 内幂等返回，
+        # 不再重复计一次重连指标。
+        pre_success_at = state.last_success_at
         try:
             await asyncio.wait_for(device.connect(), timeout=self._params.connect_timeout)
         except TimeoutError:
@@ -254,8 +297,9 @@ class DeviceRuntime:
             else:
                 logger.warning("Device '%s' reconnect attempt failed", device_id, exc_info=True)
             return False
+        recovered_by_hook = state.last_success_at != pre_success_at
         state.mark_success(now)
-        if self._metrics is not None:
+        if self._metrics is not None and not recovered_by_hook:
             self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
         logger.info("Device '%s' reconnected", device_id)
         return True
@@ -307,6 +351,7 @@ class DeviceRuntime:
         self._devices[device_id] = session
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
+        self._wire_reconnect_hook(device_id, session)
         await self._connect_new(device_id, session, "connected")
 
     async def remove_device(self, device_id: str) -> None:
@@ -348,6 +393,7 @@ class DeviceRuntime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
+        self._wire_reconnect_hook(device_id, session)
         await self._connect_new(device_id, session, "reconnected")
 
     # ------------------------------------------------------------------
@@ -376,6 +422,34 @@ class DeviceRuntime:
                 device_id,
                 exc_info=True,
             )
+
+    def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
+        """把 RecoveryPort 读路径内透明重连事件接回运行状态与指标。
+
+        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveryPort
+        的迟到重连回调（在途读触发的恢复晚于新会话注册）不得改写新会话的
+        运行状态或重复记账指标——以注册表中的会话身份做失效判定，无需额外
+        generation 计数。
+        """
+        protocol = session.protocol
+        if isinstance(protocol, RecoveryPort):
+
+            def _on_reconnect(session: CollectorDeviceSession = session) -> None:
+                if self._devices.get(device_id) is session:
+                    self._on_transparent_reconnect(device_id)
+
+            protocol.set_reconnect_hook(_on_reconnect)
+
+    def _on_transparent_reconnect(self, device_id: str) -> None:
+        """透明重连成功——恢复 connected 状态并如实记账一次重连。
+
+        状态恢复使下一周期 ``ensure_connected`` 走快路径，避免对同一次
+        断线重复 connect/重复计数。
+        """
+        self._state_for(device_id).mark_success(self._clock())
+        if self._metrics is not None:
+            self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
+        logger.info("Device '%s' reconnected (transparent reconnect in read path)", device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
         """取设备运行状态；缺失时惰性创建（引擎只对已注册设备调用）。"""

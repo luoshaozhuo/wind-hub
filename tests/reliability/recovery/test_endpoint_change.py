@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.component.collector.conftest import update_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
 from tests.support.control import apply_placement_and_start_instance, reload_config
+from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
 from tests.support.wait import read_jsonl, wait_file_rows
 

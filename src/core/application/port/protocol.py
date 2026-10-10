@@ -7,16 +7,14 @@ capabilities() 声明实际支持项；调用未支持能力时由 Adapter 显�
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol
 
 from ..protocol_contract import (
     ConnectionHealth,
-    PointScalar,
     ProtocolCapability,
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
-    Quality,
 )
 
 if TYPE_CHECKING:
@@ -57,17 +55,6 @@ class ProtocolPort(Protocol):
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]: ...
 
-    # 兼容旧调用方；Collector/Commander 迁移后移除。
-    async def read(
-        self,
-        point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]: ...
-
-    async def write(
-        self,
-        writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]: ...
-
     def update_point_table(self, point_table: PointTable) -> None:
         """用热重载后的点表重建协议寻址映射（纯内存操作，不断开连接）。
 
@@ -86,15 +73,3 @@ class ProtocolPort(Protocol):
     ) -> SubscriptionHandle: ...
 
     async def interrogate(self) -> None: ...
-
-
-RawReadResult = tuple[tuple[PointScalar, Quality], ...]
-
-
-@runtime_checkable
-class RawReadPort(Protocol):
-    """可选高频读取能力，不更改现有 ProtocolPort 的必需方法。"""
-
-    async def read_raw(self, point_ids: Sequence[str]) -> RawReadResult:
-        """按请求顺序返回原始值与质量，不创建 ProtocolSample。"""
-        ...

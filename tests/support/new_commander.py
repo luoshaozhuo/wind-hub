@@ -160,7 +160,14 @@ class FakeProtocol:
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
 
-    async def read(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        return ProtocolSample(
+            point_id=point_id,
+            value=self.read_values.get(point_id, 1.0),
+            quality=Quality.GOOD,
+        )
+
+    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         return tuple(
             ProtocolSample(
                 point_id=point_id,
@@ -170,7 +177,9 @@ class FakeProtocol:
             for point_id in point_ids
         )
 
-    async def write(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
+    async def write_many(
+        self, writes: Sequence[ProtocolWrite]
+    ) -> tuple[ProtocolWriteResult, ...]:
         self.writes.extend(writes)
         return tuple(
             ProtocolWriteResult(

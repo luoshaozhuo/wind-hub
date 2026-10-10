@@ -110,13 +110,11 @@ async def test_startup_write_timeout_applies_to_default_command_timeout():
     registry = FakeRegistry()
     runtime = _runtime(make_commander_config(write_timeout=0.05), registry)
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await asyncio.sleep(5)
-        return tuple(
-            ProtocolWriteResult(point_id=w.point_id, success=True, message=None) for w in writes
-        )
+        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
@@ -129,13 +127,11 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     registry = FakeRegistry()
     runtime = _runtime(make_commander_config(write_timeout=0.05), registry)
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await asyncio.sleep(0.2)
-        return tuple(
-            ProtocolWriteResult(point_id=w.point_id, success=True, message=None) for w in writes
-        )
+        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     dispatcher = CommandDispatcher(runtime)
 
     timed_out = await dispatcher.send(
@@ -150,7 +146,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
         revision_id="r2",
     )
     # reload 后新 operation 使用新 generation 的 write_timeout——不再用启动值。
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     completed = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
@@ -162,13 +158,11 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
     registry = FakeRegistry()
     runtime = _runtime(make_commander_config(write_timeout=5.0), registry)
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await asyncio.sleep(0.1)
-        return tuple(
-            ProtocolWriteResult(point_id=w.point_id, success=True, message=None) for w in writes
-        )
+        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     dispatcher = CommandDispatcher(runtime)
 
     # 固定旧 generation；期间 activate 一个 write_timeout 极小的新配置。
@@ -185,7 +179,7 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
         assert result.success
 
     # pin 结束后，新操作使用新 generation 的小超时。
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     result = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
@@ -198,13 +192,11 @@ async def test_explicit_command_timeout_takes_precedence():
     registry = FakeRegistry()
     runtime = _runtime(make_commander_config(write_timeout=0.01), registry)
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await asyncio.sleep(0.1)
-        return tuple(
-            ProtocolWriteResult(point_id=w.point_id, success=True, message=None) for w in writes
-        )
+        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=5.0)

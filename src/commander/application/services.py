@@ -14,7 +14,7 @@ from pathlib import Path
 from .config import CommanderConfig
 from .errors import CommandError
 from .runtime import CommanderRuntime
-from .session import PointReading
+from .session import DeviceSession, PointReading
 
 
 class CommanderReadService:
@@ -24,9 +24,16 @@ class CommanderReadService:
         self._runtime = runtime
 
     async def read_point(self, device_id: str, point_id: str) -> PointReading:
-        """读取单点并返回工程值。"""
-        values = await self.read_points(device_id, [point_id])
-        return values[0]
+        """读取单点并返回工程值（独立单点路径，不经过批量读取）。
+
+        Raises:
+            CommandError: 设备未知、点位未知或设备未连接。
+        """
+        async with self._runtime.operation():
+            device = await self._connected_device(device_id)
+            if point_id not in device.point_table.points:
+                raise CommandError(f"unknown points on device '{device_id}': ['{point_id}']")
+            return await device.read_point(point_id)
 
     async def read_points(
         self,
@@ -35,15 +42,14 @@ class CommanderReadService:
     ) -> list[PointReading]:
         """一次连接保证后批量读取多个点并返回工程值。
 
+        结果与请求逐位一一对应（DeviceSession 校验 read_many 契约，
+        缺失/乱序/错配显式失败）。
+
         Raises:
             CommandError: 设备未知、点位为空/未知或设备未连接。
         """
         async with self._runtime.operation():
-            try:
-                device = self._runtime.device(device_id)
-            except KeyError as exc:
-                raise CommandError(f"unknown device '{device_id}'") from exc
-
+            device = await self._connected_device(device_id)
             if not point_ids:
                 raise CommandError("point_ids must be non-empty")
 
@@ -52,17 +58,17 @@ class CommanderReadService:
             ]
             if unknown:
                 raise CommandError(f"unknown points on device '{device_id}': {unknown}")
-            if not await self._runtime.ensure_connected(device_id):
-                raise CommandError(f"device '{device_id}' is not connected")
+            return await device.read_points(point_ids)
 
-            readings = await device.read_points(point_ids)
-            by_id = {reading.point_id: reading for reading in readings}
-            missing_values = [point_id for point_id in point_ids if point_id not in by_id]
-            if missing_values:
-                raise CommandError(
-                    f"device '{device_id}' returned no values for points " f"{missing_values}"
-                )
-            return [by_id[point_id] for point_id in point_ids]
+    async def _connected_device(self, device_id: str) -> DeviceSession:
+        """返回已确认连接的设备会话；未连接时抛 CommandError。"""
+        try:
+            device = self._runtime.device(device_id)
+        except KeyError as exc:
+            raise CommandError(f"unknown device '{device_id}'") from exc
+        if not await self._runtime.ensure_connected(device_id):
+            raise CommandError(f"device '{device_id}' is not connected")
+        return device
 
 
 class CommanderConfigService:

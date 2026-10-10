@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.component.collector.conftest import update_yaml
 from tests.support.config_helper import write_config_tree
+from tests.support.functional_config import update_yaml
 from wind_hub_core.config import Config
 from wind_hub_core.config.diff import compute_diff
 from wind_hub_server.application.config.service import ConfigService

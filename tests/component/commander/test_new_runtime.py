@@ -138,6 +138,10 @@ async def test_operation_pins_generation_during_activate():
         assert runtime.device("dev1").protocol is old_protocol
 
     assert runtime.device("dev1").protocol is registry.instances[1]
+    # 旧 generation 的退休任务在 operation 退出后才排空——显式等它关闭，
+    # 不把依赖事件循环存活的后台任务留给测试收尾。
+    await asyncio.gather(*list(runtime._retirement_tasks), return_exceptions=True)
+    assert old_protocol.close_calls == 1
 
 
 async def test_abort_config_idempotent():

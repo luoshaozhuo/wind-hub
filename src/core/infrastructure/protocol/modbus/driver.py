@@ -133,6 +133,12 @@ class ModbusDriver:
                 port=self._config.port,
                 timeout=self._config.timeout,
                 retries=0,
+                # 禁用 pymodbus transport 层的自动重连（默认 0.1s 起步、
+                # 300s 封顶的后台重连任务；falsy 值即不建重连任务）——
+                # 重连由 RecoveryPort / DeviceRuntime 统一调度，保证连接
+                # 生命周期单一权威、重连事件可观测（否则断连在驱动内部
+                # 静默愈合）。
+                reconnect_delay=0.0,
             )
             try:
                 connected = await client.connect()
@@ -263,29 +269,22 @@ class ModbusDriver:
             )
         return ProtocolWriteResult(point_id=write.point_id, success=True)
 
-    async def read(
-        self,
-        point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        """兼容旧接口；统一转发至 read_many。"""
-        return await self.read_many(point_ids)
-
     async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
-        """兼容标准协议端口；由调用方选择是否需要 DTO 封装。"""
-        values = await self.read_raw(point_ids)
+        """按连续寄存器分组批量读取，返回按输入顺序排列的样本元组。"""
+        values = await self._read_values(point_ids)
         return tuple(
             ProtocolSample(point_id=point_id, value=value, quality=quality)
             for point_id, (value, quality) in zip(point_ids, values, strict=True)
         )
 
-    async def read_raw(
+    async def _read_values(
         self,
         point_ids: Sequence[str],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """读取原始数据及逐点质量；不创建 ProtocolSample。"""
+        """执行分组批量读取，返回原始值及逐点质量；不创建 ProtocolSample。"""
         if not point_ids:
             return ()
 
@@ -315,18 +314,12 @@ class ModbusDriver:
                 for point_id in point_ids
             )
 
-    async def write(
-        self,
-        writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]:
-        """兼容旧接口；统一转发至 write_many。"""
-        return await self.write_many(writes)
-
     async def write_many(
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
-        """Modbus 不支持多逻辑点批量写入；请逐点调用 write_one。"""
+        """Modbus 不支持多逻辑点批量写入；明确拒绝，绝不降级为逐点 write_one。"""
+        del writes
         raise NotImplementedError("Modbus write_many is not implemented")
 
     async def subscribe(

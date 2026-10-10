@@ -1,4 +1,4 @@
-"""Commander × 真实 ADS 协议路径集成测试。
+"""Commander × 真实 ADS 协议路径集成测试（新栈 src/commander）。
 
 服务端由 ``ads_service`` fixture 提供（见同级 ``conftest.py``）：
 
@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.config_helper import write_config_tree
+from commander.application.command import Command
+from commander.assembly import CommanderApp, assemble_commander
 from tests.support.env import ads_config_from_env
-from wind_hub_commander.assembly import CommanderApp, assemble_commander
-from wind_hub_core.model.command import Command
+from tests.support.new_commander import write_minimal_config_tree
 
 #: ``hardware`` 仅在当前环境配置了真实 PLC 时附加——该 marker 按仓库规则
 #: 只用于真实硬件；testserver 路径只声明 real_service。
@@ -38,7 +38,7 @@ def _write_ads_config(base: Path, ads: dict[str, str | int]) -> Path:
             {
                 "point_id": "plc.readback",
                 "point_groups": ["telemetry"],
-                "address": {"symbol": ads["read_symbol"]},
+                "address": {"symbol": ads["read_symbol"], "data_type": "float32"},
                 "data_type": "float32",
             }
         )
@@ -47,38 +47,33 @@ def _write_ads_config(base: Path, ads: dict[str, str | int]) -> Path:
             {
                 "point_id": "plc.setpoint",
                 "point_groups": ["telemetry", "control"],
-                "address": {"symbol": ads["write_symbol"]},
+                "address": {"symbol": ads["write_symbol"], "data_type": "float32"},
                 "data_type": "float32",
             }
         )
-    system: dict = {"runtime": {"connect_timeout": 10.0, "read_timeout": 5.0}}
+    ads_identity = None
     if ads["local_net_id"] and ads["local_ip"]:
-        system["ads"] = {
+        ads_identity = {
             "local_ams_net_id": ads["local_net_id"],
             "local_ip": ads["local_ip"],
         }
-    return write_config_tree(
+    return write_minimal_config_tree(
         base,
+        protocol="ads",
         devices=[
             {
                 "device_id": "ads-1",
-                "protocol": "ads",
-                "point_table": "ads",
-                "endpoint": {
-                    "host": ads["host"],
-                    "port": ads["port"],
-                    "extensions": {
-                        "target_net_id": ads["net_id"],
-                        "target_port": ads["port"],
-                        "timeout": 5.0,
-                    },
-                },
+                "model": "mod",
+                "endpoint": {"host": ads["host"], "port": ads["port"]},
             }
         ],
-        point_tables={"ads": {"points": points}},
-        sinks=[],
-        tasks=[],
-        system=system,
+        point_tables={"tab": {"protocol": "ads", "points": points}},
+        connection_defaults={
+            "target_net_id": ads["net_id"],
+            "timeout": 5.0,
+        },
+        runtime={"connect_timeout": 10.0, "write_timeout": 5.0},
+        ads=ads_identity,
     )
 
 
@@ -89,11 +84,11 @@ async def ads_runtime(
 ) -> AsyncIterator[CommanderApp]:
     config_dir = _write_ads_config(tmp_path / "cfg", ads_service)
     app = assemble_commander(config_dir)
-    await app.runtime.start()
+    await app.start()
     try:
         yield app
     finally:
-        await app.runtime.stop()
+        await app.stop()
 
 
 class TestRealAdsConnection:
@@ -136,7 +131,7 @@ class TestRealAdsWrite:
     ) -> None:
         if not ads_service["write_symbol"]:
             pytest.skip("SKIPPED: WIND_HUB_TEST_ADS_WRITE_SYMBOL not configured")
-        result = await ads_runtime.command.send(
+        result = await ads_runtime.dispatcher.send(
             Command(
                 command_id="ads-real-write-1",
                 device_id="ads-1",

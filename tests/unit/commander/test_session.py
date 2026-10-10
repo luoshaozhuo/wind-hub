@@ -5,12 +5,9 @@ from __future__ import annotations
 import pytest
 
 from commander.application.errors import CommandError
-from commander.application.session import (
-    DeviceSession,
-    engineering_value,
-    raw_write_value,
-)
-from core.domain import PointAccess
+from commander.application.session import DeviceSession
+from core.application import ProtocolError, ProtocolSample, Quality
+from core.domain import PointAccess, engineering_value, raw_write_value
 from tests.support.new_commander import FakeProtocol, make_commander_config
 
 
@@ -84,6 +81,67 @@ def test_raw_write_value_edge_cases():
     assert raw_write_value(point, "text") == "text"
     assert raw_write_value(point, True) is True
     assert raw_write_value(point, 6.0) == pytest.approx(10.0)
+
+
+async def test_read_point_uses_read_one_not_read_many():
+    """单点读取必须走 read_one 独立路径，不调用 read_many。"""
+    session, protocol = _session(scale=0.1, offset=2.0)
+    protocol.read_values["p1"] = 30.0
+
+    async def fail_read_many(point_ids):  # noqa: ANN001, ANN202
+        raise AssertionError(f"read_point must not delegate to read_many: {point_ids}")
+
+    protocol.read_many = fail_read_many  # type: ignore[method-assign]
+    reading = await session.read_point("p1")
+    assert reading.value == pytest.approx(30.0 * 0.1 + 2.0)
+
+
+async def test_read_points_uses_read_many_not_read_one():
+    """批量读取必须走 read_many，不逐点调用 read_one。"""
+    session, protocol = _session()
+
+    async def fail_read_one(point_id):  # noqa: ANN001, ANN202
+        raise AssertionError(f"read_points must not delegate to read_one: {point_id}")
+
+    protocol.read_one = fail_read_one  # type: ignore[method-assign]
+    readings = await session.read_points(["p1", "p1"])
+    assert len(readings) == 2
+
+
+async def test_read_points_rejects_missing_samples():
+    """协议少返回样本属于契约违约，必须显式失败而不是静默漏点。"""
+    session, protocol = _session()
+
+    async def short_read(point_ids):  # noqa: ANN001, ANN202
+        return ()
+
+    protocol.read_many = short_read  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="returned 0 sample"):
+        await session.read_points(["p1"])
+
+
+async def test_read_points_rejects_mismatched_order():
+    """协议返回错位的 point_id 属于契约违约。"""
+    session, protocol = _session()
+
+    async def shuffled_read(point_ids):  # noqa: ANN001, ANN202
+        return tuple(
+            ProtocolSample(point_id="other", value=1.0, quality=Quality.GOOD)
+            for _ in point_ids
+        )
+
+    protocol.read_many = shuffled_read  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="mismatch"):
+        await session.read_points(["p1"])
+
+
+async def test_read_points_keeps_duplicate_points_positional():
+    """重复点按出现位置逐位返回。"""
+    session, protocol = _session()
+    protocol.read_values["p1"] = 4.0
+    readings = await session.read_points(["p1", "p1"])
+    assert [r.point_id for r in readings] == ["p1", "p1"]
+    assert all(r.value == pytest.approx(4.0) for r in readings)
 
 
 def test_point_group_lookup():

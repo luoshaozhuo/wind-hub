@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.component.collector.conftest import update_yaml
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import (
@@ -21,6 +20,7 @@ from tests.support.control import (
     prepare_config,
     reload_config,
 )
+from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
 from tests.support.wait import read_jsonl, wait_file_rows
 

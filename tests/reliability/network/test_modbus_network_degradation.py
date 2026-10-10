@@ -42,7 +42,7 @@ READ_TIMEOUT_S = 2.0
 
 
 def _write_config(base: Path, link: NetemLink, sink_path: Path) -> Path:
-    from tests.component.collector.conftest import MODBUS_POINTS, modbus_device_dict
+    from tests.support.functional_config import MODBUS_POINTS, modbus_device_dict
 
     device = modbus_device_dict(link.device_port)
     device["endpoint"]["host"] = link.device_host

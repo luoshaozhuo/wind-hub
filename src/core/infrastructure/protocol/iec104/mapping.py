@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from core.application.errors import ConfigError
 from core.domain import Point
 
-_ALLOWED_OPTIONS = frozenset({"ioa", "type", "type_id"})
+# ``data_type`` 由配置装配层无条件注入 Point.ext（与 Modbus 同口径），
+# IEC104 映射不消费它，但必须放行，否则任何经配置加载的 IEC104 点表都无法装配。
+_ALLOWED_OPTIONS = frozenset({"ioa", "type", "type_id", "data_type"})
 _MAX_IOA = 0xFFFFFF
 _COMMAND_TYPE_IDS = frozenset(
     {

@@ -337,19 +337,24 @@ class IEC104Driver:
         )
 
     async def read_one(self, point_id: str) -> ProtocolSample:
-        """读取一个逻辑点。"""
-        return (await self.read_many((point_id,)))[0]
+        """读取一个逻辑点的最新镜像，不主动发 wire 请求。"""
+        if not self._is_open:
+            raise ProtocolError("IEC104 read requires an OPEN connection")
+        mapped = self._mapped_point(point_id)
+        sample = self._samples.get(mapped.ioa)
+        if sample is None:
+            return ProtocolSample(
+                point_id=point_id,
+                value=None,
+                quality=Quality.BAD,
+            )
+        return sample
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        """写入一个逻辑点。"""
-        return (await self.write_many((write,)))[0]
-
-    async def read(
-        self,
-        point_ids: Sequence[str],
-    ) -> tuple[ProtocolSample, ...]:
-        """兼容旧接口；统一转发至 read_many。"""
-        return await self.read_many(point_ids)
+        """执行单点遥控/设点，并按 ACT_CON 结果返回状态。"""
+        if not self._is_open or self._station is None:
+            raise ProtocolError("IEC104 write requires an OPEN connection")
+        return await self._execute_write(write)
 
     async def read_many(
         self,
@@ -376,13 +381,6 @@ class IEC104Driver:
             else:
                 results.append(sample)
         return tuple(results)
-
-    async def write(
-        self,
-        writes: Sequence[ProtocolWrite],
-    ) -> tuple[ProtocolWriteResult, ...]:
-        """兼容旧接口；统一转发至 write_many。"""
-        return await self.write_many(writes)
 
     async def write_many(
         self,

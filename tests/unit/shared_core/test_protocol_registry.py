@@ -55,14 +55,22 @@ class _Protocol:
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
-    async def read(
+    async def read_one(self, point_id: str) -> ProtocolSample:
+        del point_id
+        raise ProtocolCapabilityError("not supported")
+
+    async def read_many(
         self,
         point_ids: Sequence[str],
     ) -> tuple[ProtocolSample, ...]:
         del point_ids
         return ()
 
-    async def write(
+    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
+        del write
+        raise ProtocolCapabilityError("not supported")
+
+    async def write_many(
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:

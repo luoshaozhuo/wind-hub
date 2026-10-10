@@ -13,7 +13,7 @@ from uuid import uuid4
 import grpc
 import pytest
 
-from tests.component.collector.conftest import update_yaml, write_functional_config
+from tests.support.functional_config import update_yaml, write_functional_config
 from tests.support.process import CollectorProcess
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.model.command import Command

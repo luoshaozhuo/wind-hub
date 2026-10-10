@@ -1,6 +1,6 @@
 """soak 专用的计量 sink——在真实 sink（含 NullSink）外做一层透明计量包装。
 
-包装发生在装配期（``sink_factory`` 内装饰），被包装的是完整真实 sink
+包装发生在装配期（``sink_factories`` 覆盖内装饰），被包装的是完整真实 sink
 （KafkaSink / DBSink 的全部网络行为不变）；这不是 monkeypatch——端口接口
 是生产定义的装饰点，计量维度（收到点数、重复点、写耗时）是 soak 验收的
 必备观测。
@@ -12,10 +12,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from collector.application.sink_port import SinkPort
+from collector.domain.point_value import PointValue
+from core.application import ConnectionHealth
 from tests.reliability.soak.metrics import append_bounded
-from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.model.health import HealthStatus
-from wind_hub_core.model.point import PointValue
 
 #: 延迟样本上限（超上限隔点抽稀，见 :func:`append_bounded`）——24h 高节拍
 #: soak 下批次样本可达千万级，必须有界。
@@ -81,10 +81,10 @@ class RecordingSink(SinkPort):
         if self._inner is not None:
             await self._inner.flush()
 
-    def health(self) -> HealthStatus:
+    def health(self) -> ConnectionHealth:
         if self._inner is not None:
             return self._inner.health()
-        return HealthStatus(healthy=True)
+        return ConnectionHealth(healthy=True)
 
 
 def percentile(values: list[float], pct: float) -> float:

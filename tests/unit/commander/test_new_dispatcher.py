@@ -122,13 +122,13 @@ async def test_client_cancellation_does_not_cancel_inflight_write():
     dispatcher = CommandDispatcher(_runtime(registry))
 
     write_release = asyncio.Event()
-    original_write = registry.instances[0].write
+    original_write_one = registry.instances[0].write_one
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await write_release.wait()
-        return await original_write(writes)
+        return await original_write_one(write)
 
-    registry.instances[0].write = slow_write  # type: ignore[method-assign]
+    registry.instances[0].write_one = slow_write  # type: ignore[method-assign]
     command = Command(command_id="c-cancel", device_id="dev1", point_id="p1", value=1.0)
 
     caller = asyncio.create_task(dispatcher.send(command))
@@ -177,13 +177,13 @@ async def test_inflight_write_uses_pinned_generation_during_activate():
     dispatcher = CommandDispatcher(runtime)
 
     write_release = asyncio.Event()
-    original_write = registry.instances[0].write
+    original_write_one = registry.instances[0].write_one
 
-    async def slow_write(writes):
+    async def slow_write(write):
         await write_release.wait()
-        return await original_write(writes)
+        return await original_write_one(write)
 
-    registry.instances[0].write = slow_write  # type: ignore[method-assign]
+    registry.instances[0].write_one = slow_write  # type: ignore[method-assign]
     command = Command(command_id="c-pin", device_id="dev1", point_id="p1", value=1.0)
 
     in_flight = asyncio.create_task(dispatcher.send(command))

@@ -1,7 +1,8 @@
 """无网络 Modbus 完整读取微基准。
 
-比较相同协议响应条件下 read_raw（直接点值）与 read（ProtocolSample 包装），
-分别测量固定选点及变化选点。结果是本机 Python / Mock 开销，不包含网络时延。
+比较相同协议响应条件下内部原始值路径（_read_values，直接点值）与
+read_many（ProtocolSample 包装），分别测量固定选点及变化选点。
+结果是本机 Python / Mock 开销，不包含网络时延。
 
 运行：PYTHONPATH=src python tests/benchmarks/read_pipeline_benchmark.py
 """
@@ -101,10 +102,10 @@ async def main() -> None:
     )
 
     async def fixed_raw() -> object:
-        return await driver.read_raw(fixed)
+        return await driver._read_values(fixed)
 
     async def fixed_dto() -> object:
-        return await driver.read(fixed)
+        return await driver.read_many(fixed)
 
     index = 0
 
@@ -112,13 +113,13 @@ async def main() -> None:
         nonlocal index
         points = dynamic[index % len(dynamic)]
         index += 1
-        return await driver.read_raw(points)
+        return await driver._read_values(points)
 
     async def dynamic_dto() -> object:
         nonlocal index
         points = dynamic[index % len(dynamic)]
         index += 1
-        return await driver.read(points)
+        return await driver.read_many(points)
 
     print("Scenario                   us/op      ops/s   peak bytes")
     for name, operation in (

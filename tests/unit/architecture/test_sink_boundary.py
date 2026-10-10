@@ -14,9 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 GRPC_ADAPTER = (
     REPO_ROOT
     / "src"
-    / "wind_hub_collector"
-    / "adapter"
-    / "inbound"
+    / "collector"
+    / "infrastructure"
     / "grpc"
     / "server.py"
 )

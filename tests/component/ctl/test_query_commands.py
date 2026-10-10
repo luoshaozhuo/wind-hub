@@ -14,12 +14,12 @@ pytestmark = pytest.mark.modbus
 
 
 class TestInfoAndStatus:
-    def test_info_reports_collector_identity(self, run_ctl) -> None:
+    def test_info_reports_collector_identity(self, run_ctl, ctl_env) -> None:
         result = run_ctl("info")
         assert result.returncode == 0, result.stderr
         assert result.payload["collector_id"] == "ctl-functional"
         assert result.payload["runtime_running"] is True
-        assert result.payload["boot_config_hash"] == "hash-ctl-functional"
+        assert result.payload["boot_config_hash"] == ctl_env.rt.config_hash
 
     def test_status_reports_runtime_aggregation(self, run_ctl) -> None:
         result = run_ctl("status")

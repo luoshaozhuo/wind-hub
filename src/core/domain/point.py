@@ -85,6 +85,33 @@ class Point:
         object.__setattr__(self, "ext", MappingProxyType(ext))
 
 
+PointScalarValue = float | int | bool | str | None
+WritableScalarValue = float | int | bool | str
+
+
+def engineering_value(point: Point, raw: PointScalarValue) -> PointScalarValue:
+    """按点表 scale/offset 把协议原始值换算为工程值。
+
+    只转换 int/float 且排除 bool；None、字符串原样保留。
+    """
+    if raw is None or isinstance(raw, bool | str) or (point.scale == 1.0 and point.offset == 0.0):
+        return raw
+    return raw * point.scale + point.offset
+
+
+def raw_write_value(point: Point, value: WritableScalarValue) -> WritableScalarValue:
+    """把工程写值按点表 scale/offset 逆变换为协议原始值。
+
+    只转换 int/float 且排除 bool；其余类型原样下发，由协议 Driver
+    按点 data_type 编码并校验。
+    """
+    if isinstance(value, bool | str):
+        return value
+    if point.scale == 1.0 and point.offset == 0.0:
+        return value
+    return (value - point.offset) / point.scale
+
+
 @dataclass(frozen=True, slots=True)
 class PointMeta:
     """点位的进程级元数据（采集分组与诊断/展示用，不属于协议寻址）。

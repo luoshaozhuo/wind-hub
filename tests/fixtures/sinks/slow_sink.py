@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import asyncio
 
-from wind_hub_collector.application.port.sink import SinkPort
-from wind_hub_core.model.health import HealthStatus
-from wind_hub_core.model.point import PointValue
+from collector.domain.point_value import PointValue
+from core.application import ConnectionHealth
 
 
-class SlowSink(SinkPort):
+class SlowSink:
     """每次 write 睡眠 ``delay`` 秒后再落账的 Sink。"""
 
     def __init__(self, delay: float) -> None:
@@ -37,5 +36,5 @@ class SlowSink(SinkPort):
     async def flush(self) -> None:
         """无缓冲数据。"""
 
-    def health(self) -> HealthStatus:
-        return HealthStatus(healthy=True)
+    def health(self) -> ConnectionHealth:
+        return ConnectionHealth(healthy=True)

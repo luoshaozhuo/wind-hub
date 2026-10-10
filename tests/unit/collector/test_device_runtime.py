@@ -191,3 +191,185 @@ async def test_close_all_bounds_hung_device_close():
     await runtime.close_all()
 
     assert healthy.close_calls == 1
+
+
+async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
+    """RecoveryPort 读路径内透明重连：状态恢复 connected 且 device_reconnected 记账。"""
+    from core.application.recovery import RecoveryPort, RecoverySettings
+
+    events: list[tuple[str, str]] = []
+
+    class _Metrics:
+        def device_reconnected(self, device_id: str, protocol: str) -> None:
+            events.append((device_id, protocol))
+
+    proto = CollectorFakeProtocol()
+    port = RecoveryPort(proto, RecoverySettings(reconnect_attempts=1))
+    config = make_collector_config()
+    session = make_session(config, port)  # type: ignore[arg-type]
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 0.0,
+        metrics_hook=_Metrics(),  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+
+    # 驱动掉线后第一次读触发 RecoveryPort 透明重连。
+    proto.connected = False
+    await port.read_one("p1")
+
+    assert events == [("dev1", "modbus")]
+    state = runtime.device_state("dev1")
+    assert state is not None and state.connected is True
+
+
+def _recovery_session(proto, config=None):  # type: ignore[no-untyped-def]
+    """构造包裹 RecoveryPort 的会话（透明重连测试用）。"""
+    from core.application.recovery import RecoveryPort, RecoverySettings
+
+    port = RecoveryPort(proto, RecoverySettings(reconnect_attempts=1))
+    session = make_session(config or make_collector_config(), port)  # type: ignore[arg-type]
+    return session, port
+
+
+class _RecordingMetrics:
+    def __init__(self) -> None:
+        self.reconnected: list[tuple[str, str]] = []
+        self.connect_failed: list[tuple[str, str]] = []
+
+    def device_reconnected(self, device_id: str, protocol: str) -> None:
+        self.reconnected.append((device_id, protocol))
+
+    def device_connect_failed(self, device_id: str, protocol: str) -> None:
+        self.connect_failed.append((device_id, protocol))
+
+
+async def test_stale_session_reconnect_hook_does_not_pollute_new_session():
+    """设备重建后，旧会话 RecoveryPort 的迟到透明重连不得改写新会话状态/指标。"""
+    from core.application.recovery import RecoveryPort
+
+    metrics = _RecordingMetrics()
+    old_proto = CollectorFakeProtocol()
+    old_session, old_port = _recovery_session(old_proto)
+    config = make_collector_config()
+    runtime = DeviceRuntime(
+        {"dev1": old_session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 0.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+    assert isinstance(old_session.protocol, RecoveryPort)
+
+    # 重建设备：旧会话关闭，新会话接入。
+    new_proto = CollectorFakeProtocol()
+    new_session, _ = _recovery_session(new_proto)
+    await runtime.rebuild_device("dev1", config.device_view("dev1"), new_session)  # type: ignore[arg-type]
+    state = runtime.device_state("dev1")
+    assert state is not None and state.connected and state.last_success_at == 0.0
+    assert metrics.reconnected == []
+
+    # 旧会话的在途读触发透明重连（回调晚于新会话注册）——必须被身份守卫丢弃。
+    old_proto.connected = False
+    await old_port.read_one("p1")
+    assert metrics.reconnected == []
+    state = runtime.device_state("dev1")
+    assert state is not None and state.last_success_at == 0.0
+    assert state.consecutive_failures == 0
+
+
+async def test_removed_device_reconnect_hook_is_inert():
+    """设备移除后，旧会话的迟到重连回调安全无效（无状态、无指标、无异常）。"""
+    metrics = _RecordingMetrics()
+    old_proto = CollectorFakeProtocol()
+    old_session, old_port = _recovery_session(old_proto)
+    runtime = DeviceRuntime(
+        {"dev1": old_session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 0.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+    await runtime.remove_device("dev1")
+
+    old_proto.connected = False
+    await old_port.read_one("p1")  # 旧会话仍可恢复自身连接，但回调不得触及运行时
+    assert metrics.reconnected == []
+    assert runtime.device_state("dev1") is None
+
+
+async def test_concurrent_ensure_connected_single_connect_and_metric():
+    """并发 ensure_connected 在同一断线事件上串行：只 connect 一次、只记账一次。"""
+    import asyncio
+
+    metrics = _RecordingMetrics()
+    proto = CollectorFakeProtocol()
+    config = make_collector_config()
+    session = make_session(config, proto)
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.5),
+        clock=lambda: 0.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+
+    connect_started = asyncio.Event()
+
+    async def slow_connect() -> None:
+        proto.connect_calls += 1
+        connect_started.set()
+        await asyncio.sleep(0.02)
+        proto.connected = True
+
+    proto.connect = slow_connect  # type: ignore[method-assign]
+
+    results = await asyncio.gather(
+        *(runtime.ensure_connected("dev1", force=True) for _ in range(8))
+    )
+    assert all(results)
+    assert proto.connect_calls == 1
+    assert metrics.reconnected == [("dev1", "modbus")]
+
+
+async def test_ensure_connected_aborts_when_device_rebuilt_while_awaiting_lock():
+    """等锁期间设备被重建：旧调用不再触碰新会话，直接返回 False。"""
+    import asyncio
+
+    proto = CollectorFakeProtocol()
+    config = make_collector_config()
+    session = make_session(config, proto)
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.5),
+        clock=lambda: 0.0,
+    )
+
+    connect_started = asyncio.Event()
+    release_connect = asyncio.Event()
+
+    async def slow_connect() -> None:
+        proto.connect_calls += 1
+        connect_started.set()
+        await release_connect.wait()
+        proto.connected = True
+
+    proto.connect = slow_connect  # type: ignore[method-assign]
+
+    first = asyncio.create_task(runtime.ensure_connected("dev1", force=True))
+    await connect_started.wait()
+
+    second = asyncio.create_task(runtime.ensure_connected("dev1", force=True))
+    await asyncio.sleep(0)  # second 进入锁等待
+
+    new_proto = CollectorFakeProtocol()
+    new_session = make_session(config, new_proto)
+    # 重建会关闭旧会话（proto.connected=False），换入新会话。
+    rebuild = asyncio.create_task(
+        runtime.rebuild_device("dev1", config.device_view("dev1"), new_session)  # type: ignore[arg-type]
+    )
+    await asyncio.sleep(0)
+    release_connect.set()
+    await asyncio.gather(first, rebuild)
+    assert await second is False
+    assert runtime.devices["dev1"] is new_session

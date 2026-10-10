@@ -48,17 +48,17 @@ def test_task_control_plane_paths_trigger_system_task_control() -> None:
 
 def test_commander_config_service_triggers_system_reload() -> None:
     assert "system-reload" in _pr_targets(
-        "src/wind_hub_commander/application/config.py"
+        "src/commander/application/config.py"
     )
 
 
 def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:
-    targets = _pr_targets("src/wind_hub_collector/application/service/sink.py")
+    targets = _pr_targets("src/collector/application/sink_runtime.py")
     assert "integration-rpc" in targets
     assert "integration-sinks" in targets
 
 
 def test_collector_query_service_triggers_rpc_gate() -> None:
     assert "integration-rpc" in _pr_targets(
-        "src/wind_hub_collector/application/service/query.py"
+        "src/collector/application/services.py"
     )

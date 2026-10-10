@@ -15,9 +15,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tests.component.collector.conftest import write_functional_config
 from tests.fixtures.servers.modbus_proxy import WriteResponseDropProxy
 from tests.fixtures.servers.modbus_server import ModbusMockServer
+from tests.support.functional_config import write_functional_config
 from tests.support.process import (
     CollectorProcess,
     free_port,

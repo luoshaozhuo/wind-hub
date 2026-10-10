@@ -1,6 +1,6 @@
 """FileSink × 真实文件系统集成测试。
 
-被测组件是 :class:`FileSink` 本身——真实打开/写盘/缓冲/滚动/关闭，
+被测组件是 :class:`FileSink` 本身——真实打开/写盘/缓冲/滚动/压缩/关闭，
 断言直接读文件系统结果。链路级「采集 → FileSink」已由
 ``tests/collector/functional/test_shutdown.py`` 覆盖，不在此重复。
 """
@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import io
 import json
 from datetime import UTC, datetime
@@ -15,10 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from wind_hub_collector.adapter.outbound.sink.file.csv import FileSink
-from wind_hub_core.config import SinkConfig
-from wind_hub_core.model.errors import ConfigError, SinkError
-from wind_hub_core.model.point import PointValue
+from collector.application.errors import SinkError
+from collector.domain.point_value import PointValue
+from collector.infrastructure.sink.file.csv import FileSink
+from core.application.errors import ConfigError
+from core.application.sink_config import SinkConfig
 
 pytestmark = pytest.mark.real_service
 
@@ -27,14 +29,20 @@ def _pv(point_id: str, value: object, device_id: str = "modbus-1") -> PointValue
     return PointValue(
         device_id=device_id,
         point_id=point_id,
-        value=value,
+        value=value,  # type: ignore[arg-type]
         timestamp=datetime(2026, 10, 2, 8, 0, 0, tzinfo=UTC),
         source="integration-test",
     )
 
 
 def _sink(path: Path, **params: object) -> FileSink:
-    return FileSink(SinkConfig(name="file", type="file", connection={"path": str(path), **params}))
+    return FileSink(
+        SinkConfig(
+            name="file",
+            type="file",
+            connection={"path": str(path), **params},  # type: ignore[arg-type]
+        )
+    )
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -106,6 +114,26 @@ class TestRotation:
         assert len(siblings) > 1, f"expected rotated segments, got {siblings}"
         assert "data.jsonl" in siblings
 
+    async def test_rotated_segment_compressed_to_gzip(self, tmp_path: Path) -> None:
+        path = tmp_path / "data.jsonl"
+        sink = _sink(path, max_size_mb=0.0002, buffer_size=1, compress=True)
+        await sink.open()
+        for i in range(4):
+            await sink.write([_pv("rotor.speed", float(i))])
+            await sink.flush()
+        await sink.close()  # close 等待后台压缩完成
+
+        gz_files = sorted(tmp_path.glob("data.*.jsonl.gz"))
+        siblings = sorted(p.name for p in tmp_path.iterdir())
+        assert gz_files, f"expected gzipped segments, got {siblings}"
+        # 压缩分片内容可完整解码回点值行。
+        first_rows: list[dict] = []
+        with gzip.open(gz_files[0], "rt", encoding="utf-8") as fh:
+            first_rows = [json.loads(line) for line in fh if line.strip()]
+        assert first_rows
+        assert first_rows[0]["point_id"] == "rotor.speed"
+        assert first_rows[0]["value"] == 0.0
+
 
 class TestFailureSemantics:
     async def test_open_on_unwritable_path_raises_sink_error(self, tmp_path: Path) -> None:
@@ -137,7 +165,7 @@ class TestFailureSemantics:
 class TestConfigValidation:
     def test_missing_path_rejected(self) -> None:
         with pytest.raises(ConfigError, match="path"):
-            FileSink(SinkConfig(name="file", type="file", connection={}))
+            FileSink(SinkConfig(name="file", type="file", connection={}))  # type: ignore[arg-type]
 
     def test_invalid_format_rejected(self, tmp_path: Path) -> None:
         with pytest.raises(ConfigError, match="format"):

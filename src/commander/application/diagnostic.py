@@ -15,11 +15,17 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from core.application import Quality
-from core.domain import ConnectionEndpoint, Device, Point, ProtocolOptions
+from core.domain import (
+    ConnectionEndpoint,
+    Device,
+    Point,
+    ProtocolOptions,
+    engineering_value,
+)
 
 from .errors import CommandError
 from .runtime import CommanderRuntime
-from .session import DeviceSession, engineering_value
+from .session import DeviceSession
 
 
 class DiagnosticCode(StrEnum):

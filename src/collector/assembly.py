@@ -8,6 +8,7 @@ ADS 本机身份（ADSLocalRouter）、按 enabled 实例化 Sink。
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from .application.identity import CollectorIdentity, build_collector_identity
 from .application.metrics_state import CollectorMetricsState
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
-from .application.sink_port import SinkPort
+from .application.sink_port import SinkFactory, SinkPort
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import load_collector_config
 from .infrastructure.sink import build_sink_registry
@@ -94,12 +95,15 @@ def assemble_collector(
     config_dir: str | Path,
     *,
     collector_id: str | None = None,
+    sink_factories: Mapping[str, SinkFactory] | None = None,
 ) -> CollectorApp:
     """从现场配置目录装配 Collector，不执行网络 I/O。
 
     Args:
         config_dir: 现场配置目录。
         collector_id: 显式 Collector 稳定标识；为空时读取环境变量或主机名。
+        sink_factories: 按类型覆盖内置 Sink factory（性能/soak 等资格工具
+            注入 NullSink 或计量包装的 seam）；键必须是已注册的 Sink 类型。
 
     Raises:
         ValueError: 装配期间配置目录发生变化（TOCTOU）。
@@ -148,6 +152,8 @@ def assemble_collector(
     devices = {str(device_id): session_factory(view) for device_id, view in views.items()}
 
     sink_registry = build_sink_registry()
+    for type_name, factory in (sink_factories or {}).items():
+        sink_registry.override(type_name, factory)
     sinks: dict[str, SinkPort] = {
         name: sink_registry.create(resolved)
         for name, resolved in config.sinks.items()

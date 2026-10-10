@@ -17,7 +17,14 @@ from .identities import (
     DeviceTypeId,
     PointTableId,
 )
-from .point import BusinessPoint, Point, PointMeta, PointTable
+from .point import (
+    BusinessPoint,
+    Point,
+    PointMeta,
+    PointTable,
+    engineering_value,
+    raw_write_value,
+)
 from .unit import (
     AMPERE,
     BAR,
@@ -149,6 +156,8 @@ __all__ = [
     "Protocol",
     "ProtocolOptionValue",
     "ProtocolOptions",
+    "engineering_value",
+    "raw_write_value",
     "protocol_options_for",
     "freeze_protocol_options",
     "point_table_for_device",

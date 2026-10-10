@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from tests.component.collector.conftest import write_functional_config
+from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess, run_ctl_async
 from tests.support.wait import WaitTimeoutError, wait_until
 
