@@ -215,7 +215,7 @@ class SinkConfig(BaseModel):
     type: str
     enabled: bool = True
     connection: SinkConnection
-    points: list[SinkPoint] = Field(default_factory=list)
+    points: tuple[SinkPoint, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
