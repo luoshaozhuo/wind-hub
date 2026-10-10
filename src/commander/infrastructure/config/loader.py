@@ -1,17 +1,17 @@
 """Commander 现场配置加载入口。
 
-通过 Core 统一配置服务获取本进程所需主题（system / device_models /
-devices / points / units）的配置 VO，完成 Core 快照组装与跨文件
-一致性校验，产出 CommanderConfig。Commander 不读取 TASKS/SINKS。
+经 :class:`ConfigPort` 按主题读取本进程所需配置 VO（system /
+device_models / devices / points / units），完成 Core 配置组装与
+跨文件一致性校验，产出 CommanderConfig。Commander 不读取 TASKS/SINKS。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol, cast
+from typing import cast
 
-from core.application import ConfigError, ConfigService
-from core.application.port import ConfigTopic, ConfigValue
+from core.application import ConfigError
+from core.application.port import ConfigPort, ConfigTopic
 from core.domain.config import (
     DeviceModelsConfig,
     DevicesConfig,
@@ -23,43 +23,27 @@ from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.config.assembly import assemble_core_config
 
 from ...application.config import (
-    COMMANDER_CONFIG_TOPICS,
     ADSLocalIdentity,
     CommanderConfig,
     PointMeta,
 )
 
 
-class _ConfigSource(Protocol):
-    """配置来源：ConfigPort 或一致性快照（均有 ``read(topic)``）。"""
-
-    def read(self, topic: ConfigTopic) -> ConfigValue: ...
-
-
 def load_commander_config(
-    config_dir: str | Path, *, source: _ConfigSource | None = None
+    config_dir: str | Path, *, source: ConfigPort | None = None
 ) -> CommanderConfig:
     """加载 Commander 配置并完成跨文件一致性校验。
 
-    默认在一致性快照内读取 Commander 消费的主题；tasks/sinks 等
-    无关文件不解析，加载期间的外部并发修改经 ``verify_unchanged``
-    检测并中止。
+    默认经 :class:`YamlConfigAdapter` 按主题读取；tasks/sinks 等无关
+    文件不解析。``source`` 允许测试注入任意 ConfigPort 实现。
 
     Raises:
-        ConfigError: 文件缺失、YAML 非法、加载期间配置被修改或任何
-            配置约束违反。
+        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
     """
-    if source is not None:
-        return _load_from(source)
-    adapter = YamlConfigAdapter(config_dir)
-    service = ConfigService(adapter, snapshots=adapter)
-    snapshot = service.open_snapshot(COMMANDER_CONFIG_TOPICS)
-    config = _load_from(snapshot)
-    snapshot.verify_unchanged()
-    return config
+    return _load_from(source if source is not None else YamlConfigAdapter(config_dir))
 
 
-def _load_from(source: _ConfigSource) -> CommanderConfig:
+def _load_from(source: ConfigPort) -> CommanderConfig:
     system = cast(SystemConfig, source.read(ConfigTopic.SYSTEM))
     models = cast(DeviceModelsConfig, source.read(ConfigTopic.DEVICE_MODELS))
     devices = cast(DevicesConfig, source.read(ConfigTopic.DEVICES))

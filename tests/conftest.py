@@ -7,7 +7,7 @@ marker 自动分类（``pytest_collection_modifyitems``）按目录/文件名约
   ``integration`` / ``system`` / ``reliability`` / ``performance``）；
   ``reliability/soak`` 额外打 ``soak``；
 - 协议与外部服务：路径或文件名 token 命中 ``modbus`` / ``ads`` /
-  ``iec104`` / ``kafka`` / ``postgres`` / ``influxdb`` / ``file``；
+  ``iec104`` / ``redis`` / ``influxdb`` / ``file``；
 - 服务真实性（仅 integration/system/reliability 层级）：路径/文件名
   token 含 ``mock`` 的打 ``mock_service``（monkeypatch / 内存 fake，
   不计入 real-service 验收）；``real_service`` **不按目录默认赋值**——
@@ -39,7 +39,7 @@ _LEVEL_MARKERS = (
     "reliability",
     "performance",
 )
-_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "kafka", "postgres", "influxdb", "file")
+_PROTOCOL_MARKERS = ("modbus", "ads", "iec104", "redis", "influxdb", "file")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -84,7 +84,7 @@ async def iec104_server() -> Iterator[IEC104MockServer]:
 
 
 # ---------------------------------------------------------------------------
-# 真实外部服务（Kafka / PostgreSQL）——session 级，环境变量优先，否则本机
+# 真实外部服务（Redis）——session 级，环境变量优先，否则本机
 # Docker Compose；两者都不可用时明确 skip，绝不退化为 mock。
 # ---------------------------------------------------------------------------
 
@@ -107,34 +107,17 @@ def _compose_stack() -> Iterator[None]:
 
 
 @pytest.fixture(scope="session")
-def kafka_service(request: pytest.FixtureRequest) -> str:
-    """真实 Kafka bootstrap servers（如 ``127.0.0.1:9092``）。
+def redis_service(request: pytest.FixtureRequest) -> str:
+    """真实 Redis 地址（如 ``127.0.0.1:6379``）。
 
-    ``WIND_HUB_TEST_KAFKA`` 指向外部实例时直接使用且不管理其生命周期。
+    ``WIND_HUB_TEST_REDIS`` 指向外部实例时直接使用且不管理其生命周期。
     """
     from tests.fixtures.services import compose
-    from tests.support.env import kafka_bootstrap_from_env
+    from tests.support.env import redis_address_from_env
 
-    external = kafka_bootstrap_from_env()
+    external = redis_address_from_env()
     if external is not None:
         return external
     request.getfixturevalue("_compose_stack")
-    compose.wait_services_healthy(["kafka"])
-    return "127.0.0.1:9092"
-
-
-@pytest.fixture(scope="session")
-def postgres_service(request: pytest.FixtureRequest) -> str:
-    """真实 PostgreSQL DSN。
-
-    ``WIND_HUB_TEST_POSTGRES_DSN`` 指向外部实例时直接使用且不管理其生命周期。
-    """
-    from tests.fixtures.services import compose
-    from tests.support.env import postgres_dsn_from_env
-
-    external = postgres_dsn_from_env()
-    if external is not None:
-        return external
-    request.getfixturevalue("_compose_stack")
-    compose.wait_services_healthy(["postgres"])
-    return "postgresql://windhub:windhub@127.0.0.1:5432/windhub"
+    compose.wait_services_healthy(["redis"])
+    return "127.0.0.1:6379"

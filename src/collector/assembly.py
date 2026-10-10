@@ -18,7 +18,7 @@ from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
 )
-from core.infrastructure.config import fingerprint_config_set
+from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import ADSLocalIdentity, CollectorConfig, DeviceView
@@ -51,9 +51,9 @@ class CollectorApp:
         runtime: Collector 运行时（Device/Task/Sink 编排）。
         config: 配置热重载编排服务。
         config_dir: 现场配置目录。
-        config_hash: 启动配置集指纹。
+        config_hash: 启动配置集摘要。
         metrics: 进程级采集质量计数与近期事件（gRPC 指标快照的唯一事实源）。
-        identity: 本次进程启动身份（collector_id / boot_id / 启动指纹）。
+        identity: 本次进程启动身份（collector_id / boot_id / 启动摘要）。
         ads_local_router: 进程级 ADS 本机身份 owner；stop 时关闭。
     """
 
@@ -110,9 +110,9 @@ def assemble_collector(
         ConfigError: 配置非法。
     """
     config_path = Path(config_dir)
-    before_hash = fingerprint_config_set(config_path)
+    before_hash = config_dir_digest(config_path)
     config = load_collector_config(config_path)
-    config_hash = fingerprint_config_set(config_path)
+    config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
         raise ValueError(
             "config changed while assembling Collector: "
@@ -184,7 +184,7 @@ def assemble_collector(
             runtime,
             config,
             load_config=lambda: load_collector_config(config_path),
-            fingerprint=lambda: fingerprint_config_set(config_path),
+            config_digest=lambda: config_dir_digest(config_path),
             config_hash=config_hash,
         ),
         config_dir=config_path,

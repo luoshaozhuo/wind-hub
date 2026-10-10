@@ -142,8 +142,7 @@ markers = [
     "modbus: Modbus 协议相关",
     "ads: ADS 协议相关",
     "iec104: IEC104 协议相关",
-    "kafka: 需要真实 Kafka",
-    "postgres: 需要真实 PostgreSQL",
+    "redis: 需要真实 Redis",
     "influxdb: 需要真实 InfluxDB",
     "file: 文件 sink 相关",
     # 服务真实性与环境 marker

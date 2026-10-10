@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from core.infrastructure.config import config_dir_digest
 from tests.support.config_helper import write_config_tree
 from wind_hub_core.config.fingerprint import fingerprint_config_set
 from wind_hub_core.config.loader import load_config
@@ -121,6 +122,32 @@ class TestFingerprintContract:
         (sibling / "shared.yaml").write_text("shared: true\n", encoding="utf-8")
 
         assert fingerprint_config_set(site) == before
+
+
+class TestWorkerDigestContract:
+    """Worker 侧 config_dir_digest 与 Server 侧 fingerprint_config_set 是同一
+    跨进程契约的两个实现：同一份磁盘配置集必须产出相同摘要，否则
+    prepare/activate 的 hash 比对会误判 mismatch。"""
+
+    def test_worker_digest_matches_server_fingerprint(self, tmp_path: Path) -> None:
+        config_dir = _site(tmp_path / "cfg")
+
+        assert config_dir_digest(config_dir) == fingerprint_config_set(config_dir)
+
+    def test_worker_digest_matches_after_content_change(self, tmp_path: Path) -> None:
+        config_dir = _site(tmp_path / "cfg")
+        tasks = config_dir / "tasks.yaml"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("0.2", "0.5"))
+
+        assert config_dir_digest(config_dir) == fingerprint_config_set(config_dir)
+
+    def test_worker_digest_excludes_history(self, tmp_path: Path) -> None:
+        config_dir = _site(tmp_path / "cfg")
+        history = config_dir / ".history"
+        history.mkdir()
+        (history / "tasks.yaml.bak").write_text("old: true\n", encoding="utf-8")
+
+        assert config_dir_digest(config_dir) == fingerprint_config_set(config_dir)
 
 
 class TestRequiredFilesContract:

@@ -1,7 +1,7 @@
 """测试用 Docker Compose 生命周期管理。
 
-只管理 ``tests/fixtures/services/docker-compose.yml`` 中声明的 Kafka /
-PostgreSQL。pytest session fixture 的使用模式为::
+只管理 ``tests/fixtures/services/docker-compose.yml`` 中声明的 Redis。
+pytest session fixture 的使用模式为::
 
     compose_up()
     wait_services_healthy(...)

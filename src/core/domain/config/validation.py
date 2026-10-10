@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..device import Device, DeviceGroup, DeviceModel, DeviceType
+from ..device import Device, DeviceGroup, DeviceModel, DeviceType, ProtocolOptions
 from ..identities import (
     BusinessPointId,
     DeviceGroupId,
@@ -17,7 +17,6 @@ from ..identities import (
 from ..point import BusinessPoint, PointTable
 from ..unit import UNIT_CATALOG, Quantity, Unit
 from ..value_objects import DataType
-from .options import ProtocolOptions
 
 
 def validate_core_config(

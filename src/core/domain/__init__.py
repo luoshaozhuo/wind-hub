@@ -1,14 +1,15 @@
 """Shared Core Domain 公共门面。"""
 
-from .config import (
+from .config import validate_core_config
+from .device import (
+    Device,
+    DeviceGroup,
+    DeviceModel,
+    DeviceType,
     ProtocolOptions,
     ProtocolOptionValue,
     freeze_protocol_options,
-    point_table_for_device,
-    protocol_options_for,
-    validate_core_config,
 )
-from .device import Device, DeviceGroup, DeviceModel, DeviceType
 from .identities import (
     BusinessPointId,
     DeviceGroupId,
@@ -158,8 +159,6 @@ __all__ = [
     "ProtocolOptions",
     "engineering_value",
     "raw_write_value",
-    "protocol_options_for",
     "freeze_protocol_options",
-    "point_table_for_device",
     "validate_core_config",
 ]

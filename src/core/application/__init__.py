@@ -1,11 +1,8 @@
 """Shared Core Application 公共门面。
 
-Application 暴露共享协议边界、协议契约、应用错误，以及统一配置服务
-（read / save / validate）与共享语义配置 Diff 用例。
+Application 暴露共享协议边界、协议契约、应用错误与只读配置端口契约。
 """
 
-from .config_service import ConfigService
-from .diff_config import DiffConfigUseCase
 from .errors import (
     ConfigError,
     CoreError,
@@ -16,8 +13,6 @@ from .errors import (
 from .port import (
     TOPIC_CONFIG_TYPES,
     ConfigPort,
-    ConfigSnapshot,
-    ConfigSnapshotPort,
     ConfigTopic,
     ConfigValue,
     ExclusiveOpenSinkPort,
@@ -44,14 +39,10 @@ __all__ = [
     "TOPIC_CONFIG_TYPES",
     "ConfigError",
     "ConfigPort",
-    "ConfigService",
-    "ConfigSnapshot",
-    "ConfigSnapshotPort",
     "ConfigTopic",
     "ConfigValue",
     "ConnectionHealth",
     "CoreError",
-    "DiffConfigUseCase",
     "PointScalar",
     "ProtocolCapability",
     "ProtocolCapabilityError",

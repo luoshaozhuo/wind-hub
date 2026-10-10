@@ -1,7 +1,7 @@
 """soak 专用的计量 sink——在真实 sink（含 NullSink）外做一层透明计量包装。
 
 包装发生在装配期（``sink_factories`` 覆盖内装饰），被包装的是完整真实 sink
-（KafkaSink / DBSink 的全部网络行为不变）；这不是 monkeypatch——端口接口
+（全部网络行为不变）；这不是 monkeypatch——端口接口
 是生产定义的装饰点，计量维度（收到点数、重复点、写耗时）是 soak 验收的
 必备观测。
 """

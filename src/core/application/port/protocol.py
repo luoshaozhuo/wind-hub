@@ -43,11 +43,17 @@ class ProtocolPort(Protocol):
         """本地传输连接当前是否处于打开状态（纯本地查询，不执行网络 I/O）。
 
         只回答「连接能否直接用于下一次 I/O」，不回答「对端设备是否能
-        正常应答」——后者由 ``health()`` 的最近通信结果表达。
+        正常应答」——逐次通信的成败由读写调用本身的异常/结果表达。
         """
         ...
 
-    def health(self) -> ConnectionHealth: ...
+    def health(self) -> ConnectionHealth:
+        """Driver 缓存的连接健康视图（纯本地查询，不执行网络 I/O）。
+
+        仅用于状态上报（status/diagnostic）；重连与恢复决策一律以
+        ``is_open()`` 与读写异常为准，不依赖 ``health()`` 的取值。
+        """
+        ...
 
     async def read_one(self, point_id: str) -> ProtocolSample: ...
 

@@ -29,8 +29,6 @@ from core.domain import (
     PointTable,
     Protocol,
     UnitCode,
-    point_table_for_device,
-    protocol_options_for,
 )
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
@@ -166,13 +164,8 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
     with pytest.raises(ConfigError, match="address"):
         registry.create(
             device.endpoint,
-            point_table_for_device(
-                {device.device_id: device},
-                {model.device_model_id: model},
-                {table.point_table_id: table},
-                device.device_id,
-            ),
-            protocol_options_for({}, device.device_id),
+            table,
+            {},
         )
 
 

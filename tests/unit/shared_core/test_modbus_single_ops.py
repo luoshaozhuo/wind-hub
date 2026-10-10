@@ -174,7 +174,6 @@ def _driver(
     driver._read_plan_cache = {}
     driver._client = client
     client.connected = connected
-    driver._last_exchange = None
     driver._lock = asyncio.Lock()
     return driver
 
@@ -276,7 +275,7 @@ class TestReadOne:
 
     @pytest.mark.asyncio
     async def test_communication_error_keeps_open_connection_reusable(self) -> None:
-        """普通通信异常（非在途歧义）：记账通信失败，不无条件关闭仍打开的连接。"""
+        """普通通信异常（非在途歧义）：不无条件关闭仍打开的连接。"""
         client = _Client()
         client.read_error = ConnectionError("reset by peer")
         driver = _driver({"h": _point("h")}, client)
@@ -284,7 +283,6 @@ class TestReadOne:
         with pytest.raises(ProtocolConnectionError, match="read failed"):
             await driver.read_one("h")
 
-        assert driver.health().healthy is False
         assert client.close_calls == 0
         assert driver.is_open() is True
 
@@ -416,7 +414,7 @@ class TestReadMany:
         assert samples[1].value is None
 
     @pytest.mark.asyncio
-    async def test_read_many_communication_error_marks_disconnect(self) -> None:
+    async def test_read_many_communication_error_raises(self) -> None:
         client = _Client()
         client.read_error = ConnectionError("reset by peer")
         driver = _driver({"h": _point("h")}, client)
@@ -424,11 +422,9 @@ class TestReadMany:
         with pytest.raises(ProtocolError, match="read failed"):
             await driver.read_many(("h",))
 
-        assert driver.health().healthy is False
-
     @pytest.mark.asyncio
-    async def test_read_many_exception_response_counts_as_exchange(self) -> None:
-        """设备返回 Modbus 异常响应：已应答证明链路健康，计为通信成功。"""
+    async def test_read_many_exception_response_keeps_connection(self) -> None:
+        """设备返回 Modbus 异常响应：业务失败抛错，但连接保持可复用。"""
         client = _Client()
         client.response = _Response(error=True)
         driver = _driver({"h": _point("h")}, client)
@@ -436,20 +432,18 @@ class TestReadMany:
         with pytest.raises(ProtocolError, match="exception response"):
             await driver.read_many(("h",))
 
-        assert driver.health().healthy is True
+        assert driver.is_open() is True
+        assert client.close_calls == 0
 
     @pytest.mark.asyncio
-    async def test_read_many_link_level_protocol_error_not_marked_success(self) -> None:
-        """链路级 ProtocolConnectionError 原样上抛，绝不误记为通信成功。"""
+    async def test_read_many_link_level_protocol_error_propagates(self) -> None:
+        """链路级 ProtocolConnectionError 原样上抛，不重分类。"""
         client = _Client()
         client.read_error = ProtocolConnectionError("link down")
         driver = _driver({"h": _point("h")}, client)
 
         with pytest.raises(ProtocolConnectionError, match="link down"):
             await driver.read_many(("h",))
-
-        assert driver.health().healthy is False
-        assert "exception response" not in (driver.health().message or "")
 
 
 # ---------------------------------------------------------------------------
@@ -514,9 +508,9 @@ class TestWriteOne:
 
         assert not result.success
         assert client.total_write_calls() == 0
-        # 发送前校验失败：不是通信也不是断线——连接保持打开，无通信记录。
+        # 发送前校验失败：请求未接触设备，连接保持打开。
         assert driver.is_open() is True
-        assert driver.health().healthy is False  # 尚无真实通信，不声称健康
+        assert client.close_calls == 0
 
     @pytest.mark.asyncio
     async def test_exception_response_fails_write_but_keeps_connection(self) -> None:
@@ -531,8 +525,8 @@ class TestWriteOne:
         assert driver.health().healthy is True
 
     @pytest.mark.asyncio
-    async def test_communication_error_marks_disconnect_single_send(self) -> None:
-        """写请求发送后断线：只发一次，Driver 不自动重发。"""
+    async def test_communication_error_single_send_no_resend(self) -> None:
+        """写请求发送后通信失败：只发一次，Driver 绝不自动重发。"""
         client = _Client()
         client.write_error = ConnectionError("reset by peer")
         driver = _driver({"h": _point("h", "holding", 100)}, client)
@@ -541,7 +535,6 @@ class TestWriteOne:
             await driver.write_one(ProtocolWrite("h", 10))
 
         assert client.total_write_calls() == 1
-        assert driver.health().healthy is False
 
     @pytest.mark.asyncio
     async def test_write_one_requires_connection(self) -> None:
@@ -760,13 +753,15 @@ def test_protocol_modules_import_without_pymodbus() -> None:
 
 
 class TestHealthSemantics:
-    def test_fresh_connection_is_open_but_not_verified(self) -> None:
-        """传输打开 ≠ 通信健康：未通信的连接不声称健康。"""
+    """health() 仅反映本地传输状态（与 ADS/IEC104 Driver 同口径）；
+    重连与恢复决策走 is_open()，不依赖 health 的通信历史。"""
+
+    def test_connected_transport_reports_healthy(self) -> None:
         driver = _driver({"h": _point("h")}, _Client())
         assert driver.is_open() is True
         health = driver.health()
-        assert health.healthy is False
-        assert "no Modbus exchange yet" in (health.message or "")
+        assert health.healthy is True
+        assert "connected to" in (health.message or "")
 
     def test_closed_transport_reports_not_open(self) -> None:
         client = _Client()
@@ -775,27 +770,19 @@ class TestHealthSemantics:
         assert driver.health().healthy is False
 
     @pytest.mark.asyncio
-    async def test_successful_read_marks_exchange_healthy(self) -> None:
-        client = _Client()
-        client.response = _Response(registers=[7])
-        driver = _driver({"h": _point("h")}, client)
-        await driver.read_one("h")
-        assert driver.health().healthy is True
-
-    @pytest.mark.asyncio
-    async def test_exception_response_counts_as_successful_exchange(self) -> None:
-        """设备异常响应：业务失败（ProtocolError），但通信链路健康。"""
+    async def test_exception_response_keeps_connection_open(self) -> None:
+        """设备异常响应：业务失败（ProtocolError），但不断开连接。"""
         client = _Client()
         client.response = _Response(error=True)
         driver = _driver({"h": _point("h")}, client)
         with pytest.raises(ProtocolError, match="exception response"):
             await driver.read_one("h")
         assert driver.is_open() is True
-        assert driver.health().healthy is True
+        assert client.close_calls == 0
 
     @pytest.mark.asyncio
     async def test_decode_failure_is_bad_sample_not_disconnect(self) -> None:
-        """解码失败返回 BAD 样本，通信仍计为成功，不误判断线。"""
+        """解码失败返回 BAD 样本，不误判断线。"""
         client = _Client()
         client.response = _Response(registers=[])  # 空段 → 解码失败
         driver = _driver({"h": _point("h")}, client)

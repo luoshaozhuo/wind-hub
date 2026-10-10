@@ -4,7 +4,7 @@
 ``collector.domain.point_value.PointValue`` 存入内存，用于隔离 Runtime /
 routing / lifecycle 测试：这些测试只需要一个可注入的 SinkPort 来断言
 「采集 → 路由 → 输出」链路数据流向，不依赖任何生产 Sink 的外部资源。
-本 fixture 不代表生产 Sink（File/Kafka/DB/IEC104/Modbus）的实现状态。
+本 fixture 不代表生产 Sink（File/Redis/Modbus）的实现状态。
 """
 
 from __future__ import annotations

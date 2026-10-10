@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from math import isfinite
+from types import MappingProxyType
+from typing import TypeAlias
 
 from .identities import (
     DeviceGroupId,
@@ -152,3 +156,22 @@ class Device:
                 existing for existing in self.device_group_ids if existing != group_id
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# 协议专有连接参数
+# ---------------------------------------------------------------------------
+
+ProtocolOptionValue: TypeAlias = str | int | float | bool | None
+ProtocolOptions: TypeAlias = Mapping[str, ProtocolOptionValue]
+
+
+def freeze_protocol_options(values: Mapping[str, ProtocolOptionValue]) -> ProtocolOptions:
+    """复制并冻结协议参数，校验键非空、浮点值有限。"""
+    options = dict(values)
+    for key, value in options.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("protocol option keys must be non-empty strings")
+        if isinstance(value, float) and not isfinite(value):
+            raise ValueError(f"protocol option '{key}' must be finite")
+    return MappingProxyType(options)

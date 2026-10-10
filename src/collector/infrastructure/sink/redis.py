@@ -33,6 +33,7 @@ class RedisSink:
         self._lock = asyncio.Lock()
         self._healthy = False
         self._message: str | None = "not opened"
+        self._closed = False
 
     async def _response(self) -> str:
         assert self._reader is not None
@@ -61,33 +62,41 @@ class RedisSink:
                 await asyncio.wait_for(writer.wait_closed(), timeout=5.0)
         self._healthy = False
 
+    async def _connect(self) -> None:
+        """建立连接并完成握手；调用方必须持有 ``self._lock``。"""
+        try:
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(self._config.host, self._config.port),
+                timeout=5.0,
+            )
+            if self._config.password is not None:
+                await self._request("AUTH", self._config.password.get_secret_value())
+            if self._config.database != 0:
+                await self._request("SELECT", str(self._config.database))
+            await self._request("PING")
+            self._healthy, self._message = True, None
+        except Exception as exc:
+            await self._disconnect()
+            self._message = str(exc)
+            raise SinkError(f"Redis open failed: {exc}") from exc
+
     async def open(self) -> None:
         async with self._lock:
             if self._writer is not None:
                 return
-            try:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._config.host, self._config.port),
-                    timeout=5.0,
-                )
-                if self._config.password is not None:
-                    await self._request("AUTH", self._config.password.get_secret_value())
-                if self._config.database != 0:
-                    await self._request("SELECT", str(self._config.database))
-                await self._request("PING")
-                self._healthy, self._message = True, None
-            except Exception as exc:
-                await self._disconnect()
-                self._message = str(exc)
-                raise SinkError(f"Redis open failed: {exc}") from exc
+            await self._connect()
 
     async def write(self, batch: list[PointValue]) -> None:
         if not batch:
             return
         async with self._lock:
             if self._writer is None:
-                self._healthy = False
-                raise SinkError("Redis sink is not opened")
+                if self._closed:
+                    self._healthy = False
+                    raise SinkError("Redis sink is closed")
+                # 断线后按批次惰性重连：服务恢复即重新出数，无需外部介入。
+                await self._connect()
+            assert self._writer is not None
             try:
                 commands = [
                     _command("SET", record.key, record.payload)
@@ -110,6 +119,7 @@ class RedisSink:
 
     async def close(self) -> None:
         async with self._lock:
+            self._closed = True
             await self._disconnect()
             self._message = "closed"
 

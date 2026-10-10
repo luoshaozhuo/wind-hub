@@ -1,7 +1,7 @@
 """Sink outbound port 与类型注册表（Application 层）。
 
-SinkPort 由 application 层（Runtime 的投递编排）消费；文件 / Kafka /
-数据库 / 协议服务端等实现位于 ``collector.infrastructure.sink``，由
+SinkPort 由 application 层（Runtime 的投递编排）消费；文件 / Redis /
+协议服务端等实现位于 ``collector.infrastructure.sink``，由
 组合根装配注入。
 
 SinkRegistry 与 ``core.infrastructure.ProtocolRegistry`` 同一设计语言：

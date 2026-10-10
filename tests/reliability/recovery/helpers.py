@@ -1,17 +1,15 @@
 """Recovery 测试共享助手——故障注入周期（正常 → 故障 → 检测 → 存活 → 恢复）
 中反复使用的边界观测原语与配置生成器。
 
-所有观测都发生在系统边界：ctl subprocess 的 status payload、独立 Kafka
-consumer、输出文件行数——不读取 Collector 进程内部状态。
+所有观测都发生在系统边界：ctl subprocess 的 status payload、独立 Redis
+连接、输出文件行数——不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import time
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -39,7 +37,7 @@ def write_modbus_file_config(
     **sink_params: Any,
 ) -> Path:
     """单 Modbus 设备 + File sink 的现场配置（recovery 各用例的基线拓扑）。"""
-    params = {"path": str(sink_path), "buffer_size": 4, "flush_interval": 0.5}
+    params = {"path": str(sink_path)}
     params.update(sink_params)
     return write_functional_config(
         base,
@@ -113,100 +111,67 @@ async def wait_status(
         raise
 
 
-class KafkaFlowObserver:
-    """故障注入前预启动的 Kafka 流量观测器（broker 中断检测用）。
+class RedisFlowObserver:
+    """Redis 点值更新观测器（服务中断检测用）。
 
-    broker 停止后新 consumer 无法 bootstrap（启动即失败），因此观测器
-    必须在故障注入之前 :meth:`start`。观测分两步：
+    Redis sink 以 SET 覆盖各点最新值，负载带采集 timestamp：服务存活
+    期间同一 key 的 timestamp 随采集周期持续推进；服务停止后 timestamp
+    冻结。观测分两步：
 
-    1. :meth:`drain` —— 排空 broker 死亡前已进入 consumer 缓冲的存量。
-       broker 已死，缓冲只减不增，排空是确定性的；
-    2. :meth:`count_during` —— 统计窗口内新到达的消息数。这是测量而非
-       就绪等待——窗口时长即断言语义的一部分。
+    1. :meth:`wait_quiesced` —— 确认 timestamp 已不再变化（故障已传导
+       到系统边界；须在服务停止后调用）；
+    2. :meth:`count_during` —— 统计窗口内 timestamp 的变化次数。这是
+       测量而非就绪等待——窗口时长即断言语义的一部分。
 
-    broker 死亡期间 consumer 拉取失败（KafkaError）即「无消息到达」的
-    预期表现，计 0 并继续观测，不算吞异常。
+    服务死亡期间 GET 连接失败即「无更新到达」的预期表现，计 0 并继续
+    观测，不算吞异常。每次读取独立建连——观测器与被测 Collector 的
+    连接状态完全解耦。
     """
 
-    def __init__(self, bootstrap_servers: str, topic: str) -> None:
-        from aiokafka import AIOKafkaConsumer  # 延迟导入：无 kafka 环境也可收集本模块
+    def __init__(self, address: str, key: str) -> None:
+        self._address = address
+        self._key = key
 
-        self._consumer = AIOKafkaConsumer(
-            topic,
-            bootstrap_servers=bootstrap_servers,
-            group_id=f"wind-hub-recovery-{uuid.uuid4().hex[:12]}",
-            auto_offset_reset="latest",
-            enable_auto_commit=False,
-        )
+    async def _read_ts(self) -> str | None:
+        from tests.support.wait import read_redis_value
 
-    async def start(self) -> None:
-        await self._consumer.start()
+        try:
+            value = await read_redis_value(self._address, self._key)
+        except (ConnectionError, OSError, RuntimeError, TimeoutError):
+            # 服务死亡期间读取失败即「无更新到达」的预期观测。
+            return None
+        return None if value is None else str(value.get("timestamp"))
 
-    async def drain(self, *, timeout: float = 10.0) -> None:
-        """排空 consumer 缓冲中的存量消息（须在 broker 停止后调用）。
+    async def wait_quiesced(self, *, timeout: float = 10.0) -> None:
+        """等待 timestamp 冻结（须在服务停止后调用）。
 
-        broker 死亡后缓冲只减不增：持续拉取直到一个完整轮询周期返回空。
-        超时仍排不空说明 broker 其实还在供数——调用时序错误，直接失败。
+        服务死亡后 key 不再被 SET：轮询直到相邻两次读取（间隔大于采集
+        周期）完全一致。超时仍在推进说明服务其实还在供数——调用时序
+        错误，直接失败。
         """
         deadline = time.monotonic() + timeout
+        last = await self._read_ts()
         while time.monotonic() < deadline:
-            if await self._poll(timeout_ms=1000) == 0:
+            await asyncio.sleep(0.5)
+            current = await self._read_ts()
+            if current == last:
                 return
+            last = current
         raise AssertionError(
-            "kafka flow did not quiesce after broker stop — "
-            "drain() must be called after the broker is actually down"
+            "redis flow did not quiesce after service stop — "
+            "wait_quiesced() must be called after the service is actually down"
         )
 
     async def count_during(self, window: float) -> int:
-        """统计观测窗口内新到达的消息条数。"""
+        """统计观测窗口内 timestamp 的变化次数。"""
         deadline = time.monotonic() + window
         count = 0
+        last = await self._read_ts()
         while time.monotonic() < deadline:
-            count += await self._poll(timeout_ms=500)
+            await asyncio.sleep(0.2)
+            current = await self._read_ts()
+            if current is not None and last is not None and current != last:
+                count += 1
+            if current is not None:
+                last = current
         return count
-
-    async def _poll(self, *, timeout_ms: int) -> int:
-        from aiokafka.errors import KafkaError
-
-        try:
-            batch = await self._consumer.getmany(timeout_ms=timeout_ms)
-        except KafkaError:
-            # broker 死亡期间拉取失败即「无消息到达」的预期观测。
-            return 0
-        return sum(len(records) for records in batch.values())
-
-    async def close(self) -> None:
-        from aiokafka.errors import KafkaError
-
-        current = asyncio.current_task()
-        try:
-            await self._consumer.stop()
-            return
-        except asyncio.CancelledError:
-            # aiokafka 0.14 fetcher.close() 对 _pending_tasks 的 cancel+await
-            # 不抑制 CancelledError（fetcher.py:455-457；同文件 _fetch_task
-            # 与 client.py 均正确抑制）——对内部任务的取消穿透到 stop() 的
-            # 调用方。只有外层任务自身被取消（真正的测试取消）才向上传播。
-            if current is not None and current.cancelling() > 0:
-                raise
-        except KafkaError:
-            # broker 尚未恢复时的关闭失败不影响已完成的观测结论。
-            pass
-        # stop() 因上述 bug 在 client.close() 之前中断，且 _closed 标记使其
-        # 不可重入——_md_synchronizer 与连接 reader 任务会滞留为 pending
-        # （事件循环收尾时打印 "Task was destroyed but it is pending!"）。
-        # 公开 API 已无可重入的关闭路径，只能经底层 client 释放剩余资源。
-        with contextlib.suppress(Exception):
-            await self._consumer._client.close()
-
-
-def aiokafka_stray_tasks() -> list[asyncio.Task[Any]]:
-    """当前事件循环中仍 pending 的 aiokafka 内部任务（排除调用方自身）。"""
-    current = asyncio.current_task()
-    return [
-        task
-        for task in asyncio.all_tasks()
-        if task is not current
-        and task.get_coro() is not None
-        and "aiokafka" in task.get_coro().cr_code.co_filename
-    ]

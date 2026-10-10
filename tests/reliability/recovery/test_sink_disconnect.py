@@ -1,14 +1,13 @@
-"""Recovery：外部 sink 服务中断全周期——broker/数据库停止 → 检测 → 进程存活 → 恢复。
+"""Recovery：外部 sink 服务中断全周期——Redis 停止 → 检测 → 进程存活 → 恢复。
 
 故障注入手段是 Docker Compose 真实停止/启动服务（非 iptables 模拟）；
-检测与恢复信号来自系统边界：独立 consumer 的新消息计数、SQL 行数、
-ctl status 的 ``sinks_healthy``。每个用例在 finally 中恢复服务，保证
+检测与恢复信号来自系统边界：独立 Redis 连接的点值 timestamp 推进、
+ctl status 的 ``sinks_healthy``。用例在 finally 中恢复服务，保证
 session 级 compose 栈不污染后续测试。
 """
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 import pytest
@@ -16,135 +15,71 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.fixtures.services import compose
 from tests.reliability.recovery.helpers import (
-    KafkaFlowObserver,
-    aiokafka_stray_tasks,
+    RedisFlowObserver,
     telemetry_task,
     wait_status,
 )
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
-from tests.support.wait import wait_kafka_messages, wait_postgres_rows
+from tests.support.redis_client import parse_address, point_key
+from tests.support.wait import wait_redis_value
 
 pytestmark = pytest.mark.real_service
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
 
+#: 本文件 Redis sink 的 key_prefix（键规则见 tests.support.redis_client.point_key）。
+REDIS_KEY_PREFIX = "wind-hub-rec"
+ROTOR_KEY = point_key("modbus-1", "rotor.speed", prefix=REDIS_KEY_PREFIX)
 
-@pytest.mark.kafka
-class TestKafkaOutageRecovery:
-    async def test_broker_outage_then_recovery(
+
+@pytest.mark.redis
+class TestRedisOutageRecovery:
+    async def test_service_outage_then_recovery(
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
-        kafka_service: str,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
-        topic = f"windhub-rec-{uuid.uuid4().hex[:12]}"
+        host, port = parse_address(redis_service)
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
             sinks=[
                 {
-                    "name": "kafka_sink",
-                    "type": "kafka",
-                    "connection": {"bootstrap_servers": kafka_service, "topic": topic},
-                }
-            ],
-            tasks=[telemetry_task("kafka_sink")],
-        )
-        proc: CollectorProcess = await collector_factory(config_dir)
-        broker_stopped = False
-        # 观测器必须在故障注入前建立连接：broker 停止后新 consumer 无法
-        # bootstrap，事中新建 consumer 的检测路径本身就会失败。
-        observer = KafkaFlowObserver(kafka_service, topic)
-        await observer.start()
-        try:
-            # ---- 正常：消息到达 broker ----
-            await apply_placement_and_start_instance(
-                proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-            )
-            baseline = await wait_kafka_messages(kafka_service, topic, min_messages=3)
-
-            # ---- 故障：真实停止 broker ----
-            compose.compose_stop_service("kafka")
-            broker_stopped = True
-
-            # ---- 检测：排空存量后，观测窗口内无任何新消息到达 ----
-            await observer.drain()
-            assert await observer.count_during(5.0) == 0
-
-            # ---- 主进程存活：Runtime 仍在运行 ----
-            assert proc.is_running()
-            await wait_status(proc, lambda p: p["running"] is True)
-
-            # ---- 恢复：broker 重启（compose_start_service 自带健康等待） ----
-            compose.compose_start_service("kafka")
-            broker_stopped = False
-
-            # ---- 数据恢复：新消息（含故障期积压）重新到达 ----
-            messages = await wait_kafka_messages(
-                kafka_service,
-                topic,
-                min_messages=len(baseline) + 2,
-                timeout=60.0,
-            )
-            rotor = [m for m in messages if m.get("point_id") == "rotor.speed"]
-            assert rotor, "rotor.speed messages missing after broker recovery"
-            assert all(m["value"] == pytest.approx(1200.5) for m in rotor)
-        finally:
-            # 先恢复 broker 再关观测器：consumer.stop() 需要与 coordinator
-            # 通信，broker 死亡时关闭会以 CancelledError 收场。
-            if broker_stopped:
-                compose.compose_start_service("kafka")
-            await observer.close()
-            # 观测器关闭后不得滞留 aiokafka 内部任务（client/connection
-            # 未释放会在事件循环收尾时变成 "Task was destroyed but it is
-            # pending!" 噪声）。
-            assert not aiokafka_stray_tasks()
-
-
-@pytest.mark.postgres
-class TestPostgresOutageRecovery:
-    async def test_database_outage_then_recovery(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        postgres_service: str,
-        tmp_path: Path,
-    ) -> None:
-        table = f"windhub_rec_{uuid.uuid4().hex[:12]}"
-        config_dir = write_functional_config(
-            tmp_path / "cfg",
-            modbus_server.port,
-            sinks=[
-                {
-                    "name": "db_sink",
-                    "type": "db",
+                    "name": "redis_sink",
+                    "type": "redis",
                     "connection": {
-                        "dsn": postgres_service,
-                        "table": table,
-                        "create_table": True,
+                        "host": host,
+                        "port": port,
+                        "key_prefix": REDIS_KEY_PREFIX,
                     },
                 }
             ],
-            tasks=[telemetry_task("db_sink")],
+            tasks=[telemetry_task("redis_sink")],
         )
         proc: CollectorProcess = await collector_factory(config_dir)
-        db_stopped = False
+        service_stopped = False
+        observer = RedisFlowObserver(redis_service, ROTOR_KEY)
         try:
-            # ---- 正常：行落库 ----
+            # ---- 正常：点值持续写入 Redis（timestamp 随采集周期推进） ----
             await apply_placement_and_start_instance(
                 proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
             )
-            baseline = await wait_postgres_rows(postgres_service, table, min_rows=3)
+            baseline = await wait_redis_value(redis_service, ROTOR_KEY)
+            assert baseline["value"] == pytest.approx(1200.5)
+            assert await observer.count_during(2.0) > 0
 
-            # ---- 故障：真实停止数据库 ----
-            compose.compose_stop_service("postgres")
-            db_stopped = True
+            # ---- 故障：真实停止 Redis ----
+            compose.compose_stop_service("redis")
+            service_stopped = True
 
-            # ---- 检测：asyncpg 写立即失败，sink 健康在边界可见地翻转 ----
+            # ---- 检测：点值冻结，观测窗口内无任何更新；sink 健康翻转 ----
+            await observer.wait_quiesced()
+            assert await observer.count_during(5.0) == 0
             await wait_status(
                 proc,
                 lambda p: p["sinks_healthy"] == 0,
@@ -152,22 +87,23 @@ class TestPostgresOutageRecovery:
                 description="sink detected unhealthy",
             )
 
-            # ---- 主进程存活 ----
+            # ---- 主进程存活：Runtime 仍在运行 ----
             assert proc.is_running()
             await wait_status(proc, lambda p: p["running"] is True)
 
-            # ---- 恢复：数据库重启，连接池重建 ----
-            compose.compose_start_service("postgres")
-            db_stopped = False
+            # ---- 恢复：Redis 重启（compose_start_service 自带健康等待） ----
+            compose.compose_start_service("redis")
+            service_stopped = False
 
-            # ---- 数据恢复：新行继续落库（故障期失败批次按丢弃语义不补） ----
-            rows = await wait_postgres_rows(
-                postgres_service,
-                table,
-                min_rows=len(baseline) + 2,
+            # ---- 数据恢复：点值重新推进（故障期失败批次按丢弃语义不补） ----
+            frozen_ts = baseline["timestamp"]
+            recovered = await wait_redis_value(
+                redis_service,
+                ROTOR_KEY,
                 timeout=60.0,
+                match=lambda v: v["timestamp"] > frozen_ts,
             )
-            assert all(r["device_id"] == "modbus-1" for r in rows)
+            assert recovered["value"] == pytest.approx(1200.5)
 
             # sink 健康在成功写入后恢复。
             await wait_status(
@@ -176,12 +112,5 @@ class TestPostgresOutageRecovery:
                 description="sink recovered healthy",
             )
         finally:
-            if db_stopped:
-                compose.compose_start_service("postgres")
-            import asyncpg
-
-            conn = await asyncpg.connect(postgres_service)
-            try:
-                await conn.execute(f"DROP TABLE IF EXISTS {table}")
-            finally:
-                await conn.close()
+            if service_stopped:
+                compose.compose_start_service("redis")

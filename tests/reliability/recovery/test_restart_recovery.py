@@ -81,8 +81,6 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
                     "path": str(sink_path),
                     # 订阅型数据稀疏（总召才出数）：逐条刷盘，避免单点
                     # 滞留缓冲导致边界观测不到。
-                    "buffer_size": 1,
-                    "flush_interval": 0.5,
                 },
             }
         ],

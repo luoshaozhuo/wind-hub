@@ -1,6 +1,6 @@
 """ADS 集成测试服务 fixture。
 
-与 ``kafka_service`` / ``postgres_service`` 同一模式：环境变量指向真实
+与 ``redis_service`` 同一模式：环境变量指向真实
 TwinCAT PLC 时直接使用（不管理其生命周期）；否则在进程内拉起 pyads 自带的
 ``AdsTestServer``——真实 AMS/TCP 协议栈上的真实 ADS Server，属于
 ``real_service``，不是 mock。两条路径都不退化协议路径。

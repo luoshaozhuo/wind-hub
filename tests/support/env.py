@@ -49,14 +49,9 @@ def env_or_none(name: str) -> str | None:
     return value or None
 
 
-def kafka_bootstrap_from_env() -> str | None:
-    """外部已就绪的 Kafka bootstrap servers；未配置返回 ``None``。"""
-    return env_or_none("WIND_HUB_TEST_KAFKA")
-
-
-def postgres_dsn_from_env() -> str | None:
-    """外部已就绪的 PostgreSQL DSN；未配置返回 ``None``。"""
-    return env_or_none("WIND_HUB_TEST_POSTGRES_DSN")
+def redis_address_from_env() -> str | None:
+    """外部已就绪的 Redis 地址（``host:port``）；未配置返回 ``None``。"""
+    return env_or_none("WIND_HUB_TEST_REDIS")
 
 
 def ads_config_from_env() -> dict[str, str | int] | None:

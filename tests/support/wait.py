@@ -196,89 +196,36 @@ async def wait_file_rows(
     )
 
 
-async def wait_kafka_messages(
-    bootstrap_servers: str,
-    topic: str,
+async def read_redis_value(address: str, key: str) -> dict[str, Any] | None:
+    """用独立连接读取 Redis key 的 JSON 值；key 不存在返回 ``None``。
+
+    连接与被测 Collector 完全独立——这是系统边界验证，不是内部状态窥探。
+    """
+    from tests.support.redis_client import RedisTestClient
+
+    async with RedisTestClient(address) as client:
+        raw = await client.get(key)
+    return json.loads(raw) if raw is not None else None
+
+
+async def wait_redis_value(
+    address: str,
+    key: str,
     *,
-    min_messages: int = 1,
     timeout: float = 30.0,
     match: Callable[[dict[str, Any]], bool] | None = None,
-) -> list[dict[str, Any]]:
-    """用独立 consumer（每次随机 group、from earliest）等待 Kafka 消息。
+) -> dict[str, Any]:
+    """等待 Redis key 出现（可选按 ``match`` 过滤解码后的 JSON dict）。"""
 
-    消息体按 UTF-8 JSON 解码；``match`` 过滤解码后的 dict。消息 key 以
-    ``_key`` 字段附加到返回 dict（无 key 时为 None）。consumer 与
-    被测 Collector 完全独立——这是系统边界验证，不是内部状态窥探。
-    """
-
-    async def _collect() -> list[dict[str, Any]]:
-        import uuid
-
-        from aiokafka import AIOKafkaConsumer
-
-        consumer = AIOKafkaConsumer(
-            topic,
-            bootstrap_servers=bootstrap_servers,
-            group_id=f"wind-hub-test-{uuid.uuid4().hex[:12]}",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
-        await consumer.start()
-        try:
-            deadline = time.monotonic() + timeout
-            messages: list[dict[str, Any]] = []
-            while time.monotonic() < deadline:
-                batch = await consumer.getmany(timeout_ms=500)
-                for records in batch.values():
-                    for record in records:
-                        data = json.loads(record.value.decode("utf-8"))
-                        data["_key"] = (
-                            record.key.decode("utf-8") if record.key is not None else None
-                        )
-                        if match is None or match(data):
-                            messages.append(data)
-                if len(messages) >= min_messages:
-                    return messages
-            return messages
-        finally:
-            await consumer.stop()
-
-    messages = await _collect()
-    if len(messages) < min_messages:
-        raise WaitTimeoutError(
-            f"timeout after {timeout}s waiting for {min_messages} kafka messages "
-            f"on {topic} (got {len(messages)})"
-        )
-    return messages
-
-
-async def wait_postgres_rows(
-    dsn: str,
-    table: str,
-    *,
-    min_rows: int = 1,
-    timeout: float = 30.0,
-    where: str | None = None,
-) -> list[dict[str, Any]]:
-    """用独立 SQL 连接等待 PostgreSQL 表出现至少 ``min_rows`` 行。"""
-
-    async def _probe() -> list[dict[str, Any]] | None:
-        import asyncpg
-
-        conn = await asyncpg.connect(dsn)
-        try:
-            sql = f"SELECT * FROM {table}"
-            if where:
-                sql += f" WHERE {where}"
-            rows = await conn.fetch(sql)
-            result = [dict(row) for row in rows]
-            return result if len(result) >= min_rows else None
-        finally:
-            await conn.close()
+    async def _probe() -> dict[str, Any] | None:
+        value = await read_redis_value(address, key)
+        if value is None:
+            return None
+        return value if match is None or match(value) else None
 
     return await wait_until(
         _probe,
         timeout=timeout,
-        interval=0.5,
-        description=f"{min_rows} rows in postgres table {table}",
+        interval=0.2,
+        description=f"redis key {key}",
     )
