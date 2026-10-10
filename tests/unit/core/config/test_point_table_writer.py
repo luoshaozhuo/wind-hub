@@ -4,7 +4,6 @@ from core.domain import (
     BusinessPointId,
     Point,
     PointAccess,
-    PointMeta,
     PointTable,
     PointTableId,
     Protocol,
@@ -20,6 +19,7 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         source_unit=KILOWATT,
         access=PointAccess.READ,
         ext={"data_type": "int32", "type": "input", "address": 10},
+        variable_name="power", point_groups=("all",),
     )
     changed_point = Point(
         point_id="power",
@@ -27,6 +27,7 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         source_unit=KILOWATT,
         access=PointAccess.READ,
         ext={"data_type": "int32", "type": "input", "address": 20},
+        variable_name="power", point_groups=("all",),
     )
     parent = PointTable(PointTableId("base"), Protocol("modbus"), {"power": base_point})
     child = PointTable(
@@ -35,10 +36,8 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         {"power": changed_point},
         parent_id=PointTableId("base"),
     )
-    metadata = PointMeta(variable_name="power", point_groups=("all",))
     yaml = dump_point_tables(
         {parent.point_table_id: parent, child.point_table_id: child},
-        {parent.point_table_id: {"power": metadata}, child.point_table_id: {"power": metadata}},
     )
     saved = yaml["point_tables"]["child"]
     assert saved["extends"] == "base"
