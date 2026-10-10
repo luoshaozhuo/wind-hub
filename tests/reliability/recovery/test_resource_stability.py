@@ -59,7 +59,7 @@ class TestReconnectFlapStability:
         tmp_path: Path,
     ) -> None:
         """RES-01：10 次断连/恢复循环后实例唯一、FD 不增长。"""
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
@@ -116,7 +116,7 @@ class TestReloadStability:
         buffer_size（触发 sink 重建、consumer 协程替换）——两条重建路径
         都是 asyncio task / 句柄泄漏高发区。
         """
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
         await apply_placement_and_start_instance(
