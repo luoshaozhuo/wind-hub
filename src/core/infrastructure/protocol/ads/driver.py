@@ -37,6 +37,16 @@ _ADSERR_SYMBOL_NOT_FOUND = 1808
 logger = logging.getLogger(__name__)
 
 
+def _ads_state_name(value: object) -> str:
+    """把 pyads ADSSTATE_* 数值转成可诊断名称；未知值保留原值。"""
+    constants = getattr(_pyads(), "constants", None)
+    if constants is not None:
+        for name in dir(constants):
+            if name.startswith("ADSSTATE_") and getattr(constants, name, object()) == value:
+                return name.removeprefix("ADSSTATE_")
+    return str(value)
+
+
 def _pyads() -> Any:
     """延迟导入 pyads，把未类型化第三方对象隔离在 Adapter 内。"""
     try:
@@ -127,21 +137,25 @@ class ADSDriver:
             }
         )
 
+    def _new_connection(self) -> Any:
+        """创建配置一致、尚未 open 的 pyads Connection。"""
+        pyads = _pyads()
+        connection = pyads.Connection(
+            self._config.target_net_id or None,
+            self._config.target_port,
+            self._config.host,
+        )
+        connection.set_timeout(int(self._config.timeout * 1000))
+        return connection
+
     async def connect(self) -> None:
         """建立一次 ADS session 并解析全部 symbol 地址。"""
         async with self._lock:
             if self._connected:
                 return
 
-            pyads = _pyads()
             self._close_connection()
-            net_id = self._config.target_net_id or None
-            connection = pyads.Connection(
-                net_id,
-                self._config.target_port,
-                self._config.host,
-            )
-            connection.set_timeout(int(self._config.timeout * 1000))
+            connection = self._new_connection()
 
             try:
                 await asyncio.to_thread(connection.open)
@@ -177,14 +191,40 @@ class ADSDriver:
         """本地 ADS session 是否处于已连接状态（含路由与符号解析完成）。"""
         return self._connected
 
-    def health(self) -> ConnectionHealth:
-        """返回缓存连接状态，不执行 ADS wire 探测。"""
-        if self._connected:
-            return ConnectionHealth(
-                healthy=True,
-                message=(f"connected to {self._config.host}:" f"{self._config.target_port}"),
-            )
-        return ConnectionHealth(healthy=False, message="not connected")
+    async def health(self) -> ConnectionHealth:
+        """通过独立 ADS State Read 会话检查对端通信。
+
+        探测连接与业务 read/write 连接隔离，避免外层健康检查超时取消后
+        同步 pyads 调用仍在线程中运行而与正常 I/O 争用同一 session。
+        PLC 非 RUN 状态仍表示 ADS 通信可达，仅在 message 中报告状态，
+        不通过无意义重连试图改变 PLC 运行模式。
+        """
+
+        def _probe() -> ConnectionHealth:
+            connection = self._new_connection()
+            try:
+                connection.open()
+                if not connection.is_open:
+                    return ConnectionHealth(healthy=False, message="ADS probe did not open")
+                ads_state, device_state = connection.read_state()
+                return ConnectionHealth(
+                    healthy=True,
+                    message=(
+                        "ADS reachable; "
+                        f"ads_state={_ads_state_name(ads_state)}, "
+                        f"device_state={device_state}"
+                    ),
+                )
+            except Exception as exc:
+                return ConnectionHealth(
+                    healthy=False,
+                    message=f"ADS state read failed: {exc}",
+                )
+            finally:
+                with contextlib.suppress(Exception):
+                    connection.close()
+
+        return await asyncio.to_thread(_probe)
 
     async def subscribe(
         self,
