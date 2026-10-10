@@ -68,7 +68,13 @@ def dump_snapshot(
             },
             "device_models": models,
         },
-        "devices.yaml": {"devices": devices},
+        "devices.yaml": {
+            "devices": devices,
+            "device_groups": {
+                str(key): {"name": group.name, "description": group.description}
+                for key, group in snapshot.device_groups.items()
+            },
+        },
         "points.yaml": dump_point_tables(snapshot.point_tables),
         "business_points.yaml": {"business_points": catalog},
         "tasks.yaml": {"tasks": tasks},
