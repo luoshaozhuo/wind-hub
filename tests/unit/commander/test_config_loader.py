@@ -219,13 +219,12 @@ def test_access_derivation_iec104(tmp_path):
     assert table.points["cmd"].access is PointAccess.READ_WRITE
 
 
-def test_ads_read_mode_injected_into_options(tmp_path):
+def test_ads_connection_options_preserved(tmp_path):
     config_dir = write_minimal_config_tree(
         tmp_path,
         protocol="ads",
         address={"symbol": "MAIN.n", "data_type": "float32"},
         connection_defaults={"target_net_id": "1.2.3.4.5.6"},
-        read_mode="sequential",
         devices=[
             {
                 "device_id": "dev1",
@@ -236,7 +235,7 @@ def test_ads_read_mode_injected_into_options(tmp_path):
     )
     config = load_commander_config(config_dir)
     options = config.protocol_options_for(DeviceId("dev1"))
-    assert options["read_mode"] == "sequential"
+    assert "read_mode" not in options
     assert options["target_net_id"] == "1.2.3.4.5.6"
 
 
