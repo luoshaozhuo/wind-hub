@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from types import MappingProxyType
+from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from .config_snapshot import ConfigSnapshot
@@ -58,7 +59,7 @@ def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigSna
     }
     sections["devices"] = _diff_mapping(old.site.devices, new.site.devices)
     return ConfigSnapshotDiff(
-        sections=sections,
+        sections=MappingProxyType(sections),
         system_changed=old.system != new.system,
         site_changed=(
             old.site.site_id != new.site.site_id
