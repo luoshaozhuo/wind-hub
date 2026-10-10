@@ -115,7 +115,7 @@ def diff(old: _DomainConfig | BaseModel, new: _DomainConfig | BaseModel) -> Conf
             f"diff requires the same config type, got "
             f"{type(old).__name__} and {type(new).__name__}"
         )
-    if not isinstance(old, _DIFFABLE_TYPES) or isinstance(old, type):
+    if not isinstance(old, _DIFFABLE_TYPES):
         raise TypeError(f"diff does not support config of type {type(old).__name__}")
     collector = _DiffCollector()
     collector.compare((), old, new)
