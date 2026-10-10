@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import inspect
 import json
 import time
@@ -150,15 +151,26 @@ async def wait_process_exit(
     return await wait_until(_probe, timeout=timeout, interval=0.1, description=description)
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """读取 File Sink 的 JSONL 输出（跳过空行；含 gzip 分片不解压）。"""
+def read_csv(path: Path) -> list[dict[str, Any]]:
+    """读取 FileSink CSV 长表；将 JSON 数值与空值恢复为便于断言的标量。"""
     if not path.is_file():
         return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            rows.append(json.loads(line))
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            value = row["value"]
+            if not value:
+                row["value"] = None
+            elif value == "True":
+                row["value"] = True
+            elif value == "False":
+                row["value"] = False
+            else:
+                try:
+                    row["value"] = json.loads(value)
+                except (ValueError, TypeError):
+                    pass
+            rows.append(row)
     return rows
 
 
@@ -169,10 +181,10 @@ async def wait_file_rows(
     timeout: float = 20.0,
     match: Callable[[dict[str, Any]], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    """等待 JSONL 文件出现至少 ``min_rows`` 行（可选按 ``match`` 过滤）。"""
+    """等待 CSV 文件出现至少 ``min_rows`` 行（可选按 ``match`` 过滤）。"""
 
     async def _probe() -> list[dict[str, Any]] | None:
-        rows = read_jsonl(path)
+        rows = read_csv(path)
         if match is not None:
             rows = [row for row in rows if match(row)]
         return rows if len(rows) >= min_rows else None
