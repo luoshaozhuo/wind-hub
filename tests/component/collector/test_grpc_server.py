@@ -154,7 +154,7 @@ async def test_sink_check_and_write_test(running, tmp_path):
 
     result = await runtime_stub.WriteTestSink(pb.SinkRequest(name="s1"))
     assert result.success is True
-    out = tmp_path / "out.jsonl"
+    out = tmp_path / "out.csv"
     assert out.exists()
     assert "_write_test" in out.read_text()
 
