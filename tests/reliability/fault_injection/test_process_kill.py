@@ -17,7 +17,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess, run_ctl_async
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -58,7 +58,7 @@ class TestProcessKillRecovery:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 
-        baseline = len(read_jsonl(sink_path))
+        baseline = len(read_csv(sink_path))
         await apply_placement_and_start_instance(
             proc_b.grpc_target,
             task_id=TASK_ID,
@@ -89,6 +89,6 @@ class TestProcessKillRecovery:
         proc.kill_tree()
 
         # 落盘文件必须保持可解析——不允许半截行破坏后续消费。
-        rows = read_jsonl(sink_path)
+        rows = read_csv(sink_path)
         assert rows, "rows flushed before kill must survive"
         assert all(r["device_id"] == "modbus-1" for r in rows)
