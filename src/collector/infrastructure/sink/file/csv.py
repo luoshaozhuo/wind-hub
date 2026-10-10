@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import BinaryIO, Sequence
 
 from collector.application.errors import SinkError
-from core.application.csv_sink_record import CSV_COLUMNS, FileSegment, iter_csv_rows, should_rotate
+from core.application.csv_sink_record import FileSegment, iter_csv_rows, should_rotate
 from core.application.file_sink_segments import (
     is_owned_segment,
     next_segment_sequence,
@@ -59,15 +59,15 @@ class FileSink:
             [p.name for p in archives], base=self._path.name
         )
         existing_size = self._path.stat().st_size if self._path.exists() else 0
-        now = datetime.now(UTC)
+        now = (datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
+               if existing_size else datetime.now(UTC))
         self._file = self._path.open("ab")
         if existing_size == 0:
             header = next(iter_csv_rows([], include_header=True))
             self._file.write(header)
             existing_size = len(header)
-        self._segment = FileSegment(now, existing_size, existing_size > len(
-            next(iter_csv_rows([], include_header=True))
-        ))
+        header_length = len(next(iter_csv_rows([], include_header=True)))
+        self._segment = FileSegment(now, existing_size, existing_size > header_length)
 
     def _rotate(self) -> None:
         assert self._file is not None
