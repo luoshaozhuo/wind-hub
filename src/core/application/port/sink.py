@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from core.application.protocol_contract import ConnectionHealth
@@ -20,7 +19,7 @@ class SinkPort(Protocol):
         """关闭资源；重复调用应安全。"""
         ...
 
-    async def write(self, batch: Sequence[PointValue]) -> None:
+    async def write(self, batch: list[PointValue]) -> None:
         """交付一个批次；失败时抛出异常，不静默丢弃。"""
         ...
 
