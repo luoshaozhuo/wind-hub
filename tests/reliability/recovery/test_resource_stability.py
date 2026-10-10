@@ -31,7 +31,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -88,7 +88,7 @@ class TestReconnectFlapStability:
             await _single_running_instance(proc)
 
         # 数据面在最后一次恢复后继续出数。
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=settled + 2)
 
         reconnects = (
@@ -144,7 +144,7 @@ class TestReloadStability:
             await _single_running_instance(proc)
 
         # 采集在最后一轮配置下继续出数。
-        settled = len(read_jsonl(sink_path))
+        settled = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=settled + 2)
         await asyncio.sleep(1.0)  # 等最后一轮重建的旧句柄完成释放
 
