@@ -47,11 +47,11 @@ class ProtocolPort(Protocol):
         """
         ...
 
-    def health(self) -> ConnectionHealth:
-        """Driver 缓存的连接健康视图（纯本地查询，不执行网络 I/O）。
+    async def health(self) -> ConnectionHealth:
+        """执行一次协议级健康检查。
 
-        仅用于状态上报（status/diagnostic）；重连与恢复决策一律以
-        ``is_open()`` 与读写异常为准，不依赖 ``health()`` 的取值。
+        实现必须判断当前对端通信是否仍然有效；不得在本方法内自动重连、
+        恢复订阅或重发业务写入。调用方负责施加整体超时。
         """
         ...
 
