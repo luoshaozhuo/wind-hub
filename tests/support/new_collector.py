@@ -153,7 +153,7 @@ class FakeSink:
     async def flush(self) -> None:
         self.flush_calls += 1
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
 
