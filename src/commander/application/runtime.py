@@ -381,13 +381,7 @@ class CommanderRuntime:
             raise KeyError(f"unknown device '{device_id}'") from exc
 
     async def ensure_connected(self, device_id: str) -> bool:
-        """确保固定 generation 中的设备连接可用。
-
-        以协议传输状态（``is_open``）判定：传输仍打开的连接直接复用，
-        不做无意义的 close/connect。并发 ensure 由 per-device lock 串行化；
-        重连前先尽力关闭旧会话，connect 应用配置级超时；失败返回 False
-        而不抛出。
-        """
+        """按需建立首次连接；已有 Watchdog 的连接由其独立负责恢复。"""
         generation = self._generation()
         try:
             device = generation.devices[device_id]
@@ -397,19 +391,16 @@ class CommanderRuntime:
 
         if device.is_open():
             return True
+        if device_id in generation.watchdogs:
+            return False
 
         async with lock:
             if device.is_open():
                 return True
+            if device_id in generation.watchdogs:
+                return False
             try:
-                await device.close()
-            except Exception as exc:
-                logger.warning(
-                    "Commander 重连前关闭旧会话失败 device=%s error=%s",
-                    device_id,
-                    exc,
-                )
-            try:
+                await asyncio.wait_for(device.close(), timeout=generation.config.connect_timeout)
                 await asyncio.wait_for(
                     device.connect(),
                     timeout=generation.config.connect_timeout,
@@ -423,10 +414,8 @@ class CommanderRuntime:
                 return False
             connected = device.is_open()
             if connected and generation is self._current and not self._stopping:
-                watchdog = generation.watchdogs.get(device_id)
-                if watchdog is None:
-                    watchdog = self._create_watchdog(generation, device_id, device)
-                    generation.watchdogs[device_id] = watchdog
+                watchdog = self._create_watchdog(generation, device_id, device)
+                generation.watchdogs[device_id] = watchdog
                 await watchdog.start()
             return connected
 
@@ -436,33 +425,31 @@ class CommanderRuntime:
         device_id: str,
         device: DeviceSession,
     ) -> WatchdogUseCase:
-        """只监测已建立连接的会话；检查与重连不跨 generation。"""
+        """每台已连接设备一个 Watchdog，与显式连接共享生命周期锁。"""
         lock = generation.connect_locks[device_id]
 
-        async def close() -> None:
-            await device.close()
-
-        async def connect() -> None:
-            await device.connect()
-
-        # Watchdog 自身以串行锁保护 close/connect；Commander 的显式
-        # ensure_connected 仍可能同时操作，故共享设备连接锁。
         async def health():
             async with lock:
                 return await device.health()
 
-        async def close_locked() -> None:
-            async with lock:
-                await close()
+        async def reconnect_close() -> None:
+            await lock.acquire()
+            try:
+                await device.close()
+            except BaseException:
+                lock.release()
+                raise
 
-        async def connect_locked() -> None:
-            async with lock:
-                await connect()
+        async def reconnect_connect() -> None:
+            try:
+                await device.connect()
+            finally:
+                lock.release()
 
         return WatchdogUseCase(
             health=health,
-            close=close_locked,
-            connect=connect_locked,
+            close=reconnect_close,
+            connect=reconnect_connect,
             interval=generation.config.watchdog_interval,
             health_timeout=generation.config.health_timeout,
             connect_timeout=generation.config.connect_timeout,
