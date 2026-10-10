@@ -218,6 +218,7 @@ def assemble_core_config(
             device_model_id=model_id,
             endpoint=endpoint,
             device_group_ids=group_ids,
+            enabled=instance.enabled,
         )
         # ADS 订阅开关是 Collector 采集模式选择，不是 Driver 连接参数：
         # 从 protocol_options_by_device 剥离（Core ADS Driver 严格拒绝未知 option），
