@@ -1,4 +1,4 @@
-"""ADS 公开 Sum Write 执行及 Index 回退测试。"""
+"""ADS index 地址批量写入与错误隔离测试。"""
 
 from __future__ import annotations
 
@@ -66,21 +66,20 @@ def _driver(*points: Point) -> ADSDriver:
 
 
 @pytest.mark.asyncio
-async def test_unique_symbols_use_public_sum_write(
+async def test_resolved_symbols_write_by_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
     driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
-    # Normally performed during connect: bind symbol addresses to this session.
     for index, (key, point) in enumerate(driver._points.items()):
         driver._points[key] = point.resolved(
             index_group=0x4020, index_offset=10 + index * 4
         )
 
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert [result.success for result in results] == [True, False]
-    assert driver._connection.batch == [{"MAIN.a": 1, "MAIN.b": 2}]
-    assert driver._connection.individual == []
+    assert all(result.success for result in results)
+    assert driver._connection.batch == []
+    assert driver._connection.individual == [(0x4020, 10, 1), (0x4020, 14, 2)]
 
 
 @pytest.mark.asyncio
