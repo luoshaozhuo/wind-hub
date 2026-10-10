@@ -128,13 +128,14 @@ def _connected_modbus_driver(client: _ModbusClient) -> ModbusDriver:
     driver._config = parse_modbus_config(ConnectionEndpoint("192.0.2.10", 502), {})
     driver._points = {"p1": _modbus_point("p1")}
     driver._client = client
-    driver._connected = True
+    driver._last_exchange = None
+    client.connected = True
     return driver
 
 
 def _bare_modbus_driver() -> ModbusDriver:
     driver = _connected_modbus_driver(_ModbusClient())
-    driver._connected = False
+    driver._client.connected = False
     return driver
 
 

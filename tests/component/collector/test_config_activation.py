@@ -91,6 +91,30 @@ async def test_read_timeout_change_rejected_at_prepare():
     await runtime.stop()
 
 
+async def test_read_retries_change_rejected_at_prepare():
+    config = make_collector_config()
+    candidate = make_collector_config(
+        params=replace(config.runtime, read_retries=config.runtime.read_retries + 1)
+    )
+    service, runtime = _service(config, candidate)
+
+    result = await service.prepare_config("r1")
+    assert not result.success
+    assert "runtime.read_retries change requires process restart" in result.errors
+    await runtime.stop()
+
+
+async def test_retry_interval_change_rejected_at_prepare():
+    config = make_collector_config()
+    candidate = make_collector_config(params=replace(config.runtime, retry_interval=2.5))
+    service, runtime = _service(config, candidate)
+
+    result = await service.prepare_config("r1")
+    assert not result.success
+    assert "runtime.retry_interval change requires process restart" in result.errors
+    await runtime.stop()
+
+
 async def test_force_reconfigure_does_not_bypass_restart_required():
     config = make_collector_config()
     candidate = make_collector_config(

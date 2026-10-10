@@ -158,6 +158,9 @@ class FakeProtocol:
         self.close_calls += 1
         self.connected = False
 
+    def is_open(self) -> bool:
+        return self.connected
+
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
 

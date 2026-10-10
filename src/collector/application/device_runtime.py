@@ -217,8 +217,9 @@ class DeviceRuntime:
         - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
           高频轮询不会形成 connect 风暴；
         - ``force=True`` 用于显式控制/诊断请求：若 DeviceRuntime 状态显示已连接，
-          还会检查协议 Driver health；health 不健康时忽略重连节流窗口并立即
-          执行一次幂等 ``connect()``；
+          还会检查协议传输是否打开（``is_open``）；传输已断开时忽略重连
+          节流窗口并立即执行一次幂等 ``connect()``（可复用的连接不会被
+          无意义重建）；
         - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
           （失败计数清零），失败则按指数 backoff 推迟下次窗口
           （1 s → 2 s → … → 30 s 封顶）。
@@ -231,14 +232,10 @@ class DeviceRuntime:
         if state.connected:
             if not force:
                 return True
-            try:
-                health = device.health()
-            except Exception:
-                health = ConnectionHealth(healthy=False, message="health check failed")
-            if health.healthy:
+            if _transport_open(device):
                 return True
             logger.info(
-                "Device '%s' runtime state is connected but protocol health is unhealthy; "
+                "Device '%s' runtime state is connected but transport is not open; "
                 "forcing reconnect",
                 device_id,
             )
@@ -257,11 +254,7 @@ class DeviceRuntime:
             if state.connected:
                 if not force:
                     return True
-                try:
-                    health = device.health()
-                except Exception:
-                    health = ConnectionHealth(healthy=False, message="health check failed")
-                if health.healthy:
+                if _transport_open(device):
                     return True
             now = self._clock()
             if not force and now < state.next_retry_at:
@@ -320,14 +313,7 @@ class DeviceRuntime:
         if not connection_level:
             device = self._devices.get(device_id)
             if device is not None:
-                try:
-                    connection_level = not device.health().healthy
-                except Exception:
-                    logger.debug(
-                        "Device '%s' health check failed while classifying read error",
-                        device_id,
-                        exc_info=True,
-                    )
+                connection_level = not _transport_open(device)
         self._state_for(device_id).mark_read_failure(
             self._clock(), error, connection_level=connection_level
         )
@@ -465,6 +451,15 @@ class DeviceRuntime:
         """设备协议名（指标标签用）；设备已从注册表移除时回退 'unknown'。"""
         device = self._devices.get(device_id)
         return device.protocol_name if device is not None else "unknown"
+
+
+def _transport_open(device: CollectorDeviceSession) -> bool:
+    """查询协议传输连接是否打开；查询失败按不可达处理。"""
+    try:
+        return device.is_open()
+    except Exception:
+        logger.debug("Device is_open check failed while classifying", exc_info=True)
+        return False
 
 
 def _view_signature(view: DeviceView) -> object:

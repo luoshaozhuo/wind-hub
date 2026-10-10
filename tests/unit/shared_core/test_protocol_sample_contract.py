@@ -168,7 +168,8 @@ class TestRecoveryDefaults:
     def test_recovery_settings_default_timeouts_are_one_second(self) -> None:
         settings = RecoverySettings()
 
-        assert settings.reconnect_attempts == 1
+        assert settings.read_retries == 1
+        assert settings.retry_interval == 1.0
         assert settings.connect_timeout == 1.0
         assert settings.read_timeout == 1.0
         assert settings.write_timeout == 1.0
@@ -179,7 +180,8 @@ class TestRecoveryDefaults:
         assert params.connect_timeout == 1.0
         assert params.read_timeout == 1.0
         assert params.write_timeout == 1.0
-        assert params.reconnect_attempts == 1
+        assert params.read_retries == 1
+        assert params.retry_interval == 1.0
 
     def test_commander_config_default_timeouts_are_one_second(self) -> None:
         config = CommanderConfig()
@@ -187,7 +189,8 @@ class TestRecoveryDefaults:
         assert config.connect_timeout == 1.0
         assert config.read_timeout == 1.0
         assert config.write_timeout == 1.0
-        assert config.reconnect_attempts == 1
+        assert config.read_retries == 1
+        assert config.retry_interval == 1.0
 
 
 class TestRenameResidue:

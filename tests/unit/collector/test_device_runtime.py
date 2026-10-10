@@ -7,6 +7,7 @@ import pytest
 from collector.application.config import RuntimeParams
 from collector.application.device_runtime import DeviceRuntime, is_connection_level
 from collector.application.device_state import reconnect_delay
+from core.application import ProtocolError
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,
@@ -204,7 +205,7 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
             events.append((device_id, protocol))
 
     proto = CollectorFakeProtocol()
-    port = RecoveringProtocol(proto, RecoverySettings(reconnect_attempts=1))
+    port = RecoveringProtocol(proto, RecoverySettings(read_retries=1))
     config = make_collector_config()
     session = make_session(config, port)  # type: ignore[arg-type]
     runtime = DeviceRuntime(
@@ -228,7 +229,7 @@ def _recovery_session(proto, config=None):  # type: ignore[no-untyped-def]
     """构造包裹 RecoveringProtocol 的会话（透明重连测试用）。"""
     from core.application.recovery import RecoveringProtocol, RecoverySettings
 
-    port = RecoveringProtocol(proto, RecoverySettings(reconnect_attempts=1))
+    port = RecoveringProtocol(proto, RecoverySettings(read_retries=1))
     session = make_session(config or make_collector_config(), port)  # type: ignore[arg-type]
     return session, port
 
@@ -270,9 +271,12 @@ async def test_stale_session_reconnect_hook_does_not_pollute_new_session():
     assert state is not None and state.connected and state.last_success_at == 0.0
     assert metrics.reconnected == []
 
-    # 旧会话的在途读触发透明重连（回调晚于新会话注册）——必须被身份守卫丢弃。
+    # 旧会话已随 rebuild 关闭：RecoveringProtocol 禁止其再重建连接，
+    # 迟到的在途读直接失败，回调不得触及运行时状态与指标。
     old_proto.connected = False
-    await old_port.read_one("p1")
+    with pytest.raises(ProtocolError, match="closed"):
+        await old_port.read_one("p1")
+    assert old_proto.connect_calls == 1  # 仅启动时 connect_all 的一次
     assert metrics.reconnected == []
     state = runtime.device_state("dev1")
     assert state is not None and state.last_success_at == 0.0
@@ -294,7 +298,9 @@ async def test_removed_device_reconnect_hook_is_inert():
     await runtime.remove_device("dev1")
 
     old_proto.connected = False
-    await old_port.read_one("p1")  # 旧会话仍可恢复自身连接，但回调不得触及运行时
+    with pytest.raises(ProtocolError, match="closed"):
+        await old_port.read_one("p1")  # 已关闭会话禁止重建连接，回调亦不得触及运行时
+    assert old_proto.connect_calls == 1
     assert metrics.reconnected == []
     assert runtime.device_state("dev1") is None
 

@@ -323,6 +323,10 @@ class IEC104Driver:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
 
+    def is_open(self) -> bool:
+        """IEC104 连接是否处于 OPEN 状态（c104 协议级握手完成）。"""
+        return self._is_open
+
     def health(self) -> ConnectionHealth:
         """返回缓存的 OPEN 状态，不触发网络 I/O。"""
         if self._is_open:

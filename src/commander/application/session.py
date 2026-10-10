@@ -143,6 +143,10 @@ class DeviceSession:
         """关闭底层协议连接并释放资源；重复调用由 Driver 保证安全。"""
         await self._protocol.close()
 
+    def is_open(self) -> bool:
+        """底层协议传输连接当前是否打开（本地查询，不触发网络 I/O）。"""
+        return self._protocol.is_open()
+
     def health(self) -> ConnectionHealth:
         """返回协议缓存的健康状态，不触发实时网络探测。"""
         return self._protocol.health()

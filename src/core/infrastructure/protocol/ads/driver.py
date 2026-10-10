@@ -170,6 +170,10 @@ class ADSDriver:
 
         await self._close_detached(connection, subscriptions)
 
+    def is_open(self) -> bool:
+        """本地 ADS session 是否处于已连接状态（含路由与符号解析完成）。"""
+        return self._connected
+
     def health(self) -> ConnectionHealth:
         """返回缓存连接状态，不执行 ADS wire 探测。"""
         if self._connected:

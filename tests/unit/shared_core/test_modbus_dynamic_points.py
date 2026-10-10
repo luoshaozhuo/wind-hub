@@ -319,7 +319,7 @@ class TestDynamicPointsThroughRecovery:
             driver._connected = True
 
         driver.connect = connect  # type: ignore[method-assign]
-        wrapped = RecoveringProtocol(driver, RecoverySettings(reconnect_attempts=1))
+        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
         dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="uint16")
 
         sample = await wrapped.read_one(dynamic)  # type: ignore[arg-type]
@@ -333,7 +333,7 @@ class TestDynamicPointsThroughRecovery:
         client = _Client()
         client.write_error = ConnectionError("reset by peer")
         driver = _driver({}, client)
-        wrapped = RecoveringProtocol(driver, RecoverySettings(reconnect_attempts=1))
+        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
         dynamic = modbus_point("dyn", register_type="holding", address=100, data_type="int16")
 
         with pytest.raises(ProtocolError, match="write failed"):

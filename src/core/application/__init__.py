@@ -6,7 +6,13 @@ Application 暴露共享协议边界、协议契约、应用错误，以及统�
 
 from .config_service import ConfigService
 from .diff_config import DiffConfigUseCase
-from .errors import ConfigError, CoreError, ProtocolCapabilityError, ProtocolError
+from .errors import (
+    ConfigError,
+    CoreError,
+    ProtocolCapabilityError,
+    ProtocolConnectionError,
+    ProtocolError,
+)
 from .port import (
     TOPIC_CONFIG_TYPES,
     ConfigPort,
@@ -47,6 +53,7 @@ __all__ = [
     "PointScalar",
     "ProtocolCapability",
     "ProtocolCapabilityError",
+    "ProtocolConnectionError",
     "ProtocolError",
     "ProtocolFactory",
     "ProtocolPort",

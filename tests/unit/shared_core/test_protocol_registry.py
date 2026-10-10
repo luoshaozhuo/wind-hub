@@ -52,6 +52,9 @@ class _Protocol:
     async def close(self) -> None:
         return None
 
+    def is_open(self) -> bool:
+        return True
+
     def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
