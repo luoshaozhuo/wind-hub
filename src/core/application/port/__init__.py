@@ -10,7 +10,7 @@ from .config import (
     ConfigValue,
 )
 from .protocol import ProtocolPort, ProtocolSampleCallback, SubscriptionHandle
-from .sink import SinkPort, ExclusiveOpenSinkPort
+from .sink import ExclusiveOpenSinkPort, SinkPort
 
 __all__ = [
     "TOPIC_CONFIG_TYPES",
