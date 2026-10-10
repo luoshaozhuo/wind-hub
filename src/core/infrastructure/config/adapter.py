@@ -102,7 +102,6 @@ class YamlConfigAdapter:
             tasks=domain_tasks,
             sinks=sink_map,
             protocol_options_by_device=assembly.protocol_options_by_device,
-            point_meta=assembly.point_meta,
         )
 
     def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
