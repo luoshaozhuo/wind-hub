@@ -11,6 +11,7 @@ from core.domain import (
 )
 from core.infrastructure.config.point_table_writer import dump_point_tables
 
+
 def test_expanded_child_serializes_as_parent_difference() -> None:
     base_point = Point(
         point_id="power",
