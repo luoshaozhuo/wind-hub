@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from core.infrastructure.config.full_adapter import FullYamlConfigAdapter
+from core.infrastructure.config.adapter import YamlConfigAdapter
 
 
 ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_load_example_modbus_without_units_file() -> None:
-    config = FullYamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+    config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
     assert type(config).__name__ == "ConfigSnapshot"
     assert config.business_points["active_power"].standard_unit.code.value == "kilowatt"
     assert config.point_tables["wtg_modbus_site_v1"].points["active_power"].business_point_id == "active_power"
@@ -30,7 +30,7 @@ def test_load_example_modbus_without_units_file() -> None:
 
 def test_full_loader_rejects_absent_yaml(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="Configuration file not found"):
-        FullYamlConfigAdapter(tmp_path).load()
+        YamlConfigAdapter(tmp_path).load()
 
 
 def test_full_loader_requires_business_point_catalog(tmp_path: Path) -> None:
@@ -48,4 +48,4 @@ def test_full_loader_requires_business_point_catalog(tmp_path: Path) -> None:
     ):
         shutil.copyfile(source / filename, tmp_path / filename)
     with pytest.raises(Exception, match="business_points.yaml"):
-        FullYamlConfigAdapter(tmp_path).load()
+        YamlConfigAdapter(tmp_path).load()
