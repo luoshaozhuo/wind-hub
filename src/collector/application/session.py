@@ -149,8 +149,7 @@ class CollectorDeviceSession:
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
         subscribe_enabled: ADS 设备是否使用订阅推送（notification）采集；
             非 ADS 设备忽略（IEC104 恒订阅、Modbus 恒轮询）。
-        supports_scheduled_collection: 是否支持周期采集（ADS
-            ``read_mode='sequential'`` 为单读模式，不支持）。
+        supports_scheduled_collection: 是否支持周期采集。
     """
 
     def __init__(
@@ -267,9 +266,9 @@ class CollectorDeviceSession:
         """底层协议传输连接当前是否打开（本地查询，不触发网络 I/O）。"""
         return self._protocol.is_open()
 
-    def health(self) -> ConnectionHealth:
-        """返回协议缓存的健康状态，不触发实时网络探测。"""
-        return self._protocol.health()
+    async def health(self) -> ConnectionHealth:
+        """执行一次底层协议健康检查。"""
+        return await self._protocol.health()
 
     # ------------------------------------------------------------------
     # 选点与读取（实现 Domain ReadableDevice）
@@ -356,14 +355,12 @@ class CollectorDeviceSession:
           发送一次 General Interrogation。
 
         Raises:
-            ConfigError: 采集机制与参数不匹配（POLL 缺 interval、ADS
-                ``sequential`` 设备不允许持续采集等）。
+            ConfigError: 采集机制与参数不匹配（如 POLL 缺 interval）。
         """
         if self.acquisition_mode is AcquisitionMode.POLL:
             if not self._supports_scheduled_collection:
                 raise ConfigError(
-                    f"Device '{self.device_id}' does not support scheduled collection "
-                    "(ADS read_mode='sequential' is single-read only)"
+                    f"Device '{self.device_id}' does not support scheduled collection"
                 )
             if interval is None or interval <= 0:
                 raise ConfigError(
