@@ -1,7 +1,5 @@
 """风电场 Site 领域约束。"""
 
-from dataclasses import FrozenInstanceError
-
 import pytest
 
 from core.domain import ConnectionEndpoint, Device, DeviceGroupId, DeviceId, DeviceModelId, Site
