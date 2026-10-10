@@ -10,7 +10,7 @@ from core.application.config_snapshot import ConfigSnapshot
 from core.application.settings import ADSLocalConfig, RuntimeSettings, SystemSettings
 from core.application.config_diff import diff_config_snapshots
 from core.application.errors import ConfigError
-from core.domain import DeviceGroup, DeviceGroupId, Site, Task, validate_core_config
+from core.domain import DeviceGroup, DeviceGroupId, Sink, Site, Task, validate_core_config
 
 from .assembly import assemble_core_config
 from .business_points import parse_business_points
@@ -22,7 +22,7 @@ from .codec import (
     parse_system_config,
     parse_tasks_config,
 )
-from .snapshot_writer import dump_snapshot
+from .snapshot_writer import dump_snapshot, _yaml_plain
 from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 
@@ -90,7 +90,16 @@ class YamlConfigAdapter:
                     enabled=task.enabled,
                 )
 
-            sink_map = {sink.name: sink for sink in sinks.sinks}
+            sink_map = {}
+            for definition in sinks.sinks:
+                raw = _yaml_plain(definition.model_dump(mode="python", by_alias=True))
+                sink_map[definition.name] = Sink(
+                    sink_id=definition.name,
+                    kind=definition.type,
+                    enabled=definition.enabled,
+                    connection=raw["connection"],
+                    points=tuple(raw.get("points", ())),
+                )
             validate_core_config(
                 device_types=assembly.device_types,
                 device_models=assembly.device_models,
