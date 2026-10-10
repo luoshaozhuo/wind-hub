@@ -12,7 +12,11 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal, TypeAlias
 
-from core.domain.sample_value import PointScalar, Quality, WritableScalar
+from core.domain.sample_value import (
+    PointScalar as PointScalar,
+    Quality as Quality,
+    WritableScalar as WritableScalar,
+)
 
 
 @dataclass(frozen=True, slots=True)
