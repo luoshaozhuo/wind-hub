@@ -115,7 +115,13 @@ class WatchdogUseCase:
         self._task = None
         if task is None:
             return
-        await task
+        # 停止不应被故障设备的在途健康检查/连接操作无限阻塞。
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            if asyncio.current_task() is not None and asyncio.current_task().cancelling():
+                raise
 
     async def _reconnect_if_current(self, generation: int) -> bool:
         return await self._reconnect(
@@ -146,7 +152,7 @@ class WatchdogUseCase:
             self._generation += 1
 
         # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
-        if callback is not None:
+        if callback is not None and self._enabled:
             await callback()
         return True
 
