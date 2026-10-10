@@ -14,9 +14,9 @@ def freeze_sink_value(value: Any) -> Any:
         return MappingProxyType({
             key: freeze_sink_value(item) for key, item in value.items()
         })
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return tuple(freeze_sink_value(item) for item in value)
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, str | int | float | bool):
         return value
     raise ValueError(f"unsupported Sink configuration value: {type(value).__name__}")
 
