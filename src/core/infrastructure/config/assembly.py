@@ -138,7 +138,7 @@ def assemble_core_config(
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
     Returns:
-        CoreConfigAssembly；point_meta 为 ``{点表: {point_id: PointMeta}}``。
+        CoreConfigAssembly，测点元数据直接包含在 Point 中。
 
     Raises:
         ConfigError: 任何引用缺失、协议不一致或领域不变量违反。
@@ -457,4 +457,4 @@ def _derive_access(protocol: str, definition: PointConfig) -> PointAccess:
     return PointAccess.READ_WRITE
 
 
-__all__ = ["CoreConfigAssembly", "PointMeta", "assemble_core_config"]
+__all__ = ["CoreConfigAssembly", "assemble_core_config"]
