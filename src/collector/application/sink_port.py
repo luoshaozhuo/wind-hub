@@ -17,7 +17,6 @@ from core.application import ConfigError
 from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.application.sink_config import ResolvedSinkConfig
 
-
 SinkFactory = Callable[[ResolvedSinkConfig], SinkPort]
 
 
