@@ -50,8 +50,8 @@ class Point:
     access: PointAccess
     scale: float = 1.0
     offset: float = 0.0
-    description: str | None = None
     ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
+    description: str | None = None
 
     def __post_init__(self) -> None:
         point_id = self.point_id.strip()
