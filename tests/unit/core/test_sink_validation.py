@@ -3,16 +3,16 @@
 import pytest
 from pydantic import ValidationError
 
-from core.application.sink_config import (
+from core.infrastructure.config.sink_schema import (
     FileSinkConnection,
     RedisSinkConnection,
-    SinkConfig,
+    _SinkSchema,
 )
-from core.application.sink_validation import validate_sink_definitions
+from core.infrastructure.config.sink_schema import validate_sink_definitions
 
 
-def sink(name: str, kind: str, connection: dict, enabled: bool = True) -> SinkConfig:
-    return SinkConfig.model_validate({
+def sink(name: str, kind: str, connection: dict, enabled: bool = True) -> _SinkSchema:
+    return _SinkSchema.model_validate({
         "name": name, "type": kind, "enabled": enabled, "connection": connection
     })
 
