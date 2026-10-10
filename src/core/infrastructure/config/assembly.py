@@ -145,6 +145,7 @@ def assemble_core_config(
     device_models_config: DeviceModelsConfig,
     devices_config: DevicesConfig,
     point_config: PointTablesConfig,
+    defined_business_points: Mapping[BusinessPointId, BusinessPoint] | None = None,
 ) -> CoreConfigAssembly:
     """合并类型化主题配置为冻结的领域配置索引 + 进程级附属配置。
 
@@ -162,7 +163,7 @@ def assemble_core_config(
         for type_id, type_definition in device_models_config.device_types.items()
     }
 
-    business_points: dict[BusinessPointId, BusinessPoint] = {}
+    business_points: dict[BusinessPointId, BusinessPoint] = dict(defined_business_points or {})
     point_tables: dict[PointTableId, PointTable] = {}
     point_meta: dict[PointTableId, dict[str, PointMeta]] = {}
     for table_name, table_definition in point_config.tables.items():
@@ -437,6 +438,20 @@ def _synthesize_business_point(
     business_points: dict[BusinessPointId, BusinessPoint],
 ) -> BusinessPointId:
     """合成 BusinessPoint：默认 id == point_id，跨表冲突加表前缀。"""
+    if definition.business_point_id is not None:
+        candidate = BusinessPointId(definition.business_point_id)
+        existing = business_points.get(candidate)
+        if existing is None:
+            raise ConfigError(
+                f"point table '{table_id}' point '{definition.point_id}' references "
+                f"unknown business point '{candidate}'"
+            )
+        if existing.data_type is not data_type or existing.standard_unit.quantity != unit.quantity:
+            raise ConfigError(
+                f"point table '{table_id}' point '{definition.point_id}' "
+                f"incompatible with business point '{candidate}'"
+            )
+        return candidate
     candidate = BusinessPointId(definition.point_id)
     existing = business_points.get(candidate)
     if existing is not None:
