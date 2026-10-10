@@ -109,5 +109,5 @@ class YamlConfigAdapter:
         """根据完整父子 PointTable 差异保存 points.yaml。"""
         write_yaml_mapping_atomic(
             self._base / "points.yaml",
-            dump_point_tables(snapshot.point_tables, snapshot.point_meta),
+            dump_point_tables(snapshot.point_tables),
         )
