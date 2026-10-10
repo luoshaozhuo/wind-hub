@@ -220,7 +220,7 @@ def _point_tables(
             raise ConfigError(f"point table '{name}' protocol differs from parent")
         points = {
             key: dict(value)
-            for key, value in expanded[parent_id].items()
+            for key, value in expanded[str(parent_id)].items()
         } if parent is not None else {}
 
         remove = _list(definition.get("remove_points", []), f"{name}.remove_points")
@@ -279,9 +279,9 @@ def _device_catalog(
     for key, item in _map(model_doc.get("device_types", {}), "device_types").items():
         definition = _map(item, f"device type '{key}'")
         _keys(definition, {"name", "description"}, f"device type '{key}'")
-        identity = DeviceTypeId(_name(key, "device type"))
-        types[identity] = DeviceType(
-            device_type_id=identity,
+        type_identity = DeviceTypeId(_name(key, "device type"))
+        types[type_identity] = DeviceType(
+            device_type_id=type_identity,
             name=_name(definition.get("name", key), f"device type '{key}'.name"),
             description=definition.get("description"),
         )
@@ -294,7 +294,7 @@ def _device_catalog(
             "device_type", "manufacturer", "model", "protocol", "point_table",
             "read_mode", "properties", "connection_defaults",
         }, f"device model '{key}'")
-        identity = DeviceModelId(_name(key, "device model ID"))
+        model_identity = DeviceModelId(_name(key, "device model ID"))
         type_id = DeviceTypeId(_name(definition.get("device_type"), "device_type"))
         table_id = PointTableId(_name(definition.get("point_table"), "point_table"))
         protocol = _name(definition.get("protocol"), "model.protocol")
@@ -310,8 +310,8 @@ def _device_catalog(
             raise ConfigError(f"device model '{key}' only supports ADS sum mode")
         _map(definition.get("connection_defaults", {}), f"model '{key}'.connection_defaults")
         _map(definition.get("properties", {}), f"model '{key}'.properties")
-        models[identity] = DeviceModel(
-            device_model_id=identity,
+        models[model_identity] = DeviceModel(
+            device_model_id=model_identity,
             device_type_id=type_id,
             point_table_id=table_id,
             name=definition.get("model"),
@@ -332,38 +332,38 @@ def _device_catalog(
             "device_id", "model", "device_group", "device_groups", "endpoint",
             "enabled", "name",
         }, "device")
-        identity = DeviceId(_name(definition.get("device_id"), "device_id"))
-        if identity in devices:
-            raise ConfigError(f"duplicate device_id '{identity}'")
+        device_identity = DeviceId(_name(definition.get("device_id"), "device_id"))
+        if device_identity in devices:
+            raise ConfigError(f"duplicate device_id '{device_identity}'")
         model_id = DeviceModelId(_name(definition.get("model"), "device.model"))
         if model_id not in models:
-            raise ConfigError(f"device '{identity}' unknown model '{model_id}'")
+            raise ConfigError(f"device '{device_identity}' unknown model '{model_id}'")
         model = _map(raw_models[model_id], f"device model '{model_id}'")
         protocol = _name(model.get("protocol"), "protocol")
         raw_groups = definition.get("device_groups")
         if raw_groups is not None and definition.get("device_group") is not None:
-            raise ConfigError(f"device '{identity}' cannot specify both group formats")
+            raise ConfigError(f"device '{device_identity}' cannot specify both group formats")
         groups_list = raw_groups if raw_groups is not None else [definition.get("device_group")]
         memberships = tuple(
-            DeviceGroupId(_name(group, f"device '{identity}'.group"))
+            DeviceGroupId(_name(group, f"device '{device_identity}'.group"))
             for group in _list(groups_list, "device_groups")
         )
         for group in memberships:
             groups.setdefault(group, DeviceGroup(device_group_id=group, name=str(group)))
 
-        raw_endpoint = _map(definition.get("endpoint"), f"device '{identity}'.endpoint")
-        _keys(raw_endpoint, {"host", "port", "extensions"}, f"device '{identity}'.endpoint")
+        raw_endpoint = _map(definition.get("endpoint"), f"device '{device_identity}'.endpoint")
+        _keys(raw_endpoint, {"host", "port", "extensions"}, f"device '{device_identity}'.endpoint")
         defaults = dict(_map(model.get("connection_defaults", {}), "connection_defaults"))
         port = raw_endpoint.get("port", defaults.pop("port", None))
         defaults.pop("port", None)
         if port is None:
-            raise ConfigError(f"device '{identity}' requires endpoint port or model default")
+            raise ConfigError(f"device '{device_identity}' requires endpoint port or model default")
         if isinstance(port, bool) or not isinstance(port, (int, str)):
-            raise ConfigError(f"device '{identity}' invalid port")
+            raise ConfigError(f"device '{device_identity}' invalid port")
         if isinstance(port, str) and not port.isdecimal():
-            raise ConfigError(f"device '{identity}' port must be numeric")
+            raise ConfigError(f"device '{device_identity}' port must be numeric")
         endpoint = ConnectionEndpoint(
-            host=_name(raw_endpoint.get("host"), f"device '{identity}'.host"),
+            host=_name(raw_endpoint.get("host"), f"device '{device_identity}'.host"),
             port=int(port),
         )
         extensions = _map(raw_endpoint.get("extensions", {}), "endpoint.extensions")
@@ -371,33 +371,33 @@ def _device_catalog(
         if protocol == "ads":
             options["read_mode"] = model.get("read_mode", "sum") or "sum"
             if options.pop("subscribe_enabled", False):
-                ads_subscriptions.add(identity)
+                ads_subscriptions.add(device_identity)
         for key, value in options.items():
             if not isinstance(key, str) or value is not None and not isinstance(
                 value, (str, int, float, bool)
             ):
-                raise ConfigError(f"device '{identity}' invalid protocol option '{key}'")
+                raise ConfigError(f"device '{device_identity}' invalid protocol option '{key}'")
         try:
             _OPTION_PARSERS[protocol](endpoint, options)
         except Exception as exc:
-            raise ConfigError(f"device '{identity}' invalid protocol options: {exc}") from exc
-        devices[identity] = Device(
-            device_id=identity,
+            raise ConfigError(f"device '{device_identity}' invalid protocol options: {exc}") from exc
+        devices[device_identity] = Device(
+            device_id=device_identity,
             device_model_id=model_id,
             endpoint=endpoint,
             name=definition.get("name"),
             device_group_ids=memberships,
             enabled=_flag(definition.get("enabled", True), "device.enabled"),
         )
-        options_by_device[identity] = options
+        options_by_device[device_identity] = options
 
     declared_groups = _map(device_doc.get("device_groups", {}), "devices.device_groups")
     for key, item in declared_groups.items():
-        identity = DeviceGroupId(_name(key, "device group"))
+        group_identity = DeviceGroupId(_name(key, "device group"))
         data = _map(item, f"device group '{key}'")
         _keys(data, {"name", "description"}, f"device group '{key}'")
-        groups[identity] = DeviceGroup(
-            device_group_id=identity,
+        groups[group_identity] = DeviceGroup(
+            device_group_id=group_identity,
             name=_name(data.get("name", key), f"device group '{key}'.name"),
             description=data.get("description"),
         )
