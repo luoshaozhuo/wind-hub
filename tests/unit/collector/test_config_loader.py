@@ -288,7 +288,7 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
@@ -314,7 +314,7 @@ def test_sink_unknown_point_rejected(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "ghost"},
@@ -343,7 +343,7 @@ def test_sink_scale_on_bool_source_rejected(tmp_path):
             {
                 "name": "s1",
                 "type": "file",
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [
                     {
                         "source": {"device_id": "dev1", "point_id": "p1"},
@@ -421,7 +421,7 @@ def test_disabled_sink_not_a_valid_task_target(tmp_path):
                 "name": "s1",
                 "type": "file",
                 "enabled": False,
-                "connection": {"path": str(tmp_path / "o.jsonl")},
+                "connection": {"path": str(tmp_path / "o.csv")},
                 "points": [],
             }
         ],
