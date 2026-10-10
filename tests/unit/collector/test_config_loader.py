@@ -392,7 +392,7 @@ def test_modbus_sink_layout_overlap_rejected(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_iec104_sink_type_id_datatype_mismatch_rejected(tmp_path):
+def test_retired_iec104_sink_type_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
         sinks=[
@@ -409,7 +409,7 @@ def test_iec104_sink_type_id_datatype_mismatch_rejected(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="requires datatype 'bool'"):
+    with pytest.raises(ConfigError, match="type 'iec104'"):
         load_collector_config(config_dir)
 
 

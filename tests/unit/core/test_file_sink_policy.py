@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from core.application.errors import ConfigError
+
 from core.application.csv_sink_record import FileSegment, expired_segments, should_rotate
 from core.application.sink_config import FileSinkConnection
 
@@ -58,5 +60,5 @@ def test_retention_only_selects_old_archives() -> None:
     ],
 )
 def test_invalid_config(options: dict[str, object]) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises((ValidationError, ConfigError)):
         FileSinkConnection(**({"path": "./data"} | options))

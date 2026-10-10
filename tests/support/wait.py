@@ -157,7 +157,8 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
+        for parsed_row in csv.DictReader(handle):
+            row: dict[str, Any] = dict(parsed_row)
             value = row["value"]
             if not value:
                 row["value"] = None

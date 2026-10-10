@@ -125,6 +125,7 @@ class TestFileSinkFsFaults:
             # 用例失败也要恢复权限，否则 tmp_path 清理报 EACCES。
             readonly_dir.chmod(stat.S_IRWXU)
 
+    @pytest.mark.mock_service
     async def test_enospc_mid_run_marks_unhealthy_and_isolates(
         self, app_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
