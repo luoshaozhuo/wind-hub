@@ -115,7 +115,7 @@ SinkConnection = FileSinkConnection | ModbusSinkConnection | RedisSinkConnection
 
 
 class StreamSinkAddress(BaseModel):
-    """File/Kafka/DB 中对外字段名。"""
+    """Stream 类 Sink（如 Redis）中对外字段名。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

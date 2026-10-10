@@ -1,37 +1,36 @@
 """System E2E：Modbus → Collector 子进程 → 真实 sink 的数据面验收。
 
 链路：真实 Modbus TCP 从站 → Collector subprocess（console script 启动）
-→ 真实 File/Kafka/PostgreSQL sink。任务启停经 CollectorControlService RPC
+→ 真实 File/Redis sink。任务启停经 CollectorControlService RPC
 下发（与 Server → Collector 生产控制路径一致）；验证全部发生在系统
-边界——读输出文件、独立 Kafka consumer、独立 SQL 连接，不读取
-Collector 进程内部状态。
+边界——读输出文件、独立 Redis 连接，不读取 Collector 进程内部状态。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-import uuid
 from pathlib import Path
 
-import asyncpg
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.control import apply_placement_and_start_instance, stop_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
+from tests.support.redis_client import point_key
 from tests.support.wait import (
     read_csv,
     wait_file_rows,
-    wait_kafka_messages,
-    wait_postgres_rows,
+    wait_redis_value,
 )
 
 pytestmark = pytest.mark.real_service
 
 TASK_ID = "modbus-telemetry"
 INSTANCE_ID = "modbus-telemetry:modbus-1"
+
+#: 本文件 Redis sink 的 key_prefix（键规则见 tests.support.redis_client.point_key）。
+REDIS_KEY_PREFIX = "wind-hub-sys"
 
 
 def _task(sink_name: str) -> dict:
@@ -113,27 +112,30 @@ class TestModbusToFile:
         assert len(read_csv(sink_path)) == settled
 
 
-@pytest.mark.kafka
-class TestModbusToKafka:
-    async def test_collected_points_reach_broker(
+@pytest.mark.redis
+class TestModbusToRedis:
+    async def test_collected_points_reach_redis(
         self,
         modbus_server: ModbusMockServer,
         collector_factory,
-        kafka_service: str,
+        redis_service: str,
         tmp_path: Path,
     ) -> None:
-        topic = f"windhub-sys-{uuid.uuid4().hex[:12]}"
         config_dir = write_functional_config(
             tmp_path / "cfg",
             modbus_server.port,
             sinks=[
                 {
-                    "name": "kafka_sink",
-                    "type": "kafka",
-                    "connection": {"bootstrap_servers": kafka_service, "topic": topic},
+                    "name": "redis_sink",
+                    "type": "redis",
+                    "connection": {
+                        "host": redis_service.rpartition(":")[0],
+                        "port": int(redis_service.rpartition(":")[2]),
+                        "key_prefix": REDIS_KEY_PREFIX,
+                    },
                 }
             ],
-            tasks=[_task("kafka_sink")],
+            tasks=[_task("redis_sink")],
         )
         proc: CollectorProcess = await collector_factory(config_dir)
 
@@ -141,60 +143,22 @@ class TestModbusToKafka:
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 
-        messages = await wait_kafka_messages(
-            kafka_service,
-            topic,
-            min_messages=4,
-            match=lambda m: m.get("point_id") == "rotor.speed",
+        # Redis sink 每点一个 key 覆盖最新值——验证值内容、时间戳在推进、
+        # 且同组其余点位同样出数。
+        key = point_key("modbus-1", "rotor.speed", prefix=REDIS_KEY_PREFIX)
+        first = await wait_redis_value(redis_service, key)
+        assert first["value"] == pytest.approx(1200.5)
+        assert first["quality"] == "good"
+        first_ts = first["timestamp"]
+
+        later = await wait_redis_value(
+            redis_service, key, match=lambda v: v["timestamp"] > first_ts
         )
-        assert all(m["device_id"] == "modbus-1" for m in messages)
-        assert all(m["value"] == pytest.approx(1200.5) for m in messages)
+        assert later["value"] == pytest.approx(1200.5)
 
-
-@pytest.mark.postgres
-class TestModbusToPostgres:
-    async def test_collected_points_reach_database(
-        self,
-        modbus_server: ModbusMockServer,
-        collector_factory,
-        postgres_service: str,
-        tmp_path: Path,
-    ) -> None:
-        table = f"windhub_sys_{uuid.uuid4().hex[:12]}"
-        config_dir = write_functional_config(
-            tmp_path / "cfg",
-            modbus_server.port,
-            sinks=[
-                {
-                    "name": "db_sink",
-                    "type": "db",
-                    "connection": {
-                        "dsn": postgres_service,
-                        "table": table,
-                        "create_table": True,
-                    },
-                }
-            ],
-            tasks=[_task("db_sink")],
-        )
-        proc: CollectorProcess = await collector_factory(config_dir)
-        try:
-            await apply_placement_and_start_instance(
-                proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
+        for point_id in ("gen.power", "temp.int", "setpoint.power"):
+            value = await wait_redis_value(
+                redis_service, point_key("modbus-1", point_id, prefix=REDIS_KEY_PREFIX)
             )
-
-            rows = await wait_postgres_rows(
-                postgres_service,
-                table,
-                min_rows=4,
-                where="point_id = 'rotor.speed'",
-            )
-            assert all(r["device_id"] == "modbus-1" for r in rows)
-            # asyncpg 把 jsonb 返回为 JSON 文本——解码后比较。
-            assert all(json.loads(r["value"]) == pytest.approx(1200.5) for r in rows)
-        finally:
-            conn = await asyncpg.connect(postgres_service)
-            try:
-                await conn.execute(f"DROP TABLE IF EXISTS {table}")
-            finally:
-                await conn.close()
+            assert value["quality"] == "good"
+            assert value["timestamp"]
