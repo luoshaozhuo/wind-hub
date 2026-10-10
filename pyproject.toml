@@ -31,7 +31,6 @@ aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
 aiofiles = "^25.1.0"
-redis = { version = "^5.0", optional = true }
 
 [tool.poetry.extras]
 ads = ["pyads"]
@@ -39,7 +38,6 @@ modbus = ["pymodbus"]
 iec104 = ["c104"]
 kafka = ["aiokafka"]
 db = ["asyncpg", "influxdb-client"]
-redis = ["redis"]
 all = [
     "pyads",
     "pymodbus",
@@ -47,7 +45,6 @@ all = [
     "aiokafka",
     "asyncpg",
     "influxdb-client",
-    "redis",
 ]
 
 [tool.poetry.group.dev.dependencies]
