@@ -63,9 +63,9 @@ def _freeze_model_mapping(values: Mapping[str, Any]) -> Mapping[str, Any]:
     def freeze(value: Any) -> Any:
         if isinstance(value, Mapping):
             return _freeze_model_mapping(value)
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return tuple(freeze(item) for item in value)
-        if value is None or isinstance(value, (str, int, float, bool)):
+        if value is None or isinstance(value, str | int | float | bool):
             if isinstance(value, float) and not isfinite(value):
                 raise ValueError("device model option must be finite")
             return value
@@ -108,7 +108,9 @@ class DeviceModel:
         if self.read_mode is not None and self.read_mode != "sum":
             raise ValueError("only ADS sum read mode is supported")
         object.__setattr__(self, "properties", _freeze_model_mapping(self.properties))
-        object.__setattr__(self, "connection_defaults", _freeze_model_mapping(self.connection_defaults))
+        object.__setattr__(
+            self, "connection_defaults", _freeze_model_mapping(self.connection_defaults)
+        )
 
 
 @dataclass(frozen=True, slots=True)
