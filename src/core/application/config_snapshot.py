@@ -40,6 +40,7 @@ class ConfigSnapshot:
     tasks: Mapping[str, Task]
     sinks: Mapping[str, Sink]
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions]
+    ads_subscribe_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
         for name in (
@@ -47,6 +48,7 @@ class ConfigSnapshot:
             "point_tables", "business_points", "tasks", "sinks",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        object.__setattr__(self, "ads_subscribe_devices", frozenset(self.ads_subscribe_devices))
         object.__setattr__(
             self,
             "protocol_options_by_device",
