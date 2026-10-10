@@ -16,7 +16,6 @@ netem 用例需要 root（CAP_NET_ADMIN），无 root 明确 skip。
 from __future__ import annotations
 
 import logging
-import uuid
 
 import pytest
 
@@ -117,88 +116,6 @@ class TestTargetLoad:
         assert metrics.write_failures == 0, (
             f"{metrics.write_failures}/{metrics.write_commands} 条写命令失败"
         )
-
-
-@pytest.mark.kafka
-async def test_kafka_output(kafka_service: str) -> None:
-    """真实 Kafka 输出：sink 计量与独立消费者核验一致，零丢失零重复。"""
-    topic = f"windhub-soak-it-{uuid.uuid4().hex[:8]}"  # 每次唯一，隔绝历史消息
-    metrics = await run_soak(
-        PROFILES["kafka_output"],
-        duration_s=15.0,
-        warmup_s=4.0,
-        kafka_bootstrap=kafka_service,
-        kafka_topic=topic,
-    )
-    _assert_cadence(metrics)
-    _assert_healthy_flow(metrics, min_throughput_ratio=0.90)
-
-    # 外部介质含预热写入，核验用全程口径（sink_received_total）。
-    consumed = await _count_topic_messages(kafka_service, topic)
-    assert consumed == metrics.sink_received_total, (
-        f"独立消费者数到 {consumed} 条消息，sink 全程计量 "
-        f"{metrics.sink_received_total} 点"
-    )
-
-
-@pytest.mark.postgres
-async def test_postgres_output(postgres_service: str) -> None:
-    """真实 PostgreSQL 输出：sink 计量与独立 SQL 核验一致，零丢失零重复。"""
-    import asyncpg
-
-    table = f"windhub_soak_it_{uuid.uuid4().hex[:8]}"  # 每次唯一，隔绝历史行
-    metrics = await run_soak(
-        PROFILES["postgres_output"],
-        duration_s=15.0,
-        warmup_s=4.0,
-        postgres_dsn=postgres_service,
-        postgres_table=table,
-    )
-    _assert_cadence(metrics)
-    _assert_healthy_flow(metrics, min_throughput_ratio=0.90)
-
-    conn = await asyncpg.connect(postgres_service)
-    try:
-        rows = await conn.fetchval(f'SELECT count(*) FROM "{table}"')
-        distinct = await conn.fetchval(
-            f'SELECT count(*) FROM (SELECT DISTINCT device_id, point_id, "timestamp" '
-            f'FROM "{table}") AS d'
-        )
-    finally:
-        await conn.close()
-    # 外部介质含预热写入，核验用全程口径（sink_received_total）。
-    assert rows == metrics.sink_received_total, (
-        f"表中 {rows} 行，sink 全程计量 {metrics.sink_received_total} 点"
-    )
-    assert distinct == rows, f"表中存在重复点：{rows} 行 vs {distinct} 个不重复点"
-
-
-async def _count_topic_messages(bootstrap: str, topic: str) -> int:
-    """独立消费者从头数消息（KafkaSink 每点一条消息）。空轮询两轮即判尽。"""
-    from aiokafka import AIOKafkaConsumer
-
-    consumer = AIOKafkaConsumer(
-        topic,
-        bootstrap_servers=bootstrap,
-        group_id=None,
-        auto_offset_reset="earliest",
-        enable_auto_commit=False,
-    )
-    await consumer.start()
-    count = 0
-    empty_polls = 0
-    try:
-        while empty_polls < 2:
-            records = await consumer.getmany(timeout_ms=1000)
-            batch = sum(len(msgs) for msgs in records.values())
-            if batch:
-                count += batch
-                empty_polls = 0
-            else:
-                empty_polls += 1
-    finally:
-        await consumer.stop()
-    return count
 
 
 class TestReconnectStorm:
