@@ -158,7 +158,6 @@ def write_soak_config(
     profile: SoakProfile,
     host: str,
     port: int,
-    *,
 ) -> Path:
     """生成 soak 配置目录（多设备/多任务/可选真实 sink）。
 
