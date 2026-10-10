@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
@@ -75,8 +76,8 @@ class FileSinkConnection(BaseModel):
     @field_validator("path")
     @classmethod
     def _validate_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ConfigError("File sink path must be non-empty")
+        if not value.strip() or Path(value).suffix.lower() not in ("", ".csv"):
+            raise ConfigError("File sink path must be a directory or .csv file")
         return value
 
     @property
