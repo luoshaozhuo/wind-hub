@@ -11,13 +11,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import stat
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from collector.infrastructure.sink.file.csv import FileSink
 from tests.support.functional_config import update_yaml
 from tests.support.wait import read_csv, wait_file_rows, wait_until
 
@@ -25,8 +25,7 @@ pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
 SINKS = "sinks.yaml"
 
-#: FileSink 连续写失败达到 5 次才标记 unhealthy（决策 8）；interval 0.2s
-#: 下 2s 窗口足够越阈。
+#: FileSink 写入失败立即标记 unhealthy；等待窗口用于观察 Collector 错误传播。
 _UNHEALTHY_TIMEOUT = 8.0
 
 
@@ -37,8 +36,7 @@ def _two_file_sinks(bad_path: Path, good_path: Path) -> list[dict[str, Any]]:
             "type": "file",
             "connection": {
                 "path": str(bad_path),
-                "buffer_size": 1,
-                "flush_interval": 0.2,
+                "max_files": 3,
             },
         },
         {
@@ -46,8 +44,7 @@ def _two_file_sinks(bad_path: Path, good_path: Path) -> list[dict[str, Any]]:
             "type": "file",
             "connection": {
                 "path": str(good_path),
-                "buffer_size": 4,
-                "flush_interval": 0.5,
+                "max_files": 4,
             },
         },
     ]
@@ -99,13 +96,13 @@ class TestFileSinkFsFaults:
             snap = app.metrics.snapshot()
             assert app.runtime.health()["good_file"].healthy is True
 
-            # ---- 恢复：修复权限 + 触发 sink 重建（buffer_size 变更） ----
+            # ---- 恢复：修复权限 + 触发 sink 重建（max_files 变更） ----
             readonly_dir.chmod(stat.S_IRWXU)  # 0o700
 
             def mutate(data: dict[str, Any]) -> None:
                 for sink in data["sinks"]:
                     if sink["name"] == "bad_file":
-                        sink["connection"]["buffer_size"] = 4
+                        sink["connection"]["max_files"] = 5
 
             update_yaml(ctx.config_dir, SINKS, mutate)
             result = await app.config.reload()
@@ -129,15 +126,21 @@ class TestFileSinkFsFaults:
             readonly_dir.chmod(stat.S_IRWXU)
 
     async def test_enospc_mid_run_marks_unhealthy_and_isolates(
-        self, app_factory, tmp_path: Path
+        self, app_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """运行期 ENOSPC（/dev/full）：坏 sink 越阈 unhealthy，好 sink 不受影响。"""
-        if not os.path.exists("/dev/full"):
-            pytest.skip("/dev/full 不存在（非标准 Linux 环境）——NOT_RUN")
-
+        """运行期注入 ENOSPC：坏 sink unhealthy，好 sink 不受影响。"""
         good_path = tmp_path / "good" / "telemetry.csv"
+        bad_path = tmp_path / "bad" / "fault.csv"
+        original_write = FileSink._write
+
+        def fail_bad_file(self: FileSink, batch: list) -> None:
+            if self._path == bad_path:
+                raise OSError(28, "No space left on device")
+            original_write(self, batch)
+
+        monkeypatch.setattr(FileSink, "_write", fail_bad_file)
         ctx = await app_factory(
-            sinks=_two_file_sinks(Path("/dev/full"), good_path),
+            sinks=_two_file_sinks(bad_path, good_path),
             tasks=_task_both_sinks(),
         )
         await ctx.start_instances()
