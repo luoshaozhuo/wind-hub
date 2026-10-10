@@ -121,4 +121,9 @@ def validate_read_many_results(
                 f"read_many result mismatch at position {index}: "
                 f"requested '{point_id}', got '{sample.point_id}'"
             )
-\n__all__ = [\n    "PointScalar", "WritableScalar", "Quality", "TimestampSource",\n    "ConnectionHealth", "ProtocolWrite", "ProtocolWriteResult",\n    "ProtocolCapability", "ProtocolSample", "validate_read_many_results",\n]\n
+
+__all__ = [
+    "PointScalar", "WritableScalar", "Quality", "TimestampSource",
+    "ConnectionHealth", "ProtocolWrite", "ProtocolWriteResult",
+    "ProtocolCapability", "ProtocolSample", "validate_read_many_results",
+]

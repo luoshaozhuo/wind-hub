@@ -73,4 +73,5 @@ class SinkRegistry:
                 f"Unknown sink type '{cfg.type}'. " f"Registered types: {sorted(self._factories)}"
             )
         return factory(cfg)
-\n__all__ = ["SinkPort", "ExclusiveOpenSinkPort", "SinkFactory", "SinkRegistry"]\n
+
+__all__ = ["SinkPort", "ExclusiveOpenSinkPort", "SinkFactory", "SinkRegistry"]
