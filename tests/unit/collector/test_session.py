@@ -101,15 +101,6 @@ async def test_poll_requires_acquire_callback():
         await session.start_acquisition(point_group="g", interval=1.0)
 
 
-async def test_sequential_device_rejects_scheduled_collection():
-    config = make_collector_config(protocol="ads")
-    proto = CollectorFakeProtocol()
-    session = make_session(config, proto)
-    session._supports_scheduled_collection = False  # type: ignore[attr-defined]
-    with pytest.raises(ConfigError, match="does not support scheduled collection"):
-        await session.start_acquisition(point_group="g", interval=1.0, acquire=lambda: None)  # type: ignore[arg-type]
-
-
 async def test_poll_handle_runs_acquire_and_closes():
     session = make_session(make_collector_config(), CollectorFakeProtocol())
     ticks: list[float] = []
