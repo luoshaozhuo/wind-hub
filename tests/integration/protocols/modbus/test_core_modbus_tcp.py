@@ -1,7 +1,7 @@
 """新 Core ModbusDriver × 真实 pymodbus TCP server 集成测试。
 
 被测组件是 ``src/core/infrastructure/protocol/modbus/driver.py`` 的
-ModbusDriver（含 RecoveryPort 恢复路径）；对端是 pymodbus 进程内
+ModbusDriver（含 RecoveringProtocol 恢复路径）；对端是 pymodbus 进程内
 ModbusTcpServer（真实 TCP，127.0.0.1 动态端口）。网络故障类场景使用
 受控的静默 TCP server（接受连接但不应答）做确定性故障注入。
 """
@@ -16,7 +16,7 @@ import pytest
 
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
-from core.application.recovery import RecoveryPort, RecoverySettings
+from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -249,7 +249,7 @@ class TestRealServerIO:
 
 
 # ---------------------------------------------------------------------------
-# Server 停止/恢复 与 RecoveryPort 重连
+# Server 停止/恢复 与 RecoveringProtocol 重连
 # ---------------------------------------------------------------------------
 
 
@@ -258,7 +258,7 @@ class TestRecoveryOverRealTcp:
         port = free_port()
         server = await _start_server(port)
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(reconnect_attempts=2))
+        port_if = RecoveringProtocol(driver, RecoverySettings(reconnect_attempts=2))
         await port_if.connect()
         try:
             assert (await port_if.read_one("hr.int")).value == 4321
@@ -321,7 +321,7 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(
+        port_if = RecoveringProtocol(
             driver, RecoverySettings(reconnect_attempts=1, read_timeout=0.2)
         )
         await port_if.connect()
@@ -338,7 +338,7 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(write_timeout=0.2))
+        port_if = RecoveringProtocol(driver, RecoverySettings(write_timeout=0.2))
         await port_if.connect()
         try:
             with pytest.raises(ProtocolError, match="timed out"):
@@ -354,7 +354,7 @@ class TestTimeoutAndCancellation:
         silent = _SilentServer()
         port = await silent.start()
         driver = _driver(port)
-        port_if = RecoveryPort(driver, RecoverySettings(read_timeout=5.0))
+        port_if = RecoveringProtocol(driver, RecoverySettings(read_timeout=5.0))
         await port_if.connect()
         try:
             task = asyncio.create_task(port_if.read_one("hr.int"))

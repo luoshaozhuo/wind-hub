@@ -22,6 +22,7 @@ from .protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     ProtocolWriteResult,
+    WritableScalar,
 )
 
 
@@ -35,9 +36,11 @@ class RecoverySettings:
     # reconnect_attempts 是一次逻辑 I/O 操作（含读前恢复与读后失败再恢复）
     # 允许执行的连接恢复尝试总次数；0 表示禁止自动重连。
     reconnect_attempts: int = 1
-    connect_timeout: float = 10.0
-    read_timeout: float | None = 5.0
-    write_timeout: float | None = 5.0
+    # 三种超时均为对应操作的整体边界（含底层一次完整 I/O，不含隐式重试
+    # 放大）；read/write 为 None 表示不加外层边界（由协议自身超时兜底）。
+    connect_timeout: float = 1.0
+    read_timeout: float | None = 1.0
+    write_timeout: float | None = 1.0
 
     def __post_init__(self) -> None:
         if type(self.reconnect_attempts) is not int or self.reconnect_attempts < 0:
@@ -50,7 +53,7 @@ class RecoverySettings:
             raise ValueError("write_timeout must be > 0")
 
 
-class RecoveryPort:
+class RecoveringProtocol:
     """Wrap a ProtocolPort without changing underlying protocol semantics."""
 
     def __init__(self, driver: ProtocolPort, settings: RecoverySettings) -> None:
@@ -163,29 +166,40 @@ class RecoveryPort:
     async def read_one(self, point_id: str) -> ProtocolSample:
         return await self._read_with_recovery(lambda: self._driver.read_one(point_id))
 
-    async def read_many(
-        self, point_ids: Sequence[str]
-    ) -> tuple[ProtocolSample, ...]:
+    async def read_many(self, point_ids: Sequence[str]) -> tuple[ProtocolSample, ...]:
         if not point_ids:
             return ()
         return await self._read_with_recovery(lambda: self._driver.read_many(point_ids))
 
-    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
-        await self._restore_if_needed()
-        # No retry after a write has begun: PLC/RTU may have applied the command.
-        return await self._bounded(
-            self._driver.write_one(write), self._settings.write_timeout, "write"
-        )
+    async def write_one(
+        self,
+        write: ProtocolWrite | str,
+        value: WritableScalar | None = None,
+    ) -> ProtocolWriteResult:
+        """写入一个点；发送后绝不自动重发。
 
-    async def write_many(
-        self, writes: Sequence[ProtocolWrite]
-    ) -> tuple[ProtocolWriteResult, ...]:
+        契约形式为 ``write_one(ProtocolWrite)``；Driver 声明扩展写签名时
+        （如 Modbus 动态点 ``write_one(point, value)``），第二参数原样
+        转发给 Driver——与 ``request_read_one``/``read_active_one`` 相同
+        的可选扩展 API 转发模式，恢复与超时语义不变。
+        """
+        await self._restore_if_needed()
+        coro: Awaitable[ProtocolWriteResult]
+        if value is None:
+            if not isinstance(write, ProtocolWrite):
+                raise TypeError("write_one(point, value) requires an explicit value")
+            coro = self._driver.write_one(write)
+        else:
+            method = getattr(self._driver, "write_one")  # noqa: B009 - Driver 扩展签名
+            coro = method(write, value)
+        # No retry after a write has begun: PLC/RTU may have applied the command.
+        return await self._bounded(coro, self._settings.write_timeout, "write")
+
+    async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         # 未声明批量写能力的 Driver（如 Modbus）在任何输入下都明确拒绝，
         # 且在连接恢复之前拒绝，避免无意义的重连；绝不降级为逐点写入。
         if ProtocolCapability.WRITE_MANY not in self._driver.capabilities():
-            raise NotImplementedError(
-                f"{type(self._driver).__name__} does not support write_many"
-            )
+            raise NotImplementedError(f"{type(self._driver).__name__} does not support write_many")
         if not writes:
             return ()
         await self._restore_if_needed()
@@ -234,6 +248,4 @@ class RecoveryPort:
         await self._restore_if_needed()
         method = getattr(self._driver, "read_active_many")  # noqa: B009 - optional IEC104 API
         limit = self._settings.read_timeout if timeout is None else timeout
-        return await self._bounded(
-            method(point_ids, timeout=limit), limit, "active read"
-        )
+        return await self._bounded(method(point_ids, timeout=limit), limit, "active read")

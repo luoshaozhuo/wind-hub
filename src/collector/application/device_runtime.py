@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from core.application import ConnectionHealth
-from core.application.recovery import RecoveryPort
+from core.application.recovery import RecoveringProtocol
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -73,7 +73,7 @@ class DeviceRuntime:
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
-        # RecoveryPort 在读路径内透明重连时对上层不可见——把重连事件接回
+        # RecoveringProtocol 在读路径内透明重连时对上层不可见——把重连事件接回
         # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
         for device_id, device in devices.items():
             self._wire_reconnect_hook(device_id, device)
@@ -277,7 +277,7 @@ class DeviceRuntime:
         """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
         now = self._clock()
         # 读路径的透明重连回调（sync hook）可能在 connect 等待期间抢先完成
-        # 恢复并已记账——此时本次 connect 在 RecoveryPort 内幂等返回，
+        # 恢复并已记账——此时本次 connect 在 RecoveringProtocol 内幂等返回，
         # 不再重复计一次重连指标。
         pre_success_at = state.last_success_at
         try:
@@ -424,15 +424,15 @@ class DeviceRuntime:
             )
 
     def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
-        """把 RecoveryPort 读路径内透明重连事件接回运行状态与指标。
+        """把 RecoveringProtocol 读路径内透明重连事件接回运行状态与指标。
 
-        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveryPort
+        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveringProtocol
         的迟到重连回调（在途读触发的恢复晚于新会话注册）不得改写新会话的
         运行状态或重复记账指标——以注册表中的会话身份做失效判定，无需额外
         generation 计数。
         """
         protocol = session.protocol
-        if isinstance(protocol, RecoveryPort):
+        if isinstance(protocol, RecoveringProtocol):
 
             def _on_reconnect(session: CollectorDeviceSession = session) -> None:
                 if self._devices.get(device_id) is session:

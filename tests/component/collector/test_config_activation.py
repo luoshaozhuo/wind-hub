@@ -86,7 +86,8 @@ async def test_read_timeout_change_rejected_at_prepare():
     assert "runtime.read_timeout change requires process restart" in result.errors
 
     _assert_nothing_committed(service, config)
-    assert runtime._params.read_timeout is None
+    # Runtime 仍使用启动参数（默认 1.0s），不进入假激活窗口。
+    assert runtime._params.read_timeout == config.runtime.read_timeout
     await runtime.stop()
 
 
@@ -203,9 +204,7 @@ async def test_point_table_address_change_updates_driver_mapping():
 
     config = make_collector_config()
     old_table = config.point_tables[PointTableId("tab")]
-    moved_point = replace(
-        old_table.points["p1"], ext={"register_type": "holding", "address": 200}
-    )
+    moved_point = replace(old_table.points["p1"], ext={"register_type": "holding", "address": 200})
     new_table = replace(old_table, points={"p1": moved_point})
     old_points_vo = config.configs[ConfigTopic.POINTS]
     old_tab_vo = old_points_vo.tables["tab"]

@@ -194,8 +194,8 @@ async def test_close_all_bounds_hung_device_close():
 
 
 async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
-    """RecoveryPort 读路径内透明重连：状态恢复 connected 且 device_reconnected 记账。"""
-    from core.application.recovery import RecoveryPort, RecoverySettings
+    """RecoveringProtocol 读路径内透明重连：状态恢复 connected 且 device_reconnected 记账。"""
+    from core.application.recovery import RecoveringProtocol, RecoverySettings
 
     events: list[tuple[str, str]] = []
 
@@ -204,7 +204,7 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
             events.append((device_id, protocol))
 
     proto = CollectorFakeProtocol()
-    port = RecoveryPort(proto, RecoverySettings(reconnect_attempts=1))
+    port = RecoveringProtocol(proto, RecoverySettings(reconnect_attempts=1))
     config = make_collector_config()
     session = make_session(config, port)  # type: ignore[arg-type]
     runtime = DeviceRuntime(
@@ -215,7 +215,7 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
     )
     await runtime.connect_all()
 
-    # 驱动掉线后第一次读触发 RecoveryPort 透明重连。
+    # 驱动掉线后第一次读触发 RecoveringProtocol 透明重连。
     proto.connected = False
     await port.read_one("p1")
 
@@ -225,10 +225,10 @@ async def test_transparent_reconnect_in_read_path_marks_state_and_metric():
 
 
 def _recovery_session(proto, config=None):  # type: ignore[no-untyped-def]
-    """构造包裹 RecoveryPort 的会话（透明重连测试用）。"""
-    from core.application.recovery import RecoveryPort, RecoverySettings
+    """构造包裹 RecoveringProtocol 的会话（透明重连测试用）。"""
+    from core.application.recovery import RecoveringProtocol, RecoverySettings
 
-    port = RecoveryPort(proto, RecoverySettings(reconnect_attempts=1))
+    port = RecoveringProtocol(proto, RecoverySettings(reconnect_attempts=1))
     session = make_session(config or make_collector_config(), port)  # type: ignore[arg-type]
     return session, port
 
@@ -246,8 +246,8 @@ class _RecordingMetrics:
 
 
 async def test_stale_session_reconnect_hook_does_not_pollute_new_session():
-    """设备重建后，旧会话 RecoveryPort 的迟到透明重连不得改写新会话状态/指标。"""
-    from core.application.recovery import RecoveryPort
+    """设备重建后，旧会话 RecoveringProtocol 的迟到透明重连不得改写新会话状态/指标。"""
+    from core.application.recovery import RecoveringProtocol
 
     metrics = _RecordingMetrics()
     old_proto = CollectorFakeProtocol()
@@ -260,7 +260,7 @@ async def test_stale_session_reconnect_hook_does_not_pollute_new_session():
         metrics_hook=metrics,  # type: ignore[arg-type]
     )
     await runtime.connect_all()
-    assert isinstance(old_session.protocol, RecoveryPort)
+    assert isinstance(old_session.protocol, RecoveringProtocol)
 
     # 重建设备：旧会话关闭，新会话接入。
     new_proto = CollectorFakeProtocol()

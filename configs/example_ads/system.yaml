@@ -11,12 +11,12 @@ runtime:
   queue_maxsize: 1000
   backpressure_policy: drop_old
   shutdown_timeout: 30.0
-  connect_timeout: 10.0
-  read_timeout: 5.0
+  connect_timeout: 10.0  # 未配置时默认 1
+  read_timeout: 5.0  # 未配置时默认 1
   # 一次逻辑读/写操作允许的最大连接恢复次数（读前恢复与读后失败再恢复
   # 共享同一预算），0 为禁止自动重连，默认 1
   # reconnect_attempts: 1
-  write_timeout: 5.0
+  write_timeout: 5.0  # 未配置时默认 1
 
 # 进程级 ADS 本机配置（Linux / WSL mirrored / 容器下本机作为 AMS 路由器）
 # —— 不属于任何单台 Device；进程启动时 open_port + set_local_address 一次。

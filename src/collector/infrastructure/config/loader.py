@@ -167,9 +167,9 @@ def _runtime_params(system: SystemConfig) -> RuntimeParams:
         shutdown_timeout=(
             settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
         ),
-        connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 10.0,
-        read_timeout=settings.read_timeout,
-        write_timeout=settings.write_timeout if settings.write_timeout is not None else 5.0,
+        connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
+        read_timeout=(settings.read_timeout if settings.read_timeout is not None else 1.0),
+        write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
         reconnect_attempts=settings.reconnect_attempts,
     )
 

@@ -12,7 +12,7 @@ import pytest
 from core.application import ConfigError
 from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
-from core.application.recovery import RecoveryPort, RecoverySettings
+from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -557,7 +557,7 @@ class TestCancellationState:
 
     @pytest.mark.asyncio
     async def test_read_timeout_marks_disconnect_via_recovery(self) -> None:  # noqa: D103
-        """经 RecoveryPort 的 read 超时：连接必须失效，不允许残留健康状态。
+        """经 RecoveringProtocol 的 read 超时：连接必须失效，不允许残留健康状态。
 
         重连目标指向关闭端口，确保恢复路径确定性失败。
         """
@@ -570,7 +570,7 @@ class TestCancellationState:
         client.read_holding_registers = hanging_read  # type: ignore[method-assign]
         driver = _driver({"h": _point("h")}, client)
         driver._config = parse_modbus_config(ConnectionEndpoint("127.0.0.1", 1), {})
-        port = RecoveryPort(driver, RecoverySettings(read_timeout=0.01))
+        port = RecoveringProtocol(driver, RecoverySettings(read_timeout=0.01))
 
         with pytest.raises(ProtocolError):
             await port.read_one("h")

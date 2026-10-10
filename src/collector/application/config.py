@@ -55,10 +55,10 @@ class RuntimeParams:
     queue_maxsize: int = 1000
     backpressure_policy: BackpressurePolicy = "drop_old"
     shutdown_timeout: float = 10.0
-    connect_timeout: float = 10.0
-    read_timeout: float | None = None
+    connect_timeout: float = 1.0
+    read_timeout: float | None = 1.0
     reconnect_attempts: int = 1
-    write_timeout: float = 5.0
+    write_timeout: float = 1.0
 
     def __post_init__(self) -> None:
         if self.queue_maxsize <= 0:

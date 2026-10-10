@@ -70,9 +70,9 @@ class CommanderConfig:
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     ads_local: ADSLocalIdentity | None = None
-    connect_timeout: float = 10.0
-    write_timeout: float = 5.0
-    read_timeout: float = 5.0
+    connect_timeout: float = 1.0
+    write_timeout: float = 1.0
+    read_timeout: float = 1.0
     reconnect_attempts: int = 1
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()

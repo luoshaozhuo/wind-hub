@@ -24,8 +24,8 @@ def test_load_minimal_modbus_config(tmp_path):
     table = config.point_table_for_device(device.device_id)
     assert table.protocol.name == "modbus"
     assert "p1" in table.points
-    assert config.connect_timeout == 10.0
-    assert config.write_timeout == 5.0
+    assert config.connect_timeout == 1.0
+    assert config.write_timeout == 1.0
 
 
 def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
