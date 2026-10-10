@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import csv
-from contextlib import suppress
 import inspect
 import json
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, TypeVar
 
