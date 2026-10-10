@@ -41,9 +41,9 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
         }
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
     models = {}
-    for key, model in snapshot.device_models.items():
+    for model_key, model in snapshot.device_models.items():
         table = snapshot.point_tables[model.point_table_id]
-        models[str(key)] = {
+        models[str(model_key)] = {
             "device_type": str(model.device_type_id),
             "model": model.name,
             "manufacturer": model.manufacturer,
@@ -54,17 +54,17 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "connection_defaults": _yaml_plain(model.connection_defaults),
         }
     devices = []
-    for key, device in snapshot.site.devices.items():
+    for device_key, device in snapshot.site.devices.items():
         endpoint: dict[str, Any] = {"host": device.endpoint.host}
         if device.endpoint.port is not None:
             endpoint["port"] = device.endpoint.port
-        options = dict(snapshot.protocol_options_by_device.get(key, {}))
-        if key in snapshot.ads_subscribe_devices:
+        options = dict(snapshot.protocol_options_by_device.get(device_key, {}))
+        if device_key in snapshot.ads_subscribe_devices:
             options["subscribe_enabled"] = True
         if options:
             endpoint["extensions"] = options
         devices.append({
-            "device_id": str(key),
+            "device_id": str(device_key),
             "model": str(device.device_model_id),
             **({"name": device.name} if device.name is not None else {}),
             "device_groups": [str(group_id) for group_id in device.device_group_ids],
