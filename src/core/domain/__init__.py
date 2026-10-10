@@ -26,6 +26,7 @@ from .point import (
     engineering_value,
     raw_write_value,
 )
+from .task import Task
 from .unit import (
     AMPERE,
     BAR,
@@ -130,6 +131,7 @@ __all__ = [
     "STANDARD_GRAVITY",
     "UNIT_CATALOG",
     "Unit",
+    "Task",
     "UnitCode",
     "VAR",
     "VOLT",
