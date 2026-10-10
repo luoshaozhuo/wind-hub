@@ -149,7 +149,7 @@ async def full_stack(
     Server 以缩短的对账/探测周期启动，REST 客户端已确认 HTTP 就绪；
     结束后先关客户端再优雅停机 Server（Worker 由各自工厂回收）。
     """
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = write_functional_config(
         tmp_path / "cfg",
         modbus_server.port,
