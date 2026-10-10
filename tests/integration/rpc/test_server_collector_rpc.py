@@ -32,7 +32,7 @@ async def client(
     collector_factory,
     tmp_path: Path,
 ) -> tuple[CollectorGrpcClient, Path, CollectorProcess]:
-    sink_path = tmp_path / "out" / "telemetry.jsonl"
+    sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = write_functional_config(
         tmp_path / "cfg",
         modbus_server.port,
