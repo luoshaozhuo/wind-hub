@@ -337,7 +337,7 @@ class ADSDriver:
         self,
         points: Sequence[str | ADSPoint],
     ) -> tuple[ProtocolSample, ...]:
-        """按配置的 sum/sequential 策略批量读取，返回按输入顺序排列的样本元组。
+        """使用 ADS Sum Read 批量读取，返回按输入顺序排列的样本元组。
 
         支持注册点 point_id 与动态 ADSPoint 混合；动态点按显式 index 地址
         参与 Sum Read，不降级为逐点读取，也不使用 read_list_by_name。
@@ -354,7 +354,7 @@ class ADSDriver:
         self,
         points: Sequence[str | ADSPoint],
     ) -> tuple[tuple[PointScalar, Quality], ...]:
-        """按配置的 sum/sequential 策略读取点，返回原始值及逐点质量。"""
+        """使用 ADS Sum Read 读取点，返回原始值及逐点质量。"""
         if not points:
             return ()
 
@@ -362,17 +362,15 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
             try:
-                if self._config.read_mode == "sum":
-                    mapped = tuple(self._resolve_point(point) for point in points)
-                    if (
-                        len(mapped) > 1
-                        and all(point.symbol is not None and point.address_resolved
-                                for point in mapped)
-                        and hasattr(self._connection, "read_list_by_name")
-                    ):
-                        return await self._read_symbol_list_raw(mapped)
-                    return await self._read_sum_raw(points)
-                return await self._read_sequential_raw(points)
+                mapped = tuple(self._resolve_point(point) for point in points)
+                if (
+                    len(mapped) > 1
+                    and all(point.symbol is not None and point.address_resolved
+                            for point in mapped)
+                    and hasattr(self._connection, "read_list_by_name")
+                ):
+                    return await self._read_symbol_list_raw(mapped)
+                return await self._read_sum_raw(points)
             except ProtocolError:
                 raise
             except Exception as exc:
@@ -612,11 +610,6 @@ class ADSDriver:
                     self._sum_read_bytes,
                     addresses,
                 )
-            except NotImplementedError:
-                # Current pyads lacks public Index-based Sum Read. If its
-                # internal connection handles disappear, retain correctness
-                # using the supported per-address read API.
-                return await self._read_sequential_raw(points)
             if len(raw) < expected:
                 raise ProtocolError(
                     f"ADS sum read returned {len(raw)} bytes; " f"expected at least {expected}"
@@ -659,32 +652,6 @@ class ADSDriver:
         if any(result is None for result in results):
             raise RuntimeError("ADS read did not produce a result for every point")
         return tuple(result for result in results if result is not None)
-
-    async def _read_sequential_raw(
-        self,
-        points: Sequence[str | ADSPoint],
-    ) -> tuple[tuple[PointScalar, Quality], ...]:
-        semaphore = asyncio.Semaphore(self._config.max_concurrent_reads)
-
-        async def read_one(point: str | ADSPoint) -> tuple[PointScalar, Quality]:
-            mapped = self._resolve_point(point)
-            if not mapped.address_resolved:
-                return (None, Quality.BAD)
-            try:
-                async with semaphore:
-                    value = await asyncio.to_thread(
-                        self._connection.read,
-                        mapped.index_group,
-                        mapped.index_offset,
-                        _plc_datatype(mapped.data_type),
-                    )
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    return (None, Quality.BAD)
-                raise
-            return (_as_point_scalar(value), Quality.GOOD)
-
-        return tuple(await asyncio.gather(*(read_one(point) for point in points)))
 
     async def _resolve_symbols(self) -> None:
         self._read_plan_cache.clear()
