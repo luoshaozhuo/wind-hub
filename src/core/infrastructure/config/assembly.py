@@ -158,7 +158,7 @@ def assemble_core_config(
     device_types = {
         DeviceTypeId(type_id): DeviceType(
             device_type_id=DeviceTypeId(type_id),
-            name=type_definition.name or type_id,
+            name=type_definition or type_id,
         )
         for type_id, type_definition in device_models_config.device_types.items()
     }
