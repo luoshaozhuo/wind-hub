@@ -20,7 +20,7 @@ def _yaml_plain(value: Any) -> Any:
         return value.value
     if isinstance(value, Mapping):
         return {key: _yaml_plain(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
+    if isinstance(value, tuple | list):
         return [_yaml_plain(item) for item in value]
     return value
 
