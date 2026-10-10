@@ -293,8 +293,11 @@ class PointConfig:
     offset: float
     unit: str
     description: str | None
+    business_point_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.business_point_id is not None:
+            _require_non_empty(self.business_point_id, "Point business_point_id")
         _require_non_empty(self.point_id, "Point point_id")
         object.__setattr__(self, "point_groups", tuple(self.point_groups))
         if not self.point_groups:
