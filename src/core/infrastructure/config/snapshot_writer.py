@@ -3,9 +3,26 @@
 from __future__ import annotations
 
 from typing import Any
+from collections.abc import Mapping
+from enum import Enum
+
+from pydantic import SecretStr
 
 from core.application.config_snapshot import ConfigSnapshot
 from .point_table_writer import dump_point_tables
+
+
+def _yaml_plain(value: Any) -> Any:
+    """Convert typed sink values to YAML without masking configured secrets."""
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {key: _yaml_plain(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_yaml_plain(item) for item in value]
+    return value
 
 
 def dump_snapshot(
@@ -91,7 +108,7 @@ def dump_snapshot(
         "tasks.yaml": {"tasks": tasks},
         "sinks.yaml": {
             "sinks": [
-                sink.model_dump(mode="json", by_alias=True)
+                _yaml_plain(sink.model_dump(mode="python", by_alias=True))
                 for sink in snapshot.sinks.values()
             ],
         },
