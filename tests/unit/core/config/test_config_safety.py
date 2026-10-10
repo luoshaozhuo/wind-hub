@@ -1,6 +1,6 @@
 """配置版本发布、不可变性与失败保护。"""
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 from pathlib import Path
 from shutil import copy2
 
