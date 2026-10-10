@@ -125,9 +125,9 @@ class ModbusTcpSinkServer:
         finally:
             self._healthy = False
 
-    def health(self) -> ConnectionHealth:
-        """返回缓存的监听健康状态。"""
-        if not self._healthy:
+    async def health(self) -> ConnectionHealth:
+        """检查 Server 生命周期是否仍处于监听状态。"""
+        if not self._healthy or self._server is None:
             return ConnectionHealth(healthy=False, message="not listening")
         return ConnectionHealth(healthy=True)
 
