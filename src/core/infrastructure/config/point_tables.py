@@ -124,7 +124,7 @@ def _resolve_table(
         else:
             points[patch.point_id] = _create_point(patch, name)
 
-    resolved = PointTableConfig(protocol=protocol, points=points)
+    resolved = PointTableConfig(protocol=protocol, points=points, parent_id=table.extends)
     cache[name] = resolved
     return resolved
 
