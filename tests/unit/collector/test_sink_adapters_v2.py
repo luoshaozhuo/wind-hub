@@ -89,9 +89,9 @@ async def test_redis_pipeline_over_real_tcp() -> None:
         sink = RedisSink(cfg)
         await sink.open()
         await sink.write([PointValue("WT001", "power", 100.0)])
-        assert sink.health().healthy
+        assert (await sink.health()).healthy
         await sink.close()
-        assert not sink.health().healthy
+        assert not (await sink.health()).healthy
         assert received[0] == ["PING"]
         assert received[1][0] == "SET"
         assert received[1][1] == "wind-hub:5:WT001:5:power"
