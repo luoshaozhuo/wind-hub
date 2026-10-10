@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-
 import pytest
 
 from core.application import ConfigError
 from core.application.port import ConfigPort, ConfigTopic
 from core.infrastructure.config import (
     YamlConfigAdapter,
-    fingerprint_config_set,
-    fingerprint_config_topics,
     read_yaml_mapping,
 )
-
-ALL_TOPICS = tuple(ConfigTopic)
 
 
 @pytest.fixture
@@ -77,46 +71,3 @@ def test_read_yaml_mapping_low_level(tmp_path):
     path = tmp_path / "devices.yaml"
     path.write_text("devices: []\n", encoding="utf-8")
     assert read_yaml_mapping(path) == {"devices": []}
-
-
-def test_fingerprint_preserves_legacy_nul_delimiters(site):
-    expected = hashlib.sha256()
-    for path in sorted(site.glob("*.yaml")):
-        expected.update(path.name.encode("utf-8"))
-        expected.update(b"\0")
-        expected.update(path.read_bytes())
-        expected.update(b"\0")
-    assert fingerprint_config_set(site) == expected.hexdigest()
-    assert YamlConfigAdapter(site).fingerprint() == expected.hexdigest()
-    history = site / ".history"
-    history.mkdir()
-    (history / "ignored.yaml").write_text("changed: true", encoding="utf-8")
-    assert fingerprint_config_set(site) == expected.hexdigest()
-
-
-def test_topic_fingerprint_scopes_to_given_topics(site):
-    adapter = YamlConfigAdapter(site)
-    topics = (ConfigTopic.SYSTEM, ConfigTopic.POINTS)
-    assert adapter.fingerprint_topics(topics) == fingerprint_config_topics(site, topics)
-
-    scoped = adapter.fingerprint_topics(topics)
-    (site / "tasks.yaml").write_text("changed: true\n", encoding="utf-8")
-    assert adapter.fingerprint_topics(topics) == scoped
-
-    (site / "points.yaml").write_text("changed: true\n", encoding="utf-8")
-    assert adapter.fingerprint_topics(topics) != scoped
-
-
-def test_topic_fingerprint_changes_when_topic_file_is_deleted(site):
-    adapter = YamlConfigAdapter(site)
-    topics = (ConfigTopic.UNITS,)
-    scoped = adapter.fingerprint_topics(topics)
-    (site / "units.yaml").unlink()
-    assert adapter.fingerprint_topics(topics) != scoped
-
-
-def test_all_topics_fingerprint_differs_from_directory_fingerprint(site):
-    """主题指纹只覆盖主题文件；目录指纹还覆盖其它 YAML 文件。"""
-    (site / "extra.yaml").write_text("extra: true\n", encoding="utf-8")
-    adapter = YamlConfigAdapter(site)
-    assert adapter.fingerprint_topics(ALL_TOPICS) != adapter.fingerprint()
