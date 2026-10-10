@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-import os
 from typing import BinaryIO
 
 from collector.application.errors import SinkError
