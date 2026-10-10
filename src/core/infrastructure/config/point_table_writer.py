@@ -20,6 +20,7 @@ def _point_dict(point: Point, meta: PointMeta) -> dict[str, Any]:
         "scale": point.scale,
         "offset": point.offset,
         "unit": point.source_unit.code.value,
+        "description": point.description,
     }
 
 
