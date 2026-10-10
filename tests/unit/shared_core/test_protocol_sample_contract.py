@@ -10,7 +10,6 @@ from collector.application.config import RuntimeParams
 from commander.application.config import CommanderConfig
 from core.application import Quality
 from core.application.protocol_contract import ProtocolSample
-from core.application.recovery import RecoverySettings
 from core.infrastructure.protocol.ads.subscription import _normalize_timestamp
 from core.infrastructure.protocol.iec104.codec import sample_from_c104
 
@@ -164,39 +163,21 @@ class TestDriverReadTimestamps:
         assert sample.timestamp_source == "local"
 
 
-class TestRecoveryDefaults:
-    def test_recovery_settings_default_timeouts_are_one_second(self) -> None:
-        settings = RecoverySettings()
-
-        assert settings.read_retries == 1
-        assert settings.retry_interval == 1.0
-        assert settings.connect_timeout == 1.0
-        assert settings.read_timeout == 1.0
-        assert settings.write_timeout == 1.0
-
-    def test_collector_runtime_defaults_are_one_second(self) -> None:
+class TestRuntimeDefaults:
+    def test_collector_runtime_defaults_include_watchdog_timing(self) -> None:
         params = RuntimeParams()
 
         assert params.connect_timeout == 1.0
         assert params.read_timeout == 1.0
         assert params.write_timeout == 1.0
-        assert params.read_retries == 1
-        assert params.retry_interval == 1.0
+        assert params.watchdog_interval == 5.0
+        assert params.health_timeout == 1.0
 
-    def test_commander_config_default_timeouts_are_one_second(self) -> None:
+    def test_commander_config_defaults_include_watchdog_timing(self) -> None:
         config = CommanderConfig()
 
         assert config.connect_timeout == 1.0
         assert config.read_timeout == 1.0
         assert config.write_timeout == 1.0
-        assert config.read_retries == 1
-        assert config.retry_interval == 1.0
-
-
-class TestRenameResidue:
-    def test_no_recovery_port_symbol_remains(self) -> None:
-        """§3：RecoveryPort 已重命名为 RecoveringProtocol，不留别名。"""
-        import core.application.recovery as recovery_module
-
-        assert not hasattr(recovery_module, "RecoveryPort")
-        assert hasattr(recovery_module, "RecoveringProtocol")
+        assert config.watchdog_interval == 5.0
+        assert config.health_timeout == 1.0
