@@ -10,9 +10,9 @@ from collector.application.sink_export import SinkReferenceExporter
 from collector.domain.point_value import PointValue
 from core.application import Quality
 from core.application.sink_config import (
-    StreamSinkAddress,
     ResolvedSinkPoint,
     SinkSource,
+    StreamSinkAddress,
 )
 
 
