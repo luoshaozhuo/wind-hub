@@ -132,7 +132,6 @@ def assemble_collector(
             view.point_meta,
             protocol,
             subscribe_enabled=view.subscribe_enabled,
-            supports_scheduled_collection=view.supports_scheduled_collection,
         )
 
     views = config.device_views()
