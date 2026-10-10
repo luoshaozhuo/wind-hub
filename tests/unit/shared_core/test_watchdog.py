@@ -179,3 +179,40 @@ async def test_cancelled_health_propagates() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert endpoint.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_inflight_health_probe() -> None:
+    endpoint = _Endpoint()
+    endpoint.health_gate = asyncio.Event()
+    watchdog = _watchdog(endpoint, interval=30.0, health_timeout=60.0)
+    await watchdog.start()
+    for _ in range(100):
+        if endpoint.health_count:
+            break
+        await asyncio.sleep(0.001)
+    assert endpoint.health_count == 1
+    await asyncio.wait_for(watchdog.stop(), timeout=1.0)
+    assert endpoint.connect_count == 0
+
+
+@pytest.mark.asyncio
+async def test_no_callback_when_stopped_during_reconnect() -> None:
+    endpoint = _Endpoint()
+    endpoint.healthy = False
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_connect() -> None:
+        entered.set()
+        await release.wait()
+        endpoint.connect_count += 1
+
+    endpoint.connect = slow_connect  # type: ignore[method-assign]
+    watchdog = _watchdog(endpoint, connect_timeout=2.0)
+    task = asyncio.create_task(watchdog.check_once())
+    await asyncio.wait_for(entered.wait(), timeout=1.0)
+    await watchdog.stop()
+    release.set()
+    await task
+    assert endpoint.callback_count == 0
