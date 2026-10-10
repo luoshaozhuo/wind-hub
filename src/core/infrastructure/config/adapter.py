@@ -9,7 +9,7 @@ from shutil import copy2
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.config_diff import diff_config_snapshots
 from core.application.errors import ConfigError
-from core.domain import Site, Task, validate_core_config
+from core.domain import DeviceGroup, DeviceGroupId, Site, Task, validate_core_config
 
 from .assembly import assemble_core_config
 from .business_points import parse_business_points
@@ -36,7 +36,8 @@ class YamlConfigAdapter:
         base = self._base
         system = parse_system_config(read_yaml_mapping(base / "system.yaml"))
         models = parse_device_models_config(read_yaml_mapping(base / "device_models.yaml"))
-        devices = parse_devices_config(read_yaml_mapping(base / "devices.yaml"))
+        device_document = read_yaml_mapping(base / "devices.yaml")
+        devices = parse_devices_config(device_document)
         tables = parse_point_tables_config(read_yaml_mapping(base / "points.yaml"))
         tasks = parse_tasks_config(read_yaml_mapping(base / "tasks.yaml"))
         sinks = parse_sinks_config(read_yaml_mapping(base / "sinks.yaml"))
@@ -51,6 +52,24 @@ class YamlConfigAdapter:
             devices_config=devices,
             point_config=tables,
         )
+
+        groups = dict(assembly.device_groups)
+        group_values = device_document.get("device_groups", {})
+        if not isinstance(group_values, dict):
+            raise ConfigError("devices.yaml device_groups must be a mapping")
+        for group_id, values in group_values.items():
+            if group_id not in groups:
+                raise ConfigError(f"Unknown device group definition: {group_id}")
+            if not isinstance(values, dict) or set(values) - {"name", "description"}:
+                raise ConfigError(f"Invalid device group: {group_id}")
+            try:
+                groups[DeviceGroupId(group_id)] = DeviceGroup(
+                    device_group_id=DeviceGroupId(group_id),
+                    name=values.get("name") or group_id,
+                    description=values.get("description"),
+                )
+            except ValueError as exc:
+                raise ConfigError(f"Invalid device group {group_id}: {exc}") from exc
 
         domain_tasks: dict[str, Task] = {}
         try:
@@ -76,7 +95,7 @@ class YamlConfigAdapter:
             validate_core_config(
                 device_types=assembly.device_types,
                 device_models=assembly.device_models,
-                device_groups=assembly.device_groups,
+                device_groups=groups,
                 devices=assembly.devices,
                 business_points=assembly.business_points,
                 point_tables=assembly.point_tables,
