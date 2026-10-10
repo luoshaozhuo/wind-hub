@@ -460,6 +460,7 @@ _POINT_PATCH_KEYS = {
     "offset",
     "unit",
     "description",
+    "business_point_id",
 }
 
 
@@ -538,6 +539,7 @@ def _parse_point_patch(entry: Any, table_label: str) -> PointPatch:
         offset=None if offset is None else _as_float(offset, f"point '{point_id}'.offset"),
         unit=entry.get("unit") if "unit" in entry else None,
         description=entry.get("description") if "description" in entry else None,
+        business_point_id=entry.get("business_point_id"),
     )
 
 
@@ -568,6 +570,7 @@ def _dump_point_table(table: PointTableConfig) -> dict[str, Any]:
                 "offset": point.offset,
                 "unit": point.unit,
                 "description": point.description,
+                "business_point_id": point.business_point_id,
             }
             for point in table.points.values()
         ],
