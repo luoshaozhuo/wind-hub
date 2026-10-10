@@ -1,8 +1,4 @@
-"""Sink adapters — 数据输出。
-
-内置 Sink 注册的唯一入口是 :func:`build_sink_registry`；新增 Sink 类型时在
-本函数登记一行 factory 即可，不存在中央 if/elif 分派链。
-"""
+"""Collector Sink Adapter 组合入口：File、Modbus、Redis。"""
 
 from __future__ import annotations
 
@@ -15,48 +11,26 @@ if TYPE_CHECKING:
     from core.application.sink_config import ResolvedSinkConfig
 
 
-def _file(cfg: ResolvedSinkConfig) -> SinkPort:
+def _file(config: ResolvedSinkConfig) -> SinkPort:
     from collector.infrastructure.sink.file.csv import FileSink
 
-    return FileSink(cfg)
+    return FileSink(config)
 
 
-def _kafka(cfg: ResolvedSinkConfig) -> SinkPort:
-    from collector.infrastructure.sink.mq.kafka import KafkaSink
-
-    return KafkaSink(cfg)
-
-
-def _db(cfg: ResolvedSinkConfig) -> SinkPort:
-    from collector.infrastructure.sink.db.postgres import DBSink
-
-    return DBSink(cfg)
-
-
-def _iec104(cfg: ResolvedSinkConfig) -> SinkPort:
-    from collector.infrastructure.sink.iec104 import IEC104Sink
-
-    return IEC104Sink(cfg)
-
-
-def _modbus(cfg: ResolvedSinkConfig) -> SinkPort:
+def _modbus(config: ResolvedSinkConfig) -> SinkPort:
     from collector.infrastructure.sink.modbus import ModbusSink
 
-    return ModbusSink(cfg)
+    return ModbusSink(config)
 
 
-def _redis(cfg: ResolvedSinkConfig) -> SinkPort:
+def _redis(config: ResolvedSinkConfig) -> SinkPort:
     from collector.infrastructure.sink.redis import RedisSink
 
-    return RedisSink(cfg)
+    return RedisSink(config)
 
 
 def build_sink_registry() -> SinkRegistry:
-    """构造注册好全部内置 Sink 类型的注册表。
-
-    可选 Sink 依赖保持 lazy import——各 factory 只在配置实际使用该类型时才
-    导入实现模块，File-only 部署无需安装 aiokafka/asyncpg。
-    """
+    """按需延迟导入具体 Adapter，不强迫 File-only 部署安装 Redis 或 Modbus。"""
     registry = SinkRegistry()
     registry.register("file", _file)
     registry.register("modbus", _modbus)
