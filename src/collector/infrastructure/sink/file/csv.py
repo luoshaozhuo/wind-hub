@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import BinaryIO
 
 from collector.application.errors import SinkError
@@ -92,7 +92,7 @@ class FileSink:
         for stale in archives[:max(0, len(archives) - self._policy.max_files)]:
             stale.unlink()
 
-    def _write(self, batch: Sequence[PointValue]) -> None:
+    def _write(self, batch: list[PointValue]) -> None:
         if self._file is None or self._segment is None:
             raise SinkError("FileSink must be opened before write")
         for row in iter_csv_rows(batch):
@@ -131,7 +131,7 @@ class FileSink:
                 raise SinkError(f"CSV open failed: {exc}") from exc
             self._healthy, self._error = True, None
 
-    async def write(self, batch: Sequence[PointValue]) -> None:
+    async def write(self, batch: list[PointValue]) -> None:
         if not batch:
             return
         async with self._lock:
