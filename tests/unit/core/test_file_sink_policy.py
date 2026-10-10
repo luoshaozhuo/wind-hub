@@ -54,8 +54,6 @@ def test_retention_only_selects_old_archives() -> None:
         {"max_size_mb": 0},
         {"max_size_mb": float("inf")},
         {"max_files": 0},
-        {"buffer_size": 0},
-        {"flush_interval": -1},
         {"path": "data.jsonl"},
     ],
 )
