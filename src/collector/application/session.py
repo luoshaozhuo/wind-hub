@@ -149,7 +149,6 @@ class CollectorDeviceSession:
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
         subscribe_enabled: ADS 设备是否使用订阅推送（notification）采集；
             非 ADS 设备忽略（IEC104 恒订阅、Modbus 恒轮询）。
-        supports_scheduled_collection: 是否支持周期采集。
     """
 
     def __init__(
@@ -160,7 +159,6 @@ class CollectorDeviceSession:
         protocol: ProtocolPort,
         *,
         subscribe_enabled: bool = False,
-        supports_scheduled_collection: bool = True,
     ) -> None:
         self._device = device
         self._point_table = point_table
@@ -168,7 +166,6 @@ class CollectorDeviceSession:
         self._point_group_cache: dict[str, tuple[str, ...]] = {}
         self._protocol = protocol
         self._subscribe_enabled = subscribe_enabled
-        self._supports_scheduled_collection = supports_scheduled_collection
 
     # ------------------------------------------------------------------
     # 身份与配置快照
@@ -221,11 +218,6 @@ class CollectorDeviceSession:
         if self.protocol_name == "ads" and not self._subscribe_enabled:
             return AcquisitionMode.POLL
         return AcquisitionMode.SUBSCRIBE
-
-    @property
-    def supports_scheduled_collection(self) -> bool:
-        """是否支持周期采集（ADS sequential 单读设备为 False）。"""
-        return self._supports_scheduled_collection
 
     # ------------------------------------------------------------------
     # 轻量热更新（不重建协议连接）
@@ -358,10 +350,6 @@ class CollectorDeviceSession:
             ConfigError: 采集机制与参数不匹配（如 POLL 缺 interval）。
         """
         if self.acquisition_mode is AcquisitionMode.POLL:
-            if not self._supports_scheduled_collection:
-                raise ConfigError(
-                    f"Device '{self.device_id}' does not support scheduled collection"
-                )
             if interval is None or interval <= 0:
                 raise ConfigError(
                     f"Device '{self.device_id}' polls actively — "
