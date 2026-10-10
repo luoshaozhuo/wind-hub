@@ -170,7 +170,7 @@ def test_sink_requires_modbus_connection() -> None:
             ResolvedSinkConfig.model_construct(
                 name="mb",
                 type="modbus",
-                connection=FileSinkConnection(path="/tmp/x.jsonl"),
+                connection=FileSinkConnection(path="/tmp/x.csv"),
                 points=[],
             )
         )
