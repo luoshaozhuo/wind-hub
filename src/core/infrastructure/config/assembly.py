@@ -415,6 +415,8 @@ def _build_point(
             scale=definition.scale,
             offset=definition.offset,
             description=definition.description,
+            variable_name=definition.variable_name,
+            point_groups=definition.point_groups,
             ext=ext,
         )
     except ValueError as exc:
