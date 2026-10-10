@@ -1,16 +1,14 @@
-"""三类 Sink 的跨实例唯一性与监听冲突检查。"""
+"""Sink 实例间的监听资源冲突校验。"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from core.application.sink_contract import FileSinkConfig, ModbusSinkConfig, RedisSinkConfig
-
-SinkDefinition = FileSinkConfig | ModbusSinkConfig | RedisSinkConfig
+from core.application.sink_config import ModbusSinkConnection, SinkConfig
 
 
-def validate_sink_definitions(sinks: Sequence[SinkDefinition]) -> None:
-    """名称不能重复，同一端口不能绑定冲突的 Modbus 监听地址。"""
+def validate_sink_definitions(sinks: Sequence[SinkConfig]) -> None:
+    """检查名称重复及 Modbus TCP 端口的绑定冲突。"""
     names: set[str] = set()
     listeners: set[tuple[str, int]] = set()
     for sink in sinks:
@@ -18,16 +16,15 @@ def validate_sink_definitions(sinks: Sequence[SinkDefinition]) -> None:
         if not name or name in names:
             raise ValueError(f"empty or duplicate sink name: {sink.name}")
         names.add(name)
-        if not sink.enabled or not isinstance(sink, ModbusSinkConfig):
+        if not sink.enabled or not isinstance(sink.connection, ModbusSinkConnection):
             continue
-        host, port = sink.connection.host, sink.connection.port
-        if not host.strip():
-            raise ValueError("Modbus listener host must not be empty")
+        host = sink.connection.host
+        port = sink.connection.port
         if any(
-            existing_port == port
-            and (existing_host == host or existing_host in ("0.0.0.0", "::")
+            used_port == port
+            and (used_host == host or used_host in ("0.0.0.0", "::")
                  or host in ("0.0.0.0", "::"))
-            for existing_host, existing_port in listeners
+            for used_host, used_port in listeners
         ):
             raise ValueError(f"duplicate Modbus listener: {(host, port)}")
         listeners.add((host, port))
