@@ -1,4 +1,4 @@
-"""全量 YAML 读取入口：一次构造完整领域快照。"""
+"""全量配置读写适配器。"""
 
 from __future__ import annotations
 
@@ -7,140 +7,22 @@ from tempfile import TemporaryDirectory
 from shutil import copy2
 
 from core.application.config_snapshot import ConfigSnapshot
-from core.application.settings import ADSLocalConfig, RuntimeSettings, SystemSettings
 from core.application.config_diff import diff_config_snapshots
 from core.application.errors import ConfigError
-from core.domain import DeviceGroup, DeviceGroupId, Sink, Site, Task, validate_core_config
 
-from .assembly import assemble_core_config
-from .business_points import parse_business_points
-from .codec import (
-    parse_device_models_config,
-    parse_devices_config,
-    parse_point_tables_config,
-    parse_sinks_config,
-    parse_system_config,
-    parse_tasks_config,
-)
-from .snapshot_writer import dump_snapshot, _yaml_plain
+from .parse_domain import load_domain
+from .snapshot_writer import dump_snapshot
 from .yaml import read_yaml_mapping, write_yaml_mapping_atomic
 
 
 class YamlConfigAdapter:
-    """读取整个现场配置目录，不向调用方暴露按主题加载。"""
+    """只暴露完整 ConfigSnapshot 的 load/save，不含按主题接口。"""
 
     def __init__(self, config_dir: str | Path) -> None:
         self._base = Path(config_dir)
 
     def load(self) -> ConfigSnapshot:
-        """读取、构建并统一进行领域关系校验。"""
-        base = self._base
-        system = parse_system_config(read_yaml_mapping(base / "system.yaml"))
-        models = parse_device_models_config(read_yaml_mapping(base / "device_models.yaml"))
-        device_document = read_yaml_mapping(base / "devices.yaml")
-        devices = parse_devices_config(device_document)
-        tables = parse_point_tables_config(read_yaml_mapping(base / "points.yaml"))
-        tasks = parse_tasks_config(read_yaml_mapping(base / "tasks.yaml"))
-        sinks = parse_sinks_config(read_yaml_mapping(base / "sinks.yaml"))
-
-        business_points = parse_business_points(
-            read_yaml_mapping(base / "business_points.yaml")
-        )
-
-        assembly = assemble_core_config(
-            defined_business_points=business_points,
-            device_models_config=models,
-            devices_config=devices,
-            point_config=tables,
-        )
-
-        groups = dict(assembly.device_groups)
-        group_values = device_document.get("device_groups", {})
-        if not isinstance(group_values, dict):
-            raise ConfigError("devices.yaml device_groups must be a mapping")
-        for group_id, values in group_values.items():
-            if not isinstance(values, dict) or set(values) - {"name", "description"}:
-                raise ConfigError(f"Invalid device group: {group_id}")
-            try:
-                groups[DeviceGroupId(group_id)] = DeviceGroup(
-                    device_group_id=DeviceGroupId(group_id),
-                    name=values.get("name") or group_id,
-                    description=values.get("description"),
-                )
-            except ValueError as exc:
-                raise ConfigError(f"Invalid device group {group_id}: {exc}") from exc
-
-        domain_tasks: dict[str, Task] = {}
-        try:
-            for task in tasks.tasks.values():
-                if task.device_group is None:
-                    raise ValueError(
-                        f"task '{task.task_id}' must specify device_group, not device"
-                    )
-                if task.device is not None:
-                    raise ValueError(f"task '{task.task_id}' cannot specify device")
-                if task.interval is None:
-                    raise ValueError(f"task '{task.task_id}' must specify interval")
-                domain_tasks[task.task_id] = Task(
-                    task_id=task.task_id,
-                    device_group_id=task.device_group,
-                    point_group=task.point_group,
-                    sink_ids=task.targets,
-                    interval=task.interval,
-                    enabled=task.enabled,
-                )
-
-            sink_map = {}
-            for definition in sinks.sinks:
-                raw = _yaml_plain(definition.model_dump(mode="python", by_alias=True))
-                sink_map[definition.name] = Sink(
-                    sink_id=definition.name,
-                    kind=definition.type,
-                    enabled=definition.enabled,
-                    connection=raw["connection"],
-                    points=tuple(raw.get("points", ())),
-                )
-            validate_core_config(
-                device_types=assembly.device_types,
-                device_models=assembly.device_models,
-                device_groups=groups,
-                devices=assembly.devices,
-                business_points=assembly.business_points,
-                point_tables=assembly.point_tables,
-                protocol_options_by_device=assembly.protocol_options_by_device,
-                tasks=domain_tasks,
-                sink_ids=set(sink_map),
-            )
-        except ValueError as exc:
-            raise ConfigError(f"Invalid domain configuration: {exc}") from exc
-
-        if not system.site_id:
-            raise ConfigError("system.yaml site.site_id is required")
-        site = Site(
-            site_id=system.site_id,
-            name=system.site_name or system.site_id,
-            devices=assembly.devices,
-        )
-        runtime = RuntimeSettings(**{
-            key: getattr(system.runtime, key)
-            for key in RuntimeSettings.__dataclass_fields__
-        })
-        ads = None if system.ads is None else ADSLocalConfig(**{
-            key: getattr(system.ads, key)
-            for key in ADSLocalConfig.__dataclass_fields__
-        })
-        return ConfigSnapshot(
-            system=SystemSettings(runtime=runtime, ads=ads),
-            site=site,
-            device_types=assembly.device_types,
-            device_models=assembly.device_models,
-            device_groups=assembly.device_groups,
-            point_tables=assembly.point_tables,
-            business_points=assembly.business_points,
-            tasks=domain_tasks,
-            sinks=sink_map,
-            protocol_options_by_device=assembly.protocol_options_by_device,
-        )
+        return load_domain(self._base)
 
     def save(self, snapshot: ConfigSnapshot) -> None:
         """先在临时目录完整验证，避免将不等价快照写回配置目录。"""
