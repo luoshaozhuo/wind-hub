@@ -15,7 +15,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
 from tests.support.control import apply_placement_and_start_instance
 from tests.support.process import CollectorProcess
-from tests.support.wait import read_jsonl
+from tests.support.wait import read_csv
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -50,13 +50,13 @@ class TestGracefulShutdown:
             description="points collected before shutdown",
         )
         # ……但缓冲未落盘：文件不存在或为空。
-        assert not sink_path.exists() or not read_jsonl(sink_path)
+        assert not sink_path.exists() or not read_csv(sink_path)
 
         # ---- SIGTERM：优雅停机必须 flush 缓冲并干净退出 ----
         exit_code = proc.terminate(timeout=30.0)
         assert exit_code == 0
 
-        rows = read_jsonl(sink_path)
+        rows = read_csv(sink_path)
         assert len(rows) >= 4
         point_ids = {r["point_id"] for r in rows}
         assert {"rotor.speed", "gen.power", "temp.int", "setpoint.power"} <= point_ids
