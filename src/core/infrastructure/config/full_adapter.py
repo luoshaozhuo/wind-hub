@@ -9,6 +9,7 @@ from core.application.errors import ConfigError
 from core.domain import Task, validate_core_config
 
 from .assembly import assemble_core_config
+from .business_points import parse_business_points
 from .codec import (
     parse_device_models_config,
     parse_devices_config,
@@ -36,7 +37,15 @@ class FullYamlConfigAdapter:
         tasks = parse_tasks_config(read_yaml_mapping(base / "tasks.yaml"))
         sinks = parse_sinks_config(read_yaml_mapping(base / "sinks.yaml"))
 
+        catalog_path = base / "business_points.yaml"
+        business_points = (
+            parse_business_points(read_yaml_mapping(catalog_path))
+            if catalog_path.is_file()
+            else {}
+        )
+
         assembly = assemble_core_config(
+            defined_business_points=business_points,
             device_models_config=models,
             devices_config=devices,
             point_config=tables,
