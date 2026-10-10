@@ -28,7 +28,7 @@ def test_save_rolls_back_when_one_file_write_fails(
     original_writer = adapter_module.write_yaml_mapping_atomic
 
     def fail_on_target(path: Path, data: object) -> None:
-        if Path(path).parent == tmp_path and Path(path).name == "devices.yaml":
+        if Path(path).name == "devices.yaml":
             raise OSError("injected save failure")
         original_writer(path, data)
 
@@ -37,3 +37,4 @@ def test_save_rolls_back_when_one_file_write_fails(
         adapter.save(snapshot)
     for filename in FILES:
         assert (tmp_path / filename).read_bytes() == original_bytes[filename]
+    assert not (tmp_path / ".active-config").exists()
