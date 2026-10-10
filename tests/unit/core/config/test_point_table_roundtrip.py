@@ -6,7 +6,6 @@ from shutil import copyfile
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.yaml import active_config_dir
 
-
 ROOT = Path(__file__).resolve().parents[4]
 
 
