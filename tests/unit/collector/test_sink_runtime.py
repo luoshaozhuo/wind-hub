@@ -52,7 +52,7 @@ async def test_open_failure_marks_unhealthy_and_skips_consumer():
     good = FakeSink()
     runtime = _runtime({"bad": bad, "good": good})
     await runtime.start()
-    health = runtime.health()
+    health = await runtime.health()
     assert not health["bad"].healthy and health["bad"].message == "open failed"
     assert health["good"].healthy
 
@@ -356,3 +356,31 @@ async def test_stop_propagates_outer_cancellation():
     stop_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await stop_task
+
+
+async def test_watchdog_stops_consumer_before_reopening_failed_sink():
+    sink = FakeSink()
+    runtime = _runtime({"s1": sink})
+    await runtime.start()
+    sink.fail_open = False
+    # 通过人为使健康检查失败，触发一次 Watchdog close/open。
+    original_health = sink.health
+    failed = True
+
+    async def probe():
+        nonlocal failed
+        if failed:
+            failed = False
+            from core.application import ConnectionHealth
+            return ConnectionHealth(healthy=False, message="connection lost")
+        return await original_health()
+
+    sink.health = probe  # type: ignore[method-assign]
+    await runtime._watchdogs["s1"].check_once()
+    assert sink.close_calls == 1
+    assert sink.open_calls == 2
+    assert "s1" not in runtime._unhealthy
+    await runtime.dispatch({"s1": [_value(3.0)]})
+    await asyncio.sleep(0.05)
+    assert len(sink.batches) == 1
+    await runtime.stop()
