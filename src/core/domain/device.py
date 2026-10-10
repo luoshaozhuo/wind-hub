@@ -116,6 +116,8 @@ class Device:
             name = None
 
         group_ids = tuple(DeviceGroupId(group_id.strip()) for group_id in self.device_group_ids)
+        if not group_ids:
+            raise ValueError("device must belong to at least one device group")
         if any(not group_id for group_id in group_ids):
             raise ValueError("device_group_ids must not contain empty values")
         if len(group_ids) != len(set(group_ids)):
@@ -150,6 +152,8 @@ class Device:
             raise ValueError("device_group_id must not be empty")
         if group_id not in self.device_group_ids:
             return self
+        if len(self.device_group_ids) == 1:
+            raise ValueError("cannot remove the last device group")
         return replace(
             self,
             device_group_ids=tuple(
