@@ -6,7 +6,7 @@ from pathlib import Path
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
-from core.domain import Task, validate_core_config
+from core.domain import Site, Task, validate_core_config
 
 from .assembly import assemble_core_config
 from .business_points import parse_business_points
@@ -84,12 +84,19 @@ class YamlConfigAdapter:
         except ValueError as exc:
             raise ConfigError(f"Invalid domain configuration: {exc}") from exc
 
+        if not system.site_id:
+            raise ConfigError("system.yaml site.site_id is required")
+        site = Site(
+            site_id=system.site_id,
+            name=system.site_name or system.site_id,
+            devices=assembly.devices,
+        )
         return ConfigSnapshot(
             system=system,
+            site=site,
             device_types=assembly.device_types,
             device_models=assembly.device_models,
             device_groups=assembly.device_groups,
-            devices=assembly.devices,
             point_tables=assembly.point_tables,
             business_points=assembly.business_points,
             tasks=domain_tasks,
