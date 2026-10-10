@@ -23,7 +23,7 @@ from tests.reliability.recovery.helpers import wait_status, write_modbus_file_co
 from tests.support.control import apply_placement_and_start_instance, reload_config
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -51,7 +51,7 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
 def _rows_with_value(sink_path: Path, value: float) -> list[dict]:
     return [
         r
-        for r in read_jsonl(sink_path)
+        for r in read_csv(sink_path)
         if r["point_id"] == "rotor.speed" and r["value"] == pytest.approx(value)
     ]
 
