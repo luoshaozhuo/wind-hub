@@ -1,5 +1,6 @@
 """完整 Core YAML 配置关键不变量与无损往返。"""
 
+from dataclasses import replace
 from pathlib import Path
 from shutil import copy2
 
@@ -56,3 +57,16 @@ def test_ads_subscription_option_round_trip(tmp_path: Path) -> None:
     after = adapter.load()
     assert after.ads_subscribe_devices == before.ads_subscribe_devices
     assert not diff_config_snapshots(before, after).has_changes
+
+
+def test_removing_ads_settings_does_not_restore_old_yaml(tmp_path: Path) -> None:
+    adapter = _fixture(tmp_path, "example_ads")
+    current = adapter.load()
+    if current.system.ads is None:
+        return
+    modified = replace(current, system=replace(current.system, ads=None))
+    adapter.save(modified)
+    restored = adapter.load()
+    assert restored.system.ads is None
+    system = yaml.safe_load((active_config_dir(tmp_path) / "system.yaml").read_text())
+    assert "ads" not in system
