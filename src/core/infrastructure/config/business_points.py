@@ -1,4 +1,4 @@
-"""业务点标准目录 YAML 转换（可选文件，显式声明优先）。"""
+"""业务点标准目录 YAML 转换（必需，单一业务点真值源）。"""
 
 from __future__ import annotations
 
