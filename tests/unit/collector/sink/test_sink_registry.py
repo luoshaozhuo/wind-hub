@@ -9,7 +9,9 @@ from collector.infrastructure.sink.file.csv import FileSink
 from collector.infrastructure.sink.redis import RedisSink
 from core.application import ConfigError
 from core.application.sink_config import (
-    FileSinkConnection, RedisSinkConnection, ResolvedSinkConfig,
+    FileSinkConnection,
+    RedisSinkConnection,
+    ResolvedSinkConfig,
 )
 
 
