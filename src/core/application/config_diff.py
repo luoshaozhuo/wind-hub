@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from .config_snapshot import ConfigSnapshot
 
@@ -36,7 +36,7 @@ class ConfigSnapshotDiff:
         )
 
 
-def _diff_mapping(old: Mapping[object, object], new: Mapping[object, object]) -> MappingDiff[object]:
+def _diff_mapping(old: Mapping[Any, Any], new: Mapping[Any, Any]) -> MappingDiff[object]:
     old_keys = set(old)
     new_keys = set(new)
     common = old_keys & new_keys
