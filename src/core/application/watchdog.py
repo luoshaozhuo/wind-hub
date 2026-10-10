@@ -32,6 +32,7 @@ class WatchdogUseCase:
         health_timeout: float,
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
+        lifecycle_lock: asyncio.Lock | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError("watchdog interval must be > 0")
@@ -47,6 +48,7 @@ class WatchdogUseCase:
         self._health_timeout = float(health_timeout)
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
+        self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
 
         self._reconnect_lock = asyncio.Lock()
         self._wake = asyncio.Event()
@@ -141,15 +143,16 @@ class WatchdogUseCase:
             if expected_generation is not None and expected_generation != self._generation:
                 return False
 
-            await asyncio.wait_for(
-                self._close(),
-                timeout=self._connect_timeout,
-            )
-            await asyncio.wait_for(
-                self._connect(),
-                timeout=self._connect_timeout,
-            )
-            self._generation += 1
+            async with self._lifecycle_lock:
+                await asyncio.wait_for(
+                    self._close(),
+                    timeout=self._connect_timeout,
+                )
+                await asyncio.wait_for(
+                    self._connect(),
+                    timeout=self._connect_timeout,
+                )
+                self._generation += 1
 
         # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
         if callback is not None and self._enabled:
