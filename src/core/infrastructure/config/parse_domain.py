@@ -306,7 +306,7 @@ def _device_catalog(
             raise ConfigError(f"unsupported protocol '{protocol}'")
         if protocol != "ads" and definition.get("read_mode") is not None:
             raise ConfigError(f"device model '{key}' read_mode only supported for ADS")
-        if protocol == "ads" and definition.get("read_mode", "sum") != "sum":
+        if protocol == "ads" and (definition.get("read_mode") or "sum") != "sum":
             raise ConfigError(f"device model '{key}' only supports ADS sum mode")
         _map(definition.get("connection_defaults", {}), f"model '{key}'.connection_defaults")
         _map(definition.get("properties", {}), f"model '{key}'.properties")
