@@ -6,7 +6,6 @@ import pytest
 
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-
 ROOT = Path(__file__).resolve().parents[4]
 
 
