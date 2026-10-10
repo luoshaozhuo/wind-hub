@@ -104,6 +104,10 @@ class YamlConfigAdapter:
             protocol_options_by_device=assembly.protocol_options_by_device,
         )
 
+    def save(self, snapshot: ConfigSnapshot) -> None:
+        """完整保存尚未实现；拒绝静默丢弃其他配置节。"""
+        raise NotImplementedError("Full configuration save is not implemented")
+
     def save_point_tables(self, snapshot: ConfigSnapshot) -> None:
         """根据完整父子 PointTable 差异保存 points.yaml。"""
         write_yaml_mapping_atomic(
