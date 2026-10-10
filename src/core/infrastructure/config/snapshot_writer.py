@@ -12,6 +12,7 @@ from core.application.config_snapshot import ConfigSnapshot
 
 from .point_table_writer import dump_point_tables
 
+
 def _yaml_plain(value: Any) -> Any:
     """Convert typed sink values to YAML without masking configured secrets."""
     if isinstance(value, SecretStr):
