@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypeAlias, runtime_checkable
 
-from core.application.config_snapshot import Config
+from core.application.config_snapshot import ConfigSnapshot
 from core.application.sink_config import SinksConfig
 from core.domain.config import (
     ConfigTopic,
@@ -49,7 +49,7 @@ TOPIC_CONFIG_TYPES: dict[ConfigTopic, type] = {
 class ConfigPort(Protocol):
     """全量配置加载端口；按主题旧接口仅供迁移期兼容。"""
 
-    def load(self) -> Config:
+    def load(self) -> ConfigSnapshot:
         """一次性读取并校验全部配置，返回完整领域快照。"""
         ...
 
