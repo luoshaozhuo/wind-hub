@@ -31,7 +31,6 @@ point_tables:
 
       - point_id: active_power
         business_point_id: active_power
-        business_point_id: active_power
         variable_name: active_power
         point_groups: [all]
         address:
