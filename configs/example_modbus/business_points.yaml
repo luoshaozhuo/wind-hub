@@ -1,7 +1,25 @@
-# 全场共享的业务点语义目录；单位采用 core/domain/unit.py 内置标识。
-# 可选：未在点表中显式引用 business_point_id 的点，仍按原有规则自动生成。
 business_points:
   active_power:
     data_type: int32
     unit: kilowatt
-    description: 有功功率
+  active_power_1min:
+    data_type: int32
+    unit: kilowatt
+  reactive_power:
+    data_type: int32
+    unit: kilovar
+  wind_speed:
+    data_type: int16
+    unit: meter_per_second
+  generator_speed:
+    data_type: int32
+    unit: rpm
+  pitch_angle:
+    data_type: int32
+    unit: degree
+  active_power_setpoint:
+    data_type: int32
+    unit: kilowatt
+  reactive_power_setpoint:
+    data_type: int32
+    unit: kilovar
