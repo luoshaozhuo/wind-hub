@@ -22,7 +22,7 @@ from tests.support.control import (
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
-from tests.support.wait import read_jsonl, wait_file_rows
+from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -61,7 +61,7 @@ class TestReloadFailureResilience:
 
         # ---- 存活：进程在、旧配置继续服役（行数持续增长） ----
         assert proc.is_running()
-        rows_before = len(read_jsonl(sink_path))
+        rows_before = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=rows_before + 2)
 
         # ---- 修复：写回合法配置（顺带改节拍证明 diff 生效），reload 成功 ----
