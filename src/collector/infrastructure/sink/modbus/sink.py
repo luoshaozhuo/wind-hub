@@ -56,9 +56,9 @@ class ModbusSink(SinkPort):
     async def flush(self) -> None:
         """内存 datastore 无额外 flush 动作。"""
 
-    def health(self) -> ConnectionHealth:
-        """返回 TCP Server 当前健康状态。"""
-        return self._server.health()
+    async def health(self) -> ConnectionHealth:
+        """检查 TCP Server 当前监听状态。"""
+        return await self._server.health()
 
     @property
     def port(self) -> int:
