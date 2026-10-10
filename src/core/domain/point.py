@@ -50,6 +50,7 @@ class Point:
     access: PointAccess
     scale: float = 1.0
     offset: float = 0.0
+    description: str | None = None
     ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
