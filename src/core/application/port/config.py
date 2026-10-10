@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypeAlias, runtime_checkable
 
+from core.application.config_snapshot import Config
 from core.application.sink_config import SinksConfig
 from core.domain.config import (
     ConfigTopic,
@@ -46,7 +47,11 @@ TOPIC_CONFIG_TYPES: dict[ConfigTopic, type] = {
 
 @runtime_checkable
 class ConfigPort(Protocol):
-    """按主题读取配置 VO 的端口；具体 YAML/文件实现属于 Adapter。"""
+    """全量配置加载端口；按主题旧接口仅供迁移期兼容。"""
+
+    def load(self) -> Config:
+        """一次性读取并校验全部配置，返回完整领域快照。"""
+        ...
 
     def read(self, topic: ConfigTopic) -> ConfigValue:
         """读取指定主题的配置 VO；失败抛 ConfigError。"""
