@@ -7,7 +7,7 @@ import pytest
 
 from core.application.port.sink import ExclusiveOpenSinkPort, SinkPort
 from core.application.protocol_contract import ConnectionHealth
-from core.application.sink_config import SinkConfig
+from core.infrastructure.config.sink_schema import _SinkSchema
 from core.domain.point_value import PointValue
 
 
@@ -61,14 +61,14 @@ def test_naive_datetime_rejected() -> None:
     ("redis", {"database": 1}),
 ])
 def test_config_types(kind: str, connection: dict) -> None:
-    assert SinkConfig.model_validate({
+    assert _SinkSchema.model_validate({
         "name": "sink", "type": kind, "connection": connection
     }).type == kind
 
 
 def test_old_type_rejected() -> None:
     with pytest.raises(ValueError):
-        SinkConfig.model_validate({
+        _SinkSchema.model_validate({
             "name": "sink", "type": "kafka",
             "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"}
         })
