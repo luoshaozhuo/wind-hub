@@ -19,7 +19,7 @@ _ALLOWED_OPTIONS = frozenset(
         "max_notifications_per_connection",
     }
 )
-ADS_READ_MODES = frozenset({"sum", "sequential"})
+ADS_READ_MODES = frozenset({"sum"})
 
 
 @dataclass(frozen=True, slots=True)
