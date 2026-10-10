@@ -115,7 +115,7 @@ class TestCollectorRestart:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
 
         # ---- 第一个实例：正常采集后优雅停机 ----
@@ -159,7 +159,7 @@ class TestSubscriptionRestartPending:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        sink_path = tmp_path / "out" / "telemetry.jsonl"
+        sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _iec104_config(tmp_path / "cfg", iec104_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
