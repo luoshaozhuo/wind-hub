@@ -2,7 +2,7 @@
 
 from .config import ADSConfig, parse_ads_config
 from .driver import ADSDriver
-from .mapping import ADSPoint, parse_ads_point
+from .mapping import ADSPoint, ads_point, parse_ads_point
 from .router import ADSLocalConfig, ADSLocalRouter
 
 __all__ = [
@@ -11,6 +11,7 @@ __all__ = [
     "ADSLocalConfig",
     "ADSLocalRouter",
     "ADSPoint",
+    "ads_point",
     "parse_ads_config",
     "parse_ads_point",
 ]

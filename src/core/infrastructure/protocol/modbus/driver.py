@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
-from typing import TYPE_CHECKING, Any, NoReturn, overload
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from core.application.errors import (
     ConfigError,
@@ -259,16 +259,6 @@ class ModbusDriver:
                 timestamp=datetime.now(UTC),
                 quality=Quality.GOOD,
             )
-
-    @overload
-    async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult: ...
-
-    @overload
-    async def write_one(
-        self,
-        write: str | ModbusPoint,
-        value: WritableScalar,
-    ) -> ProtocolWriteResult: ...
 
     async def write_one(
         self,

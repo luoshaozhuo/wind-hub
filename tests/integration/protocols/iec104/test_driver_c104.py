@@ -272,6 +272,144 @@ class TestSpontaneous:
 
 
 # ===========================================================================
+# 动态点（显式 IOA，不登记 PointTable）
+# ===========================================================================
+
+
+class TestDynamicPoints:
+    async def test_dynamic_mirror_read_after_interrogation(
+        self, server: IEC104MockServer
+    ) -> None:
+        """空点表 Driver：动态 IOA 登记接收关联后，总召响应写入镜像。"""
+        from core.infrastructure.protocol.iec104 import iec104_point
+
+        drv = _driver(server.port, [])
+        try:
+            await drv.connect()
+            dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
+            # 首次访问登记动态 IOA 的接收关联（尚无数据，BAD）。
+            assert (await drv.read_one(dynamic)).quality is Quality.BAD
+            await drv.interrogate()
+
+            async def _probe() -> Any:
+                sample = await drv.read_one(dynamic)
+                return sample.value if sample.quality is Quality.GOOD else None
+
+            value = await wait_until(
+                _probe, timeout=10.0, description="dynamic mirror filled"
+            )
+            assert value == pytest.approx(1500.5)
+            sample = await drv.read_one(dynamic)
+            assert sample.point_id == "dyn.power"
+            assert "dyn.power" not in drv._points_by_id
+        finally:
+            await drv.close()
+
+    async def test_dynamic_spontaneous_reaches_subscriber(
+        self, server: IEC104MockServer
+    ) -> None:
+        """动态 IOA 的 spontaneous 上送写入镜像并分发给订阅者。"""
+        from core.infrastructure.protocol.iec104 import iec104_point
+
+        drv = _driver(server.port, [])
+        received: list[ProtocolSample] = []
+
+        async def cb(sample: ProtocolSample) -> None:
+            received.append(sample)
+
+        try:
+            dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
+            await drv.subscribe([dynamic], cb)
+            await drv.connect()
+            await drv.interrogate()
+            await server.set_value(100, 999.0, spontaneous=True)
+            await wait_until(
+                lambda: [s for s in received if s.value == pytest.approx(999.0)]
+                or None,
+                timeout=10.0,
+                description="dynamic spontaneous dispatched",
+            )
+            sample = await drv.read_one(dynamic)
+            assert sample.value == pytest.approx(999.0)
+            assert sample.quality is Quality.GOOD
+        finally:
+            await drv.close()
+
+    async def test_dynamic_active_read_with_monitoring_type(
+        self, server: IEC104MockServer
+    ) -> None:
+        """动态点主动读：内部注册监测点并等待 COT=REQUEST 响应。"""
+        from core.infrastructure.protocol.iec104 import iec104_point
+
+        drv = _driver(server.port, [])
+        try:
+            await drv.connect()
+            dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
+            sample = await drv.read_active_one(dynamic, timeout=5.0)
+            assert sample.point_id == "dyn.power"
+            assert sample.value == pytest.approx(1500.5)
+            assert sample.quality is Quality.GOOD
+        finally:
+            await drv.close()
+
+    async def test_dynamic_write_command_accepted(
+        self, control_server: IEC104ControlServer
+    ) -> None:
+        """动态遥控点：按 IOA + 命令 type_id 直接发送，不查 PointTable。"""
+        from core.infrastructure.protocol.iec104 import iec104_point
+
+        drv = _driver(control_server.port, [])
+        try:
+            await drv.connect()
+            result = await drv.write_one(
+                iec104_point("dyn.switch", ioa=1002, type_id="C_DC_NA_1"), 2
+            )
+            assert result.success
+            assert control_server.last_control.get("C_DC_NA_1") == 1002
+        finally:
+            await drv.close()
+
+    async def test_dynamic_receive_association_survives_reconnect(
+        self, server: IEC104MockServer
+    ) -> None:
+        """从站重启后动态接收关联恢复：补召后动态镜像再次可读。"""
+        from core.infrastructure.protocol.iec104 import iec104_point
+
+        drv = _driver(server.port, [])
+        try:
+            await drv.connect()
+            dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
+            await drv.read_one(dynamic)
+            await drv.interrogate()
+
+            async def _probe() -> Any:
+                sample = await drv.read_one(dynamic)
+                return sample.value if sample.quality is Quality.GOOD else None
+
+            await wait_until(_probe, timeout=10.0, description="dynamic mirror filled")
+
+            await server.stop()
+            await wait_until(
+                lambda: True if not drv.health().healthy else None,
+                timeout=10.0,
+                description="driver detected disconnect",
+            )
+            await server.start()
+            await wait_until(
+                lambda: True if drv.health().healthy else None,
+                timeout=10.0,
+                description="driver auto-reconnected",
+            )
+            await drv.interrogate()
+            value = await wait_until(
+                _probe, timeout=10.0, description="dynamic mirror refilled"
+            )
+            assert value == pytest.approx(1500.5)
+        finally:
+            await drv.close()
+
+
+# ===========================================================================
 # 命令失败路径
 # ===========================================================================
 

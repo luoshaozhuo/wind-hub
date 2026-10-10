@@ -31,6 +31,33 @@ class IEC104Point:
     type_id: str | None
 
 
+def iec104_point(
+    point_id: str,
+    *,
+    ioa: int,
+    type_id: str | None = None,
+) -> IEC104Point:
+    """构造并校验一个动态 IEC104Point（显式 IOA，无需点表登记）。
+
+    校验规则与 ``parse_iec104_point`` 一致：IOA 为 0..0xFFFFFF 的整数
+    （拒绝布尔冒充），type_id 为非空字符串并归一化为大写。type_id 的
+    用途由调用路径决定：写入必须是受支持的命令类型（C_*），主动读的
+    内部注册必须是监测类型（M_*）。
+    """
+    if isinstance(ioa, bool) or not isinstance(ioa, int):
+        raise ConfigError(f"IEC104 point '{point_id}': ioa must be an integer")
+    if not 0 <= ioa <= _MAX_IOA:
+        raise ConfigError(f"IEC104 point '{point_id}': ioa must be in 0..{_MAX_IOA}")
+    normalized_type_id: str | None
+    if type_id is None:
+        normalized_type_id = None
+    elif isinstance(type_id, str) and type_id.strip():
+        normalized_type_id = type_id.strip().upper()
+    else:
+        raise ConfigError(f"IEC104 point '{point_id}': type_id must be a non-empty string")
+    return IEC104Point(point_id=point_id, ioa=ioa, type_id=normalized_type_id)
+
+
 def parse_iec104_point(
     point: Point,
 ) -> IEC104Point:
