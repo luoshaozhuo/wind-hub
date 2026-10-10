@@ -391,6 +391,54 @@ async def test_read_timeout_is_enforced() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wait_for_timeout_converts_to_recoverable_error_and_retries() -> None:
+    """wait_for 超时引发的内部取消 → 可恢复超时错误 → 按 read_retries 重试一次。
+
+    与外部主动取消（test_cancellation_propagates_without_retry）区分：
+    内部取消由恢复边界转化为 ProtocolConnectionError，不终止重试循环。
+    """
+    driver = _Driver()
+    driver.connected = True
+
+    async def slow_read(point_id: str) -> ProtocolSample:
+        del point_id
+        driver.read_count += 1
+        await asyncio.sleep(5)
+        raise AssertionError("unreachable")
+
+    driver.read_one = slow_read  # type: ignore[method-assign]
+    port = RecoveringProtocol(
+        driver,
+        RecoverySettings(read_timeout=0.01, read_retries=1, retry_interval=0),
+    )
+    with pytest.raises(ProtocolConnectionError, match="timed out"):
+        await port.read_one("a")
+    assert driver.read_count == 2  # 首次尝试 + 默认的一次重试
+
+
+@pytest.mark.asyncio
+async def test_write_cancellation_never_resends() -> None:
+    """写入被外部取消：请求可能已到达设备，绝不自动重发。"""
+    driver = _Driver()
+    driver.connected = True
+
+    async def hanging_write(write: ProtocolWrite) -> ProtocolWriteResult:
+        del write
+        driver.write_count += 1
+        await asyncio.sleep(5)
+        raise AssertionError("unreachable")
+
+    driver.write_one = hanging_write  # type: ignore[method-assign]
+    port = RecoveringProtocol(driver, RecoverySettings(write_timeout=None))
+    task = asyncio.create_task(port.write_one(ProtocolWrite("control", 5)))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert driver.write_count == 1
+
+
+@pytest.mark.asyncio
 async def test_write_timeout_does_not_replay_command() -> None:
     driver = _Driver()
     driver.connected = True

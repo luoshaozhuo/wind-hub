@@ -158,19 +158,16 @@ async def modbus_env() -> AsyncIterator[tuple[ModbusDriver, object, int]]:
 
 
 class TestRealServerIO:
-    async def test_connect_reports_open_but_unverified_until_first_exchange(
+    async def test_connect_reports_open_and_healthy(
         self, modbus_env: tuple[ModbusDriver, object, int]
     ) -> None:
-        """传输打开 ≠ 通信健康：connect 后 is_open 立即为真，health 在首次
-        真实 Modbus 通信成功前不声称健康。"""
+        """health() 以本地传输状态为准：connect 成功即健康，不做通信历史记账。"""
         driver, _, _ = modbus_env
         assert driver.is_open() is True
-        assert driver.health().healthy is False
-        assert "no Modbus exchange yet" in (driver.health().message or "")
+        assert driver.health().healthy is True
 
         await driver.read_one("hr.int")
-        health = driver.health()
-        assert health.healthy is True
+        assert driver.health().healthy is True
 
     async def test_read_one_all_register_types(
         self, modbus_env: tuple[ModbusDriver, object, int]

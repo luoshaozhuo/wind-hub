@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import struct
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn, TypeVar
 
 from core.application.errors import (
     ConfigError,
@@ -33,20 +33,25 @@ from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 
-if TYPE_CHECKING:
-    from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
-    from pymodbus.exceptions import ModbusException, ModbusIOException
-else:
-    try:
-        from pymodbus.client import AsyncModbusTcpClient, ModbusTcpClient
-        from pymodbus.exceptions import ModbusException, ModbusIOException
-    except ImportError:  # pymodbus 是可选依赖；缺失时不影响其它协议模块导入。
-        AsyncModbusTcpClient = None
-        ModbusTcpClient = None
-        ModbusException = None
-        ModbusIOException = None
-
 _PYMODBUS_MISSING = "Modbus support requires the optional 'pymodbus' dependency"
+
+_T = TypeVar("_T")
+
+
+def _pymodbus() -> Any:
+    """延迟导入 pymodbus（可选依赖），集中在真实的 Modbus 使用边界调用。
+
+    仅在包本身缺失时降级为 ``ProtocolError``；pymodbus 已安装但其内部
+    导入失败属于环境损坏，原样上抛，不掩盖为「缺少依赖」。
+    """
+    try:
+        import pymodbus.client
+        import pymodbus.exceptions
+    except ModuleNotFoundError as exc:
+        if exc.name is not None and exc.name.startswith("pymodbus"):
+            raise ProtocolError(_PYMODBUS_MISSING) from exc
+        raise
+    return pymodbus
 
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
@@ -105,9 +110,6 @@ class ModbusDriver:
         self.update_point_table(point_table)
         self._lock = asyncio.Lock()
         self._client: Any = None
-        # 最近一次真实 Modbus 通信的结果（成功含设备异常响应；失败含错误
-        # 描述）；None 表示本连接尚未执行任何通信。
-        self._last_exchange: tuple[bool, str] | None = None
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 Modbus Driver 实际支持的协议能力。"""
@@ -137,14 +139,11 @@ class ModbusDriver:
         （transport 已断开或已被丢弃）时才替换。
         """
         async with self._lock:
-            if AsyncModbusTcpClient is None:
-                raise ProtocolError(_PYMODBUS_MISSING)
-
             if self.is_open():
                 return
 
             self._close_client()
-            client = AsyncModbusTcpClient(
+            client = _pymodbus().client.AsyncModbusTcpClient(
                 self._config.host,
                 port=self._config.port,
                 timeout=self._config.timeout,
@@ -174,13 +173,11 @@ class ModbusDriver:
                 )
 
             self._client = client
-            self._last_exchange = None
 
     async def close(self) -> None:
         """关闭 Modbus client；重复调用安全。"""
         async with self._lock:
             self._close_client()
-            self._last_exchange = None
 
     def is_open(self) -> bool:
         """本地传输连接是否打开——以 pymodbus 实际 transport 状态为准。"""
@@ -188,26 +185,19 @@ class ModbusDriver:
         return client is not None and client.connected
 
     def health(self) -> ConnectionHealth:
-        """返回最近一次真实 Modbus 通信的结果，不执行网络探测。
+        """以本地传输状态报告连接健康，不执行网络探测、不记账通信历史。
 
-        与 ``is_open()`` 区分：传输打开只说明 TCP 可用，不说明设备能
-        应答；尚未执行任何 Modbus 通信的连接不声称通信健康。设备返回的
-        有效 Modbus 异常响应证明通信链路可用，计为通信成功（业务失败
-        由读取调用本身以 ``ProtocolError`` 表达）。
+        与 ADS/IEC104 Driver 同口径：只反映「连接当前能否用于 I/O」。
+        逐次通信的成败由读写调用本身的异常/结果表达，设备运行状态由上层
+        DeviceRuntime 基于 ``is_open()`` 与异常分类维护；无任何功能决策
+        依赖 health 的通信历史语义。
         """
-        if not self.is_open():
-            return ConnectionHealth(healthy=False, message="not connected")
-        last = self._last_exchange
-        if last is None:
+        if self.is_open():
             return ConnectionHealth(
-                healthy=False,
-                message=(
-                    f"connected to {self._config.host}:{self._config.port}; "
-                    "no Modbus exchange yet"
-                ),
+                healthy=True,
+                message=f"connected to {self._config.host}:{self._config.port}",
             )
-        ok, detail = last
-        return ConnectionHealth(healthy=ok, message=detail)
+        return ConnectionHealth(healthy=False, message="not connected")
 
     async def read_one(self, point: str | ModbusPoint) -> ProtocolSample:
         """读取一个逻辑点；低频路径，不走批量分组规划或缓存。
@@ -215,31 +205,24 @@ class ModbusDriver:
         接受注册点 point_id（str）或动态 ModbusPoint（未在点表中登记的
         临时地址）。一个逻辑点可能占多个寄存器（如 float32 占 2 个），但
         仍只发送一次 Modbus 读取请求。解码失败返回 BAD 质量样本；Modbus
-        异常响应与通信错误分别抛出 ProtocolError，只有通信错误标记断线。
+        异常响应（设备已应答）抛 ProtocolError 且不影响连接复用，通信
+        错误抛 ProtocolConnectionError。
         """
         mapped = self._resolve_point(point)
         point_id = mapped.point_id
         async with self._lock:
             if not self.is_open():
                 raise ProtocolConnectionError("Modbus read requires an active connection")
-            try:
-                response = await self._read_request(
-                    mapped.register_type, mapped.address, mapped.count
-                )
-            except asyncio.CancelledError:
-                self._discard_client("read cancelled")
-                raise
-            except Exception as exc:
-                self._handle_io_failure(exc, "read")
-
+            response = await self._transact(
+                "read",
+                self._read_request(mapped.register_type, mapped.address, mapped.count),
+            )
             if response.isError():
-                # 设备已应答——通信链路健康，业务失败不作为断线处理。
-                self._note_exchange_success("device returned an exception response")
+                # 设备已应答——通信链路可用，业务失败不作为断线处理。
                 raise ProtocolError(
                     f"Modbus {mapped.register_type} read at {mapped.address} "
                     f"count={mapped.count} returned an exception response"
                 )
-            self._note_exchange_success("read succeeded")
 
             raw: Sequence[object] = (
                 response.bits if mapped.register_type in _BIT_TYPES else response.registers
@@ -298,29 +281,22 @@ class ModbusDriver:
             if not self.is_open():
                 raise ProtocolConnectionError("Modbus write requires an active connection")
             try:
-                accepted = await self._write_single(mapped, write_value)
+                request = self._write_request(mapped, write_value)
             except (TypeError, ValueError, struct.error) as exc:
+                # 本地编码/取值校验失败：请求未发送，不触碰连接。
                 return ProtocolWriteResult(
                     point_id=point_id,
                     success=False,
                     message=str(exc) or type(exc).__name__,
                 )
-            except ProtocolError:
-                raise
-            except asyncio.CancelledError:
-                self._discard_client("write cancelled")
-                raise
-            except Exception as exc:
-                self._handle_io_failure(exc, "write")
+            accepted = await self._transact("write", request)
         if not accepted:
-            # 设备已应答异常响应——通信链路健康，业务失败不作为断线处理。
-            self._note_exchange_success("device returned an exception response")
+            # 设备已应答异常响应——通信链路可用，业务失败不作为断线处理。
             return ProtocolWriteResult(
                 point_id=point_id,
                 success=False,
                 message="Modbus exception response",
             )
-        self._note_exchange_success("write succeeded")
         return ProtocolWriteResult(point_id=point_id, success=True)
 
     async def read_many(
@@ -361,24 +337,9 @@ class ModbusDriver:
                 raise ProtocolConnectionError("Modbus read requires an active connection")
 
             plan = self._read_plan(points)
-            try:
-                values: dict[ModbusPoint, object] = {}
-                for group in plan:
-                    values.update(await self._read_group(group))
-            except ProtocolConnectionError:
-                # 链路级失败（传输断开、对端无响应）：不计通信成功，原样上抛。
-                raise
-            except ProtocolError:
-                # 其余 ProtocolError 来自 _read_group 的 Modbus 异常响应：
-                # 设备已应答，通信链路健康，业务失败不计为断线。
-                self._note_exchange_success("device returned an exception response")
-                raise
-            except asyncio.CancelledError:
-                self._discard_client("read cancelled")
-                raise
-            except Exception as exc:
-                self._handle_io_failure(exc, "read")
-            self._note_exchange_success("read succeeded")
+            values: dict[ModbusPoint, object] = {}
+            for group in plan:
+                values.update(await self._transact("read", self._read_group(group)))
 
             return mapped_points, tuple(
                 (None, Quality.BAD)
@@ -500,48 +461,52 @@ class ModbusDriver:
                 values[point] = _DECODE_FAILED
         return values
 
-    async def _write_single(
+    def _write_request(
         self,
         point: ModbusPoint,
         value: object,
-    ) -> bool:
+    ) -> Awaitable[bool]:
+        """编码并构造一次写请求（返回时尚未发送）。
+
+        本地编码/取值校验失败在此同步抛出，保证非法写入绝不接触设备；
+        返回的协程发送请求并以 ``not response.isError()`` 报告设备是否接受。
+        """
         client = self._client
         unit_id = self._config.unit_id
 
         if point.register_type == "coil":
             coil_value = _encode_coil(value, point.data_type)
-            response = await client.write_coil(
-                point.address,
-                coil_value,
-                device_id=unit_id,
+            return _write_accepted(client.write_coil(point.address, coil_value, device_id=unit_id))
+        words = _encode_registers(value, point.data_type, point.word_order)
+        if len(words) == 1:
+            return _write_accepted(
+                client.write_register(point.address, words[0], device_id=unit_id)
             )
-        else:
-            words = _encode_registers(
-                value,
-                point.data_type,
-                point.word_order,
-            )
-            if len(words) == 1:
-                response = await client.write_register(
-                    point.address,
-                    words[0],
-                    device_id=unit_id,
-                )
-            else:
-                response = await client.write_registers(
-                    point.address,
-                    words,
-                    device_id=unit_id,
-                )
+        return _write_accepted(client.write_registers(point.address, words, device_id=unit_id))
 
-        return not response.isError()
+    async def _transact(self, operation: str, request: Awaitable[_T]) -> _T:
+        """执行一次 Modbus 请求，统一读写路径的取消与通信异常处理。
 
-    def _note_exchange_success(self, detail: str) -> None:
-        """记录一次成功的真实 Modbus 通信（含设备异常响应）。"""
-        self._last_exchange = (True, detail)
+        - ``CancelledError``（含上层 ``wait_for`` 超时触发的内部取消）：
+          请求可能已发出而响应仍在途，事务状态不可信——释放 client 后
+          原样上抛，由 ``wait_for``/调用方区分超时与外部主动取消；
+          绝不自动重发（写入尤其如此）。
+        - ``ProtocolError``（设备异常响应等已应答的业务失败）：原样上抛，
+          连接保持可复用。
+        - 其他异常：交 ``_handle_io_failure`` 分类处理。
+        """
+        try:
+            return await request
+        except asyncio.CancelledError:
+            self._close_client()
+            raise
+        except ProtocolError:
+            raise
+        except Exception as exc:
+            self._handle_io_failure(exc, operation)
 
     def _handle_io_failure(self, exc: Exception, operation: str) -> NoReturn:
-        """统一处理读写通信异常：分类、记账，仅在事务不可安全复用时丢弃 client。
+        """通信异常分类：仅在事务不可安全复用时释放 client，统一转为连接错误。
 
         pymodbus 3.15 事务安全性依据（transaction/transaction.py）：
 
@@ -552,29 +517,31 @@ class ModbusDriver:
           （对端无响应、TID/device 不匹配）时，请求可能已发出而响应仍在途：
           迟到响应会抢先满足下一次请求的 future 并触发 TID 校验失败，
           使下一次读取承受一次无谓失败。仅这类情形把 client 标记为不可
-          复用并丢弃，由下一次恢复重建。
+          复用并释放，由下一次恢复重建。pymodbus 会把取消包装为
+          ``ModbusIOException``，先还原为原始 ``CancelledError`` 再上抛。
         - 其他通信异常（如连接被拒、对端复位）不携带在途请求；transport
           若已断开由 ``is_open()`` 如实反映，不主动 close。
         """
         cancelled = _unwrap_pymodbus_cancellation(exc)
         if cancelled is not None:
-            self._discard_client(f"Modbus {operation} cancelled")
+            self._close_client()
             raise cancelled from exc
-        self._last_exchange = (False, f"Modbus {operation} failed: {exc}")
-        if ModbusIOException is not None and isinstance(exc, ModbusIOException):
-            self._discard_client(f"Modbus {operation} failed: {exc}")
+        if isinstance(exc, _pymodbus().exceptions.ModbusIOException):
+            self._close_client()
         raise ProtocolConnectionError(f"Modbus {operation} failed: {exc}") from exc
 
-    def _discard_client(self, reason: str) -> None:
-        """标记当前 client 不可安全复用并释放；下一次 connect 重建。"""
-        self._last_exchange = (False, reason)
-        self._close_client()
-
     def _close_client(self) -> None:
+        """释放当前 client（重复调用安全）；下一次 connect 重建。"""
         client, self._client = self._client, None
         if client is not None:
             with contextlib.suppress(Exception):
                 client.close()
+
+
+async def _write_accepted(request: Awaitable[Any]) -> bool:
+    """发送写请求并报告设备是否接受（False = Modbus 异常响应）。"""
+    response = await request
+    return not response.isError()
 
 
 def _unwrap_pymodbus_cancellation(exc: Exception) -> asyncio.CancelledError | None:
@@ -585,10 +552,8 @@ def _unwrap_pymodbus_cancellation(exc: Exception) -> asyncio.CancelledError | No
     通信异常保持原有 ProtocolConnectionError 转换。
     """
     cause = exc.__cause__
-    if (
-        ModbusException is not None
-        and isinstance(exc, ModbusException)
-        and isinstance(cause, asyncio.CancelledError)
+    if isinstance(exc, _pymodbus().exceptions.ModbusException) and isinstance(
+        cause, asyncio.CancelledError
     ):
         return cause
     return None
@@ -637,12 +602,11 @@ def _decode_registers(
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
     # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
-    if ModbusTcpClient is None:
-        raise ProtocolError(_PYMODBUS_MISSING)
-    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
+    tcp_client = _pymodbus().client.ModbusTcpClient
+    datatype = getattr(tcp_client.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
-    return ModbusTcpClient.convert_from_registers(
+    return tcp_client.convert_from_registers(
         registers,
         datatype,
         word_order="little" if word_order == "little_endian" else "big",
@@ -669,16 +633,16 @@ def _encode_registers(
     else:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    if ModbusTcpClient is None:
-        raise ProtocolError(_PYMODBUS_MISSING)
-    datatype = getattr(ModbusTcpClient.DATATYPE, data_type.upper(), None)
+    tcp_client = _pymodbus().client.ModbusTcpClient
+    datatype = getattr(tcp_client.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
-    return ModbusTcpClient.convert_to_registers(
+    words: list[int] = tcp_client.convert_to_registers(
         number,
         datatype,
         word_order="little" if word_order == "little_endian" else "big",
     )
+    return words
 
 
 def _encode_coil(value: object, data_type: str) -> bool:
