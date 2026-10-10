@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from tests.support.functional_config import update_yaml
-from tests.support.wait import read_jsonl, wait_file_rows, wait_until
+from tests.support.wait import read_csv, wait_file_rows, wait_until
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -159,7 +159,7 @@ class TestFileSinkFsFaults:
         assert "No space" in message, f"错误消息应暴露 ENOSPC 根因: {message}"
 
         # ---- 隔离：坏 sink 持续失败期间，好 sink 与采集主循环不受影响 ----
-        rows_before = len(read_jsonl(good_path))
+        rows_before = len(read_csv(good_path))
         runs_before = app.metrics.snapshot()["counters"]["acquisition_runs"]
         await asyncio.sleep(2.0)
         await wait_file_rows(good_path, min_rows=rows_before + 2, timeout=5.0)
