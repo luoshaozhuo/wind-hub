@@ -23,12 +23,15 @@ from core.domain import (
     Task,
 )
 from core.domain.device import ProtocolOptions
+from core.domain.config import SystemConfig
+from core.application.sink_config import SinkConfig
 
 
 @dataclass(frozen=True, slots=True)
 class Config:
     """共享领域配置快照；没有 YAML 包装类型。"""
 
+    system: SystemConfig
     device_types: Mapping[DeviceTypeId, DeviceType]
     device_models: Mapping[DeviceModelId, DeviceModel]
     device_groups: Mapping[DeviceGroupId, DeviceGroup]
@@ -36,7 +39,7 @@ class Config:
     point_tables: Mapping[PointTableId, PointTable]
     business_points: Mapping[BusinessPointId, BusinessPoint]
     tasks: Mapping[str, Task]
-    sinks: Mapping[str, object]
+    sinks: Mapping[str, SinkConfig]
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions]
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]]
 
