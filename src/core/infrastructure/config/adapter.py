@@ -17,6 +17,17 @@ from .snapshot_writer import dump_snapshot
 from .yaml import active_config_dir, read_yaml_mapping, write_yaml_mapping_atomic
 
 
+def _sync_dir(path: Path) -> None:
+    """Persist directory entries after atomic rename on POSIX."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 class YamlConfigAdapter:
     """load() 读取单个一致版本；save() 验证后一次切换全部配置。"""
 
@@ -63,7 +74,9 @@ class YamlConfigAdapter:
                     f"sections={changed}, site={diff.site_changed}, "
                     f"system={diff.system_changed}"
                 )
+            _sync_dir(staging)
             os.replace(staging, final)
+            _sync_dir(version_root)
             pointer_tmp = version_root / f".pointer-{generation}"
             try:
                 with pointer_tmp.open("w", encoding="ascii") as handle:
@@ -71,6 +84,7 @@ class YamlConfigAdapter:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(pointer_tmp, self._base / self._ACTIVE_FILE)
+                _sync_dir(self._base)
             finally:
                 pointer_tmp.unlink(missing_ok=True)
         finally:
