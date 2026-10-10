@@ -41,7 +41,7 @@ def dump_snapshot(
             "model": str(device.device_model_id),
             "device_groups": [str(group_id) for group_id in device.device_group_ids],
             "endpoint": endpoint,
-            "enabled": True,
+            "enabled": device.enabled,
         })
     tasks = [{
         "task_id": task.task_id,
