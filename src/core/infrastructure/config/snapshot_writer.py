@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from core.application.config_snapshot import ConfigSnapshot
-from .codec import dump_system_config
 from .point_table_writer import dump_point_tables
 
 
@@ -13,7 +12,19 @@ def dump_snapshot(
     snapshot: ConfigSnapshot,
     model_definitions: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    system = dump_system_config(snapshot.system)
+    system: dict[str, Any] = {}
+    runtime = {
+        name: getattr(snapshot.system.runtime, name)
+        for name in snapshot.system.runtime.__dataclass_fields__
+        if getattr(snapshot.system.runtime, name) is not None
+    }
+    if runtime:
+        system["runtime"] = runtime
+    if snapshot.system.ads is not None:
+        system["ads"] = {
+            name: getattr(snapshot.system.ads, name)
+            for name in snapshot.system.ads.__dataclass_fields__
+        }
     system["site"] = {"site_id": snapshot.site.site_id, "name": snapshot.site.name}
     models = {}
     previous_models = (model_definitions or {}).get("device_models", {})
