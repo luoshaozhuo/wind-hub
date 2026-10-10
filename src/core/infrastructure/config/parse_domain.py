@@ -139,7 +139,7 @@ def _point(
         raise ConfigError(f"{context} unknown business point '{identity}'")
     try:
         data_type = DataType(_name(entry.get("data_type"), f"{context}.data_type"))
-        unit = UNIT_CATALOG[UnitCode(_name(entry.get("unit"), f"{context}.unit"))]
+        unit = UNIT_CATALOG[UnitCode(_name(entry.get("unit", "none"), f"{context}.unit"))]
     except (ValueError, KeyError) as exc:
         raise ConfigError(f"{context}: invalid data type or unit: {exc}") from exc
     if data_type != business_point.data_type or unit.quantity != business_point.standard_unit.quantity:
