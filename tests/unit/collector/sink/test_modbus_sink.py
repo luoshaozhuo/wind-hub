@@ -179,7 +179,7 @@ def test_sink_requires_modbus_connection() -> None:
 async def test_sink_write_flows_to_store_without_network() -> None:
     sink = ModbusSink(_sink_config())
     assert sink.exclusive_open is True
-    assert not sink.health().healthy  # 未监听
+    assert not (await sink.health()).healthy  # 未监听
     await sink.write([PointValue(device_id="d1", point_id="p1", value=1.0)])
     assert sink.data_path.store.read_registers(1, "holding", 100, 2) == [
         0x3F80,
@@ -190,8 +190,8 @@ async def test_sink_write_flows_to_store_without_network() -> None:
 async def test_sink_server_lifecycle_on_real_port() -> None:
     sink = ModbusSink(_sink_config())
     await sink.open()
-    assert sink.health().healthy
+    assert (await sink.health()).healthy
     assert sink.port == 15020
     await sink.close()
-    assert not sink.health().healthy
+    assert not (await sink.health()).healthy
     await sink.close()  # 幂等
