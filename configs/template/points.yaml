@@ -6,7 +6,7 @@
 #   绑定获得点集，多台同型号设备共享同一份定义。
 # - `protocol` 是点表协议（基础表必填，ads / modbus / iec104），决定点
 #   address 的形式与校验；设备型号的 protocol 必须与绑定点表一致。
-# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - `unit` 使用代码内置单位标识（如 kilowatt），缺省为 none。
 # - 点表继承（extends）：
 #     * 单继承，允许多级链；子表缺省继承父表 protocol，显式配置必须与
 #       父表一致（禁止跨协议继承）；
@@ -33,6 +33,7 @@ point_tables:
     points:
 
       - point_id: active_power
+        business_point_id: active_power
         variable_name: active_power
         point_groups: [all]
         address:
@@ -45,6 +46,7 @@ point_tables:
         description: "有功功率"
 
       - point_id: wind_speed
+        business_point_id: wind_speed
         variable_name: wind_speed
         point_groups: [all]
         address:
@@ -62,6 +64,7 @@ point_tables:
     points:
 
       - point_id: rotor_speed
+        business_point_id: rotor_speed
         variable_name: rotor_speed
         point_groups: [all]
         address:
@@ -71,6 +74,7 @@ point_tables:
         description: "风轮转速"
 
       - point_id: gen_power
+        business_point_id: gen_power
         variable_name: gen_power
         point_groups: [all]
         address:
@@ -86,10 +90,12 @@ point_tables:
     points:
 
       - point_id: gen_power           # override：address 整体替换
+        business_point_id: gen_power
         address:
           symbol: MAIN.power.genActivePower
 
       - point_id: converter_temp      # 新增点
+        business_point_id: converter_temp
         variable_name: converter_temp
         point_groups: [all]
         address:

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..device import Device, DeviceGroup, DeviceModel, DeviceType, ProtocolOptions
-from ..identities import (
+from .device import Device, DeviceGroup, DeviceModel, DeviceType, ProtocolOptions
+from .identities import (
     BusinessPointId,
     DeviceGroupId,
     DeviceId,
@@ -14,9 +14,11 @@ from ..identities import (
     DeviceTypeId,
     PointTableId,
 )
-from ..point import BusinessPoint, PointTable
-from ..unit import UNIT_CATALOG, Quantity, Unit
-from ..value_objects import DataType
+from .point import BusinessPoint, PointTable
+from .sink import Sink
+from .task import Task, validate_task_references
+from .unit import UNIT_CATALOG, Quantity, Unit
+from .value_objects import DataType
 
 
 def validate_core_config(
@@ -28,6 +30,9 @@ def validate_core_config(
     business_points: Mapping[BusinessPointId, BusinessPoint],
     point_tables: Mapping[PointTableId, PointTable],
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions],
+    tasks: Mapping[str, Task] | None = None,
+    sink_ids: Collection[str] = (),
+    sinks: Mapping[str, Sink] | None = None,
 ) -> None:
     """校验配置索引的领域引用、键-身份一致性与跨对象不变量。"""
     _validate_identity(device_types, "device_types", "device_type_id")
@@ -37,10 +42,16 @@ def validate_core_config(
     _validate_identity(business_points, "business_points", "business_point_id")
     _validate_identity(point_tables, "point_tables", "point_table_id")
     _validate_business_points(business_points)
+    _validate_point_table_parents(point_tables)
     _validate_point_tables(point_tables, business_points)
     _validate_device_models(device_models, device_types, point_tables)
     _validate_devices(devices, device_models, device_groups)
     _validate_device_options(protocol_options_by_device, devices)
+    if sinks is not None:
+        _validate_sinks(sinks, devices, device_models, point_tables)
+    if tasks is not None:
+        validate_task_references(tasks, device_groups, sink_ids)
+        _validate_task_point_groups(tasks, devices, device_models, point_tables)
 
 
 def _validate_identity(
@@ -72,6 +83,38 @@ def _validate_business_points(
                 f"business point '{point.business_point_id}' with "
                 f"{point.data_type.value} value must use dimensionless unit"
             )
+
+
+def _validate_point_table_parents(
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """检查父表存在、协议一致和继承关系无环。"""
+    visited: set[PointTableId] = set()
+    visiting: set[PointTableId] = set()
+
+    def visit(table_id: PointTableId) -> None:
+        if table_id in visiting:
+            raise ValueError(f"point table inheritance cycle at '{table_id}'")
+        if table_id in visited:
+            return
+        visiting.add(table_id)
+        table = tables[table_id]
+        if table.parent_id is not None:
+            parent = tables.get(table.parent_id)
+            if parent is None:
+                raise ValueError(
+                    f"point table '{table_id}' references unknown parent '{table.parent_id}'"
+                )
+            if table.protocol != parent.protocol:
+                raise ValueError(
+                    f"point table '{table_id}' protocol differs from parent '{table.parent_id}'"
+                )
+            visit(table.parent_id)
+        visiting.remove(table_id)
+        visited.add(table_id)
+
+    for table_id in tables:
+        visit(table_id)
 
 
 def _validate_point_tables(
@@ -162,3 +205,50 @@ def _validate_canonical_unit(unit: Unit, *, context: str) -> None:
     canonical = UNIT_CATALOG.get(unit.code)
     if canonical is None or unit != canonical:
         raise ValueError(f"{context} must use canonical built-in unit '{unit.code.value}'")
+
+
+def _validate_sinks(
+    sinks: Mapping[str, Sink],
+    devices: Mapping[DeviceId, Device],
+    models: Mapping[DeviceModelId, DeviceModel],
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """检查 Sink 的稳定引用；连接与地址类型由 YAML Adapter 校验。"""
+    _validate_identity(sinks, "sinks", "sink_id")
+    for sink_id, sink in sinks.items():
+        for point in sink.points:
+            source = point.get("source")
+            if not isinstance(source, Mapping):
+                raise ValueError(f"sink '{sink_id}' point requires a source mapping")
+            device_value = source.get("device_id")
+            point_id = source.get("point_id")
+            if not isinstance(device_value, str) or not device_value:
+                raise ValueError(f"sink '{sink_id}' invalid source device_id")
+            device_id = DeviceId(device_value)
+            device = devices.get(device_id)
+            if device is None:
+                raise ValueError(f"sink '{sink_id}' unknown device '{device_id}'")
+            table = tables[models[device.device_model_id].point_table_id]
+            if point_id not in table.points:
+                raise ValueError(f"sink '{sink_id}' unknown point '{point_id}' on '{device_id}'")
+
+
+def _validate_task_point_groups(
+    tasks: Mapping[str, Task],
+    devices: Mapping[DeviceId, Device],
+    models: Mapping[DeviceModelId, DeviceModel],
+    tables: Mapping[PointTableId, PointTable],
+) -> None:
+    """确保每台参与任务的启用设备至少有一个可采集测点。"""
+    for task in tasks.values():
+        if not task.enabled:
+            continue
+        for device in devices.values():
+            if not device.enabled or task.device_group_id not in device.device_group_ids:
+                continue
+            table = tables[models[device.device_model_id].point_table_id]
+            if not any(task.point_group in point.point_groups for point in table.points.values()):
+                raise ValueError(
+                    f"task '{task.task_id}' point group '{task.point_group}' "
+                    f"is absent on device '{device.device_id}'"
+                )

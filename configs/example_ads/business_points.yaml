@@ -1,0 +1,16 @@
+business_points:
+  wind_speed:
+    data_type: float32
+    unit: meter_per_second
+  wind_vane_wind_direction:
+    data_type: float32
+    unit: degree
+  grid_active_power:
+    data_type: float32
+    unit: kilowatt
+  grid_reactive_power:
+    data_type: float32
+    unit: kilovar
+  generator_speed:
+    data_type: float32
+    unit: rpm

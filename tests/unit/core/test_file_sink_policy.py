@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from core.application.csv_sink_record import FileSegment, expired_segments, should_rotate
 from core.application.errors import ConfigError
-from core.application.sink_config import FileSinkConnection
+from core.infrastructure.config.sink_schema import FileSinkConnection
 
 
 def segment(size: int = 0, *, records: bool = True) -> FileSegment:

@@ -4,7 +4,7 @@
 #
 # - `protocol` 是点表协议（基础表必填），决定点 address 的形式与校验；
 #   设备型号的 protocol 必须与绑定点表一致。
-# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - `unit` 使用代码内置单位标识（如 kilowatt），缺省为 none。
 # - 点表支持单继承（extends / remove_points / 点位补丁）；子表缺省继承
 #   父表 protocol，显式配置必须与父表一致（禁止跨协议继承）。
 #
@@ -25,6 +25,7 @@ point_tables:
     points:
 
       - point_id: wind_speed
+        business_point_id: wind_speed
         variable_name: wind_speed
         point_groups: [all]
         address:
@@ -36,6 +37,7 @@ point_tables:
         description: "风速"
 
       - point_id: wind_vane_wind_direction
+        business_point_id: wind_vane_wind_direction
         variable_name: wind_vane_wind_direction
         point_groups: [all]
         address:
@@ -47,6 +49,7 @@ point_tables:
         description: "风向"
 
       - point_id: grid_active_power
+        business_point_id: grid_active_power
         variable_name: grid_active_power
         point_groups: [all]
         address:
@@ -58,6 +61,7 @@ point_tables:
         description: "并网有功功率"
 
       - point_id: grid_reactive_power
+        business_point_id: grid_reactive_power
         variable_name: grid_reactive_power
         point_groups: [all]
         address:
@@ -69,6 +73,7 @@ point_tables:
         description: "并网无功功率"
 
       - point_id: generator_speed
+        business_point_id: generator_speed
         variable_name: overspeed_modul_generator_speed_signal_1
         point_groups: [all]
         address:

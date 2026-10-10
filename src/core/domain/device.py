@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from math import isfinite
 from types import MappingProxyType
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from .identities import (
     DeviceGroupId,
@@ -59,6 +59,21 @@ class DeviceGroup:
         object.__setattr__(self, "name", name)
 
 
+def _freeze_model_mapping(values: Mapping[str, Any]) -> Mapping[str, Any]:
+    def freeze(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return _freeze_model_mapping(value)
+        if isinstance(value, list | tuple):
+            return tuple(freeze(item) for item in value)
+        if value is None or isinstance(value, str | int | float | bool):
+            if isinstance(value, float) and not isfinite(value):
+                raise ValueError("device model option must be finite")
+            return value
+        raise ValueError(f"invalid device model property type: {type(value).__name__}")
+
+    return MappingProxyType({key: freeze(value) for key, value in values.items()})
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceModel:
     """可复用的设备型号聚合根。
@@ -71,6 +86,9 @@ class DeviceModel:
     point_table_id: PointTableId
     name: str | None = None
     manufacturer: str | None = None
+    read_mode: str | None = None
+    properties: Mapping[str, Any] = field(default_factory=dict)
+    connection_defaults: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
@@ -87,6 +105,12 @@ class DeviceModel:
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "device_type_id", DeviceTypeId(device_type_id))
         object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
+        if self.read_mode is not None and self.read_mode != "sum":
+            raise ValueError("only ADS sum read mode is supported")
+        object.__setattr__(self, "properties", _freeze_model_mapping(self.properties))
+        object.__setattr__(
+            self, "connection_defaults", _freeze_model_mapping(self.connection_defaults)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +126,7 @@ class Device:
     endpoint: ConnectionEndpoint
     name: str | None = None
     device_group_ids: tuple[DeviceGroupId, ...] = ()
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         device_id = self.device_id.strip()
@@ -115,7 +140,11 @@ class Device:
         if name == "":
             name = None
 
+        if not isinstance(self.enabled, bool):
+            raise ValueError("device enabled must be bool")
         group_ids = tuple(DeviceGroupId(group_id.strip()) for group_id in self.device_group_ids)
+        if not group_ids:
+            raise ValueError("device must belong to at least one device group")
         if any(not group_id for group_id in group_ids):
             raise ValueError("device_group_ids must not contain empty values")
         if len(group_ids) != len(set(group_ids)):
@@ -150,6 +179,8 @@ class Device:
             raise ValueError("device_group_id must not be empty")
         if group_id not in self.device_group_ids:
             return self
+        if len(self.device_group_ids) == 1:
+            raise ValueError("cannot remove the last device group")
         return replace(
             self,
             device_group_ids=tuple(

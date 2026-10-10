@@ -8,9 +8,14 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
-from core.application.sink_config import FileSinkConnection
 from core.domain.point_value import PointValue
+
+
+class FileRotationOptions(Protocol):
+    max_size_mb: float
+
 
 CSV_COLUMNS = ("timestamp", "device_id", "point_id", "value", "quality", "source")
 
@@ -31,7 +36,7 @@ class FileSegment:
 
 
 def should_rotate(
-    config: FileSinkConnection,
+    config: FileRotationOptions,
     segment: FileSegment,
     *,
     next_row_bytes: int,

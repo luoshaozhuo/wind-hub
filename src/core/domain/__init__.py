@@ -1,6 +1,5 @@
 """Shared Core Domain 公共门面。"""
 
-from .config import validate_core_config
 from .device import (
     Device,
     DeviceGroup,
@@ -21,11 +20,13 @@ from .identities import (
 from .point import (
     BusinessPoint,
     Point,
-    PointMeta,
     PointTable,
     engineering_value,
     raw_write_value,
 )
+from .sink import Sink
+from .site import Site
+from .task import Task, devices_for_task, validate_task_references
 from .unit import (
     AMPERE,
     BAR,
@@ -81,6 +82,7 @@ from .unit import (
     UnitCode,
     convert_value,
 )
+from .validation import validate_core_config
 from .value_objects import ConnectionEndpoint, DataType, PointAccess, Protocol
 
 __all__ = [
@@ -130,6 +132,11 @@ __all__ = [
     "STANDARD_GRAVITY",
     "UNIT_CATALOG",
     "Unit",
+    "Site",
+    "Sink",
+    "Task",
+    "devices_for_task",
+    "validate_task_references",
     "UnitCode",
     "VAR",
     "VOLT",
@@ -151,7 +158,6 @@ __all__ = [
     "DeviceTypeId",
     "Point",
     "PointAccess",
-    "PointMeta",
     "PointTable",
     "PointTableId",
     "Protocol",
