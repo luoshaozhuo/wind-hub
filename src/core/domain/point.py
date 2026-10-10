@@ -133,11 +133,18 @@ class PointTable:
     point_table_id: PointTableId
     protocol: Protocol
     points: Mapping[str, Point]
+    parent_id: PointTableId | None = None
 
     def __post_init__(self) -> None:
         point_table_id = self.point_table_id.strip()
         if not point_table_id:
             raise ValueError("point_table_id must not be empty")
+
+        if self.parent_id is not None:
+            parent_id = self.parent_id.strip()
+            if not parent_id or parent_id == point_table_id:
+                raise ValueError("parent_id must be non-empty and different from point_table_id")
+            object.__setattr__(self, "parent_id", PointTableId(parent_id))
 
         points = dict(self.points)
         for point_id, point in points.items():
