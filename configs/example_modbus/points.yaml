@@ -8,7 +8,7 @@
 #   设备型号的 protocol 必须与绑定点表一致。
 # - `point_groups` 把点归入一个或多个采集分组（多值）；Task 按
 #   point_group 选择点（task.point_group ∈ point.point_groups）。
-# - `unit` 引用 units.yaml 的 unit ID（如 kilowatt），缺省为 none。
+# - `unit` 使用内置标准单位代码（如 kilowatt），缺省为 none。
 # - 点表支持单继承（extends / remove_points / 点位补丁）；子表缺省继承
 #   父表 protocol，显式配置必须与父表一致（禁止跨协议继承）。
 #
@@ -30,6 +30,7 @@ point_tables:
       # ---- 采集点（point_group: all，FC04 / input register） ----
 
       - point_id: active_power
+        business_point_id: active_power
         variable_name: active_power
         point_groups: [all]
         address:
