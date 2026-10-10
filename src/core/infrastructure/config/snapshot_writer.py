@@ -50,7 +50,6 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             "manufacturer": model.manufacturer,
             "protocol": table.protocol.name,
             "point_table": str(model.point_table_id),
-            "read_mode": model.read_mode,
             "properties": _yaml_plain(model.properties),
             "connection_defaults": _yaml_plain(model.connection_defaults),
         }
