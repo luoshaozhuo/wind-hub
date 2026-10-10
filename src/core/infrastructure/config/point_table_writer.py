@@ -5,16 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.domain import Point, PointMeta, PointTable, PointTableId
+from core.domain import Point, PointTable, PointTableId
 
 
-def _point_dict(point: Point, meta: PointMeta) -> dict[str, Any]:
+def _point_dict(point: Point) -> dict[str, Any]:
     address = dict(point.ext)
     data_type = address.pop("data_type")
     return {
         "business_point_id": str(point.business_point_id),
-        "variable_name": meta.variable_name,
-        "point_groups": list(meta.point_groups),
+        "variable_name": point.variable_name,
+        "point_groups": list(point.point_groups),
         "address": address,
         "data_type": data_type,
         "scale": point.scale,
@@ -26,7 +26,6 @@ def _point_dict(point: Point, meta: PointMeta) -> dict[str, Any]:
 
 def dump_point_tables(
     tables: Mapping[PointTableId, PointTable],
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]],
 ) -> dict[str, Any]:
     """以完整子表与父表的字段差异输出 extends / remove_points / points。
 
@@ -46,12 +45,9 @@ def dump_point_tables(
 
         points: list[dict[str, Any]] = []
         for point_id, point in table.points.items():
-            current = _point_dict(point, point_meta[table_id][point_id])
+            current = _point_dict(point)
             if parent is not None and point_id in parent.points:
-                previous = _point_dict(
-                    parent.points[point_id],
-                    point_meta[table.parent_id][point_id],
-                )
+                previous = _point_dict(parent.points[point_id])
                 changes = {
                     key: value for key, value in current.items()
                     if value != previous[key]
