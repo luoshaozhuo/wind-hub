@@ -48,7 +48,6 @@ from core.domain import (
     DeviceTypeId,
     Point,
     PointAccess,
-    PointMeta,
     PointTable,
     PointTableId,
     Protocol,
@@ -89,7 +88,6 @@ class CoreConfigAssembly:
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
 
@@ -110,16 +108,6 @@ class CoreConfigAssembly:
                 {
                     key: freeze_protocol_options(value)
                     for key, value in self.protocol_options_by_device.items()
-                }
-            ),
-        )
-        object.__setattr__(
-            self,
-            "point_meta",
-            MappingProxyType(
-                {
-                    table_id: MappingProxyType(dict(meta))
-                    for table_id, meta in self.point_meta.items()
                 }
             ),
         )
@@ -165,11 +153,9 @@ def assemble_core_config(
 
     business_points: dict[BusinessPointId, BusinessPoint] = dict(defined_business_points)
     point_tables: dict[PointTableId, PointTable] = {}
-    point_meta: dict[PointTableId, dict[str, PointMeta]] = {}
     for table_name, table_definition in point_config.tables.items():
         table_id = PointTableId(table_name)
         points: dict[str, Point] = {}
-        meta: dict[str, PointMeta] = {}
         for point_definition in table_definition.points.values():
             point = _build_point(
                 table_id,
@@ -178,17 +164,12 @@ def assemble_core_config(
                 business_points,
             )
             points[point.point_id] = point
-            meta[point.point_id] = PointMeta(
-                variable_name=point_definition.variable_name,
-                point_groups=point_definition.point_groups,
-            )
         point_tables[table_id] = PointTable(
             point_table_id=table_id,
             protocol=Protocol(table_definition.protocol),
             points=points,
             parent_id=(PointTableId(table_definition.parent_id) if table_definition.parent_id else None),
         )
-        point_meta[table_id] = meta
 
     device_models: dict[DeviceModelId, DeviceModel] = {}
     for model_id, model_definition in device_models_config.device_models.items():
@@ -274,7 +255,6 @@ def assemble_core_config(
             business_points=business_points,
             point_tables=point_tables,
             protocol_options_by_device=protocol_options_by_device,
-            point_meta=point_meta,
             disabled_devices=frozenset(disabled),
             ads_subscribe_devices=frozenset(ads_subscribe),
         )
