@@ -135,7 +135,10 @@ class WatchdogUseCase:
             if expected_generation is not None and expected_generation != self._generation:
                 return False
 
-            await self._close()
+            await asyncio.wait_for(
+                self._close(),
+                timeout=self._connect_timeout,
+            )
             await asyncio.wait_for(
                 self._connect(),
                 timeout=self._connect_timeout,
