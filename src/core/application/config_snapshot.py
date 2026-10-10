@@ -13,6 +13,7 @@ from core.domain import (
     DeviceGroup,
     DeviceGroupId,
     DeviceId,
+    Site,
     DeviceModel,
     DeviceModelId,
     DeviceType,
@@ -35,7 +36,7 @@ class ConfigSnapshot:
     device_types: Mapping[DeviceTypeId, DeviceType]
     device_models: Mapping[DeviceModelId, DeviceModel]
     device_groups: Mapping[DeviceGroupId, DeviceGroup]
-    devices: Mapping[DeviceId, Device]
+    site: Site
     point_tables: Mapping[PointTableId, PointTable]
     business_points: Mapping[BusinessPointId, BusinessPoint]
     tasks: Mapping[str, Task]
@@ -45,7 +46,7 @@ class ConfigSnapshot:
 
     def __post_init__(self) -> None:
         for name in (
-            "device_types", "device_models", "device_groups", "devices",
+            "device_types", "device_models", "device_groups",
             "point_tables", "business_points", "tasks", "sinks",
             "protocol_options_by_device",
         ):
