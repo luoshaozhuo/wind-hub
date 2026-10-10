@@ -49,7 +49,11 @@ class YamlConfigAdapter:
         source = self._active_base()
         documents = dump_snapshot(snapshot)
         current_system = read_yaml_mapping(source / "system.yaml")
-        documents["system.yaml"] = {**current_system, **documents["system.yaml"]}
+        external_system = {
+            name: value for name, value in current_system.items()
+            if name not in {"site", "runtime", "ads"}
+        }
+        documents["system.yaml"] = {**external_system, **documents["system.yaml"]}
 
         version_root = self._base / self._VERSION_ROOT
         version_root.mkdir(parents=True, exist_ok=True)
