@@ -432,10 +432,10 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
 
 
 def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
-    from core.application.sink_config import SinksConfig
+    from .sink_schema import _SinksSchema
 
     try:
-        definitions = SinksConfig.model_validate(raw)
+        definitions = _SinksSchema.model_validate(raw)
     except Exception as exc:
         raise ConfigError(f"invalid sinks.yaml: {exc}") from exc
     sinks: dict[str, Sink] = {}
