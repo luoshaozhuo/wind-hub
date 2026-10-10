@@ -443,6 +443,14 @@ class SinkRuntime:
     # ------------------------------------------------------------------
 
     def _make_watchdog(self, sink_name: str, sink: SinkPort) -> WatchdogUseCase:
+        async def _close_for_reconnect() -> None:
+            # 先隔离写队列，避免消费者在 close/open 期间写入旧连接。
+            if self._sinks.get(sink_name) is not sink:
+                return
+            self._unhealthy.add(sink_name)
+            await self._stop_consumer(sink_name)
+            await sink.close()
+
         async def _on_success() -> None:
             if self._sinks.get(sink_name) is not sink:
                 return
@@ -452,7 +460,7 @@ class SinkRuntime:
 
         return WatchdogUseCase(
             health=sink.health,
-            close=sink.close,
+            close=_close_for_reconnect,
             connect=sink.open,
             interval=self._params.watchdog_interval,
             health_timeout=self._params.health_timeout,
