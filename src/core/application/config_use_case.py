@@ -19,5 +19,13 @@ class ConfigUseCase:
     def diff(self, previous: ConfigSnapshot, current: ConfigSnapshot) -> ConfigSnapshotDiff:
         return diff_config_snapshots(previous, current)
 
+    def reload(
+        self,
+        previous: ConfigSnapshot,
+    ) -> tuple[ConfigSnapshot, ConfigSnapshotDiff]:
+        """读取并校验新快照，返回新快照及与旧快照的差异。"""
+        current = self._port.load()
+        return current, diff_config_snapshots(previous, current)
+
     def save(self, snapshot: ConfigSnapshot) -> None:
         self._port.save(snapshot)
