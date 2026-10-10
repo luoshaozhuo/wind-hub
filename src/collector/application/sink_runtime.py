@@ -17,7 +17,7 @@ import logging
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from core.application import ConnectionHealth
+from core.application import ConnectionHealth, WatchdogUseCase
 from core.application.sink_config import ResolvedSinkConfig
 
 from ..domain.point_value import PointValue
@@ -72,6 +72,9 @@ class SinkRuntime:
         self._points_routed = 0
         self._points_dropped = 0
         self._running = False
+        self._watchdogs: dict[str, WatchdogUseCase] = {
+            name: self._make_watchdog(name, sink) for name, sink in sinks.items()
+        }
 
     # ------------------------------------------------------------------
     # 只读视图（CollectorRuntime 聚合 / 查询服务经此读取）
@@ -94,16 +97,30 @@ class SinkRuntime:
         restart-required（既有 queue 容量不随之变化）。
         """
         self._params = params
+        for watchdog in self._watchdogs.values():
+            watchdog.configure(
+                interval=params.watchdog_interval,
+                health_timeout=params.health_timeout,
+                connect_timeout=params.connect_timeout,
+            )
 
-    def health(self) -> dict[str, ConnectionHealth]:
-        """各 Sink 健康状态——open 失败的 Sink 以 unhealthy 覆盖其实现自报值。"""
-        result: dict[str, ConnectionHealth] = {}
-        for name, sink in self._sinks.items():
-            if name in self._unhealthy:
-                result[name] = ConnectionHealth(healthy=False, message="open failed")
+    async def health(self) -> dict[str, ConnectionHealth]:
+        """并发执行全部 Sink 的无副作用健康检查。"""
+        items = list(self._sinks.items())
+        results = await asyncio.gather(
+            *(sink.health() for _name, sink in items),
+            return_exceptions=True,
+        )
+        health: dict[str, ConnectionHealth] = {}
+        for (name, _sink), result in zip(items, results, strict=True):
+            if isinstance(result, BaseException):
+                health[name] = ConnectionHealth(
+                    healthy=False,
+                    message=f"health check failed: {result}",
+                )
             else:
-                result[name] = sink.health()
-        return result
+                health[name] = result
+        return health
 
     def queue_depths(self) -> dict[str, int]:
         """各 sink 队列当前深度（队列归 SinkRuntime 所有，SinkPort 自身不感知队列）。"""
@@ -225,6 +242,8 @@ class SinkRuntime:
                 continue
             task = asyncio.create_task(self._consumer(name, sink))
             self._consumer_tasks[name] = task
+        for watchdog in self._watchdogs.values():
+            await watchdog.start()
 
     async def stop(self) -> None:
         """排空队列、结束消费者并 flush/close 全部 Sink。
@@ -234,6 +253,8 @@ class SinkRuntime:
         保证先停止采集，本方法返回后不再有新的派发入队。
         """
         self._running = False
+        for watchdog in self._watchdogs.values():
+            await watchdog.stop()
         # 只向仍有消费者的队列投递哨兵——无消费者的队列（open 失败 /
         # 独占重建失败的 unhealthy Sink）无人取哨兵，满队列会让 put 挂起。
         for name, queue in self._queues.items():
@@ -296,15 +317,21 @@ class SinkRuntime:
         queue: asyncio.Queue[list[PointValue]] = asyncio.Queue(maxsize=self._params.queue_maxsize)
         self._sinks[sink_name] = sink
         self._queues[sink_name] = queue
+        watchdog = self._make_watchdog(sink_name, sink)
+        self._watchdogs[sink_name] = watchdog
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
         if self._running:
             task = asyncio.create_task(self._consumer(sink_name, sink))
             self._consumer_tasks[sink_name] = task
+            await watchdog.start()
 
     async def remove_sink(self, sink_name: str) -> None:
         """运行时移除 sink——停消费者、flush、关闭、移除队列。"""
         await self._stop_consumer(sink_name)
+        watchdog = self._watchdogs.pop(sink_name, None)
+        if watchdog is not None:
+            await watchdog.stop()
 
         old_sink = self._sinks.pop(sink_name, None)
         if old_sink is not None:
@@ -356,9 +383,16 @@ class SinkRuntime:
                     self._restart_consumer(sink_name, old_sink)
             raise
 
+        old_watchdog = self._watchdogs.pop(sink_name, None)
+        if old_watchdog is not None:
+            await old_watchdog.stop()
         self._sinks[sink_name] = new_sink
         self._unhealthy.discard(sink_name)
+        watchdog = self._make_watchdog(sink_name, new_sink)
+        self._watchdogs[sink_name] = watchdog
         self._restart_consumer(sink_name, new_sink)
+        if self._running:
+            await watchdog.start()
         logger.info("Hot-reload: exclusive sink %s re-opened", sink_name)
 
     async def apply_diff(
@@ -404,6 +438,24 @@ class SinkRuntime:
     # 私有——消费者与重建辅助
     # ------------------------------------------------------------------
 
+    def _make_watchdog(self, sink_name: str, sink: SinkPort) -> WatchdogUseCase:
+        async def _on_success() -> None:
+            if self._sinks.get(sink_name) is not sink:
+                return
+            self._unhealthy.discard(sink_name)
+            if self._running and sink_name not in self._consumer_tasks:
+                self._restart_consumer(sink_name, sink)
+
+        return WatchdogUseCase(
+            health=sink.health,
+            close=sink.close,
+            connect=sink.open,
+            interval=self._params.watchdog_interval,
+            health_timeout=self._params.health_timeout,
+            connect_timeout=self._params.connect_timeout,
+            on_success=_on_success,
+        )
+
     async def _replace_opened_sink(
         self,
         sink_name: str,
@@ -414,9 +466,16 @@ class SinkRuntime:
         await self._stop_consumer(sink_name)
         if old_sink is not None:
             await self._flush_and_close(sink_name, old_sink, "during rebuild")
+        old_watchdog = self._watchdogs.pop(sink_name, None)
+        if old_watchdog is not None:
+            await old_watchdog.stop()
         self._sinks[sink_name] = new_sink
         self._unhealthy.discard(sink_name)
+        watchdog = self._make_watchdog(sink_name, new_sink)
+        self._watchdogs[sink_name] = watchdog
         self._restart_consumer(sink_name, new_sink)
+        if self._running:
+            await watchdog.start()
         logger.info("Hot-reload: sink %s re-opened", sink_name)
 
     async def _stop_consumer(self, sink_name: str) -> None:
