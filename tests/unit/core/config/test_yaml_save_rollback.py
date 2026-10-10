@@ -8,7 +8,6 @@ import pytest
 from core.infrastructure.config import adapter as adapter_module
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
-
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
     "system.yaml", "device_models.yaml", "devices.yaml", "points.yaml",
