@@ -1,8 +1,10 @@
 """完整领域点表保存后重新加载的往返测试。"""
 
+from dataclasses import replace
 from pathlib import Path
 from shutil import copyfile
 
+from core.domain import PointTableId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.yaml import active_config_dir
 
@@ -34,9 +36,6 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
 
 
 def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path) -> None:
-    from dataclasses import replace
-    from core.domain import PointTableId
-
     source = ROOT / "configs" / "template"
     for filename in (
         "system.yaml", "device_models.yaml", "devices.yaml",
@@ -59,4 +58,4 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
     assert "rotor_speed" not in restored.point_tables[child.point_table_id].points
     assert restored.point_tables[child.point_table_id] == changed
     assert restored.point_tables[parent.point_table_id] == parent
-    assert "remove_points:" in (tmp_path / "points.yaml").read_text(encoding="utf-8")
+    assert "remove_points:" in (active_config_dir(tmp_path) / "points.yaml").read_text(encoding="utf-8")
