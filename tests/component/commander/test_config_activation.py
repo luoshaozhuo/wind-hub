@@ -141,11 +141,8 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     assert not timed_out.success
     assert "write timeout" in (timed_out.error or "")
 
-    await runtime.reload(
-        make_commander_config(write_timeout=5.0),
-        config_hash="hash-b",
-        revision_id="r2",
-    )
+    await runtime.prepare_config("r2", make_commander_config(write_timeout=5.0), "hash-b")
+    await runtime.activate_config("r2")
     # reload 后新 operation 使用新 generation 的 write_timeout——不再用启动值。
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
     completed = await dispatcher.send(
@@ -168,11 +165,8 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
 
     # 固定旧 generation；期间 activate 一个 write_timeout 极小的新配置。
     async with runtime.operation():
-        await runtime.reload(
-            make_commander_config(write_timeout=0.01),
-            config_hash="hash-b",
-            revision_id="r2",
-        )
+        await runtime.prepare_config("r2", make_commander_config(write_timeout=0.01), "hash-b")
+        await runtime.activate_config("r2")
         result = await dispatcher.send(
             Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
         )
@@ -269,7 +263,8 @@ async def test_diagnostic_probe_for_ads_device_added_by_reload():
         address=_ADS_ADDRESS,
         protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
     )
-    await runtime.reload(candidate, config_hash="hash-b", revision_id="r2")
+    await runtime.prepare_config("r2", candidate, "hash-b")
+    await runtime.activate_config("r2")
 
     result = await service.resolve_point("dev2", "p1")
     # 不读取 boot config（否则 point_table_for_device('dev2') 已 KeyError）；
@@ -288,7 +283,8 @@ async def test_diagnostic_uses_new_generation_after_protocol_switch_to_ads():
         address=_ADS_ADDRESS,
         protocol_options_by_device={"ams_net_id": "5.6.7.8.1.1"},
     )
-    await runtime.reload(candidate, config_hash="hash-b", revision_id="r2")
+    await runtime.prepare_config("r2", candidate, "hash-b")
+    await runtime.activate_config("r2")
 
     result = await service.resolve_point("dev1", "p1")
     assert result.protocol == "ads"
@@ -311,15 +307,12 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
 
     async with runtime.operation():
         # pin 旧 generation 期间 activate 新 options——本次 probe 不受影响。
-        await runtime.reload(
-            make_commander_config(
+        await runtime.prepare_config("r2", make_commander_config(
                 protocol="ads",
                 address=_ADS_ADDRESS,
                 protocol_options_by_device={"ams_net_id": "new"},
-            ),
-            config_hash="hash-b",
-            revision_id="r2",
-        )
+            ), "hash-b")
+        await runtime.activate_config("r2")
         result = await service.resolve_point("dev1", "p1")
         assert result.error is None
         assert calls == [("dev1", {"ams_net_id": "old"})]

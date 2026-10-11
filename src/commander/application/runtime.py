@@ -176,17 +176,6 @@ class CommanderRuntime:
         """
         return self._generation().config
 
-    async def reload(
-        self,
-        config: CommanderConfig,
-        *,
-        config_hash: str,
-        revision_id: str,
-    ) -> None:
-        """按 prepare + activate 原子切换配置代次。"""
-        await self.prepare_config(revision_id, config, config_hash)
-        await self.activate_config(revision_id)
-
     async def prepare_config(
         self,
         revision_id: str,

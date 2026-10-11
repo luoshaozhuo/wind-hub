@@ -108,11 +108,8 @@ async def test_activate_retirement_waits_for_inflight_operation():
     task = asyncio.create_task(pinned_operation())
     await asyncio.sleep(0)  # 让操作进入 pinned 状态
 
-    await runtime.reload(
-        make_commander_config(),
-        config_hash="hash-b",
-        revision_id="rev-2",
-    )
+    await runtime.prepare_config("rev-2", make_commander_config(), "hash-b")
+    await runtime.activate_config("rev-2")
     await asyncio.sleep(0.05)
     # 旧 generation 仍有在途操作 → 尚未关闭
     assert old_protocol.close_calls == 0
@@ -129,11 +126,8 @@ async def test_operation_pins_generation_during_activate():
     old_protocol.connected = True
 
     async with runtime.operation():
-        await runtime.reload(
-            make_commander_config(),
-            config_hash="hash-b",
-            revision_id="rev-2",
-        )
+        await runtime.prepare_config("rev-2", make_commander_config(), "hash-b")
+        await runtime.activate_config("rev-2")
         # operation 固定旧 generation：读到的仍是旧会话
         assert runtime.device("dev1").protocol is old_protocol
 
@@ -238,5 +232,6 @@ async def test_prepare_hook_called_on_activate():
         protocol_registry=registry,  # type: ignore[arg-type]
         prepare_protocols=hook,
     )
-    await runtime.reload(make_commander_config(), config_hash="hash-b", revision_id="rev-2")
+    await runtime.prepare_config("rev-2", make_commander_config(), "hash-b")
+    await runtime.activate_config("rev-2")
     assert calls == ["called"]
