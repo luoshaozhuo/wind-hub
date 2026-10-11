@@ -2,8 +2,7 @@
 
 CommanderConfig 只承载 Commander 真正需要的内容：共享核心领域配置索引
 （设备、型号、分组、点表、业务点、协议参数）、进程级 ADS 本机身份、
-连接/写超时，以及诊断展示所需的点位元数据（variable_name /
-point_groups）。Task、Sink、Reporting 等 Collector/Server 配置不属于
+连接/写超时，以及诊断展示所需的点位元数据（直接来自 Point.variable_name / Point.point_groups）。Task、Sink、Reporting 等 Collector/Server 配置不属于
 本模型。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
@@ -46,7 +45,6 @@ class CommanderConfig:
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
         connect_timeout: 单设备连接超时（秒）。
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
-        point_meta: ``{点表: {point_id: PointMeta}}`` 诊断展示元数据。
         disabled_devices: 配置级停用设备集合；停用设备不参与即时操作。
     """
 
