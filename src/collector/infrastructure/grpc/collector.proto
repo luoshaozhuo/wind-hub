@@ -90,25 +90,16 @@ message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
 message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
 message TaskIdRequest { string task_id = 1; }
 message InstanceIdRequest { string instance_id = 1; }
-message TaskStartRequest {
-  string task_id = 1;
-  uint64 placement_generation = 2;
-}
-message TaskInstanceStartRequest {
-  string instance_id = 1;
-  uint64 placement_generation = 2;
-}
-message TaskPlacementSnapshotRequest {
-  string worker_id = 1;
-  uint64 generation = 2;
-  repeated string task_ids = 3;
-}
-message TaskPlacementSnapshotResponse {
-  bool success = 1;
-  uint64 generation = 2;
-  uint64 task_count = 3;
-}
+message TaskStartRequest { string task_id = 1; }
+message TaskInstanceStartRequest { string instance_id = 1; }
 
+message LatestPointMessage {
+ string device_id = 1; string point_id = 2; string value_json = 3;
+ string quality = 4; google.protobuf.Timestamp timestamp = 5;
+ string timestamp_source = 6; string source = 7;
+}
+message ListLatestPointsRequest { string device_id = 1; }
+message ListLatestPointsResponse { repeated LatestPointMessage items = 1; }
 message DeviceInfoMessage {
   string device_id = 1;
   string protocol = 2;
@@ -174,6 +165,7 @@ service CollectorRuntimeService {
   rpc GetCollectorInfo(google.protobuf.Empty) returns (CollectorInfoResponse);
   rpc GetRuntimeStatus(google.protobuf.Empty) returns (RuntimeStatusResponse);
   rpc GetMetricsSnapshot(google.protobuf.Empty) returns (MetricsSnapshotResponse);
+  rpc ListLatestPoints(ListLatestPointsRequest) returns (ListLatestPointsResponse);
   rpc ListTasks(google.protobuf.Empty) returns (ListTasksResponse);
   rpc GetTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc ListTaskInstances(google.protobuf.Empty) returns (ListTaskInstancesResponse);
@@ -184,7 +176,6 @@ service CollectorRuntimeService {
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
 }
 service CollectorControlService {
-  rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
   rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);
   rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc StartTaskInstance(TaskInstanceStartRequest) returns (TaskInstanceMessage);

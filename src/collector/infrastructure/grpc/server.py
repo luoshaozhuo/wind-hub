@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from datetime import datetime
 
 import grpc
@@ -184,6 +185,26 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             if item.last_duration is not None:
                 row.last_duration.CopyFrom(wrappers_pb2.DoubleValue(value=item.last_duration))
             response.acquisitions.append(row)
+        return response
+
+    async def ListLatestPoints(
+        self,
+        request: pb.ListLatestPointsRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.ListLatestPointsResponse:
+        """返回已采集的最新点值，不进行设备读操作。"""
+        del context
+        response = pb.ListLatestPointsResponse()
+        for value in self._app.latest_values.snapshot(request.device_id or None):
+            item = response.items.add(
+                device_id=value.device_id,
+                point_id=value.point_id,
+                value_json=json.dumps(value.value, ensure_ascii=False),
+                quality=value.quality.value,
+                timestamp_source=value.timestamp_source,
+                source=value.source or "",
+            )
+            item.timestamp.FromDatetime(value.timestamp)
         return response
 
     async def GetMetricsSnapshot(

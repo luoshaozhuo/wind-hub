@@ -18,6 +18,7 @@ _RUNTIME_METHODS = [
     "GetCollectorInfo",
     "GetRuntimeStatus",
     "GetMetricsSnapshot",
+    "ListLatestPoints",
     "ListTasks",
     "GetTask",
     "ListTaskInstances",
@@ -29,7 +30,6 @@ _RUNTIME_METHODS = [
 ]
 
 _CONTROL_METHODS = [
-    "ApplyTaskPlacement",
     "StartTask",
     "StopTask",
     "StartTaskInstance",

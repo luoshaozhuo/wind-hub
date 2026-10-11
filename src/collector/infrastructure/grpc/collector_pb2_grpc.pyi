@@ -35,6 +35,7 @@ class CollectorRuntimeServiceStub:
     GetCollectorInfo: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.CollectorInfoResponse]
     GetRuntimeStatus: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.RuntimeStatusResponse]
     GetMetricsSnapshot: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.MetricsSnapshotResponse]
+    ListLatestPoints: _grpc.UnaryUnaryMultiCallable[_collector_pb2.ListLatestPointsRequest, _collector_pb2.ListLatestPointsResponse]
     ListTasks: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListTasksResponse]
     GetTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]
     ListTaskInstances: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListTaskInstancesResponse]
@@ -50,6 +51,7 @@ class CollectorRuntimeServiceAsyncStub(CollectorRuntimeServiceStub):
     GetCollectorInfo: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.CollectorInfoResponse]  # type: ignore[assignment]
     GetRuntimeStatus: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.RuntimeStatusResponse]  # type: ignore[assignment]
     GetMetricsSnapshot: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.MetricsSnapshotResponse]  # type: ignore[assignment]
+    ListLatestPoints: _aio.UnaryUnaryMultiCallable[_collector_pb2.ListLatestPointsRequest, _collector_pb2.ListLatestPointsResponse]  # type: ignore[assignment]
     ListTasks: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListTasksResponse]  # type: ignore[assignment]
     GetTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     ListTaskInstances: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListTaskInstancesResponse]  # type: ignore[assignment]
@@ -82,6 +84,13 @@ class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_collector_pb2.MetricsSnapshotResponse, _abc.Awaitable[_collector_pb2.MetricsSnapshotResponse]]: ...
 
     @_abc_1.abstractmethod
+    @_abc_1.abstractmethod
+    def ListLatestPoints(
+        self,
+        request: _collector_pb2.ListLatestPointsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.ListLatestPointsResponse, _abc.Awaitable[_collector_pb2.ListLatestPointsResponse]]: ...
+
     def ListTasks(
         self,
         request: _empty_pb2.Empty,
@@ -144,7 +153,6 @@ class CollectorControlServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> CollectorControlServiceAsyncStub: ...
-    ApplyTaskPlacement: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]
     StartTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]
     StopTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]
     StartTaskInstance: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]
@@ -156,7 +164,6 @@ class CollectorControlServiceStub:
 @_typing.type_check_only
 class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
-    ApplyTaskPlacement: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]  # type: ignore[assignment]
     StartTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StopTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StartTaskInstance: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]  # type: ignore[assignment]
@@ -166,13 +173,6 @@ class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     AbortConfig: _aio.UnaryUnaryMultiCallable[_collector_pb2.AbortConfigRequest, _collector_pb2.AbortConfigResponse]  # type: ignore[assignment]
 
 class CollectorControlServiceServicer(metaclass=_abc_1.ABCMeta):
-    @_abc_1.abstractmethod
-    def ApplyTaskPlacement(
-        self,
-        request: _collector_pb2.TaskPlacementSnapshotRequest,
-        context: _ServicerContext,
-    ) -> _typing.Union[_collector_pb2.TaskPlacementSnapshotResponse, _abc.Awaitable[_collector_pb2.TaskPlacementSnapshotResponse]]: ...
-
     @_abc_1.abstractmethod
     def StartTask(
         self,

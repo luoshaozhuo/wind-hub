@@ -50,6 +50,11 @@ class CollectorRuntimeServiceStub:
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.MetricsSnapshotResponse.FromString,
                 _registered_method=True)
+        self.ListLatestPoints = channel.unary_unary(
+                '/windhub.collector.v1.CollectorRuntimeService/ListLatestPoints',
+                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsRequest.SerializeToString,
+                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsResponse.FromString,
+                _registered_method=True)
         self.ListTasks = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/ListTasks',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
@@ -108,6 +113,12 @@ class CollectorRuntimeServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetMetricsSnapshot(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListLatestPoints(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -178,6 +189,11 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
                     servicer.GetMetricsSnapshot,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.MetricsSnapshotResponse.SerializeToString,
+            ),
+            'ListLatestPoints': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListLatestPoints,
+                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsRequest.FromString,
+                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsResponse.SerializeToString,
             ),
             'ListTasks': grpc.unary_unary_rpc_method_handler(
                     servicer.ListTasks,
@@ -309,6 +325,25 @@ class CollectorRuntimeService:
             wait_for_ready,
             timeout,
             metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListLatestPoints(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request, target, '/windhub.collector.v1.CollectorRuntimeService/ListLatestPoints',
+            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsRequest.SerializeToString,
+            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListLatestPointsResponse.FromString,
+            options, channel_credentials, insecure, call_credentials,
+            compression, wait_for_ready, timeout, metadata,
             _registered_method=True)
 
     @staticmethod
@@ -537,11 +572,6 @@ class CollectorControlServiceStub:
         Args:
             channel: A grpc.Channel.
         """
-        self.ApplyTaskPlacement = channel.unary_unary(
-                '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
-                _registered_method=True)
         self.StartTask = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StartTask',
                 request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
@@ -581,12 +611,6 @@ class CollectorControlServiceStub:
 
 class CollectorControlServiceServicer:
     """Missing associated documentation comment in .proto file."""
-
-    def ApplyTaskPlacement(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def StartTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -633,11 +657,6 @@ class CollectorControlServiceServicer:
 
 def add_CollectorControlServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ApplyTaskPlacement': grpc.unary_unary_rpc_method_handler(
-                    servicer.ApplyTaskPlacement,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.SerializeToString,
-            ),
             'StartTask': grpc.unary_unary_rpc_method_handler(
                     servicer.StartTask,
                     request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskStartRequest.FromString,
@@ -684,32 +703,6 @@ def add_CollectorControlServiceServicer_to_server(servicer, server):
 class CollectorControlService:
     """Missing associated documentation comment in .proto file."""
 
-    @staticmethod
-    def ApplyTaskPlacement(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def StartTask(request,

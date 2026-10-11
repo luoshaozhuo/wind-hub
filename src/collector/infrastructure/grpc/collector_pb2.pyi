@@ -458,18 +458,15 @@ class TaskStartRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     TASK_ID_FIELD_NUMBER: _builtins.int
-    PLACEMENT_GENERATION_FIELD_NUMBER: _builtins.int
     task_id: _builtins.str
-    placement_generation: _builtins.int
     def __init__(
         self,
         *,
         task_id: _builtins.str = ...,
-        placement_generation: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["placement_generation", b"placement_generation", "task_id", b"task_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["task_id", b"task_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -480,73 +477,19 @@ class TaskInstanceStartRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     INSTANCE_ID_FIELD_NUMBER: _builtins.int
-    PLACEMENT_GENERATION_FIELD_NUMBER: _builtins.int
     instance_id: _builtins.str
-    placement_generation: _builtins.int
     def __init__(
         self,
         *,
         instance_id: _builtins.str = ...,
-        placement_generation: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["instance_id", b"instance_id", "placement_generation", b"placement_generation"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["instance_id", b"instance_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___TaskInstanceStartRequest: _TypeAlias = TaskInstanceStartRequest  # noqa: Y015
-
-@_typing.final
-class TaskPlacementSnapshotRequest(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    WORKER_ID_FIELD_NUMBER: _builtins.int
-    GENERATION_FIELD_NUMBER: _builtins.int
-    TASK_IDS_FIELD_NUMBER: _builtins.int
-    worker_id: _builtins.str
-    generation: _builtins.int
-    @_builtins.property
-    def task_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
-    def __init__(
-        self,
-        *,
-        worker_id: _builtins.str = ...,
-        generation: _builtins.int = ...,
-        task_ids: _abc.Iterable[_builtins.str] | None = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation", b"generation", "task_ids", b"task_ids", "worker_id", b"worker_id"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___TaskPlacementSnapshotRequest: _TypeAlias = TaskPlacementSnapshotRequest  # noqa: Y015
-
-@_typing.final
-class TaskPlacementSnapshotResponse(_message.Message):
-    DESCRIPTOR: _descriptor.Descriptor
-
-    SUCCESS_FIELD_NUMBER: _builtins.int
-    GENERATION_FIELD_NUMBER: _builtins.int
-    TASK_COUNT_FIELD_NUMBER: _builtins.int
-    success: _builtins.bool
-    generation: _builtins.int
-    task_count: _builtins.int
-    def __init__(
-        self,
-        *,
-        success: _builtins.bool = ...,
-        generation: _builtins.int = ...,
-        task_count: _builtins.int = ...,
-    ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation", b"generation", "success", b"success", "task_count", b"task_count"]  # noqa: Y015
-    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
-
-Global___TaskPlacementSnapshotResponse: _TypeAlias = TaskPlacementSnapshotResponse  # noqa: Y015
 
 @_typing.final
 class DeviceInfoMessage(_message.Message):
@@ -988,3 +931,28 @@ class AbortConfigResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___AbortConfigResponse: _TypeAlias = AbortConfigResponse  # noqa: Y015
+
+@_typing.final
+class LatestPointMessage(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    device_id: _builtins.str
+    point_id: _builtins.str
+    value_json: _builtins.str
+    quality: _builtins.str
+    timestamp: _timestamp_pb2.Timestamp
+    timestamp_source: _builtins.str
+    source: _builtins.str
+    def __init__(self, *, device_id: _builtins.str = ..., point_id: _builtins.str = ..., value_json: _builtins.str = ..., quality: _builtins.str = ..., timestamp: _timestamp_pb2.Timestamp | None = ..., timestamp_source: _builtins.str = ..., source: _builtins.str = ...) -> None: ...
+
+@_typing.final
+class ListLatestPointsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    device_id: _builtins.str
+    def __init__(self, *, device_id: _builtins.str = ...) -> None: ...
+
+@_typing.final
+class ListLatestPointsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+    @_builtins.property
+    def items(self) -> _containers.RepeatedCompositeFieldContainer[LatestPointMessage]: ...
+    def __init__(self, *, items: _abc.Iterable[LatestPointMessage] | None = ...) -> None: ...
