@@ -20,7 +20,7 @@ def _field_value(value: object) -> object:
     """把 protobuf 字段值转换为 JSON 可序列化 Python 值。"""
     if isinstance(value, Timestamp):
         return value.ToJsonString()
-    if isinstance(value, (BoolValue, DoubleValue, StringValue)):
+    if isinstance(value, BoolValue | DoubleValue | StringValue):
         return value.value
     if isinstance(value, message.Message):
         return _to_dict(value)
@@ -86,7 +86,7 @@ class CollectorClient:
         self._runtime: collector_grpc.CollectorRuntimeServiceStub | None = None
         self._control: collector_grpc.CollectorControlServiceStub | None = None
 
-    async def __aenter__(self) -> "CollectorClient":
+    async def __aenter__(self) -> CollectorClient:
         self._channel = grpc.aio.insecure_channel(self._target)
         self._runtime = collector_grpc.CollectorRuntimeServiceStub(self._channel)
         self._control = collector_grpc.CollectorControlServiceStub(self._channel)
@@ -220,7 +220,7 @@ class CommanderClient:
         self._channel: grpc.aio.Channel | None = None
         self._stub: commander_grpc.CommanderServiceStub | None = None
 
-    async def __aenter__(self) -> "CommanderClient":
+    async def __aenter__(self) -> CommanderClient:
         self._channel = grpc.aio.insecure_channel(self._target)
         self._stub = commander_grpc.CommanderServiceStub(self._channel)
         return self
