@@ -116,10 +116,6 @@ module = [
     "core.infrastructure.rpc.collector_pb2_grpc",
     "core.infrastructure.rpc.commander_pb2",
     "core.infrastructure.rpc.commander_pb2_grpc",
-    "collector.infrastructure.grpc.collector_pb2",
-    "collector.infrastructure.grpc.collector_pb2_grpc",
-    "commander.infrastructure.grpc.commander_pb2",
-    "commander.infrastructure.grpc.commander_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
