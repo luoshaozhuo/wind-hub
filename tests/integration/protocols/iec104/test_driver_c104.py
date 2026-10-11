@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-from core.application import ConfigError, ProtocolError
+from core.application import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
@@ -146,7 +146,7 @@ async def _read_value(driver: IEC104Driver, point_id: str) -> Any:
 class TestConnectAndRead:
     async def test_connect_reports_healthy(self, driver: IEC104Driver) -> None:
         await driver.connect()
-        assert driver.health().healthy is True
+        assert (await driver.health()).healthy is True
 
     async def test_general_interrogation_fills_mirror(
         self, driver: IEC104Driver
@@ -156,19 +156,11 @@ class TestConnectAndRead:
         assert await _read_value(driver, "meas.power") == pytest.approx(1500.5)
         assert await _read_value(driver, "meas.freq") == pytest.approx(50.0)
 
-    async def test_read_many_preserves_request_order(
+    async def test_read_many_is_not_supported(
         self, driver: IEC104Driver
     ) -> None:
-        await driver.connect()
-        await driver.interrogate()
-        await _read_value(driver, "meas.power")
-        samples = await driver.read_many(["meas.freq", "meas.power", "meas.freq"])
-        assert [sample.point_id for sample in samples] == [
-            "meas.freq",
-            "meas.power",
-            "meas.freq",
-        ]
-        assert all(sample.quality is Quality.GOOD for sample in samples)
+        with pytest.raises(ProtocolCapabilityError, match="read_many"):
+            await driver.read_many(["meas.freq", "meas.power"])
 
     async def test_read_unknown_point_raises(self, driver: IEC104Driver) -> None:
         """未寻址 point_id 属于配置错误，直接抛 ConfigError。"""
@@ -233,7 +225,7 @@ class TestReconnect:
             await srv.start()
             try:
                 await drv.connect()
-                assert drv.health().healthy is True
+                assert (await drv.health()).healthy is True
             finally:
                 await srv.stop()
         finally:
@@ -288,7 +280,7 @@ class TestDynamicPoints:
             await drv.connect()
             dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
             # 首次访问登记动态 IOA 的接收关联（尚无数据，BAD）。
-            assert (await drv.read_one(dynamic)).quality is Quality.BAD
+            await drv.subscribe([dynamic], lambda sample: asyncio.sleep(0))
             await drv.interrogate()
 
             async def _probe() -> Any:
@@ -345,7 +337,7 @@ class TestDynamicPoints:
         try:
             await drv.connect()
             dynamic = iec104_point("dyn.power", ioa=100, type_id="M_ME_NC_1")
-            sample = await drv.read_active_one(dynamic, timeout=5.0)
+            sample = await drv.read_one(dynamic)
             assert sample.point_id == "dyn.power"
             assert sample.value == pytest.approx(1500.5)
             assert sample.quality is Quality.GOOD
@@ -731,9 +723,6 @@ class TestValueSemantics:
         driver.update_point_table(_table([_point("meas.only_freq", 200)]))
         with pytest.raises(ConfigError, match="meas.power"):
             await driver.read_one("meas.power")
-        # 旧镜像已清空：新点在下一次总召前为 BAD。
-        stale = await driver.read_one("meas.only_freq")
-        assert stale.quality is Quality.BAD
 
         await driver.interrogate()
         assert await _read_value(driver, "meas.only_freq") == pytest.approx(50.0)
