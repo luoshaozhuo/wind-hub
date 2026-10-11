@@ -64,16 +64,15 @@ class CommanderConfig:
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
-        if self.connect_timeout <= 0:
-            raise ValueError("connect_timeout must be > 0")
-        if self.write_timeout <= 0:
-            raise ValueError("write_timeout must be > 0")
-        if self.read_timeout <= 0:
-            raise ValueError("read_timeout must be > 0")
-        if self.watchdog_interval <= 0:
-            raise ValueError("watchdog_interval must be > 0")
-        if self.health_timeout <= 0:
-            raise ValueError("health_timeout must be > 0")
+        for name in (
+            "connect_timeout",
+            "write_timeout",
+            "read_timeout",
+            "watchdog_interval",
+            "health_timeout",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be > 0")
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
         for name in (
             "devices",
