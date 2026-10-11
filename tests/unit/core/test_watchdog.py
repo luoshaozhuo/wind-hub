@@ -113,8 +113,12 @@ async def test_callback_failure_is_observable_without_second_reconnect() -> None
         raise RuntimeError("restore failed")
 
     watchdog = WatchdogUseCase(
-        health=endpoint.health, close=endpoint.close, connect=endpoint.connect,
-        interval=1.0, health_timeout=0.1, connect_timeout=0.1,
+        health=endpoint.health,
+        close=endpoint.close,
+        connect=endpoint.connect,
+        interval=1.0,
+        health_timeout=0.1,
+        connect_timeout=0.1,
         on_success=bad_callback,
     )
     with pytest.raises(RuntimeError, match="restore failed"):
@@ -127,8 +131,12 @@ async def test_callback_failure_is_observable_without_second_reconnect() -> None
 async def test_explicit_reconnect_without_callback_is_supported() -> None:
     endpoint = _Endpoint()
     watchdog = WatchdogUseCase(
-        health=endpoint.health, close=endpoint.close, connect=endpoint.connect,
-        interval=1.0, health_timeout=0.1, connect_timeout=0.1,
+        health=endpoint.health,
+        close=endpoint.close,
+        connect=endpoint.connect,
+        interval=1.0,
+        health_timeout=0.1,
+        connect_timeout=0.1,
     )
     await watchdog.reconnect()
     assert endpoint.close_count == endpoint.connect_count == 1
@@ -216,3 +224,26 @@ async def test_no_callback_when_stopped_during_reconnect() -> None:
     release.set()
     await task
     assert endpoint.callback_count == 0
+
+
+@pytest.mark.asyncio
+async def test_repeated_start_and_stop_cycles_keep_single_task() -> None:
+    """start 幂等、stop 后可重启；任意时刻至多一个周期任务。"""
+    endpoint = _Endpoint()
+    watchdog = _watchdog(endpoint, interval=30.0)
+    await watchdog.start()
+    first_task = watchdog._task
+    await watchdog.start()
+    assert watchdog._task is first_task
+
+    await watchdog.stop()
+    assert first_task is not None and first_task.done()
+
+    await watchdog.start()
+    assert watchdog._task is not first_task
+    for _ in range(100):
+        if endpoint.health_count:
+            break
+        await asyncio.sleep(0.001)
+    assert endpoint.health_count >= 1
+    await watchdog.stop()

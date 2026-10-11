@@ -40,6 +40,53 @@ from .mapping import (
 logger = logging.getLogger(__name__)
 
 
+class _IoaLockEntry:
+    """per-IOA 锁与使用者计数（当前持有者 + 已登记等待者）。"""
+
+    __slots__ = ("lock", "refs")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.refs = 0
+
+
+def _register_ioa_lock(
+    registry: dict[int, _IoaLockEntry],
+    ioa: int,
+) -> asyncio.Lock:
+    """登记一次 IOA 锁使用并返回锁；必须在第一次 ``await`` 之前调用。
+
+    单事件循环内，登记所在的同步代码段不会被其他协程打断，因此
+    「查表 + 计数 +1」相对其他登记/释放操作是原子的：同一 IOA 的所有
+    并发使用者始终拿到同一把锁。
+    """
+    entry = registry.get(ioa)
+    if entry is None:
+        entry = _IoaLockEntry()
+        registry[ioa] = entry
+    entry.refs += 1
+    return entry.lock
+
+
+def _release_ioa_lock(
+    registry: dict[int, _IoaLockEntry],
+    ioa: int,
+    lock: asyncio.Lock,
+) -> None:
+    """释放一次 IOA 锁使用；计数归零（无持有者也无等待者）后删除条目。
+
+    调用点位于 ``finally`` 的同步代码段（无 await），与登记操作互不
+    打断，因此计数归零时不可能存在尚未登记的未来使用者，可安全删除。
+    取消、超时、异常路径都经 ``finally`` 释放，不会泄漏计数。
+    """
+    entry = registry.get(ioa)
+    if entry is None or entry.lock is not lock:
+        return
+    entry.refs -= 1
+    if entry.refs == 0:
+        del registry[ioa]
+
+
 class _Subscription:
     """一次 IEC104 样本订阅，close 会 drain 已调度 callback。"""
 
@@ -182,8 +229,8 @@ class IEC104Driver:
         self._dynamic_points: dict[int, IEC104Point] = {}
         self._interrogation_lock = asyncio.Lock()
         self._interrogation_waiter: asyncio.Future[None] | None = None
-        self._command_locks: dict[int, asyncio.Lock] = {}
-        self._active_read_locks: dict[int, asyncio.Lock] = {}
+        self._command_locks: dict[int, _IoaLockEntry] = {}
+        self._active_read_locks: dict[int, _IoaLockEntry] = {}
         self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
@@ -268,8 +315,10 @@ class IEC104Driver:
             self._station = station
 
             try:
+                # c104 ``Client.start()`` 已经连接全部 connection 并维护自动
+                # 重连；不要再调 ``connection.connect()``——它与 c104 内部
+                # 线程的 connect/reconnect 共用未串行化的状态机，属于多余调用。
                 await asyncio.to_thread(client.start)
-                connection.connect()
                 await asyncio.wait_for(
                     self._open_event.wait(),
                     timeout=self._config.t0,
@@ -308,9 +357,12 @@ class IEC104Driver:
 
         await self._subscriptions.close_all()
 
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.disconnect)
+        # 不要显式调 ``connection.disconnect()``：它会持有 GIL 等待 c104
+        # 连接线程退出，而连接线程分发 Python 回调时需要同一把 GIL，c104 的
+        # GilAwareMutex 100ms 死锁保险丝会以 std::terminate 结束整个进程。
+        # ``Client.stop()`` 自身在释放 GIL 的状态下完成全部 disconnect 与
+        # 线程回收，是并发流量下唯一安全的拆除路径。
+        del connection
         if client is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
@@ -346,23 +398,26 @@ class IEC104Driver:
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
         mapped = self._resolve_point(point)
-        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
-        async with lock:
-            loop = asyncio.get_running_loop()
-            future: asyncio.Future[ProtocolSample] = loop.create_future()
-            self._active_reads[mapped.ioa] = future
-            try:
-                await self._send_read(mapped)
+        lock = _register_ioa_lock(self._active_read_locks, mapped.ioa)
+        try:
+            async with lock:
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future[ProtocolSample] = loop.create_future()
+                self._active_reads[mapped.ioa] = future
                 try:
-                    sample = await asyncio.wait_for(future, timeout=self._config.t1)
-                except TimeoutError as exc:
-                    raise ProtocolError(
-                        f"IEC104 active read timed out for {mapped.point_id}"
-                    ) from exc
-                return replace(sample, point_id=mapped.point_id)
-            finally:
-                if self._active_reads.get(mapped.ioa) is future:
-                    self._active_reads.pop(mapped.ioa, None)
+                    await self._send_read(mapped)
+                    try:
+                        sample = await asyncio.wait_for(future, timeout=self._config.t1)
+                    except TimeoutError as exc:
+                        raise ProtocolError(
+                            f"IEC104 active read timed out for {mapped.point_id}"
+                        ) from exc
+                    return replace(sample, point_id=mapped.point_id)
+                finally:
+                    if self._active_reads.get(mapped.ioa) is future:
+                        self._active_reads.pop(mapped.ioa, None)
+        finally:
+            _release_ioa_lock(self._active_read_locks, mapped.ioa, lock)
 
     async def write_one(
         self,
@@ -438,9 +493,7 @@ class IEC104Driver:
         try:
             accepted = await asyncio.to_thread(point.read)
         except Exception as exc:
-            raise ProtocolError(
-                f"IEC104 active read failed for {mapped.point_id}: {exc}"
-            ) from exc
+            raise ProtocolError(f"IEC104 active read failed for {mapped.point_id}: {exc}") from exc
         if not accepted:
             raise ProtocolError(f"IEC104 active read rejected for {mapped.point_id}")
 
@@ -550,11 +603,19 @@ class IEC104Driver:
         mapped: IEC104Point,
         write_value: object,
     ) -> ProtocolWriteResult:
-        lock = self._command_locks.setdefault(
-            mapped.ioa,
-            asyncio.Lock(),
-        )
+        lock = _register_ioa_lock(self._command_locks, mapped.ioa)
 
+        try:
+            return await self._execute_write_locked(mapped, write_value, lock)
+        finally:
+            _release_ioa_lock(self._command_locks, mapped.ioa, lock)
+
+    async def _execute_write_locked(
+        self,
+        mapped: IEC104Point,
+        write_value: object,
+        lock: asyncio.Lock,
+    ) -> ProtocolWriteResult:
         async with lock:
             try:
                 point_type, value = command_to_c104(
@@ -695,7 +756,7 @@ class IEC104Driver:
     async def _cleanup_failed_connect(self) -> None:
         self._closed = True
         self._is_open = False
-        client, connection = self._client, self._connection
+        client = self._client
         self._client = None
         self._connection = None
         self._station = None
@@ -703,9 +764,8 @@ class IEC104Driver:
         self._receive_callback_factory = None
         self._loop = None
 
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.disconnect)
+        # 与 close() 同理：拆除只经 ``Client.stop()``（全程释放 GIL），
+        # 不做显式 ``connection.disconnect()``。
         if client is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)

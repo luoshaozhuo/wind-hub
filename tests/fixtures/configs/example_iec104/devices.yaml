@@ -1,0 +1,8 @@
+devices:
+
+  - device_id: wtg-101
+    model: wtg_iec104_site
+    device_group: turbine_iec104
+    enabled: true
+    endpoint:
+      host: "127.0.0.1"

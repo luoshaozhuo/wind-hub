@@ -508,12 +508,17 @@ class _StartdtBlackhole:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         self._writers.add(writer)
+        # APCI 帧可能跨多次 TCP 读到达，未消费的残余字节必须缓冲到下次读，
+        # 否则被拆开的 STARTDT_ACT 永远不会得到应答（连接挂起）。
+        buffer = bytearray()
         try:
             while True:
                 data = await reader.read(255)
                 if not data:
                     break
-                response = self._respond(data)
+                buffer += data
+                response, consumed = self._respond(bytes(buffer))
+                del buffer[:consumed]
                 if response:
                     writer.write(response)
                     await writer.drain()
@@ -523,8 +528,11 @@ class _StartdtBlackhole:
             self._writers.discard(writer)
             writer.close()
 
-    def _respond(self, data: bytes) -> bytes:
-        """按 APCI 长度逐帧处理；只回 STARTDT_CON 与 S 帧确认。"""
+    def _respond(self, data: bytes) -> tuple[bytes, int]:
+        """按 APCI 长度逐帧处理；只回 STARTDT_CON 与 S 帧确认。
+
+        返回 (响应字节, 已消费字节数)；未凑齐的残余帧由调用方缓冲。
+        """
         out = bytearray()
         offset = 0
         while offset + 6 <= len(data):
@@ -542,7 +550,7 @@ class _StartdtBlackhole:
                 out += bytes([0x68, 0x04, 0x01, 0x00])
                 out += (self._recv_seq * 2).to_bytes(2, "little")
             offset += 2 + length
-        return bytes(out)
+        return bytes(out), offset
 
     async def stop(self) -> None:
         for writer in list(self._writers):
@@ -678,10 +686,12 @@ class TestValueSemantics:
         assert sample.value == pytest.approx(1.0)
 
     async def test_timestamp_mapping(self) -> None:
-        """带时标类型（M_ME_TF_1）的 CP56Time2a → ProtocolSample.timestamp（UTC）。
+        """带时标类型（M_ME_TF_1）线上往返后的时间戳契约。
 
-        M_ME_NC_1 等无时标类型的 ASDU 不携带 CP56Time2a，时标映射只能经
-        带时标 TypeID 验证。
+        CP56Time2a 不编码时区，c104/lib60870-C 解码出的 ``recorded_at``
+        恒为 naive datetime；Core 明确不把 naive 设备时间假定为 UTC，
+        回退为本地接收时刻（``timestamp_source == "local"``）。tz-aware
+        → ``device`` 的映射分支由 unit/contract 层 codec 测试覆盖。
         """
         import c104
 
@@ -704,10 +714,13 @@ class TestValueSemantics:
                     return None
                 return sample if sample.value == pytest.approx(43.0) else None
 
+            before = datetime.now(UTC)
             sample = await wait_until(
                 _probe, timeout=10.0, description="timestamped value received"
             )
-            assert sample.timestamp == stamp
+            after = datetime.now(UTC)
+            assert sample.timestamp_source == "local"
+            assert before <= sample.timestamp <= after
         finally:
             await drv.close()
             await srv.stop()

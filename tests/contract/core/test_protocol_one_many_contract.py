@@ -1,12 +1,12 @@
 """三个协议 Driver 的单点/批量公开接口契约。
 
 所有协议的 read_one/write_one 均为独立实现，不经过 read_many/write_many；
-Modbus write_many 明确不支持。
+Modbus write_many 明确不支持，IEC104 read_many/write_many 明确不支持。
 
 每个协议同时覆盖：
 
 - 未连接时的提前失败路径；
-- **连接成功的正常传输路径**（mock wire 客户端），断言单点操作真实完成
+- **连接成功的正常传输路径**（fake wire 客户端），断言单点操作真实完成
   一次协议读写，且 read_many/write_many 全程未被调用。
 """
 
@@ -29,7 +29,7 @@ from core.application.protocol_contract import (
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.ads.mapping import ADSPoint
-from core.infrastructure.protocol.iec104.driver import IEC104Driver
+from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import IEC104Point
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
@@ -50,7 +50,7 @@ def _fail_many(driver: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Modbus：mock pymodbus client 的成功路径
+# Modbus：fake pymodbus client 的成功路径
 # ---------------------------------------------------------------------------
 
 
@@ -169,7 +169,7 @@ async def test_modbus_single_operations_succeed_without_many_on_connected_path()
 
 
 # ---------------------------------------------------------------------------
-# ADS：mock pyads connection 的成功路径
+# ADS：fake pyads connection 的成功路径
 # ---------------------------------------------------------------------------
 
 
@@ -250,7 +250,7 @@ async def test_ads_single_operations_succeed_without_many_on_connected_path() ->
 
 
 # ---------------------------------------------------------------------------
-# IEC104：镜像读取 + 命令发送的成功路径
+# IEC104：主动读 + 命令发送的成功路径
 # ---------------------------------------------------------------------------
 
 
@@ -268,11 +268,11 @@ class _IEC104CommandPoint:
 
 
 class _IEC104Station:
-    def __init__(self, point: _IEC104CommandPoint) -> None:
-        self._point = point
+    def __init__(self, points: dict[int, _IEC104CommandPoint]) -> None:
+        self._points = points
 
-    def get_point(self, ioa: int) -> _IEC104CommandPoint:
-        return self._point
+    def get_point(self, ioa: int) -> _IEC104CommandPoint | None:
+        return self._points.get(ioa)
 
 
 def _connected_iec104_driver() -> IEC104Driver:
@@ -280,20 +280,24 @@ def _connected_iec104_driver() -> IEC104Driver:
 
     driver = object.__new__(IEC104Driver)
     driver._is_open = True
-    driver._points_by_id = {"p1": IEC104Point(point_id="p1", ioa=100, type_id="C_SC_NA_1")}
-    driver._points_by_ioa = {100: driver._points_by_id["p1"]}
-    driver._dynamic_points = {}
-    driver._samples = {
-        100: ProtocolSample(
-            point_id="p1",
-            value=True,
-            quality=Quality.GOOD,
-            timestamp=datetime.now(UTC),
-        ),
+    driver._closed = False
+    driver._points_by_id = {
+        "p1": IEC104Point(point_id="p1", ioa=100, type_id="M_ME_NC_1"),
+        "c1": IEC104Point(point_id="c1", ioa=200, type_id="C_SC_NA_1"),
     }
+    driver._points_by_ioa = {p.ioa: p for p in driver._points_by_id.values()}
+    driver._dynamic_points = {}
     driver._command_locks = {}
+    driver._active_reads = {}
+    driver._active_read_locks = {}
+    driver._subscriptions = _SubscriptionRegistry()
     command_point = _IEC104CommandPoint(c104.Type.C_SC_NA_1)
-    driver._station = _IEC104Station(command_point)
+    driver._station = _IEC104Station({200: command_point})
+
+    class _Cfg:
+        t1 = 0.2
+
+    driver._config = _Cfg()
     return driver
 
 
@@ -318,17 +322,35 @@ async def test_iec104_single_operations_do_not_delegate_to_many() -> None:
 
 @pytest.mark.asyncio
 async def test_iec104_single_operations_succeed_without_many_on_open_path() -> None:
-    """OPEN 路径：read_one 返回镜像样本；write_one 发送一次真实遥控命令。"""
+    """OPEN 路径：read_one 完成一次主动 C_RD 读；write_one 发送一次真实遥控命令。"""
     driver = _connected_iec104_driver()
     _fail_many(driver)
 
-    sample = await driver.read_one("p1")
+    sent: list[IEC104Point] = []
+
+    async def send(mapped: IEC104Point) -> None:
+        sent.append(mapped)
+
+    driver._send_read = send
+    read_task = asyncio.create_task(driver.read_one("p1"))
+    await asyncio.sleep(0)
+    driver._active_reads[100].set_result(
+        ProtocolSample(
+            point_id="p1",
+            value=True,
+            quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
+        )
+    )
+    sample = await read_task
+    assert [mapped.ioa for mapped in sent] == [100]
     assert sample.value is True
     assert sample.quality == Quality.GOOD
 
-    result = await driver.write_one(ProtocolWrite("p1", True))
+    result = await driver.write_one(ProtocolWrite("c1", True))
     assert result.success
-    command_point = driver._station.get_point(100)
+    command_point = driver._station.get_point(200)
+    assert command_point is not None
     assert len(command_point.transmit_calls) == 1
     assert command_point.value is True
 
