@@ -188,6 +188,7 @@ class IEC104Driver:
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
         self._dynamic_points: dict[int, IEC104Point] = {}
         self._interrogation_lock = asyncio.Lock()
+        self._interrogation_waiter: asyncio.Future[None] | None = None
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._active_read_locks: dict[int, asyncio.Lock] = {}
         self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
@@ -264,11 +265,13 @@ class IEC104Driver:
 
             from .callbacks import (
                 new_point_callback,
+                raw_receive_callback,
                 receive_callback,
                 state_callback,
             )
 
             connection.on_state_change(callable=state_callback(self._handle_state_change))
+            connection.on_receive_raw(callable=raw_receive_callback(self._handle_raw_receive))
             client.on_new_point(callable=new_point_callback(self._handle_new_point))
             self._receive_callback_factory = receive_callback
 
@@ -313,6 +316,7 @@ class IEC104Driver:
             self._receive_callback_factory = None
             self._samples.clear()
             self._reject_pending_reads("IEC104 connection closed")
+            self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
         await self._subscriptions.close_all()
@@ -461,28 +465,92 @@ class IEC104Driver:
                 future.set_exception(ProtocolError(reason))
 
     async def interrogate(self) -> None:
-        """发送站总召，并等待 c104 对命令的应答，不假定全部测点存在。"""
+        """等待本次站总召的 ACT_TERM，而非仅等待发送/激活确认。
+
+        返回值只表示协议级总召流程完成，不保证每个业务测点都已上报。
+        """
         async with self._interrogation_lock:
             if not self._is_open or self._connection is None:
                 raise ProtocolError("IEC104 interrogation requires an OPEN connection")
             c104 = _c104()
+            loop = asyncio.get_running_loop()
+            completed: asyncio.Future[None] = loop.create_future()
+            self._interrogation_waiter = completed
             try:
-                accepted = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self._connection.interrogation,
-                        common_address=self._config.common_addr,
-                        cause=c104.Cot.ACTIVATION,
-                        qualifier=c104.Qoi.STATION,
-                        wait_for_response=True,
-                    ),
-                    timeout=self._config.t1 * 2,
-                )
-            except TimeoutError as exc:
-                raise ProtocolError("IEC104 interrogation timed out") from exc
-            except Exception as exc:
-                raise ProtocolError(f"IEC104 interrogation failed: {exc}") from exc
-            if not accepted:
-                raise ProtocolError("IEC104 general interrogation rejected")
+                try:
+                    accepted = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self._connection.interrogation,
+                            common_address=self._config.common_addr,
+                            cause=c104.Cot.ACTIVATION,
+                            qualifier=c104.Qoi.STATION,
+                            wait_for_response=True,
+                        ),
+                        timeout=self._config.t1 * 2,
+                    )
+                except TimeoutError as exc:
+                    raise ProtocolError("IEC104 interrogation activation timed out") from exc
+                except Exception as exc:
+                    raise ProtocolError(f"IEC104 interrogation failed: {exc}") from exc
+                if not accepted:
+                    raise ProtocolError("IEC104 general interrogation rejected")
+                try:
+                    await asyncio.wait_for(completed, timeout=self._config.t1 * 2)
+                except TimeoutError as exc:
+                    raise ProtocolError("IEC104 interrogation ACT_TERM timed out") from exc
+            finally:
+                if self._interrogation_waiter is completed:
+                    self._interrogation_waiter = None
+
+    def _handle_raw_receive(self, connection: Any, data: bytes) -> None:
+        """识别站总召的否定 ACT_CON 或 ACT_TERM，不重复解码测点。"""
+        if self._closed or connection is not self._connection:
+            return
+        result = self._interrogation_result(data, self._config.common_addr)
+        if result is None:
+            return
+        loop = self._loop
+        if loop is not None:
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._finish_interrogation, result)
+
+    @staticmethod
+    def _interrogation_result(data: bytes, common_addr: int) -> str | None:
+        """从单个完整 I-frame APDU 中提取 C_IC_NA_1 的控制结果。"""
+        # IEC104: APCI(6), TypeID(1), VSQ(1), COT(2), CA(2),
+        # IOA(3), QOI(1)。任何其他帧均不是本次总召控制报文。
+        if (
+            len(data) < 16
+            or data[0] != 0x68
+            or data[1] + 2 != len(data)
+            or data[2] & 0x01
+            or data[6] != 100
+            or int.from_bytes(data[10:12], "little") != common_addr
+            or int.from_bytes(data[12:15], "little") != 0
+            or data[15] != 20
+        ):
+            return None
+        cot = data[8] & 0x3F
+        if cot == 7 and data[8] & 0x40:
+            return "rejected"
+        if cot == 10:
+            return "rejected" if data[8] & 0x40 else "completed"
+        return None
+
+    def _finish_interrogation(self, result: str) -> None:
+        waiter = self._interrogation_waiter
+        if waiter is None or waiter.done():
+            return
+        if result == "completed":
+            waiter.set_result(None)
+        else:
+            waiter.set_exception(ProtocolError("IEC104 general interrogation negative confirmation"))
+
+    def _reject_interrogation(self, reason: str) -> None:
+        waiter = self._interrogation_waiter
+        self._interrogation_waiter = None
+        if waiter is not None and not waiter.done():
+            waiter.set_exception(ProtocolError(reason))
 
     async def _execute_write(
         self,
@@ -682,6 +750,7 @@ class IEC104Driver:
         self._is_open = False
         self._samples.clear()
         self._reject_pending_reads("IEC104 connection lost")
+        self._reject_interrogation("IEC104 connection lost")
 
     def _handle_new_point(
         self,
