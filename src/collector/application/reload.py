@@ -1,8 +1,7 @@
 """配置 diff 与热重载结果模型（Application 层）。
 
 compute_diff 比较两个 :class:`CollectorConfig` 快照，产出结构化差异，
-驱动 CollectorRuntime.reconfigure 的最小化重构。基础比较由各配置 VO
-自身的 ``diff`` 方法按业务 ID 粒度完成；本模块只把语义差异翻译为
+驱动 CollectorRuntime.reconfigure 的最小化重构。直接比较领域对象与解析后的 Sink 契约；本模块把差异翻译为
 Collector 的运行时重构决策（设备/Sink/Task 增删改、点表重注入、
 运行参数应用），不触碰任何运行时组件。
 """
@@ -11,18 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TypeVar
-
-from core.application import ConfigError
-from core.application.port import ConfigTopic
-from core.application.sink_config import SinksConfig
-from core.domain.config import (
-    DeviceModelsConfig,
-    DevicesConfig,
-    PointTablesConfig,
-    TasksConfig,
-)
-
 from .config import CollectorConfig, RuntimeParams
 
 #: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
@@ -151,160 +138,58 @@ class ReloadResult:
     """reload 完成时间，UTC。"""
 
 
-#: compute_diff 消费的主题说明：SYSTEM 由 RuntimeParams/ADS 身份的专门比较覆盖，
-#: UNITS 的 symbol/name 变化不改变任何装配结果与已解析引用——unit id 增删
-#: 会被加载期引用校验拦截，因此不参与运行时差异。
-
-
-def _topic_config(
-    config: CollectorConfig, topic: ConfigTopic, expected: type[_T]
-) -> _T:
-    value = config.configs.get(topic)
-    if value is None:
-        raise ConfigError(
-            f"collector config snapshot lacks the '{topic}' config VO baseline; "
-            "load configs via load_collector_config before computing diffs"
-        )
-    if not isinstance(value, expected):
-        raise ConfigError(
-            f"unexpected {topic} config type: {type(value).__name__}"
-        )
-    return value
-
-
-_T = TypeVar("_T")
+def _differences(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
+    before, after = set(old), set(new)
+    return (
+        sorted(str(key) for key in after - before),
+        sorted(str(key) for key in before - after),
+        sorted(str(key) for key in before & after if old[key] != new[key]),
+    )
 
 
 def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
-    """计算两个完整配置快照的结构化差异。
-
-    基础比较由各配置 VO 的 ``diff`` 方法按业务 ID 粒度完成；本函数只把
-    语义差异翻译为 Collector 的运行时重构决策（设备/Sink/Task 增删改、
-    点表重注入、运行参数应用），不触碰任何运行时组件。
-    """
-    old_devices = _topic_config(old, ConfigTopic.DEVICES, DevicesConfig)
-    new_devices = _topic_config(new, ConfigTopic.DEVICES, DevicesConfig)
-    old_models = _topic_config(old, ConfigTopic.DEVICE_MODELS, DeviceModelsConfig)
-    new_models = _topic_config(new, ConfigTopic.DEVICE_MODELS, DeviceModelsConfig)
-    devices_diff = old_devices.diff(new_devices)
-    models_diff = old_models.diff(new_models)
-
-    old_enabled = {d.device_id for d in old_devices.devices.values() if d.enabled}
-    new_enabled = {d.device_id for d in new_devices.devices.values() if d.enabled}
-
+    """直接比较领域对象与已解析的运行配置，不依赖旧主题 VO。"""
+    old_devices, new_devices = old.devices, new.devices
+    added, removed, changed = _differences(dict(old_devices), dict(new_devices))
+    common = set(old_devices) & set(new_devices)
+    updated = set(changed)
+    for device_id in common:
+        previous = old_devices[device_id]
+        current = new_devices[device_id]
+        if (
+            old.device_models.get(previous.device_model_id)
+            != new.device_models.get(current.device_model_id)
+            or old.protocol_options_by_device.get(device_id)
+            != new.protocol_options_by_device.get(device_id)
+            or old.point_table_for_device(device_id) != new.point_table_for_device(device_id)
+        ):
+            updated.add(str(device_id))
     devices = DeviceDiff(
-        # enabled 翻转等价于运行时索引的增删：disabled 设备不进索引。
-        added=sorted(new_enabled - old_enabled),
-        removed=sorted(old_enabled - new_enabled),
+        added=added, removed=removed,
+        updated=sorted(updated),
+        unchanged=sorted(str(item) for item in common if str(item) not in updated),
     )
-    common = old_enabled & new_enabled
-    modified_ids = set(devices_diff.changed) & common
-    # 型号变化（连接默认值 / 点表绑定 / 协议）影响其全部实例的设备签名。
-    changed_models = {
-        key.removeprefix("device_models.")
-        for key in (*models_diff.added, *models_diff.changed)
-        if key.startswith("device_models.")
-    }
-    model_by_device = {
-        d.device_id: d.model
-        for d in (*old_devices.devices.values(), *new_devices.devices.values())
-    }
-    devices.updated = sorted(
-        modified_ids
-        | {device_id for device_id in common if model_by_device.get(device_id) in changed_models}
-    )
-    devices.unchanged = sorted(common - set(devices.updated))
 
-    # 点表整表粒度比较——任一测点/元数据变化触发整表重注入。
-    points_diff = _topic_config(old, ConfigTopic.POINTS, PointTablesConfig).diff(
-        _topic_config(new, ConfigTopic.POINTS, PointTablesConfig)
-    )
     changed_tables = sorted(
-        set(points_diff.added) | set(points_diff.removed) | set(points_diff.changed)
+        str(key) for key in set(old.point_tables) | set(new.point_tables)
+        if old.point_tables.get(key) != new.point_tables.get(key)
     )
-
-    old_sinks = _topic_config(old, ConfigTopic.SINKS, SinksConfig)
-    new_sinks = _topic_config(new, ConfigTopic.SINKS, SinksConfig)
-    sinks_diff = old_sinks.diff(new_sinks)
+    added_sinks, removed_sinks, changed_sinks = _differences(dict(old.sinks), dict(new.sinks))
+    # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
     sinks = SinkDiff(
-        added=sorted(sinks_diff.added),
-        removed=sorted(sinks_diff.removed),
+        added=added_sinks, removed=removed_sinks, updated=changed_sinks,
+        unchanged=sorted(set(old.sinks) & set(new.sinks) - set(changed_sinks)),
     )
-    common_sinks = {sink.name for sink in old_sinks.sinks} & {
-        sink.name for sink in new_sinks.sinks
-    }
-    sink_updated = set(sinks_diff.changed) & common_sinks
-    # 点表内容或设备→型号→点表绑定的变化可能改变 Sink 点的解析结果
-    # （缺省 datatype/unit 继承源点、source 引用换表）。
-    affected_tables = set(changed_tables) | _bound_tables_of_models(old, new, changed_models)
-    if affected_tables:
-        sink_updated |= _sinks_bound_to_tables(old, new, affected_tables) & common_sinks
-    sinks.updated = sorted(sink_updated)
-    sinks.unchanged = sorted(common_sinks - set(sinks.updated))
-
-    tasks_diff = _topic_config(old, ConfigTopic.TASKS, TasksConfig).diff(
-        _topic_config(new, ConfigTopic.TASKS, TasksConfig)
-    )
-    old_task_ids = set(old.tasks)
-    new_task_ids = set(new.tasks)
+    added_tasks, removed_tasks, changed_tasks = _differences(dict(old.tasks), dict(new.tasks))
     tasks = TaskDiff(
-        added=sorted(new_task_ids - old_task_ids),
-        removed=sorted(old_task_ids - new_task_ids),
+        added=added_tasks, removed=removed_tasks, updated=changed_tasks,
+        unchanged=sorted(set(old.tasks) & set(new.tasks) - set(changed_tasks)),
     )
-    tasks.updated = sorted(set(tasks_diff.changed) & old_task_ids & new_task_ids)
-    tasks.unchanged = sorted((old_task_ids & new_task_ids) - set(tasks.updated))
-
     return ConfigDiff(
-        devices=devices,
-        sinks=sinks,
-        tasks=tasks,
-        points_changed=bool(changed_tables),
-        point_tables_changed=changed_tables,
+        devices=devices, sinks=sinks, tasks=tasks,
+        points_changed=bool(changed_tables), point_tables_changed=changed_tables,
         runtime_changed=any(
             getattr(old.runtime, name) != getattr(new.runtime, name)
             for name in HOT_RELOADABLE_RUNTIME_FIELDS
         ),
     )
-
-
-def _bound_tables_of_models(
-    old: CollectorConfig, new: CollectorConfig, changed_models: set[str]
-) -> set[str]:
-    """变化型号在新旧配置中绑定的全部点表名。"""
-    tables: set[str] = set()
-    for config in (old, new):
-        models = config.configs.get(ConfigTopic.DEVICE_MODELS)
-        if not isinstance(models, DeviceModelsConfig):
-            continue
-        for model_id in changed_models:
-            model = models.device_models.get(model_id)
-            if model is not None:
-                tables.add(model.point_table)
-    return tables
-
-
-def _sinks_bound_to_tables(
-    old: CollectorConfig, new: CollectorConfig, changed_tables: set[str]
-) -> set[str]:
-    """返回引用了变化点表（经 device → model → point_table 绑定）的 Sink 名。"""
-    names: set[str] = set()
-    for config in (old, new):
-        models = config.configs.get(ConfigTopic.DEVICE_MODELS)
-        devices = config.configs.get(ConfigTopic.DEVICES)
-        sinks = config.configs.get(ConfigTopic.SINKS)
-        if not isinstance(models, DeviceModelsConfig) or not isinstance(
-            devices, DevicesConfig
-        ) or not isinstance(sinks, SinksConfig):
-            continue
-        table_by_device = {
-            d.device_id: models.device_models[d.model].point_table
-            for d in devices.devices.values()
-            if d.model in models.device_models
-        }
-        for sink in sinks.sinks:
-            if any(
-                table_by_device.get(point.source.device_id) in changed_tables
-                for point in sink.points
-            ):
-                names.add(sink.name)
-    return names
