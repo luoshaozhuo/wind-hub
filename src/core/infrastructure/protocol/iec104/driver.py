@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
-from core.application.errors import ConfigError, ProtocolError
+from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
     ProtocolCapability,
@@ -51,7 +51,8 @@ class _Subscription:
         self._callback = callback
         self._ioas = ioas
         self._closed = False
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._pending: dict[str, ProtocolSample] = {}
+        self._worker: asyncio.Task[None] | None = None
 
     async def close(self) -> None:
         """注销订阅并等待已调度 callback 完成。
@@ -63,27 +64,30 @@ class _Subscription:
         self._closed = True
         self._registry.unsubscribe(self)
 
-        current = asyncio.current_task()
-        tasks = tuple(task for task in self._tasks if task is not current)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        self._pending.clear()
+        worker = self._worker
+        if worker is not None and worker is not asyncio.current_task():
+            await worker
 
     def schedule(self, sample: ProtocolSample) -> None:
-        """在当前 event loop 调度一次 callback。"""
+        """保持每个测点最新的待处理样本，避免慢回调导致任务无限堆积。"""
         if self._closed:
             return
-        task = asyncio.create_task(self._invoke(sample))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._pending[sample.point_id] = sample
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._drain())
 
-    async def _invoke(self, sample: ProtocolSample) -> None:
-        try:
-            await self._callback(sample)
-        except Exception:
-            logger.exception(
-                "IEC104 subscriber callback failed for point '%s'",
-                sample.point_id,
-            )
+    async def _drain(self) -> None:
+        while self._pending and not self._closed:
+            point_id = next(iter(self._pending))
+            sample = self._pending.pop(point_id)
+            try:
+                await self._callback(sample)
+            except Exception:
+                logger.exception(
+                    "IEC104 subscriber callback failed for point '%s'",
+                    sample.point_id,
+                )
 
 
 class _SubscriptionRegistry:
@@ -102,7 +106,7 @@ class _SubscriptionRegistry:
         if ioas is None:
             self._global.append(subscription)
             return subscription
-        for ioa in ioas:
+        for ioa in dict.fromkeys(ioas):
             self._ioa.setdefault(ioa, []).append(subscription)
         return subscription
 
@@ -111,7 +115,7 @@ class _SubscriptionRegistry:
             with contextlib.suppress(ValueError):
                 self._global.remove(subscription)
             return
-        for ioa in subscription._ioas:
+        for ioa in dict.fromkeys(subscription._ioas):
             subscriptions = self._ioa.get(ioa)
             if subscriptions is None:
                 continue
@@ -130,15 +134,6 @@ class _SubscriptionRegistry:
         for subscription in subscriptions:
             await subscription.close()
 
-    async def dispatch(self, sample: ProtocolSample, ioa: int) -> None:
-        """向全局与当前 IOA 订阅者分发样本。"""
-        subscriptions = [
-            *self._global,
-            *self._ioa.get(ioa, []),
-        ]
-        for subscription in subscriptions:
-            subscription.schedule(sample)
-
 
 def _c104() -> Any:
     try:
@@ -151,8 +146,7 @@ def _c104() -> Any:
 class IEC104Driver:
     """单个 Endpoint 的 IEC104 主站 Driver。
 
-    c104 自己运行 APCI/ASDU 状态机和内部重连。本 Driver 只维护共享镜像，
-    断线时立即清空镜像，避免 read 返回旧值。
+    c104 负责 APCI/ASDU 通信。Driver 不缓存业务点值，重连与业务恢复由外部负责。
     """
 
     def __init__(
@@ -187,12 +181,13 @@ class IEC104Driver:
         self._is_open = False
         self._closed = True
 
-        self._samples: dict[int, ProtocolSample] = {}
         # 动态 IOA 接收关联（协议会话级，不是 PointTable 登记）：任何动态点
-        # 操作按需登记，使自发上送/总召响应能写入镜像；跨断连保留，重连后
+        # 操作按需登记，使上报和总召响应能路由到订阅者；跨断连保留，重连后
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
         self._dynamic_points: dict[int, IEC104Point] = {}
+        self._interrogation_lock = asyncio.Lock()
+        self._interrogation_waiter: asyncio.Future[None] | None = None
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._active_read_locks: dict[int, asyncio.Lock] = {}
         self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
@@ -202,8 +197,7 @@ class IEC104Driver:
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建 IOA 寻址索引（不断开连接）。
 
-        已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
-        的残留样本不再被读取（读取按 point_id 经新索引寻址）。
+        已注册的 c104 通知点由上层重启订阅后按新映射重新注册。
         """
         next_by_id, next_by_ioa = build_iec104_index(
             list(point_table.points.values()),
@@ -211,11 +205,9 @@ class IEC104Driver:
         for point in point_table.points.values():
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
                 validate_iec104_write_type(next_by_id[point.point_id])
-        # Commit the new mapping only after complete validation; old samples
-        # must not be exposed under a reassigned IOA or point identity.
+        # 验证完成后统一替换映射，旧映射下的待处理读取将被拒绝。
         self._point_table_id = point_table.point_table_id
         self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
-        self._samples.clear()
         self._reject_pending_reads("IEC104 point table changed")
 
     def _validate_write_types(self, point_table: PointTable) -> None:
@@ -231,7 +223,6 @@ class IEC104Driver:
             {
                 ProtocolCapability.READ,
                 ProtocolCapability.WRITE,
-                ProtocolCapability.WRITE_MANY,
                 ProtocolCapability.SUBSCRIBE,
                 ProtocolCapability.INTERROGATE,
             }
@@ -248,7 +239,6 @@ class IEC104Driver:
             self._is_open = False
             self._loop = asyncio.get_running_loop()
             self._open_event = asyncio.Event()
-            self._samples.clear()
 
             client = c104.Client(command_timeout_ms=int(self._config.t1 * 2 * 1000))
             connection = client.add_connection(
@@ -270,11 +260,13 @@ class IEC104Driver:
 
             from .callbacks import (
                 new_point_callback,
+                raw_receive_callback,
                 receive_callback,
                 state_callback,
             )
 
             connection.on_state_change(callable=state_callback(self._handle_state_change))
+            connection.on_receive_raw(callable=raw_receive_callback(self._handle_raw_receive))
             client.on_new_point(callable=new_point_callback(self._handle_new_point))
             self._receive_callback_factory = receive_callback
 
@@ -317,8 +309,8 @@ class IEC104Driver:
             self._station = None
             self._open_event = None
             self._receive_callback_factory = None
-            self._samples.clear()
             self._reject_pending_reads("IEC104 connection closed")
+            self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
         await self._subscriptions.close_all()
@@ -357,25 +349,27 @@ class IEC104Driver:
         )
 
     async def read_one(self, point: str | IEC104Point) -> ProtocolSample:
-        """读取一个点的最新镜像，不主动发 wire 请求。
-
-        动态 IEC104Point 按自身 IOA 访问镜像，不查 ``_points_by_id``；
-        返回样本的身份重标为本次输入对象的 point_id，值、质量与时标
-        保持镜像原样（不把旧镜像伪装成新的设备采样）。
-        """
+        """发送 C_RD_NA_1，并等待指定 IOA 的本次读取响应。"""
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
         mapped = self._resolve_point(point)
-        self._register_dynamic_ioa(mapped)
-        sample = self._samples.get(mapped.ioa)
-        if sample is None:
-            return ProtocolSample(
-                point_id=mapped.point_id,
-                value=None,
-                quality=Quality.BAD,
-                timestamp=datetime.now(UTC),
-            )
-        return replace(sample, point_id=mapped.point_id)
+        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
+        async with lock:
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[ProtocolSample] = loop.create_future()
+            self._active_reads[mapped.ioa] = future
+            try:
+                await self._send_read(mapped)
+                try:
+                    sample = await asyncio.wait_for(future, timeout=self._config.t1)
+                except TimeoutError as exc:
+                    raise ProtocolError(
+                        f"IEC104 active read timed out for {mapped.point_id}"
+                    ) from exc
+                return replace(sample, point_id=mapped.point_id)
+            finally:
+                if self._active_reads.get(mapped.ioa) is future:
+                    self._active_reads.pop(mapped.ioa, None)
 
     async def write_one(
         self,
@@ -407,52 +401,15 @@ class IEC104Driver:
         self,
         points: Sequence[str | IEC104Point],
     ) -> tuple[ProtocolSample, ...]:
-        """读取 c104 回调维护的最新镜像，不主动发 wire 请求。
-
-        动态 IOA 与注册点可混合；顺序与重复项与输入一致，逐点身份重标
-        为各自输入对象的 point_id。
-        """
-        if not points:
-            return ()
-        if not self._is_open:
-            raise ProtocolError("IEC104 read requires an OPEN connection")
-
-        results: list[ProtocolSample] = []
-        for point in points:
-            mapped = self._resolve_point(point)
-            self._register_dynamic_ioa(mapped)
-            sample = self._samples.get(mapped.ioa)
-            if sample is None:
-                results.append(
-                    ProtocolSample(
-                        point_id=mapped.point_id,
-                        value=None,
-                        quality=Quality.BAD,
-                        timestamp=datetime.now(UTC),
-                    )
-                )
-            else:
-                results.append(replace(sample, point_id=mapped.point_id))
-        return tuple(results)
+        """IEC104 不支持任意 IOA 集合的批量读取。"""
+        raise ProtocolCapabilityError("iec104 does not support read_many")
 
     async def write_many(
         self,
         writes: Sequence[ProtocolWrite],
     ) -> tuple[ProtocolWriteResult, ...]:
-        """执行 IEC104 遥控/设点，并按 ACT_CON 结果返回逐点状态。"""
-        if not writes:
-            return ()
-        if not self._is_open or self._station is None:
-            raise ProtocolError("IEC104 write requires an OPEN connection")
-
-        return tuple(
-            await asyncio.gather(
-                *(
-                    self._execute_write(self._mapped_point(write.point_id), write.value)
-                    for write in writes
-                )
-            )
-        )
+        """IEC104 不支持原子批量控制命令。"""
+        raise ProtocolCapabilityError("iec104 does not support write_many")
 
     async def subscribe(
         self,
@@ -477,91 +434,22 @@ class IEC104Driver:
             ioas = None
         return self._subscriptions.subscribe(ioas, callback)
 
-    async def request_read_one(self, point: str | IEC104Point) -> None:
-        """显式发送 IEC104 单点读命令；数据仍通过接收回调更新镜像。
-
-        此方法仅确认 c104 已接受发送操作，不保证远端值已经返回。
-        使用方应订阅后续样本；不能把旧镜像作为本次请求的返回值。
-
-        动态 IEC104Point：c104 要求本地存在对应 Point 才能发送单点读，
-        本地尚无该 IOA 时按动态点的监测类型 type_id 做内部注册（协议
-        会话对象，不是 PointTable 登记）；缺少监测 type_id 时如实拒绝。
-        """
+    async def _send_read(self, mapped: IEC104Point) -> None:
+        """发送单点读取请求；调用方负责等待 REQUEST 响应。"""
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 active read requires an OPEN connection")
-        mapped = self._resolve_point(point)
-        c104_point = self._station.get_point(mapped.ioa)
-        if c104_point is None:
-            if isinstance(point, str):
-                raise ProtocolError(
-                    f"IEC104 IOA {mapped.ioa} is not registered; "
-                    "subscribe or receive the point before active reading"
-                )
-            self._register_dynamic_ioa(mapped)
-            c104_point = self._register_monitoring_point(mapped)
+        self._register_dynamic_ioa(mapped)
+        point = self._station.get_point(mapped.ioa)
+        if point is None:
+            point = self._register_monitoring_point(mapped)
         try:
-            accepted = await asyncio.to_thread(c104_point.read)
+            accepted = await asyncio.to_thread(point.read)
         except Exception as exc:
             raise ProtocolError(
                 f"IEC104 active read failed for {mapped.point_id}: {exc}"
             ) from exc
         if not accepted:
             raise ProtocolError(f"IEC104 active read rejected for {mapped.point_id}")
-
-    async def request_read_many(self, points: Sequence[str | IEC104Point]) -> None:
-        """依输入顺序逐点发送主动读请求，不将镜像作为响应返回。
-
-        IEC104 单点读（C_RD_NA_1）逐 IOA 发送，不存在真正的批量 wire
-        操作，本方法不伪造批量请求。
-        """
-        if not points:
-            return
-        for point in points:
-            await self.request_read_one(point)
-
-    async def read_active_one(
-        self, point: str | IEC104Point, *, timeout: float | None = None
-    ) -> ProtocolSample:
-        """主动读取并等待匹配 IOA/COT=REQUEST 的响应，不使用本地旧镜像。
-
-        IEC104 不含每次单点读的事务 ID，因此同 IOA 的请求必须串行。
-        超时后到达的极晚响应与下次请求无法在协议层完全区分。返回样本
-        的身份重标为本次输入对象的 point_id（同 IOA 不同逻辑点隔离）。
-        """
-        if not self._is_open:
-            raise ProtocolError("IEC104 active read requires an OPEN connection")
-        mapped = self._resolve_point(point)
-        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
-        async with lock:
-            loop = asyncio.get_running_loop()
-            future: asyncio.Future[ProtocolSample] = loop.create_future()
-            self._active_reads[mapped.ioa] = future
-            try:
-                await self.request_read_one(point)
-                try:
-                    sample = await asyncio.wait_for(
-                        future, timeout=timeout if timeout is not None else self._config.t1
-                    )
-                    return replace(sample, point_id=mapped.point_id)
-                except TimeoutError as exc:
-                    raise ProtocolError(
-                        f"IEC104 active read timed out for {mapped.point_id}"
-                    ) from exc
-            finally:
-                if self._active_reads.get(mapped.ioa) is future:
-                    self._active_reads.pop(mapped.ioa, None)
-
-    async def read_active_many(
-        self, points: Sequence[str | IEC104Point], *, timeout: float | None = None
-    ) -> tuple[ProtocolSample, ...]:
-        """并发读不同 IOA，同 IOA 的请求通过独立锁串行执行。"""
-        if not points:
-            return ()
-        return tuple(
-            await asyncio.gather(
-                *(self.read_active_one(point, timeout=timeout) for point in points)
-            )
-        )
 
     def _reject_pending_reads(self, reason: str) -> None:
         pending = tuple(self._active_reads.values())
@@ -571,23 +459,99 @@ class IEC104Driver:
                 future.set_exception(ProtocolError(reason))
 
     async def interrogate(self) -> None:
-        """显式发送一次 General Interrogation（QOI=20）。"""
-        if not self._is_open or self._connection is None:
-            raise ProtocolError("IEC104 interrogation requires an OPEN connection")
+        """等待本次站总召的 ACT_TERM，而非仅等待发送/激活确认。
 
-        c104 = _c104()
-        connection = self._connection
-        accepted = await asyncio.to_thread(
-            connection.interrogation,
-            common_address=self._config.common_addr,
-            cause=c104.Cot.ACTIVATION,
-            qualifier=c104.Qoi.STATION,
-        )
-        if not accepted:
-            raise ProtocolError(
-                f"IEC104 general interrogation rejected by "
-                f"{self._config.host}:{self._config.port}"
+        返回值只表示协议级总召流程完成，不保证每个业务测点都已上报。
+        """
+        async with self._interrogation_lock:
+            if not self._is_open or self._connection is None:
+                raise ProtocolError("IEC104 interrogation requires an OPEN connection")
+            c104 = _c104()
+            loop = asyncio.get_running_loop()
+            completed: asyncio.Future[None] = loop.create_future()
+            self._interrogation_waiter = completed
+            try:
+                try:
+                    accepted = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self._connection.interrogation,
+                            common_address=self._config.common_addr,
+                            cause=c104.Cot.ACTIVATION,
+                            qualifier=c104.Qoi.STATION,
+                            wait_for_response=True,
+                        ),
+                        timeout=self._config.t1 * 2,
+                    )
+                except TimeoutError as exc:
+                    raise ProtocolError("IEC104 interrogation activation timed out") from exc
+                except Exception as exc:
+                    raise ProtocolError(f"IEC104 interrogation failed: {exc}") from exc
+                if not accepted:
+                    raise ProtocolError("IEC104 general interrogation rejected")
+                try:
+                    await asyncio.wait_for(completed, timeout=self._config.t1 * 2)
+                except TimeoutError as exc:
+                    raise ProtocolError("IEC104 interrogation ACT_TERM timed out") from exc
+            finally:
+                if self._interrogation_waiter is completed:
+                    self._interrogation_waiter = None
+                if completed.done() and not completed.cancelled():
+                    completed.exception()
+                else:
+                    completed.cancel()
+
+    def _handle_raw_receive(self, connection: Any, data: bytes) -> None:
+        """识别站总召的否定 ACT_CON 或 ACT_TERM，不重复解码测点。"""
+        if self._closed or connection is not self._connection:
+            return
+        result = self._interrogation_result(data, self._config.common_addr)
+        if result is None:
+            return
+        loop = self._loop
+        if loop is not None:
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._finish_interrogation, result)
+
+    @staticmethod
+    def _interrogation_result(data: bytes, common_addr: int) -> str | None:
+        """从单个完整 I-frame APDU 中提取 C_IC_NA_1 的控制结果。"""
+        # IEC104: APCI(6), TypeID(1), VSQ(1), COT(2), CA(2),
+        # IOA(3), QOI(1)。任何其他帧均不是本次总召控制报文。
+        if (
+            len(data) < 16
+            or data[0] != 0x68
+            or data[1] + 2 != len(data)
+            or data[2] & 0x01
+            or data[6] != 100
+            or data[7] != 1
+            or int.from_bytes(data[10:12], "little") != common_addr
+            or int.from_bytes(data[12:15], "little") != 0
+            or data[15] != 20
+        ):
+            return None
+        cot = data[8] & 0x3F
+        if cot == 7 and data[8] & 0x40:
+            return "rejected"
+        if cot == 10:
+            return "rejected" if data[8] & 0x40 else "completed"
+        return None
+
+    def _finish_interrogation(self, result: str) -> None:
+        waiter = self._interrogation_waiter
+        if waiter is None or waiter.done():
+            return
+        if result == "completed":
+            waiter.set_result(None)
+        else:
+            waiter.set_exception(
+                ProtocolError("IEC104 general interrogation negative confirmation")
             )
+
+    def _reject_interrogation(self, reason: str) -> None:
+        waiter = self._interrogation_waiter
+        self._interrogation_waiter = None
+        if waiter is not None and not waiter.done():
+            waiter.set_exception(ProtocolError(reason))
 
     async def _execute_write(
         self,
@@ -747,7 +711,6 @@ class IEC104Driver:
         self._station = None
         self._open_event = None
         self._receive_callback_factory = None
-        self._samples.clear()
         self._loop = None
 
         if connection is not None:
@@ -785,8 +748,8 @@ class IEC104Driver:
             return
 
         self._is_open = False
-        self._samples.clear()
         self._reject_pending_reads("IEC104 connection lost")
+        self._reject_interrogation("IEC104 connection lost")
 
     def _handle_new_point(
         self,
@@ -810,6 +773,16 @@ class IEC104Driver:
                 type=point_type,
             )
         if point is None:
+            return
+        registered_type = getattr(point, "type", point_type)
+        if registered_type != point_type:
+            logger.error(
+                "IEC104 IOA %s TypeID mismatch: received %s, registered %s; "
+                "the existing c104 Point cannot safely decode the new type",
+                io_address,
+                point_type,
+                registered_type,
+            )
             return
         point.on_receive(callable=factory(self._handle_point_receive))
 
@@ -858,19 +831,16 @@ class IEC104Driver:
         if mapped is None or mapped.point_id != sample.point_id:
             # A queued callback may belong to the previous point-table generation.
             return
+        if negative and not requested:
+            return
         if negative and requested:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
                 waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
             return
-        self._samples[ioa] = sample
         if requested:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
-                if negative:
-                    waiter.set_exception(
-                        ProtocolError(f"IEC104 negative read response at IOA {ioa}")
-                    )
-                else:
-                    waiter.set_result(sample)
-        asyncio.create_task(self._subscriptions.dispatch(sample, ioa))
+                waiter.set_result(sample)
+        for subscription in (*self._subscriptions._global, *self._subscriptions._ioa.get(ioa, [])):
+            subscription.schedule(sample)

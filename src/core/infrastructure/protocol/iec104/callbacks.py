@@ -55,3 +55,14 @@ def receive_callback(
         return handler(point, message)
 
     return callback
+
+
+def raw_receive_callback(
+    handler: Callable[[c104.Connection, bytes], None],
+) -> Callable[[c104.Connection, bytes], None]:
+    """桥接 c104 的原始 APDU 回调，仅用于控制流程确认。"""
+
+    def callback(connection: c104.Connection, data: bytes) -> None:
+        handler(connection, data)
+
+    return callback
