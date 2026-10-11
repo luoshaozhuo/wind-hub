@@ -195,7 +195,7 @@ class TestSubscriptionRestartPending:
         # 实例保持已登记（不是消失），进程存活。
         assert proc.is_running()
         instance = await run_ctl_async(
-            "task-instance", IEC104_INSTANCE_ID, target=proc.grpc_target
+            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
         )
         assert instance.returncode == 0
 
@@ -216,7 +216,7 @@ class TestSubscriptionRestartPending:
         assert activated.success is True, list(activated.errors)
 
         instance = await run_ctl_async(
-            "task-instance", IEC104_INSTANCE_ID, target=proc.grpc_target
+            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
         )
         assert json.loads(instance.stdout)["state"] == "running"
         await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=30.0)

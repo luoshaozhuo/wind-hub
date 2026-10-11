@@ -8,7 +8,6 @@ import pytest
 
 from commander.application.command import Command, CommandResult
 from commander.application.session import PointReading
-from commander.infrastructure.grpc import commander_pb2 as pb
 from commander.infrastructure.grpc.io_codec import (
     command_from_proto,
     command_result_to_proto,
@@ -18,6 +17,7 @@ from commander.infrastructure.grpc.io_codec import (
     point_value_to_proto,
 )
 from core.application import Quality
+from core.infrastructure.rpc import commander_pb2 as pb
 
 
 @pytest.mark.parametrize(

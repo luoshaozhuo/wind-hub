@@ -12,8 +12,8 @@ from google.protobuf import empty_pb2
 
 from commander.assembly import CommanderApp, assemble_commander
 from commander.infrastructure.grpc import build_grpc_server
-from commander.infrastructure.grpc import commander_pb2 as pb
-from commander.infrastructure.grpc import commander_pb2_grpc as pb_grpc
+from core.infrastructure.rpc import commander_pb2 as pb
+from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 from tests.support.new_commander import write_minimal_config_tree
 
 

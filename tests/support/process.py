@@ -61,7 +61,7 @@ def run_ctl(
 
     Args:
         args: 子命令及参数（如 ``("start", "task-1")``）。
-        target: Collector gRPC endpoint（``host:port``）。
+        target: Collector gRPC endpoint（``host:port``）；helper 固定使用 collector 命名空间。
         rpc_timeout: ctl 单次 RPC 超时（秒）。
         exec_timeout: 子进程整体硬超时（秒）；超时杀进程并按失败返回。
 
@@ -70,10 +70,11 @@ def run_ctl(
     """
     cmd = [
         "wind-hub-ctl",
-        "--target",
-        target,
         "--rpc-timeout",
         str(rpc_timeout),
+        "collector",
+        "--target",
+        target,
         *args,
     ]
     try:

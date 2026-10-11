@@ -13,11 +13,12 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
+from core.infrastructure.rpc import commander_pb2 as pb
+from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
+
 from ...application.diagnostic import DeviceVerifyResult, PointVerifyResult
 from ...application.errors import CommandError
 from ...assembly import CommanderApp
-from . import commander_pb2 as pb
-from . import commander_pb2_grpc as pb_grpc
 from .io_codec import (
     command_from_proto,
     command_result_to_proto,

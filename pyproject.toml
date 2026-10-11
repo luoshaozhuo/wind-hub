@@ -10,7 +10,7 @@ packages = [
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
     { include = "wind_hub_server", from = "src" },
-    { include = "wind_hub_ctl", from = "src" },
+    { include = "ctl", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -58,7 +58,10 @@ import-linter = "^2.0"
 types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
-
+wind-hub-collector = "collector.main:main"
+wind-hub-ctl = "ctl.main:main"
+wind-hub-server = "wind_hub_server.main:main"
+wind-hub-commander = "commander.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -104,10 +107,10 @@ ignore_missing_imports = true
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
 module = [
-    "collector.infrastructure.grpc.collector_pb2",
-    "collector.infrastructure.grpc.collector_pb2_grpc",
-    "commander.infrastructure.grpc.commander_pb2",
-    "commander.infrastructure.grpc.commander_pb2_grpc",
+    "core.infrastructure.rpc.collector_pb2",
+    "core.infrastructure.rpc.collector_pb2_grpc",
+    "core.infrastructure.rpc.commander_pb2",
+    "core.infrastructure.rpc.commander_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
 
@@ -148,7 +151,7 @@ root_packages = [
     "collector",
     "commander",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 
 
@@ -160,7 +163,7 @@ type = "forbidden"
 source_modules = ["core"]
 forbidden_modules = [
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 
 [[tool.importlinter.contracts]]
@@ -181,7 +184,7 @@ type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
     "collector",
 ]
 
@@ -191,7 +194,7 @@ type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
     "commander",
 ]
 
@@ -219,13 +222,17 @@ layers = [
 name = "server 不得依赖 ctl"
 type = "forbidden"
 source_modules = ["wind_hub_server"]
-forbidden_modules = ["wind_hub_ctl"]
+forbidden_modules = ["ctl"]
 
 [[tool.importlinter.contracts]]
-name = "ctl 不得依赖 server"
+name = "ctl 只依赖 shared core，不依赖进程包"
 type = "forbidden"
-source_modules = ["wind_hub_ctl"]
-forbidden_modules = ["wind_hub_server"]
+source_modules = ["ctl"]
+forbidden_modules = [
+    "collector",
+    "commander",
+    "wind_hub_server",
+]
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
@@ -241,10 +248,10 @@ source_modules = [
     "commander.domain",
 ]
 forbidden_modules = [
-    "collector.infrastructure.grpc.collector_pb2",
-    "collector.infrastructure.grpc.collector_pb2_grpc",
-    "commander.infrastructure.grpc.commander_pb2",
-    "commander.infrastructure.grpc.commander_pb2_grpc",
+    "core.infrastructure.rpc.collector_pb2",
+    "core.infrastructure.rpc.collector_pb2_grpc",
+    "core.infrastructure.rpc.commander_pb2",
+    "core.infrastructure.rpc.commander_pb2_grpc",
 ]
 
 # ---- server application 内部分层 ----
@@ -261,7 +268,7 @@ forbidden_modules = ["wind_hub_server.adapter", "wind_hub_server.infra"]
 name = "server application 不得依赖生成的 protobuf"
 type = "forbidden"
 source_modules = ["wind_hub_server.application"]
-forbidden_modules = ["collector.infrastructure.grpc", "commander.infrastructure.grpc"]
+forbidden_modules = ["core.infrastructure.rpc"]
 
 [[tool.importlinter.contracts]]
 name = "server application capability 分层"

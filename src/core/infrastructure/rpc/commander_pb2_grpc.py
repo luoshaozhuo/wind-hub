@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from commander.infrastructure.grpc import commander_pb2 as commander_dot_infrastructure_dot_grpc_dot_commander__pb2
+from core.infrastructure.rpc import commander_pb2 as commander_dot_infrastructure_dot_grpc_dot_commander__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 GRPC_GENERATED_VERSION = '1.81.1'
@@ -19,7 +19,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in commander/infrastructure/grpc/commander_pb2_grpc.py depends on'
+        + ' but the generated code in core/infrastructure/rpc/commander_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'

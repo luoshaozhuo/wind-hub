@@ -4,7 +4,7 @@ isort:skip_file
 """
 
 from collections import abc as _abc
-from collector.infrastructure.grpc import collector_pb2 as _collector_pb2
+from core.infrastructure.rpc import collector_pb2 as _collector_pb2
 from google.protobuf import empty_pb2 as _empty_pb2
 from grpc import aio as _aio
 import abc as _abc_1

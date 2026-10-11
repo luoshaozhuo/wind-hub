@@ -1,4 +1,4 @@
-"""重新生成 Collector、Commander 各自的 Protobuf/gRPC Python 代码。"""
+"""重新生成 shared core 的 Collector/Commander Protobuf/gRPC 代码。"""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ from grpc_tools import protoc
 ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
 PROTO_FILES = (
-    SRC_ROOT / "collector" / "infrastructure" / "grpc" / "collector.proto",
-    SRC_ROOT / "commander" / "infrastructure" / "grpc" / "commander.proto",
+    SRC_ROOT / "core" / "infrastructure" / "rpc" / "collector.proto",
+    SRC_ROOT / "core" / "infrastructure" / "rpc" / "commander.proto",
 )
 
 
 def main() -> int:
-    """使用项目内 proto 生成 pb2、gRPC stub 及 mypy stub。"""
+    """使用 shared core proto 生成 pb2、gRPC stub 及 mypy stub。"""
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
     for proto in PROTO_FILES:
         result = protoc.main(

@@ -13,8 +13,8 @@ from google.protobuf import empty_pb2
 
 from collector.assembly import CollectorApp, assemble_collector
 from collector.infrastructure.grpc import build_grpc_server
-from collector.infrastructure.grpc import collector_pb2 as pb
-from collector.infrastructure.grpc import collector_pb2_grpc as pb_grpc
+from core.infrastructure.rpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 from tests.support.new_collector import write_collector_config_tree
 
 

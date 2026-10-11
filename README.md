@@ -18,7 +18,7 @@
 | `src/wind_hub_collector` | 进程 `wind-hub-collector` | 采集运行时：协议接入、采集 Task 调度、Sink 分发，对外提供 gRPC 控制面 |
 | `src/wind_hub_commander` | 进程 `wind-hub-commander` | 即时设备命令与诊断进程 |
 | `src/wind_hub_server` | 进程 `wind-hub-server` | 管理 API（FastAPI）进程宿主：装配与生命周期；业务 Use Case 复用 collector，不形成第二套后端 |
-| `src/wind_hub_ctl` | CLI `wind-hub-ctl` | 只读诊断客户端，只通过 gRPC 管理单个 Collector |
+| `src/ctl` | CLI `wind-hub-ctl` | 直连 Collector / Commander 的本地运维 CLI；不依赖 Server/Admin |
 | `src/wind-hub-admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
 | `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`run_benchmark.py`（压测）、`generate_rpc.py`（proto 代码生成） |
 | `ai_shared/` | 治理 | Coding Agent 规则、Skill、Hook 与本机工具配置模板，`.claude/`、`.codex/`、`.agents/` 仅为适配层 |
@@ -168,11 +168,43 @@ wind-hub-collector --config configs/template
 # 即时命令与诊断进程（gRPC 默认 127.0.0.1:50052）
 wind-hub-commander --config configs/template
 
-# 只读诊断客户端（JSON 输出）
-wind-hub-ctl status
-wind-hub-ctl devices
-wind-hub-ctl tasks
+# 本地运维 CLI（JSON 输出；不需要启动 Server/Admin）
+wind-hub-ctl collector status
+wind-hub-ctl collector tasks
+wind-hub-ctl commander status
+wind-hub-ctl commander read modbus-1 active_power
 ```
+
+### 无 Server/Admin 的 CTL 操作
+
+只需分别启动 Collector 和 Commander 进程，CTL 通过独立 gRPC endpoint 直连。
+Collector 的任务初始为停止状态；首次启动任务前，必须先为该 Collector
+设置 placement（这也是原 Server 提供的启动授权）。以下示例只使用
+Collector 自身的 gRPC 接口：
+
+```bash
+wind-hub-ctl collector info
+wind-hub-ctl collector tasks
+
+# collector_id 和 task_id 应取自上面两个命令的输出。
+wind-hub-ctl collector placement collector-1 1 task-1
+wind-hub-ctl collector start-task task-1 --generation 1
+wind-hub-ctl collector instances
+wind-hub-ctl collector stop-task task-1
+
+# 直接经 Commander 读取与写入；不会请求 Server/Admin。
+wind-hub-ctl commander devices
+wind-hub-ctl commander read dev1 p1
+wind-hub-ctl commander write dev1 p1 12.5
+wind-hub-ctl commander verify-device dev1
+```
+
+远程 Collector / Commander 分别使用 `collector --target HOST:50051`
+和 `commander --target HOST:50052` 指定地址。
+`placement` 是**完整任务集合快照**，不是增量添加；后续更新应包含
+该 Collector 全部应获授权的任务 ID，并使用更大的 generation。
+不应在由 Server 管理的 Collector 上手工覆盖 placement。当前控制面
+未提供身份认证，远程访问必须采取网络隔离和访问控制措施。
 
 更多参数见各入口 `--help`。
 

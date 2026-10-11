@@ -1,4 +1,4 @@
-"""Commander gRPC 入站适配器（Server 与生成的 pb2 代码）。"""
+"""Commander gRPC 入站适配器（Server；wire contract 来自 shared core）。"""
 
 from .server import CommanderGrpcServer, build_grpc_server
 

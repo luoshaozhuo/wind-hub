@@ -62,7 +62,7 @@ async def ctl_instance_states(proc: CollectorProcess) -> dict[str, str] | None:
     标志）不同，这是实例的生命周期状态（RUNNING/STOPPED）——任务控制
     断言必须用它。RPC 失败返回 None（继续轮询）。
     """
-    result = await run_ctl_async("task-instances", target=proc.grpc_target)
+    result = await run_ctl_async("instances", target=proc.grpc_target)
     if result.returncode != 0 or not result.stdout.strip():
         return None
     return {item["instance_id"]: item["state"] for item in json.loads(result.stdout)["items"]}
