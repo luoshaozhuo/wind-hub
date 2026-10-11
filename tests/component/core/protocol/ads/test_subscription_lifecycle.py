@@ -254,21 +254,38 @@ async def test_watchdog_rebuilds_pool_when_notifications_stall(
     old_connection.fire(1.0)
     await asyncio.wait_for(delivered.wait(), timeout=1.0)
 
-    # 不再上送，等待 watchdog 检测到 stalled 并重建（interval + 通知超时）。
-    for _ in range(200):
-        await asyncio.sleep(0.1)
-        if len(fake_pyads.instances) > 1:
-            break
-    assert len(fake_pyads.instances) > 1, "watchdog did not rebuild the pool"
-    new_connection = fake_pyads.instances[-1]
-    assert new_connection is not old_connection
-    assert old_connection.is_open is False
-    assert new_connection.is_open is True
-    assert len(new_connection.callbacks) == 1
+    # 不再上送，等待 watchdog 检测到 stalled 并重建。重建是异步多步过程
+    # （建连 → read_state → 注册 notification），连接实例在注册完成前就可
+    # 被观察到，因此等待条件必须是「新连接已打开且完成注册」这一业务状态。
+    def _rebuilt_connection() -> _Connection | None:
+        if len(fake_pyads.instances) <= 1:
+            return None
+        candidate = fake_pyads.instances[-1]
+        if candidate is old_connection:
+            return None
+        if candidate.is_open and len(candidate.callbacks) == 1:
+            return candidate
+        return None
 
-    delivered.clear()
-    new_connection.fire(2.0)
-    await asyncio.wait_for(delivered.wait(), timeout=1.0)
+    deadline = asyncio.get_running_loop().time() + 20.0
+    while (new_connection := _rebuilt_connection()) is None:
+        if asyncio.get_running_loop().time() > deadline:
+            pytest.fail("watchdog did not rebuild the pool within 20s")
+        await asyncio.sleep(0.05)
+    assert old_connection.is_open is False
+
+    # 重建后新连接仍无上送，watchdog 会在下一个 stalled 周期再次重建；
+    # 在最新一代连接上触发通知并等待分发，若代际在途中失效则在最新连接上重试。
+    while True:
+        new_connection = fake_pyads.instances[-1]
+        delivered.clear()
+        new_connection.fire(2.0)
+        try:
+            await asyncio.wait_for(delivered.wait(), timeout=1.0)
+            break
+        except TimeoutError:
+            if asyncio.get_running_loop().time() > deadline:
+                raise
     assert received[-1] == 2.0
     await handle.close()
-    assert new_connection.is_open is False
+    assert fake_pyads.instances[-1].is_open is False
