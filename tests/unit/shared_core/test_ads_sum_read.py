@@ -132,7 +132,7 @@ async def test_index_sum_read_falls_back_when_private_api_is_unavailable(
         ),
         {},
     )
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    monkeypatch.setattr(driver_module, "pyads", _FakePyads)
     connection = _IndexConnection()
     driver._connection = connection
     driver._connected = True
@@ -190,7 +190,7 @@ async def test_index_sum_read_uses_public_read_write(
 
     import core.infrastructure.protocol.ads.driver as driver_module
 
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
+    monkeypatch.setattr(driver_module, "pyads", _FakePyads)
     points = {}
     for name, offset in (("a", 12), ("b", 16)):
         points[name] = Point(
