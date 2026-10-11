@@ -57,7 +57,6 @@ def _ads_state_name(value: object) -> str:
 
 
 def _plc_datatype(ads_name: str) -> Any:
-    pyads = pyads
     datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
     if datatype is None:
         raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
@@ -152,7 +151,6 @@ class ADSDriver:
                     raise ConfigError("ADS local AMS identity conflicts with initialized identity")
                 _LOCAL_AMS = config
                 return
-            pyads = pyads
             if sys.platform.startswith("linux"):
                 pyads.open_port()
                 try:
@@ -182,7 +180,6 @@ class ADSDriver:
 
     def _new_connection(self) -> Any:
         """创建配置一致、尚未 open 的 pyads Connection。"""
-        pyads = pyads
         connection = pyads.Connection(
             self._config.target_net_id or None,
             self._config.target_port,
@@ -221,7 +218,6 @@ class ADSDriver:
                 identity = _LOCAL_AMS
                 if identity is None:
                     raise ConfigError("ADS local AMS identity is not initialized")
-                pyads = pyads
                 try:
                     added = pyads.add_route_to_plc(
                         identity.local_ams_net_id,
@@ -893,7 +889,6 @@ def _bad_sample(point_id: str) -> ProtocolSample:
 
 
 def _is_point_level_error(exc: BaseException) -> bool:
-    pyads = pyads
     ads_error = getattr(pyads, "ADSError", None)
     return (
         ads_error is not None
