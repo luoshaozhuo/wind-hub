@@ -108,7 +108,7 @@ class SinkRuntime:
         """并发执行全部 Sink 的无副作用健康检查。"""
         items = list(self._sinks.items())
         results = await asyncio.gather(
-            *(sink.health() for _name, sink in items),
+            *(self._probe_sink(name, sink) for name, sink in items),
             return_exceptions=True,
         )
         health: dict[str, ConnectionHealth] = {}
@@ -442,6 +442,12 @@ class SinkRuntime:
     # 私有——消费者与重建辅助
     # ------------------------------------------------------------------
 
+    async def _probe_sink(self, sink_name: str, sink: SinkPort) -> ConnectionHealth:
+        """将 open 失败与实际端点健康检查合并，不把未打开的 Sink 报为健康。"""
+        if sink_name in self._unhealthy:
+            return ConnectionHealth(healthy=False, message="sink not open")
+        return await sink.health()
+
     def _make_watchdog(self, sink_name: str, sink: SinkPort) -> WatchdogUseCase:
         async def _close_for_reconnect() -> None:
             # 先隔离写队列，避免消费者在 close/open 期间写入旧连接。
@@ -459,7 +465,7 @@ class SinkRuntime:
                 self._restart_consumer(sink_name, sink)
 
         return WatchdogUseCase(
-            health=sink.health,
+            health=lambda: self._probe_sink(sink_name, sink),
             close=_close_for_reconnect,
             connect=sink.open,
             interval=self._params.watchdog_interval,
