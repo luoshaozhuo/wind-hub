@@ -7,12 +7,12 @@ from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.port import ConfigPort
-from core.application.settings import RuntimeSettings
 from core.application.errors import ConfigError
+from core.application.settings import RuntimeSettings
 from core.domain import DeviceId, Sink
 from core.domain.unit import UNIT_CATALOG, UnitCode
-from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 from core.infrastructure.config import YamlConfigAdapter
+from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
