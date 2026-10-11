@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-FRONTEND_PREFIX = "src/wind-hub-admin/"
-BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/")
+FRONTEND_PREFIX = "src/web_admin/"
+BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/", "src/web_server/")
 
 TOOLING_PREFIXES = (
     "scripts/",
@@ -102,12 +102,13 @@ def _backend_pr_targets(path: str) -> set[str]:
 def _frontend_e2e_required(path: str) -> bool:
     """仅对当前 Playwright 实际覆盖的应用外壳风险触发 E2E。"""
     return path in {
-        "src/wind-hub-admin/src/App.vue",
-        "src/wind-hub-admin/src/main.ts",
-        "src/wind-hub-admin/playwright.config.ts",
-        "src/wind-hub-admin/package.json",
-        "src/wind-hub-admin/package-lock.json",
-    } or path.startswith("src/wind-hub-admin/tests/e2e/")
+        "src/web_admin/src/App.vue",
+        "src/web_admin/src/api/runtime.ts",
+        "src/web_admin/src/main.ts",
+        "src/web_admin/playwright.config.ts",
+        "src/web_admin/package.json",
+        "src/web_admin/package-lock.json",
+    } or path.startswith("tests/system/web_admin/")
 
 
 def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
@@ -154,8 +155,8 @@ def _frontend_fast_required(path: str) -> bool:
         return False
 
     return not (
-        path.startswith("src/wind-hub-admin/tests/e2e/")
-        or path == "src/wind-hub-admin/playwright.config.ts"
+        path.startswith("tests/system/web_admin/")
+        or path == "src/web_admin/playwright.config.ts"
     )
 
 

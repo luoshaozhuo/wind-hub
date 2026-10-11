@@ -43,12 +43,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: src/wind-hub-admin/package-lock.json
+          cache-dependency-path: src/web_admin/package-lock.json
       - name: Install dependencies
-        working-directory: src/wind-hub-admin
+        working-directory: src/web_admin
         run: npm ci
       - name: Install Playwright browser
-        working-directory: src/wind-hub-admin
+        working-directory: src/web_admin
         run: npx playwright install --with-deps chromium
       - name: Release frontend
         run: python scripts/ci_gate.py release --part frontend
