@@ -227,7 +227,7 @@ def test_task_point_group_must_exist(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_interval_required_except_pure_iec104(tmp_path):
+def test_interval_required_for_all_protocols(tmp_path):
     # modbus 任务缺 interval → 配置错误
     config_dir = write_collector_config_tree(
         tmp_path,

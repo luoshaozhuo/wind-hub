@@ -25,6 +25,6 @@ def test_redis_factory() -> None:
     assert isinstance(sink, RedisSink)
 
 
-def test_unregistered_types_rejected() -> None:
+def test_domain_rejects_unsupported_sink_type() -> None:
     with pytest.raises(ValueError, match="unsupported sink type"):
         Sink(sink_id="x", kind="kafka", enabled=True, connection={})
