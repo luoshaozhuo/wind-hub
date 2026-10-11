@@ -138,7 +138,7 @@ class ReloadResult:
     """reload 完成时间，UTC。"""
 
 
-def _differences(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
+def _differences(old: dict[str, object], new: dict[str, object]) -> tuple[list[str], list[str], list[str]]:
     before, after = set(old), set(new)
     return (
         sorted(str(key) for key in after - before),
