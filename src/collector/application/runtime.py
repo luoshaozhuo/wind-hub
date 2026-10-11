@@ -212,12 +212,21 @@ class CollectorRuntime:
             self._running = True
             self._started = False
 
-            await self._device_runtime.connect_all()
-            await self._sink_runtime.start()
-            # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
-            # 采集，只有控制面的显式 start 才启动 acquisition。
-            await self._task_runtime.sync_instances()
-
+            try:
+                await self._device_runtime.connect_all()
+                await self._sink_runtime.start()
+                # 实例默认 STOPPED，采集由控制面显式启动。
+                await self._task_runtime.sync_instances()
+            except BaseException:
+                self._running = False
+                try:
+                    await self._task_runtime.stop_all()
+                finally:
+                    try:
+                        await self._sink_runtime.stop()
+                    finally:
+                        await self._device_runtime.close_all()
+                raise
             self._started = True
 
     async def stop(self) -> None:
