@@ -103,7 +103,6 @@ class AdsDiagnosticProbe:
         """建立 ADS 连接；已连接时直接返回。失败时先释放本地 ADS 资源。"""
         if self._connected:
             return
-        pyads = pyads
         net_id = str(self._options.get("target_net_id") or "") or None
         timeout = float(self._options.get("timeout", 5.0) or 5.0)
         connection = pyads.Connection(net_id, self._endpoint.port, self._endpoint.host)
