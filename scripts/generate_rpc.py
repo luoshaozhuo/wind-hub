@@ -1,4 +1,4 @@
-"""生成 shared core、进程副本与 legacy RPC 的 Protobuf Python 代码。"""
+"""重新生成 shared core 的 Collector/Commander Protobuf/gRPC 代码。"""
 
 from __future__ import annotations
 
@@ -9,58 +9,16 @@ from grpc_tools import protoc
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = ROOT / "src"
-LEGACY_RPC_DIR = SRC_ROOT / "wind_hub_core" / "rpc"
-SHARED_RPC_DIR = SRC_ROOT / "core" / "infrastructure" / "rpc"
-
-#: shared core 与 legacy proto 的 descriptor 名映射。
-#: 两份 proto 的 wire schema 相同。descriptor pool 以文件名参与冲突判断，
-#: 因此生成后统一对齐到 legacy 的 canonical name，使迁移期间可同进程共存。
-GENERATED_PROTOS = (
-    (
-        SHARED_RPC_DIR / "collector.proto",
-        "core/infrastructure/rpc/collector.proto",
-        "wind_hub_core/rpc/collector.proto",
-    ),
-    (
-        SHARED_RPC_DIR / "commander.proto",
-        "core/infrastructure/rpc/commander.proto",
-        "wind_hub_core/rpc/commander.proto",
-    ),
+PROTO_FILES = (
+    SRC_ROOT / "core" / "infrastructure" / "rpc" / "collector.proto",
+    SRC_ROOT / "core" / "infrastructure" / "rpc" / "commander.proto",
 )
 
 
-def _align_descriptor_name(pb2_path: Path, generated_name: str, canonical_name: str) -> None:
-    """把生成 pb2 的描述文件名替换为规范名（含长度前缀同步修正）。"""
-    source = pb2_path.read_text(encoding="utf-8")
-    # 描述名以 ``\\nX<name>`` 出现在序列化字面量开头，X 为长度前缀字符。
-    bad = f"\\n{chr(len(generated_name))}{generated_name}"
-    good = f"\\n{chr(len(canonical_name))}{canonical_name}"
-    if bad not in source:
-        raise RuntimeError(f"descriptor name not found in {pb2_path}")
-    pb2_path.write_text(source.replace(bad, good, 1), encoding="utf-8")
-
-
 def main() -> int:
-    """重新生成 Commander/Collector pb2、gRPC stub 与 mypy stub。
-
-    ``--mypy_out`` / ``--mypy_grpc_out`` 由 mypy-protobuf 提供。生成顺序
-    为 legacy、shared core；两组必须分开调用 protoc，避免同一
-    invocation 内重复定义相同 protobuf 全限定符号。生成后统一 descriptor
-    文件名，保证迁移期间两套模块可在同一 Python 进程中加载。
-    """
+    """使用 shared core proto 生成 pb2、gRPC stub 及 mypy stub。"""
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
-    # 两组 proto 符号同名，必须分次调用 protoc。
-    passes = (
-        (
-            LEGACY_RPC_DIR / "commander.proto",
-            LEGACY_RPC_DIR / "collector.proto",
-        ),
-        (
-            SHARED_RPC_DIR / "commander.proto",
-            SHARED_RPC_DIR / "collector.proto",
-        ),
-    )
-    for protos in passes:
+    for proto in PROTO_FILES:
         result = protoc.main(
             [
                 "grpc_tools.protoc",
@@ -70,15 +28,11 @@ def main() -> int:
                 f"--grpc_python_out={SRC_ROOT}",
                 f"--mypy_out={SRC_ROOT}",
                 f"--mypy_grpc_out={SRC_ROOT}",
-                *(str(proto) for proto in protos),
+                str(proto),
             ]
         )
         if result != 0:
             return result
-    for proto, generated_name, canonical_name in GENERATED_PROTOS:
-        _align_descriptor_name(
-            proto.with_name(f"{proto.stem}_pb2.py"), generated_name, canonical_name
-        )
     return 0
 
 
