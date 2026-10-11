@@ -33,13 +33,6 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,
         sinks=snapshot.sinks,
-        point_meta={
-            table_id: {
-                point_id: point
-                for point_id, point in table.points.items()
-            }
-            for table_id, table in snapshot.point_tables.items()
-        },
         ads_subscribe_devices=snapshot.ads_subscribe_devices,
         disabled_devices=frozenset(
             DeviceId(key) for key, device in devices.items() if not device.enabled
