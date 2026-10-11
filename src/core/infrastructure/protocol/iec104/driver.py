@@ -706,6 +706,16 @@ class IEC104Driver:
             )
         if point is None:
             return
+        registered_type = getattr(point, "type", point_type)
+        if registered_type != point_type:
+            logger.error(
+                "IEC104 IOA %s TypeID mismatch: received %s, registered %s; "
+                "the existing c104 Point cannot safely decode the new type",
+                io_address,
+                point_type,
+                registered_type,
+            )
+            return
         point.on_receive(callable=factory(self._handle_point_receive))
 
     def _handle_point_receive(self, point: Any, message: Any) -> Any:
