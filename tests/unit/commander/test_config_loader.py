@@ -315,7 +315,7 @@ def test_device_group_synthesized(tmp_path):
     assert "wind_turbines" in {str(g) for g in config.device_groups}
 
 
-def test_point_meta_collected(tmp_path):
+def test_point_fields_loaded(tmp_path):
     config_dir = write_minimal_config_tree(
         tmp_path,
         points=[
@@ -329,9 +329,9 @@ def test_point_meta_collected(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    meta = config.meta_for(PointTableId("tab"), "p1")
-    assert meta.variable_name == "有功功率"
-    assert meta.point_groups == ("telemetry", "fast")
+    point = config.point_tables[PointTableId("tab")].points["p1"]
+    assert point.variable_name == "有功功率"
+    assert point.point_groups == ("telemetry", "fast")
 
 
 def test_unsupported_protocol_rejected(tmp_path):
