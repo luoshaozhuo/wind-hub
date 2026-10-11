@@ -12,9 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate:api": "python3 ../../scripts/generate_api_contract.py && openapi-typescript src/api/generated/openapi.json -o src/api/generated/schema.d.ts",
-    "check:api": "python3 ../../scripts/generate_api_contract.py --check",
-    "dev:mock": "vite --mode mock",
-    "test:e2e:mock": "playwright test --config playwright.mock.config.ts"
+    "check:api": "python3 ../../scripts/generate_api_contract.py --check"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.104.1",

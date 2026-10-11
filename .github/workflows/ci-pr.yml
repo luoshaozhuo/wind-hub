@@ -81,10 +81,10 @@ jobs:
           cache: npm
           cache-dependency-path: src/web_admin/package-lock.json
       - name: Install dependencies
-        working-directory: src/wind-hub-admin
+        working-directory: src/web_admin
         run: npm ci
       - name: Install Playwright browser
-        working-directory: src/wind-hub-admin
+        working-directory: src/web_admin
         run: npx playwright install --with-deps chromium
       - name: Playwright shell E2E
         run: python scripts/ci_gate.py frontend-e2e

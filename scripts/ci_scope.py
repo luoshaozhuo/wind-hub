@@ -107,7 +107,7 @@ def _frontend_e2e_required(path: str) -> bool:
         "src/web_admin/playwright.config.ts",
         "src/web_admin/package.json",
         "src/web_admin/package-lock.json",
-    } or path.startswith("src/web_admin/tests/e2e/")
+    } or path.startswith("tests/system/web_admin/")
 
 
 def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
@@ -154,7 +154,7 @@ def _frontend_fast_required(path: str) -> bool:
         return False
 
     return not (
-        path.startswith("src/web_admin/tests/e2e/")
+        path.startswith("tests/system/web_admin/")
         or path == "src/web_admin/playwright.config.ts"
     )
 
