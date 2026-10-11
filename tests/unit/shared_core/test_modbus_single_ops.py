@@ -6,6 +6,7 @@ import asyncio
 import struct
 
 import pytest
+from pymodbus.exceptions import ModbusIOException
 
 from core.application import ConfigError
 from core.application.errors import ProtocolConnectionError, ProtocolError
