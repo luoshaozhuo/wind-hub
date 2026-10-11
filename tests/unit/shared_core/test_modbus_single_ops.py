@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import struct
-import subprocess
-import sys
 
 import pytest
 
@@ -25,15 +23,7 @@ from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
 
-try:
-    from pymodbus.exceptions import ModbusIOException
-except ImportError:  # pymodbus 是可选依赖
-    ModbusIOException = None
-
-_requires_pymodbus = pytest.mark.skipif(
-    ModbusIOException is None, reason="pymodbus not installed"
-)
-
+from pymodbus.exceptions import ModbusIOException
 
 def _point(
     point_id: str,
@@ -291,7 +281,6 @@ class TestReadOne:
         assert (await driver.read_one("h")).value == 7
         assert (await driver.health()).healthy is True
 
-    @_requires_pymodbus
     @pytest.mark.asyncio
     async def test_inflight_io_exception_discards_connection(self) -> None:
         """ModbusIOException（对端无响应等在途歧义）：连接标记不可复用并释放。"""
@@ -582,7 +571,6 @@ class TestCancellationState:
         assert client.total_write_calls() == 1  # 已发送的请求绝不重发
         assert (await driver.health()).healthy is False
 
-    @_requires_pymodbus
     @pytest.mark.asyncio
     async def test_pymodbus_wrapped_cancellation_is_unwrapped(self) -> None:
         """pymodbus 3.15 把 CancelledError 转成 ModbusIOException；Driver 必须
@@ -720,25 +708,6 @@ def test_write_groups_option_is_rejected() -> None:
             ConnectionEndpoint("192.0.2.10", 502),
             {"write_groups": [["a", "b"]]},
         )
-
-
-def test_protocol_modules_import_without_pymodbus() -> None:
-    """pymodbus 缺失时 Modbus/ADS/IEC104 模块仍可导入（可选依赖隔离）。"""
-    script = (
-        "import sys;\n"
-        "sys.modules['pymodbus'] = None;\n"
-        "sys.modules['pymodbus.client'] = None;\n"
-        "from core.infrastructure.protocol.modbus.driver import ModbusDriver;\n"
-        "from core.infrastructure.protocol.ads.driver import ADSDriver;\n"
-        "from core.infrastructure.protocol.iec104.driver import IEC104Driver;\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 # ---------------------------------------------------------------------------
