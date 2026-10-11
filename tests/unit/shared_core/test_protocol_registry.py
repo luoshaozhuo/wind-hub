@@ -161,6 +161,7 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
         "d1",
         model.device_model_id,
         ConnectionEndpoint("127.0.0.1", 502),
+        device_group_ids=("group",),
     )
     with pytest.raises(ConfigError, match="address"):
         registry.create(
