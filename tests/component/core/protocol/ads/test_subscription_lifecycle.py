@@ -62,6 +62,7 @@ class _Connection:
     """记录 notification 注册/注销的最小 ADS 连接 fake。"""
 
     instances: list[_Connection] = []
+
     def __init__(self, net_id: object, port: int, host: str) -> None:
         del net_id, port, host
         self.is_open = False

@@ -488,9 +488,7 @@ class IEC104Driver:
         try:
             accepted = await asyncio.to_thread(point.read)
         except Exception as exc:
-            raise ProtocolError(
-                f"IEC104 active read failed for {mapped.point_id}: {exc}"
-            ) from exc
+            raise ProtocolError(f"IEC104 active read failed for {mapped.point_id}: {exc}") from exc
         if not accepted:
             raise ProtocolError(f"IEC104 active read rejected for {mapped.point_id}")
 

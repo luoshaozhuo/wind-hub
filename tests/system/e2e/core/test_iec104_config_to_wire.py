@@ -88,10 +88,14 @@ class TestIEC104ConfigToWire:
             station_point.value = 1600.25
             assert station_point.transmit(c104.Cot.SPONTANEOUS)
             await asyncio.wait_for(received.wait(), timeout=5.0)
-            await wait_until(
-                lambda: any(s.point_id == "meas_power" and s.value == pytest.approx(1600.25) for s in samples),
-                timeout=5.0,
-            )
+
+            def _spontaneous_arrived() -> bool:
+                return any(
+                    s.point_id == "meas_power" and s.value == pytest.approx(1600.25)
+                    for s in samples
+                )
+
+            await wait_until(_spontaneous_arrived, timeout=5.0)
 
             # 遥控命令到达对端
             result = await driver.write_one(ProtocolWrite(point_id="cmd_breaker", value=True))

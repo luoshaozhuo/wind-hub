@@ -161,9 +161,7 @@ class _DroppingServer:
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
         return self._server.sockets[0].getsockname()[1]
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writers.append(writer)
         try:
             while True:

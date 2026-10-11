@@ -113,8 +113,12 @@ async def test_callback_failure_is_observable_without_second_reconnect() -> None
         raise RuntimeError("restore failed")
 
     watchdog = WatchdogUseCase(
-        health=endpoint.health, close=endpoint.close, connect=endpoint.connect,
-        interval=1.0, health_timeout=0.1, connect_timeout=0.1,
+        health=endpoint.health,
+        close=endpoint.close,
+        connect=endpoint.connect,
+        interval=1.0,
+        health_timeout=0.1,
+        connect_timeout=0.1,
         on_success=bad_callback,
     )
     with pytest.raises(RuntimeError, match="restore failed"):
@@ -127,8 +131,12 @@ async def test_callback_failure_is_observable_without_second_reconnect() -> None
 async def test_explicit_reconnect_without_callback_is_supported() -> None:
     endpoint = _Endpoint()
     watchdog = WatchdogUseCase(
-        health=endpoint.health, close=endpoint.close, connect=endpoint.connect,
-        interval=1.0, health_timeout=0.1, connect_timeout=0.1,
+        health=endpoint.health,
+        close=endpoint.close,
+        connect=endpoint.connect,
+        interval=1.0,
+        health_timeout=0.1,
+        connect_timeout=0.1,
     )
     await watchdog.reconnect()
     assert endpoint.close_count == endpoint.connect_count == 1
