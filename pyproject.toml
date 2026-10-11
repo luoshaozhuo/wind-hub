@@ -58,10 +58,7 @@ import-linter = "^2.0"
 types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
-wind-hub-collector = "collector.main:main"
-wind-hub-ctl = "wind_hub_ctl.main:main"
-wind-hub-server = "wind_hub_server.main:main"
-wind-hub-commander = "commander.main:main"
+
 
 [tool.ruff]
 line-length = 100
