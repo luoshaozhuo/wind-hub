@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from wind_hub_core.rpc import collector_pb2 as pb
+from collector.infrastructure.grpc import collector_pb2 as pb
 
 _PACKAGE = "windhub.collector.v1"
 

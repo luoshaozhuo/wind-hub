@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from wind_hub_core.rpc import commander_pb2 as pb
+from commander.infrastructure.grpc import commander_pb2 as pb
 
 _PACKAGE = "windhub.commander.v1"
 
