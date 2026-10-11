@@ -11,10 +11,11 @@ from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from core.application import ConfigError, ConnectionHealth
-from core.application.sink_config import (
+from core.domain import Sink
+from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,
     ModbusSinkConnection,
-    ResolvedSinkConfig,
+    ResolvedSinkPoint,
 )
 
 
@@ -26,17 +27,17 @@ class ModbusSink(SinkPort):
         """监听端口独占，热重载采用 close-first。"""
         return True
 
-    def __init__(self, config: ResolvedSinkConfig) -> None:
-        connection = config.connection
-        if not isinstance(connection, ModbusSinkConnection):
-            raise ConfigError("ModbusSink requires ModbusSinkConnection")
-        for point in config.points:
+    def __init__(self, config: Sink) -> None:
+        connection = ModbusSinkConnection.model_validate(dict(config.connection))
+        points = [ResolvedSinkPoint.model_validate(dict(p)) for p in config.points]
+        for point in points:
             if not isinstance(point.address, ModbusSinkAddress):
                 raise ConfigError(
-                    f"Modbus sink '{config.name}' point '{point.ref}' " "requires ModbusSinkAddress"
+                    f"Modbus sink '{config.sink_id}' point '{point.ref}' "
+                    "requires ModbusSinkAddress"
                 )
 
-        self._data_path = ModbusSinkDataPath(config.points)
+        self._data_path = ModbusSinkDataPath(points)
         self._server = ModbusTcpSinkServer(connection, self._data_path)
 
     async def open(self) -> None:

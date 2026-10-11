@@ -9,7 +9,6 @@ import yaml
 from core.application.config_diff import diff_config_snapshots
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from core.infrastructure.config.digest import config_dir_digest
-from core.infrastructure.config.yaml import active_config_dir
 
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
@@ -32,11 +31,11 @@ def test_device_model_options_and_system_interfaces_survive_save(tmp_path: Path)
     adapter.save(before)
     after = adapter.load()
     assert not diff_config_snapshots(before, after).has_changes
-    system = yaml.safe_load((active_config_dir(tmp_path) / "system.yaml").read_text())
+    system = yaml.safe_load((tmp_path / "system.yaml").read_text())
     assert system["interfaces"]["api"]["enabled"] is True
 
 
-def test_repeated_save_does_not_hash_inactive_generations(tmp_path: Path) -> None:
+def test_repeated_save_has_stable_digest(tmp_path: Path) -> None:
     adapter = _fixture(tmp_path, "example_modbus")
     before = adapter.load()
     adapter.save(before)
@@ -68,5 +67,5 @@ def test_removing_ads_settings_does_not_restore_old_yaml(tmp_path: Path) -> None
     adapter.save(modified)
     restored = adapter.load()
     assert restored.system.ads is None
-    system = yaml.safe_load((active_config_dir(tmp_path) / "system.yaml").read_text())
+    system = yaml.safe_load((tmp_path / "system.yaml").read_text())
     assert "ads" not in system

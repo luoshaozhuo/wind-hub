@@ -25,7 +25,7 @@ from collector.assembly import CollectorApp, assemble_collector
 from collector.domain.point_value import PointValue
 from core.application import ProtocolWrite
 from core.application.port.protocol import ProtocolPort
-from core.application.sink_config import ResolvedSinkConfig
+from core.domain import Sink
 from tests.performance.netem import NetemController, NetemScenario
 from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
@@ -264,7 +264,7 @@ async def run_soak(
 
     recording_holder: list[RecordingSink] = []
 
-    def _sink_factory(cfg: ResolvedSinkConfig) -> RecordingSink:
+    def _sink_factory(cfg: Sink) -> RecordingSink:
         del cfg
         sink = RecordingSink()
         recording_holder.append(sink)

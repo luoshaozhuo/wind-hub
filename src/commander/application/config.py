@@ -2,8 +2,8 @@
 
 CommanderConfig 只承载 Commander 真正需要的内容：共享核心领域配置索引
 （设备、型号、分组、点表、业务点、协议参数）、进程级 ADS 本机身份、
-连接/写超时，以及诊断展示所需的点位元数据（variable_name /
-point_groups）。Task、Sink、Reporting 等 Collector/Server 配置不属于
+连接/写超时，以及直接来自 Point 的诊断字段。
+Task、Sink、Reporting 等 Collector/Server 配置不属于
 本模型。
 
 本模块是 Application 层的纯配置模型，不感知 YAML/文件细节——解析由
@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -29,8 +30,6 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
-from core.domain import PointMeta as PointMeta
-from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +46,6 @@ class CommanderConfig:
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
         connect_timeout: 单设备连接超时（秒）。
         write_timeout: 默认写超时（秒）；Command.timeout <= 0 时生效。
-        point_meta: ``{点表: {point_id: PointMeta}}`` 诊断展示元数据。
         disabled_devices: 配置级停用设备集合；停用设备不参与即时操作。
     """
 
@@ -57,13 +55,12 @@ class CommanderConfig:
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
-    ads_local: ADSLocalIdentity | None = None
+    ads_local: ADSLocalConfig | None = None
     connect_timeout: float = 1.0
     write_timeout: float = 1.0
     read_timeout: float = 1.0
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
@@ -77,16 +74,6 @@ class CommanderConfig:
             raise ValueError("watchdog_interval must be > 0")
         if self.health_timeout <= 0:
             raise ValueError("health_timeout must be > 0")
-        object.__setattr__(
-            self,
-            "point_meta",
-            MappingProxyType(
-                {
-                    table_id: MappingProxyType(dict(meta))
-                    for table_id, meta in self.point_meta.items()
-                }
-            ),
-        )
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
         for name in (
             "devices",
@@ -97,12 +84,6 @@ class CommanderConfig:
             "protocol_options_by_device",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
-
-    def meta_for(self, table_id: PointTableId, point_id: str) -> PointMeta:
-        """返回点位元数据；缺省时返回空元数据（元数据不参与协议路径）。"""
-        return self.point_meta.get(table_id, {}).get(
-            point_id, PointMeta(variable_name=None, point_groups=())
-        )
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""

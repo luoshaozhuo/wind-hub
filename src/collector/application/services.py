@@ -231,11 +231,11 @@ class CollectorTaskService:
         runtime_state = "stopped" if running == 0 else "running" if stopped == 0 else "partial"
         return TaskSummary(
             task_id=task.task_id,
-            device=task.device,
-            device_group=task.device_group,
+            device=None,
+            device_group=str(task.device_group_id),
             point_group=task.point_group,
             interval=task.interval,
-            targets=list(task.targets),
+            targets=list(task.sink_ids),
             enabled=task.enabled,
             runtime_state=runtime_state,
             instance_count=len(instances),

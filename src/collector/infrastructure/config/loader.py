@@ -1,161 +1,147 @@
-"""Collector 现场配置加载入口。
-
-经 :class:`ConfigPort` 按主题读取本进程所需配置 VO（system /
-device_models / devices / points / units / tasks / sinks），完成 Core
-配置组装、Sink 引用解析与跨文件一致性校验，产出 CollectorConfig。
-
-加载顺序与旧系统一致：read → parse → resolve → validate → build。
-"""
+"""Collector 完整领域配置快照加载入口。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import cast
 
-from core.application.port import ConfigPort, ConfigTopic
-from core.application.sink_config import SinksConfig
-from core.domain import PointTableId
-from core.domain.config import (
-    DeviceModelsConfig,
-    DevicesConfig,
-    PointTablesConfig,
-    SystemConfig,
-    TasksConfig,
-    UnitsConfig,
-)
+from core.application.config_snapshot import ConfigSnapshot
+from core.application.errors import ConfigError
+from core.application.port import ConfigPort
+from core.application.settings import RuntimeSettings
+from core.domain import DeviceId, Sink
+from core.domain.unit import UNIT_CATALOG, UnitCode
 from core.infrastructure.config import YamlConfigAdapter
-from core.infrastructure.config.assembly import assemble_core_config
-
-from ...application.config import (
-    ADSLocalIdentity,
-    BackpressurePolicy,
-    CollectorConfig,
-    PointMeta,
-    RuntimeParams,
+from core.infrastructure.config.sink_schema import (
+    MODBUS_WORD_WIDTH,
+    SINK_NUMERIC_DATA_TYPES,
+    ModbusSinkAddress,
+    ResolvedSinkPoint,
 )
-from .sinks_resolver import resolve_sinks
-from .tasks import validate_task_targets
 
-COLLECTOR_CONFIG_TOPICS: tuple[ConfigTopic, ...] = tuple(ConfigTopic)
+from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
 
 def load_collector_config(
     config_dir: str | Path, *, source: ConfigPort | None = None
 ) -> CollectorConfig:
-    """加载 Collector 配置并完成跨文件一致性校验。
-
-    默认经 :class:`YamlConfigAdapter` 按主题读取；``source`` 允许测试
-    注入任意 ConfigPort 实现。
-
-    Raises:
-        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
-    """
-    return _load_from(source if source is not None else YamlConfigAdapter(config_dir))
+    snapshot = (source if source is not None else YamlConfigAdapter(config_dir)).load()
+    return _from_snapshot(snapshot)
 
 
-def _load_from(source: ConfigPort) -> CollectorConfig:
-    system = cast(SystemConfig, source.read(ConfigTopic.SYSTEM))
-    models = cast(DeviceModelsConfig, source.read(ConfigTopic.DEVICE_MODELS))
-    devices = cast(DevicesConfig, source.read(ConfigTopic.DEVICES))
-    points = cast(PointTablesConfig, source.read(ConfigTopic.POINTS))
-    units = cast(UnitsConfig, source.read(ConfigTopic.UNITS))
-    tasks = cast(TasksConfig, source.read(ConfigTopic.TASKS))
-    sinks = cast(SinksConfig, source.read(ConfigTopic.SINKS))
-
-    runtime = _runtime_params(system)
-    ads_local = (
-        ADSLocalIdentity(
-            local_ams_net_id=system.ads.local_ams_net_id,
-            local_ip=system.ads.local_ip,
-        )
-        if system.ads is not None
-        else None
-    )
-
-    assembly = assemble_core_config(
-        device_models_config=models,
-        devices_config=devices,
-        point_config=points,
-        unit_config=units,
-    )
-    point_meta = {
-        table_id: {
-            point_id: PointMeta(
-                variable_name=meta.variable_name,
-                point_groups=meta.point_groups,
-            )
-            for point_id, meta in table_points.items()
-        }
-        for table_id, table_points in assembly.point_meta.items()
-    }
-
-    # disabled 设备不进索引，但其点表仍可用于 Sink 引用解析（旧行为）。
-    disabled_tables = {
-        instance.device_id: assembly.point_tables[
-            PointTableId(models.device_models[instance.model].point_table)
-        ]
-        for instance in devices.devices.values()
-        if not instance.enabled
-    }
-    resolved_sinks = resolve_sinks(sinks, assembly, units, disabled_tables)
-
-    # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
-    all_device_groups = {
-        instance.device_group
-        for instance in devices.devices.values()
-        if instance.device_group is not None
-    }
-    sink_names = {name for name, sink in resolved_sinks.items() if sink.enabled}
-    task_map = dict(tasks.tasks)
-    for task in task_map.values():
-        validate_task_targets(
-            task,
-            assembly,
-            point_meta,
-            sink_names,
-            all_device_groups,
-            assembly.disabled_devices,
-        )
-
+def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
+    devices = snapshot.site.devices
+    settings = snapshot.system.runtime
     return CollectorConfig(
-        configs={
-            ConfigTopic.SYSTEM: system,
-            ConfigTopic.DEVICE_MODELS: models,
-            ConfigTopic.DEVICES: devices,
-            ConfigTopic.POINTS: points,
-            ConfigTopic.UNITS: units,
-            ConfigTopic.TASKS: tasks,
-            ConfigTopic.SINKS: sinks,
-        },
-        devices=assembly.devices,
-        device_models=assembly.device_models,
-        point_tables=assembly.point_tables,
-        protocol_options_by_device=assembly.protocol_options_by_device,
-        runtime=runtime,
-        ads_local=ads_local,
-        tasks=task_map,
-        sinks=resolved_sinks,
-        point_meta=point_meta,
-        ads_subscribe_devices=assembly.ads_subscribe_devices,
-        disabled_devices=assembly.disabled_devices,
+        devices={key: device for key, device in devices.items() if device.enabled},
+        device_models=snapshot.device_models,
+        point_tables=snapshot.point_tables,
+        protocol_options_by_device=snapshot.protocol_options_by_device,
+        runtime=_runtime_params(settings),
+        ads_local=snapshot.system.ads,
+        tasks=snapshot.tasks,
+        sinks=_resolve_sinks(snapshot),
+        ads_subscribe_devices=snapshot.ads_subscribe_devices,
+        disabled_devices=frozenset(
+            DeviceId(key) for key, device in devices.items() if not device.enabled
+        ),
     )
 
 
-def _runtime_params(system: SystemConfig) -> RuntimeParams:
-    """把共享 RuntimeSettings 映射为 Collector 进程级运行时参数。
+def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
+    """解析外部 Sink 点引用，明确源类型与单位，不依赖 units.yaml。"""
+    result: dict[str, Sink] = {}
+    for sink_id, sink in snapshot.sinks.items():
+        points = []
+        refs: set[str] = set()
+        addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
+        for raw in sink.points:
+            source = raw["source"]
+            device_id = DeviceId(source["device_id"])
+            device = snapshot.site.devices.get(device_id)
+            if device is None:
+                raise ConfigError(f"Sink '{sink_id}' references unknown device '{device_id}'")
+            model = snapshot.device_models[device.device_model_id]
+            table = snapshot.point_tables[model.point_table_id]
+            point = table.points.get(source["point_id"])
+            if point is None:
+                raise ConfigError(
+                    f"Sink '{sink_id}' references unknown point '{source['point_id']}'"
+                )
+            source_data_type = point.ext["data_type"]
+            source_unit = point.source_unit.code.value
+            unit = raw.get("unit") or source_unit
+            try:
+                UNIT_CATALOG[UnitCode(unit)]
+            except (KeyError, ValueError) as exc:
+                raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'") from exc
+            resolved = ResolvedSinkPoint.model_validate({
+                **raw,
+                "ref": raw.get("ref") or f"{device_id}.{point.point_id}",
+                "source_data_type": source_data_type,
+                "source_unit": source_unit,
+                "datatype": raw.get("datatype") or source_data_type,
+                "unit": unit,
+            })
+            if resolved.ref in refs:
+                raise ConfigError(f"Sink '{sink_id}' duplicate point ref '{resolved.ref}'")
+            refs.add(resolved.ref)
+            if (resolved.scale != 1.0 or resolved.offset != 0.0) and (
+                resolved.source_data_type not in SINK_NUMERIC_DATA_TYPES
+                or resolved.datatype not in SINK_NUMERIC_DATA_TYPES
+            ):
+                raise ConfigError(
+                    f"Sink '{sink_id}' point '{resolved.ref}': "
+                    "scale/offset require numeric source and datatype"
+                )
+            if isinstance(resolved.address, ModbusSinkAddress):
+                address = resolved.address
+                is_bit = address.register_type in {"coil", "discrete"}
+                if is_bit and resolved.datatype != "bool":
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        f"{address.register_type} requires bool"
+                    )
+                width = 1 if is_bit else MODBUS_WORD_WIDTH.get(resolved.datatype)
+                if width is None:
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        f"unsupported Modbus datatype '{resolved.datatype}'"
+                    )
+                end = address.address + width - 1
+                if end > 65535:
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        "Modbus address range exceeds 65535"
+                    )
+                key = (address.unit_id, address.register_type)
+                occupied = addresses.setdefault(key, [])
+                if any(start <= end and address.address <= finish for start, finish in occupied):
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        "overlapping Modbus register addresses"
+                    )
+                occupied.append((address.address, end))
+            points.append(resolved.model_dump(mode="json"))
+        result[sink_id] = Sink(
+            sink_id=sink.sink_id,
+            kind=sink.kind,
+            enabled=sink.enabled,
+            connection=sink.connection,
+            points=tuple(points),
+        )
+    return result
 
-    缺省键使用 Collector 自身默认值；正值约束由 RuntimeParams 复核。
-    """
-    settings = system.runtime
-    policy = settings.backpressure_policy or "drop_old"
+
+def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     return RuntimeParams(
         queue_maxsize=settings.queue_maxsize if settings.queue_maxsize is not None else 1000,
-        backpressure_policy=cast(BackpressurePolicy, policy),
+        backpressure_policy=cast(BackpressurePolicy, settings.backpressure_policy or "drop_old"),
         shutdown_timeout=(
             settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
         ),
         connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
-        read_timeout=(settings.read_timeout if settings.read_timeout is not None else 1.0),
+        read_timeout=settings.read_timeout if settings.read_timeout is not None else 1.0,
         write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
         watchdog_interval=settings.watchdog_interval,
         health_timeout=settings.health_timeout,

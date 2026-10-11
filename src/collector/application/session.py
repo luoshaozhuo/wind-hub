@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Protocol
 
@@ -32,7 +32,6 @@ from core.application import (
 from core.domain import Device, DeviceId, Point, PointTable, engineering_value
 
 from ..domain.point_value import PointValue
-from .config import PointMeta
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +154,12 @@ class CollectorDeviceSession:
         self,
         device: Device,
         point_table: PointTable,
-        point_meta: Mapping[str, PointMeta],
         protocol: ProtocolPort,
         *,
         subscribe_enabled: bool = False,
     ) -> None:
         self._device = device
         self._point_table = point_table
-        self._point_meta = dict(point_meta)
         self._point_group_cache: dict[str, tuple[str, ...]] = {}
         self._protocol = protocol
         self._subscribe_enabled = subscribe_enabled
@@ -202,11 +199,6 @@ class CollectorDeviceSession:
         return self._point_table
 
     @property
-    def point_meta_map(self) -> Mapping[str, PointMeta]:
-        """返回当前点表的进程级点位元数据（浅拷贝）。"""
-        return dict(self._point_meta)
-
-    @property
     def acquisition_mode(self) -> AcquisitionMode:
         """返回本设备的持续采集机制。
 
@@ -227,7 +219,7 @@ class CollectorDeviceSession:
         """替换不要求重建协议实例的设备配置快照。"""
         self._device = device
 
-    def set_points(self, point_table: PointTable, point_meta: Mapping[str, PointMeta]) -> None:
+    def set_points(self, point_table: PointTable) -> None:
         """更新点表与点位元数据（只更新内存映射，不触碰协议连接）。
 
         点表绑定切换与表内容（地址/类型）变化共用本轻量路径：会话映射
@@ -239,7 +231,6 @@ class CollectorDeviceSession:
         """
         self._protocol.update_point_table(point_table)
         self._point_table = point_table
-        self._point_meta = dict(point_meta)
         self._point_group_cache.clear()
 
     # ------------------------------------------------------------------
@@ -290,12 +281,8 @@ class CollectorDeviceSession:
         return [
             point
             for point in self._point_table.points.values()
-            if point_group in self._meta(point.point_id).point_groups
+            if point_group in point.point_groups
         ]
-
-    def _meta(self, point_id: str) -> PointMeta:
-        """返回点位元数据；缺省时返回空元数据。"""
-        return self._point_meta.get(point_id, PointMeta(variable_name=None, point_groups=()))
 
     def _to_values(
         self, samples: tuple[ProtocolSample, ...] | list[ProtocolSample]

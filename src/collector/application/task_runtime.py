@@ -344,14 +344,10 @@ class TaskRuntime:
         for task in self._task_defs.values():
             if not task.enabled:
                 continue
-            if task.device is not None:
-                device_ids = [task.device] if task.device in self._devices.devices else []
-            else:
-                device_ids = [
-                    device_id
-                    for device_id, session in self._devices.devices.items()
-                    if task.device_group in session.device_group_ids
-                ]
+            device_ids = [
+                device_id for device_id, session in self._devices.devices.items()
+                if str(task.device_group_id) in session.device_group_ids
+            ]
             for device_id in device_ids:
                 iid = task_instance_id(task.task_id, device_id)
                 desired[iid] = CollectionTaskInstance(
@@ -360,7 +356,7 @@ class TaskRuntime:
                     device_id=device_id,
                     point_group=task.point_group,
                     interval=task.interval,
-                    targets=task.targets,
+                    targets=task.sink_ids,
                 )
         return desired
 

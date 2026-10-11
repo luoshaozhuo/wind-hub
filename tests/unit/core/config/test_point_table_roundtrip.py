@@ -6,7 +6,6 @@ from shutil import copyfile
 
 from core.domain import PointTableId
 from core.infrastructure.config.adapter import YamlConfigAdapter
-from core.infrastructure.config.yaml import active_config_dir
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -30,7 +29,7 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
         for key in before.point_tables
     )
 
-    written = (active_config_dir(tmp_path) / "points.yaml").read_text(encoding="utf-8")
+    written = (tmp_path / "points.yaml").read_text(encoding="utf-8")
     assert "extends: beckhoff_base_v1" in written
     assert "business_point_id" in written
 
@@ -58,5 +57,5 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
     assert "rotor_speed" not in restored.point_tables[child.point_table_id].points
     assert restored.point_tables[child.point_table_id] == changed
     assert restored.point_tables[parent.point_table_id] == parent
-    content = (active_config_dir(tmp_path) / "points.yaml").read_text(encoding="utf-8")
+    content = (tmp_path / "points.yaml").read_text(encoding="utf-8")
     assert "remove_points:" in content

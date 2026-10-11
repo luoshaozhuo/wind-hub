@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.application.settings import ADSLocalConfig as AppADSLocalConfig
 from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
@@ -20,7 +21,7 @@ from core.infrastructure import (
 from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from .application.config import ADSLocalIdentity, CollectorConfig, DeviceView
+from .application.config import CollectorConfig, DeviceView
 from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
 from .application.metrics_state import CollectorMetricsState
@@ -80,7 +81,7 @@ class CollectorApp:
             await self.ads_local_router.close()
 
 
-def _to_ads_local_config(identity: ADSLocalIdentity | None) -> ADSLocalConfig | None:
+def _to_ads_local_config(identity: AppADSLocalConfig | None) -> ADSLocalConfig | None:
     """把 Application 层 ADS 本机身份转换为 Core 的 ADSLocalConfig。"""
     if identity is None:
         return None
@@ -129,7 +130,6 @@ def assemble_collector(
         return CollectorDeviceSession(
             view.device,
             view.point_table,
-            view.point_meta,
             protocol,
             subscribe_enabled=view.subscribe_enabled,
         )

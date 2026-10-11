@@ -8,22 +8,22 @@ from collector.application.sink_port import SinkRegistry
 
 if TYPE_CHECKING:
     from collector.application.sink_port import SinkPort
-    from core.application.sink_config import ResolvedSinkConfig
+    from core.domain import Sink
 
 
-def _file(config: ResolvedSinkConfig) -> SinkPort:
+def _file(config: Sink) -> SinkPort:
     from collector.infrastructure.sink.file.csv import FileSink
 
     return FileSink(config)
 
 
-def _modbus(config: ResolvedSinkConfig) -> SinkPort:
+def _modbus(config: Sink) -> SinkPort:
     from collector.infrastructure.sink.modbus import ModbusSink
 
     return ModbusSink(config)
 
 
-def _redis(config: ResolvedSinkConfig) -> SinkPort:
+def _redis(config: Sink) -> SinkPort:
     from collector.infrastructure.sink.redis import RedisSink
 
     return RedisSink(config)
