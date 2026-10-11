@@ -15,7 +15,7 @@ from pymodbus.server import ModbusTcpServer
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import ConnectionHealth
-from core.application.sink_config import ModbusSinkConnection
+from core.infrastructure.config.sink_schema import ModbusSinkConnection
 
 _READ_FUNCTIONS = {
     1: "coil",
