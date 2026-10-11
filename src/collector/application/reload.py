@@ -178,12 +178,12 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
     sinks = SinkDiff(
         added=added_sinks, removed=removed_sinks, updated=changed_sinks,
-        unchanged=sorted(set(old.sinks) & set(new.sinks) - set(changed_sinks)),
+        unchanged=sorted((set(old.sinks) & set(new.sinks)) - set(changed_sinks)),
     )
     added_tasks, removed_tasks, changed_tasks = _differences(dict(old.tasks), dict(new.tasks))
     tasks = TaskDiff(
         added=added_tasks, removed=removed_tasks, updated=changed_tasks,
-        unchanged=sorted(set(old.tasks) & set(new.tasks) - set(changed_tasks)),
+        unchanged=sorted((set(old.tasks) & set(new.tasks)) - set(changed_tasks)),
     )
     return ConfigDiff(
         devices=devices, sinks=sinks, tasks=tasks,
