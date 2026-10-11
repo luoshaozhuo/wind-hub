@@ -29,8 +29,7 @@ class _C104Point:
         self.value: Any = None
         self.receive_callback: Any = None
 
-    def read(self, *, wait_for_response: bool = True) -> bool:
-        assert wait_for_response is False
+    def read(self) -> bool:
         self.read_calls += 1
         return self.accepted
 
