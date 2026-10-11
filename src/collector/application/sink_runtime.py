@@ -20,7 +20,7 @@ from types import MappingProxyType
 from core.application import ConnectionHealth, WatchdogUseCase
 from core.domain import Sink
 
-from ..domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
 from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort

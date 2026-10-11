@@ -9,7 +9,7 @@ import pytest
 from collector.application.config import RuntimeParams
 from collector.application.reload import SinkDiff
 from collector.application.sink_runtime import SinkRuntime
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from tests.support.new_collector import FakeSink
 
 

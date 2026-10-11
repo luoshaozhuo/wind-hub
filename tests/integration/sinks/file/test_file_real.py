@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from collector.infrastructure.sink.file.csv import FileSink
 from core.domain import Sink
 

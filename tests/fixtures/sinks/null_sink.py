@@ -9,7 +9,7 @@ routing / lifecycle 测试：这些测试只需要一个可注入的 SinkPort �
 
 from __future__ import annotations
 
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application import ConnectionHealth
 
 

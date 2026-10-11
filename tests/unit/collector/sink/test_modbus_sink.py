@@ -11,7 +11,7 @@ import dataclasses
 import pytest
 
 from collector.application.sink_export import ExportedSinkPointValue
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.sink import ModbusSink

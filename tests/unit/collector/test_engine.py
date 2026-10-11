@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from collector.domain.acquisition import AcquisitionEngine
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application import ProtocolSample, Quality
 from tests.support.new_collector import CollectorFakeProtocol, make_collector_config, make_session
 

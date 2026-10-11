@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from collector.application.sink_port import SinkPort
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application import ConnectionHealth
 from tests.reliability.soak.metrics import append_bounded
 
