@@ -73,11 +73,9 @@ async def test_raw_interrogation_negative_confirmation_raises() -> None:
 @pytest.mark.asyncio
 async def test_interrogation_rejects_disconnect() -> None:
     driver = object.__new__(IEC104Driver)
-    driver._interrogation_waiter = asyncio.get_running_loop().create_future()
+    waiter = asyncio.get_running_loop().create_future()
+    driver._interrogation_waiter = waiter
     driver._reject_interrogation("connection lost")
     with pytest.raises(ProtocolError, match="connection lost"):
-        await driver._interrogation_waiter if driver._interrogation_waiter else _failed()
-    
-
-async def _failed() -> None:
-    raise ProtocolError("connection lost")
+        await waiter
+    assert driver._interrogation_waiter is None
