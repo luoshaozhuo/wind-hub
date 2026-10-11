@@ -357,13 +357,8 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
 class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
     """Collector 低频运行控制。"""
 
-    def __init__(
-        self,
-        app: CollectorApp,
-        identity: CollectorIdentity,
-    ) -> None:
+    def __init__(self, app: CollectorApp) -> None:
         self._app = app
-        self._identity = identity
         self._tasks = CollectorTaskService(app.runtime)
 
     async def StartTask(
@@ -535,7 +530,7 @@ def build_grpc_server(
         server,
     )
     pb_grpc.add_CollectorControlServiceServicer_to_server(
-        CollectorControlService(app, identity),
+        CollectorControlService(app),
         server,
     )
     requested_endpoint = f"{host}:{port}"
