@@ -31,8 +31,6 @@ class CommanderReadService:
         """
         async with self._runtime.operation():
             device = await self._connected_device(device_id)
-            if point_id not in device.point_table.points:
-                raise CommandError(f"unknown points on device '{device_id}': ['{point_id}']")
             return await device.read_point(point_id)
 
     async def read_points(
@@ -53,11 +51,6 @@ class CommanderReadService:
             if not point_ids:
                 raise CommandError("point_ids must be non-empty")
 
-            unknown = [
-                point_id for point_id in point_ids if point_id not in device.point_table.points
-            ]
-            if unknown:
-                raise CommandError(f"unknown points on device '{device_id}': {unknown}")
             return await device.read_points(point_ids)
 
     async def _connected_device(self, device_id: str) -> DeviceSession:

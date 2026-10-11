@@ -12,7 +12,6 @@ DeviceSession 把共享领域对象（Device / PointTable / BusinessPoint）与
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -28,8 +27,6 @@ from core.application import (
     validate_read_many_results,
 )
 from core.domain import (
-    BusinessPoint,
-    BusinessPointId,
     Device,
     DeviceId,
     Point,
@@ -71,7 +68,6 @@ class DeviceSession:
     Args:
         device: 共享领域设备聚合。
         point_table: 设备型号绑定的 resolved 点表。
-        business_points: 快照中的业务点索引（写值类型参考）。
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
     """
 
@@ -79,12 +75,10 @@ class DeviceSession:
         self,
         device: Device,
         point_table: PointTable,
-        business_points: Mapping[BusinessPointId, BusinessPoint],
         protocol: ProtocolPort,
     ) -> None:
         self._device = device
         self._point_table = point_table
-        self._business_points = business_points
         self._protocol = protocol
 
     @property

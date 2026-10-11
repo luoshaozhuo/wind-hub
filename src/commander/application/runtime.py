@@ -4,7 +4,7 @@ Runtime 持有按 generation 管理的 DeviceSession 注册表。read/write/diag
 进入时固定当前 generation；配置激活只做原子 generation 切换，旧 generation
 由后台 retirement task 等待在途操作排空后关闭——RPC deadline 不影响资源回收。
 
-prepare / activate / abort 语义与旧 Commander 一致：
+prepare / activate / abort 配置事务：
 
 - prepare 构造完整候选 generation（不执行网络 I/O），替换旧候选；
 - activate 原子切换 active generation，旧 generation 异步排空回收；
@@ -138,7 +138,6 @@ class CommanderRuntime:
             devices[str(device.device_id)] = DeviceSession(
                 device,
                 point_table,
-                config.business_points,
                 protocol,
             )
             locks[str(device.device_id)] = asyncio.Lock()
@@ -184,7 +183,7 @@ class CommanderRuntime:
         config_hash: str,
         revision_id: str,
     ) -> None:
-        """本地兼容入口：按 prepare + activate 原子切换配置代次。"""
+        """按 prepare + activate 原子切换配置代次。"""
         await self.prepare_config(revision_id, config, config_hash)
         await self.activate_config(revision_id)
 
