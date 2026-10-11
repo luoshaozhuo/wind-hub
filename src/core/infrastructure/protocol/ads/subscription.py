@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import ctypes
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -23,7 +24,7 @@ from .config import ADSConfig
 from .mapping import ADSPoint
 
 logger = logging.getLogger(__name__)
-_HEALTH_CHECK_INTERVAL = 1.0
+_WATCHDOG_INTERVAL = 1.0
 
 
 def _pyads() -> Any:
@@ -70,7 +71,8 @@ class ADSSubscription:
         self._connections: list[Any] = []
         self._handles: list[tuple[Any, Any, Any]] = []
         self._tasks: set[asyncio.Task[None]] = set()
-        self._monitor_task: asyncio.Task[None] | None = None
+        self._watchdog_task: asyncio.Task[None] | None = None
+        self._last_notification: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._closed = False
 
@@ -80,9 +82,9 @@ class ADSSubscription:
             if self._closed:
                 raise ProtocolError("ADS subscription is closed")
             await self._rebuild_locked()
-            self._monitor_task = asyncio.create_task(
-                self._monitor_loop(),
-                name="ads-notification-monitor",
+            self._watchdog_task = asyncio.create_task(
+                self._watchdog_loop(),
+                name="ads-notification-watchdog",
             )
 
     async def close(self) -> None:
@@ -91,11 +93,11 @@ class ADSSubscription:
             return
         self._closed = True
 
-        monitor, self._monitor_task = self._monitor_task, None
-        if monitor is not None and monitor is not asyncio.current_task():
-            monitor.cancel()
+        watchdog, self._watchdog_task = self._watchdog_task, None
+        if watchdog is not None and watchdog is not asyncio.current_task():
+            watchdog.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await monitor
+                await watchdog
 
         async with self._lock:
             await self._close_pool_locked()
@@ -105,15 +107,27 @@ class ADSSubscription:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _monitor_loop(self) -> None:
+    async def _watchdog_loop(self) -> None:
+        """检查连接与每个周期通知；通知失联时重新建立全部订阅。"""
+        timeout = max(1.0, 5 * self._cycle_time + self._config.max_delay)
         while not self._closed:
-            await asyncio.sleep(_HEALTH_CHECK_INTERVAL)
+            await asyncio.sleep(_WATCHDOG_INTERVAL)
             if self._closed:
                 return
             try:
                 async with self._lock:
                     if self._points and len(self._handles) != len(self._points):
                         raise ConnectionError("ADS notification registration is incomplete")
+                    now = time.monotonic()
+                    stalled = [
+                        point_id
+                        for point_id, last in self._last_notification.items()
+                        if now - last > timeout
+                    ]
+                    if stalled:
+                        raise TimeoutError(
+                            f"ADS notifications timed out for {len(stalled)} point(s)"
+                        )
                     for connection in self._connections:
                         if not connection.is_open:
                             raise ConnectionError("ADS notification connection is closed")
@@ -230,6 +244,7 @@ class ADSSubscription:
         pyads = _pyads()
         attr = pyads.NotificationAttrib(
             point.size,
+            trans_mode=pyads.ADSTRANS_SERVERCYCLE,
             cycle_time=self._cycle_time,
             max_delay=self._config.max_delay,
         )
@@ -243,6 +258,7 @@ class ADSSubscription:
             callback,
         )
         self._handles.append((connection, handle, user_handle))
+        self._last_notification[point.point_id] = time.monotonic()
 
     async def _close_pool_locked(self) -> None:
         for connection, handle, user_handle in self._handles:
@@ -253,6 +269,7 @@ class ADSSubscription:
                     user_handle,
                 )
         self._handles.clear()
+        self._last_notification.clear()
 
         for connection in self._connections:
             with contextlib.suppress(Exception):
@@ -296,8 +313,9 @@ class ADSSubscription:
         return callback
 
     def _schedule_sample(self, sample: ProtocolSample) -> None:
-        if self._closed:
+        if self._closed or sample.point_id not in self._last_notification:
             return
+        self._last_notification[sample.point_id] = time.monotonic()
         task = asyncio.create_task(self._invoke_callback(sample))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
