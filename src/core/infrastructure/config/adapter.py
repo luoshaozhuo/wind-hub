@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -36,13 +37,33 @@ class YamlConfigAdapter:
         # 在任何正式文件被替换前，验证整套配置可读且往返无损。
         with tempfile.TemporaryDirectory(dir=self._base) as directory:
             staging = Path(directory)
-            for source in self._base.glob("*.yaml"):
-                shutil.copy2(source, staging / source.name)
             for filename, document in documents.items():
                 write_yaml_mapping_atomic(staging / filename, document)
             restored = load_domain(staging)
             if diff_config_snapshots(snapshot, restored).has_changes:
                 raise ConfigError("Configuration cannot be saved losslessly")
 
-        for filename, document in documents.items():
-            write_yaml_mapping_atomic(self._base / filename, document)
+        originals = {
+            filename: (self._base / filename).read_bytes()
+            if (self._base / filename).exists() else None
+            for filename in documents
+        }
+        written: list[str] = []
+        try:
+            for filename, document in documents.items():
+                write_yaml_mapping_atomic(self._base / filename, document)
+                written.append(filename)
+        except Exception:
+            for filename in reversed(written):
+                target = self._base / filename
+                original = originals[filename]
+                if original is None:
+                    target.unlink(missing_ok=True)
+                    continue
+                with tempfile.NamedTemporaryFile(dir=self._base, delete=False) as handle:
+                    temporary = Path(handle.name)
+                    handle.write(original)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, target)
+            raise
