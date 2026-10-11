@@ -28,9 +28,6 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
-from core.domain import (
-    PointMeta as PointMeta,
-)
 from core.application.settings import ADSLocalConfig
 from core.domain import Sink, Task
 
@@ -90,7 +87,6 @@ class DeviceView:
     Attributes:
         device: 共享领域设备聚合。
         point_table: 设备型号绑定的 resolved 点表。
-        point_meta: 本点表的进程级点位元数据（按 point_id 索引）。
         options: 合并后的协议参数（model connection_defaults + endpoint
             extensions）。
         subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
@@ -99,7 +95,6 @@ class DeviceView:
 
     device: Device
     point_table: PointTable
-    point_meta: Mapping[str, PointMeta]
     options: ProtocolOptions
     subscribe_enabled: bool
 
@@ -118,7 +113,6 @@ class CollectorConfig:
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
         sinks: Sink 注册表（``{name: Sink}``，
             含 disabled——是否实例化由 Runtime 按 ``enabled`` 判定）。
-        point_meta: ``{点表: {point_id: PointMeta}}`` 采集分组/展示元数据。
         ads_subscribe_devices: 使用 ADS 订阅推送（notification）的设备集合。
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
@@ -133,7 +127,6 @@ class CollectorConfig:
     ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
     sinks: Mapping[str, Sink] = field(default_factory=dict)
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
     disabled_devices: frozenset[DeviceId] = frozenset()
 
@@ -148,28 +141,8 @@ class CollectorConfig:
         )
         object.__setattr__(self, "tasks", MappingProxyType(dict(self.tasks)))
         object.__setattr__(self, "sinks", MappingProxyType(dict(self.sinks)))
-        object.__setattr__(
-            self,
-            "point_meta",
-            MappingProxyType(
-                {
-                    table_id: MappingProxyType(dict(meta))
-                    for table_id, meta in self.point_meta.items()
-                }
-            ),
-        )
         object.__setattr__(self, "ads_subscribe_devices", frozenset(self.ads_subscribe_devices))
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
-
-    def meta_for(self, table_id: PointTableId, point_id: str) -> PointMeta:
-        """返回点位元数据；缺省时返回空元数据（元数据不参与协议路径）。"""
-        return self.point_meta.get(table_id, {}).get(
-            point_id, PointMeta(variable_name=None, point_groups=())
-        )
-
-    def table_meta(self, table_id: PointTableId) -> Mapping[str, PointMeta]:
-        """返回整张点表的点位元数据；缺省时返回空映射。"""
-        return self.point_meta.get(table_id, MappingProxyType({}))
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""
@@ -195,7 +168,6 @@ class CollectorConfig:
         return DeviceView(
             device=device,
             point_table=point_table,
-            point_meta=self.table_meta(point_table.point_table_id),
             options=options,
             subscribe_enabled=device_id in self.ads_subscribe_devices,
         )
