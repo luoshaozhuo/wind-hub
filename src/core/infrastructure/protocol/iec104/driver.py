@@ -79,7 +79,8 @@ class _Subscription:
 
     async def _drain(self) -> None:
         while self._pending and not self._closed:
-            _, sample = self._pending.popitem()
+            point_id = next(iter(self._pending))
+            sample = self._pending.pop(point_id)
             try:
                 await self._callback(sample)
             except Exception:
