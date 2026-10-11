@@ -269,7 +269,7 @@ class TestDynamicReadMany:
 
     @pytest.mark.asyncio
     async def test_sum_mode_keeps_dynamic_points_on_sum_read(self) -> None:
-        """sum 模式下动态点使用 index Sum Read，不降级 read_list_by_name。"""
+        """动态点使用 index Sum Read，不降级逐点读取。"""
 
         class _SumConnection(_Connection):
             def __init__(self) -> None:
