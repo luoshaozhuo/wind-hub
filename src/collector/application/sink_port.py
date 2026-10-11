@@ -15,9 +15,9 @@ from collections.abc import Callable
 
 from core.application import ConfigError
 from core.application.port import ExclusiveOpenSinkPort, SinkPort
-from core.application.sink_config import ResolvedSinkConfig
+from core.domain import Sink
 
-SinkFactory = Callable[[ResolvedSinkConfig], SinkPort]
+SinkFactory = Callable[[Sink], SinkPort]
 
 
 class SinkRegistry:
@@ -30,8 +30,8 @@ class SinkRegistry:
         """注册 Sink factory。
 
         Args:
-            type_name: 与 ResolvedSinkConfig.type 一致的类型名。
-            factory: 接收 ResolvedSinkConfig 并返回 SinkPort 的工厂。
+            type_name: 与 Sink.type 一致的类型名。
+            factory: 接收 Sink 并返回 SinkPort 的工厂。
 
         Raises:
             ConfigError: 同类型已注册。
@@ -60,8 +60,8 @@ class SinkRegistry:
         """返回已注册 Sink 类型名（排序后快照）。"""
         return tuple(sorted(self._factories))
 
-    def create(self, cfg: ResolvedSinkConfig) -> SinkPort:
-        """按 ``cfg.type`` 创建 Sink。
+    def create(self, cfg: Sink) -> SinkPort:
+        """按 ``cfg.kind`` 创建 Sink。
 
         Raises:
             ConfigError: 类型未注册。
