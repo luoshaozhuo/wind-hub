@@ -211,3 +211,37 @@ async def test_stop_releases_sinks_and_devices_after_task_stop_failure():
     assert not runtime.running
     assert sink.close_calls == 1
     assert protocol.close_calls == 1
+
+
+async def test_startup_error_not_masked_by_cleanup_failure():
+    """清理失败不能覆盖实际的启动失败，其他组件仍应释放。"""
+    runtime, protocol = make_runtime(make_collector_config())
+
+    async def fail_start() -> None:
+        raise RuntimeError("sync failure")
+
+    async def fail_cleanup() -> None:
+        raise RuntimeError("sink cleanup failure")
+
+    runtime.task_runtime.sync_instances = fail_start  # type: ignore[method-assign]
+    runtime.sink_runtime.stop = fail_cleanup  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="sync failure"):
+        await runtime.start()
+    assert protocol.close_calls == 1
+
+
+async def test_shutdown_preserves_first_error_and_still_closes_devices():
+    runtime, protocol = make_runtime(make_collector_config())
+    await runtime.start()
+
+    async def fail_tasks() -> None:
+        raise ValueError("tasks cleanup failed")
+
+    async def fail_sinks() -> None:
+        raise RuntimeError("sinks cleanup failed")
+
+    runtime.task_runtime.stop_all = fail_tasks  # type: ignore[method-assign]
+    runtime.sink_runtime.stop = fail_sinks  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="tasks cleanup failed"):
+        await runtime.stop()
+    assert protocol.close_calls == 1
