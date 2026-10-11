@@ -432,15 +432,64 @@ class ADSDriver:
             mapped_batch = [
                 await self._resolve_point_locked(write.point_id) for write in writes
             ]
-            results: list[ProtocolWriteResult] = []
+            results: list[ProtocolWriteResult | None] = [None] * len(writes)
+            prepared: list[tuple[int, ADSPoint, bytes]] = []
+            for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
+                if not point.address_resolved:
+                    results[index] = ProtocolWriteResult(
+                        point_id=write.point_id, success=False,
+                        message="ADS address is unresolved",
+                    )
+                    continue
+                try:
+                    raw_value = _coerce_write_value(write.value, point.data_type)
+                    payload = _encode_value(raw_value, point)
+                except (ConfigError, TypeError, ValueError, OverflowError) as exc:
+                    results[index] = ProtocolWriteResult(
+                        point_id=write.point_id, success=False, message=str(exc),
+                    )
+                    continue
+                prepared.append((index, point, payload))
+
             try:
-                for write, mapped in zip(writes, mapped_batch, strict=True):
-                    results.append(await self._write_single_point(mapped, write.value))
+                for start in range(0, len(prepared), self._config.max_subs_per_sum):
+                    chunk = prepared[start : start + self._config.max_subs_per_sum]
+                    errors = await asyncio.to_thread(self._sum_write_bytes, chunk)
+                    for (index, point, _), error in zip(chunk, errors, strict=True):
+                        results[index] = ProtocolWriteResult(
+                            point_id=point.point_id,
+                            success=error == 0,
+                            message=None if error == 0 else f"ADS write error {error}",
+                        )
             except Exception as exc:
                 await self._disconnect_after_failure()
-                raise ProtocolError(f"ADS write failed: {exc}") from exc
+                raise ProtocolError(f"ADS sum write failed: {exc}") from exc
 
-            return tuple(results)
+            if any(result is None for result in results):
+                raise RuntimeError("ADS sum write did not produce a result for every point")
+            return tuple(result for result in results if result is not None)
+
+    def _sum_write_bytes(
+        self, chunk: Sequence[tuple[int, ADSPoint, bytes]],
+    ) -> tuple[int, ...]:
+        """Send ADSIGRP_SUMUP_WRITE by index and decode individual ADS error codes."""
+        from pyads.constants import ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
+
+        connection = self._connection
+        if connection is None:
+            raise ProtocolError("ADS connection is unavailable")
+        headers = b"".join(
+            struct.pack("<III", point.index_group, point.index_offset, len(payload))
+            for _, point, payload in chunk
+        )
+        request = bytearray(headers + b"".join(payload for _, _, payload in chunk))
+        raw = connection.read_write(
+            ADSIGRP_SUMUP_WRITE, len(chunk), None, request, None,
+            check_length=False,
+        )
+        if raw is None or len(raw) != len(chunk) * 4:
+            raise ProtocolError("ADS sum write returned an invalid response size")
+        return tuple(error for (error,) in struct.iter_unpack("<I", bytes(raw)))
 
     async def _write_single_point(
         self,
@@ -751,6 +800,20 @@ class ADSDriver:
         if connection is not None:
             with contextlib.suppress(Exception):
                 connection.close()
+
+
+def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
+    """Serialize one ADS scalar to exactly the addressed byte width."""
+    if point.data_type == "STRING":
+        encoded = value.encode("utf-8") if isinstance(value, str) else b""
+        if point.size <= 0 or len(encoded) >= point.size:
+            raise ValueError(f"ADS STRING '{point.point_id}' exceeds configured size")
+        return encoded.ljust(point.size, b"\\x00")
+    datatype = _plc_datatype(point.data_type)
+    raw = bytes(datatype(value))
+    if len(raw) != point.size:
+        raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
+    return raw
 
 
 def _decode_value(raw: bytes, point: ADSPoint) -> float | int | bool | str:
