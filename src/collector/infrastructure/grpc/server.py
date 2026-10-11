@@ -12,6 +12,9 @@ from datetime import datetime
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
+from core.infrastructure.rpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+
 from ...application.identity import CollectorIdentity
 from ...application.reload import ConfigDiff
 from ...application.services import (
@@ -21,9 +24,6 @@ from ...application.services import (
     TaskInstanceDetail,
     TaskSummary,
 )
-from core.infrastructure.rpc import collector_pb2 as pb
-from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
-
 from ...assembly import CollectorApp
 
 
