@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.application import ConnectionHealth, WatchdogUseCase
-from core.application.sink_config import ResolvedSinkConfig
+from core.domain import Sink
 
 from ..domain.point_value import PointValue
 from .config import RuntimeParams
@@ -300,7 +300,7 @@ class SinkRuntime:
     # 热重载——sink 增删重建
     # ------------------------------------------------------------------
 
-    async def add_sink(self, sink_name: str, cfg: ResolvedSinkConfig, sink: SinkPort) -> None:
+    async def add_sink(self, sink_name: str, cfg: Sink, sink: SinkPort) -> None:
         """运行时新增 sink；open 成功后才提交到注册表。
 
         部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
@@ -344,7 +344,7 @@ class SinkRuntime:
     async def rebuild_sink(
         self,
         sink_name: str,
-        new_cfg: ResolvedSinkConfig,
+        new_cfg: Sink,
         new_sink: SinkPort,
     ) -> None:
         """重建 Sink，并按资源能力选择 open-first / close-first。
@@ -402,7 +402,7 @@ class SinkRuntime:
     async def apply_diff(
         self,
         diff: SinkDiff,
-        new_sinks: Mapping[str, ResolvedSinkConfig],
+        new_sinks: Mapping[str, Sink],
     ) -> None:
         """按 diff 让运行态 Sink 注册表收敛到 enabled Sink 集合。
 
