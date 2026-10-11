@@ -203,7 +203,7 @@ def create_app(settings: RpcSettings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_resolve_point(device_id, point_id))
 
-    @app.get("/api/v1/commander/devices/{device_id}/points/verify", tags=["commander"])
+    @app.get("/api/v1/commander/devices/{device_id}/verify-points", tags=["commander"])
     async def verify_points(
         device_id: str,
         point_group: str = Query(default=""),
