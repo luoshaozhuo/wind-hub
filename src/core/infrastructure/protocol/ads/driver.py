@@ -216,7 +216,7 @@ class ADSDriver:
                     pass
                 identity = _LOCAL_AMS
                 if identity is None:
-                    raise ConfigError("ADS local AMS identity is not initialized")
+                    raise ConfigError("ADS local AMS identity is not initialized") from None
                 try:
                     added = pyads.add_route_to_plc(
                         identity.local_ams_net_id,
