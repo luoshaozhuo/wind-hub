@@ -17,6 +17,7 @@ from commander.infrastructure.grpc.io_codec import (
     point_value_to_proto,
 )
 from core.application import Quality
+from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.rpc import commander_pb2 as pb
 
 
@@ -97,16 +98,21 @@ def test_command_roundtrip_and_result():
     assert restored.value == command.value
     assert restored.timeout == command.timeout
 
-    result = CommandResult(command_id="cmd-1", success=True)
+    result = CommandResult(command_id="cmd-1", outcome=WriteOutcome.CONFIRMED_SUCCESS)
     message = command_result_to_proto(result)
     assert message.command_id == "cmd-1"
-    assert message.success is True
+    assert message.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
     assert message.error == ""
     assert message.HasField("finished_at")
 
-    failed = CommandResult(command_id="cmd-2", success=False, error="boom")
+    failed = CommandResult(command_id="cmd-2", outcome=WriteOutcome.CONFIRMED_FAILURE, error="boom")
     message = command_result_to_proto(failed)
+    assert message.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE
     assert message.error == "boom"
+
+    uncertain = CommandResult(command_id="cmd-3", outcome=WriteOutcome.UNKNOWN, error="t/o")
+    message = command_result_to_proto(uncertain)
+    assert message.outcome == pb.COMMAND_OUTCOME_UNKNOWN
 
 
 def test_pb_module_is_shared_core_contract():

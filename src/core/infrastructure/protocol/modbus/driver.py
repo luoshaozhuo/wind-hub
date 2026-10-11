@@ -30,6 +30,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
     WritableScalar,
+    WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
@@ -283,7 +284,7 @@ class ModbusDriver:
         if mapped.register_type in _READ_ONLY_TYPES:
             return ProtocolWriteResult(
                 point_id=point_id,
-                success=False,
+                outcome=WriteOutcome.CONFIRMED_FAILURE,
                 message=f"{mapped.register_type} is read-only",
             )
         async with self._lock:
@@ -295,7 +296,7 @@ class ModbusDriver:
                 # 本地编码/取值校验失败：请求未发送，不触碰连接。
                 return ProtocolWriteResult(
                     point_id=point_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     message=str(exc) or type(exc).__name__,
                 )
             accepted = await self._transact("write", request)
@@ -303,10 +304,10 @@ class ModbusDriver:
             # 设备已应答异常响应——通信链路可用，业务失败不作为断线处理。
             return ProtocolWriteResult(
                 point_id=point_id,
-                success=False,
+                outcome=WriteOutcome.CONFIRMED_FAILURE,
                 message="Modbus exception response",
             )
-        return ProtocolWriteResult(point_id=point_id, success=True)
+        return ProtocolWriteResult(point_id=point_id, outcome=WriteOutcome.CONFIRMED_SUCCESS)
 
     async def read_many(
         self,

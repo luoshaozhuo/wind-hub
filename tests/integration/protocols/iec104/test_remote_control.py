@@ -20,6 +20,7 @@ from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     Quality,
+    WriteOutcome,
 )
 from core.domain import (
     UNIT_CATALOG,
@@ -100,7 +101,7 @@ class TestRemoteControlIntegration:
             await driver.close()
 
         assert result.point_id == "switch.on"
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.message is None
         assert control_server.last_control.get("C_SC_NA_1") == 1001
 
@@ -119,7 +120,7 @@ class TestRemoteControlIntegration:
         finally:
             await driver.close()
 
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert control_server.last_control.get("C_DC_NA_1") == 1002
 
     async def test_set_point_control(
@@ -137,7 +138,7 @@ class TestRemoteControlIntegration:
         finally:
             await driver.close()
 
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert control_server.last_control.get("C_SE_NC_1") == 1003
 
     async def test_write_many_is_not_supported(
@@ -172,7 +173,7 @@ class TestRemoteControlIntegration:
         self,
         control_server: IEC104ControlServer,
     ) -> None:
-        """C_SC_NA_1 只接受 bool：int 0 在编码期失败，success=False。"""
+        """C_SC_NA_1 只接受 bool：int 0 在编码期失败（CONFIRMED_FAILURE，未上 wire）。"""
         driver = _driver(
             control_server.port,
             [_command_point("switch.off", 1001, "C_SC_NA_1")],
@@ -183,7 +184,7 @@ class TestRemoteControlIntegration:
         finally:
             await driver.close()
 
-        assert result.success is False
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "boolean" in (result.message or "")
         # 值校验失败，命令不得上到 wire。
         assert "C_SC_NA_1" not in control_server.last_control

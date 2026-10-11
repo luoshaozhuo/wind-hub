@@ -24,6 +24,7 @@ from pathlib import Path
 from collector.assembly import CollectorApp, assemble_collector
 from core.application import ProtocolWrite
 from core.application.port.protocol import ProtocolPort
+from core.application.protocol_contract import WriteOutcome
 from core.domain import Sink
 from core.domain.point_value import PointValue
 from tests.performance.netem import NetemController, NetemScenario
@@ -467,7 +468,7 @@ async def _write_loop(app: CollectorApp, profile: SoakProfile, stats: WriteStats
             # 断连/传输失败 = 本次写失败；写循环本身必须持续。
             stats.failures += 1
         else:
-            if not result.success:
+            if result.outcome is not WriteOutcome.CONFIRMED_SUCCESS:
                 stats.failures += 1
         tick += 1
 

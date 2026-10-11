@@ -29,8 +29,16 @@ message WritePointRequest {
   ScalarValue value = 4; double timeout = 5;
 }
 message WritePointsRequest { repeated WritePointRequest commands = 1; }
+// 写入现场执行结果分类：UNKNOWN 表示命令可能已送达或已执行但没有
+// 确认证据（超时、响应丢失、写入期断线），调用方不得盲目重试。
+enum CommandOutcome {
+  COMMAND_OUTCOME_UNSPECIFIED = 0;
+  COMMAND_OUTCOME_CONFIRMED_SUCCESS = 1;
+  COMMAND_OUTCOME_CONFIRMED_FAILURE = 2;
+  COMMAND_OUTCOME_UNKNOWN = 3;
+}
 message CommandResultMessage {
-  string command_id = 1; bool success = 2; string error = 3;
+  string command_id = 1; CommandOutcome outcome = 2; string error = 3;
   google.protobuf.Timestamp finished_at = 4;
 }
 message WritePointsResponse { repeated CommandResultMessage results = 1; }

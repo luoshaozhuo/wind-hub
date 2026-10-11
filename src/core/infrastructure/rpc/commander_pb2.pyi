@@ -9,6 +9,7 @@ from google.protobuf import message as _message
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf import wrappers_pb2 as _wrappers_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 import builtins as _builtins
 import sys
 import typing as _typing
@@ -19,6 +20,28 @@ else:
     from typing_extensions import TypeAlias as _TypeAlias, Never as _Never
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class _CommandOutcome:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _CommandOutcomeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_CommandOutcome.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    COMMAND_OUTCOME_UNSPECIFIED: _CommandOutcome.ValueType  # 0
+    COMMAND_OUTCOME_CONFIRMED_SUCCESS: _CommandOutcome.ValueType  # 1
+    COMMAND_OUTCOME_CONFIRMED_FAILURE: _CommandOutcome.ValueType  # 2
+    COMMAND_OUTCOME_UNKNOWN: _CommandOutcome.ValueType  # 3
+
+class CommandOutcome(_CommandOutcome, metaclass=_CommandOutcomeEnumTypeWrapper):
+    """写入现场执行结果分类：UNKNOWN 表示命令可能已送达或已执行但没有
+    确认证据（超时、响应丢失、写入期断线），调用方不得盲目重试。
+    """
+
+COMMAND_OUTCOME_UNSPECIFIED: CommandOutcome.ValueType  # 0
+COMMAND_OUTCOME_CONFIRMED_SUCCESS: CommandOutcome.ValueType  # 1
+COMMAND_OUTCOME_CONFIRMED_FAILURE: CommandOutcome.ValueType  # 2
+COMMAND_OUTCOME_UNKNOWN: CommandOutcome.ValueType  # 3
+Global___CommandOutcome: _TypeAlias = CommandOutcome  # noqa: Y015
 
 @_typing.final
 class ScalarValue(_message.Message):
@@ -217,11 +240,11 @@ class CommandResultMessage(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     COMMAND_ID_FIELD_NUMBER: _builtins.int
-    SUCCESS_FIELD_NUMBER: _builtins.int
+    OUTCOME_FIELD_NUMBER: _builtins.int
     ERROR_FIELD_NUMBER: _builtins.int
     FINISHED_AT_FIELD_NUMBER: _builtins.int
     command_id: _builtins.str
-    success: _builtins.bool
+    outcome: Global___CommandOutcome.ValueType
     error: _builtins.str
     @_builtins.property
     def finished_at(self) -> _timestamp_pb2.Timestamp: ...
@@ -229,13 +252,13 @@ class CommandResultMessage(_message.Message):
         self,
         *,
         command_id: _builtins.str = ...,
-        success: _builtins.bool = ...,
+        outcome: Global___CommandOutcome.ValueType = ...,
         error: _builtins.str = ...,
         finished_at: _timestamp_pb2.Timestamp | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["finished_at", b"finished_at"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["command_id", b"command_id", "error", b"error", "finished_at", b"finished_at", "success", b"success"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["command_id", b"command_id", "error", b"error", "finished_at", b"finished_at", "outcome", b"outcome"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

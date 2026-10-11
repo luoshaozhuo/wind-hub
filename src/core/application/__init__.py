@@ -28,6 +28,7 @@ from .protocol_contract import (
     Quality,
     TimestampSource,
     WritableScalar,
+    WriteOutcome,
     validate_read_many_results,
 )
 from .protocol_registry import ProtocolFactory, ProtocolRegistry
@@ -52,6 +53,7 @@ __all__ = [
     "ProtocolSampleCallback",
     "ProtocolWrite",
     "ProtocolWriteResult",
+    "WriteOutcome",
     "Quality",
     "SubscriptionHandle",
     "TimestampSource",

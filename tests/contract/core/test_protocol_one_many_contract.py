@@ -25,6 +25,7 @@ from core.application.protocol_contract import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    WriteOutcome,
 )
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads.driver import ADSDriver
@@ -165,7 +166,7 @@ async def test_modbus_single_operations_succeed_without_many_on_connected_path()
     assert sample.quality == Quality.GOOD
 
     result = await driver.write_one(ProtocolWrite("p1", 42))
-    assert result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert client.write_calls == [("register", 100, 42)]
 
 
@@ -244,7 +245,7 @@ async def test_ads_single_operations_succeed_without_many_on_connected_path() ->
     assert sample.quality == Quality.GOOD
 
     result = await driver.write_one(ProtocolWrite("p1", 5))
-    assert result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(connection.write_calls) == 1
     _, _, value, _ = connection.write_calls[0]
     assert value == 5
@@ -346,7 +347,7 @@ async def test_iec104_single_operations_succeed_without_many_on_open_path() -> N
     assert sample.quality == Quality.GOOD
 
     result = await driver.write_one(ProtocolWrite("c1", True))
-    assert result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     command_point = driver._station.get_point(200)
     assert command_point is not None
     assert len(command_point.transmit_calls) == 1

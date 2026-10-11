@@ -57,7 +57,7 @@ class _Commander(commander_grpc.CommanderServiceServicer):
         del context
         return commander_pb.CommandResultMessage(
             command_id=request.command_id,
-            success=True,
+            outcome=commander_pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
         )
 
 
@@ -129,4 +129,4 @@ async def test_commander_read_write_without_server_admin(endpoints) -> None:
     assert status["running"] is True
     assert reading["value"]["double_value"] == 12.5
     assert reading["quality"] == "good"
-    assert result["success"] is True
+    assert result["outcome"] == "COMMAND_OUTCOME_CONFIRMED_SUCCESS"

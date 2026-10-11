@@ -21,6 +21,7 @@ import pytest
 
 from commander.application.command import Command
 from commander.assembly import CommanderApp, assemble_commander
+from core.application.protocol_contract import WriteOutcome
 from tests.support.env import ads_config_from_env
 from tests.support.new_commander import write_minimal_config_tree
 
@@ -139,4 +140,4 @@ class TestRealAdsWrite:
                 value=1.0,
             )
         )
-        assert result.success, result.error
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.error

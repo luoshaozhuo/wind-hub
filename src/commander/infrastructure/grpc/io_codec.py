@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.rpc import commander_pb2 as pb
 from core.infrastructure.rpc.scalar_codec import decode_scalar, encode_scalar
 
@@ -54,11 +55,18 @@ def command_from_proto(message: pb.WritePointRequest) -> Command:
     )
 
 
+_OUTCOME_TO_PROTO: dict[WriteOutcome, pb.CommandOutcome.ValueType] = {
+    WriteOutcome.CONFIRMED_SUCCESS: pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
+    WriteOutcome.CONFIRMED_FAILURE: pb.COMMAND_OUTCOME_CONFIRMED_FAILURE,
+    WriteOutcome.UNKNOWN: pb.COMMAND_OUTCOME_UNKNOWN,
+}
+
+
 def command_result_to_proto(result: CommandResult) -> pb.CommandResultMessage:
     """领域 CommandResult → wire message。"""
     message = pb.CommandResultMessage(
         command_id=result.command_id,
-        success=result.success,
+        outcome=_OUTCOME_TO_PROTO[result.outcome],
         error=result.error or "",
     )
     message.finished_at.FromDatetime(result.finished_at)

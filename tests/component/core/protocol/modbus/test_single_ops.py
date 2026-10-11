@@ -10,7 +10,7 @@ from pymodbus.exceptions import ModbusIOException
 
 from core.application import ConfigError
 from core.application.errors import ProtocolConnectionError, ProtocolError
-from core.application.protocol_contract import ProtocolWrite, Quality
+from core.application.protocol_contract import ProtocolWrite, Quality, WriteOutcome
 from core.domain import (
     UNIT_CATALOG,
     BusinessPointId,
@@ -441,7 +441,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("c", True))
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_coil_calls == [(10, True)]
         assert client.total_write_calls() == 1
 
@@ -452,7 +452,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("h", -5))
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_register_calls == [(200, 0xFFFB)]
 
     @pytest.mark.asyncio
@@ -463,7 +463,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("f", 42.5))
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_registers_calls == [(300, _float32_registers(42.5))]
         assert client.write_register_calls == []
         assert client.total_write_calls() == 1
@@ -475,7 +475,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("i", 1))
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "read-only" in (result.message or "")
         assert client.total_write_calls() == 0
 
@@ -486,7 +486,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("h", 70000))
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert client.total_write_calls() == 0
         # 发送前校验失败：请求未接触设备，连接保持打开。
         assert driver.is_open() is True
@@ -500,7 +500,7 @@ class TestWriteOne:
 
         result = await driver.write_one(ProtocolWrite("h", 10))
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert result.message == "Modbus exception response"
         assert (await driver.health()).healthy is True
 

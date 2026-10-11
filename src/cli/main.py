@@ -201,9 +201,16 @@ async def _run(args: argparse.Namespace) -> int:
         async with CommanderClient(args.target, timeout=args.rpc_timeout) as client:
             result = await client.call(args.operation, **_commander_kwargs(args))
     _print(result)
-    if result.get("success") is False or result.get("ok") is False:
+    outcomes = [item["outcome"] for item in result.get("results", []) if "outcome" in item]
+    if "outcome" in result:
+        outcomes.append(result["outcome"])
+    # 退出码：0=全部确认成功；3=存在 UNKNOWN（命令可能已执行，需人工核实）；
+    # 2=确认失败或 RPC 级失败。
+    if any(outcome == "COMMAND_OUTCOME_UNKNOWN" for outcome in outcomes):
+        return 3
+    if outcomes and any(outcome != "COMMAND_OUTCOME_CONFIRMED_SUCCESS" for outcome in outcomes):
         return 2
-    if "results" in result and any(item.get("success") is False for item in result["results"]):
+    if result.get("success") is False or result.get("ok") is False:
         return 2
     return 0
 

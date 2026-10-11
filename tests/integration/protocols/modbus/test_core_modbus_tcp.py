@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from core.application.errors import ProtocolError
-from core.application.protocol_contract import ProtocolWrite
+from core.application.protocol_contract import ProtocolWrite, WriteOutcome
 from core.application.watchdog import WatchdogUseCase
 from core.domain import (
     UNIT_CATALOG,
@@ -205,7 +205,7 @@ class TestRealServerIO:
     ) -> None:
         driver, _, _ = modbus_env
         result = await driver.write_one(ProtocolWrite("coil.rw", True))
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert (await driver.read_one("coil.rw")).value is True
 
     async def test_write_one_single_register_roundtrip(
@@ -213,7 +213,7 @@ class TestRealServerIO:
     ) -> None:
         driver, _, _ = modbus_env
         result = await driver.write_one(ProtocolWrite("hr.wint", -123))
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert (await driver.read_one("hr.wint")).value == -123
 
     async def test_write_one_multi_register_roundtrip(
@@ -221,7 +221,7 @@ class TestRealServerIO:
     ) -> None:
         driver, _, _ = modbus_env
         result = await driver.write_one(ProtocolWrite("hr.wfloat", 66.25))
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert (await driver.read_one("hr.wfloat")).value == pytest.approx(66.25)
 
     async def test_write_many_rejected_without_side_effects(

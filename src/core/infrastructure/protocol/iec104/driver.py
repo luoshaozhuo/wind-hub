@@ -26,6 +26,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
     WritableScalar,
+    WriteOutcome,
 )
 from core.domain import ConnectionEndpoint, PointAccess, PointTable, ProtocolOptions
 
@@ -629,7 +630,7 @@ class IEC104Driver:
             except (ConfigError, ProtocolError, TypeError, ValueError) as exc:
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     message=str(exc),
                 )
 
@@ -641,9 +642,11 @@ class IEC104Driver:
                     c104.Cot.ACTIVATION,
                 )
             except Exception as exc:
+                # transmit 异常（含等待 ACT_CON 期间的连接故障）：命令
+                # 可能已送达设备，无法确证最终结果。
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
-                    success=False,
+                    outcome=WriteOutcome.UNKNOWN,
                     message=str(exc),
                 )
             elapsed = time.monotonic() - started
@@ -651,12 +654,15 @@ class IEC104Driver:
         if accepted:
             return ProtocolWriteResult(
                 point_id=mapped.point_id,
-                success=True,
+                outcome=WriteOutcome.CONFIRMED_SUCCESS,
             )
+        # c104 transmit 只返回 bool，不区分否定确认、超时与断线；
+        # 没有肯定确认证据时一律 UNKNOWN——命令可能已被设备执行，
+        # 绝不伪报为确证未执行。
         return ProtocolWriteResult(
             point_id=mapped.point_id,
-            success=False,
-            message=self._command_failure_reason(elapsed),
+            outcome=WriteOutcome.UNKNOWN,
+            message=self._command_not_confirmed_reason(elapsed),
         )
 
     def _get_or_create_command_point(
@@ -770,12 +776,12 @@ class IEC104Driver:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
 
-    def _command_failure_reason(self, elapsed: float) -> str:
+    def _command_not_confirmed_reason(self, elapsed: float) -> str:
         if not self._is_open:
-            return "connection lost"
+            return "activation not confirmed: connection lost"
         if elapsed >= self._config.t1 * 2 * 0.9:
-            return "timeout"
-        return "negative confirmation"
+            return "activation not confirmed: timeout"
+        return "activation not confirmed: rejected or link loss"
 
     def _handle_state_change(self, state: Any) -> None:
         loop = self._loop

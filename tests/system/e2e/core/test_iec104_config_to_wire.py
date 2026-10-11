@@ -18,6 +18,7 @@ import c104
 import pytest
 
 from core.application import ProtocolRegistry, ProtocolSample, ProtocolWrite, Quality
+from core.application.protocol_contract import WriteOutcome
 from core.domain import ConnectionEndpoint
 from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.protocol.iec104 import IEC104Driver
@@ -103,7 +104,7 @@ class TestIEC104ConfigToWire:
 
             # 遥控命令到达对端
             result = await driver.write_one(ProtocolWrite(point_id="cmd_breaker", value=True))
-            assert result.success, result.message
+            assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS, result.message
             assert server.last_control.get("C_SC_NA_1") == 300
 
             await subscription.close()

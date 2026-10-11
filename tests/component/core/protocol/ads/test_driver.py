@@ -14,6 +14,7 @@ from core.application import (
     ConfigError,
     ProtocolSample,
     ProtocolWrite,
+    WriteOutcome,
 )
 from core.application.settings import ADSLocalConfig
 from core.domain import (
@@ -126,7 +127,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
 
     result = await driver.write_one(ProtocolWrite(point_id=point.point_id, value=10.0))
 
-    assert result.success is True
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert fake_connection.writes[0][2] == 10
     assert type(fake_connection.writes[0][2]) is int
 

@@ -29,6 +29,7 @@ from core.application.protocol_contract import (
     ProtocolWriteResult,
     Quality,
     WritableScalar,
+    WriteOutcome,
 )
 from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
@@ -475,7 +476,7 @@ class ADSDriver:
                 if not point.address_resolved:
                     results[index] = ProtocolWriteResult(
                         point_id=write.point_id,
-                        success=False,
+                        outcome=WriteOutcome.CONFIRMED_FAILURE,
                         message="ADS address is unresolved",
                     )
                     continue
@@ -485,7 +486,7 @@ class ADSDriver:
                 except (ConfigError, TypeError, ValueError, OverflowError) as exc:
                     results[index] = ProtocolWriteResult(
                         point_id=write.point_id,
-                        success=False,
+                        outcome=WriteOutcome.CONFIRMED_FAILURE,
                         message=str(exc),
                     )
                     continue
@@ -498,7 +499,13 @@ class ADSDriver:
                     for (index, point, _), error in zip(chunk, errors, strict=True):
                         results[index] = ProtocolWriteResult(
                             point_id=point.point_id,
-                            success=error == 0,
+                            # error == 0 为设备确认成功；否则设备返回明确
+                            # ADS 错误码——两种结果都有协议证据。
+                            outcome=(
+                                WriteOutcome.CONFIRMED_SUCCESS
+                                if error == 0
+                                else WriteOutcome.CONFIRMED_FAILURE
+                            ),
                             message=None if error == 0 else f"ADS write error {error}",
                         )
             except Exception as exc:
@@ -548,7 +555,7 @@ class ADSDriver:
         if not mapped.address_resolved:
             return ProtocolWriteResult(
                 point_id=mapped.point_id,
-                success=False,
+                outcome=WriteOutcome.CONFIRMED_FAILURE,
                 message="ADS address is unresolved",
             )
 
@@ -557,7 +564,7 @@ class ADSDriver:
         except ConfigError as exc:
             return ProtocolWriteResult(
                 point_id=mapped.point_id,
-                success=False,
+                outcome=WriteOutcome.CONFIRMED_FAILURE,
                 message=str(exc),
             )
 
@@ -569,7 +576,7 @@ class ADSDriver:
         except (TypeError, ValueError) as exc:
             return ProtocolWriteResult(
                 point_id=mapped.point_id,
-                success=False,
+                outcome=WriteOutcome.CONFIRMED_FAILURE,
                 message=str(exc),
             )
 
@@ -587,13 +594,13 @@ class ADSDriver:
             if _is_point_level_error(exc):
                 return ProtocolWriteResult(
                     point_id=mapped.point_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     message=str(exc) or type(exc).__name__,
                 )
             raise
         return ProtocolWriteResult(
             point_id=mapped.point_id,
-            success=True,
+            outcome=WriteOutcome.CONFIRMED_SUCCESS,
         )
 
     async def interrogate(self) -> None:

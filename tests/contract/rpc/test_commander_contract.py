@@ -65,7 +65,7 @@ def test_write_point_request_carries_command_id() -> None:
 def test_command_result_reports_command_id() -> None:
     fields = pb.CommandResultMessage.DESCRIPTOR.fields_by_name
     assert "command_id" in fields
-    assert "success" in fields
+    assert "outcome" in fields
     assert "error" in fields
 
 

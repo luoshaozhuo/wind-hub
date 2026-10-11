@@ -22,6 +22,7 @@ from core.application import (
     ProtocolWrite,
     ProtocolWriteResult,
     Quality,
+    WriteOutcome,
 )
 from core.application.port.protocol import SubscriptionHandle
 from core.application.protocol_registry import ProtocolRegistry
@@ -203,20 +204,20 @@ class FakeProtocol:
 
     async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         self.writes.extend(writes)
-        return tuple(
-            ProtocolWriteResult(
-                point_id=write.point_id,
-                success=self.write_success,
-                message=None if self.write_success else "fake write rejected",
-            )
-            for write in writes
-        )
+        return tuple(self._write_result(write) for write in writes)
 
     async def write_one(self, write: ProtocolWrite) -> ProtocolWriteResult:
         self.writes.append(write)
+        return self._write_result(write)
+
+    def _write_result(self, write: ProtocolWrite) -> ProtocolWriteResult:
         return ProtocolWriteResult(
             point_id=write.point_id,
-            success=self.write_success,
+            outcome=(
+                WriteOutcome.CONFIRMED_SUCCESS
+                if self.write_success
+                else WriteOutcome.CONFIRMED_FAILURE
+            ),
             message=None if self.write_success else "fake write rejected",
         )
 

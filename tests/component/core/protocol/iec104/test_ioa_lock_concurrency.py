@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from core.application import ProtocolError, ProtocolSample
+from core.application.protocol_contract import WriteOutcome
 from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import iec104_point
@@ -239,7 +240,8 @@ async def test_command_failure_releases_lock_reference() -> None:
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
     result = await driver.write_one(point, True)
-    assert not result.success
+    # 未获肯定确认（无法区分拒绝/超时/断线）→ UNKNOWN；锁必须释放。
+    assert result.outcome is WriteOutcome.UNKNOWN
 
     assert 600 not in driver._command_locks
 
@@ -250,7 +252,7 @@ async def test_command_type_error_releases_lock_reference() -> None:
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
     result = await driver.write_one(point, "not-a-bool")
-    assert not result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
 
     assert 600 not in driver._command_locks
 
@@ -297,5 +299,5 @@ async def test_high_frequency_same_ioa_writes_never_overlap() -> None:
     driver = _driver()
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
     results = await asyncio.gather(*(driver.write_one(point, True) for _ in range(50)))
-    assert all(result.success for result in results)
+    assert all(result.outcome is WriteOutcome.CONFIRMED_SUCCESS for result in results)
     assert 600 not in driver._command_locks

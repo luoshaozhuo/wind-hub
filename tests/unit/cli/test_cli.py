@@ -74,13 +74,17 @@ async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
 
         async def call(self, operation: str, **kwargs):
             del operation, kwargs
-            return {"command_id": "failed", "success": False, "error": "offline"}
+            return {
+                "command_id": "failed",
+                "outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE",
+                "error": "offline",
+            }
 
     monkeypatch.setattr(cli_mod, "CommanderClient", FailedClient)
     args = cli_mod.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
 
     assert await cli_mod._run(args) == 2
-    assert '"success": false' in capsys.readouterr().out
+    assert '"outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE"' in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
@@ -100,7 +104,12 @@ async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> N
 
         async def call(self, operation: str, **kwargs):
             del operation, kwargs
-            return {"results": [{"success": True}, {"success": False}]}
+            return {
+                "results": [
+                    {"outcome": "COMMAND_OUTCOME_CONFIRMED_SUCCESS"},
+                    {"outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE"},
+                ]
+            }
 
     monkeypatch.setattr(cli_mod, "CommanderClient", PartialClient)
     args = cli_mod.build_parser().parse_args(
@@ -108,3 +117,28 @@ async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> N
     )
 
     assert await cli_mod._run(args) == 2
+
+
+@pytest.mark.asyncio
+async def test_cli_unknown_outcome_returns_distinct_exit_code(monkeypatch) -> None:
+    """UNKNOWN 结果（命令可能已执行）以独立退出码 3 返回，区别于确认失败。"""
+    from cli import main as cli_mod
+
+    class UncertainClient:
+        def __init__(self, target: str, *, timeout: float) -> None:
+            del target, timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def call(self, operation: str, **kwargs):
+            del operation, kwargs
+            return {"command_id": "c1", "outcome": "COMMAND_OUTCOME_UNKNOWN", "error": "timeout"}
+
+    monkeypatch.setattr(cli_mod, "CommanderClient", UncertainClient)
+    args = cli_mod.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
+
+    assert await cli_mod._run(args) == 3

@@ -10,6 +10,7 @@ from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.ty
 )
 
 from core.application import ProtocolError, ProtocolWrite
+from core.application.protocol_contract import WriteOutcome
 from core.domain import (
     UNIT_CATALOG,
     BusinessPointId,
@@ -82,7 +83,10 @@ def _driver(*points: Point) -> tuple[ADSDriver, _Connection]:
 async def test_sum_write_uses_index_addresses_and_preserves_order() -> None:
     driver, connection = _driver(_point("a", 10), _point("b", 20))
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert [r.success for r in results] == [True, True]
+    assert [r.outcome for r in results] == [
+        WriteOutcome.CONFIRMED_SUCCESS,
+        WriteOutcome.CONFIRMED_SUCCESS,
+    ]
     assert connection.requests == [
         [
             (0x4020, 10, struct.pack("<i", 1)),
@@ -96,7 +100,10 @@ async def test_sum_write_individual_status_isolated() -> None:
     driver, connection = _driver(_point("a", 10), _point("b", 20))
     connection.errors = [1808, 0]
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert [r.success for r in results] == [False, True]
+    assert [r.outcome for r in results] == [
+        WriteOutcome.CONFIRMED_FAILURE,
+        WriteOutcome.CONFIRMED_SUCCESS,
+    ]
     assert results[0].message == "ADS write error 1808"
     assert driver.is_open()
 
@@ -110,7 +117,10 @@ async def test_sum_write_rejects_invalid_value_without_discarding_valid_points()
             ProtocolWrite("b", 2),
         )
     )
-    assert [r.success for r in results] == [False, True]
+    assert [r.outcome for r in results] == [
+        WriteOutcome.CONFIRMED_FAILURE,
+        WriteOutcome.CONFIRMED_SUCCESS,
+    ]
     assert connection.requests == [[(0x4020, 20, struct.pack("<i", 2))]]
 
 
@@ -137,5 +147,5 @@ async def test_sum_write_chunks_by_limit() -> None:
             ProtocolWrite("c", 3),
         )
     )
-    assert all(r.success for r in results)
+    assert all(r.outcome is WriteOutcome.CONFIRMED_SUCCESS for r in results)
     assert [len(batch) for batch in connection.requests] == [2, 1]
