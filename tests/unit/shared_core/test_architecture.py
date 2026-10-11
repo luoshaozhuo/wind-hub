@@ -9,7 +9,7 @@ _FORBIDDEN_PACKAGES = {
     "wind_hub_collector",
     "wind_hub_commander",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 }
 
 
