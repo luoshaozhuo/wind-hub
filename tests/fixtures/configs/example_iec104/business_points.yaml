@@ -1,0 +1,10 @@
+business_points:
+  meas_power:
+    data_type: float32
+    unit: none
+  meas_freq:
+    data_type: float32
+    unit: none
+  cmd_breaker:
+    data_type: bool
+    unit: none
