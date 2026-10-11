@@ -18,7 +18,7 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
-    apply_placement_and_start_instance,
+    start_task_instance,
     reload_config,
 )
 from tests.support.functional_config import update_yaml
@@ -87,7 +87,7 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
         tasks=[
             {
                 "task_id": "iec104-telemetry",
-                "device": "iec104-1",
+                "device_group": "iec104-1",
                 "point_group": "telemetry",
                 # IEC104 为订阅型：interval 被协议忽略，仅满足 schema。
                 "interval": 0.2,
@@ -120,11 +120,10 @@ class TestCollectorRestart:
         proc_a: CollectorProcess = await collector_factory(
             config_dir, collector_id="recovery-restart"
         )
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_a.grpc_target,
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
-            worker_id="recovery-restart",
         )
         await wait_file_rows(sink_path, min_rows=3)
         exit_code = proc_a.terminate()
@@ -140,11 +139,10 @@ class TestCollectorRestart:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == "recovery-restart"
 
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_b.grpc_target,
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
-            worker_id="recovery-restart",
         )
         await wait_file_rows(sink_path, min_rows=baseline + 2)
 
@@ -162,7 +160,7 @@ class TestSubscriptionRestartPending:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：订阅建立，总召数据落盘 ----
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=IEC104_TASK_ID, instance_id=IEC104_INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=2)

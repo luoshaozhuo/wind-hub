@@ -142,9 +142,11 @@ async def test_activation_stops_old_generation_watchdog():
     runtime, registry = _runtime()
     assert await runtime.ensure_connected("dev1")
     old_watchdog = runtime._current.watchdogs["dev1"]
+    # ensure_connected 的重连前 close 不计入；activation 必须再恰好关闭一次。
+    close_before = registry.instances[0].close_calls
     await runtime.prepare_config("r2", make_commander_config(), "hash-b")
     await runtime.activate_config("r2")
     await asyncio.sleep(0.05)
     assert old_watchdog._task is None
-    assert registry.instances[0].close_calls == 1
+    assert registry.instances[0].close_calls == close_before + 1
     await runtime.stop()

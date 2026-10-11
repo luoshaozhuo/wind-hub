@@ -16,7 +16,7 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import (
-    apply_placement_and_start_instance,
+    start_task_instance,
     prepare_config,
     reload_config,
 )
@@ -42,7 +42,7 @@ class TestReloadFailureResilience:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=4)

@@ -73,7 +73,7 @@ async def test_disabled_task_not_expanded():
 
 async def test_device_group_task_expands_per_matching_device():
     config = make_collector_config(
-        device_group_id="wind",
+        device_group="wind",
         tasks={
             "tg": CollectionTask(
                 task_id="tg",

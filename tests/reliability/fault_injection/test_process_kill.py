@@ -15,7 +15,7 @@ import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
-from tests.support.control import apply_placement_and_start_instance
+from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess, run_ctl_async
 from tests.support.wait import read_csv, wait_file_rows
 
@@ -40,11 +40,10 @@ class TestProcessKillRecovery:
         proc_a: CollectorProcess = await collector_factory(
             config_dir, collector_id=WORKER_ID
         )
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_a.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
-            worker_id=WORKER_ID,
         )
         await wait_file_rows(sink_path, min_rows=3)
         proc_a.kill_tree()
@@ -59,11 +58,10 @@ class TestProcessKillRecovery:
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 
         baseline = len(read_csv(sink_path))
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_b.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
-            worker_id=WORKER_ID,
         )
         await wait_file_rows(sink_path, min_rows=baseline + 2)
 
@@ -79,11 +77,10 @@ class TestProcessKillRecovery:
         proc: CollectorProcess = await collector_factory(
             config_dir, collector_id=WORKER_ID
         )
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target,
             task_id=TASK_ID,
             instance_id=INSTANCE_ID,
-            worker_id=WORKER_ID,
         )
         await wait_file_rows(sink_path, min_rows=4)
         proc.kill_tree()

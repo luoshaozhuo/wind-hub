@@ -18,7 +18,7 @@ from tests.reliability.recovery.helpers import (
     telemetry_task,
     wait_status,
 )
-from tests.support.control import apply_placement_and_start_instance
+from tests.support.control import start_task_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import parse_address, point_key
@@ -87,7 +87,7 @@ class TestRedisOutageIsolation:
         proc: CollectorProcess = await collector_factory(config_dir)
         service_stopped = False
         try:
-            await apply_placement_and_start_instance(
+            await start_task_instance(
                 proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
             )
             baseline = await wait_redis_value(redis_service, ROTOR_KEY)

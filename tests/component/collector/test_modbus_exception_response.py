@@ -54,7 +54,7 @@ def _file_sink(tmp_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
     tasks = [
         {
             "task_id": "modbus-telemetry",
-            "device": "modbus-1",
+            "device_group": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
             "targets": [{"sink": "file_sink"}],
@@ -79,7 +79,7 @@ class TestExceptionResponseClassification:
         # （传输打开 ≠ 设备可应答），首次真实通信后异常响应计为链路健康。
         protocol = app.runtime.devices["modbus-1"].protocol
         for _ in range(50):
-            if protocol.health().healthy:
+            if (await protocol.health()).healthy:
                 break
             await asyncio.sleep(0.1)
         else:
@@ -89,7 +89,7 @@ class TestExceptionResponseClassification:
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
             protocol = app.runtime.devices["modbus-1"].protocol
-            assert protocol.health().healthy is True, (
+            assert (await protocol.health()).healthy is True, (
                 "异常响应被误判为断连（driver health 掉线）"
             )
             state = app.runtime.device_state("modbus-1")

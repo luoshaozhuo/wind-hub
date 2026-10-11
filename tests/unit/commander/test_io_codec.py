@@ -109,7 +109,7 @@ def test_command_roundtrip_and_result():
     assert message.error == "boom"
 
 
-def test_pb_module_is_per_process_copy():
-    """pb2 模块必须来自 commander 进程内副本（不依赖 wind_hub_core）。"""
-    assert pb.__name__.startswith("commander.infrastructure.grpc")
+def test_pb_module_is_shared_core_contract():
+    """pb2 模块必须来自 Core 共享 RPC 契约（不依赖任何旧 wind_hub_* 包）。"""
+    assert pb.__name__.startswith("core.infrastructure.rpc")
     assert "wind_hub" not in str(pb.__file__)

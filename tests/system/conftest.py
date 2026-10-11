@@ -15,7 +15,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
@@ -25,12 +24,10 @@ from tests.support.process import (
     free_port,
     start_collector,
     start_commander,
-    start_server,
 )
 from tests.support.wait import (
     wait_commander_ready,
     wait_grpc_ready,
-    wait_http_ready,
 )
 
 
@@ -117,98 +114,3 @@ def commander_factory(
             proc.kill_tree()
         finally:
             proc.close_log()
-
-
-SYSTEM_TASK_ID = "modbus-telemetry"
-SYSTEM_INSTANCE_ID = "modbus-telemetry:modbus-1"
-SYSTEM_COLLECTOR_ID = "collector-1"
-
-
-@dataclass
-class FullStack:
-    """完整系统现场：从站 + 两个 Worker + Server + REST 客户端。"""
-
-    modbus: ModbusMockServer
-    collector: CollectorProcess
-    commander: CollectorProcess
-    server: CollectorProcess
-    http: httpx.AsyncClient
-    config_dir: Path
-    sink_path: Path
-
-
-@pytest.fixture
-async def full_stack(
-    modbus_server: ModbusMockServer,
-    collector_factory,
-    commander_factory,
-    tmp_path: Path,
-) -> AsyncIterator[FullStack]:
-    """完整系统现场：真实 Modbus 从站、Collector、Commander 与 Server 进程。
-
-    Server 以缩短的对账/探测周期启动，REST 客户端已确认 HTTP 就绪；
-    结束后先关客户端再优雅停机 Server（Worker 由各自工厂回收）。
-    """
-    sink_path = tmp_path / "out" / "telemetry.csv"
-    config_dir = write_functional_config(
-        tmp_path / "cfg",
-        modbus_server.port,
-        sinks=[
-            {
-                "name": "file_sink",
-                "type": "file",
-                "connection": {
-                    "path": str(sink_path),
-                },
-            }
-        ],
-        tasks=[
-            {
-                "task_id": SYSTEM_TASK_ID,
-                "device": "modbus-1",
-                "point_group": "telemetry",
-                "interval": 0.2,
-                "targets": [{"sink": "file_sink"}],
-            }
-        ],
-    )
-    collector: CollectorProcess = await collector_factory(
-        config_dir, collector_id=SYSTEM_COLLECTOR_ID
-    )
-    commander: CollectorProcess = await commander_factory(config_dir)
-
-    server = start_server(
-        config_dir,
-        collectors=[f"{SYSTEM_COLLECTOR_ID}={collector.grpc_target}"],
-        commander=commander.grpc_target,
-        log_dir=tmp_path,
-    )
-    try:
-        await wait_http_ready(server.grpc_target)
-    except BaseException:
-        server.kill_tree()
-        server.close_log()
-        raise
-
-    http = httpx.AsyncClient(
-        base_url=f"http://{server.grpc_target}", timeout=10.0
-    )
-    try:
-        yield FullStack(
-            modbus=modbus_server,
-            collector=collector,
-            commander=commander,
-            server=server,
-            http=http,
-            config_dir=config_dir,
-            sink_path=sink_path,
-        )
-    finally:
-        await http.aclose()
-        try:
-            if server.is_running():
-                server.terminate()
-        except BaseException:
-            server.kill_tree()
-        finally:
-            server.close_log()

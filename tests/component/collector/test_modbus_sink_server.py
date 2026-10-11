@@ -15,7 +15,7 @@ from pymodbus.client import AsyncModbusTcpClient
 from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
-from core.application.sink_config import (
+from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,
     ModbusSinkConnection,
     ResolvedSinkPoint,
@@ -80,7 +80,7 @@ async def test_client_reads_live_store_and_writes_are_rejected(
     server,  # type: ignore[no-untyped-def]
 ) -> None:
     tcp, _, port = server
-    assert tcp.health().healthy is True
+    assert (await tcp.health()).healthy is True
 
     client = AsyncModbusTcpClient("127.0.0.1", port=port)
     assert await client.connect()

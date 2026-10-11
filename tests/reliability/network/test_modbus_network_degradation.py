@@ -27,7 +27,7 @@ from tests.performance.netem import NetemScenario
 from tests.reliability.network.conftest import NetemLink
 from tests.reliability.recovery.helpers import ctl_status, telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
-from tests.support.control import apply_placement_and_start_instance, metrics_snapshot
+from tests.support.control import start_task_instance, metrics_snapshot
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_csv, wait_file_rows
 
@@ -71,7 +71,7 @@ async def _start_stack(
     sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = _write_config(tmp_path / "cfg", link, sink_path)
     proc: CollectorProcess = await collector_factory(config_dir)
-    await apply_placement_and_start_instance(
+    await start_task_instance(
         proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
     )
     await wait_status(

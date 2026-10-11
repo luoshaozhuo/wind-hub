@@ -5,8 +5,7 @@
 - 新包（core/collector/commander）不得 import 任何 wind_hub_* 旧包；
 - collector 与 commander 不得互相 import；
 - core.domain / core.application 保持纯净（不引入 yaml/grpc/配置仓储，
-  YAML 适配器统一位于 core.infrastructure）；
-- 进程内 proto 副本与旧共享 proto 逐字节一致（wire contract 兼容）。
+  YAML 适配器统一位于 core.infrastructure）。
 """
 
 from __future__ import annotations
@@ -73,20 +72,3 @@ def test_core_config_purity() -> None:
     assert not offenders, "core domain/application 引入了配置/传输基础设施：\n" + "\n".join(
         offenders
     )
-
-
-def test_proto_copies_byte_identical_to_legacy() -> None:
-    pairs = (
-        (
-            SRC / "wind_hub_core/rpc/collector.proto",
-            SRC / "collector/infrastructure/grpc/collector.proto",
-        ),
-        (
-            SRC / "wind_hub_core/rpc/commander.proto",
-            SRC / "commander/infrastructure/grpc/commander.proto",
-        ),
-    )
-    for legacy, copied in pairs:
-        assert (
-            copied.read_bytes() == legacy.read_bytes()
-        ), f"{copied.relative_to(REPO_ROOT)} 与旧 proto 不一致，wire contract 可能漂移"

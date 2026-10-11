@@ -31,6 +31,7 @@ from core.domain import (
     ConnectionEndpoint,
     DataType,
     Device,
+    DeviceGroupId,
     DeviceId,
     DeviceModel,
     DeviceModelId,
@@ -308,6 +309,7 @@ def make_commander_config(
                 device_id=DeviceId(device_id),
                 device_model_id=DeviceModelId("mod"),
                 endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
+                device_group_ids=(DeviceGroupId("grp"),),
             )
         },
         business_points={bp.business_point_id: bp},

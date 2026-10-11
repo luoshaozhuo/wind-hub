@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import apply_placement_and_start_instance, stop_instance
+from tests.support.control import start_task_instance, stop_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
@@ -36,7 +36,7 @@ REDIS_KEY_PREFIX = "wind-hub-sys"
 def _task(sink_name: str) -> dict:
     return {
         "task_id": "modbus-telemetry",
-        "device": "modbus-1",
+        "device_group": "modbus-1",
         "point_group": "telemetry",
         "interval": 0.2,
         "targets": [{"sink": sink_name}],
@@ -72,7 +72,7 @@ class TestModbusToFile:
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 
@@ -98,7 +98,7 @@ class TestModbusToFile:
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=4)
@@ -139,7 +139,7 @@ class TestModbusToRedis:
         )
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 

@@ -157,7 +157,32 @@ def write_config_tree(
     for name, t in tables.items():
         t.setdefault("protocol", inferred[name])
 
-    _write_yaml(base, "units.yaml", {"units": units or dict(_DEFAULT_UNITS)})
+    # 点表缺省 business_point_id 时按 point_id 派生，并汇总出
+    # business_points.yaml（当前 loader 的必需文件）。
+    business_points: dict[str, dict[str, str]] = {}
+    for table in tables.values():
+        for point in table.get("points", []):
+            identity = point.setdefault("business_point_id", point["point_id"])
+            if "data_type" in point:
+                definition = {
+                    "data_type": point["data_type"],
+                    "unit": point.get("unit", "none"),
+                }
+                previous = business_points.get(identity)
+                if previous is not None and previous != definition:
+                    raise ValueError(f"conflicting business point definition: {identity}")
+                business_points[identity] = definition
+
+    instances = [
+        (
+            {**device, "device_group": device["device_id"]}
+            if "device_group" not in device and "device_groups" not in device
+            else device
+        )
+        for device in instances
+    ]
+
+    _write_yaml(base, "business_points.yaml", {"business_points": business_points})
     _write_yaml(
         base,
         "device_models.yaml",
@@ -165,7 +190,7 @@ def write_config_tree(
     )
     _write_yaml(base, "points.yaml", {"point_tables": tables})
 
-    system_data: dict[str, Any] = {}
+    system_data: dict[str, Any] = {"site": {"site_id": "test"}}
     if system:
         system_data.update(system)
     _write_yaml(base, "system.yaml", system_data)

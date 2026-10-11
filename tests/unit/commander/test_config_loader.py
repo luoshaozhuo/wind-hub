@@ -143,6 +143,11 @@ def test_bool_point_must_be_dimensionless(tmp_path):
     config_dir = write_minimal_config_tree(tmp_path)
     write_yaml(
         config_dir,
+        "business_points.yaml",
+        {"business_points": {"flag": {"data_type": "bool", "unit": "percent"}}},
+    )
+    write_yaml(
+        config_dir,
         "points.yaml",
         {
             "point_tables": {
@@ -151,6 +156,7 @@ def test_bool_point_must_be_dimensionless(tmp_path):
                     "points": [
                         {
                             "point_id": "flag",
+                            "business_point_id": "flag",
                             "point_groups": ["g"],
                             "address": {"register_type": "coil", "address": 1},
                             "data_type": "bool",
@@ -385,17 +391,21 @@ def test_invalid_ams_net_id_rejected(tmp_path):
         load_commander_config(config_dir)
 
 
-def test_commander_load_ignores_missing_or_invalid_unrelated_topics(tmp_path):
-    """Commander 不解析 tasks/sinks；其缺失或非法均不影响加载。"""
+def test_commander_does_not_consume_tasks_or_sinks(tmp_path):
+    """Commander 不消费 tasks/sinks（Collector 关注点），但共享 Core 快照校验。
+
+    合法的 tasks/sinks 正常加载且不进入 CommanderConfig；非法内容由共享
+    loader 拒绝——配置错误必须快速失败，而不是被某个进程静默忽略。
+    """
     config_dir = write_minimal_config_tree(tmp_path)
+    config = load_commander_config(config_dir)
+    assert config.devices
+    assert not hasattr(config, "tasks")
+    assert not hasattr(config, "sinks")
+
     write_yaml(config_dir, "tasks.yaml", {"tasks": [{"task_id": "bad"}]})
-    write_yaml(config_dir, "sinks.yaml", {"sinks": [{"name": "bad", "type": "invalid"}]})
-    config = load_commander_config(config_dir)
-    assert config.devices
-    (config_dir / "tasks.yaml").unlink()
-    (config_dir / "sinks.yaml").unlink()
-    config = load_commander_config(config_dir)
-    assert config.devices
+    with pytest.raises(ConfigError):
+        load_commander_config(config_dir)
 
 
 def test_watchdog_timing_loaded(tmp_path):

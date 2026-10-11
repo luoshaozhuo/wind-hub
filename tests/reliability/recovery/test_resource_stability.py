@@ -25,7 +25,7 @@ from tests.reliability.recovery.helpers import (
     write_modbus_file_config,
 )
 from tests.support.control import (
-    apply_placement_and_start_instance,
+    start_task_instance,
     metrics_snapshot,
     reload_config,
 )
@@ -62,7 +62,7 @@ class TestReconnectFlapStability:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=2)
@@ -119,7 +119,7 @@ class TestReloadStability:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=2)

@@ -223,7 +223,7 @@ def test_task_point_group_must_exist(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="point_group"):
+    with pytest.raises(ConfigError, match="point group"):
         load_collector_config(config_dir)
 
 

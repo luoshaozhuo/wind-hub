@@ -255,62 +255,6 @@ def start_commander(
     )
 
 
-def start_server(
-    config_dir: Path,
-    *,
-    http_port: int | None = None,
-    collectors: list[str],
-    commander: str,
-    log_dir: Path,
-    reconcile_interval: float = 5.0,
-    worker_probe_interval: float = 1.0,
-    env_extra: dict[str, str] | None = None,
-) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-server``。
-
-    Args:
-        config_dir: 现场配置目录。
-        http_port: REST API 端口；None 时自动分配空闲端口。
-        collectors: ``worker_id=host:port`` 形式的 Collector 登记项。
-        commander: Commander gRPC endpoint。
-        log_dir: 进程日志目录（通常 ``tmp_path``）。
-        reconcile_interval: Worker 配置对账周期（秒），测试默认缩短。
-        worker_probe_interval: Worker 状态探测周期（秒），测试默认缩短。
-        env_extra: 追加环境变量。
-
-    Returns:
-        CollectorProcess（通用进程句柄；``grpc_target`` 字段复用为
-        ``127.0.0.1:<http_port>``，调用方负责 HTTP 就绪等待与 terminate）。
-    """
-    port = http_port if http_port is not None else free_port()
-    args = [
-        "--config",
-        str(config_dir),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--commander",
-        commander,
-        "--reconcile-interval",
-        str(reconcile_interval),
-        "--worker-probe-interval",
-        str(worker_probe_interval),
-        "--log-level",
-        "warning",
-    ]
-    for entry in collectors:
-        args.extend(["--collector", entry])
-    return _start_service(
-        "wind-hub-server",
-        args,
-        service="server",
-        port=port,
-        log_dir=log_dir,
-        env_extra=env_extra,
-    )
-
-
 def _start_service(
     script: str,
     args: list[str],

@@ -23,7 +23,7 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
-from tests.support.control import apply_placement_and_start_instance, metrics_snapshot
+from tests.support.control import start_task_instance, metrics_snapshot
 from tests.support.process import CollectorProcess, free_port
 from tests.support.wait import wait_file_rows
 
@@ -103,7 +103,7 @@ class TestWatchdogRecovery:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _write_fast_config(tmp_path / "cfg", port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 
