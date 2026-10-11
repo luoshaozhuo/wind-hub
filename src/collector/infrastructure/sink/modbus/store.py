@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from collector.infrastructure.sink.modbus.codec import EncodedModbusValue
-from core.application.sink_config import (
+from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     ModbusSinkAddress,
     ResolvedSinkPoint,
