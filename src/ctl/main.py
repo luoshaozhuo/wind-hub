@@ -207,6 +207,12 @@ async def _run(args: argparse.Namespace) -> int:
         async with CommanderClient(args.target, timeout=args.rpc_timeout) as client:
             result = await client.call(args.operation, **_commander_kwargs(args))
     _print(result)
+    if result.get("success") is False or result.get("ok") is False:
+        return 2
+    if "results" in result and any(
+        item.get("success") is False for item in result["results"]
+    ):
+        return 2
     return 0
 
 
