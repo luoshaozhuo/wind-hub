@@ -139,7 +139,6 @@ class CommanderRuntime:
                 device,
                 point_table,
                 config.business_points,
-                config.point_meta.get(point_table.point_table_id, {}),
                 protocol,
             )
             locks[str(device.device_id)] = asyncio.Lock()
