@@ -678,10 +678,12 @@ class TestValueSemantics:
         assert sample.value == pytest.approx(1.0)
 
     async def test_timestamp_mapping(self) -> None:
-        """带时标类型（M_ME_TF_1）的 CP56Time2a → ProtocolSample.timestamp（UTC）。
+        """带时标类型（M_ME_TF_1）线上往返后的时间戳契约。
 
-        M_ME_NC_1 等无时标类型的 ASDU 不携带 CP56Time2a，时标映射只能经
-        带时标 TypeID 验证。
+        CP56Time2a 不编码时区，c104/lib60870-C 解码出的 ``recorded_at``
+        恒为 naive datetime；Core 明确不把 naive 设备时间假定为 UTC，
+        回退为本地接收时刻（``timestamp_source == "local"``）。tz-aware
+        → ``device`` 的映射分支由 unit/contract 层 codec 测试覆盖。
         """
         import c104
 
@@ -704,10 +706,13 @@ class TestValueSemantics:
                     return None
                 return sample if sample.value == pytest.approx(43.0) else None
 
+            before = datetime.now(UTC)
             sample = await wait_until(
                 _probe, timeout=10.0, description="timestamped value received"
             )
-            assert sample.timestamp == stamp
+            after = datetime.now(UTC)
+            assert sample.timestamp_source == "local"
+            assert before <= sample.timestamp <= after
         finally:
             await drv.close()
             await srv.stop()
