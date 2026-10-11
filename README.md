@@ -18,13 +18,13 @@
 | `src/wind_hub_collector` | 进程 `wind-hub-collector` | 采集运行时：协议接入、采集 Task 调度、Sink 分发，对外提供 gRPC 控制面 |
 | `src/wind_hub_commander` | 进程 `wind-hub-commander` | 即时设备命令与诊断进程 |
 | `src/wind_hub_server` | 进程 `wind-hub-server` | 管理 API（FastAPI）进程宿主：装配与生命周期；业务 Use Case 复用 collector，不形成第二套后端 |
-| `src/wind_hub_cli` | CLI `wind-hub` | 直连 Collector / Commander 的本地运维 CLI；不依赖 Server/Admin |
+| `src/cli` | CLI `wind-hub` | 直连 Collector / Commander 的本地运维 CLI；不依赖 Server/Admin |
 | `src/wind-hub-admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
 | `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`run_benchmark.py`（压测）、`generate_rpc.py`（proto 代码生成） |
 | `ai_shared/` | 治理 | Coding Agent 规则、Skill、Hook 与本机工具配置模板，`.claude/`、`.codex/`、`.agents/` 仅为适配层 |
 | `tests/` | 测试 | 分层测试体系，见下文「测试」 |
 
-依赖方向由 import-linter 固化：`collector / commander / wind_hub_cli → core`，
+依赖方向由 import-linter 固化：`collector / commander / cli → core`，
 core 无出向依赖；进程间协作一律经 `core.rpc` 生成的 gRPC 契约，禁止直接
 import 对端进程包。
 

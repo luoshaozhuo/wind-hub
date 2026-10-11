@@ -9,6 +9,7 @@ ModbusTcpServer（真实 TCP，127.0.0.1 动态端口）。网络故障类场景
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import struct
 from collections.abc import AsyncIterator
 
@@ -295,12 +296,14 @@ class _SilentServer:
     def __init__(self) -> None:
         self.frames = 0
         self._server: asyncio.AbstractServer | None = None
+        self._writers: set[asyncio.StreamWriter] = set()
 
     async def start(self) -> int:
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
         return int(self._server.sockets[0].getsockname()[1])
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self._writers.add(writer)
         try:
             while True:
                 header = await reader.readexactly(7)  # MBAP 头
@@ -311,12 +314,19 @@ class _SilentServer:
         except (asyncio.IncompleteReadError, ConnectionError, asyncio.LimitOverrunError):
             pass
         finally:
+            self._writers.discard(writer)
             writer.close()
 
     async def stop(self) -> None:
         assert self._server is not None
         self._server.close()
         await self._server.wait_closed()
+        # 主动关闭仍活动的连接，避免 handler 协程在事件循环关闭时被 GC。
+        for writer in list(self._writers):
+            writer.close()
+        for writer in list(self._writers):
+            with contextlib.suppress(ConnectionError, RuntimeError):
+                await writer.wait_closed()
 
 
 class TestTimeoutAndCancellation:

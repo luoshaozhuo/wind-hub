@@ -75,10 +75,10 @@ class WatchdogUseCase:
         """执行一次有界健康检查；需要时最多触发一次重连。"""
         generation = self._generation
         try:
-            health = await asyncio.wait_for(
-                self._health(),
-                timeout=self._health_timeout,
-            )
+            # asyncio.timeout 在当前任务内直接 await，避免 wait_for 的子任务
+            # 在外层取消时未开始执行即被销毁（coroutine never awaited）。
+            async with asyncio.timeout(self._health_timeout):
+                health = await self._health()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -145,14 +145,10 @@ class WatchdogUseCase:
                 return False
 
             async with self._lifecycle_lock:
-                await asyncio.wait_for(
-                    self._close(),
-                    timeout=self._connect_timeout,
-                )
-                await asyncio.wait_for(
-                    self._connect(),
-                    timeout=self._connect_timeout,
-                )
+                async with asyncio.timeout(self._connect_timeout):
+                    await self._close()
+                async with asyncio.timeout(self._connect_timeout):
+                    await self._connect()
                 self._generation += 1
 
         # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
@@ -172,7 +168,8 @@ class WatchdogUseCase:
             if not self._enabled:
                 break
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+                async with asyncio.timeout(self._interval):
+                    await self._wake.wait()
             except TimeoutError:
                 continue
             self._wake.clear()

@@ -5,11 +5,11 @@ from __future__ import annotations
 import grpc
 import pytest
 
+from cli.client import CollectorClient, CommanderClient
 from core.infrastructure.rpc import collector_pb2 as collector_pb
 from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
 from core.infrastructure.rpc import commander_pb2 as commander_pb
 from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
-from wind_hub_cli.client import CollectorClient, CommanderClient
 
 
 class _CollectorRuntime(collector_grpc.CollectorRuntimeServiceServicer):

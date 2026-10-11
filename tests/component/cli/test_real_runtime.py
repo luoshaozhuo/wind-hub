@@ -5,13 +5,13 @@ from __future__ import annotations
 import grpc
 import pytest
 
+from cli.client import CollectorClient, CommanderClient
 from collector.assembly import assemble_collector
 from collector.infrastructure.grpc import build_grpc_server as build_collector_server
 from commander.assembly import assemble_commander
 from commander.infrastructure.grpc import build_grpc_server as build_commander_server
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_minimal_config_tree
-from wind_hub_cli.client import CollectorClient, CommanderClient
 
 
 async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
