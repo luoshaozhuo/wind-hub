@@ -75,13 +75,18 @@ class ADSSubscription:
         self._last_notification: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._closed = False
+        self._generation = 0
+        self._started = False
 
     async def start(self) -> None:
         """建立 notification pool 并注册全部点。"""
         async with self._lock:
             if self._closed:
                 raise ProtocolError("ADS subscription is closed")
+            if self._started:
+                raise ProtocolError("ADS subscription is already started")
             await self._rebuild_locked()
+            self._started = True
             self._watchdog_task = asyncio.create_task(
                 self._watchdog_loop(),
                 name="ads-notification-watchdog",
@@ -149,6 +154,7 @@ class ADSSubscription:
                     logger.exception("ADS notification pool rebuild failed")
 
     async def _rebuild_locked(self) -> None:
+        self._generation += 1
         await self._close_pool_locked()
         if not self._points:
             return
@@ -249,7 +255,7 @@ class ADSSubscription:
             max_delay=self._config.max_delay,
         )
         callback = connection.notification(_plc_datatype(point.data_type))(
-            self._notification_callback(point)
+            self._notification_callback(point, self._generation)
         )
         handle, user_handle = await asyncio.to_thread(
             connection.add_device_notification,
@@ -279,6 +285,7 @@ class ADSSubscription:
     def _notification_callback(
         self,
         point: ADSPoint,
+        generation: int,
     ) -> Callable[..., None]:
         def callback(
             handle: Any,
@@ -287,7 +294,7 @@ class ADSSubscription:
             value: Any,
         ) -> None:
             del handle, address
-            if self._closed:
+            if self._closed or generation != self._generation:
                 return
             try:
                 scalar = _as_scalar(value)
