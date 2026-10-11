@@ -394,4 +394,65 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_abort_config(body.revision_id))
 
+
+    @app.post(
+        "/api/v1/config/prepare",
+        tags=["config"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def prepare_both(
+        body: ConfigPrepareBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        """顺序准备两端；任一失败尝试撤销，不声称原子性。"""
+        results: dict[str, object] = {}
+        try:
+            collector = await _invoke(
+                gateway.collector_prepare_config(body.revision_id, body.config_hash)
+            )
+            results["collector"] = collector
+            if not collector.get("success", False):
+                raise HTTPException(status_code=409, detail={"stage": "collector_prepare", "result": collector})
+            commander = await _invoke(
+                gateway.commander_prepare_config(body.revision_id, body.config_hash)
+            )
+            results["commander"] = commander
+            if not commander.get("success", False):
+                raise HTTPException(status_code=409, detail={"stage": "commander_prepare", "result": commander})
+            return {"success": True, "revision_id": body.revision_id, "results": results}
+        except Exception:
+            # prepare 失败后尽力释放两侧候选配置；撤销结果不应掩盖原始失败。
+            for abort in (gateway.collector_abort_config, gateway.commander_abort_config):
+                try:
+                    await _invoke(abort(body.revision_id))
+                except Exception:
+                    logger.exception("config prepare cleanup failed")
+            raise
+
+    @app.post(
+        "/api/v1/config/activate",
+        tags=["config"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def activate_both(
+        body: ConfigRevisionBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        """激活可能出现部分成功，逐端显式报告，不尝试危险的自动回滚。"""
+        results: dict[str, object] = {}
+        for name, activate in (
+            ("collector", gateway.collector_activate_config),
+            ("commander", gateway.commander_activate_config),
+        ):
+            try:
+                result = await _invoke(activate(body.revision_id))
+                results[name] = result
+            except HTTPException as exc:
+                results[name] = {"success": False, "http_status": exc.status_code}
+        success = all(
+            isinstance(value, dict) and value.get("success") is True
+            for value in results.values()
+        )
+        return {"success": success, "revision_id": body.revision_id, "results": results}
+
     return app
