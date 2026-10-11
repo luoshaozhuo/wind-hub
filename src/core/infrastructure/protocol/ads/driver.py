@@ -11,6 +11,7 @@ import contextlib
 import ctypes
 import logging
 import struct
+import threading
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -35,6 +36,7 @@ from .subscription import ADSSubscription
 _ADSERR_SYMBOL_NOT_FOUND = 1808
 
 logger = logging.getLogger(__name__)
+_REMOTE_ROUTE_LOCK = threading.Lock()
 
 
 def _ads_state_name(value: object) -> str:
@@ -150,35 +152,72 @@ class ADSDriver:
         connection.set_timeout(int(self._config.timeout * 1000))
         return connection
 
+    def _open_verified_connection(self) -> Any:
+        """建立会话并执行真实 ADS State Read；失败时总是释放句柄。"""
+        connection = self._new_connection()
+        try:
+            connection.open()
+            if not connection.is_open:
+                raise ConnectionError("ADS session did not open")
+            connection.read_state()
+            return connection
+        except BaseException:
+            with contextlib.suppress(Exception):
+                connection.close()
+            raise
+
+    def _connect_with_optional_route(self) -> Any:
+        try:
+            return self._open_verified_connection()
+        except Exception as first_error:
+            if not self._config.route_auto_add:
+                raise
+            # Route is a persistent PLC-side resource, not an ADS session.
+            # Serialize registration across drivers and recheck before modifying the PLC.
+            with _REMOTE_ROUTE_LOCK:
+                try:
+                    return self._open_verified_connection()
+                except Exception:
+                    pass
+                pyads = _pyads()
+                try:
+                    pyads.add_route_to_plc(
+                        self._config.route_local_net_id,
+                        self._config.route_local_host,
+                        self._config.host,
+                        self._config.route_username,
+                        self._config.route_password,
+                    )
+                except Exception:
+                    # pyads errors may contain endpoint arguments; never expose credentials.
+                    raise ProtocolError(
+                        f"ADS remote route registration failed for {self._config.host}"
+                    ) from None
+                try:
+                    return self._open_verified_connection()
+                except Exception:
+                    raise ProtocolError(
+                        f"ADS still unreachable after remote route registration: {self._config.host}"
+                    ) from None
+
     async def connect(self) -> None:
-        """建立 ADS session；Symbol 地址在首次使用时按需解析。"""
+        """建立并验证 ADS 通信；仅在首次连接失败时按配置添加 PLC 反向路由。"""
         async with self._lock:
             if self._connected:
                 return
-
             self._close_connection()
-            connection = self._new_connection()
-
             try:
-                await asyncio.to_thread(connection.open)
-                if not connection.is_open:
-                    raise ProtocolError(f"ADS connection to {self._config.host} did not open")
-
-                self._connection = connection
-                self._invalidate_symbol_addresses()
+                connection = await asyncio.to_thread(self._connect_with_optional_route)
             except ProtocolError:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.close)
-                self._connection = None
                 self._connected = False
                 raise
-            except Exception as exc:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.close)
-                self._connection = None
+            except Exception:
                 self._connected = False
-                raise ProtocolError(f"ADS connect failed for {self._config.host}: {exc}") from exc
-
+                raise ProtocolError(
+                    f"ADS connect failed for {self._config.host}"
+                ) from None
+            self._connection = connection
+            self._invalidate_symbol_addresses()
             self._connected = True
 
     async def close(self) -> None:
