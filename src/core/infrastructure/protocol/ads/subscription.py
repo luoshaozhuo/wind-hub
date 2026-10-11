@@ -21,7 +21,7 @@ from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .config import ADSConfig
-from .mapping import ADSPoint
+from .mapping import ADSPoint, symbol_index_address
 
 logger = logging.getLogger(__name__)
 _WATCHDOG_INTERVAL = 1.0
@@ -208,15 +208,7 @@ class ADSSubscription:
             connection.get_symbol,
             point.symbol,
         )
-        index_group = getattr(symbol, "index_group", None)
-        index_offset = getattr(symbol, "index_offset", None)
-        if (
-            isinstance(index_group, bool)
-            or not isinstance(index_group, int)
-            or isinstance(index_offset, bool)
-            or not isinstance(index_offset, int)
-        ):
-            raise ConfigError(f"ADS symbol '{point.symbol}' did not resolve a valid index address")
+        index_group, index_offset = symbol_index_address(point.symbol, symbol)
 
         size = point.size
         plc_type = getattr(symbol, "plc_type", None)
