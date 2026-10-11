@@ -340,3 +340,47 @@ async def test_iec104_rejects_batch_operations_without_network_io() -> None:
         await driver.read_many(("power",))
     with pytest.raises(ProtocolCapabilityError, match="write_many"):
         await driver.write_many(())
+
+
+@pytest.mark.asyncio
+async def test_slow_subscriber_coalesces_new_samples_per_point() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    started = asyncio.Event()
+    release = asyncio.Event()
+    seen = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        seen.append(sample.value)
+        started.set()
+        if sample.value == 1:
+            await release.wait()
+
+    handle = await driver.subscribe(("power",), callback)
+    for value in (1,):
+        driver._store_sample(
+            100, ProtocolSample(point_id="power", value=value, timestamp=datetime.now(UTC))
+        )
+    await asyncio.wait_for(started.wait(), 1)
+    for value in range(2, 20):
+        driver._store_sample(
+            100, ProtocolSample(point_id="power", value=value, timestamp=datetime.now(UTC))
+        )
+    assert seen == [1]
+    release.set()
+    await asyncio.wait_for(handle.close(), 1)
+    assert seen == [1]
+
+
+@pytest.mark.asyncio
+async def test_negative_unsolicited_message_does_not_enter_mirror() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    driver._store_sample(
+        100,
+        ProtocolSample(point_id="power", value=1, timestamp=datetime.now(UTC)),
+        negative=True,
+    )
+    assert 100 not in driver._samples
