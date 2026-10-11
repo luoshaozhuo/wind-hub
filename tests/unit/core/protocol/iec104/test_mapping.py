@@ -14,6 +14,7 @@ from core.domain import (
 from core.domain import (
     Protocol as DeviceProtocol,
 )
+from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.protocol.iec104 import (
     IEC104Driver,
     build_iec104_index,
@@ -34,7 +35,7 @@ def _point(
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext={} if ext is None else ext,
@@ -97,7 +98,7 @@ def test_iec104_writable_point_requires_command_type() -> None:
         ext=_point_ext(ioa=2001),
     )
     table = PointTable(
-        "iec_pt",
+        PointTableId("iec_pt"),
         DeviceProtocol("iec104"),
         {point.point_id: point},
     )
@@ -121,7 +122,7 @@ async def test_iec104_driver_builds_with_required_c104() -> None:
         ),
     )
     table = PointTable(
-        "iec_pt",
+        PointTableId("iec_pt"),
         DeviceProtocol("iec104"),
         {point.point_id: point},
     )
@@ -145,7 +146,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
         ),
     )
     table = PointTable(
-        "iec_pt",
+        PointTableId("iec_pt"),
         DeviceProtocol("iec104"),
         {point.point_id: point},
     )
@@ -161,7 +162,7 @@ def test_iec104_writable_point_rejects_monitoring_type() -> None:
 def test_iec104_driver_exposes_infrastructure_capabilities() -> None:
     point = _point("power", ext=_point_ext(ioa=100))
     table = PointTable(
-        "iec_pt",
+        PointTableId("iec_pt"),
         DeviceProtocol("iec104"),
         {point.point_id: point},
     )

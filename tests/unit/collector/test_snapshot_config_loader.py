@@ -4,12 +4,11 @@ from pathlib import Path
 
 from collector.infrastructure.config.loader import load_collector_config
 from core.infrastructure.config.adapter import YamlConfigAdapter
+from tests.support.new_collector import write_collector_config_tree
 
-ROOT = Path(__file__).resolve().parents[4]
 
-
-def test_collector_loads_domain_snapshot_without_units_yaml() -> None:
-    base = ROOT / "configs" / "example_modbus"
+def test_collector_loads_domain_snapshot(tmp_path: Path) -> None:
+    base = write_collector_config_tree(tmp_path / "cfg")
     assert not (base / "units.yaml").exists()
     snapshot = YamlConfigAdapter(base).load()
     config = load_collector_config(base)
@@ -19,14 +18,12 @@ def test_collector_loads_domain_snapshot_without_units_yaml() -> None:
     assert config.point_tables == snapshot.point_tables
     assert set(config.sinks) == set(snapshot.sinks)
     assert config.devices == {
-        device_id: device
-        for device_id, device in snapshot.site.devices.items()
-        if device.enabled
+        device_id: device for device_id, device in snapshot.site.devices.items() if device.enabled
     }
 
 
 def test_collector_accepts_snapshot_port_source(tmp_path: Path) -> None:
-    snapshot = YamlConfigAdapter(ROOT / "configs" / "example_ads").load()
+    snapshot = YamlConfigAdapter(write_collector_config_tree(tmp_path / "cfg")).load()
 
     class Source:
         def load(self):

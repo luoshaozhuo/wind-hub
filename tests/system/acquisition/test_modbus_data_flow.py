@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.control import apply_placement_and_start_instance, stop_instance
+from tests.support.control import start_task_instance, stop_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import point_key
@@ -33,10 +34,10 @@ INSTANCE_ID = "modbus-telemetry:modbus-1"
 REDIS_KEY_PREFIX = "wind-hub-sys"
 
 
-def _task(sink_name: str) -> dict:
+def _task(sink_name: str) -> dict[str, Any]:
     return {
         "task_id": "modbus-telemetry",
-        "device": "modbus-1",
+        "device_group": "modbus-1",
         "point_group": "telemetry",
         "interval": 0.2,
         "targets": [{"sink": sink_name}],
@@ -72,9 +73,7 @@ class TestModbusToFile:
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
         rows = await wait_file_rows(
             sink_path,
@@ -98,9 +97,7 @@ class TestModbusToFile:
         config_dir = _file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=4)
         await stop_instance(proc.grpc_target, INSTANCE_ID)
 
@@ -139,9 +136,7 @@ class TestModbusToRedis:
         )
         proc: CollectorProcess = await collector_factory(config_dir)
 
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
         # Redis sink 每点一个 key 覆盖最新值——验证值内容、时间戳在推进、
         # 且同组其余点位同样出数。

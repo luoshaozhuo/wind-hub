@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -21,8 +23,8 @@ from tests.reliability.recovery.helpers import (
     write_modbus_file_config,
 )
 from tests.support.control import (
-    apply_placement_and_start_instance,
     reload_config,
+    start_task_instance,
     stop_instance,
 )
 from tests.support.functional_config import update_yaml
@@ -50,9 +52,7 @@ class TestPointTableChangeWhileOffline:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(
             sink_path, min_rows=1, match=lambda r: r["value"] == pytest.approx(SCALED_POWER)
         )
@@ -63,7 +63,7 @@ class TestPointTableChangeWhileOffline:
         )
 
         # ---- 掉线期间修改点表（gen.power 去掉工程值换算）并重载 ----
-        def _drop_scaling(data: dict) -> None:
+        def _drop_scaling(data: dict[str, Any]) -> None:
             for point in data["point_tables"]["modbus"]["points"]:
                 if point["point_id"] == "gen.power":
                     point.pop("scale", None)
@@ -89,14 +89,10 @@ class TestPointTableChangeWhileOffline:
             sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(RAW_POWER)
         )
         await asyncio.sleep(1.0)
-        scaled = [
-            r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
-        ]
+        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
         settled = len(scaled)
         await asyncio.sleep(1.0)
-        scaled = [
-            r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)
-        ]
+        scaled = [r for r in read_csv(sink_path) if r["value"] == pytest.approx(SCALED_POWER)]
         assert len(scaled) == settled, "stale point table still in use after recovery"
 
 
@@ -111,9 +107,7 @@ class TestStopTaskDuringReconnect:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
 
         await modbus_server.stop()
@@ -130,7 +124,10 @@ class TestStopTaskDuringReconnect:
                 return None
             return True if states.get(INSTANCE_ID) == "stopped" else None
 
-        await wait_until(_stopped, timeout=15.0, description="instance STOPPED")
+        # 显式对齐 wait_until 的 probe 契约（Awaitable[T | None] | T | None, T=bool），
+        # 否则 mypy 会把 T 推成 None。
+        probe = cast("Callable[[], Awaitable[bool | None] | bool | None]", _stopped)
+        await wait_until(probe, timeout=15.0, description="instance STOPPED")
 
         # ---- 设备恢复：reconnect 成功不得顺带把实例拉起来 ----
         await modbus_server.start()
@@ -138,9 +135,9 @@ class TestStopTaskDuringReconnect:
 
         states = await ctl_instance_states(proc)
         assert states is not None
-        assert states.get(INSTANCE_ID) == "stopped", (
-            f"device recovery resurrected a stopped task: {states}"
-        )
+        assert (
+            states.get(INSTANCE_ID) == "stopped"
+        ), f"device recovery resurrected a stopped task: {states}"
 
         # 数据面保持静默（等残余缓冲落盘后行数不再增长）。
         await asyncio.sleep(1.0)

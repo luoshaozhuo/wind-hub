@@ -1,5 +1,7 @@
 """Task 领域约束测试。"""
 
+from typing import Any
+
 import pytest
 
 from core.domain import (
@@ -13,7 +15,7 @@ from core.domain.identities import DeviceGroupId
 
 
 def make_task(**overrides: object) -> Task:
-    values = {
+    values: dict[str, Any] = {
         "task_id": "task-1",
         "device_group_id": DeviceGroupId("wind-turbines"),
         "point_group": "fast",
@@ -96,7 +98,7 @@ def test_task_device_selection_supports_multiple_groups() -> None:
 def test_central_domain_validation_checks_tasks() -> None:
     task = make_task()
     group = DeviceGroup(DeviceGroupId("wind-turbines"), "Wind Turbines")
-    args = {
+    args: dict[str, Any] = {
         "device_types": {},
         "device_models": {},
         "device_groups": {group.device_group_id: group},

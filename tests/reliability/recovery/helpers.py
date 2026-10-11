@@ -23,7 +23,7 @@ def telemetry_task(sink_name: str, *, task_id: str = "modbus-telemetry") -> dict
     """单设备 telemetry 采集任务定义（指向指定 sink）。"""
     return {
         "task_id": task_id,
-        "device": "modbus-1",
+        "device_group": "modbus-1",
         "point_group": "telemetry",
         "interval": 0.2,
         "targets": [{"sink": sink_name}],
@@ -52,7 +52,8 @@ async def ctl_status(proc: CollectorProcess) -> dict[str, Any] | None:
     result = await run_ctl_async("status", target=proc.grpc_target)
     if result.returncode != 0 or not result.stdout.strip():
         return None
-    return json.loads(result.stdout)
+    status: dict[str, Any] = json.loads(result.stdout)
+    return status
 
 
 async def ctl_instance_states(proc: CollectorProcess) -> dict[str, str] | None:

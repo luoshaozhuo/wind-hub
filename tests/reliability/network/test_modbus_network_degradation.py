@@ -27,7 +27,7 @@ from tests.performance.netem import NetemScenario
 from tests.reliability.network.conftest import NetemLink
 from tests.reliability.recovery.helpers import ctl_status, telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
-from tests.support.control import apply_placement_and_start_instance, metrics_snapshot
+from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_csv, wait_file_rows
 
@@ -71,9 +71,7 @@ async def _start_stack(
     sink_path = tmp_path / "out" / "telemetry.csv"
     config_dir = _write_config(tmp_path / "cfg", link, sink_path)
     proc: CollectorProcess = await collector_factory(config_dir)
-    await apply_placement_and_start_instance(
-        proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-    )
+    await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
     await wait_status(
         proc,
         lambda p: p["devices_connected"] == 1,
@@ -86,12 +84,10 @@ async def _start_stack(
 
 async def _reconnects(proc: CollectorProcess) -> int:
     snap = await metrics_snapshot(proc.grpc_target)
-    return snap["device_reconnects"].get(DEVICE_ID, 0)
+    return int(snap["device_reconnects"].get(DEVICE_ID, 0))
 
 
-async def _assert_link_healthy(
-    proc: CollectorProcess, sink_path: Path, duration: float
-) -> None:
+async def _assert_link_healthy(proc: CollectorProcess, sink_path: Path, duration: float) -> None:
     """在损伤窗口内持续采样：设备必须始终保持已连接、数据持续在出。
 
     采样是严格断言（不是 wait_until）——任何一次 ``devices_connected``
@@ -102,9 +98,9 @@ async def _assert_link_healthy(
     while time.monotonic() < deadline:
         status = await ctl_status(proc)
         assert status is not None, "本地控制面 status 查询失败（不应受链路损伤影响）"
-        assert status["devices_connected"] == 1, (
-            f"链路损伤下出现假断连: {status.get('devices_connected')}"
-        )
+        assert (
+            status["devices_connected"] == 1
+        ), f"链路损伤下出现假断连: {status.get('devices_connected')}"
         await asyncio.sleep(0.5)
     await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=5.0)
 
@@ -124,9 +120,7 @@ class TestDelayAndJitter:
             finally:
                 netem_link.clear()
 
-        assert await _reconnects(proc) == reconnects_base, (
-            "纯延迟不得触发任何重连（延迟不是断连）"
-        )
+        assert await _reconnects(proc) == reconnects_base, "纯延迟不得触发任何重连（延迟不是断连）"
         await _assert_link_healthy(proc, sink_path, duration=1.0)
 
     async def test_jitter_no_reconnect_storm(
@@ -136,9 +130,7 @@ class TestDelayAndJitter:
         proc, sink_path = await _start_stack(collector_factory, netem_link, tmp_path)
         reconnects_base = await _reconnects(proc)
 
-        netem_link.apply(
-            NetemScenario(name="jitter_20ms_10ms", delay_ms=20, jitter_ms=10)
-        )
+        netem_link.apply(NetemScenario(name="jitter_20ms_10ms", delay_ms=20, jitter_ms=10))
         try:
             await _assert_link_healthy(proc, sink_path, duration=4.0)
         finally:
@@ -165,18 +157,16 @@ class TestPacketLoss:
             await _assert_link_healthy(proc, sink_path, duration=5.0)
         finally:
             netem_link.clear()
-        assert await _reconnects(proc) == reconnects_base, (
-            "1% 丢包不得触发重连——健康度判定对丢包过敏"
-        )
+        assert (
+            await _reconnects(proc) == reconnects_base
+        ), "1% 丢包不得触发重连——健康度判定对丢包过敏"
 
         netem_link.apply(NetemScenario(name="loss_10pct", loss_pct=10))
         try:
             await asyncio.sleep(5.0)
         finally:
             netem_link.clear()
-        assert (await _reconnects(proc)) - reconnects_base <= 1, (
-            "10% 丢包下出现重连风暴"
-        )
+        assert (await _reconnects(proc)) - reconnects_base <= 1, "10% 丢包下出现重连风暴"
         await wait_status(
             proc,
             lambda p: p["devices_connected"] == 1,
@@ -210,14 +200,10 @@ class TestPacketLoss:
             first = await metrics_snapshot(proc.grpc_target)
             await asyncio.sleep(6.0)
             last = await metrics_snapshot(proc.grpc_target)
-            attempts = (
-                last["device_connect_failures"].get(DEVICE_ID, 0)
-                - first["device_connect_failures"].get(DEVICE_ID, 0)
-            )
-            runs = (
-                last["counters"]["acquisition_runs"]
-                - first["counters"]["acquisition_runs"]
-            )
+            attempts = last["device_connect_failures"].get(DEVICE_ID, 0) - first[
+                "device_connect_failures"
+            ].get(DEVICE_ID, 0)
+            runs = last["counters"]["acquisition_runs"] - first["counters"]["acquisition_runs"]
             assert 1 <= attempts <= 6, f"黑洞期 connect 尝试未被退避节流: {attempts}"
             assert attempts * 5 < runs
         finally:
@@ -244,9 +230,9 @@ class TestShortFlap:
         await netem_link.outage(0.5)
 
         await _assert_link_healthy(proc, sink_path, duration=1.5)
-        assert await _reconnects(proc) == reconnects_base, (
-            "500ms 闪断不得触发连接重建（亚超时中断应由 TCP 重传吸收）"
-        )
+        assert (
+            await _reconnects(proc) == reconnects_base
+        ), "500ms 闪断不得触发连接重建（亚超时中断应由 TCP 重传吸收）"
 
     async def test_timeout_boundary_flap_recovers(
         self, netem_link: NetemLink, collector_factory, tmp_path: Path

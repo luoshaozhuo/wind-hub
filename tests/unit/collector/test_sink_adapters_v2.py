@@ -35,7 +35,9 @@ async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
 async def test_csv_rotates_and_prunes_owned_archives(tmp_path: Path) -> None:
     path = tmp_path / "data.csv"
     cfg = Sink(
-        sink_id="archive", kind="file", enabled=True,
+        sink_id="archive",
+        kind="file",
+        enabled=True,
         connection={"path": str(path), "max_size_mb": 0.0001, "max_files": 2},
     )
     sink = FileSink(cfg)
@@ -50,9 +52,7 @@ async def test_csv_rotates_and_prunes_owned_archives(tmp_path: Path) -> None:
 async def test_redis_pipeline_over_real_tcp() -> None:
     received: list[list[str]] = []
 
-    async def handler(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while True:
                 header = await reader.readline()
@@ -76,7 +76,9 @@ async def test_redis_pipeline_over_real_tcp() -> None:
     try:
         port = server.sockets[0].getsockname()[1]
         cfg = Sink(
-            sink_id="cache", kind="redis", enabled=True,
+            sink_id="cache",
+            kind="redis",
+            enabled=True,
             connection={"host": "127.0.0.1", "port": port},
         )
         sink = RedisSink(cfg)

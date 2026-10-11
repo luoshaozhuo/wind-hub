@@ -69,7 +69,10 @@ def test_ads_local_identity_absent_by_default(tmp_path):
 
 
 def test_ads_local_identity_must_be_mapping(tmp_path):
-    config_dir = write_collector_config_tree(tmp_path, ads="not-a-mapping")
+    config_dir = write_collector_config_tree(
+        tmp_path,
+        ads="not-a-mapping",  # type: ignore[arg-type]  # 故意传入非法类型，验证加载时报错
+    )
     with pytest.raises(ConfigError, match="ads"):
         load_collector_config(config_dir)
 
@@ -223,7 +226,7 @@ def test_task_point_group_must_exist(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="point_group"):
+    with pytest.raises(ConfigError, match="point group"):
         load_collector_config(config_dir)
 
 

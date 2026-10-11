@@ -41,6 +41,7 @@ class CollectorRuntimeServiceStub:
     GetTaskInstance: _grpc.UnaryUnaryMultiCallable[_collector_pb2.InstanceIdRequest, _collector_pb2.TaskInstanceMessage]
     ListDevices: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListDevicesResponse]
     ListSinks: _grpc.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]
+    QueryLatestValues: _grpc.UnaryUnaryMultiCallable[_collector_pb2.LatestValuesRequest, _collector_pb2.LatestValuesResponse]
     VerifySink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
     WriteTestSink: _grpc.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]
 
@@ -56,6 +57,7 @@ class CollectorRuntimeServiceAsyncStub(CollectorRuntimeServiceStub):
     GetTaskInstance: _aio.UnaryUnaryMultiCallable[_collector_pb2.InstanceIdRequest, _collector_pb2.TaskInstanceMessage]  # type: ignore[assignment]
     ListDevices: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListDevicesResponse]  # type: ignore[assignment]
     ListSinks: _aio.UnaryUnaryMultiCallable[_empty_pb2.Empty, _collector_pb2.ListSinksResponse]  # type: ignore[assignment]
+    QueryLatestValues: _aio.UnaryUnaryMultiCallable[_collector_pb2.LatestValuesRequest, _collector_pb2.LatestValuesResponse]  # type: ignore[assignment]
     VerifySink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
     WriteTestSink: _aio.UnaryUnaryMultiCallable[_collector_pb2.SinkRequest, _collector_pb2.SinkOperationResponse]  # type: ignore[assignment]
 
@@ -124,6 +126,13 @@ class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_collector_pb2.ListSinksResponse, _abc.Awaitable[_collector_pb2.ListSinksResponse]]: ...
 
     @_abc_1.abstractmethod
+    def QueryLatestValues(
+        self,
+        request: _collector_pb2.LatestValuesRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_collector_pb2.LatestValuesResponse, _abc.Awaitable[_collector_pb2.LatestValuesResponse]]: ...
+
+    @_abc_1.abstractmethod
     def VerifySink(
         self,
         request: _collector_pb2.SinkRequest,
@@ -144,7 +153,6 @@ class CollectorControlServiceStub:
     def __new__(cls, channel: _grpc.Channel) -> _Self: ...
     @_typing.overload
     def __new__(cls, channel: _aio.Channel) -> CollectorControlServiceAsyncStub: ...
-    ApplyTaskPlacement: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]
     StartTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]
     StopTask: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]
     StartTaskInstance: _grpc.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]
@@ -156,7 +164,6 @@ class CollectorControlServiceStub:
 @_typing.type_check_only
 class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     def __init__(self, channel: _aio.Channel) -> None: ...
-    ApplyTaskPlacement: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskPlacementSnapshotRequest, _collector_pb2.TaskPlacementSnapshotResponse]  # type: ignore[assignment]
     StartTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskStartRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StopTask: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskIdRequest, _collector_pb2.TaskSummaryMessage]  # type: ignore[assignment]
     StartTaskInstance: _aio.UnaryUnaryMultiCallable[_collector_pb2.TaskInstanceStartRequest, _collector_pb2.TaskInstanceMessage]  # type: ignore[assignment]
@@ -166,13 +173,6 @@ class CollectorControlServiceAsyncStub(CollectorControlServiceStub):
     AbortConfig: _aio.UnaryUnaryMultiCallable[_collector_pb2.AbortConfigRequest, _collector_pb2.AbortConfigResponse]  # type: ignore[assignment]
 
 class CollectorControlServiceServicer(metaclass=_abc_1.ABCMeta):
-    @_abc_1.abstractmethod
-    def ApplyTaskPlacement(
-        self,
-        request: _collector_pb2.TaskPlacementSnapshotRequest,
-        context: _ServicerContext,
-    ) -> _typing.Union[_collector_pb2.TaskPlacementSnapshotResponse, _abc.Awaitable[_collector_pb2.TaskPlacementSnapshotResponse]]: ...
-
     @_abc_1.abstractmethod
     def StartTask(
         self,

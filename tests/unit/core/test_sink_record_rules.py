@@ -50,7 +50,8 @@ def test_segment_name_is_utc_and_owned() -> None:
 def test_segment_rejects_negative_sequence(sequence: int) -> None:
     with pytest.raises(ValueError):
         segment_filename(
-            "telemetry.csv", opened_at=datetime(2026, 10, 10, tzinfo=UTC),
+            "telemetry.csv",
+            opened_at=datetime(2026, 10, 10, tzinfo=UTC),
             sequence=sequence,
         )
 

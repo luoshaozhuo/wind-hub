@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+
 async def ping_host(host: str, *, timeout: float = 1.0) -> bool:
     """调用系统 ping 检查主机可达性；命令缺失/超时/非零退出均为 False。
 

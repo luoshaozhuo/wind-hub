@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from core.application import ProtocolError, ProtocolSample
+from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import iec104_point
 
@@ -60,12 +61,7 @@ def _driver(t1: float = 0.2) -> IEC104Driver:
     driver._receive_callback_factory = None
     driver._subscriptions = _SubscriptionRegistry()
 
-    class _Cfg:
-        pass
-
-    cfg = _Cfg()
-    cfg.t1 = t1
-    driver._config = cfg
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=t1)
     return driver
 
 
@@ -88,7 +84,7 @@ class _ReadGate:
             self.events.append(("start", mapped.ioa))
             self.entered.setdefault(mapped.ioa, asyncio.Event()).set()
 
-        driver._send_read = send
+        driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
 
     def complete(self, driver: IEC104Driver, ioa: int, value: float = 1.0) -> None:
         driver._active_reads[ioa].set_result(_sample(f"p{ioa}", value))
@@ -215,7 +211,7 @@ async def test_timeout_releases_lock_reference() -> None:
     async def send(mapped: Any) -> None:
         del mapped
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="timed out"):
         await driver.read_one(iec104_point("p", ioa=11, type_id="M_ME_NC_1"))
     assert 11 not in driver._active_read_locks
@@ -229,7 +225,7 @@ async def test_send_read_failure_releases_lock_reference() -> None:
     async def send(mapped: Any) -> None:
         raise ProtocolError("send failed")
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="send failed"):
         await driver.read_one(iec104_point("p", ioa=11, type_id="M_ME_NC_1"))
     assert 11 not in driver._active_read_locks
@@ -253,7 +249,7 @@ async def test_command_type_error_releases_lock_reference() -> None:
     driver = _driver()
     point = iec104_point("cmd", ioa=600, type_id="C_SC_NA_1")
 
-    result = await driver.write_one(point, "not-a-bool")  # type: ignore[arg-type]
+    result = await driver.write_one(point, "not-a-bool")
     assert not result.success
 
     assert 600 not in driver._command_locks
@@ -266,7 +262,7 @@ async def test_many_dynamic_ioas_leave_empty_lock_tables() -> None:
     async def send(mapped: Any) -> None:
         driver._active_reads[mapped.ioa].set_result(_sample(mapped.point_id, 1.0))
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     points = [iec104_point(f"d{ioa}", ioa=ioa, type_id="M_ME_NC_1") for ioa in range(1000, 1300)]
     results = await asyncio.gather(*(driver.read_one(point) for point in points))
     assert len(results) == 300
@@ -288,7 +284,7 @@ async def test_high_frequency_same_ioa_reads_never_overlap() -> None:
         active -= 1
         driver._active_reads[mapped.ioa].set_result(_sample(mapped.point_id, 1.0))
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     point = iec104_point("p", ioa=11, type_id="M_ME_NC_1")
     results = await asyncio.gather(*(driver.read_one(point) for _ in range(50)))
     assert len(results) == 50

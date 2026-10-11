@@ -19,14 +19,20 @@ from core.application import (
 from core.domain import (
     UNIT_CATALOG,
     BusinessPoint,
+    BusinessPointId,
     ConnectionEndpoint,
     DataType,
     Device,
+    DeviceGroupId,
+    DeviceId,
     DeviceModel,
+    DeviceModelId,
     DeviceType,
+    DeviceTypeId,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -91,6 +97,9 @@ class _Protocol:
     async def interrogate(self) -> None:
         raise ProtocolCapabilityError("not supported")
 
+    def update_point_table(self, point_table: PointTable) -> None:
+        del point_table
+
 
 def test_protocol_write_normalizes_point_id() -> None:
     write = ProtocolWrite(point_id=" power ", value=1.0)
@@ -110,7 +119,7 @@ async def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     )
 
     endpoint = ConnectionEndpoint("127.0.0.1", 502)
-    point_table = PointTable("pt", Protocol("MODBUS"), {})
+    point_table = PointTable(PointTableId("pt"), Protocol("MODBUS"), {})
     protocol = registry.create(endpoint, point_table, {})
 
     assert registry.registered_names() == ("modbus",)
@@ -130,9 +139,9 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
     registry = ProtocolRegistry()
     registry.register("modbus", ModbusDriver)
 
-    device_type = DeviceType("turbine", "Turbine")
+    device_type = DeviceType(DeviceTypeId("turbine"), "Turbine")
     business_point = BusinessPoint(
-        "power",
+        BusinessPointId("power"),
         DataType.FLOAT32,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
@@ -148,20 +157,20 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
         },
     )
     table = PointTable(
-        "pt",
+        PointTableId("pt"),
         Protocol("modbus"),
         {"power": protocol_point},
     )
     model = DeviceModel(
-        "m1",
+        DeviceModelId("m1"),
         device_type.device_type_id,
         table.point_table_id,
     )
     device = Device(
-        "d1",
+        DeviceId("d1"),
         model.device_model_id,
         ConnectionEndpoint("127.0.0.1", 502),
-        device_group_ids=("group",),
+        device_group_ids=(DeviceGroupId("group"),),
     )
     with pytest.raises(ConfigError, match="address"):
         registry.create(
@@ -174,17 +183,17 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
 def test_protocol_drivers_declare_supported_capabilities() -> None:
     modbus = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("modbus_pt", Protocol("modbus"), {}),
+        PointTable(PointTableId("modbus_pt"), Protocol("modbus"), {}),
         {},
     )
     ads = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads_pt", Protocol("ads"), {}),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
         {},
     )
     iec104 = IEC104Driver(
         ConnectionEndpoint("127.0.0.1", 2404),
-        PointTable("iec104_pt", Protocol("iec104"), {}),
+        PointTable(PointTableId("iec104_pt"), Protocol("iec104"), {}),
         {},
     )
 
@@ -216,7 +225,7 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
 async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("modbus_pt", Protocol("modbus"), {}),
+        PointTable(PointTableId("modbus_pt"), Protocol("modbus"), {}),
         {},
     )
 
@@ -234,7 +243,7 @@ async def test_modbus_rejects_unsupported_protocol_capabilities() -> None:
 async def test_ads_rejects_unsupported_interrogation() -> None:
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads_pt", Protocol("ads"), {}),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
         {},
     )
 

@@ -16,7 +16,7 @@ def _runtime(registry: FakeRegistry | None = None) -> CommanderRuntime:
     return CommanderRuntime(
         make_commander_config(),
         config_hash="hash",
-        protocol_registry=registry or FakeRegistry(),  # type: ignore[arg-type]
+        protocol_registry=registry or FakeRegistry(),
     )
 
 
@@ -63,7 +63,8 @@ async def test_write_timeout_returns_failure_result():
         return ProtocolWriteResult(point_id=write.point_id, success=True)
 
     runtime = _runtime(registry)
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    protocol = runtime.device("dev1").protocol
+    protocol.write_one = slow_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(

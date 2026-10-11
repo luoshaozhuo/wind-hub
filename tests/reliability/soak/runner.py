@@ -22,10 +22,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from collector.assembly import CollectorApp, assemble_collector
-from core.domain.point_value import PointValue
 from core.application import ProtocolWrite
 from core.application.port.protocol import ProtocolPort
 from core.domain import Sink
+from core.domain.point_value import PointValue
 from tests.performance.netem import NetemController, NetemScenario
 from tests.performance.servers import ModbusServerHandle
 from tests.reliability.soak.metrics import SoakMetrics, SoakMetricsCollector
@@ -199,7 +199,7 @@ def write_soak_config(
             tasks.append(
                 {
                     "task_id": device_id,
-                    "device": device_id,
+                    "device_group": device_id,
                     "point_group": "default",
                     "interval": group.interval_s,
                     "targets": [{"sink": "soak_sink"}],
@@ -293,9 +293,7 @@ async def run_soak(
                 if netem_scenario is not None:
                     c.apply(netem_scenario)
 
-            app = assemble_collector(
-                config_dir, sink_factories={sink_type: _sink_factory}
-            )
+            app = assemble_collector(config_dir, sink_factories={sink_type: _sink_factory})
             runtime = app.runtime
             runtime.engine.add_observer(_make_cycle_observer(collector))
             collector.set_queue_depth_provider(runtime.sink_queue_depths)
@@ -334,9 +332,7 @@ async def run_soak(
                 if on_ready is not None:
                     on_ready()
                 if profile.write_interval_s is not None:
-                    writer_task = asyncio.create_task(
-                        _write_loop(app, profile, write_stats)
-                    )
+                    writer_task = asyncio.create_task(_write_loop(app, profile, write_stats))
                 if profile.storm is not None:
                     storm_task = asyncio.create_task(_storm_loop(server, profile.storm))
                 logger.info("[%s] 测量 %gs …", profile.name, duration_s)
@@ -366,9 +362,7 @@ async def run_soak(
     sampled_reconnects, reconnect_time_ms = collector.reconnect_summary()
     # 风暴场景以驱动层精确建连事件为准；采样计数仅供对照（短不健康
     # 窗口会被 1s 采样漏掉，见 _ConnectEventCounter）。
-    reconnect_count = (
-        connect_events.count if profile.storm is not None else sampled_reconnects
-    )
+    reconnect_count = connect_events.count if profile.storm is not None else sampled_reconnects
     return SoakMetrics(
         profile=profile.name,
         duration_s=duration_s,
@@ -425,12 +419,10 @@ class _ConnectEventCounter:
             if not was_open and driver.is_open():  # type: ignore[attr-defined]
                 self.count += 1
 
-        driver.connect = _spy  # type: ignore[attr-defined, method-assign]
+        driver.connect = _spy  # type: ignore[attr-defined]
 
 
-async def _health_watch(
-    drivers: list[ProtocolPort], collector: SoakMetricsCollector
-) -> None:
+async def _health_watch(drivers: list[ProtocolPort], collector: SoakMetricsCollector) -> None:
     """每秒轮询全部驱动健康；任一「健康 → 不健康 → 健康」计一次重连。
 
     首次采样只建基线（启动建连不记为恢复）。风暴场景设备少；200 设备

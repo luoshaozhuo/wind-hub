@@ -47,8 +47,16 @@ _OPTION_PARSERS = {
     "iec104": parse_iec104_config,
 }
 _POINT_FIELDS = {
-    "point_id", "business_point_id", "variable_name", "point_groups",
-    "address", "data_type", "scale", "offset", "unit", "description",
+    "point_id",
+    "business_point_id",
+    "variable_name",
+    "point_groups",
+    "address",
+    "data_type",
+    "scale",
+    "offset",
+    "unit",
+    "description",
 }
 
 
@@ -97,8 +105,12 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     _keys(runtime_raw, set(RuntimeSettings.__dataclass_fields__), "system.runtime")
     settings = dict(runtime_raw)
     for key in (
-        "shutdown_timeout", "connect_timeout", "read_timeout",
-        "write_timeout", "watchdog_interval", "health_timeout",
+        "shutdown_timeout",
+        "connect_timeout",
+        "read_timeout",
+        "write_timeout",
+        "watchdog_interval",
+        "health_timeout",
     ):
         if key in settings and settings[key] is not None:
             settings[key] = _number(settings[key], f"runtime.{key}")
@@ -164,9 +176,10 @@ def _point(
             raise ConfigError(f"{context}.address.{key} must be finite")
         extensions[key] = value
     extensions["data_type"] = data_type.value
-    groups = tuple(_name(name, f"{context}.point_groups") for name in _list(
-        entry.get("point_groups", []), f"{context}.point_groups"
-    ))
+    groups = tuple(
+        _name(name, f"{context}.point_groups")
+        for name in _list(entry.get("point_groups", []), f"{context}.point_groups")
+    )
     if protocol == "ads":
         access = PointAccess.READ_WRITE
     elif protocol == "iec104":
@@ -216,7 +229,8 @@ def _point_tables(
         visiting.add(name)
         definition = _map(definitions[name], f"point table '{name}'")
         _keys(
-            definition, {"protocol", "extends", "remove_points", "points"},
+            definition,
+            {"protocol", "extends", "remove_points", "points"},
             f"point table '{name}'",
         )
         parent_id = definition.get("extends")
@@ -226,10 +240,11 @@ def _point_tables(
             raise ConfigError(f"point table '{name}' unsupported protocol '{protocol}'")
         if parent is not None and parent.protocol.name != protocol:
             raise ConfigError(f"point table '{name}' protocol differs from parent")
-        points = {
-            key: dict(value)
-            for key, value in expanded[str(parent_id)].items()
-        } if parent is not None else {}
+        points = (
+            {key: dict(value) for key, value in expanded[str(parent_id)].items()}
+            if parent is not None
+            else {}
+        )
 
         remove = _list(definition.get("remove_points", []), f"{name}.remove_points")
         if len(remove) != len(set(remove)):
@@ -251,8 +266,7 @@ def _point_tables(
             updated.update({k: v for k, v in patch.items() if k != "point_id"})
             points[key] = updated
         domain_points = {
-            key: _point(key, value, protocol, business_points)
-            for key, value in points.items()
+            key: _point(key, value, protocol, business_points) for key, value in points.items()
         }
         table = PointTable(
             point_table_id=PointTableId(name),
@@ -298,10 +312,19 @@ def _device_catalog(
     models: dict[DeviceModelId, DeviceModel] = {}
     for key, item in raw_models.items():
         definition = _map(item, f"device model '{key}'")
-        _keys(definition, {
-            "device_type", "manufacturer", "model", "protocol", "point_table",
-            "properties", "connection_defaults",
-        }, f"device model '{key}'")
+        _keys(
+            definition,
+            {
+                "device_type",
+                "manufacturer",
+                "model",
+                "protocol",
+                "point_table",
+                "properties",
+                "connection_defaults",
+            },
+            f"device model '{key}'",
+        )
         model_identity = DeviceModelId(_name(key, "device model ID"))
         type_id = DeviceTypeId(_name(definition.get("device_type"), "device_type"))
         table_id = PointTableId(_name(definition.get("point_table"), "point_table"))
@@ -331,10 +354,19 @@ def _device_catalog(
     ads_subscriptions: set[DeviceId] = set()
     for item in _list(device_doc.get("devices"), "devices"):
         definition = _map(item, "devices entry")
-        _keys(definition, {
-            "device_id", "model", "device_group", "device_groups", "endpoint",
-            "enabled", "name",
-        }, "device")
+        _keys(
+            definition,
+            {
+                "device_id",
+                "model",
+                "device_group",
+                "device_groups",
+                "endpoint",
+                "enabled",
+                "name",
+            },
+            "device",
+        )
         device_identity = DeviceId(_name(definition.get("device_id"), "device_id"))
         if device_identity in devices:
             raise ConfigError(f"duplicate device_id '{device_identity}'")
@@ -373,8 +405,10 @@ def _device_catalog(
         if protocol == "ads" and options.pop("subscribe_enabled", False):
             ads_subscriptions.add(device_identity)
         for key, value in options.items():
-            if not isinstance(key, str) or value is not None and not isinstance(
-                value, str | int | float | bool
+            if (
+                not isinstance(key, str)
+                or value is not None
+                and not isinstance(value, str | int | float | bool)
             ):
                 raise ConfigError(f"device '{device_identity}' invalid protocol option '{key}'")
         try:
@@ -411,9 +445,18 @@ def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
     result: dict[str, Task] = {}
     for entry in _list(raw.get("tasks", []), "tasks.yaml"):
         data = _map(entry, "task")
-        _keys(data, {
-            "task_id", "device_group", "point_group", "interval", "targets", "enabled",
-        }, "task")
+        _keys(
+            data,
+            {
+                "task_id",
+                "device_group",
+                "point_group",
+                "interval",
+                "targets",
+                "enabled",
+            },
+            "task",
+        )
         identity = _name(data.get("task_id"), "task.task_id")
         if identity in result:
             raise ConfigError(f"duplicate task '{identity}'")
@@ -468,7 +511,9 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         business_points = parse_business_points(business_document)
         point_tables = _point_tables(point_document, business_points)
         types, models, groups, devices, options, ads_subscriptions = _device_catalog(
-            model_document, device_document, point_tables,
+            model_document,
+            device_document,
+            point_tables,
         )
         tasks = _tasks(task_document)
         sinks = _sinks(sink_document)

@@ -25,8 +25,8 @@ from core.domain.diagnostic import (
     DiagnosticCode,
     DiagnosticSeverity,
     DiagnosticStage,
-    PointVerifyResult,
     PointsVerifyResult,
+    PointVerifyResult,
     ResolvedAddress,
 )
 

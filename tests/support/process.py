@@ -23,6 +23,7 @@ import signal
 import socket
 import subprocess
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 
@@ -98,14 +99,27 @@ def run_ctl(
     )
 
 
-async def run_ctl_async(*args: str, **kwargs: float | str) -> CtlResult:
+async def run_ctl_async(
+    *args: str,
+    target: str,
+    rpc_timeout: float = 10.0,
+    exec_timeout: float = 30.0,
+) -> CtlResult:
     """:func:`run_ctl` 的异步包装——在独立线程执行阻塞 subprocess 调用。
 
     测试进程的事件循环同时承载协议 fixture server；同步调用会阻塞循环，
     导致 Collector 的读写请求在 ctl 执行期间全部超时。异步测试一律用本
     包装，不用裸 ``run_ctl``。
     """
-    return await asyncio.to_thread(run_ctl, *args, **kwargs)
+    return await asyncio.to_thread(
+        partial(
+            run_ctl,
+            *args,
+            target=target,
+            rpc_timeout=rpc_timeout,
+            exec_timeout=exec_timeout,
+        )
+    )
 
 
 @dataclass
@@ -146,9 +160,7 @@ class CollectorProcess:
             return int(self.proc.wait(timeout=timeout))
         except subprocess.TimeoutExpired:
             self.kill_tree()
-            raise TimeoutError(
-                f"collector did not exit within {timeout}s after SIGTERM"
-            ) from None
+            raise TimeoutError(f"collector did not exit within {timeout}s after SIGTERM") from None
 
     def kill_tree(self) -> None:
         """强制终止整个进程组（测试清理兜底，非优雅路径）。"""
@@ -249,62 +261,6 @@ def start_commander(
             str(port),
         ],
         service="commander",
-        port=port,
-        log_dir=log_dir,
-        env_extra=env_extra,
-    )
-
-
-def start_server(
-    config_dir: Path,
-    *,
-    http_port: int | None = None,
-    collectors: list[str],
-    commander: str,
-    log_dir: Path,
-    reconcile_interval: float = 5.0,
-    worker_probe_interval: float = 1.0,
-    env_extra: dict[str, str] | None = None,
-) -> CollectorProcess:
-    """以 subprocess 启动真实 ``wind-hub-server``。
-
-    Args:
-        config_dir: 现场配置目录。
-        http_port: REST API 端口；None 时自动分配空闲端口。
-        collectors: ``worker_id=host:port`` 形式的 Collector 登记项。
-        commander: Commander gRPC endpoint。
-        log_dir: 进程日志目录（通常 ``tmp_path``）。
-        reconcile_interval: Worker 配置对账周期（秒），测试默认缩短。
-        worker_probe_interval: Worker 状态探测周期（秒），测试默认缩短。
-        env_extra: 追加环境变量。
-
-    Returns:
-        CollectorProcess（通用进程句柄；``grpc_target`` 字段复用为
-        ``127.0.0.1:<http_port>``，调用方负责 HTTP 就绪等待与 terminate）。
-    """
-    port = http_port if http_port is not None else free_port()
-    args = [
-        "--config",
-        str(config_dir),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--commander",
-        commander,
-        "--reconcile-interval",
-        str(reconcile_interval),
-        "--worker-probe-interval",
-        str(worker_probe_interval),
-        "--log-level",
-        "warning",
-    ]
-    for entry in collectors:
-        args.extend(["--collector", entry])
-    return _start_service(
-        "wind-hub-server",
-        args,
-        service="server",
         port=port,
         log_dir=log_dir,
         env_extra=env_extra,

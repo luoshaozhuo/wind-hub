@@ -15,10 +15,12 @@ from core.application import (
 )
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     UnitCode,
 )
 from core.domain import (
@@ -43,7 +45,7 @@ def _point(
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext={} if ext is None else ext,
@@ -64,7 +66,7 @@ def _point_ext(
 def _driver_for_monitoring_point() -> tuple[IEC104Driver, Point]:
     point = _point("power", ext=_point_ext(ioa=100))
     table = PointTable(
-        "iec_pt",
+        PointTableId("iec_pt"),
         DeviceProtocol("iec104"),
         {point.point_id: point},
     )
@@ -154,7 +156,7 @@ async def test_iec104_point_table_update_changes_read_addressing() -> None:
     driver._is_open = True
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
-        PointTable("iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement})
+        PointTable(PointTableId("iec_pt"), DeviceProtocol("iec104"), {"wind_speed": replacement})
     )
     assert "power" not in driver._points_by_id
     assert driver._points_by_id["wind_speed"].ioa == 100
@@ -169,7 +171,7 @@ def test_iec104_invalid_point_table_update_is_atomic() -> None:
     invalid = _point("control", access=PointAccess.WRITE, ext=_point_ext(ioa=200))
     with pytest.raises(ConfigError, match="requires type_id"):
         driver.update_point_table(
-            PointTable("invalid", DeviceProtocol("iec104"), {"control": invalid})
+            PointTable(PointTableId("invalid"), DeviceProtocol("iec104"), {"control": invalid})
         )
     assert driver._point_table_id == "iec_pt"
     assert list(driver._points_by_id) == ["power"]
@@ -189,7 +191,7 @@ async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
     handle = await driver.subscribe(("power",), callback)
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
-        PointTable("iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement})
+        PointTable(PointTableId("iec_pt"), DeviceProtocol("iec104"), {"wind_speed": replacement})
     )
     driver._store_sample(
         100,

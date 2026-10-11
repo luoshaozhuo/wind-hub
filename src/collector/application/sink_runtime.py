@@ -21,6 +21,7 @@ from core.application import ConnectionHealth, WatchdogUseCase
 from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.domain import Sink
 from core.domain.point_value import PointValue
+
 from .config import RuntimeParams
 from .reload import SinkDiff
 from .sink_registry import SinkFactory
@@ -68,6 +69,8 @@ class SinkRuntime:
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
         # start() 阶段 open 失败的 Sink 不启动 consumer，并由 health() 持续暴露为 unhealthy。
         self._unhealthy: set[str] = set()
+        # unhealthy 的根因（open 失败异常、断连等），供 health() 真实上报。
+        self._unhealthy_reason: dict[str, str] = {}
         # 运行期统计：派发/丢弃在派发路径（dispatch）计数。
         self._points_routed = 0
         self._points_dropped = 0
@@ -234,11 +237,11 @@ class SinkRuntime:
         for name, sink in self._sinks.items():
             try:
                 await sink.open()
-                self._unhealthy.discard(name)
+                self._mark_healthy(name)
                 logger.info("Sink '%s' opened", name)
-            except Exception:
+            except Exception as exc:
                 logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
-                self._unhealthy.add(name)
+                self._mark_unhealthy(name, f"open failed: {exc}")
 
         for name, sink in self._sinks.items():
             if name not in self._unhealthy:
@@ -261,9 +264,7 @@ class SinkRuntime:
         for name, queue in self._queues.items():
             if name in self._consumer_tasks:
                 try:
-                    await asyncio.wait_for(
-                        queue.put([]), timeout=self._params.shutdown_timeout
-                    )
+                    await asyncio.wait_for(queue.put([]), timeout=self._params.shutdown_timeout)
                 except TimeoutError:
                     # 队列满且消费者卡死（如 sink.write 挂起）：哨兵投递
                     # 无期限等待会让整体硬超时失效，改为直接取消消费者。
@@ -331,7 +332,7 @@ class SinkRuntime:
             await self._flush_and_close(sink_name, old_sink, "during removal")
 
         self._queues.pop(sink_name, None)
-        self._unhealthy.discard(sink_name)
+        self._mark_healthy(sink_name)
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
     async def rebuild_sink(self, sink_name: str, new_sink: SinkPort) -> None:
@@ -367,7 +368,7 @@ class SinkRuntime:
                         sink_name,
                         exc_info=True,
                     )
-                    self._unhealthy.add(sink_name)
+                    self._mark_unhealthy(sink_name, "failed to restore old instance")
                 else:
                     self._sinks[sink_name] = old_sink
                     restored_watchdog = self._make_watchdog(sink_name, old_sink)
@@ -378,7 +379,7 @@ class SinkRuntime:
             raise
 
         self._sinks[sink_name] = new_sink
-        self._unhealthy.discard(sink_name)
+        self._mark_healthy(sink_name)
         watchdog = self._make_watchdog(sink_name, new_sink)
         self._watchdogs[sink_name] = watchdog
         self._restart_consumer(sink_name, new_sink)
@@ -419,10 +420,21 @@ class SinkRuntime:
     # 私有——消费者与重建辅助
     # ------------------------------------------------------------------
 
+    def _mark_unhealthy(self, sink_name: str, reason: str) -> None:
+        """标记 Sink 不可用并记录根因。"""
+        self._unhealthy.add(sink_name)
+        self._unhealthy_reason[sink_name] = reason
+
+    def _mark_healthy(self, sink_name: str) -> None:
+        """清除不可用标记与根因。"""
+        self._unhealthy.discard(sink_name)
+        self._unhealthy_reason.pop(sink_name, None)
+
     async def _probe_sink(self, sink_name: str, sink: SinkPort) -> ConnectionHealth:
         """将 open 失败与实际端点健康检查合并，不把未打开的 Sink 报为健康。"""
         if sink_name in self._unhealthy:
-            return ConnectionHealth(healthy=False, message="sink not open")
+            reason = self._unhealthy_reason.get(sink_name, "sink not open")
+            return ConnectionHealth(healthy=False, message=reason)
         return await sink.health()
 
     def _make_watchdog(self, sink_name: str, sink: SinkPort) -> WatchdogUseCase:
@@ -430,14 +442,16 @@ class SinkRuntime:
             # 先隔离写队列，避免消费者在 close/open 期间写入旧连接。
             if self._sinks.get(sink_name) is not sink:
                 return
+            # 不掩盖已记录的更具体根因（如 open/write 失败）。
             self._unhealthy.add(sink_name)
+            self._unhealthy_reason.setdefault(sink_name, "connection lost, reconnecting")
             await self._stop_consumer(sink_name)
             await sink.close()
 
         async def _on_success() -> None:
             if self._sinks.get(sink_name) is not sink:
                 return
-            self._unhealthy.discard(sink_name)
+            self._mark_healthy(sink_name)
             if self._running and sink_name not in self._consumer_tasks:
                 self._restart_consumer(sink_name, sink)
 
@@ -465,7 +479,7 @@ class SinkRuntime:
         if old_sink is not None:
             await self._flush_and_close(sink_name, old_sink, "during rebuild")
         self._sinks[sink_name] = new_sink
-        self._unhealthy.discard(sink_name)
+        self._mark_healthy(sink_name)
         watchdog = self._make_watchdog(sink_name, new_sink)
         self._watchdogs[sink_name] = watchdog
         self._restart_consumer(sink_name, new_sink)
@@ -534,7 +548,9 @@ class SinkRuntime:
                     break
                 try:
                     await sink.write(batch)
-                except Exception:
+                except Exception as exc:
+                    # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
+                    self._mark_unhealthy(sink_name, f"write failed: {exc}")
                     logger.warning(
                         "Sink '%s' write failed for %d points",
                         sink_name,

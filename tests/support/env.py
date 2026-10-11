@@ -54,7 +54,7 @@ def redis_address_from_env() -> str | None:
     return env_or_none("WIND_HUB_TEST_REDIS")
 
 
-def ads_config_from_env() -> dict[str, str | int] | None:
+def ads_config_from_env() -> dict[str, str | int | None] | None:
     """真实 TwinCAT ADS 环境配置；任一必填项缺失返回 ``None``。
 
     必填：``WIND_HUB_TEST_ADS_HOST`` / ``WIND_HUB_TEST_ADS_NET_ID``。

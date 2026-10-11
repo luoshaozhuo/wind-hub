@@ -51,7 +51,7 @@ MODBUS_POINTS: list[dict[str, Any]] = [
 
 DEFAULT_TASK: dict[str, Any] = {
     "task_id": "modbus-telemetry",
-    "device": "modbus-1",
+    "device_group": "modbus-1",
     "point_group": "telemetry",
     "interval": 0.2,
     "targets": [{"sink": "null_sink"}],

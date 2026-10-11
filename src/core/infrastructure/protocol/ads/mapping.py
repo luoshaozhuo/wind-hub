@@ -106,9 +106,7 @@ def ads_point(
     offset = _non_negative_int(index_offset, "index_offset", point_id)
     ads_type = _normalize_ads_type(data_type, point_id=point_id)
     resolved_size = (
-        _ADS_TYPE_SIZES[ads_type]
-        if size is None
-        else _non_negative_int(size, "size", point_id)
+        _ADS_TYPE_SIZES[ads_type] if size is None else _non_negative_int(size, "size", point_id)
     )
     if ads_type != "STRING" and resolved_size != _ADS_TYPE_SIZES[ads_type]:
         raise ConfigError(
@@ -221,11 +219,6 @@ def symbol_index_address(symbol: str, info: object) -> tuple[int, int]:
     """Validate index addresses returned by pyads.get_symbol()."""
     group = getattr(info, "index_group", None)
     offset = getattr(info, "index_offset", None)
-    if (
-        type(group) is not int
-        or type(offset) is not int
-        or group < 0
-        or offset < 0
-    ):
+    if type(group) is not int or type(offset) is not int or group < 0 or offset < 0:
         raise ConfigError(f"ADS symbol '{symbol}' returned an invalid index address")
     return group, offset

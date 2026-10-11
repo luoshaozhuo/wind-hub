@@ -19,7 +19,8 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         source_unit=KILOWATT,
         access=PointAccess.READ,
         ext={"data_type": "int32", "type": "input", "address": 10},
-        variable_name="power", point_groups=("all",),
+        variable_name="power",
+        point_groups=("all",),
     )
     changed_point = Point(
         point_id="power",
@@ -27,7 +28,8 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
         source_unit=KILOWATT,
         access=PointAccess.READ,
         ext={"data_type": "int32", "type": "input", "address": 20},
-        variable_name="power", point_groups=("all",),
+        variable_name="power",
+        point_groups=("all",),
     )
     parent = PointTable(PointTableId("base"), Protocol("modbus"), {"power": base_point})
     child = PointTable(
@@ -41,9 +43,7 @@ def test_expanded_child_serializes_as_parent_difference() -> None:
     )
     saved = yaml["point_tables"]["child"]
     assert saved["extends"] == "base"
-    assert saved["points"] == [
-        {"point_id": "power", "address": {"type": "input", "address": 20}}
-    ]
+    assert saved["points"] == [{"point_id": "power", "address": {"type": "input", "address": 20}}]
     assert "protocol" not in saved
 
 

@@ -62,20 +62,16 @@ def _build_collector_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
     instance = commands.add_parser("instance")
     instance.add_argument("instance_id")
 
-    placement = commands.add_parser("placement")
-    placement.add_argument("worker_id")
-    placement.add_argument("generation", type=int)
-    placement.add_argument("task_ids", nargs="+")
+    latest = commands.add_parser("latest-values")
+    latest.add_argument("--device", dest="device_id", default=None)
 
     start_task = commands.add_parser("start-task")
     start_task.add_argument("task_id")
-    start_task.add_argument("--generation", type=int, required=True)
     stop_task = commands.add_parser("stop-task")
     stop_task.add_argument("task_id")
 
     start_instance = commands.add_parser("start-instance")
     start_instance.add_argument("instance_id")
-    start_instance.add_argument("--generation", type=int, required=True)
     stop_instance = commands.add_parser("stop-instance")
     stop_instance.add_argument("instance_id")
 
@@ -153,9 +149,7 @@ def _collector_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "name",
         "task_id",
         "instance_id",
-        "worker_id",
-        "generation",
-        "task_ids",
+        "device_id",
         "revision_id",
         "config_hash",
         "force",
@@ -209,9 +203,7 @@ async def _run(args: argparse.Namespace) -> int:
     _print(result)
     if result.get("success") is False or result.get("ok") is False:
         return 2
-    if "results" in result and any(
-        item.get("success") is False for item in result["results"]
-    ):
+    if "results" in result and any(item.get("success") is False for item in result["results"]):
         return 2
     return 0
 

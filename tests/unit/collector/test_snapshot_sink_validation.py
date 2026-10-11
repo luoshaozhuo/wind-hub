@@ -9,12 +9,11 @@ from collector.infrastructure.config.loader import _from_snapshot
 from core.application.errors import ConfigError
 from core.domain import Sink
 from core.infrastructure.config.adapter import YamlConfigAdapter
+from tests.support.new_collector import write_collector_config_tree
 
-ROOT = Path(__file__).resolve().parents[4]
 
-
-def _snapshot_with_points(*, addresses: tuple[int, ...]):
-    snapshot = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
+def _snapshot_with_points(tmp_path: Path, *, addresses: tuple[int, ...]):
+    snapshot = YamlConfigAdapter(write_collector_config_tree(tmp_path / "cfg")).load()
     device_id, device = next(iter(snapshot.site.devices.items()))
     model = snapshot.device_models[device.device_model_id]
     table = snapshot.point_tables[model.point_table_id]
@@ -41,22 +40,22 @@ def _snapshot_with_points(*, addresses: tuple[int, ...]):
     return replace(snapshot, sinks={**snapshot.sinks, sink.sink_id: sink})
 
 
-def test_modbus_sink_resolves_point_from_snapshot() -> None:
-    config = _from_snapshot(_snapshot_with_points(addresses=(100,)))
+def test_modbus_sink_resolves_point_from_snapshot(tmp_path: Path) -> None:
+    config = _from_snapshot(_snapshot_with_points(tmp_path, addresses=(100,)))
     point = config.sinks["test_modbus"].points[0]
     assert point["source"]["device_id"]
     assert point["source_data_type"]
     assert point["datatype"] == point["source_data_type"]
 
 
-def test_modbus_sink_rejects_overlapping_registers() -> None:
-    snapshot = _snapshot_with_points(addresses=(100, 100))
+def test_modbus_sink_rejects_overlapping_registers(tmp_path: Path) -> None:
+    snapshot = _snapshot_with_points(tmp_path, addresses=(100, 100))
     with pytest.raises(ConfigError, match="overlapping"):
         _from_snapshot(snapshot)
 
 
-def test_modbus_sink_rejects_missing_source_device() -> None:
-    snapshot = _snapshot_with_points(addresses=(100,))
+def test_modbus_sink_rejects_missing_source_device(tmp_path: Path) -> None:
+    snapshot = _snapshot_with_points(tmp_path, addresses=(100,))
     sink = snapshot.sinks["test_modbus"]
     point = {**sink.points[0], "source": {"device_id": "unknown", "point_id": "p"}}
     modified = replace(sink, points=(point,))

@@ -16,7 +16,7 @@ def test_site_owns_devices() -> None:
     assert site.name == "北区风电场"
     assert site.devices[device.device_id] is device
     with pytest.raises(TypeError):
-        site.devices[DeviceId("other")] = device
+        site.devices[DeviceId("other")] = device  # type: ignore[index]  # 故意探测 Mapping 不可变性
 
 
 def test_site_rejects_invalid_identity_and_device_index() -> None:
@@ -25,7 +25,8 @@ def test_site_rejects_invalid_identity_and_device_index() -> None:
     with pytest.raises(ValueError, match="site name"):
         Site("wind-farm", " ", {})
     device = Device(
-        DeviceId("d"), DeviceModelId("m"),
+        DeviceId("d"),
+        DeviceModelId("m"),
         ConnectionEndpoint("127.0.0.1"),
         device_group_ids=(DeviceGroupId("g"),),
     )

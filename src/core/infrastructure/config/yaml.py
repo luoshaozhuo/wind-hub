@@ -55,4 +55,3 @@ def write_yaml_mapping_atomic(path: str | Path, data: Mapping[str, Any]) -> None
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
-

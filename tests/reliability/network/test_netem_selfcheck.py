@@ -39,9 +39,7 @@ _LOSS_TIMEOUT_S = 1.0
 
 def _route_iface(ip: str) -> str:
     """``ip route get <ip>`` 的出接口名（只读操作，不需要特权）。"""
-    result = subprocess.run(
-        ["ip", "route", "get", ip], capture_output=True, text=True, check=True
-    )
+    result = subprocess.run(["ip", "route", "get", ip], capture_output=True, text=True, check=True)
     tokens = result.stdout.split()
     return tokens[tokens.index("dev") + 1] if "dev" in tokens else ""
 

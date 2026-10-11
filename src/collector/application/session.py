@@ -30,7 +30,6 @@ from core.application import (
     validate_read_many_results,
 )
 from core.domain import Device, DeviceId, Point, PointTable, engineering_value
-
 from core.domain.point_value import PointValue
 
 logger = logging.getLogger(__name__)

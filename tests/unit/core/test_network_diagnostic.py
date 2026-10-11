@@ -18,7 +18,6 @@ async def test_tcp_port_open_and_closed() -> None:
         await server.wait_closed()
 
 
-
 async def test_ping_missing_executable(monkeypatch) -> None:
     async def missing_executable(*args, **kwargs):
         raise FileNotFoundError("ping")

@@ -159,11 +159,17 @@ def _file_factory(files: dict[str, bytes], conns: list[FakeFileServiceConn]):
 
 def _env(exporter: types.ModuleType, os_name: str = "Linux", **kw: object):
     defaults: dict[str, object] = {
-        "os_name": os_name, "arch": "x86_64", "python_bits": 64,
+        "os_name": os_name,
+        "arch": "x86_64",
+        "python_bits": 64,
         "pyads_version": "3.6.0",
-        "adslib_available": True, "adstool": None, "twincat_version": 2,
-        "ams_net_id": "127.0.0.1.1.1", "ads_port": 801,
-        "com_module_available": False, "ocx_progid_registered": None,
+        "adslib_available": True,
+        "adstool": None,
+        "twincat_version": 2,
+        "ams_net_id": "127.0.0.1.1.1",
+        "ads_port": 801,
+        "com_module_available": False,
+        "ocx_progid_registered": None,
     }
     defaults.update(kw)
     return exporter.StaticEnvironment(**defaults)
@@ -179,15 +185,11 @@ def test_ocx_availability_by_platform(exporter: types.ModuleType) -> None:
     ok, reason = win_no_com.ocx_possible()
     assert not ok and "pywin32" in reason
 
-    win_no_reg = _env(
-        exporter, "Windows", com_module_available=True, ocx_progid_registered=False
-    )
+    win_no_reg = _env(exporter, "Windows", com_module_available=True, ocx_progid_registered=False)
     ok, reason = win_no_reg.ocx_possible()
     assert not ok and "未在本机注册" in reason
 
-    win_ready = _env(
-        exporter, "Windows", com_module_available=True, ocx_progid_registered=True
-    )
+    win_ready = _env(exporter, "Windows", com_module_available=True, ocx_progid_registered=True)
     assert win_ready.ocx_possible() == (True, "")
 
 
@@ -218,7 +220,8 @@ def test_file_service_reads_tpy(exporter: types.ModuleType, tmp_path: Path) -> N
     output = tmp_path / "symbols.txt"
 
     count = exporter.export_symbols(
-        plc, output,
+        plc,
+        output,
         env=_env(exporter),
         file_service_factory=_file_factory(files, conns),
         outcomes=outcomes,
@@ -238,9 +241,7 @@ def test_file_service_reads_tpy(exporter: types.ModuleType, tmp_path: Path) -> N
 
 
 # ---------- 4. 文件缺失与解析失败 ----------
-def test_file_service_missing_and_malformed(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_file_service_missing_and_malformed(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter.CHUNK_SIZES = ()
     files = {r"C:\TwinCAT\Boot\broken.tmc": b"<TcModuleClass><Symbols><Symbol>"}
     conns: list[FakeFileServiceConn] = []
@@ -249,7 +250,8 @@ def test_file_service_missing_and_malformed(
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略") as err:
         exporter.export_symbols(
-            FakePLC(_entry("A.x"), 1), output,
+            FakePLC(_entry("A.x"), 1),
+            output,
             env=_env(exporter),
             file_service_factory=_file_factory(files, conns),
         )
@@ -259,7 +261,8 @@ def test_file_service_missing_and_malformed(
     conns.clear()
     with pytest.raises(RuntimeError, match="未发现 TPY/TMC"):
         exporter.export_symbols(
-            FakePLC(_entry("A.x"), 1), tmp_path / "empty.txt",
+            FakePLC(_entry("A.x"), 1),
+            tmp_path / "empty.txt",
             env=_env(exporter),
             file_service_factory=_file_factory({}, conns),
         )
@@ -277,7 +280,8 @@ def test_large_file_read_in_chunks(exporter: types.ModuleType, tmp_path: Path) -
     output = tmp_path / "symbols.txt"
 
     count = exporter.export_symbols(
-        FakePLC(_entry("A.x"), 1), output,
+        FakePLC(_entry("A.x"), 1),
+        output,
         env=_env(exporter),
         file_service_factory=_file_factory(files, conns),
     )
@@ -289,9 +293,7 @@ def test_large_file_read_in_chunks(exporter: types.ModuleType, tmp_path: Path) -
 
 
 # ---------- 6. 文件符号与运行时不一致 ----------
-def test_file_runtime_mismatch_marks_unverified(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_file_runtime_mismatch_marks_unverified(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter.CHUNK_SIZES = ()
     files = {r"C:\TwinCAT\Boot\port_801.tmc": _tpy(["MAIN.a", "MAIN.b"])}
     plc = FakePLC(_entry("A.x") * 3, 3)  # 运行时声明 3 个，文件只有 2 个
@@ -299,7 +301,8 @@ def test_file_runtime_mismatch_marks_unverified(
     output = tmp_path / "symbols.txt"
 
     count = exporter.export_symbols(
-        plc, output,
+        plc,
+        output,
         env=_env(exporter),
         file_service_factory=_file_factory(files, []),
         outcomes=outcomes,
@@ -327,8 +330,11 @@ def test_ocx_mock_com_enumeration(exporter: types.ModuleType, tmp_path: Path) ->
     output = tmp_path / "symbols.txt"
 
     count = exporter.export_symbols(
-        FakePLC(_entry("A.x"), 1), output,
-        env=env, ocx_factory=lambda: com, outcomes=outcomes,
+        FakePLC(_entry("A.x"), 1),
+        output,
+        env=env,
+        ocx_factory=lambda: com,
+        outcomes=outcomes,
     )
 
     assert count == 2
@@ -339,16 +345,16 @@ def test_ocx_mock_com_enumeration(exporter: types.ModuleType, tmp_path: Path) ->
     com.close.assert_called_once()  # COM 资源释放
 
 
-def test_ocx_without_enum_method_fails_clearly(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_ocx_without_enum_method_fails_clearly(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter.CHUNK_SIZES = ()
     com = object()  # 无 AdsEnumSymbols
     env = _env(exporter, "Windows", com_module_available=True, ocx_progid_registered=True)
     with pytest.raises(RuntimeError, match="不提供 AdsEnumSymbols"):
         exporter.export_symbols(
-            FakePLC(_entry("A.x"), 1), tmp_path / "s.txt",
-            env=env, ocx_factory=lambda: com,
+            FakePLC(_entry("A.x"), 1),
+            tmp_path / "s.txt",
+            env=env,
+            ocx_factory=lambda: com,
         )
 
 
@@ -371,7 +377,8 @@ def test_strategies_run_in_order_and_stop_early(
     monkeypatch.setattr(exporter, "_export_full_table", spy("full", result=3))
     monkeypatch.setattr(exporter, "_export_in_chunks", spy("chunk", result=3))
     monkeypatch.setattr(
-        exporter, "_export_via_file_service", spy("file", result=(3, "count_matched")))
+        exporter, "_export_via_file_service", spy("file", result=(3, "count_matched"))
+    )
     monkeypatch.setattr(exporter, "_export_via_ocx", spy("ocx", result=3))
     exporter.TRY_FULL_TABLE_FIRST = True
     exporter.CHUNK_SIZES = (64,)
@@ -383,17 +390,20 @@ def test_strategies_run_in_order_and_stop_early(
     monkeypatch.setattr(exporter, "_export_full_table", spy("full", error="oom"))
     monkeypatch.setattr(exporter, "_export_in_chunks", spy("chunk", error="bad"))
     # MagicMock 桩无法推导 System Service 地址，显式提供文件服务工厂
-    assert exporter.export_symbols(
-        MagicMock(), tmp_path / "s.txt", env=_env(exporter),
-        file_service_factory=MagicMock,
-    ) == 3
+    assert (
+        exporter.export_symbols(
+            MagicMock(),
+            tmp_path / "s.txt",
+            env=_env(exporter),
+            file_service_factory=MagicMock,
+        )
+        == 3
+    )
     assert called == ["full", "chunk", "file"]  # ocx 未被调用
 
 
 # ---------- 10. 断连后重连 ----------
-def test_reconnect_after_connection_loss(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_reconnect_after_connection_loss(exporter: types.ModuleType, tmp_path: Path) -> None:
     payload = _entry("A.x") + _entry("B.y")
     dead_plc = MagicMock()
     dead_plc.read.side_effect = RuntimeError("connection lost")
@@ -410,9 +420,7 @@ def test_reconnect_after_connection_loss(
     exporter.CHUNK_SIZES = (64,)
     output = tmp_path / "symbols.txt"
 
-    assert exporter.export_symbols(
-        dead_plc, output, env=_env(exporter), reconnect=reconnect
-    ) == 2
+    assert exporter.export_symbols(dead_plc, output, env=_env(exporter), reconnect=reconnect) == 2
     assert reconnected == [True]
     assert output.read_text(encoding="utf-8").splitlines() == ["A.x", "B.y"]
 
@@ -439,9 +447,7 @@ def test_unrecoverable_disconnect_stops_runtime_strategies(
 
 
 # ---------- 11. 全部失败汇总 ----------
-def test_all_strategies_fail_summary(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_all_strategies_fail_summary(exporter: types.ModuleType, tmp_path: Path) -> None:
     exporter.TRY_FULL_TABLE_FIRST = True
     exporter.CHUNK_SIZES = (64,)
 
@@ -456,7 +462,8 @@ def test_all_strategies_fail_summary(
 
     with pytest.raises(RuntimeError, match="所有已启用的枚举策略") as err:
         exporter.export_symbols(
-            plc, tmp_path / "s.txt",
+            plc,
+            tmp_path / "s.txt",
             env=_env(exporter),
             file_service_factory=_file_factory({}, conns),
         )
@@ -472,7 +479,8 @@ def test_tpy_utf8_symbol_names(exporter: types.ModuleType, tmp_path: Path) -> No
     files = {r"C:\TwinCAT\Boot\port_801.tmc": _tpy(names)}
     output = tmp_path / "symbols.txt"
     count = exporter.export_symbols(
-        FakePLC(_entry("A.x") * 2, 2), output,
+        FakePLC(_entry("A.x") * 2, 2),
+        output,
         env=_env(exporter),
         file_service_factory=_file_factory(files, []),
     )

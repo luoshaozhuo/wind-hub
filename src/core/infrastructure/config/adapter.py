@@ -29,7 +29,8 @@ class YamlConfigAdapter:
         documents = dump_snapshot(snapshot)
         current_system = read_yaml_mapping(self._base / "system.yaml")
         external = {
-            key: value for key, value in current_system.items()
+            key: value
+            for key, value in current_system.items()
             if key not in {"site", "runtime", "ads"}
         }
         documents["system.yaml"] = {**external, **documents["system.yaml"]}
@@ -47,7 +48,8 @@ class YamlConfigAdapter:
 
         originals = {
             filename: (self._base / filename).read_bytes()
-            if (self._base / filename).exists() else None
+            if (self._base / filename).exists()
+            else None
             for filename in documents
         }
         written: list[str] = []

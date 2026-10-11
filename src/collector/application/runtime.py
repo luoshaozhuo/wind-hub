@@ -127,9 +127,7 @@ class CollectorRuntime:
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
-        self._device_runtime.set_reconnect_callback(
-            self._task_runtime.restore_subscriptions
-        )
+        self._device_runtime.set_reconnect_callback(self._task_runtime.restore_subscriptions)
         self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
         self._session_factory = session_factory
         self._engine = engine

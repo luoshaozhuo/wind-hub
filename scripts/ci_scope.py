@@ -52,11 +52,10 @@ def _backend_pr_targets(path: str) -> set[str]:
         targets.add("integration-protocol")
 
     if (
-        _starts(path, "src/core/infrastructure/rpc/", "tests/integration/rpc/")
+        _starts(path, "src/core/infrastructure/rpc/", "tests/contract/rpc/")
         or "/grpc/" in path
         or path
         in {
-            "src/wind_hub_server/adapter/outbound/collector_directory.py",
             # Collector 只读查询 / Sink 控制面的应用服务——直接塑造 RPC 响应。
             "src/collector/application/services.py",
             "src/collector/application/sink_runtime.py",
@@ -73,8 +72,6 @@ def _backend_pr_targets(path: str) -> set[str]:
         or path == "src/collector/application/sink_runtime.py"
     ):
         targets.add("integration-sinks")
-        if path.startswith("src/collector/infrastructure/sink/"):
-            targets.add("system-reload")
 
     if _starts(
         path,
@@ -84,6 +81,7 @@ def _backend_pr_targets(path: str) -> set[str]:
         "src/collector/assembly.py",
         "src/collector/main.py",
         "src/collector/application/task_runtime.py",
+        "src/collector/application/config_service.py",
     }:
         targets.add("system-acquisition")
 
@@ -91,64 +89,11 @@ def _backend_pr_targets(path: str) -> set[str]:
         "src/commander/application/dispatcher.py",
         "src/commander/application/runtime.py",
         "src/commander/application/command.py",
-        "src/wind_hub_server/application/device/command.py",
+        "src/commander/application/config.py",
     }:
         targets.add("system-command")
 
-    if (
-        _starts(path, "tests/system/diagnostics/")
-        or path.endswith("/application/diagnostic.py")
-        or path.endswith("/application/device/diagnostic.py")
-        or path == "src/wind_hub_server/infra/network_probe.py"
-    ):
-        targets.add("system-diagnostics")
-
-    if _starts(path, "tests/system/reload/") or path in {
-        "src/wind_hub_server/application/config/service.py",
-        "src/wind_hub_server/application/config/files.py",
-        "src/collector/application/config_service.py",
-        "src/commander/application/runtime.py",
-        "src/commander/application/config.py",
-    }:
-        targets.add("system-reload")
-
-    if _starts(path, "tests/system/startup/") or path in {
-        "src/collector/assembly.py",
-        "src/collector/main.py",
-        "src/commander/assembly.py",
-        "src/commander/main.py",
-        "src/wind_hub_server/assembly.py",
-        "src/wind_hub_server/main.py",
-        "src/wind_hub_server/server.py",
-        "src/wind_hub_server/settings.py",
-    }:
-        targets.add("system-startup")
-
-    if (
-        _starts(
-            path,
-            "tests/system/task_control/",
-            # worker 权威状态是 placement safety 判定的输入。
-            "src/wind_hub_server/application/worker/",
-        )
-        or path in {
-            "src/collector/application/task_runtime.py",
-            "src/wind_hub_server/application/task/placement.py",
-            # reconciler 负责 placement 收敛，collector 身份校验是其安全前提。
-            "src/wind_hub_server/application/task/reconcile.py",
-            "src/wind_hub_server/application/task/collector.py",
-            "src/wind_hub_server/application/task/control.py",
-            "src/ctl/client.py",
-            "src/ctl/main.py",
-        }
-    ):
-        targets.add("system-task-control")
-
-    if _starts(
-        path,
-        "tests/system/e2e/",
-        "src/wind_hub_server/adapter/inbound/webapi/v1/",
-    ):
+    if _starts(path, "tests/system/e2e/"):
         targets.add("system-e2e")
 
     return targets
@@ -228,19 +173,14 @@ def classify(paths: list[str]) -> dict[str, str]:
     frontend_e2e = any(_frontend_e2e_required(path) for path in normalized)
     tooling = any(path.startswith(TOOLING_PREFIXES) for path in normalized)
     governance = any(
-        path in GOVERNANCE_FILES or path.startswith(GOVERNANCE_PREFIXES)
-        for path in normalized
+        path in GOVERNANCE_FILES or path.startswith(GOVERNANCE_PREFIXES) for path in normalized
     )
 
     ordered_fast = [target for target in FAST_TEST_ORDER if target in fast_targets]
     ordered_pr = [target for target in PR_TARGET_ORDER if target in pr_targets]
 
     product = (
-        backend_static
-        or bool(ordered_fast)
-        or frontend_fast
-        or bool(ordered_pr)
-        or frontend_e2e
+        backend_static or bool(ordered_fast) or frontend_fast or bool(ordered_pr) or frontend_e2e
     )
 
     return {

@@ -212,8 +212,9 @@ def _inspect_environment() -> StaticEnvironment:
     )
     _LOG.info("客户端系统：%s %s, Python %d 位", env.os_name, env.arch, env.python_bits)
     _LOG.info("pyads=%s, adstool=%s", env.pyads_version or "缺失", env.adstool or "未安装")
-    _LOG.info("目标：TwinCAT %s, NetID %s, ADS port %s",
-              env.twincat_version, env.ams_net_id, env.ads_port)
+    _LOG.info(
+        "目标：TwinCAT %s, NetID %s, ADS port %s", env.twincat_version, env.ams_net_id, env.ads_port
+    )
     possible, reason = env.ocx_possible()
     _LOG.info("ADS OCX：%s", "可尝试（实验性）" if possible else reason)
     # 不用客户端系统推断 PLC 操作系统；远端信息只来自 ADS 动态探测。
@@ -262,8 +263,10 @@ class StrategyOutcome:
 
     def describe(self) -> str:
         if self.ok:
-            return (f"{self.name}: 成功, source={self.source}, count={self.count}, "
-                    f"verification={self.verification}")
+            return (
+                f"{self.name}: 成功, source={self.source}, count={self.count}, "
+                f"verification={self.verification}"
+            )
         return f"{self.name}: {self.reason}"
 
 
@@ -494,8 +497,11 @@ class AdsFileService:
     def open(self, path: str) -> int:
         payload = path.encode(REMOTE_PATH_ENCODING)
         raw = self._conn.read_write(
-            _FOPEN, _FOPEN_READ_FLAGS,
-            pyads.PLCTYPE_BYTE * 4, payload, pyads.PLCTYPE_BYTE * len(payload),
+            _FOPEN,
+            _FOPEN_READ_FLAGS,
+            pyads.PLCTYPE_BYTE * 4,
+            payload,
+            pyads.PLCTYPE_BYTE * len(payload),
             return_ctypes=True,
         )
         handle = struct.unpack("<I", bytes(raw))[0]
@@ -524,9 +530,11 @@ class AdsFileService:
                 raise ValueError(f"远端目录枚举超过上限 {FILE_FIND_MAX_ENTRIES} 条")
             try:
                 raw = self._conn.read_write(
-                    _FFILEFIND, offset,
+                    _FFILEFIND,
+                    offset,
                     pyads.PLCTYPE_BYTE * _FFIND_DATA_SIZE,
-                    write[0], write[1],
+                    write[0],
+                    write[1],
                     return_ctypes=True,
                 )
             except Exception as exc:
@@ -852,29 +860,38 @@ def _run_strategies(ctx: _RunContext) -> int:
     # 方案 1：ADS 整表
     if TRY_FULL_TABLE_FIRST:
         _LOG.warning("先尝试读取完整符号表；已知部分 PLC 存在内存溢出风险")
-        result = record("full-table", "runtime",
-                        lambda: _export_full_table(ctx.conn.current, ctx.output))
+        result = record(
+            "full-table", "runtime", lambda: _export_full_table(ctx.conn.current, ctx.output)
+        )
         if result is not None:
             return result
         if not ctx.conn.recover():
-            outcomes.append(StrategyOutcome(
-                "runtime-reconnect", False, reason="连接断开且无法恢复，跳过运行时方案"))
+            outcomes.append(
+                StrategyOutcome(
+                    "runtime-reconnect", False, reason="连接断开且无法恢复，跳过运行时方案"
+                )
+            )
 
     # 方案 2：ADS Chunk 分段
     if ctx.conn.usable():
         for chunk_size in CHUNK_SIZES:
             if chunk_size < _SYMBOL_HEADER_SIZE + 3:
-                outcomes.append(StrategyOutcome(
-                    f"chunk={chunk_size}", False, reason="配置值过小"))
+                outcomes.append(StrategyOutcome(f"chunk={chunk_size}", False, reason="配置值过小"))
                 continue
-            result = record(f"chunk={chunk_size}", "runtime",
-                            lambda s=chunk_size: _export_in_chunks(ctx.conn.current, ctx.output, s))
+            result = record(
+                f"chunk={chunk_size}",
+                "runtime",
+                lambda s=chunk_size: _export_in_chunks(ctx.conn.current, ctx.output, s),
+            )
             if result is not None:
                 return result
             # 区分协议拒绝与连接失效；失效连接不得继续发送请求
             if not ctx.conn.recover():
-                outcomes.append(StrategyOutcome(
-                    "runtime-reconnect", False, reason="连接断开且无法恢复，停止分段尝试"))
+                outcomes.append(
+                    StrategyOutcome(
+                        "runtime-reconnect", False, reason="连接断开且无法恢复，停止分段尝试"
+                    )
+                )
                 break
     else:
         outcomes.append(StrategyOutcome("chunk", False, reason="连接不可用，跳过分段方案"))
@@ -901,12 +918,16 @@ def _run_strategies(ctx: _RunContext) -> int:
         outcomes.append(StrategyOutcome("ads-file", False, "file", reason=unavailable))
     else:
         assert factory is not None
+
         def run_file() -> int:
             count, verification = _export_via_file_service(
-                factory, ctx.output, runtime_count=runtime_count)
-            outcomes.append(StrategyOutcome(
-                "ads-file", True, "file", count=count, verification=verification))
+                factory, ctx.output, runtime_count=runtime_count
+            )
+            outcomes.append(
+                StrategyOutcome("ads-file", True, "file", count=count, verification=verification)
+            )
             return count
+
         try:
             return run_file()
         except Exception as exc:
@@ -920,14 +941,11 @@ def _run_strategies(ctx: _RunContext) -> int:
         outcomes.append(StrategyOutcome("ocx", False, "ocx-experimental", reason=ocx_reason))
     else:
         ocx_factory = ctx.ocx_factory or _ocx_default_factory
-        result = record("ocx", "ocx-experimental",
-                        lambda: _export_via_ocx(ocx_factory, ctx.output))
+        result = record("ocx", "ocx-experimental", lambda: _export_via_ocx(ocx_factory, ctx.output))
         if result is not None:
             return result
 
-    raise RuntimeError(
-        "所有已启用的枚举策略均失败：\n" + "\n".join(o.describe() for o in outcomes)
-    )
+    raise RuntimeError("所有已启用的枚举策略均失败：\n" + "\n".join(o.describe() for o in outcomes))
 
 
 def export_symbols(
@@ -947,8 +965,12 @@ def export_symbols(
     owns_connection=True 时由本函数负责最终释放当前实际连接。
     reconnect 工厂创建的连接始终归本函数所有并保证释放。
     """
-    if not TRY_FULL_TABLE_FIRST and not CHUNK_SIZES \
-            and not FILE_SERVICE_ENABLED and not OCX_ENABLED:
+    if (
+        not TRY_FULL_TABLE_FIRST
+        and not CHUNK_SIZES
+        and not FILE_SERVICE_ENABLED
+        and not OCX_ENABLED
+    ):
         raise ValueError("至少启用一种枚举方案")
     manager = _ConnectionManager(plc, reconnect, owns_initial=owns_connection)
     ctx = _RunContext(
@@ -1056,7 +1078,8 @@ def main() -> int:
     _LOG.info("PLC 动态信息：%s", _probe_runtime(plc))
     # owns_connection=True：当前实际连接（含重连后的新连接）统一由此释放。
     total = export_symbols(
-        plc, destination,
+        plc,
+        destination,
         env=env,
         reconnect=lambda: _open_connection(env),
         outcomes=outcomes,

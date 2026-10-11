@@ -19,7 +19,7 @@ from tests.reliability.recovery.helpers import (
     telemetry_task,
     wait_status,
 )
-from tests.support.control import apply_placement_and_start_instance
+from tests.support.control import start_task_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import parse_address, point_key
@@ -66,9 +66,7 @@ class TestRedisOutageRecovery:
         observer = RedisFlowObserver(redis_service, ROTOR_KEY)
         try:
             # ---- 正常：点值持续写入 Redis（timestamp 随采集周期推进） ----
-            await apply_placement_and_start_instance(
-                proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-            )
+            await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
             baseline = await wait_redis_value(redis_service, ROTOR_KEY)
             assert baseline["value"] == pytest.approx(1200.5)
             assert await observer.count_during(2.0) > 0

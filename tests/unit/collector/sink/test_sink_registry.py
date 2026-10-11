@@ -7,7 +7,6 @@ import pytest
 from collector.infrastructure.sink import build_sink_registry
 from collector.infrastructure.sink.file.csv import FileSink
 from collector.infrastructure.sink.redis import RedisSink
-from core.application import ConfigError
 from core.domain import Sink
 
 
@@ -17,7 +16,9 @@ def test_three_builtin_types() -> None:
 
 def test_file_factory(tmp_path: Path) -> None:
     config = Sink(
-        sink_id="file", kind="file", enabled=True,
+        sink_id="file",
+        kind="file",
+        enabled=True,
         connection={"path": str(tmp_path / "x.csv")},
     )
     sink = build_sink_registry().create(config)

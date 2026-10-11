@@ -1,7 +1,9 @@
 """配置文件写入失败时的回滚行为。"""
 
+from collections.abc import Mapping
 from pathlib import Path
 from shutil import copy2
+from typing import Any
 
 import pytest
 
@@ -10,13 +12,19 @@ from core.infrastructure.config.adapter import YamlConfigAdapter
 
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
-    "system.yaml", "device_models.yaml", "devices.yaml", "points.yaml",
-    "business_points.yaml", "tasks.yaml", "sinks.yaml",
+    "system.yaml",
+    "device_models.yaml",
+    "devices.yaml",
+    "points.yaml",
+    "business_points.yaml",
+    "tasks.yaml",
+    "sinks.yaml",
 )
 
 
 def test_save_rolls_back_when_one_file_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = ROOT / "configs" / "example_modbus"
     for filename in FILES:
@@ -24,9 +32,9 @@ def test_save_rolls_back_when_one_file_write_fails(
     original_bytes = {filename: (tmp_path / filename).read_bytes() for filename in FILES}
     adapter = YamlConfigAdapter(tmp_path)
     snapshot = adapter.load()
-    original_writer = adapter_module.write_yaml_mapping_atomic
+    original_writer = adapter_module.write_yaml_mapping_atomic  # type: ignore[attr-defined]  # adapter 未显式再导出该符号
 
-    def fail_on_target(path: Path, data: object) -> None:
+    def fail_on_target(path: Path, data: Mapping[str, Any]) -> None:
         if Path(path).name == "devices.yaml":
             raise OSError("injected save failure")
         original_writer(path, data)

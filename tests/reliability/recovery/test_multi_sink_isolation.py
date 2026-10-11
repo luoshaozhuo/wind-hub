@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,7 +19,7 @@ from tests.reliability.recovery.helpers import (
     telemetry_task,
     wait_status,
 )
-from tests.support.control import apply_placement_and_start_instance
+from tests.support.control import start_task_instance
 from tests.support.functional_config import write_functional_config
 from tests.support.process import CollectorProcess
 from tests.support.redis_client import parse_address, point_key
@@ -38,7 +39,7 @@ REDIS_KEY_PREFIX = "wind-hub-iso"
 ROTOR_KEY = point_key("modbus-1", "rotor.speed", prefix=REDIS_KEY_PREFIX)
 
 
-def _multi_target_task(*sink_names: str) -> dict:
+def _multi_target_task(*sink_names: str) -> dict[str, Any]:
     task = telemetry_task(sink_names[0])
     task["targets"] = [{"sink": name} for name in sink_names]
     return task
@@ -87,9 +88,7 @@ class TestRedisOutageIsolation:
         proc: CollectorProcess = await collector_factory(config_dir)
         service_stopped = False
         try:
-            await apply_placement_and_start_instance(
-                proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-            )
+            await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
             baseline = await wait_redis_value(redis_service, ROTOR_KEY)
             await wait_file_rows(sink_path, min_rows=2)
 

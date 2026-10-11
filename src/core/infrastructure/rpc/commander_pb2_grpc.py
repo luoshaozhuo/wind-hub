@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from core.infrastructure.rpc import commander_pb2 as commander_dot_infrastructure_dot_grpc_dot_commander__pb2
+from core.infrastructure.rpc import commander_pb2 as core_dot_infrastructure_dot_rpc_dot_commander__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 GRPC_GENERATED_VERSION = '1.81.1'
@@ -38,67 +38,67 @@ class CommanderServiceStub:
         self.GetStatus = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/GetStatus',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommanderStatusResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommanderStatusResponse.FromString,
                 _registered_method=True)
         self.ListDevices = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ListDevices',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ListDevicesResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ListDevicesResponse.FromString,
                 _registered_method=True)
         self.PrepareConfig = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/PrepareConfig',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigResponse.FromString,
                 _registered_method=True)
         self.ActivateConfig = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ActivateConfig',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigResponse.FromString,
                 _registered_method=True)
         self.AbortConfig = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/AbortConfig',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigResponse.FromString,
                 _registered_method=True)
         self.ReadPoint = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ReadPoint',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointValueMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointValueMessage.FromString,
                 _registered_method=True)
         self.ReadPoints = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ReadPoints',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsResponse.FromString,
                 _registered_method=True)
         self.WritePoint = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/WritePoint',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommandResultMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommandResultMessage.FromString,
                 _registered_method=True)
         self.WritePoints = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/WritePoints',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsResponse.FromString,
                 _registered_method=True)
         self.VerifyDevice = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/VerifyDevice',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
                 _registered_method=True)
         self.ResolvePoint = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ResolvePoint',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.FromString,
                 _registered_method=True)
         self.VerifyPoint = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/VerifyPoint',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.FromString,
                 _registered_method=True)
         self.VerifyPoints = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/VerifyPoints',
-                request_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyPointsRequest.SerializeToString,
-                response_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointsVerifyResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyPointsRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsVerifyResponse.FromString,
                 _registered_method=True)
 
 
@@ -189,67 +189,67 @@ def add_CommanderServiceServicer_to_server(servicer, server):
             'GetStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetStatus,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommanderStatusResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommanderStatusResponse.SerializeToString,
             ),
             'ListDevices': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDevices,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ListDevicesResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ListDevicesResponse.SerializeToString,
             ),
             'PrepareConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.PrepareConfig,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigResponse.SerializeToString,
             ),
             'ActivateConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.ActivateConfig,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigResponse.SerializeToString,
             ),
             'AbortConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.AbortConfig,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigResponse.SerializeToString,
             ),
             'ReadPoint': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadPoint,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointValueMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointValueMessage.SerializeToString,
             ),
             'ReadPoints': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadPoints,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsResponse.SerializeToString,
             ),
             'WritePoint': grpc.unary_unary_rpc_method_handler(
                     servicer.WritePoint,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommandResultMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommandResultMessage.SerializeToString,
             ),
             'WritePoints': grpc.unary_unary_rpc_method_handler(
                     servicer.WritePoints,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsResponse.SerializeToString,
             ),
             'VerifyDevice': grpc.unary_unary_rpc_method_handler(
                     servicer.VerifyDevice,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyDeviceRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.DeviceVerifyResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.SerializeToString,
             ),
             'ResolvePoint': grpc.unary_unary_rpc_method_handler(
                     servicer.ResolvePoint,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.SerializeToString,
             ),
             'VerifyPoint': grpc.unary_unary_rpc_method_handler(
                     servicer.VerifyPoint,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.SerializeToString,
             ),
             'VerifyPoints': grpc.unary_unary_rpc_method_handler(
                     servicer.VerifyPoints,
-                    request_deserializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyPointsRequest.FromString,
-                    response_serializer=commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointsVerifyResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyPointsRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsVerifyResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -278,7 +278,7 @@ class CommanderService:
             target,
             '/windhub.commander.v1.CommanderService/GetStatus',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommanderStatusResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommanderStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -305,7 +305,7 @@ class CommanderService:
             target,
             '/windhub.commander.v1.CommanderService/ListDevices',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ListDevicesResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ListDevicesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -331,8 +331,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/PrepareConfig',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PrepareConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PrepareConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -358,8 +358,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/ActivateConfig',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ActivateConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ActivateConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -385,8 +385,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/AbortConfig',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.AbortConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.AbortConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -412,8 +412,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/ReadPoint',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointValueMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointValueMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -439,8 +439,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/ReadPoints',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.ReadPointsResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.ReadPointsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -466,8 +466,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/WritePoint',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.CommandResultMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.CommandResultMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -493,8 +493,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/WritePoints',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.WritePointsResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.WritePointsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -520,8 +520,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/VerifyDevice',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -547,8 +547,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/ResolvePoint',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -574,8 +574,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/VerifyPoint',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointVerifyResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -601,8 +601,8 @@ class CommanderService:
             request,
             target,
             '/windhub.commander.v1.CommanderService/VerifyPoints',
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.VerifyPointsRequest.SerializeToString,
-            commander_dot_infrastructure_dot_grpc_dot_commander__pb2.PointsVerifyResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyPointsRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsVerifyResponse.FromString,
             options,
             channel_credentials,
             insecure,

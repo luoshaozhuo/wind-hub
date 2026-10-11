@@ -9,13 +9,14 @@ from __future__ import annotations
 import dataclasses
 import struct
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
 from core.application import ConfigError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import Quality
-from core.domain import ConnectionEndpoint, PointTable, Protocol
+from core.domain import ConnectionEndpoint, PointTable, PointTableId, Protocol
 from core.infrastructure.protocol.ads import ADSDriver, ADSPoint, ads_point
 
 
@@ -46,24 +47,20 @@ class _Connection:
         index_group: int,
         index_offset: int,
         read_datatype: object,
-        value: object,
+        value: Any,
         write_datatype: object,
         *,
         check_length: bool,
     ) -> bytes:
         del index_group, read_datatype, write_datatype, check_length
         addresses = [
-            (value[i].iGroup, value[i].iOffset, value[i].size)
-            for i in range(index_offset)
+            (value[i].iGroup, value[i].iOffset, value[i].size) for i in range(index_offset)
         ]
         return bytes(4 * len(addresses)) + b"".join(
-            struct.pack("<i", self.values[(group, offset)])
-            for group, offset, _size in addresses
+            struct.pack("<i", self.values[(group, offset)]) for group, offset, _size in addresses
         )
 
-    def write(
-        self, index_group: int, index_offset: int, value: object, datatype: object
-    ) -> None:
+    def write(self, index_group: int, index_offset: int, value: object, datatype: object) -> None:
         del datatype
         if self.write_error is not None:
             raise self.write_error
@@ -75,7 +72,11 @@ def _driver(
     *,
     point_table: PointTable | None = None,
 ) -> ADSDriver:
-    table = point_table if point_table is not None else PointTable("ads", Protocol("ads"), {})
+    table = (
+        point_table
+        if point_table is not None
+        else PointTable(PointTableId("ads"), Protocol("ads"), {})
+    )
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     driver._connection = connection
     driver._connected = True
@@ -253,8 +254,9 @@ class TestDynamicReadMany:
         connection.values[(0x4020, 104)] = 2
         driver = _driver(connection)
 
-        samples = await driver.read_many([_dyn(offset=100), _dyn("b", offset=104),
-                                          _dyn(offset=100)])
+        samples = await driver.read_many(
+            [_dyn(offset=100), _dyn("b", offset=104), _dyn(offset=100)]
+        )
 
         assert [(s.point_id, s.value, s.quality) for s in samples] == [
             ("dyn", 1, Quality.GOOD),
@@ -298,16 +300,14 @@ class TestDynamicReadMany:
                 # 两个 DINT 子请求：各 4 字节错误码 + 4 字节数据。
                 return struct.pack("<IIii", 0, 0, 111, 222)
 
-        import pyads
+        import pyads  # type: ignore[import-untyped]  # pyads 无 py.typed，与 src 处理方式一致
 
         monkey_connection = _SumConnection()
         driver = _driver(monkey_connection)
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(driver_module, "pyads", pyads)
         try:
-            samples = await driver.read_many(
-                [_dyn("a", offset=100), _dyn("b", offset=104)]
-            )
+            samples = await driver.read_many([_dyn("a", offset=100), _dyn("b", offset=104)])
         finally:
             monkeypatch.undo()
 
@@ -349,28 +349,31 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
     driver._config = dataclasses.replace(driver._config, max_subs_per_sum=2)
     batches: list[list[tuple[int, int, bytes]]] = []
 
-    def fake_sum_write(chunk: object) -> tuple[int, ...]:
+    def fake_sum_write(chunk: Any) -> tuple[int, ...]:
         values = [
-            (point.index_group, point.index_offset, payload)
-            for _index, point, payload in chunk
+            (point.index_group, point.index_offset, payload) for _index, point, payload in chunk
         ]
         batches.append(values)
         return tuple(0 if point[1] != 200 else 1808 for point in values)
 
     monkeypatch.setattr(driver, "_sum_write_bytes", fake_sum_write)
-    driver._points.update({
-        name: _dyn(name, offset=offset)
-        for name, offset in (("a", 100), ("b", 200), ("c", 300))
-    })
-    results = await driver.write_many((
-        ProtocolWrite(point_id="a", value=1),
-        ProtocolWrite(point_id="b", value=2),
-        ProtocolWrite(point_id="c", value=3),
-    ))
+    driver._points.update(
+        {name: _dyn(name, offset=offset) for name, offset in (("a", 100), ("b", 200), ("c", 300))}
+    )
+    results = await driver.write_many(
+        (
+            ProtocolWrite(point_id="a", value=1),
+            ProtocolWrite(point_id="b", value=2),
+            ProtocolWrite(point_id="c", value=3),
+        )
+    )
     assert [r.success for r in results] == [True, False, True]
     assert [len(batch) for batch in batches] == [2, 1]
-    assert [int.from_bytes(payload, "little", signed=True)
-            for batch in batches for _, _, payload in batch] == [1, 2, 3]
+    assert [
+        int.from_bytes(payload, "little", signed=True)
+        for batch in batches
+        for _, _, payload in batch
+    ] == [1, 2, 3]
 
 
 @pytest.mark.asyncio
@@ -390,7 +393,7 @@ async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
         address_resolved=False,
     )
 
-    connection.get_symbol = lambda _name: SimpleNamespace(  # type: ignore[method-assign]
+    connection.get_symbol = lambda _name: SimpleNamespace(  # type: ignore[assignment]
         index_group=0x4020,
         index_offset=100,
         plc_type=ctypes.c_char * 32,

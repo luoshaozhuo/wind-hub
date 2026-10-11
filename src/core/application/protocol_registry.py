@@ -23,6 +23,7 @@ class ProtocolRegistry:
 
     def __init__(self) -> None:
         self._factories: dict[str, ProtocolFactory] = {}
+
     def register(
         self,
         protocol: Protocol | str,

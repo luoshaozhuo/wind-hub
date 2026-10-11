@@ -20,7 +20,7 @@ root / network / slow）必须在测试文件或 conftest 中显式标注。
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
 import pytest
@@ -64,7 +64,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture
-async def modbus_server() -> Iterator[ModbusMockServer]:
+async def modbus_server() -> AsyncGenerator[ModbusMockServer, None]:
     server = ModbusMockServer()
     await server.start()
     try:
@@ -74,7 +74,7 @@ async def modbus_server() -> Iterator[ModbusMockServer]:
 
 
 @pytest.fixture
-async def iec104_server() -> Iterator[IEC104MockServer]:
+async def iec104_server() -> AsyncGenerator[IEC104MockServer, None]:
     server = IEC104MockServer()
     await server.start()
     try:

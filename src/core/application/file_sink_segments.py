@@ -30,10 +30,12 @@ def segment_filename(base: str, *, opened_at: datetime, sequence: int) -> str:
 def is_owned_segment(filename: str, *, base: str) -> bool:
     """仅匹配明确属于当前 Sink 的归档段。"""
     stem = _stem(base)
-    return bool(re.fullmatch(
-        rf"{re.escape(stem)}\.[0-9]{{8}}T[0-9]{{12}}Z\.[0-9]{{6,}}\.csv",
-        filename,
-    ))
+    return bool(
+        re.fullmatch(
+            rf"{re.escape(stem)}\.[0-9]{{8}}T[0-9]{{12}}Z\.[0-9]{{6,}}\.csv",
+            filename,
+        )
+    )
 
 
 def next_segment_sequence(filenames: list[str], *, base: str) -> int:

@@ -128,6 +128,11 @@ class CollectorClient:
             response = await runtime.ListDevices(empty_pb2.Empty(), timeout=timeout)
         elif operation == "sinks":
             response = await runtime.ListSinks(empty_pb2.Empty(), timeout=timeout)
+        elif operation == "latest-values":
+            response = await runtime.QueryLatestValues(
+                collector_pb.LatestValuesRequest(device_id=kwargs.get("device_id") or ""),
+                timeout=timeout,
+            )
         elif operation == "verify-sink":
             response = await runtime.VerifySink(
                 collector_pb.SinkRequest(name=kwargs["name"]),
@@ -152,21 +157,9 @@ class CollectorClient:
                 collector_pb.InstanceIdRequest(instance_id=kwargs["instance_id"]),
                 timeout=timeout,
             )
-        elif operation == "placement":
-            response = await control.ApplyTaskPlacement(
-                collector_pb.TaskPlacementSnapshotRequest(
-                    worker_id=kwargs["worker_id"],
-                    generation=kwargs["generation"],
-                    task_ids=kwargs["task_ids"],
-                ),
-                timeout=timeout,
-            )
         elif operation == "start-task":
             response = await control.StartTask(
-                collector_pb.TaskStartRequest(
-                    task_id=kwargs["task_id"],
-                    placement_generation=kwargs["generation"],
-                ),
+                collector_pb.TaskStartRequest(task_id=kwargs["task_id"]),
                 timeout=timeout,
             )
         elif operation == "stop-task":
@@ -176,10 +169,7 @@ class CollectorClient:
             )
         elif operation == "start-instance":
             response = await control.StartTaskInstance(
-                collector_pb.TaskInstanceStartRequest(
-                    instance_id=kwargs["instance_id"],
-                    placement_generation=kwargs["generation"],
-                ),
+                collector_pb.TaskInstanceStartRequest(instance_id=kwargs["instance_id"]),
                 timeout=timeout,
             )
         elif operation == "stop-instance":

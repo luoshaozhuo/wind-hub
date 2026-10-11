@@ -16,7 +16,7 @@ def _runtime(registry: FakeRegistry | None = None) -> tuple[CommanderRuntime, Fa
         CommanderRuntime(
             make_commander_config(),
             config_hash="hash-a",
-            protocol_registry=reg,  # type: ignore[arg-type]
+            protocol_registry=reg,
         ),
         reg,
     )
@@ -96,7 +96,9 @@ async def test_prepare_rejects_ads_identity_change():
 
     runtime, _ = _runtime()
     candidate = make_commander_config(
-        ads_local=ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
+        ads_local=ADSLocalConfig(
+            local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+        )
     )
     with pytest.raises(ValueError, match="ADS local identity"):
         await runtime.prepare_config("r2", candidate, "hash-b")
@@ -142,9 +144,11 @@ async def test_activation_stops_old_generation_watchdog():
     runtime, registry = _runtime()
     assert await runtime.ensure_connected("dev1")
     old_watchdog = runtime._current.watchdogs["dev1"]
+    # ensure_connected 的重连前 close 不计入；activation 必须再恰好关闭一次。
+    close_before = registry.instances[0].close_calls
     await runtime.prepare_config("r2", make_commander_config(), "hash-b")
     await runtime.activate_config("r2")
     await asyncio.sleep(0.05)
     assert old_watchdog._task is None
-    assert registry.instances[0].close_calls == 1
+    assert registry.instances[0].close_calls == close_before + 1
     await runtime.stop()

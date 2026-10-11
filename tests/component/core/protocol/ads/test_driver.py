@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Callable
+from typing import ClassVar
 from typing import Protocol as TypingProtocol
 
 import pytest
@@ -16,10 +18,12 @@ from core.application import (
 from core.application.settings import ADSLocalConfig
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -40,11 +44,11 @@ def _endpoint(
 def _point(
     point_id: str,
     *,
-    ext: dict[str, object] | None = None,
+    ext: dict[str, str | int | float | bool | None] | None = None,
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={} if ext is None else ext,
@@ -54,8 +58,8 @@ def _point(
 def _point_ext(
     *,
     data_type: str = "REAL",
-    **options: object,
-) -> dict[str, object]:
+    **options: str | int | float | bool | None,
+) -> dict[str, str | int | float | bool | None]:
     return {"data_type": data_type, **options}
 
 
@@ -104,7 +108,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
         ),
     )
     table = PointTable(
-        "ads_pt",
+        PointTableId("ads_pt"),
         Protocol("ads"),
         {"setpoint": point},
     )
@@ -133,7 +137,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
 ) -> None:
     fake_pyads = _FakePyads()
     monkeypatch.setattr(driver_module, "pyads", fake_pyads)
-    monkeypatch.setattr(driver_module.sys, "platform", "linux")
+    monkeypatch.setattr(sys, "platform", "linux")
     config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10", "user", "secret")
     try:
         await ADSDriver.initialize_local(config)
@@ -150,6 +154,8 @@ async def test_ads_driver_local_ams_identity_initializes_once(
 
 
 class _FakeNotificationAttrib:
+    last_mode: ClassVar[int]
+
     def __init__(
         self,
         length: int,
@@ -242,7 +248,7 @@ async def test_ads_driver_exposes_notification_subscription(
         ),
     )
     table = PointTable(
-        "ads_pt",
+        PointTableId("ads_pt"),
         Protocol("ads"),
         {"speed": point},
     )
@@ -300,7 +306,7 @@ async def test_ads_subscription_ignores_old_generation_callback(
     )
     driver = ADSDriver(
         _endpoint(),
-        PointTable("ads_pt", Protocol("ads"), {"speed": point}),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point}),
         {},
     )
     driver._connected = True
@@ -353,7 +359,7 @@ async def test_ads_subscription_can_close_itself_from_callback(
         ),
     )
     table = PointTable(
-        "ads_pt",
+        PointTableId("ads_pt"),
         Protocol("ads"),
         {"speed": point},
     )
@@ -428,7 +434,7 @@ async def test_ads_route_added_only_when_normal_connect_fails(
     fake_ads = FakeAds()
     driver = ADSDriver(
         _endpoint(),
-        PointTable("ads_pt", Protocol("ads"), {}),
+        PointTable(PointTableId("ads_pt"), Protocol("ads"), {}),
         {},
     )
     driver._config = ADSConfig(

@@ -18,7 +18,7 @@ def _runtime(registry: FakeRegistry | None = None) -> CommanderRuntime:
     return CommanderRuntime(
         make_commander_config(),
         config_hash="hash-a",
-        protocol_registry=registry or FakeRegistry(),  # type: ignore[arg-type]
+        protocol_registry=registry or FakeRegistry(),
     )
 
 
@@ -174,8 +174,8 @@ async def test_config_service_toctou_and_hash_check(tmp_path):
     service = CommanderConfigService(
         tmp_path,
         runtime,
-        load_config=fake_load,  # type: ignore[arg-type]
-        config_digest=lambda path: "h1",  # type: ignore[arg-type]
+        load_config=fake_load,
+        config_digest=lambda path: "h1",
     )
     actual = await service.prepare_config("rev-3", "h1")
     assert actual == "h1"
@@ -185,8 +185,8 @@ async def test_config_service_toctou_and_hash_check(tmp_path):
     service2 = CommanderConfigService(
         tmp_path,
         runtime,
-        load_config=fake_load,  # type: ignore[arg-type]
-        config_digest=lambda path: "hX",  # type: ignore[arg-type]
+        load_config=fake_load,
+        config_digest=lambda path: "hX",
     )
     with pytest.raises(ValueError, match="hash mismatch"):
         await service2.prepare_config("rev-4", "hY")
@@ -199,8 +199,8 @@ async def test_config_service_detects_change_during_load(tmp_path):
     service = CommanderConfigService(
         tmp_path,
         runtime,
-        load_config=lambda path: make_commander_config(),  # type: ignore[arg-type]
-        config_digest=lambda path: next(hashes),  # type: ignore[arg-type]
+        load_config=lambda path: make_commander_config(),
+        config_digest=lambda path: next(hashes),
     )
     with pytest.raises(ValueError, match="config changed while preparing"):
         await service.prepare_config("rev-5", "before")
@@ -213,7 +213,7 @@ async def test_prepare_hook_failure_degrades_not_raises():
     runtime = CommanderRuntime(
         make_commander_config(),
         config_hash="hash-a",
-        protocol_registry=FakeRegistry(),  # type: ignore[arg-type]
+        protocol_registry=FakeRegistry(),
         prepare_protocols=bad_hook,
     )
     await runtime.start()  # 不抛出，降级继续
@@ -229,7 +229,7 @@ async def test_prepare_hook_called_on_activate():
     runtime = CommanderRuntime(
         make_commander_config(),
         config_hash="hash-a",
-        protocol_registry=registry,  # type: ignore[arg-type]
+        protocol_registry=registry,
         prepare_protocols=hook,
     )
     await runtime.prepare_config("rev-2", make_commander_config(), "hash-b")

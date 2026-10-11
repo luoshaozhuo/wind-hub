@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,8 +19,8 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
-    apply_placement_and_start_instance,
     reload_config,
+    start_task_instance,
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
@@ -32,7 +33,7 @@ MODBUS_INSTANCE_ID = "modbus-telemetry:modbus-1"
 IEC104_TASK_ID = "iec104-telemetry"
 IEC104_INSTANCE_ID = "iec104-telemetry:iec104-1"
 
-IEC104_POINTS: list[dict] = [
+IEC104_POINTS: list[dict[str, Any]] = [
     {
         "point_id": "meas.active_power",
         "point_groups": ["telemetry"],
@@ -87,7 +88,7 @@ def _iec104_config(base: Path, port: int, sink_path: Path) -> Path:
         tasks=[
             {
                 "task_id": "iec104-telemetry",
-                "device": "iec104-1",
+                "device_group": "iec104-1",
                 "point_group": "telemetry",
                 # IEC104 为订阅型：interval 被协议忽略，仅满足 schema。
                 "interval": 0.2,
@@ -120,11 +121,10 @@ class TestCollectorRestart:
         proc_a: CollectorProcess = await collector_factory(
             config_dir, collector_id="recovery-restart"
         )
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_a.grpc_target,
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
-            worker_id="recovery-restart",
         )
         await wait_file_rows(sink_path, min_rows=3)
         exit_code = proc_a.terminate()
@@ -140,11 +140,10 @@ class TestCollectorRestart:
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == "recovery-restart"
 
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc_b.grpc_target,
             task_id=MODBUS_TASK_ID,
             instance_id=MODBUS_INSTANCE_ID,
-            worker_id="recovery-restart",
         )
         await wait_file_rows(sink_path, min_rows=baseline + 2)
 
@@ -162,7 +161,7 @@ class TestSubscriptionRestartPending:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：订阅建立，总召数据落盘 ----
-        await apply_placement_and_start_instance(
+        await start_task_instance(
             proc.grpc_target, task_id=IEC104_TASK_ID, instance_id=IEC104_INSTANCE_ID
         )
         await wait_file_rows(sink_path, min_rows=2)
@@ -176,17 +175,25 @@ class TestSubscriptionRestartPending:
         )
 
         # ---- 断连期间变更点表：订阅必须重建但设备不可达 → reload 失败 ----
-        def _add_point(data: dict) -> None:
+        def _add_point(data: dict[str, Any]) -> None:
             data["point_tables"]["iec104"]["points"].append(
                 {
                     "point_id": "meas.reactive_power",
+                    "business_point_id": "meas.reactive_power",
                     "point_groups": ["telemetry"],
                     "address": {"ioa": 300},
                     "data_type": "float32",
                 }
             )
 
+        def _add_business_point(data: dict[str, Any]) -> None:
+            data["business_points"]["meas.reactive_power"] = {
+                "data_type": "float32",
+                "unit": "none",
+            }
+
         update_yaml(config_dir, "points.yaml", _add_point)
+        update_yaml(config_dir, "business_points.yaml", _add_business_point)
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-disconnected"
         )
@@ -194,9 +201,7 @@ class TestSubscriptionRestartPending:
         assert activated.errors
         # 实例保持已登记（不是消失），进程存活。
         assert proc.is_running()
-        instance = await run_ctl_async(
-            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
-        )
+        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert instance.returncode == 0
 
         # ---- 恢复：从站重启，驱动自动重连 ----
@@ -215,8 +220,6 @@ class TestSubscriptionRestartPending:
         )
         assert activated.success is True, list(activated.errors)
 
-        instance = await run_ctl_async(
-            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
-        )
+        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert json.loads(instance.stdout)["state"] == "running"
         await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=30.0)

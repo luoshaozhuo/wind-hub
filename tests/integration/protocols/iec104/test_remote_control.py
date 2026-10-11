@@ -23,10 +23,12 @@ from core.application.protocol_contract import (
 )
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -40,7 +42,7 @@ pytestmark = pytest.mark.real_service
 def _command_point(point_id: str, ioa: int, type_id: str) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.WRITE,
         ext={"ioa": ioa, "type_id": type_id},
@@ -50,7 +52,7 @@ def _command_point(point_id: str, ioa: int, type_id: str) -> Point:
 def _monitoring_point(point_id: str, ioa: int) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ,
         ext={"ioa": ioa},
@@ -61,7 +63,7 @@ def _driver(port: int, points: Sequence[Point]) -> IEC104Driver:
     return IEC104Driver(
         ConnectionEndpoint("127.0.0.1", port),
         PointTable(
-            "t1",
+            PointTableId("t1"),
             Protocol("iec104"),
             {point.point_id: point for point in points},
         ),
@@ -93,9 +95,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point_id="switch.on", value=True)
-            )
+            result = await driver.write_one(ProtocolWrite(point_id="switch.on", value=True))
         finally:
             await driver.close()
 
@@ -115,9 +115,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point_id="breaker.cmd", value=2)
-            )
+            result = await driver.write_one(ProtocolWrite(point_id="breaker.cmd", value=2))
         finally:
             await driver.close()
 
@@ -135,9 +133,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point_id="setpoint.val", value=42.5)
-            )
+            result = await driver.write_one(ProtocolWrite(point_id="setpoint.val", value=42.5))
         finally:
             await driver.close()
 
@@ -183,9 +179,7 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            result = await driver.write_one(
-                ProtocolWrite(point_id="switch.off", value=0)
-            )
+            result = await driver.write_one(ProtocolWrite(point_id="switch.off", value=0))
         finally:
             await driver.close()
 
@@ -203,9 +197,7 @@ class TestRemoteControlIntegration:
         await driver.connect()
         try:
             with pytest.raises(ConfigError, match="no.such.point"):
-                await driver.write_one(
-                    ProtocolWrite(point_id="no.such.point", value=True)
-                )
+                await driver.write_one(ProtocolWrite(point_id="no.such.point", value=True))
         finally:
             await driver.close()
 

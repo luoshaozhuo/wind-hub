@@ -14,8 +14,8 @@ from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_minimal_config_tree
 
 
-async def test_collector_placement_start_stop_via_ctl(tmp_path) -> None:
-    """验证 CTL 可独立建立授权并启停采集任务。"""
+async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
+    """验证 CTL 可独立查询并启停已配置采集任务。"""
     config_dir = write_collector_config_tree(
         tmp_path,
         devices=[
@@ -45,27 +45,12 @@ async def test_collector_placement_start_stop_via_ctl(tmp_path) -> None:
             assert len(tasks["items"]) == 1
             task_id = tasks["items"][0]["task_id"]
 
+            # 未知任务必须映射为稳定的 NOT_FOUND 错误。
             with pytest.raises(grpc.aio.AioRpcError) as error:
-                await client.call(
-                    "start-task",
-                    task_id=task_id,
-                    generation=1,
-                )
-            assert error.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+                await client.call("start-task", task_id="ghost")
+            assert error.value.code() == grpc.StatusCode.NOT_FOUND
 
-            placement = await client.call(
-                "placement",
-                worker_id=identity["collector_id"],
-                generation=1,
-                task_ids=[task_id],
-            )
-            assert placement["success"] is True
-
-            started = await client.call(
-                "start-task",
-                task_id=task_id,
-                generation=1,
-            )
+            started = await client.call("start-task", task_id=task_id)
             assert started["runtime_state"] == "running"
 
             stopped = await client.call("stop-task", task_id=task_id)

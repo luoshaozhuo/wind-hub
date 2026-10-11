@@ -131,5 +131,3 @@ def _integer(value: object, type_id: str) -> int:
     if number != float(integer):
         raise ValueError(f"{type_id} requires integer value")
     return integer
-
-

@@ -16,7 +16,7 @@ import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import ctl_status, wait_status, write_modbus_file_config
-from tests.support.control import apply_placement_and_start_instance
+from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_csv, wait_file_rows
 
@@ -38,9 +38,7 @@ class TestProtocolDisconnectRecovery:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=4)
 
         # ---- 故障：从站停止（同一端口随后恢复） ----

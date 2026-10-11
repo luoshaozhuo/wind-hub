@@ -28,9 +28,7 @@ class TestEnvFileLocation:
         """回归：配置必须读取 tests/test.env，而非 tests/support/test.env。"""
         assert env_mod.TEST_ENV_FILE.name == "test.env"
         assert env_mod.TEST_ENV_FILE.parent.name == "tests"
-        assert env_mod.TEST_ENV_FILE.parent.parent == Path(
-            env_mod.__file__
-        ).resolve().parents[2]
+        assert env_mod.TEST_ENV_FILE.parent.parent == Path(env_mod.__file__).resolve().parents[2]
 
     def test_example_template_next_to_env_file(self) -> None:
         """模板 tests/test.env.example 必须与目标文件同目录存在。"""

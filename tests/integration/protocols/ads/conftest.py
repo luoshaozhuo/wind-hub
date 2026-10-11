@@ -40,7 +40,7 @@ def _wait_tcp_port(host: str, port: int, timeout: float = 5.0) -> None:
 
 
 @pytest.fixture(scope="session")
-def ads_service() -> Iterator[dict[str, str | int]]:
+def ads_service() -> Iterator[dict[str, str | int | None]]:
     """ADS 服务端配置（真实 PLC 环境变量优先，否则进程内 AdsTestServer）。
 
     返回字典键与 :func:`ads_config_from_env` 一致，另加 ``backend``
@@ -53,8 +53,13 @@ def ads_service() -> Iterator[dict[str, str | int]]:
         return
 
     try:
-        from pyads.constants import ADST_REAL32
-        from pyads.testserver import AdsTestServer, AdvancedHandler, PLCVariable
+        # pyads 未提供 py.typed/stubs，属可选的 ads extra，局部豁免未类型化导入
+        from pyads.constants import ADST_REAL32  # type: ignore[import-untyped]
+        from pyads.testserver import (  # type: ignore[import-untyped]
+            AdsTestServer,
+            AdvancedHandler,
+            PLCVariable,
+        )
     except ImportError:
         pytest.skip(
             "SKIPPED: real ADS environment not configured and pyads "

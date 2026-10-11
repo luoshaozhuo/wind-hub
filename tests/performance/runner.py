@@ -29,8 +29,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from collector.assembly import assemble_collector
-from core.domain.point_value import PointValue
 from core.application.port.protocol import ProtocolPort
+from core.domain.point_value import PointValue
 from tests.fixtures.sinks.null_sink import NullSink
 from tests.performance.collector import MetricsCollector, PerfMetrics
 from tests.performance.netem import NetemController, NetemScenario
@@ -264,9 +264,7 @@ async def run_benchmark(
             for c in controllers:
                 c.apply(scenario)  # 中断场景此处是 clear（稳态无规则）
 
-            app = assemble_collector(
-                config_dir, sink_factories={"file": lambda _cfg: NullSink()}
-            )
+            app = assemble_collector(config_dir, sink_factories={"file": lambda _cfg: NullSink()})
             runtime = app.runtime
             runtime.engine.add_observer(_make_latency_observer(collector))
 

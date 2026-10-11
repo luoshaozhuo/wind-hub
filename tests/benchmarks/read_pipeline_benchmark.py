@@ -18,10 +18,12 @@ from collections.abc import Awaitable, Callable
 
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -34,7 +36,7 @@ def _driver(point_count: int = 256) -> ModbusDriver:
     points = {
         f"p{index}": Point(
             point_id=f"p{index}",
-            business_point_id=f"p{index}",
+            business_point_id=BusinessPointId(f"p{index}"),
             source_unit=unit,
             access=PointAccess.READ_WRITE,
             ext={
@@ -47,7 +49,7 @@ def _driver(point_count: int = 256) -> ModbusDriver:
     }
     return ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("benchmark", Protocol("modbus"), points),
+        PointTable(PointTableId("benchmark"), Protocol("modbus"), points),
         {},
     )
 
@@ -62,6 +64,9 @@ class FakeModbusResponse:
 
 class FakeModbusClient:
     """按地址生成确定性响应，避免将网络等待计入结果。"""
+
+    # is_open() 以 client.connected 判定连接状态；Fake 恒为已连接
+    connected = True
 
     async def read_holding_registers(
         self,
@@ -95,7 +100,6 @@ async def _measure(
 async def main() -> None:
     driver = _driver()
     driver._client = FakeModbusClient()
-    driver._connected = True
     fixed = tuple(f"p{i}" for i in range(64))
     dynamic = tuple(
         tuple(f"p{(index * 17 + offset) % 256}" for offset in range(32)) for index in range(64)

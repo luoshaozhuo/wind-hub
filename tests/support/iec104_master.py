@@ -39,9 +39,7 @@ class IEC104MasterClient:
     def __init__(self, port: int, host: str = "127.0.0.1", common_addr: int = 1) -> None:
         self._common_addr = common_addr
         self._client = c104.Client()
-        connection = self._client.add_connection(
-            ip=host, port=port, init=c104.Init.NONE
-        )
+        connection = self._client.add_connection(ip=host, port=port, init=c104.Init.NONE)
         assert connection is not None
         self._connection = connection
         station = connection.add_station(common_address=common_addr)

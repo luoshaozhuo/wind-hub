@@ -78,9 +78,7 @@ class RedisTestClient:
             length = int(value)
             if length < 0:
                 return None
-            blob = await asyncio.wait_for(
-                self._reader.readexactly(length + 2), timeout=5.0
-            )
+            blob = await asyncio.wait_for(self._reader.readexactly(length + 2), timeout=5.0)
             return blob[:-2].decode("utf-8")
         raise RuntimeError(f"Redis command returned unexpected RESP type: {prefix!r}")
 

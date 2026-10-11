@@ -15,14 +15,10 @@ FRONTEND_DIR = REPO_ROOT / "src" / "wind-hub-admin"
 
 PR_TARGETS: dict[str, tuple[str, ...]] = {
     "integration-protocol": ("tests/integration/protocols",),
-    "integration-rpc": ("tests/integration/rpc",),
+    "integration-rpc": ("tests/contract/rpc",),
     "integration-sinks": ("tests/integration/sinks",),
     "system-acquisition": ("tests/system/acquisition",),
     "system-command": ("tests/system/command",),
-    "system-diagnostics": ("tests/system/diagnostics",),
-    "system-reload": ("tests/system/reload",),
-    "system-startup": ("tests/system/startup",),
-    "system-task-control": ("tests/system/task_control",),
     "system-e2e": ("tests/system/e2e",),
 }
 
@@ -108,12 +104,6 @@ def fast_gate(part: str, targets: str) -> bool:
                 ("mypy", _python_module("mypy", "src")),
                 ("import-linter", _tool("lint-imports")),
             ]
-        )
-
-    if part == "openapi-drift":
-        return _run(
-            "openapi-drift",
-            _python(str(REPO_ROOT / "scripts" / "generate_api_contract.py"), "--check"),
         )
 
     if part == "backend-tests":
@@ -257,7 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     fast = subparsers.add_parser("fast")
     fast.add_argument(
         "--part",
-        choices=("backend-static", "backend-tests", "frontend", "openapi-drift"),
+        choices=("backend-static", "backend-tests", "frontend"),
         required=True,
     )
     fast.add_argument("--targets", default="")

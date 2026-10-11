@@ -5,12 +5,11 @@ from pathlib import Path
 from commander.infrastructure.config.loader import load_commander_config
 from core.domain import DeviceId
 from core.infrastructure.config import YamlConfigAdapter
+from tests.support.new_commander import write_minimal_config_tree
 
-ROOT = Path(__file__).resolve().parents[4]
 
-
-def test_commander_loads_domain_snapshot_without_units_yaml() -> None:
-    base = ROOT / "configs" / "example_modbus"
+def test_commander_loads_domain_snapshot(tmp_path: Path) -> None:
+    base = write_minimal_config_tree(tmp_path / "cfg")
     assert not (base / "units.yaml").exists()
     snapshot = YamlConfigAdapter(base).load()
     commander = load_commander_config(base)
@@ -23,8 +22,7 @@ def test_commander_loads_domain_snapshot_without_units_yaml() -> None:
 
 
 def test_commander_configport_source_is_full_snapshot(tmp_path: Path) -> None:
-    base = ROOT / "configs" / "example_modbus"
-    snapshot = YamlConfigAdapter(base).load()
+    snapshot = YamlConfigAdapter(write_minimal_config_tree(tmp_path / "cfg")).load()
 
     class Source:
         def load(self):

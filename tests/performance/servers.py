@@ -152,9 +152,7 @@ class _PerfIEC104Slave:
         if station is None:
             raise RuntimeError("perf IEC104: cannot add station")
         for i in range(self._num_points):
-            point = station.add_point(
-                io_address=IEC104_IOA_BASE + i, type=c104.Type.M_ME_NC_1
-            )
+            point = station.add_point(io_address=IEC104_IOA_BASE + i, type=c104.Type.M_ME_NC_1)
             if point is None:
                 raise RuntimeError(f"perf IEC104: cannot add point {i}")
             point.value = 100.0
@@ -196,9 +194,7 @@ class _PerfIEC104Slave:
                 try:
                     point.transmit(c104.Cot.SPONTANEOUS)
                 except Exception:
-                    logger.warning(
-                        "perf IEC104 spontaneous push failed", exc_info=True
-                    )
+                    logger.warning("perf IEC104 spontaneous push failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -236,8 +232,13 @@ async def start_ads_server(
     都是同步 API），这里只包一层 async CM 统一三协议形态（决策 11）。
     """
     # 延迟导入：pyads testserver 只在 ADS 压测时需要，且 import 链较重。
-    from pyads.constants import ADST_REAL32
-    from pyads.testserver import AdsTestServer, AdvancedHandler, PLCVariable
+    # pyads 未提供类型存根（无 py.typed），import-untyped 属预期。
+    from pyads.constants import ADST_REAL32  # type: ignore[import-untyped]
+    from pyads.testserver import (  # type: ignore[import-untyped]
+        AdsTestServer,
+        AdvancedHandler,
+        PLCVariable,
+    )
 
     handler = AdvancedHandler()
     for i in range(num_vars):

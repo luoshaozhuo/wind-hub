@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from collector.infrastructure.sink.file.csv import FileSink
+from core.domain.point_value import PointValue
 from tests.support.functional_config import update_yaml
 from tests.support.wait import read_csv, wait_file_rows, wait_until
 
@@ -54,7 +55,7 @@ def _task_both_sinks() -> list[dict[str, Any]]:
     return [
         {
             "task_id": "modbus-telemetry",
-            "device": "modbus-1",
+            "device_group": "modbus-1",
             "point_group": "telemetry",
             "interval": 0.2,
             "targets": [{"sink": "bad_file"}, {"sink": "good_file"}],
@@ -83,18 +84,19 @@ class TestFileSinkFsFaults:
 
             # ---- 故障被检测：坏 sink open failed ----
             async def _bad_unhealthy() -> bool | None:
-                health = app.runtime.health()["bad_file"]
+                health = (await app.runtime.health())["bad_file"]
                 return True if not health.healthy else None
 
-            await wait_until(
+            unhealthy: bool = await wait_until(
                 _bad_unhealthy, timeout=5.0, description="bad sink marked open failed"
             )
-            assert "open failed" in (app.runtime.health()["bad_file"].message or "")
+            assert unhealthy
+            assert "open failed" in ((await app.runtime.health())["bad_file"].message or "")
 
             # ---- 隔离：好 sink 持续出数，采集主循环不受影响 ----
             await wait_file_rows(good_path, min_rows=3, timeout=10.0)
             snap = app.metrics.snapshot()
-            assert app.runtime.health()["good_file"].healthy is True
+            assert (await app.runtime.health())["good_file"].healthy is True
 
             # ---- 恢复：修复权限 + 触发 sink 重建（max_files 变更） ----
             readonly_dir.chmod(stat.S_IRWXU)  # 0o700
@@ -109,11 +111,12 @@ class TestFileSinkFsFaults:
             assert result.success, result.errors
 
             async def _bad_healthy() -> bool | None:
-                return True if app.runtime.health()["bad_file"].healthy else None
+                return True if (await app.runtime.health())["bad_file"].healthy else None
 
-            await wait_until(
+            reopened: bool = await wait_until(
                 _bad_healthy, timeout=5.0, description="bad sink reopened after fix"
             )
+            assert reopened
             await wait_file_rows(bad_path, min_rows=2, timeout=10.0)
 
             # 好 sink 全程无中断。
@@ -134,7 +137,7 @@ class TestFileSinkFsFaults:
         bad_path = tmp_path / "bad" / "fault.csv"
         original_write = FileSink._write
 
-        def fail_bad_file(self: FileSink, batch: list) -> None:
+        def fail_bad_file(self: FileSink, batch: list[PointValue]) -> None:
             if self._path == bad_path:
                 raise OSError(28, "No space left on device")
             original_write(self, batch)
@@ -152,14 +155,15 @@ class TestFileSinkFsFaults:
 
         # ---- 故障被检测：连续写失败越阈，unhealthy 且错误消息可见 ENOSPC ----
         async def _full_unhealthy() -> bool | None:
-            return True if not app.runtime.health()["bad_file"].healthy else None
+            return True if not (await app.runtime.health())["bad_file"].healthy else None
 
-        await wait_until(
+        full_unhealthy: bool = await wait_until(
             _full_unhealthy,
             timeout=_UNHEALTHY_TIMEOUT,
             description="ENOSPC sink marked unhealthy",
         )
-        message = app.runtime.health()["bad_file"].message or ""
+        assert full_unhealthy
+        message = (await app.runtime.health())["bad_file"].message or ""
         assert "No space" in message, f"错误消息应暴露 ENOSPC 根因: {message}"
 
         # ---- 隔离：坏 sink 持续失败期间，好 sink 与采集主循环不受影响 ----
@@ -169,5 +173,5 @@ class TestFileSinkFsFaults:
         await wait_file_rows(good_path, min_rows=rows_before + 2, timeout=5.0)
         runs_after = app.metrics.snapshot()["counters"]["acquisition_runs"]
         assert runs_after - runs_before >= 5
-        assert app.runtime.health()["good_file"].healthy is True
-        assert app.runtime.health()["modbus-1"].healthy is True
+        assert (await app.runtime.health())["good_file"].healthy is True
+        assert (await app.runtime.health())["modbus-1"].healthy is True

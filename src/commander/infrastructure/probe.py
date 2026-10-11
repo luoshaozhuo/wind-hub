@@ -120,6 +120,7 @@ class AdsDiagnosticProbe:
         self._resolved[point.point_id] = resolved
         return resolved
 
+
 def _plc_type(data_type: str) -> Any:
     """把基础类型映射为 pyads PLCTYPE。"""
     ads_name = _TYPE_MAP.get(data_type.lower())

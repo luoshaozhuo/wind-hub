@@ -29,6 +29,7 @@ from core.application.protocol_contract import (
 from core.domain import ConnectionEndpoint
 from core.infrastructure.protocol.ads.driver import ADSDriver
 from core.infrastructure.protocol.ads.mapping import ADSPoint
+from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import IEC104Point
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
@@ -294,10 +295,7 @@ def _connected_iec104_driver() -> IEC104Driver:
     command_point = _IEC104CommandPoint(c104.Type.C_SC_NA_1)
     driver._station = _IEC104Station({200: command_point})
 
-    class _Cfg:
-        t1 = 0.2
-
-    driver._config = _Cfg()
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=0.2)
     return driver
 
 
@@ -331,7 +329,7 @@ async def test_iec104_single_operations_succeed_without_many_on_open_path() -> N
     async def send(mapped: IEC104Point) -> None:
         sent.append(mapped)
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     read_task = asyncio.create_task(driver.read_one("p1"))
     await asyncio.sleep(0)
     driver._active_reads[100].set_result(

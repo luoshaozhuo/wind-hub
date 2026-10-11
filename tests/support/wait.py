@@ -73,7 +73,7 @@ async def wait_grpc_ready(target: str, *, timeout: float = 30.0) -> str:
         import grpc
         from google.protobuf import empty_pb2, json_format
 
-        from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
+        from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:
@@ -98,7 +98,7 @@ async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
         import grpc
         from google.protobuf import empty_pb2, json_format
 
-        from wind_hub_core.rpc import commander_pb2_grpc as pb_grpc
+        from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 
         channel = grpc.aio.insecure_channel(target)
         try:
@@ -113,28 +113,6 @@ async def wait_commander_ready(target: str, *, timeout: float = 30.0) -> str:
         timeout=timeout,
         interval=0.2,
         description=f"commander grpc ready at {target}",
-    )
-
-
-async def wait_http_ready(target: str, *, timeout: float = 30.0) -> None:
-    """等待 Server REST API 可应答（真实 ``/api/v1/overview`` GET 判定）。
-
-    就绪口径是「HTTP 服务返回非 5xx」——overview 在 Worker 未全部就绪时
-    可能返回 503，但进程尚处于启动中；仅 2xx/4xx 视为服务已接管端口。
-    """
-
-    async def _probe() -> bool | None:
-        import httpx
-
-        async with httpx.AsyncClient(base_url=f"http://{target}", timeout=2.0) as http:
-            response = await http.get("/api/v1/overview")
-            return True if response.status_code < 500 else None
-
-    await wait_until(
-        _probe,
-        timeout=timeout,
-        interval=0.2,
-        description=f"http ready at {target}",
     )
 
 

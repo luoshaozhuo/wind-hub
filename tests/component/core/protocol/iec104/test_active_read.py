@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from core.application import ProtocolError, ProtocolSample
+from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver
 from core.infrastructure.protocol.iec104.mapping import IEC104Point
 
@@ -20,10 +21,7 @@ def _driver() -> IEC104Driver:
     driver._active_reads = {}
     driver._active_read_locks = {}
 
-    class Config:
-        t1 = 0.02
-
-    driver._config = Config()
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=0.02)
     return driver
 
 
@@ -35,7 +33,7 @@ async def test_read_one_waits_for_requested_response_not_mirror() -> None:
     async def send(mapped: IEC104Point) -> None:
         calls.append(mapped.ioa)
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     task = asyncio.create_task(driver.read_one("p"))
     await asyncio.sleep(0)
     assert calls == [11]
@@ -53,7 +51,7 @@ async def test_read_one_times_out_without_response() -> None:
     async def send(mapped: IEC104Point) -> None:
         del mapped
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="timed out"):
         await driver.read_one("p")
     assert not driver._active_reads
@@ -67,7 +65,7 @@ async def test_read_one_serializes_same_ioa() -> None:
     async def send(mapped: IEC104Point) -> None:
         sent.append(mapped.ioa)
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     first = asyncio.create_task(driver.read_one("p"))
     await asyncio.sleep(0)
     second = asyncio.create_task(driver.read_one("p"))
@@ -133,7 +131,7 @@ async def test_read_request_failed_before_response_cleans_waiter() -> None:
     async def send(mapped: IEC104Point) -> None:
         raise ProtocolError("send failed")
 
-    driver._send_read = send
+    driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
     with pytest.raises(ProtocolError, match="send failed"):
         await driver.read_one("p")
     assert driver._active_reads == {}

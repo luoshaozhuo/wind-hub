@@ -15,12 +15,13 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer, _holding_registers
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
-from tests.support.control import apply_placement_and_start_instance, reload_config
+from tests.support.control import reload_config, start_task_instance
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, free_port
 from tests.support.wait import read_csv, wait_file_rows
@@ -40,7 +41,7 @@ DEAD_HOST = "127.0.0.2"
 def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
     """改写 devices.yaml 中唯一设备的 endpoint（reload 的输入）。"""
 
-    def _mutate(data: dict) -> None:
+    def _mutate(data: dict[str, Any]) -> None:
         endpoint = data["devices"][0]["endpoint"]
         endpoint["host"] = host
         endpoint["port"] = port
@@ -48,7 +49,7 @@ def _set_endpoint(config_dir: Path, *, host: str, port: int) -> None:
     update_yaml(config_dir, "devices.yaml", _mutate)
 
 
-def _rows_with_value(sink_path: Path, value: float) -> list[dict]:
+def _rows_with_value(sink_path: Path, value: float) -> list[dict[str, Any]]:
     return [
         r
         for r in read_csv(sink_path)
@@ -75,9 +76,7 @@ class TestEndpointMigration:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(
             sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
         )
@@ -116,9 +115,7 @@ class TestEndpointMigration:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(
             sink_path, min_rows=2, match=lambda r: r["value"] == pytest.approx(VALUE_A)
         )
@@ -151,15 +148,11 @@ class TestEndpointMigration:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
 
         await modbus_server.stop()
-        await wait_status(
-            proc, lambda p: p["devices_connected"] == 0, description="A disconnected"
-        )
+        await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
 
         server_b = await _start_server_b()
         try:
@@ -190,9 +183,7 @@ class TestEndpointMigration:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
 
         # ---- 切到无监听者的地址（connect 立即被拒绝） ----
@@ -244,15 +235,11 @@ class TestReloadDuringReconnect:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
 
         await modbus_server.stop()
-        await wait_status(
-            proc, lambda p: p["devices_connected"] == 0, description="A disconnected"
-        )
+        await wait_status(proc, lambda p: p["devices_connected"] == 0, description="A disconnected")
         # 等退避爬升：尝试时刻约为 0/1/3/7s，12s 后下一档 ≥8s。
         await asyncio.sleep(12.0)
 

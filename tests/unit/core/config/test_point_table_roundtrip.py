@@ -13,8 +13,13 @@ ROOT = Path(__file__).resolve().parents[4]
 def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
     source = ROOT / "configs" / "template"
     for filename in (
-        "system.yaml", "device_models.yaml", "devices.yaml",
-        "points.yaml", "tasks.yaml", "sinks.yaml", "business_points.yaml",
+        "system.yaml",
+        "device_models.yaml",
+        "devices.yaml",
+        "points.yaml",
+        "tasks.yaml",
+        "sinks.yaml",
+        "business_points.yaml",
     ):
         copyfile(source / filename, tmp_path / filename)
 
@@ -37,8 +42,13 @@ def test_point_tables_yaml_round_trip(tmp_path: Path) -> None:
 def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path) -> None:
     source = ROOT / "configs" / "template"
     for filename in (
-        "system.yaml", "device_models.yaml", "devices.yaml",
-        "points.yaml", "tasks.yaml", "sinks.yaml", "business_points.yaml",
+        "system.yaml",
+        "device_models.yaml",
+        "devices.yaml",
+        "points.yaml",
+        "tasks.yaml",
+        "sinks.yaml",
+        "business_points.yaml",
     ):
         copyfile(source / filename, tmp_path / filename)
     adapter = YamlConfigAdapter(tmp_path)
@@ -47,9 +57,9 @@ def test_point_table_save_reload_keeps_changed_and_removed_points(tmp_path: Path
     child = original.point_tables[PointTableId("beckhoff_wtg_v1")]
     # 子表删除一个继承点，同时保留地址覆盖和自己新增的点。
     assert "rotor_speed" in parent.points
-    changed = replace(child, points={
-        key: value for key, value in child.points.items() if key != "rotor_speed"
-    })
+    changed = replace(
+        child, points={key: value for key, value in child.points.items() if key != "rotor_speed"}
+    )
     new_tables = {**original.point_tables, changed.point_table_id: changed}
     changed_snapshot = replace(original, point_tables=new_tables)
     adapter.save(changed_snapshot)

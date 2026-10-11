@@ -75,7 +75,6 @@ class RuntimeSettings:
             object.__setattr__(self, name, float(value))
 
 
-
 @dataclass(frozen=True, slots=True)
 class SystemSettings:
     """无现场标识的进程配置；风场 ID、名称只保存在 Site。"""

@@ -72,7 +72,8 @@ class _TrackedModbusTcpServer(ModbusTcpServer):
         self.active_handlers: set[ServerRequestHandler] = set()
 
     def callback_new_connection(self) -> ServerRequestHandler:
-        handler = super().callback_new_connection()
+        # pymodbus 基类未标注返回值，这里收窄为具体 handler 类型
+        handler: ServerRequestHandler = super().callback_new_connection()
         self.active_handlers.add(handler)
         original = handler.callback_disconnected
 
@@ -80,6 +81,7 @@ class _TrackedModbusTcpServer(ModbusTcpServer):
             self.active_handlers.discard(handler)
             original(exc)
 
+        # 猴子补丁实例级断开回调：pymodbus 未提供连接摘除钩子
         handler.callback_disconnected = _disconnected  # type: ignore[method-assign]
         return handler
 
@@ -110,7 +112,7 @@ class ModbusMockServer:
         self._port = port
         self._holding = holding
         self._inputs = inputs
-        self._server: ModbusTcpServer | None = None
+        self._server: _TrackedModbusTcpServer | None = None
         self._write_count = 0
 
     @property

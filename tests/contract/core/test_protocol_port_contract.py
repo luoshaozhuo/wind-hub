@@ -27,7 +27,7 @@ from core.application import (
     Quality,
     validate_read_many_results,
 )
-from core.domain import ConnectionEndpoint, PointTable, Protocol
+from core.domain import ConnectionEndpoint, PointTable, PointTableId, Protocol
 from core.infrastructure.protocol.ads import ADSDriver
 from core.infrastructure.protocol.iec104 import IEC104Driver
 from core.infrastructure.protocol.modbus import ModbusDriver
@@ -37,17 +37,17 @@ def _drivers() -> dict[str, object]:
     return {
         "modbus": ModbusDriver(
             ConnectionEndpoint("192.0.2.10", 502),
-            PointTable("pt", Protocol("modbus"), {}),
+            PointTable(PointTableId("pt"), Protocol("modbus"), {}),
             {},
         ),
         "ads": ADSDriver(
             ConnectionEndpoint("192.0.2.20", 801),
-            PointTable("pt", Protocol("ads"), {}),
+            PointTable(PointTableId("pt"), Protocol("ads"), {}),
             {},
         ),
         "iec104": IEC104Driver(
             ConnectionEndpoint("192.0.2.30", 2404),
-            PointTable("pt", Protocol("iec104"), {}),
+            PointTable(PointTableId("pt"), Protocol("iec104"), {}),
             {},
         ),
     }
@@ -63,9 +63,7 @@ class TestClosedStateSemantics:
         assert driver.is_open() is False  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
-    async def test_health_unhealthy_without_reconnect_side_effect(
-        self, driver: object
-    ) -> None:
+    async def test_health_unhealthy_without_reconnect_side_effect(self, driver: object) -> None:
         health = await driver.health()  # type: ignore[attr-defined]
         assert isinstance(health, ConnectionHealth)
         assert health.healthy is False
@@ -87,9 +85,7 @@ class TestCapabilityDeclaration:
         assert capabilities <= frozenset(ProtocolCapability)
 
     @pytest.mark.asyncio
-    async def test_undeclared_capabilities_raise_capability_error(
-        self, driver: object
-    ) -> None:
+    async def test_undeclared_capabilities_raise_capability_error(self, driver: object) -> None:
         capabilities = driver.capabilities()  # type: ignore[attr-defined]
 
         async def callback(_sample: ProtocolSample) -> None:
@@ -128,15 +124,11 @@ class TestReadManyResultContract:
 
     def test_rejects_out_of_order_results(self) -> None:
         with pytest.raises(ProtocolError, match="position 0"):
-            validate_read_many_results(
-                ["a", "b"], [self._sample("b"), self._sample("a")]
-            )
+            validate_read_many_results(["a", "b"], [self._sample("b"), self._sample("a")])
 
     def test_rejects_misassigned_point(self) -> None:
         with pytest.raises(ProtocolError, match="position 1"):
-            validate_read_many_results(
-                ["a", "b"], [self._sample("a"), self._sample("c")]
-            )
+            validate_read_many_results(["a", "b"], [self._sample("a"), self._sample("c")])
 
 
 class TestWriteContract:

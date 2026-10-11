@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 
-from core.domain.point_value import PointValue
 from core.application import ConnectionHealth
+from core.domain.point_value import PointValue
 
 
 class SlowSink:

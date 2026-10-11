@@ -2,6 +2,7 @@
 
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -45,7 +46,9 @@ async def test_port_delivery() -> None:
 
 def test_utc_and_immutable() -> None:
     value = PointValue("WT001", "power", 10, timestamp=datetime.now(UTC))
-    assert value.timestamp.utcoffset().total_seconds() == 0
+    offset = value.timestamp.utcoffset()
+    assert offset is not None
+    assert offset.total_seconds() == 0
     with pytest.raises(FrozenInstanceError):
         value.value = 2  # type: ignore[misc]
 
@@ -55,23 +58,30 @@ def test_naive_datetime_rejected() -> None:
         PointValue("WT001", "power", 10, timestamp=datetime(2026, 1, 1))
 
 
-@pytest.mark.parametrize("kind,connection", [
-    ("file", {"path": "./data.csv"}),
-    ("modbus", {"port": 1502}),
-    ("redis", {"database": 1}),
-])
-def test_config_types(kind: str, connection: dict) -> None:
-    assert _SinkSchema.model_validate({
-        "name": "sink", "type": kind, "connection": connection
-    }).type == kind
+@pytest.mark.parametrize(
+    "kind,connection",
+    [
+        ("file", {"path": "./data.csv"}),
+        ("modbus", {"port": 1502}),
+        ("redis", {"database": 1}),
+    ],
+)
+def test_config_types(kind: str, connection: dict[str, Any]) -> None:
+    assert (
+        _SinkSchema.model_validate({"name": "sink", "type": kind, "connection": connection}).type
+        == kind
+    )
 
 
 def test_old_type_rejected() -> None:
     with pytest.raises(ValueError):
-        _SinkSchema.model_validate({
-            "name": "sink", "type": "kafka",
-            "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"}
-        })
+        _SinkSchema.model_validate(
+            {
+                "name": "sink",
+                "type": "kafka",
+                "connection": {"bootstrap_servers": "localhost", "topic": "telemetry"},
+            }
+        )
 
 
 def test_exclusive_open_is_optional() -> None:

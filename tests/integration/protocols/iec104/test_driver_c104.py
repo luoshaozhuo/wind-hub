@@ -34,10 +34,12 @@ from core.application.protocol_contract import (
 )
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -75,7 +77,7 @@ def _point(
         ext["type_id"] = type_id
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext=ext,
@@ -84,7 +86,7 @@ def _point(
 
 def _table(points: Sequence[Point]) -> PointTable:
     return PointTable(
-        "t1",
+        PointTableId("t1"),
         Protocol("iec104"),
         {point.point_id: point for point in points},
     )
@@ -133,9 +135,7 @@ async def _read_value(driver: IEC104Driver, point_id: str) -> Any:
         sample = await driver.read_one(point_id)
         return sample.value if sample.quality is Quality.GOOD else None
 
-    return await wait_until(
-        _probe, timeout=10.0, description=f"mirror filled for {point_id}"
-    )
+    return await wait_until(_probe, timeout=10.0, description=f"mirror filled for {point_id}")
 
 
 # ===========================================================================
@@ -148,17 +148,13 @@ class TestConnectAndRead:
         await driver.connect()
         assert (await driver.health()).healthy is True
 
-    async def test_general_interrogation_fills_mirror(
-        self, driver: IEC104Driver
-    ) -> None:
+    async def test_general_interrogation_fills_mirror(self, driver: IEC104Driver) -> None:
         await driver.connect()
         await driver.interrogate()
         assert await _read_value(driver, "meas.power") == pytest.approx(1500.5)
         assert await _read_value(driver, "meas.freq") == pytest.approx(50.0)
 
-    async def test_read_many_is_not_supported(
-        self, driver: IEC104Driver
-    ) -> None:
+    async def test_read_many_is_not_supported(self, driver: IEC104Driver) -> None:
         with pytest.raises(ProtocolCapabilityError, match="read_many"):
             await driver.read_many(["meas.freq", "meas.power"])
 
@@ -253,8 +249,7 @@ class TestSpontaneous:
 
         await server.set_value(100, 999.0, spontaneous=True)
         await wait_until(
-            lambda: [s for s in received if s.value == pytest.approx(999.0)]
-            or None,
+            lambda: [s for s in received if s.value == pytest.approx(999.0)] or None,
             timeout=10.0,
             description="spontaneous value dispatched",
         )
@@ -269,9 +264,7 @@ class TestSpontaneous:
 
 
 class TestDynamicPoints:
-    async def test_dynamic_mirror_read_after_interrogation(
-        self, server: IEC104MockServer
-    ) -> None:
+    async def test_dynamic_mirror_read_after_interrogation(self, server: IEC104MockServer) -> None:
         """空点表 Driver：动态 IOA 登记接收关联后，总召响应写入镜像。"""
         from core.infrastructure.protocol.iec104 import iec104_point
 
@@ -287,9 +280,7 @@ class TestDynamicPoints:
                 sample = await drv.read_one(dynamic)
                 return sample.value if sample.quality is Quality.GOOD else None
 
-            value = await wait_until(
-                _probe, timeout=10.0, description="dynamic mirror filled"
-            )
+            value = await wait_until(_probe, timeout=10.0, description="dynamic mirror filled")
             assert value == pytest.approx(1500.5)
             sample = await drv.read_one(dynamic)
             assert sample.point_id == "dyn.power"
@@ -297,9 +288,7 @@ class TestDynamicPoints:
         finally:
             await drv.close()
 
-    async def test_dynamic_spontaneous_reaches_subscriber(
-        self, server: IEC104MockServer
-    ) -> None:
+    async def test_dynamic_spontaneous_reaches_subscriber(self, server: IEC104MockServer) -> None:
         """动态 IOA 的 spontaneous 上送写入镜像并分发给订阅者。"""
         from core.infrastructure.protocol.iec104 import iec104_point
 
@@ -316,8 +305,7 @@ class TestDynamicPoints:
             await drv.interrogate()
             await server.set_value(100, 999.0, spontaneous=True)
             await wait_until(
-                lambda: [s for s in received if s.value == pytest.approx(999.0)]
-                or None,
+                lambda: [s for s in received if s.value == pytest.approx(999.0)] or None,
                 timeout=10.0,
                 description="dynamic spontaneous dispatched",
             )
@@ -327,9 +315,7 @@ class TestDynamicPoints:
         finally:
             await drv.close()
 
-    async def test_dynamic_active_read_with_monitoring_type(
-        self, server: IEC104MockServer
-    ) -> None:
+    async def test_dynamic_active_read_with_monitoring_type(self, server: IEC104MockServer) -> None:
         """动态点主动读：内部注册监测点并等待 COT=REQUEST 响应。"""
         from core.infrastructure.protocol.iec104 import iec104_point
 
@@ -393,9 +379,7 @@ class TestDynamicPoints:
                 description="driver auto-reconnected",
             )
             await drv.interrogate()
-            value = await wait_until(
-                _probe, timeout=10.0, description="dynamic mirror refilled"
-            )
+            value = await wait_until(_probe, timeout=10.0, description="dynamic mirror refilled")
             assert value == pytest.approx(1500.5)
         finally:
             await drv.close()
@@ -408,9 +392,7 @@ class TestDynamicPoints:
 
 @pytest.fixture
 async def control_server() -> AsyncIterator[IEC104ControlServer]:
-    srv = IEC104ControlServer(
-        common_addr=1, data_points={100: 1500.5}, reject_ioas={1001}
-    )
+    srv = IEC104ControlServer(common_addr=1, data_points={100: 1500.5}, reject_ioas={1001})
     await srv.start()
     try:
         yield srv
@@ -428,16 +410,12 @@ def _switch_point(point_id: str = "switch.on", ioa: int = 1001) -> Point:
 
 
 class TestCommandFailures:
-    async def test_negative_command_confirmation(
-        self, control_server: IEC104ControlServer
-    ) -> None:
+    async def test_negative_command_confirmation(self, control_server: IEC104ControlServer) -> None:
         """从站否定确认（ACT_CON negative）→ success=False。"""
         drv = _driver(control_server.port, [_switch_point()])
         try:
             await drv.connect()
-            result = await drv.write_one(
-                ProtocolWrite(point_id="switch.on", value=True)
-            )
+            result = await drv.write_one(ProtocolWrite(point_id="switch.on", value=True))
         finally:
             await drv.close()
 
@@ -500,13 +478,9 @@ class _StartdtBlackhole:
         return self._port
 
     async def start(self) -> None:
-        self._server = await asyncio.start_server(
-            self._handle, "127.0.0.1", self._port
-        )
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", self._port)
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._writers.add(writer)
         # APCI 帧可能跨多次 TCP 读到达，未消费的残余字节必须缓冲到下次读，
         # 否则被拆开的 STARTDT_ACT 永远不会得到应答（连接挂起）。
@@ -680,7 +654,7 @@ class TestValueSemantics:
             sample = await driver.read_one("meas.power")
             return sample if sample.quality is Quality.BAD else None
 
-        sample = await wait_until(
+        sample: ProtocolSample = await wait_until(
             _probe, timeout=10.0, description="BAD quality propagated"
         )
         assert sample.value == pytest.approx(1.0)
@@ -715,7 +689,7 @@ class TestValueSemantics:
                 return sample if sample.value == pytest.approx(43.0) else None
 
             before = datetime.now(UTC)
-            sample = await wait_until(
+            sample: ProtocolSample = await wait_until(
                 _probe, timeout=10.0, description="timestamped value received"
             )
             after = datetime.now(UTC)
@@ -725,9 +699,7 @@ class TestValueSemantics:
             await drv.close()
             await srv.stop()
 
-    async def test_update_point_table(
-        self, driver: IEC104Driver, server: IEC104MockServer
-    ) -> None:
+    async def test_update_point_table(self, driver: IEC104Driver, server: IEC104MockServer) -> None:
         """连接期间热更新点表：旧 point_id 立即失效，新 IOA 总召后可读。"""
         await driver.connect()
         await driver.interrogate()
@@ -747,9 +719,7 @@ class TestValueSemantics:
 
 
 class TestLifecycle:
-    async def test_close_disconnects_and_rejects_read(
-        self, driver: IEC104Driver
-    ) -> None:
+    async def test_close_disconnects_and_rejects_read(self, driver: IEC104Driver) -> None:
         await driver.connect()
         await driver.close()
         assert driver.is_open() is False

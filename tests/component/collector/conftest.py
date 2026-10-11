@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,7 @@ class CollectorAppContext:
 @pytest.fixture
 async def app_factory(
     tmp_path: Path,
-) -> AsyncIterator[Callable[..., AsyncIterator[CollectorAppContext]]]:
+) -> AsyncIterator[Callable[..., Coroutine[Any, Any, CollectorAppContext]]]:
     """CollectorApp 工厂：每个用例可装配一套独立环境，keyword 透传 write_functional_config。"""
     contexts: list[CollectorAppContext] = []
 
@@ -45,9 +45,7 @@ async def app_factory(
         port = free_port()
         server = ModbusMockServer(port=port)
         await server.start()
-        config_dir = write_functional_config(
-            tmp_path / f"cfg{len(contexts)}", port, **overrides
-        )
+        config_dir = write_functional_config(tmp_path / f"cfg{len(contexts)}", port, **overrides)
         app = assemble_collector(config_dir, collector_id="collector-component")
         await app.start()
         ctx = CollectorAppContext(app=app, config_dir=config_dir, server=server)

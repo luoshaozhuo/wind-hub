@@ -1,11 +1,8 @@
-"""System 层的 Collector 控制面 RPC helper。
+"""System / Reliability 层的 Collector 控制面 RPC helper。
 
-ctl 已是只读诊断客户端（server-owned worker control）；system 测试需要
-驱动 Task 生命周期时，直接以 gRPC 调用 CollectorControlService——与生产
-中 Server → Collector 的控制路径一致。
-
-placement 语义：StartTask/StartTaskInstance 要求先经 ApplyTaskPlacement
-把 task 纳入当前 placement generation，否则 FAILED_PRECONDITION。
+system 测试需要驱动 Task 生命周期时，直接以 gRPC 调用
+CollectorControlService——与 CTL / Web Admin → Collector 的生产控制
+路径一致；不经过任何 Server 中转。
 """
 
 from __future__ import annotations
@@ -16,46 +13,52 @@ from typing import Any
 import grpc
 from google.protobuf import empty_pb2
 
-from wind_hub_core.config.fingerprint import fingerprint_config_set
-from wind_hub_core.rpc import collector_pb2 as pb
-from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
-from wind_hub_core.rpc.collector_codec import metrics_snapshot_to_dict
-
-#: ``tests.support.process.start_collector`` 的默认 collector_id。
-DEFAULT_WORKER_ID = "system-test"
+from core.infrastructure.config import config_dir_digest
+from core.infrastructure.rpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
 
 
-async def apply_placement_and_start_instance(
+def _metrics_snapshot_to_dict(response: pb.MetricsSnapshotResponse) -> dict[str, Any]:
+    """把 MetricsSnapshotResponse 转换为便于断言的 dict。"""
+    return {
+        "counters": {
+            field.name: getattr(response.counters, field.name)
+            for field in response.counters.DESCRIPTOR.fields
+        },
+        "device_connect_failures": {
+            item.key: item.value for item in response.device_connect_failures
+        },
+        "device_reconnects": {item.key: item.value for item in response.device_reconnects},
+        "events": [
+            {
+                "timestamp": item.timestamp.ToJsonString(),
+                "kind": item.kind,
+                "object": item.object,
+                "message": item.message,
+            }
+            for item in response.events
+        ],
+    }
+
+
+async def start_task_instance(
     target: str,
     *,
     task_id: str,
     instance_id: str,
-    worker_id: str = DEFAULT_WORKER_ID,
-    generation: int = 1,
 ) -> None:
-    """应用 placement 快照并启动单个 Task Instance。
+    """启动单个已配置 Task Instance。
 
     Args:
         target: Collector gRPC endpoint（``host:port``）。
-        task_id: 纳入 placement 的 Task Definition ID。
+        task_id: Task Definition ID（仅用于校验实例归属，配置必须包含）。
         instance_id: 要启动的实例（``{task_id}:{device_id}``）。
-        worker_id: placement 目标 worker（必须等于 Collector 的 collector_id）。
-        generation: placement generation（StartTaskInstance 校验一致性）。
     """
+    del task_id  # instance_id 已携带 task 归属；保留参数以明示调用意图
     channel = grpc.aio.insecure_channel(target)
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
-        applied = await stub.ApplyTaskPlacement(
-            pb.TaskPlacementSnapshotRequest(
-                worker_id=worker_id, generation=generation, task_ids=[task_id]
-            )
-        )
-        assert applied.success, "ApplyTaskPlacement rejected by collector"
-        await stub.StartTaskInstance(
-            pb.TaskInstanceStartRequest(
-                instance_id=instance_id, placement_generation=generation
-            )
-        )
+        await stub.StartTaskInstance(pb.TaskInstanceStartRequest(instance_id=instance_id))
     finally:
         await channel.close()
 
@@ -69,20 +72,21 @@ async def prepare_config(
 ) -> pb.PrepareConfigResponse:
     """调用 PrepareConfig 并返回原始响应（success/errors 由调用方断言）。
 
-    config_hash 以 ``fingerprint_config_set`` 对当前磁盘配置集计算——与
+    config_hash 以 ``config_dir_digest`` 对当前磁盘配置集计算——与
     Collector prepare 路径的校验口径一致。用于验证「非法配置在 prepare
     阶段即被拒绝」的失败路径。
     """
     channel = grpc.aio.insecure_channel(target)
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
-        return await stub.PrepareConfig(
+        response: pb.PrepareConfigResponse = await stub.PrepareConfig(
             pb.PrepareConfigRequest(
                 revision_id=revision_id,
-                config_hash=fingerprint_config_set(config_dir),
+                config_hash=config_dir_digest(config_dir),
                 force_reconfigure=force_reconfigure,
             )
         )
+        return response
     finally:
         await channel.close()
 
@@ -112,7 +116,10 @@ async def reload_config(
     channel = grpc.aio.insecure_channel(target)
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
-        return await stub.ActivateConfig(pb.ActivateConfigRequest(revision_id=revision_id))
+        response: pb.ActivateConfigResponse = await stub.ActivateConfig(
+            pb.ActivateConfigRequest(revision_id=revision_id)
+        )
+        return response
     finally:
         await channel.close()
 
@@ -127,7 +134,7 @@ async def metrics_snapshot(target: str) -> dict[str, Any]:
     stub = pb_grpc.CollectorRuntimeServiceStub(channel)
     try:
         response = await stub.GetMetricsSnapshot(empty_pb2.Empty(), timeout=5.0)
-        return metrics_snapshot_to_dict(response)
+        return _metrics_snapshot_to_dict(response)
     finally:
         await channel.close()
 

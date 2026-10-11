@@ -11,14 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-GRPC_ADAPTER = (
-    REPO_ROOT
-    / "src"
-    / "collector"
-    / "infrastructure"
-    / "grpc"
-    / "server.py"
-)
+GRPC_ADAPTER = REPO_ROOT / "src" / "collector" / "infrastructure" / "grpc" / "server.py"
 
 # 出现即代表 adapter 直接穿透到 Sink 注册表 / SinkPort 实例。
 _FORBIDDEN_TOKENS = (

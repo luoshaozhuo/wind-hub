@@ -1,6 +1,6 @@
 """Collector gRPC v1 wire contract 契约测试。
 
-该契约是 Server / wind-hub-ctl 与 Collector 之间唯一的耦合点：service /
+该契约是 wind-hub-ctl / Web Admin 与 Collector 之间唯一的耦合点：service /
 method 名称与 path 构造规则一旦漂移，两侧会在运行时以 UNIMPLEMENTED
 失败。本测试直接从生成的 pb2 描述符（真实 wire 定义）读取并固化为显式
 断言——任何 proto 改名都必须同步修改本文件，从而强制契约变更显式化。
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from collector.infrastructure.grpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2 as pb
 
 _PACKAGE = "windhub.collector.v1"
 
@@ -24,12 +24,12 @@ _RUNTIME_METHODS = [
     "GetTaskInstance",
     "ListDevices",
     "ListSinks",
+    "QueryLatestValues",
     "VerifySink",
     "WriteTestSink",
 ]
 
 _CONTROL_METHODS = [
-    "ApplyTaskPlacement",
     "StartTask",
     "StopTask",
     "StartTaskInstance",
@@ -85,8 +85,8 @@ def test_method_names_are_unique_across_services() -> None:
         for service in pb.DESCRIPTOR.services_by_name.values()
         for method in service.methods
     ]
-    # ApplyTaskPlacement 等控制面方法与查询面方法不得撞名——path 按
-    # /package.Service/Method 构造，跨 service 重名会放大改名时的排障难度。
+    # 控制面方法与查询面方法不得撞名——path 按 /package.Service/Method
+    # 构造，跨 service 重名会放大改名时的排障难度。
     assert len(methods) == len(set(methods))
 
 

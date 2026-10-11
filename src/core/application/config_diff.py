@@ -31,14 +31,14 @@ class ConfigSnapshotDiff:
 
     @property
     def has_changes(self) -> bool:
-        return self.system_changed or self.site_changed or any(
-            section.has_changes for section in self.sections.values()
+        return (
+            self.system_changed
+            or self.site_changed
+            or any(section.has_changes for section in self.sections.values())
         )
 
 
-def _diff_mapping(
-    old: Mapping[Any, Any], new: Mapping[Any, Any]
-) -> MappingDiff[object]:
+def _diff_mapping(old: Mapping[Any, Any], new: Mapping[Any, Any]) -> MappingDiff[object]:
     old_keys = set(old)
     new_keys = set(new)
     common = old_keys & new_keys
@@ -52,13 +52,16 @@ def _diff_mapping(
 def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigSnapshotDiff:
     """比较快照全部配置节；设备逐个比较，避免重复保存 Site.devices。"""
     names = (
-        "device_types", "device_models", "device_groups", "point_tables",
-        "business_points", "tasks", "sinks", "protocol_options_by_device",
+        "device_types",
+        "device_models",
+        "device_groups",
+        "point_tables",
+        "business_points",
+        "tasks",
+        "sinks",
+        "protocol_options_by_device",
     )
-    sections = {
-        name: _diff_mapping(getattr(old, name), getattr(new, name))
-        for name in names
-    }
+    sections = {name: _diff_mapping(getattr(old, name), getattr(new, name)) for name in names}
     sections["devices"] = _diff_mapping(old.site.devices, new.site.devices)
     sections["ads_subscribe_devices"] = _diff_mapping(
         {key: True for key in old.ads_subscribe_devices},
@@ -67,8 +70,5 @@ def diff_config_snapshots(old: ConfigSnapshot, new: ConfigSnapshot) -> ConfigSna
     return ConfigSnapshotDiff(
         sections=MappingProxyType(sections),
         system_changed=old.system != new.system,
-        site_changed=(
-            old.site.site_id != new.site.site_id
-            or old.site.name != new.site.name
-        ),
+        site_changed=(old.site.site_id != new.site.site_id or old.site.name != new.site.name),
     )

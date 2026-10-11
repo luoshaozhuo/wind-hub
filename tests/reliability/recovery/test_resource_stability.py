@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,9 +26,9 @@ from tests.reliability.recovery.helpers import (
     write_modbus_file_config,
 )
 from tests.support.control import (
-    apply_placement_and_start_instance,
     metrics_snapshot,
     reload_config,
+    start_task_instance,
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess
@@ -62,14 +63,12 @@ class TestReconnectFlapStability:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
 
-        baseline_reconnects = (
-            await metrics_snapshot(proc.grpc_target)
-        )["device_reconnects"].get("modbus-1", 0)
+        baseline_reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
+            "modbus-1", 0
+        )
         baseline_fd = proc.fd_count()
 
         for cycle in range(CYCLES):
@@ -91,16 +90,16 @@ class TestReconnectFlapStability:
         settled = len(read_csv(sink_path))
         await wait_file_rows(sink_path, min_rows=settled + 2)
 
-        reconnects = (
-            await metrics_snapshot(proc.grpc_target)
-        )["device_reconnects"].get("modbus-1", 0)
-        assert reconnects - baseline_reconnects >= CYCLES, (
-            f"expected >= {CYCLES} reconnects, got {reconnects - baseline_reconnects}"
+        reconnects = (await metrics_snapshot(proc.grpc_target))["device_reconnects"].get(
+            "modbus-1", 0
         )
+        assert (
+            reconnects - baseline_reconnects >= CYCLES
+        ), f"expected >= {CYCLES} reconnects, got {reconnects - baseline_reconnects}"
         final_fd = proc.fd_count()
-        assert final_fd <= baseline_fd + FD_SLACK, (
-            f"fd count grew from {baseline_fd} to {final_fd} over {CYCLES} flap cycles"
-        )
+        assert (
+            final_fd <= baseline_fd + FD_SLACK
+        ), f"fd count grew from {baseline_fd} to {final_fd} over {CYCLES} flap cycles"
 
 
 class TestReloadStability:
@@ -119,9 +118,7 @@ class TestReloadStability:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await apply_placement_and_start_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=2)
         baseline_fd = proc.fd_count()
 
@@ -129,10 +126,10 @@ class TestReloadStability:
             interval = 0.2 if cycle % 2 == 0 else 0.3
             max_files = 4 if cycle % 2 == 0 else 8
 
-            def _mutate_tasks(data: dict, iv: float = interval) -> None:
+            def _mutate_tasks(data: dict[str, Any], iv: float = interval) -> None:
                 data["tasks"][0]["interval"] = iv
 
-            def _mutate_sinks(data: dict, mf: int = max_files) -> None:
+            def _mutate_sinks(data: dict[str, Any], mf: int = max_files) -> None:
                 data["sinks"][0]["connection"]["max_files"] = mf
 
             update_yaml(config_dir, "tasks.yaml", _mutate_tasks)
@@ -149,6 +146,6 @@ class TestReloadStability:
         await asyncio.sleep(1.0)  # 等最后一轮重建的旧句柄完成释放
 
         final_fd = proc.fd_count()
-        assert final_fd <= baseline_fd + FD_SLACK, (
-            f"fd count grew from {baseline_fd} to {final_fd} over {CYCLES} reloads"
-        )
+        assert (
+            final_fd <= baseline_fd + FD_SLACK
+        ), f"fd count grew from {baseline_fd} to {final_fd} over {CYCLES} reloads"

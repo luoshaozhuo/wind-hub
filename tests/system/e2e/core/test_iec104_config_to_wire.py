@@ -41,11 +41,13 @@ def _load_driver(port: int) -> IEC104Driver:
 
     registry = ProtocolRegistry()
     registry.register("iec104", IEC104Driver)
-    return registry.create(
+    driver = registry.create(
         ConnectionEndpoint("127.0.0.1", port),
         table,
         options,
     )
+    assert isinstance(driver, IEC104Driver)
+    return driver
 
 
 class TestIEC104ConfigToWire:
@@ -83,7 +85,9 @@ class TestIEC104ConfigToWire:
 
             # 主动上报：对端改值后新样本到达
             received.clear()
-            station_point = server._station.get_point(100)
+            station = server._station
+            assert station is not None
+            station_point = station.get_point(100)
             assert station_point is not None
             station_point.value = 1600.25
             assert station_point.transmit(c104.Cot.SPONTANEOUS)

@@ -36,19 +36,21 @@ SINK_NUMERIC_DATA_TYPES = frozenset(
     }
 )
 
-MODBUS_WORD_WIDTH: Mapping[str, int] = MappingProxyType({
-    "bool": 1,
-    "int8": 1,
-    "uint8": 1,
-    "int16": 1,
-    "uint16": 1,
-    "int32": 2,
-    "uint32": 2,
-    "float32": 2,
-    "int64": 4,
-    "uint64": 4,
-    "float64": 4,
-})
+MODBUS_WORD_WIDTH: Mapping[str, int] = MappingProxyType(
+    {
+        "bool": 1,
+        "int8": 1,
+        "uint8": 1,
+        "int16": 1,
+        "uint16": 1,
+        "int32": 2,
+        "uint32": 2,
+        "float32": 2,
+        "int64": 4,
+        "uint64": 4,
+        "float64": 4,
+    }
+)
 
 
 class SinkSource(BaseModel):
@@ -346,9 +348,6 @@ __all__ = [
 ]
 
 
-
-
-
 def validate_sink_definitions(sinks: Sequence[_SinkSchema]) -> None:
     """检查名称重复及 Modbus TCP 端口的绑定冲突。"""
     names: set[str] = set()
@@ -364,8 +363,7 @@ def validate_sink_definitions(sinks: Sequence[_SinkSchema]) -> None:
         port = sink.connection.port
         if any(
             used_port == port
-            and (used_host == host or used_host in ("0.0.0.0", "::")
-                 or host in ("0.0.0.0", "::"))
+            and (used_host == host or used_host in ("0.0.0.0", "::") or host in ("0.0.0.0", "::"))
             for used_host, used_port in listeners
         ):
             raise ValueError(f"duplicate Modbus listener: {(host, port)}")

@@ -63,7 +63,6 @@ class ProtocolCapability(StrEnum):
     INTERROGATE = "interrogate"
 
 
-
 TimestampSource: TypeAlias = Literal["device", "local"]
 """样本时间戳来源。
 
@@ -122,8 +121,16 @@ def validate_read_many_results(
                 f"requested '{point_id}', got '{sample.point_id}'"
             )
 
+
 __all__ = [
-    "PointScalar", "WritableScalar", "Quality", "TimestampSource",
-    "ConnectionHealth", "ProtocolWrite", "ProtocolWriteResult",
-    "ProtocolCapability", "ProtocolSample", "validate_read_many_results",
+    "PointScalar",
+    "WritableScalar",
+    "Quality",
+    "TimestampSource",
+    "ConnectionHealth",
+    "ProtocolWrite",
+    "ProtocolWriteResult",
+    "ProtocolCapability",
+    "ProtocolSample",
+    "validate_read_many_results",
 ]
