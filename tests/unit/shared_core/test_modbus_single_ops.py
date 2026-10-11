@@ -719,14 +719,16 @@ class TestHealthSemantics:
     """health() 仅反映本地传输状态（与 ADS/IEC104 Driver 同口径）；
     重连与恢复决策走 is_open()，不依赖 health 的通信历史。"""
 
-    def test_connected_transport_reports_healthy(self) -> None:
+    @pytest.mark.asyncio
+    async def test_connected_transport_reports_healthy(self) -> None:
         driver = _driver({"h": _point("h")}, _Client())
         assert driver.is_open() is True
-        health = driver.health()
+        health = await driver.health()
         assert health.healthy is True
         assert "connected to" in (health.message or "")
 
-    def test_closed_transport_reports_not_open(self) -> None:
+    @pytest.mark.asyncio
+    async def test_closed_transport_reports_not_open(self) -> None:
         client = _Client()
         driver = _driver({"h": _point("h")}, client, connected=False)
         assert driver.is_open() is False
@@ -762,6 +764,6 @@ class TestHealthSemantics:
         await driver.read_one("h")
         await driver.close()
         assert driver.is_open() is False
-        health = driver.health()
+        health = await driver.health()
         assert health.healthy is False
         assert health.message == "not connected"
