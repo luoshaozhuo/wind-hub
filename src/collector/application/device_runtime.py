@@ -157,14 +157,14 @@ class DeviceRuntime:
         device = self._devices[device_id]
         device.set_device(view.device)
         # 点表绑定切换与元数据/表内容更新同路径——重注入内存映射。
-        device.set_points(view.point_table, view.point_meta)
+        device.set_points(view.point_table)
         self._views[device_id] = view
         logger.info("Hot-reload: device '%s' updated in place (no reconnect)", device_id)
 
     def set_points(self, device_id: str, view: DeviceView) -> None:
         """重注入已收敛设备的点映射/元数据，不重建协议连接。"""
         device = self._devices[device_id]
-        device.set_points(view.point_table, view.point_meta)
+        device.set_points(view.point_table)
         self._views[device_id] = view
         logger.info(
             "Hot-reload: point mapping re-injected for '%s' (table '%s')",
