@@ -1,4 +1,4 @@
-"""Collector gRPC 入站适配器（控制面 Server 与生成的 pb2 代码）。"""
+"""Collector gRPC 入站适配器（控制面 Server；wire contract 来自 shared core）。"""
 
 from .server import CollectorGrpcServer, build_grpc_server
 
