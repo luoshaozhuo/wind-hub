@@ -21,6 +21,7 @@ from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 from .application.config import CollectorConfig, DeviceView
 from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
+from .application.latest_values import LatestValues
 from .application.metrics_state import CollectorMetricsState
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
@@ -59,6 +60,7 @@ class CollectorApp:
     config_dir: Path
     config_hash: str
     metrics: CollectorMetricsState
+    latest_values: LatestValues
     identity: CollectorIdentity
     ads_local: ADSLocalConfig | None
 
@@ -132,11 +134,13 @@ def assemble_collector(
     }
 
     metrics = CollectorMetricsState()
+    latest_values = LatestValues()
     engine = AcquisitionEngine(
         read_timeout=config.runtime.read_timeout,
         on_points_collected=metrics.observe_collected,
         on_points_bad=metrics.observe_bad,
     )
+    engine.add_observer(latest_values.update)
     runtime = CollectorRuntime(
         devices,
         {str(device_id): view for device_id, view in views.items()},
@@ -162,6 +166,7 @@ def assemble_collector(
         config_dir=config_path,
         config_hash=config_hash,
         metrics=metrics,
+        latest_values=latest_values,
         identity=build_collector_identity(config_hash, collector_id=collector_id),
         ads_local=config.ads_local,
     )
