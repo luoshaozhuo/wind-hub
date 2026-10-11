@@ -167,7 +167,6 @@ class ADSSubscription:
             raise
 
     async def _create_connection(self) -> Any:
-        pyads = pyads
         connection = pyads.Connection(
             self._config.target_net_id or None,
             self._config.target_port,
@@ -226,8 +225,6 @@ class ADSSubscription:
                 f"ADS notification point '{point.point_id}' requires a "
                 "resolved positive byte size"
             )
-
-        pyads = pyads
         attr = pyads.NotificationAttrib(
             point.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
