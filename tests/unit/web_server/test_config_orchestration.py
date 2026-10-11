@@ -38,6 +38,7 @@ def test_activation_reports_partial_failure_without_rollback() -> None:
             headers={"X-API-Key": "secret"},
             json={"revision_id": "r1"},
         )
-    assert response.status_code == 200
-    assert response.json()["success"] is False
+    assert response.status_code == 409
+    assert response.json()["detail"]["success"] is False
+    assert response.json()["detail"]["results"]["collector"]["success"] is True
     gateway.collector_abort_config.assert_not_awaited()

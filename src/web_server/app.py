@@ -453,6 +453,9 @@ def create_app(
             isinstance(value, dict) and value.get("success") is True
             for value in results.values()
         )
-        return {"success": success, "revision_id": body.revision_id, "results": results}
+        outcome = {"success": success, "revision_id": body.revision_id, "results": results}
+        if not success:
+            raise HTTPException(status_code=409, detail=outcome)
+        return outcome
 
     return app
