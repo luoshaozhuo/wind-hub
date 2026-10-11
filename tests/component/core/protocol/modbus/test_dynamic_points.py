@@ -7,6 +7,7 @@ import pytest
 from core.application import ConfigError, Quality
 from core.application.protocol_contract import ProtocolWrite
 from core.infrastructure.protocol.modbus.mapping import modbus_point
+
 from .test_single_ops import (
     _Client,
     _driver,
