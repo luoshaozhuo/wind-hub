@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.infrastructure.rpc import collector_pb2
 from ctl.client import _to_dict, encode_scalar
 from ctl.main import build_parser
@@ -55,3 +57,58 @@ def test_parser_decodes_write_scalar() -> None:
     )
 
     assert args.value == 12.5
+
+
+@pytest.mark.asyncio
+async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
+    """RPC 返回失败结果时 CLI 不得报告成功。"""
+    from ctl import main as cli
+
+    class FailedClient:
+        def __init__(self, target: str, *, timeout: float) -> None:
+            del target, timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def call(self, operation: str, **kwargs):
+            del operation, kwargs
+            return {"command_id": "failed", "success": False, "error": "offline"}
+
+    monkeypatch.setattr(cli, "CommanderClient", FailedClient)
+    args = cli.build_parser().parse_args(
+        ["commander", "write", "dev1", "p1", "12"]
+    )
+
+    assert await cli._run(args) == 2
+    assert '"success": false' in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> None:
+    """任一批量写失败均以失败退出码返回。"""
+    from ctl import main as cli
+
+    class PartialClient:
+        def __init__(self, target: str, *, timeout: float) -> None:
+            del target, timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def call(self, operation: str, **kwargs):
+            del operation, kwargs
+            return {"results": [{"success": True}, {"success": False}]}
+
+    monkeypatch.setattr(cli, "CommanderClient", PartialClient)
+    args = cli.build_parser().parse_args(
+        ["commander", "write-many", "--item", "dev1", "p1", "1"]
+    )
+
+    assert await cli._run(args) == 2
