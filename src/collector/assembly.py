@@ -129,7 +129,6 @@ def assemble_collector(
         return CollectorDeviceSession(
             view.device,
             view.point_table,
-            view.point_meta,
             protocol,
             subscribe_enabled=view.subscribe_enabled,
         )
