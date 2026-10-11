@@ -13,6 +13,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from core.application import Quality
+from core.domain import (
+    ConnectionEndpoint,
+    Device,
+    Point,
+    ProtocolOptions,
+    engineering_value,
+)
 from core.domain.diagnostic import (
     DeviceVerifyResult,
     DiagnosticCode,
@@ -21,13 +28,6 @@ from core.domain.diagnostic import (
     PointVerifyResult,
     PointsVerifyResult,
     ResolvedAddress,
-)
-from core.domain import (
-    ConnectionEndpoint,
-    Device,
-    Point,
-    ProtocolOptions,
-    engineering_value,
 )
 
 from .errors import CommandError
