@@ -35,7 +35,6 @@ def command_to_c104(
     value: object,
 ) -> tuple[Any, object]:
     """按点表 type_id 把协议侧值转换成 c104 控制类型和值。"""
-    c104 = c104
     type_id = mapped.type_id
     if type_id is None:
         raise ConfigError(f"IEC104 writable point '{mapped.point_id}' requires type_id")
@@ -78,7 +77,6 @@ def _quality_from_c104(quality: Any) -> Quality:
     if quality is None:
         return Quality.GOOD
 
-    c104 = c104
     bits = getattr(quality, "value", 0)
     invalid = getattr(c104.Quality.Invalid, "value", 0)
     uncertain = (
