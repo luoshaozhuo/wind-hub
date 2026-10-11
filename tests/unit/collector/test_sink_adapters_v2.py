@@ -11,21 +11,14 @@ import pytest
 
 from collector.infrastructure.sink.file.csv import FileSink
 from collector.infrastructure.sink.redis import RedisSink
-from core.application.sink_config import (
-    FileSinkConnection,
-    RedisSinkConnection,
-    ResolvedSinkConfig,
-)
+from core.domain import Sink
 from core.domain.point_value import PointValue
 
 
 @pytest.mark.asyncio
 async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
     path = tmp_path / "data.csv"
-    cfg = ResolvedSinkConfig(
-        name="archive", type="file",
-        connection=FileSinkConnection(path=str(path)),
-    )
+    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(path)})
     sink = FileSink(cfg)
     await sink.open()
     await sink.write([PointValue("WT001", "power", 125.5)])
@@ -41,10 +34,7 @@ async def test_csv_appends_and_reopens(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_csv_rotates_and_prunes_owned_archives(tmp_path: Path) -> None:
     path = tmp_path / "data.csv"
-    cfg = ResolvedSinkConfig(
-        name="archive", type="file",
-        connection=FileSinkConnection(path=str(path), max_size_mb=0.0001, max_files=2),
-    )
+    cfg = Sink(sink_id="archive", kind="file", enabled=True, connection={"path": str(path), "max_size_mb": 0.0001, "max_files": 2})
     sink = FileSink(cfg)
     await sink.open()
     await sink.write([PointValue("WT001", f"point{i}", "x" * 60) for i in range(12)])
@@ -82,10 +72,7 @@ async def test_redis_pipeline_over_real_tcp() -> None:
     server = await asyncio.start_server(handler, "127.0.0.1", 0)
     try:
         port = server.sockets[0].getsockname()[1]
-        cfg = ResolvedSinkConfig(
-            name="cache", type="redis",
-            connection=RedisSinkConnection(host="127.0.0.1", port=port),
-        )
+        cfg = Sink(sink_id="cache", kind="redis", enabled=True, connection={"host": "127.0.0.1", "port": port})
         sink = RedisSink(cfg)
         await sink.open()
         await sink.write([PointValue("WT001", "power", 100.0)])

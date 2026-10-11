@@ -245,7 +245,7 @@ async def test_point_group_cache_invalidated_by_set_points():
     assert session.point_ids("g") == ["p1"]
     assert session._point_group_cache["g"] == ("p1",)
     view = second.device_view("dev1")
-    session.set_points(view.point_table, view.point_meta)
+    session.set_points(view.point_table)
     assert session.point_ids("g") == []
     assert session.point_ids("changed") == ["p1"]
 
@@ -327,7 +327,7 @@ async def test_set_points_failure_keeps_session_on_old_table():
     proto.update_point_table = _reject
     view = second.device_view("dev1")
     with pytest.raises(ConfigError, match="driver rejected"):
-        session.set_points(view.point_table, view.point_meta)
+        session.set_points(view.point_table)
 
     assert session.point_table is old_table
     assert session.point_ids("g") == ["p1"]
@@ -340,6 +340,6 @@ async def test_set_points_updates_driver_before_session_state():
     proto = CollectorFakeProtocol()
     session = make_session(first, proto)
     view = second.device_view("dev1")
-    session.set_points(view.point_table, view.point_meta)
+    session.set_points(view.point_table)
     assert proto.point_table_updates[-1] is view.point_table
     assert session.point_table is view.point_table
