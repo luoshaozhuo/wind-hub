@@ -181,7 +181,6 @@ class IEC104Driver:
         self._is_open = False
         self._closed = True
 
-        self._samples: dict[int, ProtocolSample] = {}
         # 动态 IOA 接收关联（协议会话级，不是 PointTable 登记）：任何动态点
         # 操作按需登记，使自发上送/总召响应能写入镜像；跨断连保留，重连后
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
@@ -211,7 +210,6 @@ class IEC104Driver:
         # must not be exposed under a reassigned IOA or point identity.
         self._point_table_id = point_table.point_table_id
         self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
-        self._samples.clear()
         self._reject_pending_reads("IEC104 point table changed")
 
     def _validate_write_types(self, point_table: PointTable) -> None:
@@ -243,8 +241,7 @@ class IEC104Driver:
             self._is_open = False
             self._loop = asyncio.get_running_loop()
             self._open_event = asyncio.Event()
-            self._samples.clear()
-
+    
             client = c104.Client(command_timeout_ms=int(self._config.t1 * 2 * 1000))
             connection = client.add_connection(
                 ip=self._config.host,
@@ -314,8 +311,7 @@ class IEC104Driver:
             self._station = None
             self._open_event = None
             self._receive_callback_factory = None
-            self._samples.clear()
-            self._reject_pending_reads("IEC104 connection closed")
+                self._reject_pending_reads("IEC104 connection closed")
             self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
@@ -712,7 +708,6 @@ class IEC104Driver:
         self._station = None
         self._open_event = None
         self._receive_callback_factory = None
-        self._samples.clear()
         self._loop = None
 
         if connection is not None:
@@ -750,7 +745,6 @@ class IEC104Driver:
             return
 
         self._is_open = False
-        self._samples.clear()
         self._reject_pending_reads("IEC104 connection lost")
         self._reject_interrogation("IEC104 connection lost")
 
@@ -841,7 +835,6 @@ class IEC104Driver:
             if waiter is not None and not waiter.done():
                 waiter.set_exception(ProtocolError(f"IEC104 negative read response at IOA {ioa}"))
             return
-        self._samples[ioa] = sample
         if requested:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
