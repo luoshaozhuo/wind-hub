@@ -158,7 +158,11 @@ class OperationRegistry:
             return record.model_copy(deep=True)
 
     def fail(
-        self, operation_id: str, *, code: str, message: str,
+        self,
+        operation_id: str,
+        *,
+        code: str,
+        message: str,
         details: dict[str, object] | None = None,
     ) -> OperationRecord:
         """把 Operation 标记为 failed，并记录稳定错误码。"""
@@ -167,9 +171,7 @@ class OperationRegistry:
             self._ensure_not_terminal(record)
             record.state = OperationState.FAILED
             record.finished_at = datetime.now(UTC)
-            record.error = OperationError(
-                code=code, message=message, details=details or {}
-            )
+            record.error = OperationError(code=code, message=message, details=details or {})
             return record.model_copy(deep=True)
 
     @staticmethod

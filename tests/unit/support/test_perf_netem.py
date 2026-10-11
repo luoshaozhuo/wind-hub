@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -31,7 +32,7 @@ class _FakeTc:
 def fake_tc(monkeypatch: pytest.MonkeyPatch) -> _FakeTc:
     fake = _FakeTc()
     monkeypatch.setattr(netem_mod, "_run", fake)
-    monkeypatch.setattr(netem_mod.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
     return fake
 
 
@@ -93,7 +94,7 @@ def test_apply_ideal_is_clear(fake_tc: _FakeTc) -> None:
 
 
 def test_apply_requires_root(monkeypatch: pytest.MonkeyPatch, fake_tc: _FakeTc) -> None:
-    monkeypatch.setattr(netem_mod.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
     with pytest.raises(PermissionError, match="root"):
         NetemController("veth-ws").apply(NetemScenario(name="d", delay_ms=1))
     assert NetemController("veth-ws").check_permission() is False
@@ -157,6 +158,6 @@ async def test_simulate_outage_injects_full_loss_and_recovers(fake_tc: _FakeTc) 
 async def test_simulate_outage_requires_root(
     monkeypatch: pytest.MonkeyPatch, fake_tc: _FakeTc
 ) -> None:
-    monkeypatch.setattr(netem_mod.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
     with pytest.raises(PermissionError, match="root"):
         await NetemController("veth-ws").simulate_outage(0.01)

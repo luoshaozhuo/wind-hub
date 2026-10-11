@@ -51,9 +51,9 @@ def _assert_healthy_flow(metrics: SoakMetrics, *, min_throughput_ratio: float) -
     )
     assert metrics.points_dropped == 0, f"背压丢弃 {metrics.points_dropped} 点"
     # sink 收到数允许少量尾部差（停引擎时队列中未排空的部分），不允许丢失超 1%。
-    assert metrics.sink_received >= metrics.points_routed * 0.99, (
-        f"sink 收到 {metrics.sink_received} < 路由 {metrics.points_routed} 的 99%"
-    )
+    assert (
+        metrics.sink_received >= metrics.points_routed * 0.99
+    ), f"sink 收到 {metrics.sink_received} < 路由 {metrics.points_routed} 的 99%"
     assert metrics.sink_duplicates == 0, f"sink 收到 {metrics.sink_duplicates} 个重复点"
 
 
@@ -77,9 +77,7 @@ class TestTargetLoad:
     """spec §13 目标负载：100 点 ×10Hz + 500 点 ×1Hz。"""
 
     async def test_target_100x10hz_500x1hz(self) -> None:
-        metrics = await run_soak(
-            PROFILES["target_100x10hz_500x1hz"], duration_s=20.0, warmup_s=4.0
-        )
+        metrics = await run_soak(PROFILES["target_100x10hz_500x1hz"], duration_s=20.0, warmup_s=4.0)
         cycles = _cycles_by_task(metrics)
         assert set(cycles) == {"fast-000", "slow-000"}
 
@@ -88,34 +86,30 @@ class TestTargetLoad:
 
         # 10Hz 任务的节拍精度单独卡严一档：P99 间隔不应超过目标 2 倍。
         fast = cycles["fast-000"]
-        assert fast.interval_p99_s <= 0.2, (
-            f"10Hz 任务 P99 间隔 {fast.interval_p99_s:.3f}s 超过目标 2 倍"
-        )
+        assert (
+            fast.interval_p99_s <= 0.2
+        ), f"10Hz 任务 P99 间隔 {fast.interval_p99_s:.3f}s 超过目标 2 倍"
 
     async def test_multi_device_200(self) -> None:
         """200 台设备规模负载：全部任务都在节拍上、总吞吐达标。"""
-        metrics = await run_soak(
-            PROFILES["multi_device_200"], duration_s=15.0, warmup_s=8.0
-        )
+        metrics = await run_soak(PROFILES["multi_device_200"], duration_s=15.0, warmup_s=8.0)
         assert len(metrics.cycles) == 200
         _assert_cadence(metrics)
         _assert_healthy_flow(metrics, min_throughput_ratio=0.90)
 
     async def test_mixed_read_write(self) -> None:
         """混合读写：采集节拍不受写命令干扰，写命令全部成功。"""
-        metrics = await run_soak(
-            PROFILES["mixed_read_write"], duration_s=15.0, warmup_s=4.0
-        )
+        metrics = await run_soak(PROFILES["mixed_read_write"], duration_s=15.0, warmup_s=4.0)
         _assert_cadence(metrics)
         _assert_healthy_flow(metrics, min_throughput_ratio=0.90)
 
         expected_writes = 15.0 / 0.2  # duration / write_interval_s
-        assert metrics.write_commands >= expected_writes * 0.8, (
-            f"写命令数 {metrics.write_commands} 低于预期 {expected_writes:.0f} 的 80%"
-        )
-        assert metrics.write_failures == 0, (
-            f"{metrics.write_failures}/{metrics.write_commands} 条写命令失败"
-        )
+        assert (
+            metrics.write_commands >= expected_writes * 0.8
+        ), f"写命令数 {metrics.write_commands} 低于预期 {expected_writes:.0f} 的 80%"
+        assert (
+            metrics.write_failures == 0
+        ), f"{metrics.write_failures}/{metrics.write_commands} 条写命令失败"
 
 
 class TestReconnectStorm:
@@ -128,17 +122,16 @@ class TestReconnectStorm:
         metrics = await run_soak(profile, duration_s=38.0, warmup_s=4.0)
 
         assert metrics.reconnect_count >= profile.storm.count, (
-            f"只观测到 {metrics.reconnect_count} 次重连，"
-            f"风暴停起 {profile.storm.count} 次"
+            f"只观测到 {metrics.reconnect_count} 次重连，" f"风暴停起 {profile.storm.count} 次"
         )
         # 风暴期间占空比约 67%（4s 正常 / (4+2)s），吞吐不得跌破一半太多；
         # 关键是风暴后数据仍在流动（周期数远超风暴前的基线部分）。
         _assert_healthy_flow(metrics, min_throughput_ratio=0.40)
         cycles = _cycles_by_task(metrics)["storm-000"]
         expected_if_never_down = 38.0 / 0.2
-        assert cycles.cycles >= expected_if_never_down * 0.4, (
-            f"周期数 {cycles.cycles} 过低——风暴后采集未恢复？"
-        )
+        assert (
+            cycles.cycles >= expected_if_never_down * 0.4
+        ), f"周期数 {cycles.cycles} 过低——风暴后采集未恢复？"
         assert metrics.sink_duplicates == 0
 
 
@@ -168,9 +161,7 @@ class TestNetemScenarios:
         )
         _assert_healthy_flow(metrics, min_throughput_ratio=0.50)
         cycles = _cycles_by_task(metrics)["base-000"]
-        assert cycles.cycles >= (15.0 / 0.2) * 0.4, (
-            f"延迟下周期数 {cycles.cycles} 过低"
-        )
+        assert cycles.cycles >= (15.0 / 0.2) * 0.4, f"延迟下周期数 {cycles.cycles} 过低"
 
     async def test_packet_loss(self, veth) -> None:
         """1% 丢包：TCP 重传兜底，数据完整（零丢弃零重复）、吞吐略降。"""

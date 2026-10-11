@@ -12,26 +12,34 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
 from collector.application.config import CollectorConfig, RuntimeParams
-from core.application.settings import ADSLocalConfig
 from collector.application.config_service import CollectorConfigService
+from core.application.settings import ADSLocalConfig
+from core.domain import DeviceGroupId
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
     make_runtime,
 )
 
-_IDENTITY_A = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
-_IDENTITY_B_NET_ID = ADSLocalConfig(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test")
-_IDENTITY_B_IP = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test")
+_IDENTITY_A = ADSLocalConfig(
+    local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+)
+_IDENTITY_B_NET_ID = ADSLocalConfig(
+    local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test"
+)
+_IDENTITY_B_IP = ADSLocalConfig(
+    local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test"
+)
 
 
 def _service(config: CollectorConfig, candidate: CollectorConfig):
     runtime, _ = make_runtime(config)
-    state = {"config": candidate, "hash": "h2"}
+    state: dict[str, Any] = {"config": candidate, "hash": "h2"}
     service = CollectorConfigService(
         runtime,
         config,
@@ -259,7 +267,11 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
     new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.csv")}
     new_tasks = {
         "t1": CollectionTask(
-            task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
+            task_id="t1",
+            device_group_id=DeviceGroupId("dev1"),
+            point_group="g",
+            interval=2.0,
+            sink_ids=("s1",),
         )
     }
     candidate = replace(config, sinks=new_sinks, tasks=new_tasks)
@@ -273,7 +285,7 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
         return FakeSink()
 
     runtime, _ = make_runtime(config, sinks={"s1": FakeSink()}, sink_factory=flaky_factory)
-    state = {"config": candidate, "hash": "h2"}
+    state: dict[str, Any] = {"config": candidate, "hash": "h2"}
     service = CollectorConfigService(
         runtime,
         config,

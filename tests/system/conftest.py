@@ -11,14 +11,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.support.functional_config import write_functional_config
 from tests.support.process import (
     CollectorProcess,
     free_port,
@@ -49,7 +47,7 @@ async def modbus_server() -> AsyncIterator[ModbusMockServer]:
 @pytest.fixture
 def collector_factory(
     tmp_path: Path,
-) -> AsyncIterator[Callable[..., Awaitable[CollectorProcess]]]:
+) -> Iterator[Callable[..., Awaitable[CollectorProcess]]]:
     """Collector 进程工厂：``await factory(config_dir)`` 返回 gRPC 已就绪的进程。
 
     测试结束后统一优雅停机并回收日志；启动阶段失败（含 gRPC 不就绪）
@@ -84,7 +82,7 @@ def collector_factory(
 @pytest.fixture
 def commander_factory(
     tmp_path: Path,
-) -> AsyncIterator[Callable[..., Awaitable[CollectorProcess]]]:
+) -> Iterator[Callable[..., Awaitable[CollectorProcess]]]:
     """Commander 进程工厂：``await factory(config_dir)`` 返回 gRPC 已就绪的进程。
 
     与 ``collector_factory`` 同生命周期语义：测试结束统一优雅停机，

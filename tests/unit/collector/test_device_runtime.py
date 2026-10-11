@@ -6,6 +6,7 @@ import pytest
 
 from collector.application.config import RuntimeParams
 from collector.application.device_runtime import DeviceRuntime, is_connection_level
+from core.domain.identities import DeviceId
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,
@@ -163,7 +164,7 @@ async def test_close_all_bounds_hung_device_close():
     async def blocked_close() -> None:
         await asyncio.Event().wait()
 
-    hung.close = blocked_close
+    hung.close = blocked_close  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     config1 = make_collector_config(device_id="dev1")
     config2 = make_collector_config(device_id="dev2")
     runtime = DeviceRuntime(
@@ -264,7 +265,7 @@ async def test_rebuild_stops_old_watchdog_and_isolates_state():
     old_watchdog = runtime._watchdogs["dev1"]
     new_proto = CollectorFakeProtocol()
     new_session = make_session(config, new_proto)
-    await runtime.rebuild_device("dev1", config.device_view("dev1"), new_session)
+    await runtime.rebuild_device("dev1", config.device_view(DeviceId("dev1")), new_session)
     assert old_watchdog._task is None
     assert runtime.devices["dev1"] is new_session
     assert metrics.reconnected == []

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 
 from core.application import ProtocolError
+from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver
 
 
@@ -27,15 +27,18 @@ def _frame(
 
 @pytest.mark.parametrize(
     ("cot", "negative", "expected"),
-    [(7, False, None), (7, True, "rejected"), (10, False, "completed"),
-     (10, True, "rejected"), (3, False, None)],
+    [
+        (7, False, None),
+        (7, True, "rejected"),
+        (10, False, "completed"),
+        (10, True, "rejected"),
+        (3, False, None),
+    ],
 )
 def test_interrogation_result_identifies_only_final_states(
     cot: int, negative: bool, expected: str | None
 ) -> None:
-    assert IEC104Driver._interrogation_result(
-        _frame(cot, negative=negative), 1
-    ) == expected
+    assert IEC104Driver._interrogation_result(_frame(cot, negative=negative), 1) == expected
 
 
 def test_interrogation_result_ignores_other_stations_and_types() -> None:
@@ -52,7 +55,7 @@ async def test_raw_interrogation_completion_uses_driver_loop() -> None:
     driver = object.__new__(IEC104Driver)
     driver._closed = False
     driver._loop = asyncio.get_running_loop()
-    driver._config = SimpleNamespace(common_addr=1)
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, common_addr=1)
     connection = object()
     driver._connection = connection
     driver._interrogation_waiter = driver._loop.create_future()
@@ -67,7 +70,7 @@ async def test_raw_interrogation_negative_confirmation_raises() -> None:
     driver = object.__new__(IEC104Driver)
     driver._closed = False
     driver._loop = asyncio.get_running_loop()
-    driver._config = SimpleNamespace(common_addr=1)
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, common_addr=1)
     connection = object()
     driver._connection = connection
     driver._interrogation_waiter = driver._loop.create_future()

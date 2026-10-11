@@ -16,15 +16,17 @@ from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolSample
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
 from core.infrastructure.protocol.iec104 import IEC104Driver
-from core.infrastructure.protocol.iec104.mapping import iec104_point
+from core.infrastructure.protocol.iec104.mapping import IEC104Point, iec104_point
 from tests.fixtures.servers.iec104_control_server import IEC104ControlServer
 from tests.fixtures.servers.iec104_server import IEC104MockServer
 from tests.support.process import free_port
@@ -35,14 +37,14 @@ pytestmark = pytest.mark.real_service
 def _driver(port: int) -> IEC104Driver:
     point = Point(
         point_id="meas",
-        business_point_id="meas",
+        business_point_id=BusinessPointId("meas"),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ,
         ext={"ioa": 100, "type_id": "M_ME_NC_1"},
     )
     return IEC104Driver(
         ConnectionEndpoint("127.0.0.1", port),
-        PointTable("pt", Protocol("iec104"), {"meas": point}),
+        PointTable(PointTableId("pt"), Protocol("iec104"), {"meas": point}),
         {"common_addr": 1, "t1": 1.0, "t2": 1.0, "t3": 2.0},
     )
 
@@ -71,7 +73,9 @@ async def test_double_disconnect_while_connected_is_safe() -> None:
         await server.stop()
 
 
-async def test_cancel_during_active_read_leaves_no_pending_future() -> None:
+async def test_cancel_during_active_read_leaves_no_pending_future(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """主动 C_RD 读在途取消：不得挂起，也不得残留 per-IOA future 泄漏。"""
     server = IEC104MockServer(port=free_port())
     await server.start()
@@ -79,10 +83,10 @@ async def test_cancel_during_active_read_leaves_no_pending_future() -> None:
     await driver.connect()
     try:
         # 让发送成功但响应永不到达，读停留在等待 REQUEST 的在途状态。
-        async def no_response(_mapped: object) -> None:
+        async def no_response(mapped: IEC104Point) -> None:
             return None
 
-        driver._send_read = no_response  # type: ignore[method-assign]
+        monkeypatch.setattr(driver, "_send_read", no_response)
         task = asyncio.create_task(driver.read_one("meas"))
         await asyncio.sleep(0.05)
         task.cancel()
@@ -96,7 +100,9 @@ async def test_cancel_during_active_read_leaves_no_pending_future() -> None:
         await server.stop()
 
 
-async def test_disconnect_during_pending_active_read_rejects_read() -> None:
+async def test_disconnect_during_pending_active_read_rejects_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """在途主动读期间服务端断线：读被显式拒绝，不残留 future/锁引用。"""
     server = IEC104MockServer(port=free_port())
     await server.start()
@@ -105,10 +111,10 @@ async def test_disconnect_during_pending_active_read_rejects_read() -> None:
     try:
         # 让发送成功但响应永不到达，读确定性停留在等待 REQUEST 的在途状态；
         # 故障注入本身是真实的（停止 c104 server，协议栈检测断线）。
-        async def no_response(_mapped: object) -> None:
+        async def no_response(mapped: IEC104Point) -> None:
             return None
 
-        driver._send_read = no_response  # type: ignore[method-assign]
+        monkeypatch.setattr(driver, "_send_read", no_response)
         task = asyncio.create_task(driver.read_one("meas"))
         await asyncio.sleep(0.05)
         assert 100 in driver._active_reads

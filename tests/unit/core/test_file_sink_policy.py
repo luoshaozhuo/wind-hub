@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -31,7 +32,9 @@ def test_exact_size_and_overflow() -> None:
 def test_no_empty_rotation_for_oversized_row() -> None:
     cfg = FileSinkConnection(path="./data", max_size_mb=1)
     assert not should_rotate(
-        cfg, segment(records=False), next_row_bytes=2 * 1024 * 1024,
+        cfg,
+        segment(records=False),
+        next_row_bytes=2 * 1024 * 1024,
         now=datetime(2026, 10, 10, 9, tzinfo=UTC),
     )
 
@@ -39,7 +42,9 @@ def test_no_empty_rotation_for_oversized_row() -> None:
 def test_daily_rotation() -> None:
     cfg = FileSinkConnection(path="./data")
     assert should_rotate(
-        cfg, segment(), next_row_bytes=1,
+        cfg,
+        segment(),
+        next_row_bytes=1,
         now=datetime(2026, 10, 11, tzinfo=UTC),
     )
 
@@ -60,4 +65,5 @@ def test_retention_only_selects_old_archives() -> None:
 )
 def test_invalid_config(options: dict[str, object]) -> None:
     with pytest.raises((ValidationError, ConfigError)):
-        FileSinkConnection(**({"path": "./data"} | options))
+        params: dict[str, Any] = {"path": "./data"} | options
+        FileSinkConnection(**params)

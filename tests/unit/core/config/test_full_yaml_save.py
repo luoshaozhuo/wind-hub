@@ -12,8 +12,13 @@ ROOT = Path(__file__).resolve().parents[4]
 def test_full_yaml_save_load_round_trip(tmp_path: Path) -> None:
     source = ROOT / "configs" / "example_modbus"
     for name in (
-        "system.yaml", "device_models.yaml", "devices.yaml", "points.yaml",
-        "business_points.yaml", "tasks.yaml", "sinks.yaml",
+        "system.yaml",
+        "device_models.yaml",
+        "devices.yaml",
+        "points.yaml",
+        "business_points.yaml",
+        "tasks.yaml",
+        "sinks.yaml",
     ):
         copy2(source / name, tmp_path / name)
     adapter = YamlConfigAdapter(tmp_path)

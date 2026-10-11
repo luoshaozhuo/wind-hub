@@ -19,10 +19,12 @@ from core.application.protocol_contract import ProtocolWrite
 from core.application.watchdog import WatchdogUseCase
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -62,7 +64,7 @@ def _point(
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext={
@@ -87,7 +89,7 @@ def _table() -> PointTable:
         _point("ir.float", "input", _IR_FLOAT, "float32", PointAccess.READ),
         _point("hr.oob", "holding", _HR_OOB, "uint16"),
     ]
-    return PointTable("pt", Protocol("modbus"), {p.point_id: p for p in points})
+    return PointTable(PointTableId("pt"), Protocol("modbus"), {p.point_id: p for p in points})
 
 
 def _datastore(hr_overrides: dict[int, int] | None = None):
@@ -124,9 +126,7 @@ def _datastore(hr_overrides: dict[int, int] | None = None):
 async def _start_server(port: int, hr_overrides: dict[int, int] | None = None):
     from pymodbus.server import ModbusTcpServer
 
-    server = ModbusTcpServer(
-        _datastore(hr_overrides), address=("127.0.0.1", port)
-    )
+    server = ModbusTcpServer(_datastore(hr_overrides), address=("127.0.0.1", port))
     await server.serve_forever(background=True)
     return server
 
@@ -298,11 +298,9 @@ class _SilentServer:
 
     async def start(self) -> int:
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
-        return self._server.sockets[0].getsockname()[1]
+        return int(self._server.sockets[0].getsockname()[1])
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             while True:
                 header = await reader.readexactly(7)  # MBAP 头

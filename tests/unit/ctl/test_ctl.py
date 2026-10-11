@@ -52,9 +52,7 @@ def test_parser_uses_separate_collector_and_commander_targets() -> None:
 
 def test_parser_decodes_write_scalar() -> None:
     """write 标量优先按 JSON scalar 解析。"""
-    args = build_parser().parse_args(
-        ["commander", "write", "dev1", "p1", "12.5"]
-    )
+    args = build_parser().parse_args(["commander", "write", "dev1", "p1", "12.5"])
 
     assert args.value == 12.5
 
@@ -79,9 +77,7 @@ async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
             return {"command_id": "failed", "success": False, "error": "offline"}
 
     monkeypatch.setattr(cli, "CommanderClient", FailedClient)
-    args = cli.build_parser().parse_args(
-        ["commander", "write", "dev1", "p1", "12"]
-    )
+    args = cli.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
 
     assert await cli._run(args) == 2
     assert '"success": false' in capsys.readouterr().out
@@ -107,8 +103,6 @@ async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> N
             return {"results": [{"success": True}, {"success": False}]}
 
     monkeypatch.setattr(cli, "CommanderClient", PartialClient)
-    args = cli.build_parser().parse_args(
-        ["commander", "write-many", "--item", "dev1", "p1", "1"]
-    )
+    args = cli.build_parser().parse_args(["commander", "write-many", "--item", "dev1", "p1", "1"])
 
     assert await cli._run(args) == 2

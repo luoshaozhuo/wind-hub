@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from collector.application.errors import SinkError
-from core.domain.point_value import PointValue
 from collector.infrastructure.sink.file.csv import FileSink
 from core.domain import Sink
+from core.domain.point_value import PointValue
 
 
 def make_sink(path: Path, *, max_size_mb: float = 100, max_files: int = 30) -> FileSink:

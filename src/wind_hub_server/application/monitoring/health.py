@@ -159,9 +159,7 @@ class SystemHealthService:
         first_free = rows[0].disk_free_gb if rows else None
         last_free = rows[-1].disk_free_gb if rows else None
         hours = (
-            (rows[-1].timestamp - rows[0].timestamp).total_seconds() / 3600
-            if len(rows) > 1
-            else 0
+            (rows[-1].timestamp - rows[0].timestamp).total_seconds() / 3600 if len(rows) > 1 else 0
         )
         root_growth_24h = None
         if first_free is not None and last_free is not None and hours > 0:

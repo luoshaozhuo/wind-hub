@@ -7,17 +7,18 @@ Sink.write → store 的端到端内存路径。
 from __future__ import annotations
 
 import dataclasses
+from typing import Literal
 
 import pytest
 
 from collector.application.sink_export import ExportedSinkPointValue
-from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.sink import ModbusSink
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import Quality
 from core.domain import Sink
+from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,
     ModbusSinkConnection,
@@ -33,11 +34,11 @@ def _point(
     datatype: str = "float32",
     scale: float = 1.0,
     offset: float = 0.0,
-    register_type: str = "holding",
+    register_type: Literal["holding", "input", "coil", "discrete"] = "holding",
     address: int = 100,
     unit_id: int = 1,
-    byte_order: str = "big",
-    word_order: str = "big",
+    byte_order: Literal["big", "little"] = "big",
+    word_order: Literal["big", "little"] = "big",
 ) -> ResolvedSinkPoint:
     return ResolvedSinkPoint(
         source=SinkSource(device_id=device_id, point_id=point_id),
@@ -166,7 +167,9 @@ def _sink_config(**conn: object) -> Sink:
 
 def test_sink_requires_modbus_connection() -> None:
     with pytest.raises(ValueError):
-        ModbusSink(Sink(sink_id="mb", kind="modbus", enabled=True, connection={"path": "/tmp/x.csv"}))
+        ModbusSink(
+            Sink(sink_id="mb", kind="modbus", enabled=True, connection={"path": "/tmp/x.csv"})
+        )
 
 
 async def test_sink_write_flows_to_store_without_network() -> None:

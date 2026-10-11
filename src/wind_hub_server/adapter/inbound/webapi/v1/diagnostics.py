@@ -114,9 +114,7 @@ async def diagnostic_point_table(
     try:
         operation = common.diagnostics(ctx).start_point_table_test(request.device_id)
     except KeyError:
-        raise APIError(
-            "NOT_FOUND", f"unknown device '{request.device_id}'", 404
-        ) from None
+        raise APIError("NOT_FOUND", f"unknown device '{request.device_id}'", 404) from None
     return common.operation_response(operation)
 
 
@@ -129,7 +127,5 @@ async def diagnostic_protocol_write(
     request: ProtocolWriteRequest,
     ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
-    result = await common.diagnostics(ctx).write(
-        request.device_id, request.point_id, request.value
-    )
+    result = await common.diagnostics(ctx).write(request.device_id, request.point_id, request.value)
     return DeviceCommandResponse(**result.model_dump())

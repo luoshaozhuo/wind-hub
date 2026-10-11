@@ -229,7 +229,7 @@ class TestDynamicWrite:
         driver = _driver({"h": _point("h", "holding", 200)}, client)
 
         with pytest.raises(TypeError, match="does not take a separate value"):
-            await driver.write_one(ProtocolWrite("h", 3), 4)  # type: ignore[call-overload]
+            await driver.write_one(ProtocolWrite("h", 3), 4)
 
         assert client.total_write_calls() == 0
 
@@ -240,7 +240,7 @@ class TestDynamicWrite:
         dynamic = modbus_point("dyn", register_type="holding", address=300, data_type="int16")
 
         with pytest.raises(TypeError, match="requires an explicit value"):
-            await driver.write_one(dynamic)  # type: ignore[call-overload]
+            await driver.write_one(dynamic)
 
         assert client.total_write_calls() == 0
 

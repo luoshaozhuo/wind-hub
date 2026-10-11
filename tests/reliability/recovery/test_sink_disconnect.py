@@ -66,9 +66,7 @@ class TestRedisOutageRecovery:
         observer = RedisFlowObserver(redis_service, ROTOR_KEY)
         try:
             # ---- 正常：点值持续写入 Redis（timestamp 随采集周期推进） ----
-            await start_task_instance(
-                proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-            )
+            await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
             baseline = await wait_redis_value(redis_service, ROTOR_KEY)
             assert baseline["value"] == pytest.approx(1200.5)
             assert await observer.count_during(2.0) > 0

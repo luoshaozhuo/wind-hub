@@ -75,9 +75,7 @@ class MonitoringMetrics:
             self._connect_failures = counters.connect_failures
             self._reconnects = counters.reconnects
 
-            self._device_connect_failures = defaultdict(
-                int, snapshot.device_connect_failures
-            )
+            self._device_connect_failures = defaultdict(int, snapshot.device_connect_failures)
             self._device_reconnects = defaultdict(int, snapshot.device_reconnects)
 
             self._events.clear()
@@ -95,7 +93,6 @@ class MonitoringMetrics:
         """返回时间窗口内的事件，最新在前。"""
         with self._lock:
             return [event for event in reversed(self._events) if event.timestamp >= since]
-
 
 
 class MonitoringService:

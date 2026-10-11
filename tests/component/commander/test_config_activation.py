@@ -18,16 +18,22 @@ import pytest
 
 from commander.application.command import Command
 from commander.application.config import CommanderConfig
-from core.application.settings import ADSLocalConfig
 from commander.application.diagnostic import CommanderDiagnosticService
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
 from core.application import ProtocolWriteResult
+from core.application.settings import ADSLocalConfig
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
-_IDENTITY_A = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
-_IDENTITY_B_NET_ID = ADSLocalConfig(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test")
-_IDENTITY_B_IP = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test")
+_IDENTITY_A = ADSLocalConfig(
+    local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+)
+_IDENTITY_B_NET_ID = ADSLocalConfig(
+    local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test"
+)
+_IDENTITY_B_IP = ADSLocalConfig(
+    local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test"
+)
 
 _ADS_ADDRESS = {"symbol": "MAIN.value", "data_type": "float32"}
 
@@ -45,7 +51,7 @@ def _runtime(
     return CommanderRuntime(
         config or make_commander_config(),
         config_hash="hash-a",
-        protocol_registry=registry or FakeRegistry(),  # type: ignore[arg-type]
+        protocol_registry=registry or FakeRegistry(),
         prepare_protocols=_prepare if prepare_calls is not None else None,
     )
 
@@ -115,7 +121,7 @@ async def test_startup_write_timeout_applies_to_default_command_timeout():
         await asyncio.sleep(5)
         return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
@@ -132,7 +138,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
         await asyncio.sleep(0.2)
         return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
 
     timed_out = await dispatcher.send(
@@ -144,7 +150,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     await runtime.prepare_config("r2", make_commander_config(write_timeout=5.0), "hash-b")
     await runtime.activate_config("r2")
     # reload 后新 operation 使用新 generation 的 write_timeout——不再用启动值。
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     completed = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
@@ -160,7 +166,7 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
         await asyncio.sleep(0.1)
         return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
 
     # 固定旧 generation；期间 activate 一个 write_timeout 极小的新配置。
@@ -174,7 +180,7 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
         assert result.success
 
     # pin 结束后，新操作使用新 generation 的小超时。
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     result = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
@@ -191,7 +197,7 @@ async def test_explicit_command_timeout_takes_precedence():
         await asyncio.sleep(0.1)
         return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
 
-    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[attr-defined]
+    runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=5.0)
@@ -218,7 +224,7 @@ class _FakeProbe:
         self.connected = False
 
     async def resolve(self, point):
-        from commander.application.diagnostic import ResolvedAddress
+        from core.domain.diagnostic import ResolvedAddress
 
         self.resolved.append(point.point_id)
         return ResolvedAddress(

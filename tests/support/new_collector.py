@@ -92,9 +92,10 @@ class CollectorFakeProtocol(FakeProtocol):
 class CollectorFakeRegistry(FakeRegistry):
     """产出 CollectorFakeProtocol 的注册表替身。"""
 
+    # list 不变性：收窄基类 instances 元素类型需要显式忽略
     instances: list[CollectorFakeProtocol]  # type: ignore[assignment]
 
-    def create(self, endpoint, point_table, protocol_options_by_device):  # type: ignore[no-untyped-def]
+    def create(self, endpoint, point_table, protocol_options_by_device):
         instance = CollectorFakeProtocol()
         self.instances.append(instance)
         return instance
@@ -179,24 +180,22 @@ def make_collector_config(
         points={"p1": point},
     )
     group_ids = (DeviceGroupId(device_group or device_id),)
-    device_indexes = {
-        "device_models": {
-            DeviceModelId("mod"): DeviceModel(
-                device_model_id=DeviceModelId("mod"),
-                device_type_id=DeviceTypeId("turbine"),
-                point_table_id=PointTableId("tab"),
-            )
-        },
-        "devices": {
-            DeviceId(device_id): Device(
-                device_id=DeviceId(device_id),
-                device_model_id=DeviceModelId("mod"),
-                endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
-                device_group_ids=group_ids,
-            )
-        },
-        "point_tables": {PointTableId("tab"): table},
+    device_models = {
+        DeviceModelId("mod"): DeviceModel(
+            device_model_id=DeviceModelId("mod"),
+            device_type_id=DeviceTypeId("turbine"),
+            point_table_id=PointTableId("tab"),
+        )
     }
+    devices = {
+        DeviceId(device_id): Device(
+            device_id=DeviceId(device_id),
+            device_model_id=DeviceModelId("mod"),
+            endpoint=ConnectionEndpoint(host="127.0.0.1", port=502),
+            device_group_ids=group_ids,
+        )
+    }
+    point_tables = {PointTableId("tab"): table}
     if tasks is None:
         tasks = {
             "t1": CollectionTask(
@@ -208,7 +207,9 @@ def make_collector_config(
             )
         }
     return CollectorConfig(
-        **device_indexes,
+        device_models=device_models,
+        devices=devices,
+        point_tables=point_tables,
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
         sinks=sinks or {},
@@ -254,7 +255,7 @@ def make_runtime(
         return CollectorDeviceSession(
             view.device,
             view.point_table,
-                registry.create(view.device.endpoint, view.point_table, view.options),
+            registry.create(view.device.endpoint, view.point_table, view.options),
             subscribe_enabled=view.subscribe_enabled,
         )
 

@@ -55,6 +55,7 @@ class SettingsService:
 
     async def update(self, request: SettingsUpdate) -> ConfigApplyResult:
         """只修改 system.yaml 对应字段，其余字段保持当前已提交内容。"""
+
         def mutate(documents: dict[str, dict[str, object]]) -> None:
             raw = documents["system.yaml"]
             raw["site"] = {"site_id": request.site_id, "name": request.site_name}

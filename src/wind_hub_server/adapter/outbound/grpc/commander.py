@@ -10,7 +10,6 @@ from collections.abc import Iterable
 from typing import Any
 
 from google.protobuf import empty_pb2
-
 from wind_hub_core.model.command import Command, CommandResult
 from wind_hub_core.model.point import PointValue
 from wind_hub_core.rpc import commander_pb2 as pb
@@ -21,6 +20,7 @@ from wind_hub_core.rpc.commander_io_codec import (
     decode_scalar,
     point_value_from_proto,
 )
+
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
 from wind_hub_server.application.port.worker import (
     CommanderStatus,
@@ -43,9 +43,7 @@ def _point_verify_dto(message: pb.PointVerifyResponse) -> PointVerifyResult:
     readable = message.readable.value if message.HasField("readable") else None
     raw_value = decode_scalar(message.raw_value) if message.HasField("raw_value") else None
     engineering_value = (
-        decode_scalar(message.engineering_value)
-        if message.HasField("engineering_value")
-        else None
+        decode_scalar(message.engineering_value) if message.HasField("engineering_value") else None
     )
     return PointVerifyResult(
         device_id=message.device_id,
@@ -54,9 +52,7 @@ def _point_verify_dto(message: pb.PointVerifyResponse) -> PointVerifyResult:
         protocol=message.protocol,
         configured_address=_address_dict(message.configured_address),
         resolved_address=(
-            _address_dict(message.resolved_address)
-            if message.resolved_address
-            else None
+            _address_dict(message.resolved_address) if message.resolved_address else None
         ),
         data_type=message.data_type,
         scale=message.scale,

@@ -15,11 +15,11 @@ from pathlib import Path
 import grpc
 import pytest
 
+from core.infrastructure.rpc import commander_pb2 as pb
+from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.support.config_helper import write_config_tree
 from tests.support.process import CollectorProcess
-from core.infrastructure.rpc import commander_pb2 as pb
-from core.infrastructure.rpc import commander_pb2_grpc as pb_grpc
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
 
@@ -36,7 +36,7 @@ _COMMANDER_POINTS: list[dict[str, object]] = [
 
 def _decode_float32(registers: list[int]) -> float:
     """按 big-endian float32 解码两个 16 位寄存器。"""
-    return struct.unpack(">f", struct.pack(">HH", registers[0], registers[1]))[0]
+    return float(struct.unpack(">f", struct.pack(">HH", registers[0], registers[1]))[0])
 
 
 async def _write_point_rpc(
@@ -51,7 +51,7 @@ async def _write_point_rpc(
     channel = grpc.aio.insecure_channel(target)
     try:
         stub = pb_grpc.CommanderServiceStub(channel)
-        return await stub.WritePoint(
+        response: pb.CommandResultMessage = await stub.WritePoint(
             pb.WritePointRequest(
                 command_id=command_id,
                 device_id=device_id,
@@ -61,6 +61,7 @@ async def _write_point_rpc(
             ),
             timeout=10.0,
         )
+        return response
     finally:
         await channel.close()
 
@@ -154,7 +155,6 @@ class TestWriteIdempotency:
         assert result.success
         assert result.command_id != ""
         assert server.write_count == 1
-
 
     async def test_same_command_id_with_different_value_is_rejected(
         self, idem_env: tuple[CollectorProcess, ModbusMockServer]

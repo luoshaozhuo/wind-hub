@@ -12,6 +12,7 @@ from collector.application.services import (
     CollectorTaskService,
 )
 from collector.application.task_instance import TaskInstanceState
+from core.domain.identities import DeviceGroupId
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
@@ -138,7 +139,7 @@ async def test_task_service_disabled_task_cannot_start():
         tasks={
             "t1": CollectionTask(
                 task_id="t1",
-                device_group_id="dev1",
+                device_group_id=DeviceGroupId("dev1"),
                 point_group="g",
                 interval=1.0,
                 sink_ids=("s1",),

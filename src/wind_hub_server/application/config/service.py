@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from wind_hub_core.config import Config, compute_diff, fingerprint_config_set, load_config
 from wind_hub_core.model.reload import ConfigDiff, ReloadResult
+
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
 from wind_hub_server.application.port.worker import (
     CollectorInfo,
@@ -105,9 +106,7 @@ class ConfigService:
                 f"before={before_hash} after={config_hash}"
             )
         if compute_diff(self._current, candidate).has_any_changes:
-            raise ValueError(
-                "current config differs from disk while initializing desired revision"
-            )
+            raise ValueError("current config differs from disk while initializing desired revision")
         self._desired_revision = f"bootstrap-{config_hash}"
         self._desired_config_hash = config_hash
 
@@ -255,9 +254,7 @@ class ConfigService:
         prepare_ok: list[bool] = []
         for name, result in zip(participant_ids, prepared, strict=True):
             if isinstance(result, BaseException):
-                errors.append(
-                    f"{name} prepare failed: {str(result) or type(result).__name__}"
-                )
+                errors.append(f"{name} prepare failed: {str(result) or type(result).__name__}")
                 prepare_ok.append(False)
                 continue
             success = result.success
@@ -265,8 +262,7 @@ class ConfigService:
             if success and remote_hash != config_hash:
                 success = False
                 errors.append(
-                    f"{name} prepare hash mismatch: "
-                    f"expected={config_hash} actual={remote_hash}"
+                    f"{name} prepare hash mismatch: " f"expected={config_hash} actual={remote_hash}"
                 )
             prepare_ok.append(success)
             if not success:
@@ -370,8 +366,7 @@ class ConfigService:
                 os.replace(temp, path)
         except Exception as exc:
             errors.append(
-                "restore applied config files failed: "
-                + (str(exc) or type(exc).__name__)
+                "restore applied config files failed: " + (str(exc) or type(exc).__name__)
             )
         return errors
 
@@ -411,9 +406,7 @@ class ConfigService:
         errors: list[str] = []
         for name, result in zip(participant_ids, results, strict=True):
             if isinstance(result, BaseException):
-                errors.append(
-                    f"{name} abort failed: {str(result) or type(result).__name__}"
-                )
+                errors.append(f"{name} abort failed: {str(result) or type(result).__name__}")
                 continue
             if not result.success:
                 errors.append(f"{name} abort failed")
@@ -423,37 +416,23 @@ class ConfigService:
         """按 revision + config hash 把全部 Worker 收敛到 desired 配置。"""
         participant_ids = self._participant_ids()
         if not self._accept_transactions:
-            return {
-                participant_id: "transactions-closed"
-                for participant_id in participant_ids
-            }
+            return {participant_id: "transactions-closed" for participant_id in participant_ids}
         async with self._transaction_lock:
             if not self._accept_transactions:
-                return {
-                    participant_id: "transactions-closed"
-                    for participant_id in participant_ids
-                }
+                return {participant_id: "transactions-closed" for participant_id in participant_ids}
             revision_id = self._desired_revision
             config_hash = self._desired_config_hash
             if revision_id is None or config_hash is None:
-                return {
-                    participant_id: "no-desired-revision"
-                    for participant_id in participant_ids
-                }
+                return {participant_id: "no-desired-revision" for participant_id in participant_ids}
 
             statuses = await asyncio.gather(
-                *(
-                    self._status_participant(participant_id)
-                    for participant_id in participant_ids
-                ),
+                *(self._status_participant(participant_id) for participant_id in participant_ids),
                 return_exceptions=True,
             )
             outcomes: dict[str, str] = {}
             for name, status in zip(participant_ids, statuses, strict=True):
                 if isinstance(status, BaseException):
-                    outcomes[name] = (
-                        "status-error:" + (str(status) or type(status).__name__)
-                    )
+                    outcomes[name] = "status-error:" + (str(status) or type(status).__name__)
                     continue
                 active_revision = status.active_revision
                 active_hash = _active_config_hash(status)
@@ -501,8 +480,7 @@ class ConfigService:
                 return "reconciled"
             if confirm_error is not None:
                 return (
-                    "activate-unknown:"
-                    f"{str(exc) or type(exc).__name__}; status={confirm_error}"
+                    "activate-unknown:" f"{str(exc) or type(exc).__name__}; status={confirm_error}"
                 )
             return "activate-failed:" + (str(exc) or type(exc).__name__)
 
@@ -527,8 +505,7 @@ class ConfigService:
             return False, str(exc) or type(exc).__name__
 
         return (
-            status.active_revision == revision_id
-            and _active_config_hash(status) == config_hash
+            status.active_revision == revision_id and _active_config_hash(status) == config_hash
         ), None
 
     def _participant_ids(self) -> list[str]:

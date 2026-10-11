@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -41,7 +42,7 @@ class _Endpoint:
         self.callback_count += 1
 
 
-def _watchdog(endpoint: _Endpoint, **kwargs: object) -> WatchdogUseCase:
+def _watchdog(endpoint: _Endpoint, **kwargs: Any) -> WatchdogUseCase:
     return WatchdogUseCase(
         health=endpoint.health,
         close=endpoint.close,

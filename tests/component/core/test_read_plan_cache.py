@@ -8,10 +8,12 @@ import pytest
 
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -27,13 +29,13 @@ class _StubClient:
 
 def _point(
     point_id: str,
-    ext: dict[str, object],
+    ext: dict[str, str | int | float | bool | None],
     *,
     access: PointAccess = PointAccess.READ_WRITE,
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext=ext,
@@ -47,7 +49,7 @@ def test_modbus_reuses_plan_and_caps_dynamic_cache():
     }
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), points),
+        PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
     first = driver._read_plan(("p0", "p1"))
@@ -66,7 +68,7 @@ async def test_ads_sum_plan_reuses_groups_and_invalidates_on_session_reset(monke
     }
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads", Protocol("ads"), points),
+        PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
     driver._connection = object()
@@ -100,7 +102,7 @@ async def test_modbus_internal_values_and_wrapped_samples(monkeypatch):
     point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), {"p0": point}),
+        PointTable(PointTableId("mb"), Protocol("modbus"), {"p0": point}),
         {},
     )
     driver._client = _StubClient()
@@ -126,7 +128,7 @@ async def test_modbus_read_many_preserves_bad_quality(monkeypatch):
     point = _point("p0", {"register_type": "holding", "address": 10, "data_type": "uint16"})
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), {"p0": point}),
+        PointTable(PointTableId("mb"), Protocol("modbus"), {"p0": point}),
         {},
     )
     driver._client = _StubClient()
@@ -151,7 +153,7 @@ async def test_ads_internal_values_and_wrapped_samples_preserve_bad(monkeypatch)
     }
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads", Protocol("ads"), points),
+        PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
     driver._connection = object()
@@ -188,7 +190,7 @@ async def test_modbus_accepts_tuple_register_buffer_without_copying():
     }
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), points),
+        PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
 
@@ -229,7 +231,7 @@ def test_modbus_read_plan_precomputes_register_ranges():
     }
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), points),
+        PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
     first = driver._read_plan(("x", "y", "z"))
@@ -248,7 +250,7 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
     }
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads", Protocol("ads"), points),
+        PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
     driver._connection = object()
@@ -256,7 +258,7 @@ async def test_ads_sum_read_survives_point_table_reload_mid_flight(monkeypatch):
 
     def _read(_addresses):
         # 模拟在途读期间发生热重载：读计划缓存被整体清空。
-        driver.update_point_table(PointTable("ads", Protocol("ads"), points))
+        driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
         return struct.pack("<Ii", 0, 11)
 
     monkeypatch.setattr(driver, "_sum_read_bytes", _read)
@@ -281,7 +283,7 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch
     }
     driver = ADSDriver(
         ConnectionEndpoint("127.0.0.1", 801),
-        PointTable("ads", Protocol("ads"), points),
+        PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
 
@@ -294,7 +296,7 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch
 
     def _read(_addresses):
         # sum read 返回前发生热重载：两份读缓存都被清空。
-        driver.update_point_table(PointTable("ads", Protocol("ads"), points))
+        driver.update_point_table(PointTable(PointTableId("ads"), Protocol("ads"), points))
         return struct.pack("<Ii", 0, 11)
 
     monkeypatch.setattr(driver, "_sum_read_bytes", _read)
@@ -316,11 +318,11 @@ def test_modbus_plan_cache_invalidates_on_point_table_update():
     }
     driver = ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("mb", Protocol("modbus"), points),
+        PointTable(PointTableId("mb"), Protocol("modbus"), points),
         {},
     )
     assert driver._read_plan(("p0",))
     assert driver._read_plan_cache
 
-    driver.update_point_table(PointTable("mb", Protocol("modbus"), points))
+    driver.update_point_table(PointTable(PointTableId("mb"), Protocol("modbus"), points))
     assert driver._read_plan_cache == {}

@@ -13,10 +13,12 @@ from core.application.errors import ProtocolConnectionError, ProtocolError
 from core.application.protocol_contract import ProtocolWrite, Quality
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -71,8 +73,8 @@ class _Client:
         self.write_registers_calls: list[tuple[int, list[int]]] = []
         self.close_calls = 0
         self.response = _Response()
-        self.read_error: Exception | None = None
-        self.write_error: Exception | None = None
+        self.read_error: BaseException | None = None
+        self.write_error: BaseException | None = None
         self.write_response_error = False
         self.connected = True
 
@@ -80,7 +82,7 @@ class _Client:
         self.close_calls += 1
         self.connected = False
 
-    async def _maybe_raise(self, error: Exception | None) -> None:
+    async def _maybe_raise(self, error: BaseException | None) -> None:
         if error is not None:
             raise error
 
@@ -90,9 +92,7 @@ class _Client:
         await self._maybe_raise(self.read_error)
         return self.response
 
-    async def read_discrete_inputs(
-        self, address: int, *, count: int, device_id: int
-    ) -> _Response:
+    async def read_discrete_inputs(self, address: int, *, count: int, device_id: int) -> _Response:
         assert device_id == 1
         self.read_discrete_calls.append((address, count))
         await self._maybe_raise(self.read_error)
@@ -106,9 +106,7 @@ class _Client:
         await self._maybe_raise(self.read_error)
         return self.response
 
-    async def read_input_registers(
-        self, address: int, *, count: int, device_id: int
-    ) -> _Response:
+    async def read_input_registers(self, address: int, *, count: int, device_id: int) -> _Response:
         assert device_id == 1
         self.read_input_calls.append((address, count))
         await self._maybe_raise(self.read_error)
@@ -158,7 +156,7 @@ def _driver(
 ) -> ModbusDriver:
     driver = object.__new__(ModbusDriver)
     driver._config = parse_modbus_config(ConnectionEndpoint("192.0.2.10", 502), {})
-    driver._point_table_id = "test"
+    driver._point_table_id = PointTableId("test")
     driver._points = points
     driver._read_plan_cache = {}
     driver._client = client
@@ -194,9 +192,7 @@ class TestReadOne:
     async def test_read_discrete_input(self) -> None:
         client = _Client()
         client.response = _Response(bits=[False])
-        driver = _driver(
-            {"d": _point("d", "discrete_input", 7, data_type="bool")}, client
-        )
+        driver = _driver({"d": _point("d", "discrete_input", 7, data_type="bool")}, client)
 
         sample = await driver.read_one("d")
 
@@ -219,9 +215,7 @@ class TestReadOne:
         """float32 占 2 个寄存器，仍只属于一次 read_one 请求。"""
         client = _Client()
         client.response = _Response(registers=_float32_registers(42.5))
-        driver = _driver(
-            {"f": _point("f", "input", 200, count=2, data_type="float32")}, client
-        )
+        driver = _driver({"f": _point("f", "input", 200, count=2, data_type="float32")}, client)
 
         sample = await driver.read_one("f")
 
@@ -376,12 +370,12 @@ class TestReadMany:
 
         point = Point(
             point_id="h",
-            business_point_id="h",
+            business_point_id=BusinessPointId("h"),
             source_unit=UNIT_CATALOG[UnitCode.NONE],
             access=PointAccess.READ,
             ext={"register_type": "holding", "address": 100, "data_type": "uint16"},
         )
-        driver.update_point_table(PointTable("pt", Protocol("modbus"), {"h": point}))
+        driver.update_point_table(PointTable(PointTableId("pt"), Protocol("modbus"), {"h": point}))
         assert driver._read_plan_cache == {}
 
     @pytest.mark.asyncio
@@ -465,9 +459,7 @@ class TestWriteOne:
     async def test_write_multi_register_point_uses_single_fc16(self) -> None:
         """float32 逻辑点用一次 write_registers(FC16) 写入。"""
         client = _Client()
-        driver = _driver(
-            {"f": _point("f", "holding", 300, count=2, data_type="float32")}, client
-        )
+        driver = _driver({"f": _point("f", "holding", 300, count=2, data_type="float32")}, client)
 
         result = await driver.write_one(ProtocolWrite("f", 42.5))
 
@@ -614,7 +606,7 @@ class TestCancellationState:
 def _domain_point(point_id: str, address: int) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={"register_type": "holding", "address": address, "data_type": "uint16"},
@@ -629,7 +621,7 @@ class TestPointTableHotUpdate:
     def _updatable_driver(points: list[Point], client: _Client) -> ModbusDriver:
         driver = ModbusDriver(
             ConnectionEndpoint("192.0.2.10", 502),
-            PointTable("pt", Protocol("modbus"), {p.point_id: p for p in points}),
+            PointTable(PointTableId("pt"), Protocol("modbus"), {p.point_id: p for p in points}),
             {},
         )
         driver._client = client
@@ -643,7 +635,7 @@ class TestPointTableHotUpdate:
         driver = self._updatable_driver([_domain_point("h", 100)], client)
 
         driver.update_point_table(
-            PointTable("pt", Protocol("modbus"), {"h": _domain_point("h", 200)})
+            PointTable(PointTableId("pt"), Protocol("modbus"), {"h": _domain_point("h", 200)})
         )
         await driver.read_one("h")
 
@@ -655,7 +647,7 @@ class TestPointTableHotUpdate:
         driver = self._updatable_driver([_domain_point("h", 100)], client)
 
         driver.update_point_table(
-            PointTable("pt", Protocol("modbus"), {"h": _domain_point("h", 200)})
+            PointTable(PointTableId("pt"), Protocol("modbus"), {"h": _domain_point("h", 200)})
         )
         await driver.write_one(ProtocolWrite("h", 10))
 
@@ -666,7 +658,7 @@ class TestPointTableHotUpdate:
         client = _Client()
         driver = self._updatable_driver([_domain_point("h", 100)], client)
 
-        driver.update_point_table(PointTable("pt", Protocol("modbus"), {}))
+        driver.update_point_table(PointTable(PointTableId("pt"), Protocol("modbus"), {}))
         with pytest.raises(ConfigError, match="not part of connection"):
             await driver.read_one("h")
         with pytest.raises(ConfigError, match="not part of connection"):
@@ -706,7 +698,7 @@ def test_write_groups_option_is_rejected() -> None:
     with pytest.raises(ConfigError, match="unknown Modbus options"):
         parse_modbus_config(
             ConnectionEndpoint("192.0.2.10", 502),
-            {"write_groups": [["a", "b"]]},
+            {"write_groups": [["a", "b"]]},  # type: ignore[dict-item]  # 故意传入非法嵌套结构以验证 unknown option 拒绝
         )
 
 

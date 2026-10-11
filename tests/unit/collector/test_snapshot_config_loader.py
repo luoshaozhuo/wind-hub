@@ -18,9 +18,7 @@ def test_collector_loads_domain_snapshot(tmp_path: Path) -> None:
     assert config.point_tables == snapshot.point_tables
     assert set(config.sinks) == set(snapshot.sinks)
     assert config.devices == {
-        device_id: device
-        for device_id, device in snapshot.site.devices.items()
-        if device.enabled
+        device_id: device for device_id, device in snapshot.site.devices.items() if device.enabled
     }
 
 

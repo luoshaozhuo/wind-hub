@@ -71,9 +71,7 @@ class AdminStateService:
         def mutate(documents: dict[str, dict[str, Any]]) -> None:
             documents["devices.yaml"] = self._devices_document(devices)
             documents["tasks.yaml"] = self._tasks_document(tasks)
-            documents["sinks.yaml"] = {
-                "sinks": [item.model_dump(mode="json") for item in sinks]
-            }
+            documents["sinks.yaml"] = {"sinks": [item.model_dump(mode="json") for item in sinks]}
             documents.update(self._definition_documents(definitions))
 
         return await self._admin.mutate_yaml_files(

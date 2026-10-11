@@ -6,8 +6,8 @@ import asyncio
 from typing import Any
 
 from pydantic import BaseModel
-
 from wind_hub_core.model.point import PointValue
+
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.device.command import (
     DeviceCommandResult,
@@ -130,10 +130,7 @@ class DiagnosticService:
         device = cfg.devices.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        point_ids = [
-            point.point_id
-            for point in cfg.point_tables[device.point_table].points
-        ]
+        point_ids = [point.point_id for point in cfg.point_tables[device.point_table].points]
         operation = self._operations.create(
             "diagnostics.point_table",
             total=len(point_ids),
@@ -209,9 +206,7 @@ class DiagnosticService:
         try:
             for index in range(0, len(ips), 64):
                 chunk = ips[index : index + 64]
-                rows = await asyncio.gather(
-                    *(self._scan_host(ip, timeout, ports) for ip in chunk)
-                )
+                rows = await asyncio.gather(*(self._scan_host(ip, timeout, ports) for ip in chunk))
                 hosts.extend(row for row in rows if row is not None)
                 self._operations.update_progress(
                     operation_id,

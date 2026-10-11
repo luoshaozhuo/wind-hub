@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from collector.application.config import CollectionTask
 from collector.application.config_service import CollectorConfigService
+from core.domain import DeviceGroupId
 from tests.support.new_collector import make_collector_config, make_runtime
 
 
@@ -11,7 +14,7 @@ def _service(config=None, runtime=None):
     config = config or make_collector_config()
     if runtime is None:
         runtime, _ = make_runtime(config)
-    state = {"config": config, "hash": "h1"}
+    state: dict[str, Any] = {"config": config, "hash": "h1"}
     service = CollectorConfigService(
         runtime,
         config,
@@ -46,7 +49,11 @@ async def test_reload_one_shot_prepare_and_activate():
     new_config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
+                task_id="t1",
+                device_group_id=DeviceGroupId("dev1"),
+                point_group="g",
+                interval=2.0,
+                sink_ids=("s1",),
             )
         }
     )
@@ -125,7 +132,7 @@ async def test_partial_reconfigure_failure_keeps_baseline():
     config = make_collector_config()
     runtime, _ = make_runtime(config)
     await runtime.start()
-    state = {"config": config, "hash": "h1"}
+    state: dict[str, Any] = {"config": config, "hash": "h1"}
     service = CollectorConfigService(
         runtime,
         config,

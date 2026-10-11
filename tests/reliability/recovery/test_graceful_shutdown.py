@@ -39,9 +39,7 @@ class TestGracefulShutdown:
         )
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
-        await start_task_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         # File sink 每批次 write 落盘并 flush 后才返回——文件里可见的行
         # 即「已确认写入」的记录。
         await wait_file_rows(sink_path, min_rows=4)
@@ -71,9 +69,7 @@ class TestGracefulShutdown:
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir, shutdown_timeout=15.0)
 
-        await start_task_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_status(
             proc,
             lambda p: p["points_collected"] >= 1,

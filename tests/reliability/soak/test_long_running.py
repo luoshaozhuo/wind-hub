@@ -53,9 +53,7 @@ def _soak_profile_from_env() -> str:
             "WIND_HUB_SOAK_PROFILE=smoke_1h|prerelease_8h|rc_24h"
         )
     if profile not in _DURATION_S:
-        pytest.fail(
-            f"未知 WIND_HUB_SOAK_PROFILE={profile!r}（可选：{sorted(_DURATION_S)}）"
-        )
+        pytest.fail(f"未知 WIND_HUB_SOAK_PROFILE={profile!r}（可选：{sorted(_DURATION_S)}）")
     return profile
 
 
@@ -73,32 +71,23 @@ def resolve_duration_s(soak_name: str, override: str | None) -> float:
         value = float(override.strip())
     except ValueError:
         raise ValueError(
-            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}："
-            "必须是秒数（如 '3600' 或 '60.5'）"
+            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：" "必须是秒数（如 '3600' 或 '60.5'）"
         ) from None
     # 先拒非有限值：float("nan") <= 0 为 False，单靠正数校验会漏放 nan。
     if not math.isfinite(value):
-        raise ValueError(
-            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：必须是有限正数"
-        )
+        raise ValueError(f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：必须是有限正数")
     if value <= 0:
-        raise ValueError(
-            f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：时长必须为正数"
-        )
+        raise ValueError(f"非法 WIND_HUB_SOAK_DURATION_S={override!r}：时长必须为正数")
     return value
 
 
 async def test_long_running_target_load() -> None:
     soak_name = _soak_profile_from_env()
-    duration_s = resolve_duration_s(
-        soak_name, os.environ.get("WIND_HUB_SOAK_DURATION_S")
-    )
+    duration_s = resolve_duration_s(soak_name, os.environ.get("WIND_HUB_SOAK_DURATION_S"))
     warmup_s = min(60.0, duration_s * 0.05)
 
     profile = PROFILES["target_100x10hz_500x1hz"]
-    logger.info(
-        "长 soak 开始：档位 %s，时长 %gs（预热 %gs）", soak_name, duration_s, warmup_s
-    )
+    logger.info("长 soak 开始：档位 %s，时长 %gs（预热 %gs）", soak_name, duration_s, warmup_s)
     metrics = await run_soak(
         profile,
         duration_s=duration_s,
@@ -108,9 +97,7 @@ async def test_long_running_target_load() -> None:
 
     _SOAK_REPORT_DIR.mkdir(parents=True, exist_ok=True)
     md_path = _SOAK_REPORT_DIR / f"soak_report_{soak_name}.md"
-    generate_soak_markdown(
-        metrics, md_path, title=f"wind-hub Soak — {soak_name} ({profile.name})"
-    )
+    generate_soak_markdown(metrics, md_path, title=f"wind-hub Soak — {soak_name} ({profile.name})")
     generate_soak_json(metrics, md_path.with_suffix(".json"))
 
     # ---- 数据完整性 ----
@@ -121,9 +108,7 @@ async def test_long_running_target_load() -> None:
     # ---- 节拍保持 ----
     for c in metrics.cycles:
         missed_ratio = c.missed_cycles / max(c.cycles, 1)
-        assert missed_ratio < 0.01, (
-            f"任务 {c.task_id} 错过周期率 {missed_ratio:.2%} 超过 1%"
-        )
+        assert missed_ratio < 0.01, f"任务 {c.task_id} 错过周期率 {missed_ratio:.2%} 超过 1%"
 
     # ---- 资源稳定（泄漏判据）----
     if metrics.memory_start_mb > 0:
@@ -135,6 +120,5 @@ async def test_long_running_target_load() -> None:
         assert growth_mb < 100.0, f"内存绝对增长 +{growth_mb:.1f} MB 超过 100 MB"
     if metrics.asyncio_tasks_start > 0:
         assert metrics.asyncio_tasks_end <= metrics.asyncio_tasks_start + 10, (
-            f"asyncio 任务数爬升：{metrics.asyncio_tasks_start} → "
-            f"{metrics.asyncio_tasks_end}"
+            f"asyncio 任务数爬升：{metrics.asyncio_tasks_start} → " f"{metrics.asyncio_tasks_end}"
         )

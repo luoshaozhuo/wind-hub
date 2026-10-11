@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -16,20 +17,23 @@ import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application import ProtocolSample
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
-from core.infrastructure.protocol.ads import ADSDriver
+from core.infrastructure.protocol.ads import ADSDriver, ADSPoint
+from core.infrastructure.protocol.ads.subscription import ADSSubscription
 
 
 def _point(point_id: str, *, offset: int = 10) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={"data_type": "REAL", "index_group": 0x4020, "index_offset": offset},
@@ -37,7 +41,7 @@ def _point(point_id: str, *, offset: int = 10) -> Point:
 
 
 def _driver(*points: Point) -> ADSDriver:
-    table = PointTable("ads_pt", Protocol("ads"), {p.point_id: p for p in points})
+    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {p.point_id: p for p in points})
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     driver._connected = True
     return driver
@@ -67,7 +71,7 @@ class _Connection:
         del net_id, port, host
         self.is_open = False
         self.callbacks: dict[int, Callable[..., None]] = {}
-        self.deleted: list[int] = []
+        self.deleted: list[object] = []
         self._next_handle = 0
         type(self).instances.append(self)
 
@@ -163,6 +167,7 @@ async def test_callback_exception_does_not_stop_subscription(
         calls += 1
         if calls == 1:
             raise RuntimeError("subscriber bug")
+        assert sample.value is not None
         received.append(float(sample.value))
         delivered.set()
 
@@ -209,7 +214,7 @@ async def test_cancel_during_start_cleans_partial_registration(
 
     original_resolve = subscription_module.ADSSubscription._resolve_point
 
-    async def gated_resolve(self: object, connection: object, point: object) -> object:
+    async def gated_resolve(self: ADSSubscription, connection: Any, point: ADSPoint) -> ADSPoint:
         nonlocal resolve_calls
         resolve_calls += 1
         if resolve_calls == 2:
@@ -246,6 +251,7 @@ async def test_watchdog_rebuilds_pool_when_notifications_stall(
     delivered = asyncio.Event()
 
     async def on_sample(sample: ProtocolSample) -> None:
+        assert sample.value is not None
         received.append(float(sample.value))
         delivered.set()
 

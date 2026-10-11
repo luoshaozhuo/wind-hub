@@ -52,7 +52,8 @@ async def ctl_status(proc: CollectorProcess) -> dict[str, Any] | None:
     result = await run_ctl_async("status", target=proc.grpc_target)
     if result.returncode != 0 or not result.stdout.strip():
         return None
-    return json.loads(result.stdout)
+    status: dict[str, Any] = json.loads(result.stdout)
+    return status
 
 
 async def ctl_instance_states(proc: CollectorProcess) -> dict[str, str] | None:

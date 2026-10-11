@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from typing import Any
 
 import pytest
 
@@ -10,10 +11,12 @@ from core.application.errors import ProtocolError
 from core.application.protocol_contract import Quality
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -23,7 +26,7 @@ from core.infrastructure.protocol.ads import ADSDriver
 def _point(point_id: str, offset: int) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={"index_group": 0x4020, "index_offset": offset, "data_type": "DINT"},
@@ -33,9 +36,14 @@ def _point(point_id: str, offset: int) -> Point:
 def _driver(connection: object) -> ADSDriver:
     driver = ADSDriver(
         ConnectionEndpoint("192.0.2.20", 801),
-        PointTable("ads", Protocol("ads"), {
-            "a": _point("a", 12), "b": _point("b", 16),
-        }),
+        PointTable(
+            PointTableId("ads"),
+            Protocol("ads"),
+            {
+                "a": _point("a", 12),
+                "b": _point("b", 16),
+            },
+        ),
         {},
     )
     driver._connection = connection
@@ -47,19 +55,29 @@ def _driver(connection: object) -> ADSDriver:
 async def test_sum_read_preserves_duplicates_and_individual_errors() -> None:
     class Connection:
         def read_write(
-            self, group: int, count: int, _rd: object, request: object,
-            _wd: object, *, check_length: bool,
+            self,
+            group: int,
+            count: int,
+            _rd: object,
+            request: Any,
+            _wd: object,
+            *,
+            check_length: bool,
         ) -> bytes:
             del group, _rd, _wd, check_length
             assert count == 3
             assert [(x.iOffset, x.size) for x in request] == [
-                (16, 4), (12, 4), (12, 4),
+                (16, 4),
+                (12, 4),
+                (12, 4),
             ]
             return struct.pack("<IIIiii", 0, 1808, 0, 2, 1, 3)
 
     samples = await _driver(Connection()).read_many(("b", "a", "a"))
     assert [(s.value, s.quality) for s in samples] == [
-        (2, Quality.GOOD), (None, Quality.BAD), (3, Quality.GOOD),
+        (2, Quality.GOOD),
+        (None, Quality.BAD),
+        (3, Quality.GOOD),
     ]
 
 
@@ -85,7 +103,9 @@ async def test_index_sum_read_uses_public_read_write(
     import ctypes
     import struct
 
-    from pyads.constants import ADSIGRP_SUMUP_READ
+    from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.typed，与 src 处理方式一致
+        ADSIGRP_SUMUP_READ,
+    )
 
     class _ConnectionWithSum:
         def __init__(self) -> None:
@@ -96,7 +116,7 @@ async def test_index_sum_read_uses_public_read_write(
             group: int,
             count: int,
             plc_read_datatype: object,
-            request: object,
+            request: Any,
             plc_write_datatype: object,
             *,
             check_length: bool,
@@ -109,7 +129,8 @@ async def test_index_sum_read_uses_public_read_write(
             assert check_length is False
             assert ctypes.sizeof(request) == 24
             assert [(item.iGroup, item.iOffset, item.size) for item in request] == [
-                (0x4020, 12, 4), (0x4020, 16, 4)
+                (0x4020, 12, 4),
+                (0x4020, 16, 4),
             ]
             return struct.pack("<IIII", 0, 0, 123, 456)
 
@@ -123,14 +144,14 @@ async def test_index_sum_read_uses_public_read_write(
     for name, offset in (("a", 12), ("b", 16)):
         points[name] = Point(
             point_id=name,
-            business_point_id=name,
+            business_point_id=BusinessPointId(name),
             source_unit=UNIT_CATALOG[UnitCode.NONE],
             access=PointAccess.READ_WRITE,
             ext={"index_group": 0x4020, "index_offset": offset, "data_type": "DINT"},
         )
     driver = ADSDriver(
         ConnectionEndpoint("192.0.2.20", 801),
-        PointTable("ads", Protocol("ads"), points),
+        PointTable(PointTableId("ads"), Protocol("ads"), points),
         {},
     )
     connection = _ConnectionWithSum()
@@ -138,6 +159,7 @@ async def test_index_sum_read_uses_public_read_write(
     driver._connected = True
     samples = await driver.read_many(("a", "b"))
     assert [(sample.value, sample.quality) for sample in samples] == [
-        (123, Quality.GOOD), (456, Quality.GOOD)
+        (123, Quality.GOOD),
+        (456, Quality.GOOD),
     ]
     assert connection.calls == 1

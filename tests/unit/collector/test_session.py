@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
 from collector.application.session import AcquisitionMode, PollingAcquisitionHandle
 from core.application import ConfigError, ProtocolCapability, Quality
+from core.domain.identities import DeviceId
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,
@@ -88,11 +90,14 @@ def test_ads_polls_unless_subscribe_enabled():
 
 
 async def test_poll_requires_positive_interval():
+    async def noop() -> None:
+        return None
+
     session = make_session(make_collector_config(), CollectorFakeProtocol())
     with pytest.raises(ConfigError, match="interval"):
-        await session.start_acquisition(point_group="g", interval=None, acquire=lambda: None)  # type: ignore[arg-type]
+        await session.start_acquisition(point_group="g", interval=None, acquire=noop)
     with pytest.raises(ConfigError, match="interval"):
-        await session.start_acquisition(point_group="g", interval=0.0, acquire=lambda: None)  # type: ignore[arg-type]
+        await session.start_acquisition(point_group="g", interval=0.0, acquire=noop)
 
 
 async def test_poll_requires_acquire_callback():
@@ -135,7 +140,7 @@ async def test_subscribe_registers_points_and_interrogates_when_capable():
     proto = CollectorFakeProtocol()
     proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE, ProtocolCapability.INTERROGATE)
     session = make_session(make_collector_config(protocol="iec104"), proto)
-    received: list[list] = []
+    received: list[tuple[Any, ...]] = []
 
     async def on_data(batch):
         received.append(batch)
@@ -155,10 +160,14 @@ async def test_subscribe_skips_interrogate_when_not_capable():
     proto = CollectorFakeProtocol()
     proto.capabilities_value = _caps(ProtocolCapability.SUBSCRIBE)
     session = make_session(make_collector_config(protocol="iec104"), proto)
+
+    async def noop_on_data(_batch) -> None:
+        return None
+
     handle = await session.start_acquisition(
         point_group="g",
         interval=None,
-        on_data=lambda b: None,  # type: ignore[arg-type]
+        on_data=noop_on_data,
     )
     assert proto.interrogate_calls == 0
     await handle.close()
@@ -226,7 +235,7 @@ async def test_read_uses_read_many_batch_interface():
         calls.append(tuple(point_ids))
         return await base_read_many(point_ids)
 
-    proto.read_many = recording_read_many
+    proto.read_many = recording_read_many  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     session = make_session(make_collector_config(scale=2.0, offset=1.0), proto)
     values = await session.read("g")
     assert calls == [("p1",)]
@@ -244,7 +253,7 @@ async def test_point_group_cache_invalidated_by_set_points():
     assert session.point_ids("g") == ["p1"]
     assert session.point_ids("g") == ["p1"]
     assert session._point_group_cache["g"] == ("p1",)
-    view = second.device_view("dev1")
+    view = second.device_view(DeviceId("dev1"))
     session.set_points(view.point_table)
     assert session.point_ids("g") == []
     assert session.point_ids("changed") == ["p1"]
@@ -266,7 +275,7 @@ async def test_read_preserves_bad_quality_and_bool():
             ),
         )
 
-    proto.read_many = read_many
+    proto.read_many = read_many  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     session = make_session(make_collector_config(scale=3.0, offset=1.0), proto)
     bad = await session.read("g")
     assert bad[0].value is None
@@ -282,7 +291,7 @@ async def test_read_preserves_bad_quality_and_bool():
             ),
         )
 
-    proto.read_many = read_bool
+    proto.read_many = read_bool  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     flag = await session.read("g")
     assert flag[0].value is True
 
@@ -305,7 +314,7 @@ async def test_read_passes_through_protocol_timestamp_and_source():
             ),
         )
 
-    proto.read_many = read_many
+    proto.read_many = read_many  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     session = make_session(make_collector_config(), proto)
     values = await session.read("g")
 
@@ -324,8 +333,8 @@ async def test_set_points_failure_keeps_session_on_old_table():
     def _reject(_point_table):
         raise ConfigError("driver rejected new table")
 
-    proto.update_point_table = _reject
-    view = second.device_view("dev1")
+    proto.update_point_table = _reject  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
+    view = second.device_view(DeviceId("dev1"))
     with pytest.raises(ConfigError, match="driver rejected"):
         session.set_points(view.point_table)
 
@@ -339,7 +348,7 @@ async def test_set_points_updates_driver_before_session_state():
     second = make_collector_config(point_groups=("changed",))
     proto = CollectorFakeProtocol()
     session = make_session(first, proto)
-    view = second.device_view("dev1")
+    view = second.device_view(DeviceId("dev1"))
     session.set_points(view.point_table)
     assert proto.point_table_updates[-1] is view.point_table
     assert session.point_table is view.point_table

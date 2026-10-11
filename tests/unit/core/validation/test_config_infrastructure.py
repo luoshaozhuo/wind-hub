@@ -22,6 +22,14 @@ from core.domain import (
     UnitCode,
     validate_core_config,
 )
+from core.domain.identities import (
+    BusinessPointId,
+    DeviceGroupId,
+    DeviceId,
+    DeviceModelId,
+    DeviceTypeId,
+    PointTableId,
+)
 
 
 def _indexes(
@@ -29,9 +37,9 @@ def _indexes(
     device_name: str = "WT01",
 ) -> dict[str, Any]:
     """返回一组可通过 validate_core_config 校验的领域配置索引。"""
-    device_type = DeviceType("wind_turbine", "Wind Turbine")
+    device_type = DeviceType(DeviceTypeId("wind_turbine"), "Wind Turbine")
     point = BusinessPoint(
-        "active_power",
+        BusinessPointId("active_power"),
         DataType.FLOAT32,
         UNIT_CATALOG[UnitCode.KILOWATT],
     )
@@ -47,26 +55,28 @@ def _indexes(
         },
     )
     table = PointTable(
-        "wt_modbus",
+        PointTableId("wt_modbus"),
         Protocol("modbus"),
         {protocol_point.point_id: protocol_point},
     )
     model = DeviceModel(
-        "m1",
+        DeviceModelId("m1"),
         device_type.device_type_id,
         table.point_table_id,
     )
     device = Device(
-        "wt01",
+        DeviceId("wt01"),
         model.device_model_id,
         ConnectionEndpoint("10.0.0.1", 502),
         name=device_name,
-        device_group_ids=("wt_group",),
+        device_group_ids=(DeviceGroupId("wt_group"),),
     )
     return {
         "device_types": {device_type.device_type_id: device_type},
         "device_models": {model.device_model_id: model},
-        "device_groups": {"wt_group": DeviceGroup("wt_group", "Turbines")},
+        "device_groups": {
+            DeviceGroupId("wt_group"): DeviceGroup(DeviceGroupId("wt_group"), "Turbines")
+        },
         "devices": {device.device_id: device},
         "business_points": {point.business_point_id: point},
         "point_tables": {table.point_table_id: table},
@@ -115,7 +125,7 @@ def test_domain_validation_rejects_unknown_model_point_table() -> None:
     invalid_model = DeviceModel(
         model.device_model_id,
         model.device_type_id,
-        "missing_table",
+        PointTableId("missing_table"),
     )
     invalid = {
         **indexes,

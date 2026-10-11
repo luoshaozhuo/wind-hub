@@ -107,10 +107,11 @@ def render_latency_curve(results: list[PerfMetrics], output_path: Path) -> bool:
     if not results:
         return False
     try:
-        import matplotlib
+        # matplotlib 为可选依赖：仅在需要渲染 PNG 曲线时按需导入
+        import matplotlib  # type: ignore[import-not-found]
 
         matplotlib.use("Agg")  # 无显示环境（CI/WSL）强制非交互后端
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt  # type: ignore[import-not-found]
     except ImportError:
         logger.info("matplotlib 不可用，跳过延迟曲线 PNG（表格仍在 Markdown 中）")
         return False

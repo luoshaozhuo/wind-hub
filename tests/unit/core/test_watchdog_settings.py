@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from core.application.settings import RuntimeSettings
@@ -22,7 +24,8 @@ def test_watchdog_timing_accepts_positive_values() -> None:
 @pytest.mark.parametrize("field", ["watchdog_interval", "health_timeout"])
 @pytest.mark.parametrize("bad", [0, -0.1, float("nan"), float("inf")])
 def test_watchdog_timing_rejects_non_positive_or_non_finite(
-    field: str, bad: float,
+    field: str,
+    bad: Any,
 ) -> None:
     with pytest.raises(ValueError):
         RuntimeSettings(**{field: bad})

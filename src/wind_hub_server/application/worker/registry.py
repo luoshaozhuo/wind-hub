@@ -200,25 +200,20 @@ class WorkerRegistry:
     def _snapshot_unlocked(self) -> list[WorkerRecord]:
         """在锁内复制 Registry 快照。"""
         return [
-            self._records[worker_id].model_copy(deep=True)
-            for worker_id in sorted(self._records)
+            self._records[worker_id].model_copy(deep=True) for worker_id in sorted(self._records)
         ]
 
     def _worker_ids_for_role(self, role: WorkerRole) -> list[str]:
         """返回指定角色全部 Worker ID。"""
         return sorted(
-            worker_id
-            for worker_id, record in self._records.items()
-            if record.role is role
+            worker_id for worker_id, record in self._records.items() if record.role is role
         )
 
     def _worker_id_for_role(self, role: WorkerRole) -> str:
         """返回指定角色唯一 Worker ID。"""
         matches = self._worker_ids_for_role(role)
         if len(matches) != 1:
-            raise ValueError(
-                f"expected exactly one {role.value} worker, got {len(matches)}"
-            )
+            raise ValueError(f"expected exactly one {role.value} worker, got {len(matches)}")
         return matches[0]
 
 

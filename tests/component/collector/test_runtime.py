@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
-from dataclasses import replace
 
 from collector.application.config import CollectionTask
 from collector.application.reload import compute_diff
 from collector.application.task_instance import TaskInstanceState
-from core.domain import DeviceId
+from core.domain import DeviceGroupId, DeviceId
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
@@ -56,7 +56,11 @@ async def test_task_instance_collect_flows_to_sink_end_to_end():
     config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device_group_id="dev1", point_group="g", interval=0.02, sink_ids=("s1",)
+                task_id="t1",
+                device_group_id=DeviceGroupId("dev1"),
+                point_group="g",
+                interval=0.02,
+                sink_ids=("s1",),
             )
         }
     )
@@ -143,7 +147,11 @@ async def test_reconfigure_task_change_updates_instances():
     new_config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device_group_id="dev1", point_group="g", interval=5.0, sink_ids=("s1",)
+                task_id="t1",
+                device_group_id=DeviceGroupId("dev1"),
+                point_group="g",
+                interval=5.0,
+                sink_ids=("s1",),
             )
         }
     )
@@ -182,7 +190,7 @@ async def test_start_failure_releases_devices_and_sinks():
     sink = FakeSink()
     runtime, protocol = make_runtime(make_collector_config(), sinks={"s1": sink})
 
-    async def fail_sync() -> None:
+    async def fail_sync(*, restart_subscription_devices: set[str] | None = None) -> None:
         raise RuntimeError("task sync failed")
 
     runtime.task_runtime.sync_instances = fail_sync  # type: ignore[method-assign]
@@ -217,7 +225,7 @@ async def test_startup_error_not_masked_by_cleanup_failure():
     """清理失败不能覆盖实际的启动失败，其他组件仍应释放。"""
     runtime, protocol = make_runtime(make_collector_config())
 
-    async def fail_start() -> None:
+    async def fail_start(*, restart_subscription_devices: set[str] | None = None) -> None:
         raise RuntimeError("sync failure")
 
     async def fail_cleanup() -> None:

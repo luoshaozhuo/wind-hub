@@ -79,13 +79,14 @@ async def prepare_config(
     channel = grpc.aio.insecure_channel(target)
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
-        return await stub.PrepareConfig(
+        response: pb.PrepareConfigResponse = await stub.PrepareConfig(
             pb.PrepareConfigRequest(
                 revision_id=revision_id,
                 config_hash=config_dir_digest(config_dir),
                 force_reconfigure=force_reconfigure,
             )
         )
+        return response
     finally:
         await channel.close()
 
@@ -115,7 +116,10 @@ async def reload_config(
     channel = grpc.aio.insecure_channel(target)
     stub = pb_grpc.CollectorControlServiceStub(channel)
     try:
-        return await stub.ActivateConfig(pb.ActivateConfigRequest(revision_id=revision_id))
+        response: pb.ActivateConfigResponse = await stub.ActivateConfig(
+            pb.ActivateConfigRequest(revision_id=revision_id)
+        )
+        return response
     finally:
         await channel.close()
 

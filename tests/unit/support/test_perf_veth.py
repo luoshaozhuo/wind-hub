@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -43,16 +44,16 @@ class _FakeIp:
 def fake_ip(monkeypatch: pytest.MonkeyPatch) -> _FakeIp:
     fake = _FakeIp()
     monkeypatch.setattr(veth_mod, "_run", fake)
-    monkeypatch.setattr(veth_mod.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
     return fake
 
 
 def _as_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(veth_mod.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
 
 
 def test_check_permission_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(veth_mod.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
     assert VethManager().check_permission() is True
 
 
@@ -135,7 +136,7 @@ def test_create_failure_cleans_up_half_state(monkeypatch: pytest.MonkeyPatch) ->
         return real_call(args)
 
     monkeypatch.setattr(veth_mod, "_run", _flaky)
-    monkeypatch.setattr(veth_mod.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
 
     mgr = VethManager()
     with pytest.raises(RuntimeError, match="配置 veth 失败"):

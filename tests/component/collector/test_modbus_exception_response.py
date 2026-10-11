@@ -68,9 +68,7 @@ class TestExceptionResponseClassification:
         self, app_factory, tmp_path: Path
     ) -> None:
         sinks, tasks, _ = _file_sink(tmp_path)
-        ctx = await app_factory(
-            point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks
-        )
+        ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
         base = app.metrics.snapshot()
@@ -89,39 +87,31 @@ class TestExceptionResponseClassification:
         deadline = asyncio.get_running_loop().time() + 3.0
         while asyncio.get_running_loop().time() < deadline:
             protocol = app.runtime.devices["modbus-1"].protocol
-            assert (await protocol.health()).healthy is True, (
-                "异常响应被误判为断连（driver health 掉线）"
-            )
+            assert (
+                await protocol.health()
+            ).healthy is True, "异常响应被误判为断连（driver health 掉线）"
             state = app.runtime.device_state("modbus-1")
-            assert state is not None and state.connected is True, (
-                "异常响应被误判为断连（runtime state 掉线）"
-            )
+            assert (
+                state is not None and state.connected is True
+            ), "异常响应被误判为断连（runtime state 掉线）"
             await asyncio.sleep(0.3)
 
         snap = app.metrics.snapshot()
         assert snap["device_reconnects"].get("modbus-1", 0) == 0
-        assert (
-            snap["device_connect_failures"].get("modbus-1", 0)
-            == base["device_connect_failures"].get("modbus-1", 0)
-        ), "异常响应不得触发重连"
+        assert snap["device_connect_failures"].get("modbus-1", 0) == base[
+            "device_connect_failures"
+        ].get("modbus-1", 0), "异常响应不得触发重连"
         # 引擎没有被异常响应卡死：周期继续推进、失败被如实计数。
+        assert snap["counters"]["acquisition_runs"] - base["counters"]["acquisition_runs"] >= 5
         assert (
-            snap["counters"]["acquisition_runs"] - base["counters"]["acquisition_runs"]
-            >= 5
-        )
-        assert (
-            snap["counters"]["acquisition_failures"]
-            - base["counters"]["acquisition_failures"]
-            >= 5
+            snap["counters"]["acquisition_failures"] - base["counters"]["acquisition_failures"] >= 5
         ), "异常响应导致的采集失败必须可见，不得静默吞掉"
 
     async def test_fixing_point_table_recovers_without_reconnect(
         self, app_factory, tmp_path: Path
     ) -> None:
         sinks, tasks, sink_path = _file_sink(tmp_path)
-        ctx = await app_factory(
-            point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks
-        )
+        ctx = await app_factory(point_tables=_points_with_bad_address(), sinks=sinks, tasks=tasks)
         await ctx.start_instances()
         app = ctx.app
         await asyncio.sleep(1.0)  # 确认故障配置下无数据落盘

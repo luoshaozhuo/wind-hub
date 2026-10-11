@@ -23,7 +23,7 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
-from tests.support.control import start_task_instance, metrics_snapshot
+from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess, free_port
 from tests.support.wait import wait_file_rows
 
@@ -63,9 +63,7 @@ def _write_fast_config(base: Path, port: int, sink_path: Path) -> Path:
     )
 
 
-async def _sample_attempts(
-    proc: CollectorProcess, window: float
-) -> tuple[list[float], int, int]:
+async def _sample_attempts(proc: CollectorProcess, window: float) -> tuple[list[float], int, int]:
     """在窗口内采样 connect 尝试计数。
 
     Returns:
@@ -103,19 +101,15 @@ class TestWatchdogRecovery:
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = _write_fast_config(tmp_path / "cfg", port, sink_path)
         proc: CollectorProcess = await collector_factory(config_dir)
-        await start_task_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
 
         # ---- 故障：设备全程不可达，验证周期连接检查 ----
         _, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
 
-        assert 1 <= attempts <= 6, (
-            f"expected periodic watchdog reconnect attempts, got {attempts}"
-        )
-        assert attempts * 10 < runs, (
-            f"connect attempts ({attempts}) should not follow acquisition ticks ({runs})"
-        )
+        assert 1 <= attempts <= 6, f"expected periodic watchdog reconnect attempts, got {attempts}"
+        assert (
+            attempts * 10 < runs
+        ), f"connect attempts ({attempts}) should not follow acquisition ticks ({runs})"
 
         # ---- 恢复：重连成功，失败计数清零，数据面恢复 ----
         try:
@@ -133,8 +127,8 @@ class TestWatchdogRecovery:
                 proc, lambda p: p["devices_connected"] == 0, description="second outage"
             )
             _, second_attempts, _ = await _sample_attempts(proc, 11.0)
-            assert second_attempts >= 1, (
-                f"watchdog did not retry during second outage: {second_attempts}"
-            )
+            assert (
+                second_attempts >= 1
+            ), f"watchdog did not retry during second outage: {second_attempts}"
         finally:
             await server.stop()

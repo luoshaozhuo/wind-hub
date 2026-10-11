@@ -39,9 +39,7 @@ class WriteResponseDropProxy:
         return self._listen_port
 
     async def start(self) -> None:
-        self._server = await asyncio.start_server(
-            self._on_client, "127.0.0.1", self._listen_port
-        )
+        self._server = await asyncio.start_server(self._on_client, "127.0.0.1", self._listen_port)
 
     async def close(self) -> None:
         if self._server is not None:
@@ -82,9 +80,7 @@ class WriteResponseDropProxy:
             self._peers.discard(client_writer)
             self._peers.discard(upstream_writer)
 
-    async def _pipe_raw(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _pipe_raw(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """请求方向：不过滤，原样转发。"""
         with contextlib.suppress(ConnectionResetError, BrokenPipeError):
             while chunk := await reader.read(65536):
@@ -109,10 +105,7 @@ class WriteResponseDropProxy:
                     end, function_code = frame
                     raw = bytes(buffer[offset:end])
                     offset = end
-                    if (
-                        self.drop_write_responses
-                        and function_code in _WRITE_FUNCTION_CODES
-                    ):
+                    if self.drop_write_responses and function_code in _WRITE_FUNCTION_CODES:
                         self.dropped_responses += 1
                         continue
                     writer.write(raw)

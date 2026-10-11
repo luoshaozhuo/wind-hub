@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import (
-    start_task_instance,
     prepare_config,
     reload_config,
+    start_task_instance,
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
@@ -42,9 +43,7 @@ class TestReloadFailureResilience:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
-        await start_task_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=4)
 
         # ---- 故障：tasks.yaml 指向不存在的 sink，prepare 必须拒绝 ----
@@ -65,7 +64,7 @@ class TestReloadFailureResilience:
         await wait_file_rows(sink_path, min_rows=rows_before + 2)
 
         # ---- 修复：写回合法配置（顺带改节拍证明 diff 生效），reload 成功 ----
-        def _restore(data: dict) -> None:
+        def _restore(data: dict[str, Any]) -> None:
             data["tasks"][0]["targets"] = [{"sink": "file_sink"}]
             data["tasks"][0]["interval"] = 0.5
 

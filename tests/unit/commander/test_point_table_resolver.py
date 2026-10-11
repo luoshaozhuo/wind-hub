@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from commander.infrastructure.config import load_commander_config
@@ -10,7 +12,7 @@ from core.domain import PointTableId
 from tests.support.new_commander import write_minimal_config_tree
 
 
-def _base_point(point_id: str, address: int, *, data_type: str = "float32") -> dict:
+def _base_point(point_id: str, address: int, *, data_type: str = "float32") -> dict[str, Any]:
     return {
         "point_id": point_id,
         "business_point_id": point_id,
@@ -20,7 +22,7 @@ def _base_point(point_id: str, address: int, *, data_type: str = "float32") -> d
     }
 
 
-def _load(tmp_path, tables: dict):
+def _load(tmp_path, tables: dict[str, Any]):
     directory = write_minimal_config_tree(
         tmp_path,
         point_tables=tables,
@@ -60,9 +62,7 @@ def test_explicit_null_clears_inherited_optional_name(tmp_path):
         tmp_path,
         {
             "tab": {"protocol": "modbus", "points": [base_point]},
-            "child": {"extends": "tab", "points": [
-                {"point_id": "p1", "variable_name": None}
-            ]},
+            "child": {"extends": "tab", "points": [{"point_id": "p1", "variable_name": None}]},
         },
     )
     assert config.point_tables[PointTableId("child")].points["p1"].variable_name is None
@@ -112,8 +112,6 @@ def test_incomplete_new_point_rejected(tmp_path):
             tmp_path,
             {
                 "tab": {"protocol": "modbus", "points": []},
-                "child": {"extends": "tab", "points": [
-                    {"point_id": "p1", "point_groups": ["g"]}
-                ]},
+                "child": {"extends": "tab", "points": [{"point_id": "p1", "point_groups": ["g"]}]},
             },
         )

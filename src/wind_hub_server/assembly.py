@@ -75,8 +75,7 @@ def assemble_server(
     if not endpoints:
         raise ValueError("collectors must not be empty")
     collector_clients = {
-        worker_id: CollectorGrpcClient(endpoint)
-        for worker_id, endpoint in endpoints.items()
+        worker_id: CollectorGrpcClient(endpoint) for worker_id, endpoint in endpoints.items()
     }
     commander_client = CommanderGrpcClient(commander)
 

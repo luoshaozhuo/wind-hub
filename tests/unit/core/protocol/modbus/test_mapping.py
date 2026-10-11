@@ -12,6 +12,7 @@ from core.domain import (
     Protocol,
     UnitCode,
 )
+from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.protocol.modbus import (
     ModbusDriver,
     group_consecutive_reads,
@@ -28,7 +29,7 @@ def _point(
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=access,
         ext={} if ext is None else ext,
@@ -108,7 +109,7 @@ def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
 @pytest.mark.asyncio
 async def test_modbus_driver_precompiles_resolved_point_table() -> None:
     point = _point("p1", ext=_point_ext(address=10))
-    table = PointTable("pt", Protocol("modbus"), {"p1": point})
+    table = PointTable(PointTableId("pt"), Protocol("modbus"), {"p1": point})
     endpoint = ConnectionEndpoint("192.0.2.10", 502)
 
     driver = ModbusDriver(

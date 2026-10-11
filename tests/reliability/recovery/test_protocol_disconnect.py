@@ -38,9 +38,7 @@ class TestProtocolDisconnectRecovery:
         proc: CollectorProcess = await collector_factory(config_dir)
 
         # ---- 正常：采集数据到达 sink ----
-        await start_task_instance(
-            proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
-        )
+        await start_task_instance(proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID)
         await wait_file_rows(sink_path, min_rows=4)
 
         # ---- 故障：从站停止（同一端口随后恢复） ----

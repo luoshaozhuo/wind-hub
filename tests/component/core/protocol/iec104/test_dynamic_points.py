@@ -14,6 +14,7 @@ import pytest
 
 from core.application import ConfigError, ProtocolCapabilityError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import ProtocolSample, Quality
+from core.infrastructure.protocol.iec104.config import IEC104Config
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import IEC104Point, iec104_point
 
@@ -74,10 +75,7 @@ def _driver(
     driver._receive_callback_factory = None
     driver._subscriptions = _SubscriptionRegistry()
 
-    class _Cfg:
-        t1 = 0.2
-
-    driver._config = _Cfg()
+    driver._config = IEC104Config(host="192.0.2.30", port=2404, t1=0.2)
     return driver
 
 
@@ -129,7 +127,7 @@ class TestDynamicSingleRead:
         async def send(mapped: IEC104Point) -> None:
             assert mapped.ioa == 500
 
-        driver._send_read = send
+        driver._send_read = send  # type: ignore[method-assign]  # 测试替身替换驱动私有方法
         task = asyncio.create_task(driver.read_one(point))
         await asyncio.sleep(0)
         driver._active_reads[500].set_result(_sample("canonical", 3.5))
@@ -164,9 +162,7 @@ class TestDynamicWrite:
         station = _Station()
         driver = _driver(station)
 
-        result = await driver.write_one(
-            iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True
-        )
+        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True)
 
         assert result.success
         assert result.point_id == "switch"
@@ -200,9 +196,7 @@ class TestDynamicWrite:
         existing = station.add_point(io_address=1001, type=c104.Type.M_ME_NC_1)
         driver = _driver(station)
 
-        result = await driver.write_one(
-            iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True
-        )
+        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), True)
 
         assert not result.success
         assert "already registered" in (result.message or "")
@@ -213,9 +207,7 @@ class TestDynamicWrite:
         station = _Station()
         driver = _driver(station)
 
-        result = await driver.write_one(
-            iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), 1
-        )
+        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="C_SC_NA_1"), 1)
 
         assert not result.success
         assert station.add_calls == []
@@ -230,18 +222,14 @@ class TestDynamicWrite:
     @pytest.mark.asyncio
     async def test_monitoring_type_rejected_as_command(self) -> None:
         driver = _driver()
-        result = await driver.write_one(
-            iec104_point("switch", ioa=1001, type_id="M_ME_NC_1"), True
-        )
+        result = await driver.write_one(iec104_point("switch", ioa=1001, type_id="M_ME_NC_1"), True)
         assert not result.success
         assert "unsupported command type" in (result.message or "")
 
     @pytest.mark.asyncio
     async def test_protocol_write_form_still_works(self) -> None:
         station = _Station()
-        driver = _driver(
-            station, points_by_id={"reg": IEC104Point("reg", 1001, "C_SC_NA_1")}
-        )
+        driver = _driver(station, points_by_id={"reg": IEC104Point("reg", 1001, "C_SC_NA_1")})
         result = await driver.write_one(ProtocolWrite("reg", True))
         assert result.success
         with pytest.raises(TypeError, match="does not take a separate value"):

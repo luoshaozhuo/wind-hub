@@ -9,8 +9,8 @@ routing / lifecycle 测试：这些测试只需要一个可注入的 SinkPort �
 
 from __future__ import annotations
 
-from core.domain.point_value import PointValue
 from core.application import ConnectionHealth
+from core.domain.point_value import PointValue
 
 
 class NullSink:

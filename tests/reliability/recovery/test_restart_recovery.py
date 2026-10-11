@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,8 +19,8 @@ from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import wait_status, write_modbus_file_config
 from tests.support.config_helper import write_config_tree
 from tests.support.control import (
-    start_task_instance,
     reload_config,
+    start_task_instance,
 )
 from tests.support.functional_config import update_yaml
 from tests.support.process import CollectorProcess, run_ctl_async
@@ -32,7 +33,7 @@ MODBUS_INSTANCE_ID = "modbus-telemetry:modbus-1"
 IEC104_TASK_ID = "iec104-telemetry"
 IEC104_INSTANCE_ID = "iec104-telemetry:iec104-1"
 
-IEC104_POINTS: list[dict] = [
+IEC104_POINTS: list[dict[str, Any]] = [
     {
         "point_id": "meas.active_power",
         "point_groups": ["telemetry"],
@@ -174,7 +175,7 @@ class TestSubscriptionRestartPending:
         )
 
         # ---- 断连期间变更点表：订阅必须重建但设备不可达 → reload 失败 ----
-        def _add_point(data: dict) -> None:
+        def _add_point(data: dict[str, Any]) -> None:
             data["point_tables"]["iec104"]["points"].append(
                 {
                     "point_id": "meas.reactive_power",
@@ -192,9 +193,7 @@ class TestSubscriptionRestartPending:
         assert activated.errors
         # 实例保持已登记（不是消失），进程存活。
         assert proc.is_running()
-        instance = await run_ctl_async(
-            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
-        )
+        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert instance.returncode == 0
 
         # ---- 恢复：从站重启，驱动自动重连 ----
@@ -213,8 +212,6 @@ class TestSubscriptionRestartPending:
         )
         assert activated.success is True, list(activated.errors)
 
-        instance = await run_ctl_async(
-            "instance", IEC104_INSTANCE_ID, target=proc.grpc_target
-        )
+        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert json.loads(instance.stdout)["state"] == "running"
         await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=30.0)

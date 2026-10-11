@@ -38,16 +38,12 @@ class _FakeGrpcServer:
 async def test_run_commander_hard_timeout_forces_exit_past_hung_stop(monkeypatch, tmp_path):
     """优雅停机超过硬超时不拖死进程：记录错误后照常返回。"""
     monkeypatch.setattr(main_module, "assemble_commander", lambda *_a, **_k: _HungStopApp())
-    monkeypatch.setattr(
-        main_module, "build_grpc_server", lambda *_a, **_k: _FakeGrpcServer()
-    )
+    monkeypatch.setattr(main_module, "build_grpc_server", lambda *_a, **_k: _FakeGrpcServer())
 
     def _fake_install_signal_handlers(shutdown_event: asyncio.Event) -> None:
         asyncio.get_running_loop().call_later(0.05, shutdown_event.set)
 
-    monkeypatch.setattr(
-        main_module, "_install_signal_handlers", _fake_install_signal_handlers
-    )
+    monkeypatch.setattr(main_module, "_install_signal_handlers", _fake_install_signal_handlers)
 
     started = time.monotonic()
     rc = await run_commander(tmp_path, shutdown_timeout=0.2)

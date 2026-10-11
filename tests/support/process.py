@@ -23,6 +23,7 @@ import signal
 import socket
 import subprocess
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 
@@ -98,14 +99,27 @@ def run_ctl(
     )
 
 
-async def run_ctl_async(*args: str, **kwargs: float | str) -> CtlResult:
+async def run_ctl_async(
+    *args: str,
+    target: str,
+    rpc_timeout: float = 10.0,
+    exec_timeout: float = 30.0,
+) -> CtlResult:
     """:func:`run_ctl` 的异步包装——在独立线程执行阻塞 subprocess 调用。
 
     测试进程的事件循环同时承载协议 fixture server；同步调用会阻塞循环，
     导致 Collector 的读写请求在 ctl 执行期间全部超时。异步测试一律用本
     包装，不用裸 ``run_ctl``。
     """
-    return await asyncio.to_thread(run_ctl, *args, **kwargs)
+    return await asyncio.to_thread(
+        partial(
+            run_ctl,
+            *args,
+            target=target,
+            rpc_timeout=rpc_timeout,
+            exec_timeout=exec_timeout,
+        )
+    )
 
 
 @dataclass
@@ -146,9 +160,7 @@ class CollectorProcess:
             return int(self.proc.wait(timeout=timeout))
         except subprocess.TimeoutExpired:
             self.kill_tree()
-            raise TimeoutError(
-                f"collector did not exit within {timeout}s after SIGTERM"
-            ) from None
+            raise TimeoutError(f"collector did not exit within {timeout}s after SIGTERM") from None
 
     def kill_tree(self) -> None:
         """强制终止整个进程组（测试清理兜底，非优雅路径）。"""

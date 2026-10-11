@@ -7,28 +7,34 @@ from pathlib import Path
 
 import pytest
 
-from core.domain.point_value import PointValue
 from collector.infrastructure.sink.file.csv import FileSink
 from core.domain import Sink
+from core.domain.point_value import PointValue
 
 pytestmark = pytest.mark.real_service
 
 
 def sink_for(path: Path, **opts: object) -> FileSink:
-    return FileSink(Sink(
-        sink_id="file", kind="file", enabled=True,
-        connection={"path": str(path), **opts},
-    ))
+    return FileSink(
+        Sink(
+            sink_id="file",
+            kind="file",
+            enabled=True,
+            connection={"path": str(path), **opts},
+        )
+    )
 
 
 async def test_csv_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "telemetry.csv"
     sink = sink_for(path)
     await sink.open()
-    await sink.write([
-        PointValue("WT001", "power", 100.0),
-        PointValue("WT001", "status", "online,ok"),
-    ])
+    await sink.write(
+        [
+            PointValue("WT001", "power", 100.0),
+            PointValue("WT001", "status", "online,ok"),
+        ]
+    )
     await sink.close()
     with path.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -43,10 +49,7 @@ async def test_file_limit_and_retention(tmp_path: Path) -> None:
     unrelated.write_text("keep me", encoding="utf-8")
     sink = sink_for(path, max_size_mb=0.0001, max_files=2)
     await sink.open()
-    await sink.write([
-        PointValue("WT001", f"point-{i}", "long-value-" * 5)
-        for i in range(20)
-    ])
+    await sink.write([PointValue("WT001", f"point-{i}", "long-value-" * 5) for i in range(20)])
     await sink.close()
     assert unrelated.read_text(encoding="utf-8") == "keep me"
     assert len(list(tmp_path.glob("telemetry.*.csv"))) <= 2

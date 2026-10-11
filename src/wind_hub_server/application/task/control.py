@@ -51,9 +51,7 @@ class TaskControlService:
 
     def list_task_summaries(self) -> list[TaskSummary]:
         """从 Monitoring 最近一次快照返回 Task placement 与运行状态。"""
-        runtime_rows = {
-            row.task_id: row for row in self._monitoring.tasks_snapshot()
-        }
+        runtime_rows = {row.task_id: row for row in self._monitoring.tasks_snapshot()}
         rows: list[TaskSummary] = []
         for cfg in self._config.current_config.tasks.values():
             placement = self._placements.placement_for_task(cfg.task_id)
@@ -71,8 +69,7 @@ class TaskControlService:
                             "interval": cfg.interval,
                             "targets": [target.sink for target in cfg.targets],
                             "enabled": cfg.enabled,
-                            "assigned_worker_id": current.assigned_worker_id
-                            or placement.worker_id,
+                            "assigned_worker_id": current.assigned_worker_id or placement.worker_id,
                             "placement_state": placement.state,
                         }
                     )
@@ -85,8 +82,7 @@ class TaskControlService:
         placements = [
             row
             for row in self._placements.list_placements()
-            if row.state is TaskPlacementState.ASSIGNED
-            and row.worker_id is not None
+            if row.state is TaskPlacementState.ASSIGNED and row.worker_id is not None
         ]
         by_worker: dict[str, set[str]] = {}
         for placement in placements:
@@ -94,6 +90,7 @@ class TaskControlService:
             by_worker.setdefault(placement.worker_id, set()).add(placement.task_id)
 
         worker_ids = sorted(by_worker)
+
         async def fetch(worker_id: str) -> list[CollectorTaskInstance]:
             collector = await verified_collector(self._collectors, worker_id)
             return await collector.list_task_instances()
@@ -108,9 +105,7 @@ class TaskControlService:
                 continue
             assigned_task_ids = by_worker[worker_id]
             rows.extend(
-                TaskInstanceDetail.model_validate(
-                    {**asdict(row), "assigned_worker_id": worker_id}
-                )
+                TaskInstanceDetail.model_validate({**asdict(row), "assigned_worker_id": worker_id})
                 for row in worker_rows
                 if row.task_id in assigned_task_ids
             )
@@ -221,9 +216,7 @@ class TaskControlService:
         worker_id: str | None,
     ) -> TaskSummary:
         """构造未分配、孤儿或 Worker 未返回 Task 时的诚实控制面状态。"""
-        placement_state = (
-            self._placements.placement_for_task(cfg.task_id).state
-        )
+        placement_state = self._placements.placement_for_task(cfg.task_id).state
         return TaskSummary(
             task_id=cfg.task_id,
             assigned_worker_id=worker_id,

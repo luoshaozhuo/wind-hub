@@ -12,9 +12,9 @@ from collections.abc import AsyncIterator
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
-from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
+from core.domain.point_value import PointValue
 from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,
     ModbusSinkConnection,
@@ -49,9 +49,7 @@ def _point(
 
 
 @pytest.fixture
-async def server() -> AsyncIterator[
-    tuple[ModbusTcpSinkServer, ModbusSinkDataPath, int]
-]:
+async def server() -> AsyncIterator[tuple[ModbusTcpSinkServer, ModbusSinkDataPath, int]]:
     port = free_port()
     path = ModbusSinkDataPath(
         [
@@ -77,7 +75,7 @@ async def server() -> AsyncIterator[
 
 
 async def test_client_reads_live_store_and_writes_are_rejected(
-    server,  # type: ignore[no-untyped-def]
+    server,
 ) -> None:
     tcp, _, port = server
     assert (await tcp.health()).healthy is True
@@ -100,7 +98,7 @@ async def test_client_reads_live_store_and_writes_are_rejected(
 
 
 async def test_unknown_address_returns_exception(
-    server,  # type: ignore[no-untyped-def]
+    server,
 ) -> None:
     _, _, port = server
     client = AsyncModbusTcpClient("127.0.0.1", port=port)
@@ -113,7 +111,7 @@ async def test_unknown_address_returns_exception(
 
 
 async def test_server_reads_store_updates_without_transport_copy(
-    server,  # type: ignore[no-untyped-def]
+    server,
 ) -> None:
     _, path, port = server
     client = AsyncModbusTcpClient("127.0.0.1", port=port)

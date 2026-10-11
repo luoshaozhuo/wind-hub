@@ -37,9 +37,7 @@ class TestProcessKillRecovery:
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
 
         # ---- 第一个实例：正常采集后直接 SIGKILL（无优雅停机） ----
-        proc_a: CollectorProcess = await collector_factory(
-            config_dir, collector_id=WORKER_ID
-        )
+        proc_a: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
         await start_task_instance(
             proc_a.grpc_target,
             task_id=TASK_ID,
@@ -50,9 +48,7 @@ class TestProcessKillRecovery:
         assert not proc_a.is_running()
 
         # ---- 同配置重启：控制面恢复、采集可重新启动、数据继续到达 ----
-        proc_b: CollectorProcess = await collector_factory(
-            config_dir, collector_id=WORKER_ID
-        )
+        proc_b: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
         info = await run_ctl_async("info", target=proc_b.grpc_target)
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
@@ -74,9 +70,7 @@ class TestProcessKillRecovery:
         """采集中途 SIGKILL：已落盘数据不得损坏（JSONL 每行可解析）。"""
         sink_path = tmp_path / "out" / "telemetry.csv"
         config_dir = write_modbus_file_config(tmp_path / "cfg", modbus_server.port, sink_path)
-        proc: CollectorProcess = await collector_factory(
-            config_dir, collector_id=WORKER_ID
-        )
+        proc: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
         await start_task_instance(
             proc.grpc_target,
             task_id=TASK_ID,

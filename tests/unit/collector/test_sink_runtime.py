@@ -317,7 +317,7 @@ async def test_stop_with_hung_consumer_and_full_queue_does_not_hang():
     async def blocked_write(_batch):
         await asyncio.Event().wait()
 
-    sink.write = blocked_write
+    sink.write = blocked_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     runtime = _runtime({"s1": sink}, maxsize=1)
     await runtime.start()
     await runtime.dispatch({"s1": [_value(1.0)]})  # 消费者取走后卡在 write
@@ -336,7 +336,7 @@ async def test_stop_propagates_outer_cancellation():
     async def blocked_write(_batch):
         await asyncio.Event().wait()
 
-    sink.write = blocked_write
+    sink.write = blocked_write  # type: ignore[method-assign]  # 测试替身：确定性替换实例方法
     runtime = _runtime({"s1": sink}, maxsize=1)
     await runtime.start()
     await runtime.dispatch({"s1": [_value(1.0)]})
@@ -364,6 +364,7 @@ async def test_watchdog_stops_consumer_before_reopening_failed_sink():
         if failed:
             failed = False
             from core.application import ConnectionHealth
+
             return ConnectionHealth(healthy=False, message="connection lost")
         return await original_health()
 

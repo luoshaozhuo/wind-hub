@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.config.adapter import YamlConfigAdapter
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -12,8 +13,9 @@ ROOT = Path(__file__).resolve().parents[4]
 def test_load_example_modbus_without_units_file() -> None:
     config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
     assert type(config).__name__ == "ConfigSnapshot"
-    assert config.business_points["active_power"].standard_unit.code.value == "kilowatt"
-    point = config.point_tables["wtg_modbus_site_v1"].points["active_power"]
+    active = config.business_points[BusinessPointId("active_power")]
+    assert active.standard_unit.code.value == "kilowatt"
+    point = config.point_tables[PointTableId("wtg_modbus_site_v1")].points["active_power"]
     assert point.business_point_id == "active_power"
     assert point.variable_name == "active_power"
     assert point.point_groups == ("all",)

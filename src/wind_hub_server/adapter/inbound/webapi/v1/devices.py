@@ -113,7 +113,8 @@ async def get_device_trend(
     tags=["v1-devices"],
 )
 async def send_device_command(
-    device_id: str, request: DeviceCommandRequest,
+    device_id: str,
+    request: DeviceCommandRequest,
     ctx: AppContext = Depends(get_ctx),
 ) -> DeviceCommandResponse:
     """真实写入设备；写成功后即时回读并追加短期 Trend 样本。"""

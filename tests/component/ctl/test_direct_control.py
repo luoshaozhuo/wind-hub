@@ -65,19 +65,21 @@ class _Commander(commander_grpc.CommanderServiceServicer):
 async def endpoints():
     """启动两个最小真实 gRPC Server。"""
     collector_server = grpc.aio.server()
+    # 生成的 *_pb2_grpc.pyi 将全部 RPC 标为 abstractmethod，但运行时 .py
+    # Servicer 是普通类；fake 只需实现被测 RPC，故忽略 [abstract]。
     collector_grpc.add_CollectorRuntimeServiceServicer_to_server(
-        _CollectorRuntime(),
+        _CollectorRuntime(),  # type: ignore[abstract]
         collector_server,
     )
     collector_grpc.add_CollectorControlServiceServicer_to_server(
-        _CollectorControl(),
+        _CollectorControl(),  # type: ignore[abstract]
         collector_server,
     )
     collector_port = collector_server.add_insecure_port("127.0.0.1:0")
 
     commander_server = grpc.aio.server()
     commander_grpc.add_CommanderServiceServicer_to_server(
-        _Commander(),
+        _Commander(),  # type: ignore[abstract]
         commander_server,
     )
     commander_port = commander_server.add_insecure_port("127.0.0.1:0")

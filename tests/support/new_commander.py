@@ -14,7 +14,6 @@ from typing import Any
 import yaml
 
 from commander.application.config import CommanderConfig
-from core.application.settings import ADSLocalConfig
 from core.application import (
     ConnectionHealth,
     ProtocolCapability,
@@ -25,6 +24,8 @@ from core.application import (
     Quality,
 )
 from core.application.port.protocol import SubscriptionHandle
+from core.application.protocol_registry import ProtocolRegistry
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -200,9 +201,7 @@ class FakeProtocol:
             for point_id in point_ids
         )
 
-    async def write_many(
-        self, writes: Sequence[ProtocolWrite]
-    ) -> tuple[ProtocolWriteResult, ...]:
+    async def write_many(self, writes: Sequence[ProtocolWrite]) -> tuple[ProtocolWriteResult, ...]:
         self.writes.extend(writes)
         return tuple(
             ProtocolWriteResult(
@@ -237,17 +236,18 @@ class FakeProtocol:
         return None
 
 
-class FakeRegistry:
-    """记录每次 create 的协议注册表替身（与 ProtocolRegistry 同形）。"""
+class FakeRegistry(ProtocolRegistry):
+    """记录每次 create 的协议注册表替身（ProtocolRegistry 子类）。"""
 
     def __init__(self) -> None:
+        super().__init__()
         self.instances: list[FakeProtocol] = []
 
     def create(
         self,
         endpoint: ConnectionEndpoint,
         point_table: PointTable,
-        protocol_options_by_device: ProtocolOptions,
+        protocol_options: ProtocolOptions,
     ) -> ProtocolPort:
         instance = FakeProtocol()
         self.instances.append(instance)

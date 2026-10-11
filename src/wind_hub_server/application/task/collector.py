@@ -23,9 +23,7 @@ async def verified_collector(
     try:
         status = await collector.config_status()
     except Exception as exc:
-        raise TaskWorkerUnavailableError(
-            f"collector '{worker_id}' is unavailable"
-        ) from exc
+        raise TaskWorkerUnavailableError(f"collector '{worker_id}' is unavailable") from exc
     reported_id = status.collector_id
     if reported_id != worker_id:
         raise TaskWorkerUnavailableError(

@@ -7,8 +7,8 @@ import time
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 from wind_hub_core.config import ResolvedSinkConfig, SinkConfig
+
 from wind_hub_server.application.config.files import ConfigApplyResult, ConfigFileService
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.collector_directory import CollectorDirectory
@@ -68,16 +68,9 @@ class SinkService:
                     type=cfg.type,
                     enabled=cfg.enabled,
                     connection=cfg.connection.model_dump(mode="json", by_alias=True),
-                    points=[
-                        point.model_dump(mode="json", by_alias=True)
-                        for point in cfg.points
-                    ],
+                    points=[point.model_dump(mode="json", by_alias=True) for point in cfg.points],
                     point_count=len(cfg.points),
-                    healthy=(
-                        current.healthy
-                        if current is not None and cfg.enabled
-                        else False
-                    ),
+                    healthy=(current.healthy if current is not None and cfg.enabled else False),
                     message=(
                         current.message
                         if current is not None and current.message
@@ -140,10 +133,7 @@ class SinkService:
                 message="sink is not assigned to any collector",
             )
         results = await asyncio.gather(
-            *(
-                self._collectors.get(worker_id).write_test_sink(name)
-                for worker_id in worker_ids
-            )
+            *(self._collectors.get(worker_id).write_test_sink(name) for worker_id in worker_ids)
         )
         steps: list[dict[str, object]] = [
             {
@@ -174,9 +164,7 @@ class SinkService:
             if not isinstance(current, list):
                 raise ValueError("sinks.yaml sinks must be a list")
             sinks = [
-                item
-                for item in current
-                if isinstance(item, dict) and item.get("name") != name
+                item for item in current if isinstance(item, dict) and item.get("name") != name
             ]
             sinks.append(cfg.model_dump(mode="json", by_alias=True, exclude_none=True))
             raw["sinks"] = sinks
@@ -198,9 +186,7 @@ class SinkService:
             if not isinstance(current, list):
                 raise ValueError("sinks.yaml sinks must be a list")
             raw["sinks"] = [
-                item
-                for item in current
-                if isinstance(item, dict) and item.get("name") != name
+                item for item in current if isinstance(item, dict) and item.get("name") != name
             ]
 
         return await self._admin.mutate_yaml_files(

@@ -14,10 +14,12 @@ from collections.abc import Callable
 
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -29,7 +31,7 @@ def _driver(point_count: int = 256) -> ModbusDriver:
     points = {
         f"p{index}": Point(
             point_id=f"p{index}",
-            business_point_id=f"p{index}",
+            business_point_id=BusinessPointId(f"p{index}"),
             source_unit=unit,
             access=PointAccess.READ_WRITE,
             ext={
@@ -42,7 +44,7 @@ def _driver(point_count: int = 256) -> ModbusDriver:
     }
     return ModbusDriver(
         ConnectionEndpoint("127.0.0.1", 502),
-        PointTable("benchmark", Protocol("modbus"), points),
+        PointTable(PointTableId("benchmark"), Protocol("modbus"), points),
         {},
     )
 

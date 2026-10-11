@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from collector.infrastructure.sink.file.csv import FileSink
+from core.domain.point_value import PointValue
 from tests.support.functional_config import update_yaml
 from tests.support.wait import read_csv, wait_file_rows, wait_until
 
@@ -86,9 +87,10 @@ class TestFileSinkFsFaults:
                 health = (await app.runtime.health())["bad_file"]
                 return True if not health.healthy else None
 
-            await wait_until(
+            unhealthy: bool = await wait_until(
                 _bad_unhealthy, timeout=5.0, description="bad sink marked open failed"
             )
+            assert unhealthy
             assert "open failed" in ((await app.runtime.health())["bad_file"].message or "")
 
             # ---- 隔离：好 sink 持续出数，采集主循环不受影响 ----
@@ -111,9 +113,10 @@ class TestFileSinkFsFaults:
             async def _bad_healthy() -> bool | None:
                 return True if (await app.runtime.health())["bad_file"].healthy else None
 
-            await wait_until(
+            reopened: bool = await wait_until(
                 _bad_healthy, timeout=5.0, description="bad sink reopened after fix"
             )
+            assert reopened
             await wait_file_rows(bad_path, min_rows=2, timeout=10.0)
 
             # 好 sink 全程无中断。
@@ -134,7 +137,7 @@ class TestFileSinkFsFaults:
         bad_path = tmp_path / "bad" / "fault.csv"
         original_write = FileSink._write
 
-        def fail_bad_file(self: FileSink, batch: list) -> None:
+        def fail_bad_file(self: FileSink, batch: list[PointValue]) -> None:
             if self._path == bad_path:
                 raise OSError(28, "No space left on device")
             original_write(self, batch)
@@ -154,11 +157,12 @@ class TestFileSinkFsFaults:
         async def _full_unhealthy() -> bool | None:
             return True if not (await app.runtime.health())["bad_file"].healthy else None
 
-        await wait_until(
+        full_unhealthy: bool = await wait_until(
             _full_unhealthy,
             timeout=_UNHEALTHY_TIMEOUT,
             description="ENOSPC sink marked unhealthy",
         )
+        assert full_unhealthy
         message = (await app.runtime.health())["bad_file"].message or ""
         assert "No space" in message, f"错误消息应暴露 ENOSPC 根因: {message}"
 

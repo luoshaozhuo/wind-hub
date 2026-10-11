@@ -36,10 +36,7 @@ router = APIRouter()
 
 @router.get("/config/files", response_model=list[ConfigFileResponse], tags=["v1-config"])
 async def list_config_files(ctx: AppContext = Depends(get_ctx)) -> list[ConfigFileResponse]:
-    return [
-        ConfigFileResponse(**row.model_dump())
-        for row in common.config_admin(ctx).list_files()
-    ]
+    return [ConfigFileResponse(**row.model_dump()) for row in common.config_admin(ctx).list_files()]
 
 
 @router.get("/config/files/{name}", response_model=ConfigContentResponse, tags=["v1-config"])
@@ -100,8 +97,7 @@ async def download_config_backup(ctx: AppContext = Depends(get_ctx)) -> Response
 )
 async def config_history(ctx: AppContext = Depends(get_ctx)) -> list[ConfigRevisionResponse]:
     return [
-        ConfigRevisionResponse(**row.model_dump())
-        for row in common.config_admin(ctx).history()
+        ConfigRevisionResponse(**row.model_dump()) for row in common.config_admin(ctx).history()
     ]
 
 
@@ -151,7 +147,9 @@ async def get_definitions(ctx: AppContext = Depends(get_ctx)) -> DefinitionsResp
     tags=["v1-definitions"],
 )
 async def upsert_definition(
-    kind: str, name: str, request: DefinitionUpsertRequest,
+    kind: str,
+    name: str,
+    request: DefinitionUpsertRequest,
     ctx: AppContext = Depends(get_ctx),
 ) -> ConfigApplyResponse:
     try:
@@ -174,9 +172,7 @@ async def delete_definition(
     try:
         result = await common.definitions(ctx).delete(kind, name)
     except KeyError:
-        raise APIError(
-            "NOT_FOUND", f"unknown definition '{kind}/{name}'", 404
-        ) from None
+        raise APIError("NOT_FOUND", f"unknown definition '{kind}/{name}'", 404) from None
     return ConfigApplyResponse(**result.model_dump())
 
 

@@ -11,7 +11,6 @@ from typing import Any, cast
 
 import grpc
 from google.protobuf import empty_pb2
-
 from wind_hub_core.rpc import collector_pb2 as pb
 from wind_hub_core.rpc import collector_pb2_grpc as pb_grpc
 from wind_hub_core.rpc.collector_codec import (
@@ -23,6 +22,7 @@ from wind_hub_core.rpc.collector_codec import (
     task_instance_to_dict,
     task_summary_to_dict,
 )
+
 from wind_hub_server.adapter.outbound.grpc.common import GrpcClientBase
 from wind_hub_server.application.port.monitoring import (
     AcquisitionStatus,
@@ -183,10 +183,7 @@ class CollectorGrpcClient(GrpcClientBase):
             empty_pb2.Empty(),
             timeout=self.default_timeout,
         )
-        return [
-            CollectorTaskInstance(**task_instance_to_dict(item))
-            for item in response.items
-        ]
+        return [CollectorTaskInstance(**task_instance_to_dict(item)) for item in response.items]
 
     async def apply_task_placement(
         self,

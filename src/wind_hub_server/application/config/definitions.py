@@ -55,9 +55,7 @@ class DefinitionQueryService:
             ),
         )
 
-    async def upsert(
-        self, kind: str, name: str, value: dict[str, Any]
-    ) -> ConfigApplyResult:
+    async def upsert(self, kind: str, name: str, value: dict[str, Any]) -> ConfigApplyResult:
         """结构化修改 definition，最终仍写回正式 YAML。"""
         file_name, root = self._location(kind)
 
@@ -108,7 +106,6 @@ class DefinitionQueryService:
         if location is None:
             raise KeyError(kind)
         return location
-
 
     def _raw_mapping(self, file_name: str) -> dict[str, Any]:
         """读取 Applied YAML 原始结构，保留 extends/remove_points 等编辑语义。"""

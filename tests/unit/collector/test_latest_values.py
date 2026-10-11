@@ -2,9 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from core.domain.point_value import PointValue
-
 from collector.application.latest_values import LatestValues
+from core.domain.point_value import PointValue
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -46,11 +45,13 @@ def test_out_of_order_sample_does_not_overwrite_newer() -> None:
 def test_retain_prunes_removed_devices_and_points() -> None:
     """配置激活后按有效点表裁剪，保留键的时间戳不得被伪造。"""
     cache = LatestValues()
-    cache.update([
-        _value("d1", "p1", 1, seconds=1),
-        _value("d1", "p2", 2, seconds=2),
-        _value("d2", "p1", 3, seconds=3),
-    ])
+    cache.update(
+        [
+            _value("d1", "p1", 1, seconds=1),
+            _value("d1", "p2", 2, seconds=2),
+            _value("d2", "p1", 3, seconds=3),
+        ]
+    )
     cache.retain({"d1": frozenset({"p1"})})
     remaining = cache.snapshot()
     assert [(v.device_id, v.point_id) for v in remaining] == [("d1", "p1")]

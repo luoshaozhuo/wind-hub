@@ -153,10 +153,7 @@ class CollectorStatusAggregator:
         rows: list[DeviceRuntimeSnapshot] = []
         for cfg in self._config.current_config.devices.values():
             owners = self._placements.worker_ids_for_device(cfg.device_id)
-            states = [
-                worker_devices.get(worker_id, {}).get(cfg.device_id)
-                for worker_id in owners
-            ]
+            states = [worker_devices.get(worker_id, {}).get(cfg.device_id) for worker_id in owners]
             present = [row for row in states if row is not None]
             rows.append(
                 DeviceRuntimeSnapshot(
@@ -195,10 +192,7 @@ class CollectorStatusAggregator:
         rows: list[SinkRuntimeSnapshot] = []
         for cfg in self._config.current_config.sinks.values():
             owners = self._placements.worker_ids_for_sink(cfg.name)
-            states = [
-                worker_sinks.get(worker_id, {}).get(cfg.name)
-                for worker_id in owners
-            ]
+            states = [worker_sinks.get(worker_id, {}).get(cfg.name) for worker_id in owners]
             present = [row for row in states if row is not None]
             rows.append(
                 SinkRuntimeSnapshot(

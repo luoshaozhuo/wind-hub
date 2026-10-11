@@ -15,9 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_ci_scope() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "ci_scope", REPO_ROOT / "scripts" / "ci_scope.py"
-    )
+    spec = importlib.util.spec_from_file_location("ci_scope", REPO_ROOT / "scripts" / "ci_scope.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -30,9 +28,7 @@ def _pr_targets(*paths: str) -> set[str]:
 
 
 def test_reconciler_triggers_system_task_control() -> None:
-    assert "system-task-control" in _pr_targets(
-        "src/wind_hub_server/application/task/reconcile.py"
-    )
+    assert "system-task-control" in _pr_targets("src/wind_hub_server/application/task/reconcile.py")
 
 
 def test_task_control_plane_paths_trigger_system_task_control() -> None:
@@ -47,9 +43,7 @@ def test_task_control_plane_paths_trigger_system_task_control() -> None:
 
 
 def test_commander_config_service_triggers_system_reload() -> None:
-    assert "system-reload" in _pr_targets(
-        "src/commander/application/config.py"
-    )
+    assert "system-reload" in _pr_targets("src/commander/application/config.py")
 
 
 def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:
@@ -59,6 +53,4 @@ def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:
 
 
 def test_collector_query_service_triggers_rpc_gate() -> None:
-    assert "integration-rpc" in _pr_targets(
-        "src/collector/application/services.py"
-    )
+    assert "integration-rpc" in _pr_targets("src/collector/application/services.py")

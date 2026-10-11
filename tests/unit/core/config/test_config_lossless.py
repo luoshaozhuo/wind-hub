@@ -12,8 +12,13 @@ from core.infrastructure.config.digest import config_dir_digest
 
 ROOT = Path(__file__).resolve().parents[4]
 FILES = (
-    "system.yaml", "device_models.yaml", "devices.yaml", "points.yaml",
-    "business_points.yaml", "tasks.yaml", "sinks.yaml",
+    "system.yaml",
+    "device_models.yaml",
+    "devices.yaml",
+    "points.yaml",
+    "business_points.yaml",
+    "tasks.yaml",
+    "sinks.yaml",
 )
 
 

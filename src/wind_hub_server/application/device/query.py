@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-
 from wind_hub_core.config import DeviceConfig
+
 from wind_hub_server.application.config.service import ConfigService
 from wind_hub_server.application.port.monitoring import (
     DeviceRuntimeSnapshot,
@@ -86,11 +86,7 @@ class DeviceQueryService:
         if cfg is None:
             raise KeyError(device_id)
         runtime = next(
-            (
-                row
-                for row in self._monitoring.devices_snapshot()
-                if row.device_id == device_id
-            ),
+            (row for row in self._monitoring.devices_snapshot() if row.device_id == device_id),
             None,
         )
         return self._snapshot(cfg, runtime)
@@ -115,9 +111,7 @@ class DeviceQueryService:
             extension_overrides=extension_overrides,
             enabled=cfg.enabled,
             connected=runtime.connected if runtime is not None else False,
-            consecutive_failures=(
-                runtime.consecutive_failures if runtime is not None else 0
-            ),
+            consecutive_failures=(runtime.consecutive_failures if runtime is not None else 0),
             last_error=runtime.last_error if runtime is not None else None,
         )
 
@@ -135,9 +129,7 @@ class DeviceQueryService:
         defaults = dict(model.connection_defaults)
         default_port = defaults.pop("port", None)
         port_override = (
-            endpoint.port
-            if default_port is None or endpoint.port != default_port
-            else None
+            endpoint.port if default_port is None or endpoint.port != default_port else None
         )
         extensions = {
             key: value

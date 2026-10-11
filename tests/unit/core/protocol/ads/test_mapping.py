@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from core.application import ConfigError
@@ -12,6 +14,7 @@ from core.domain import (
     Protocol,
     UnitCode,
 )
+from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.protocol.ads import (
     ADSDriver,
     parse_ads_config,
@@ -26,18 +29,18 @@ def _endpoint(
     return ConnectionEndpoint("192.0.2.20", port)
 
 
-def _device_options(**options: object) -> dict[str, object]:
+def _device_options(**options: Any) -> dict[str, Any]:
     return dict(options)
 
 
 def _point(
     point_id: str,
     *,
-    ext: dict[str, object] | None = None,
+    ext: dict[str, Any] | None = None,
 ) -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={} if ext is None else ext,
@@ -47,8 +50,8 @@ def _point(
 def _point_ext(
     *,
     data_type: str = "REAL",
-    **options: object,
-) -> dict[str, object]:
+    **options: Any,
+) -> dict[str, Any]:
     return {"data_type": data_type, **options}
 
 
@@ -138,7 +141,7 @@ def test_ads_int64_mapping_is_supported() -> None:
 
 def test_ads_driver_precompiles_point_table_without_network_io() -> None:
     point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
-    table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
+    table = PointTable(PointTableId("ads_pt"), Protocol("ads"), {"speed": point})
 
     driver = ADSDriver(
         _endpoint(),

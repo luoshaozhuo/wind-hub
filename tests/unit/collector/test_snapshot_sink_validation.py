@@ -11,6 +11,7 @@ from core.domain import Sink
 from core.infrastructure.config.adapter import YamlConfigAdapter
 from tests.support.new_collector import write_collector_config_tree
 
+
 def _snapshot_with_points(tmp_path: Path, *, addresses: tuple[int, ...]):
     snapshot = YamlConfigAdapter(write_collector_config_tree(tmp_path / "cfg")).load()
     device_id, device = next(iter(snapshot.site.devices.items()))

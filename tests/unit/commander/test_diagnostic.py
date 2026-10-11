@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from commander.application.diagnostic import CommanderDiagnosticService
-from core.domain.diagnostic import DiagnosticCode, ResolvedAddress
 from commander.application.errors import CommandError
 from commander.application.runtime import CommanderRuntime
+from core.domain.diagnostic import DiagnosticCode, ResolvedAddress
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
 
@@ -20,7 +20,7 @@ def _service(
     runtime = CommanderRuntime(
         make_commander_config(),
         config_hash="hash-a",
-        protocol_registry=registry,  # type: ignore[arg-type]
+        protocol_registry=registry,
     )
     return CommanderDiagnosticService(
         runtime,
@@ -135,7 +135,7 @@ def _ads_service(registry: FakeRegistry) -> CommanderDiagnosticService:
             },
         ),
         config_hash="hash-a",
-        protocol_registry=registry,  # type: ignore[arg-type]
+        protocol_registry=registry,
     )
     return CommanderDiagnosticService(
         runtime,

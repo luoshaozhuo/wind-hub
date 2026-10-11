@@ -124,8 +124,7 @@ def _infer_table_protocols(
             comp_protocol[_find(name)] = known[name]
 
     return {
-        name: known.get(name) or comp_protocol.get(_find(name), "modbus")
-        for name in point_tables
+        name: known.get(name) or comp_protocol.get(_find(name), "modbus") for name in point_tables
     }
 
 

@@ -75,8 +75,7 @@ def compose_up() -> None:
     result = _compose("up", "-d", "--wait", "--wait-timeout", "120")
     if result.returncode != 0:
         raise ComposeError(
-            f"docker compose up failed ({result.returncode}): "
-            f"{result.stdout}\n{result.stderr}"
+            f"docker compose up failed ({result.returncode}): " f"{result.stdout}\n{result.stderr}"
         )
 
 
@@ -137,9 +136,7 @@ def wait_services_healthy(
         if pending:
             time.sleep(1.0)
     if pending:
-        raise ComposeError(
-            f"services not healthy within {timeout_s}s: {sorted(pending)}"
-        )
+        raise ComposeError(f"services not healthy within {timeout_s}s: {sorted(pending)}")
 
 
 def compose_stop_service(service: str) -> None:

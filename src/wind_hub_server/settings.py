@@ -66,11 +66,8 @@ class ServerSettings:
             if not worker_id:
                 raise ValueError("collector worker_id must not be empty")
             if not endpoint:
-                raise ValueError(
-                    f"collector endpoint for '{worker_id}' must not be empty"
-                )
+                raise ValueError(f"collector endpoint for '{worker_id}' must not be empty")
             if worker_id in result:
                 raise ValueError(f"duplicate collector worker_id '{worker_id}'")
             result[worker_id] = endpoint
         return result
-

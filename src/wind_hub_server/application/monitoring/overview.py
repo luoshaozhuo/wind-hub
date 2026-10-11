@@ -59,11 +59,7 @@ class OverviewService:
             site_name=site.name if site is not None else None,
             runtime_running=status.running,
             runtime_state=(
-                "degraded"
-                if status.degraded
-                else "running"
-                if status.running
-                else "stopped"
+                "degraded" if status.degraded else "running" if status.running else "stopped"
             ),
             workers_unavailable=list(status.unavailable_workers),
             device_count=status.device_count,

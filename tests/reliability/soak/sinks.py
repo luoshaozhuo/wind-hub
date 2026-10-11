@@ -12,9 +12,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from core.application import ConnectionHealth
 from core.application.port import SinkPort
 from core.domain.point_value import PointValue
-from core.application import ConnectionHealth
 from tests.reliability.soak.metrics import append_bounded
 
 #: 延迟样本上限（超上限隔点抽稀，见 :func:`append_bounded`）——24h 高节拍

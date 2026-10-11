@@ -99,8 +99,7 @@ async def netem_link(tmp_path: Path) -> AsyncIterator[NetemLink]:
     )
     if not manager.check_permission():
         pytest.skip(
-            "netem/veth 需要 root 或 user namespace（unshare -rmn），"
-            "当前环境均不可用——NOT_RUN"
+            "netem/veth 需要 root 或 user namespace（unshare -rmn），" "当前环境均不可用——NOT_RUN"
         )
 
     netem = NetemController(f"vnc{pid}")
@@ -134,9 +133,7 @@ async def netem_link(tmp_path: Path) -> AsyncIterator[NetemLink]:
             stderr=subprocess.STDOUT,
         )
         await _wait_link_ready(server_proc, pair.ip_server, MODBUS_NS_PORT)
-        yield NetemLink(
-            pair=pair, namespace=namespace, server_proc=server_proc, netem=netem
-        )
+        yield NetemLink(pair=pair, namespace=namespace, server_proc=server_proc, netem=netem)
     finally:
         netem.clear()
         if server_proc is not None and server_proc.poll() is None:
@@ -164,9 +161,7 @@ async def _wait_link_ready(
             )
         except (TimeoutError, OSError):
             if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError(
-                    f"等待 {host}:{port} 可达超时（{timeout}s）"
-                ) from None
+                raise RuntimeError(f"等待 {host}:{port} 可达超时（{timeout}s）") from None
             await asyncio.sleep(0.2)
         else:
             writer.close()
@@ -193,9 +188,7 @@ def _userns_netem_available() -> bool:
     return result.returncode == 0
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """非 root 且可进 user namespace 时，把本目录用例移出当前进程，交给
     sessionfinish 阶段的命名空间子进程真实执行（子进程输出直接继承到
     终端，退出码回传——失败即整体 FAIL，不存在静默 PASS）。"""

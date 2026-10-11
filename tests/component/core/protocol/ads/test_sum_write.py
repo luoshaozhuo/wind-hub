@@ -5,15 +5,19 @@ from __future__ import annotations
 import struct
 
 import pytest
-from pyads.constants import ADSIGRP_SUMUP_WRITE
+from pyads.constants import (  # type: ignore[import-untyped]  # pyads 无 py.typed，与 src 处理方式一致
+    ADSIGRP_SUMUP_WRITE,
+)
 
 from core.application import ProtocolError, ProtocolWrite
 from core.domain import (
     UNIT_CATALOG,
+    BusinessPointId,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
+    PointTableId,
     Protocol,
     UnitCode,
 )
@@ -23,7 +27,7 @@ from core.infrastructure.protocol.ads import ADSDriver
 def _point(point_id: str, offset: int, *, data_type: str = "DINT") -> Point:
     return Point(
         point_id=point_id,
-        business_point_id=point_id,
+        business_point_id=BusinessPointId(point_id),
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
         ext={"index_group": 0x4020, "index_offset": offset, "data_type": data_type},
@@ -41,7 +45,7 @@ class _Connection:
         index_group: int,
         count: int,
         read_datatype: object,
-        value: object,
+        value: bytes,
         write_datatype: object,
         *,
         check_length: bool,
@@ -54,7 +58,7 @@ class _Connection:
         data_offset = 12 * count
         requests = []
         for group, offset, size in entries:
-            requests.append((group, offset, raw[data_offset:data_offset + size]))
+            requests.append((group, offset, raw[data_offset : data_offset + size]))
             data_offset += size
         assert data_offset == len(raw)
         self.requests.append(requests)
@@ -66,7 +70,7 @@ class _Connection:
 
 
 def _driver(*points: Point) -> tuple[ADSDriver, _Connection]:
-    table = PointTable("ads", Protocol("ads"), {p.point_id: p for p in points})
+    table = PointTable(PointTableId("ads"), Protocol("ads"), {p.point_id: p for p in points})
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     connection = _Connection()
     driver._connection = connection
@@ -79,10 +83,12 @@ async def test_sum_write_uses_index_addresses_and_preserves_order() -> None:
     driver, connection = _driver(_point("a", 10), _point("b", 20))
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
     assert [r.success for r in results] == [True, True]
-    assert connection.requests == [[
-        (0x4020, 10, struct.pack("<i", 1)),
-        (0x4020, 20, struct.pack("<i", 2)),
-    ]]
+    assert connection.requests == [
+        [
+            (0x4020, 10, struct.pack("<i", 1)),
+            (0x4020, 20, struct.pack("<i", 2)),
+        ]
+    ]
 
 
 @pytest.mark.asyncio
@@ -98,10 +104,12 @@ async def test_sum_write_individual_status_isolated() -> None:
 @pytest.mark.asyncio
 async def test_sum_write_rejects_invalid_value_without_discarding_valid_points() -> None:
     driver, connection = _driver(_point("a", 10), _point("b", 20))
-    results = await driver.write_many((
-        ProtocolWrite("a", 1.5),
-        ProtocolWrite("b", 2),
-    ))
+    results = await driver.write_many(
+        (
+            ProtocolWrite("a", 1.5),
+            ProtocolWrite("b", 2),
+        )
+    )
     assert [r.success for r in results] == [False, True]
     assert connection.requests == [[(0x4020, 20, struct.pack("<i", 2))]]
 
@@ -122,8 +130,12 @@ async def test_sum_write_chunks_by_limit() -> None:
 
     driver, connection = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
     driver._config = replace(driver._config, max_subs_per_sum=2)
-    results = await driver.write_many((
-        ProtocolWrite("a", 1), ProtocolWrite("b", 2), ProtocolWrite("c", 3),
-    ))
+    results = await driver.write_many(
+        (
+            ProtocolWrite("a", 1),
+            ProtocolWrite("b", 2),
+            ProtocolWrite("c", 3),
+        )
+    )
     assert all(r.success for r in results)
     assert [len(batch) for batch in connection.requests] == [2, 1]
