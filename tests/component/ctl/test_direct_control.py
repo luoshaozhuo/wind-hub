@@ -13,7 +13,7 @@ from ctl.client import CollectorClient, CommanderClient
 
 
 class _CollectorRuntime(collector_grpc.CollectorRuntimeServiceServicer):
-    async def GetRuntimeStatus(self, request, context):
+    async def GetRuntimeStatus(self, request, context):  # noqa: N802
         """返回最小 Runtime 状态。"""
         del request, context
         return collector_pb.RuntimeStatusResponse(
@@ -24,7 +24,7 @@ class _CollectorRuntime(collector_grpc.CollectorRuntimeServiceServicer):
 
 
 class _CollectorControl(collector_grpc.CollectorControlServiceServicer):
-    async def StopTask(self, request, context):
+    async def StopTask(self, request, context):  # noqa: N802
         """回显 stop-task。"""
         del context
         return collector_pb.TaskSummaryMessage(
@@ -34,7 +34,7 @@ class _CollectorControl(collector_grpc.CollectorControlServiceServicer):
 
 
 class _Commander(commander_grpc.CommanderServiceServicer):
-    async def GetStatus(self, request, context):
+    async def GetStatus(self, request, context):  # noqa: N802
         """返回最小 Commander 状态。"""
         del request, context
         return commander_pb.CommanderStatusResponse(
@@ -42,7 +42,7 @@ class _Commander(commander_grpc.CommanderServiceServicer):
             device_count=1,
         )
 
-    async def ReadPoint(self, request, context):
+    async def ReadPoint(self, request, context):  # noqa: N802
         """回显一个读取值。"""
         del context
         return commander_pb.PointValueMessage(
@@ -52,7 +52,7 @@ class _Commander(commander_grpc.CommanderServiceServicer):
             quality="good",
         )
 
-    async def WritePoint(self, request, context):
+    async def WritePoint(self, request, context):  # noqa: N802
         """确认一个写命令。"""
         del context
         return commander_pb.CommandResultMessage(
