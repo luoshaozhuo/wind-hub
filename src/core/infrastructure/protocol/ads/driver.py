@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ctypes
 import logging
 import struct
 import sys
@@ -237,7 +236,8 @@ class ADSDriver:
                     return self._open_verified_connection()
                 except Exception:
                     raise ProtocolError(
-                        f"ADS still unreachable after remote route registration: {self._config.host}"
+                        "ADS still unreachable after remote route registration: "
+                        f"{self._config.host}"
                     ) from None
 
     async def connect(self) -> None:
@@ -757,7 +757,7 @@ class ADSDriver:
         """
         from ctypes import Structure, c_uint32
 
-        from pyads.constants import ADSIGRP_SUMUP_READ  # type: ignore[import-untyped]
+        from pyads.constants import ADSIGRP_SUMUP_READ
 
         connection = self._connection
         if connection is None:
