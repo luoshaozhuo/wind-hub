@@ -135,8 +135,7 @@ async def test_add_sink_after_start_opens_and_consumes():
     await runtime.start()
     sink = FakeSink()
 
-    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/x.csv"})
-    await runtime.add_sink("s1", cfg, sink)
+    await runtime.add_sink("s1", sink)
     assert sink.open_calls == 1
     await runtime.dispatch({"s1": [_value()]})
     await asyncio.sleep(0.05)
@@ -150,9 +149,8 @@ async def test_add_sink_open_failure_leaves_registry_unchanged():
     sink = FakeSink()
     sink.fail_open = True
 
-    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/x.csv"})
     with pytest.raises(ConnectionError):
-        await runtime.add_sink("s1", cfg, sink)
+        await runtime.add_sink("s1", sink)
     assert "s1" not in runtime.sinks
     await runtime.stop()
 
@@ -174,8 +172,7 @@ async def test_rebuild_open_first_for_regular_sink():
     await runtime.start()
     new = FakeSink()
 
-    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/y.csv"})
-    await runtime.rebuild_sink("s1", cfg, new)
+    await runtime.rebuild_sink("s1", new)
     assert new.open_calls == 1
     assert old.close_calls == 1
     assert runtime.sinks["s1"] is new
@@ -189,9 +186,8 @@ async def test_rebuild_close_first_for_exclusive_sink_and_restores_on_failure():
     new = FakeSink(exclusive=True)
     new.fail_open = True
 
-    cfg = Sink(sink_id="s1", kind="modbus", enabled=True, connection={})
     with pytest.raises(ConnectionError):
-        await runtime.rebuild_sink("s1", cfg, new)
+        await runtime.rebuild_sink("s1", new)
     # close-first：旧实例已关闭；open 失败后尽力恢复旧实例
     assert old.close_calls == 1
     assert old.open_calls == 2  # start + restore

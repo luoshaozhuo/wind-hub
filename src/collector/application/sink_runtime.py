@@ -294,7 +294,7 @@ class SinkRuntime:
     # 热重载——sink 增删重建
     # ------------------------------------------------------------------
 
-    async def add_sink(self, sink_name: str, cfg: Sink, sink: SinkPort) -> None:
+    async def add_sink(self, sink_name: str, sink: SinkPort) -> None:
         """运行时新增 sink；open 成功后才提交到注册表。
 
         部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
@@ -304,7 +304,7 @@ class SinkRuntime:
             Exception: ``sink.open()`` 失败原样上抛；失败前不修改注册表。
         """
         if sink_name in self._sinks:
-            await self.rebuild_sink(sink_name, cfg, sink)
+            await self.rebuild_sink(sink_name, sink)
             return
 
         await sink.open()
@@ -334,19 +334,13 @@ class SinkRuntime:
         self._unhealthy.discard(sink_name)
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
-    async def rebuild_sink(
-        self,
-        sink_name: str,
-        new_cfg: Sink,
-        new_sink: SinkPort,
-    ) -> None:
+    async def rebuild_sink(self, sink_name: str, new_sink: SinkPort) -> None:
         """重建 Sink，并按资源能力选择 open-first / close-first。
 
         普通客户端型 Sink 先打开新实例再切换；实现 ExclusiveOpenSinkPort
         且 exclusive_open=True 的监听型 Sink 先关闭旧实例释放独占资源。
         若新实例 open 失败，会尽力重新打开旧实例。
         """
-        del new_cfg
         old_sink = self._sinks.get(sink_name)
         exclusive = isinstance(new_sink, ExclusiveOpenSinkPort) and new_sink.exclusive_open
         if not exclusive:
@@ -419,7 +413,7 @@ class SinkRuntime:
                     await self.remove_sink(name)
                 continue
             assert factory is not None
-            await self.add_sink(name, cfg, factory(cfg))
+            await self.add_sink(name, factory(cfg))
 
     # ------------------------------------------------------------------
     # 私有——消费者与重建辅助
