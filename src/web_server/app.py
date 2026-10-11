@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+import logging
+from time import perf_counter
+from uuid import uuid4
 from secrets import compare_digest
 
 import grpc
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from starlette.responses import Response
 
 from web_server.rpc import RpcGateway, RpcSettings
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_gateway(request: Request) -> RpcGateway:
@@ -101,6 +108,26 @@ def create_app(
             yield
 
     app = FastAPI(title="Wind Hub Web API", version="1.0.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def observe_request(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:
+        """记录 HTTP 状态和耗时；不记录查询参数、请求体和凭据。"""
+        request_id = uuid4().hex
+        started = perf_counter()
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            duration_ms = (perf_counter() - started) * 1000
+            logger.info("http_request id=%s method=%s path=%s status=%s duration_ms=%.2f",
+                        request_id, request.method, request.url.path, status_code, duration_ms)
+            if request.method == "POST" and request.url.path.startswith("/api/v1/"):
+                logger.info("control_audit id=%s operation=%s status=%s",
+                            request_id, request.url.path, status_code)
+
 
     @app.get("/health/live", tags=["health"])
     async def liveness() -> dict[str, str]:
