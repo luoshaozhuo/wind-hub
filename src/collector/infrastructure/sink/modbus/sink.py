@@ -33,7 +33,8 @@ class ModbusSink(SinkPort):
         for point in points:
             if not isinstance(point.address, ModbusSinkAddress):
                 raise ConfigError(
-                    f"Modbus sink '{config.sink_id}' point '{point.ref}' " "requires ModbusSinkAddress"
+                    f"Modbus sink '{config.sink_id}' point '{point.ref}' "
+                    "requires ModbusSinkAddress"
                 )
 
         self._data_path = ModbusSinkDataPath(points)
