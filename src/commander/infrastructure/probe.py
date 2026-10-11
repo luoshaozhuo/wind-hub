@@ -1,6 +1,5 @@
 """Commander 诊断网络与 ADS 地址探测（Infrastructure）。
 
-``ping_host`` / ``tcp_port_open`` 是诊断用基础网络探测，返回布尔事实；
 ``AdsDiagnosticProbe`` 是短生命周期 ADS 地址解析会话，仅服务诊断，不参与
 生产读写路径（生产读写由 Core ADSDriver 承担）。
 
@@ -10,15 +9,13 @@ ADS 诊断使用必需依赖 pyads，第三方动态类型保持在基础设施�
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import ctypes
 from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
 from core.domain import ConnectionEndpoint, Point, ProtocolOptions
-
-from ..application.diagnostic import ResolvedAddress
+from core.domain.diagnostic import ResolvedAddress
 
 _TYPE_MAP = {
     "bool": "BOOL",
@@ -34,52 +31,6 @@ _TYPE_MAP = {
     "float64": "LREAL",
     "str": "STRING",
 }
-
-
-async def ping_host(host: str, *, timeout: float = 1.0) -> bool:
-    """调用系统 ping 检查主机可达性；命令缺失/超时/非零退出均为 False。
-
-    超时时主动 kill 子进程并等待回收，避免残留子进程。
-    """
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "ping",
-            "-c",
-            "1",
-            "-W",
-            str(max(1, int(timeout))),
-            host,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError:
-        return False
-
-    try:
-        return await asyncio.wait_for(process.wait(), timeout=timeout + 0.5) == 0
-    except TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            process.kill()
-        await process.wait()
-        return False
-
-
-async def tcp_port_open(host: str, port: int, *, timeout: float = 1.0) -> bool:
-    """检查目标 TCP 端口能否建立连接（不代表协议握手成功）。"""
-    writer: asyncio.StreamWriter | None = None
-    try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=timeout,
-        )
-        return True
-    except (OSError, TimeoutError):
-        return False
-    finally:
-        if writer is not None:
-            writer.close()
-            with contextlib.suppress(Exception):
-                await writer.wait_closed()
 
 
 class AdsDiagnosticProbe:
@@ -179,6 +130,4 @@ def _plc_type(data_type: str) -> Any:
 
 __all__ = [
     "AdsDiagnosticProbe",
-    "ping_host",
-    "tcp_port_open",
 ]

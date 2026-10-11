@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from commander.application.diagnostic import (
-    CommanderDiagnosticService,
-    DiagnosticCode,
-)
+from commander.application.diagnostic import CommanderDiagnosticService
+from core.domain.diagnostic import DiagnosticCode, ResolvedAddress
 from commander.application.errors import CommandError
 from commander.application.runtime import CommanderRuntime
 from tests.support.new_commander import FakeRegistry, make_commander_config
@@ -116,8 +114,6 @@ class _FakeProbe:
         self.connected = False
 
     async def resolve(self, point):  # noqa: ANN001, ANN201
-        from commander.application.diagnostic import ResolvedAddress
-
         return ResolvedAddress(
             symbol="MAIN.x",
             index_group=0xF021,
@@ -128,8 +124,6 @@ class _FakeProbe:
 
 
 def _ads_service(registry: FakeRegistry) -> CommanderDiagnosticService:
-    from commander.application.diagnostic import ResolvedAddress  # noqa: F401
-
     runtime = CommanderRuntime(
         make_commander_config(
             protocol="ads",

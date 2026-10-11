@@ -14,6 +14,7 @@ from pathlib import Path
 from core.application import ProtocolRegistry
 from core.domain import ConnectionEndpoint, Device, ProtocolOptions
 from core.infrastructure.config import config_dir_digest
+from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import CommanderConfig
@@ -30,8 +31,6 @@ from .application.services import (
 from .infrastructure.config import load_commander_config
 from .infrastructure.probe import (
     AdsDiagnosticProbe,
-    ping_host,
-    tcp_port_open,
 )
 
 
