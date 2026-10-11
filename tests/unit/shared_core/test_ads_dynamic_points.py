@@ -303,7 +303,7 @@ class TestDynamicReadMany:
         monkey_connection = _SumConnection()
         driver = _driver(monkey_connection)
         monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(driver_module, "_pyads", lambda: pyads)
+        monkeypatch.setattr(driver_module, "pyads", pyads)
         try:
             samples = await driver.read_many(
                 [_dyn("a", offset=100), _dyn("b", offset=104)]
