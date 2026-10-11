@@ -10,11 +10,10 @@ from web_server.app import create_app
 
 def test_path_parameters_not_written_to_logs(caplog: LogCaptureFixture) -> None:
     app = create_app()
-    with TestClient(app) as client:
-        with caplog.at_level(logging.INFO, logger="web_server.app"):
-            response = client.get(
-                "/api/v1/commander/devices/device-private-123/points/point-private-456"
-            )
+    with TestClient(app) as client, caplog.at_level(logging.INFO, logger="web_server.app"):
+        response = client.get(
+            "/api/v1/commander/devices/device-private-123/points/point-private-456"
+        )
     assert response.status_code == 503
     assert "device-private-123" not in caplog.text
     assert "point-private-456" not in caplog.text
@@ -23,11 +22,10 @@ def test_path_parameters_not_written_to_logs(caplog: LogCaptureFixture) -> None:
 
 def test_read_many_is_not_logged_as_control_action(caplog: LogCaptureFixture) -> None:
     app = create_app()
-    with TestClient(app) as client:
-        with caplog.at_level(logging.INFO, logger="web_server.app"):
-            response = client.post(
-                "/api/v1/commander/devices/device-private-123/read-many",
-                json={"point_ids": []},
-            )
+    with TestClient(app) as client, caplog.at_level(logging.INFO, logger="web_server.app"):
+        response = client.post(
+            "/api/v1/commander/devices/device-private-123/read-many",
+            json={"point_ids": []},
+        )
     assert response.status_code == 422
     assert "control_audit" not in caplog.text

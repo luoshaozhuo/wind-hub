@@ -22,12 +22,14 @@ async def test_rpc_channels_closed_on_normal_exit() -> None:
 @pytest.mark.asyncio
 async def test_first_channel_closed_if_second_channel_creation_fails() -> None:
     first = AsyncMock()
-    with patch(
-        "web_server.rpc.grpc.aio.insecure_channel",
-        side_effect=[first, RuntimeError("commander channel failed")],
+    with (
+        patch(
+            "web_server.rpc.grpc.aio.insecure_channel",
+            side_effect=[first, RuntimeError("commander channel failed")],
+        ),
+        pytest.raises(RuntimeError, match="commander channel failed"),
     ):
-        with pytest.raises(RuntimeError, match="commander channel failed"):
-            async with RpcGateway(RpcSettings()):
-                pass
+        async with RpcGateway(RpcSettings()):
+            pass
 
     first.close.assert_awaited_once()

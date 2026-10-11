@@ -17,10 +17,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 
 # generated protobuf 允许出现的前缀（相对 src/）：
-# grpc inbound/outbound adapter、core rpc codec 与生成物自身、cli RPC client。
+# grpc inbound/outbound adapter、core rpc codec 与生成物自身、
+# cli / web_server 两个出站 RPC client 边界。
 _ALLOWED_PB2_PREFIXES = (
     "core/infrastructure/rpc/",
     "cli/",
+    "web_server/",
     "collector/infrastructure/grpc/",
     "commander/infrastructure/grpc/",
 )

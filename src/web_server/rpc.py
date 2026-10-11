@@ -92,16 +92,24 @@ class RpcGateway:
         return self._settings.timeout_seconds
 
     async def collector_info(self) -> dict[str, object]:
-        return to_payload(await self.collector().GetCollectorInfo(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.collector().GetCollectorInfo(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def collector_status(self) -> dict[str, object]:
-        return to_payload(await self.collector().GetRuntimeStatus(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.collector().GetRuntimeStatus(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def collector_metrics(self) -> dict[str, object]:
-        return to_payload(await self.collector().GetMetricsSnapshot(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.collector().GetMetricsSnapshot(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def collector_devices(self) -> dict[str, object]:
-        return to_payload(await self.collector().ListDevices(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.collector().ListDevices(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def collector_sinks(self) -> dict[str, object]:
         return to_payload(await self.collector().ListSinks(empty_pb2.Empty(), timeout=self.timeout))
@@ -110,7 +118,9 @@ class RpcGateway:
         return to_payload(await self.collector().ListTasks(empty_pb2.Empty(), timeout=self.timeout))
 
     async def collector_instances(self) -> dict[str, object]:
-        return to_payload(await self.collector().ListTaskInstances(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.collector().ListTaskInstances(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def collector_latest_values(self, device_id: str = "") -> dict[str, object]:
         request = collector_pb.LatestValuesRequest(device_id=device_id)
@@ -120,7 +130,9 @@ class RpcGateway:
         return to_payload(await self.commander().GetStatus(empty_pb2.Empty(), timeout=self.timeout))
 
     async def commander_devices(self) -> dict[str, object]:
-        return to_payload(await self.commander().ListDevices(empty_pb2.Empty(), timeout=self.timeout))
+        return to_payload(
+            await self.commander().ListDevices(empty_pb2.Empty(), timeout=self.timeout)
+        )
 
     async def commander_read(self, device_id: str, point_id: str) -> dict[str, object]:
         request = commander_pb.ReadPointRequest(device_id=device_id, point_id=point_id)
@@ -148,17 +160,29 @@ class RpcGateway:
 
     async def collector_start_instance(self, instance_id: str) -> dict[str, object]:
         request = collector_pb.TaskInstanceStartRequest(instance_id=instance_id)
-        return to_payload(await self.collector_control().StartTaskInstance(request, timeout=self.timeout))
+        return to_payload(
+            await self.collector_control().StartTaskInstance(request, timeout=self.timeout)
+        )
 
     async def collector_stop_instance(self, instance_id: str) -> dict[str, object]:
         request = collector_pb.InstanceIdRequest(instance_id=instance_id)
-        return to_payload(await self.collector_control().StopTaskInstance(request, timeout=self.timeout))
+        return to_payload(
+            await self.collector_control().StopTaskInstance(request, timeout=self.timeout)
+        )
 
     async def collector_verify_sink(self, name: str) -> dict[str, object]:
-        return to_payload(await self.collector().VerifySink(collector_pb.SinkRequest(name=name), timeout=self.timeout))
+        return to_payload(
+            await self.collector().VerifySink(
+                collector_pb.SinkRequest(name=name), timeout=self.timeout
+            )
+        )
 
     async def collector_test_sink(self, name: str) -> dict[str, object]:
-        return to_payload(await self.collector().WriteTestSink(collector_pb.SinkRequest(name=name), timeout=self.timeout))
+        return to_payload(
+            await self.collector().WriteTestSink(
+                collector_pb.SinkRequest(name=name), timeout=self.timeout
+            )
+        )
 
     async def commander_read_many(self, device_id: str, point_ids: list[str]) -> dict[str, object]:
         request = commander_pb.ReadPointsRequest(device_id=device_id, point_ids=point_ids)
@@ -172,18 +196,27 @@ class RpcGateway:
         request = commander_pb.PointRequest(device_id=device_id, point_id=point_id)
         return to_payload(await self.commander().ResolvePoint(request, timeout=self.timeout))
 
-    async def commander_verify_points(self, device_id: str, point_group: str = "") -> dict[str, object]:
+    async def commander_verify_points(
+        self, device_id: str, point_group: str = ""
+    ) -> dict[str, object]:
         request = commander_pb.VerifyPointsRequest(device_id=device_id, point_group=point_group)
         return to_payload(await self.commander().VerifyPoints(request, timeout=self.timeout))
 
     async def commander_write(
-        self, command_id: str, device_id: str, point_id: str,
-        value: bool | int | float | str, io_timeout: float,
+        self,
+        command_id: str,
+        device_id: str,
+        point_id: str,
+        value: bool | int | float | str,
+        io_timeout: float,
     ) -> dict[str, object]:
         """传递调用方指定的命令 ID，不在 Web 层重试。"""
         request = commander_pb.WritePointRequest(
-            command_id=command_id, device_id=device_id, point_id=point_id,
-            value=encode_scalar(value), timeout=io_timeout,
+            command_id=command_id,
+            device_id=device_id,
+            point_id=point_id,
+            value=encode_scalar(value),
+            timeout=io_timeout,
         )
         return to_payload(await self.commander().WritePoint(request, timeout=self.timeout))
 
@@ -194,32 +227,47 @@ class RpcGateway:
         request = commander_pb.WritePointsRequest(
             commands=[
                 commander_pb.WritePointRequest(
-                    command_id=cid, device_id=did, point_id=pid,
-                    value=encode_scalar(value), timeout=io_timeout,
+                    command_id=cid,
+                    device_id=did,
+                    point_id=pid,
+                    value=encode_scalar(value),
+                    timeout=io_timeout,
                 )
                 for cid, did, pid, value, io_timeout in commands
             ]
         )
         return to_payload(await self.commander().WritePoints(request, timeout=self.timeout))
 
-    async def collector_prepare_config(self, revision_id: str, config_hash: str) -> dict[str, object]:
+    async def collector_prepare_config(
+        self, revision_id: str, config_hash: str
+    ) -> dict[str, object]:
         """将 prepare 阶段明确转交 collector，不假装跨进程原子提交。"""
-        request = collector_pb.PrepareConfigRequest(revision_id=revision_id, config_hash=config_hash)
-        return to_payload(await self.collector_control().PrepareConfig(request, timeout=self.timeout))
+        request = collector_pb.PrepareConfigRequest(
+            revision_id=revision_id, config_hash=config_hash
+        )
+        return to_payload(
+            await self.collector_control().PrepareConfig(request, timeout=self.timeout)
+        )
 
     async def collector_activate_config(self, revision_id: str) -> dict[str, object]:
         """将 activate 阶段明确转交 collector，不假装跨进程原子提交。"""
         request = collector_pb.ActivateConfigRequest(revision_id=revision_id)
-        return to_payload(await self.collector_control().ActivateConfig(request, timeout=self.timeout))
+        return to_payload(
+            await self.collector_control().ActivateConfig(request, timeout=self.timeout)
+        )
 
     async def collector_abort_config(self, revision_id: str) -> dict[str, object]:
         """将 abort 阶段明确转交 collector，不假装跨进程原子提交。"""
         request = collector_pb.AbortConfigRequest(revision_id=revision_id)
         return to_payload(await self.collector_control().AbortConfig(request, timeout=self.timeout))
 
-    async def commander_prepare_config(self, revision_id: str, config_hash: str) -> dict[str, object]:
+    async def commander_prepare_config(
+        self, revision_id: str, config_hash: str
+    ) -> dict[str, object]:
         """将 prepare 阶段明确转交 commander，不假装跨进程原子提交。"""
-        request = commander_pb.PrepareConfigRequest(revision_id=revision_id, config_hash=config_hash)
+        request = commander_pb.PrepareConfigRequest(
+            revision_id=revision_id, config_hash=config_hash
+        )
         return to_payload(await self.commander().PrepareConfig(request, timeout=self.timeout))
 
     async def commander_activate_config(self, revision_id: str) -> dict[str, object]:

@@ -9,7 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
-    { include = "cti", from = "src" },
+    { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
 ]
 
@@ -158,7 +158,7 @@ root_packages = [
     "core",
     "collector",
     "commander",
-    "cti",
+    "cli",
     "web_server",
 ]
 
@@ -172,7 +172,7 @@ source_modules = ["core"]
 forbidden_modules = [
     "collector",
     "commander",
-    "cti",
+    "cli",
     "web_server",
 ]
 
@@ -257,4 +257,4 @@ forbidden_modules = [
 name = "web_server 只通过 core RPC 访问服务"
 type = "forbidden"
 source_modules = ["web_server"]
-forbidden_modules = ["collector", "commander", "ctl"]
+forbidden_modules = ["collector", "commander", "cli"]
