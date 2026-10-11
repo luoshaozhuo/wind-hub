@@ -144,9 +144,7 @@ def test_all_strategies_fail_without_replacing_output(
 
 
 @pytest.mark.parametrize(("version", "expected_port"), [(2, 801), (3, 851)])
-def test_twincat_version_port(
-    exporter: types.ModuleType, version: int, expected_port: int
-) -> None:
+def test_twincat_version_port(exporter: types.ModuleType, version: int, expected_port: int) -> None:
     exporter.TWINCAT_VERSION = version
     exporter.PLC_AMS_PORT = None
     exporter.ADD_LOCAL_ROUTE = False
@@ -160,15 +158,11 @@ def test_invalid_twincat_version(exporter: types.ModuleType) -> None:
         exporter._open_connection()
 
 
-def test_full_table_is_first_and_skips_chunks(
-    exporter: types.ModuleType, tmp_path: Path
-) -> None:
+def test_full_table_is_first_and_skips_chunks(exporter: types.ModuleType, tmp_path: Path) -> None:
     payload = _entry("A.x") + _entry("B.y")
     plc = FakePLC(payload, 2)
     exporter.TRY_FULL_TABLE_FIRST = True
-    exporter._export_in_chunks = MagicMock(
-        side_effect=AssertionError("chunk path should not run")
-    )
+    exporter._export_in_chunks = MagicMock(side_effect=AssertionError("chunk path should not run"))
     output = tmp_path / "symbols.txt"
     assert exporter.export_symbols(plc, output) == 2
     assert output.read_text(encoding="utf-8").splitlines() == ["A.x", "B.y"]

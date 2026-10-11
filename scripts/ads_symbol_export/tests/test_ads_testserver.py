@@ -87,9 +87,7 @@ class SymbolTableHandler:
                 b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<IHH", ADS_OK, 5, 0)
             )
         if command != ADS_READ:
-            return AmsResponseData(
-                b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<I", ADS_REJECT)
-            )
+            return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<I", ADS_REJECT))
 
         group, offset, size = struct.unpack_from("<III", request.ams_header.data)
         if group == SYMBOL_INFO:
@@ -121,9 +119,7 @@ class SymbolTableHandler:
 
     @staticmethod
     def _error_reply() -> AmsResponseData:
-        return AmsResponseData(
-            b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", ADS_REJECT, 0)
-        )
+        return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", ADS_REJECT, 0))
 
 
 @pytest.fixture
@@ -273,9 +269,7 @@ class FileServiceHandler:
                     else []
                 )
             if not self.find_pending:
-                return AmsResponseData(
-                    b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", 1804, 0)
-                )
+                return AmsResponseData(b"\x05\x00", _err_bytes(ADS_OK), struct.pack("<II", 1804, 0))
             name = self.find_pending.pop(0).encode("cp1252")
             entry = bytearray(322)
             struct.pack_into("<II", entry, 0, offset + 1, 0)
@@ -313,9 +307,7 @@ def test_file_service_over_real_ads_tcp(tmp_path: Path) -> None:
             conn.set_timeout(3000)
             return conn
 
-        count = exporter.export_symbols(
-            plc, output, file_service_factory=file_conn
-        )
+        count = exporter.export_symbols(plc, output, file_service_factory=file_conn)
         plc.close()
 
         assert count == 2

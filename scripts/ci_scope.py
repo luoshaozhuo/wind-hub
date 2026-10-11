@@ -173,19 +173,14 @@ def classify(paths: list[str]) -> dict[str, str]:
     frontend_e2e = any(_frontend_e2e_required(path) for path in normalized)
     tooling = any(path.startswith(TOOLING_PREFIXES) for path in normalized)
     governance = any(
-        path in GOVERNANCE_FILES or path.startswith(GOVERNANCE_PREFIXES)
-        for path in normalized
+        path in GOVERNANCE_FILES or path.startswith(GOVERNANCE_PREFIXES) for path in normalized
     )
 
     ordered_fast = [target for target in FAST_TEST_ORDER if target in fast_targets]
     ordered_pr = [target for target in PR_TARGET_ORDER if target in pr_targets]
 
     product = (
-        backend_static
-        or bool(ordered_fast)
-        or frontend_fast
-        or bool(ordered_pr)
-        or frontend_e2e
+        backend_static or bool(ordered_fast) or frontend_fast or bool(ordered_pr) or frontend_e2e
     )
 
     return {
