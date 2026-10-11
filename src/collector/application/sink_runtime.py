@@ -228,10 +228,13 @@ class SinkRuntime:
         单 Sink open 失败只标记 unhealthy 并继续，避免一个输出端点阻断
         整体启动；失败 Sink 不建消费者，由 :meth:`health` 持续暴露。
         """
+        if self._running:
+            return
         self._running = True
         for name, sink in self._sinks.items():
             try:
                 await sink.open()
+                self._unhealthy.discard(name)
                 logger.info("Sink '%s' opened", name)
             except Exception:
                 logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
@@ -270,7 +273,7 @@ class SinkRuntime:
                         name,
                         queue.qsize(),
                     )
-                    self._consumer_tasks.pop(name).cancel()
+                    self._consumer_tasks[name].cancel()
         for task in self._consumer_tasks.values():
             try:
                 await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)

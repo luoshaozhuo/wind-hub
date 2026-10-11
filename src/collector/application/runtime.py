@@ -219,13 +219,15 @@ class CollectorRuntime:
                 await self._task_runtime.sync_instances()
             except BaseException:
                 self._running = False
-                try:
-                    await self._task_runtime.stop_all()
-                finally:
+                for name, cleanup in (
+                    ("tasks", self._task_runtime.stop_all),
+                    ("sinks", self._sink_runtime.stop),
+                    ("devices", self._device_runtime.close_all),
+                ):
                     try:
-                        await self._sink_runtime.stop()
-                    finally:
-                        await self._device_runtime.close_all()
+                        await cleanup()
+                    except Exception:
+                        logger.exception("Collector startup rollback failed: %s", name)
                 raise
             self._started = True
 
@@ -244,9 +246,13 @@ class CollectorRuntime:
 
             # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
             # 后台 task 或订阅；实例定义保留并统一标记 STOPPED。
-            await self._task_runtime.stop_all()
-            await self._sink_runtime.stop()
-            await self._device_runtime.close_all()
+            try:
+                await self._task_runtime.stop_all()
+            finally:
+                try:
+                    await self._sink_runtime.stop()
+                finally:
+                    await self._device_runtime.close_all()
 
     # ------------------------------------------------------------------
     # 状态
