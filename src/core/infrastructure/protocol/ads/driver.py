@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import logging
 import struct
 import sys
@@ -109,6 +110,7 @@ class ADSDriver:
         self._read_unresolved_cache: dict[tuple[str | ADSPoint, ...], tuple[int, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
         self._symbol_cache: dict[str, tuple[int, int]] = {}
+        self._symbol_sizes: dict[str, int] = {}
         self.update_point_table(point_table)
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -125,6 +127,7 @@ class ADSDriver:
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
         self._symbol_cache.clear()
+        self._symbol_sizes.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -699,6 +702,12 @@ class ADSDriver:
             raise ProtocolError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
         address = symbol_index_address(symbol, info)
+        plc_type = getattr(info, "plc_type", None)
+        if plc_type is not None:
+            with contextlib.suppress(TypeError):
+                size = ctypes.sizeof(plc_type)
+                if size > 0:
+                    self._symbol_sizes[symbol] = size
         self._symbol_cache[symbol] = address
         return address
 
@@ -712,7 +721,8 @@ class ADSDriver:
             if _is_point_level_error(exc):
                 return mapped
             raise
-        resolved = mapped.resolved(index_group=group, index_offset=offset)
+        size = self._symbol_sizes.get(mapped.symbol, mapped.size)
+        resolved = mapped.resolved(index_group=group, index_offset=offset, size=size)
         if isinstance(point, str):
             self._points[point] = resolved
         self._read_plan_cache.clear()
@@ -722,6 +732,7 @@ class ADSDriver:
 
     def _invalidate_symbol_addresses(self) -> None:
         self._symbol_cache.clear()
+        self._symbol_sizes.clear()
         self._read_plan_cache.clear()
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
@@ -739,7 +750,7 @@ class ADSDriver:
         """把注册点 point_id 或动态 ADSPoint 统一解析为 ADSPoint。
 
         动态点不进点表映射，直接使用自身携带的显式 index 地址，也不参与
-        ``_resolve_symbols()``/``_invalidate_symbol_addresses()``——其字段
+        会话地址缓存失效流程——其字段
         合法性由构造方（如 ``ads_point()`` 工厂）保证。
         """
         if isinstance(point, ADSPoint):
