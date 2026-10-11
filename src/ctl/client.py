@@ -116,6 +116,7 @@ class CollectorClient:
         runtime = self.runtime()
         control = self.control()
         timeout = self._timeout
+        response: message.Message
 
         if operation == "info":
             response = await runtime.GetCollectorInfo(empty_pb2.Empty(), timeout=timeout)
@@ -241,6 +242,7 @@ class CommanderClient:
         """执行一个 Commander 操作。"""
         stub = self.stub()
         timeout = self._timeout
+        response: message.Message
 
         if operation == "status":
             response = await stub.GetStatus(empty_pb2.Empty(), timeout=timeout)
