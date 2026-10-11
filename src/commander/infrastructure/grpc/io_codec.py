@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.infrastructure.rpc import commander_pb2 as pb
+
 from ...application.command import Command, CommandResult
 from ...application.session import PointReading
-from . import commander_pb2 as pb
 
 
 def encode_scalar(value: Any) -> pb.ScalarValue:
