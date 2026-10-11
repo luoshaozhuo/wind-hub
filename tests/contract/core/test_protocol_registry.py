@@ -202,7 +202,14 @@ def test_protocol_drivers_declare_supported_capabilities() -> None:
             ProtocolCapability.SUBSCRIBE,
         }
     )
-    assert iec104.capabilities() == frozenset(ProtocolCapability)
+    assert iec104.capabilities() == frozenset(
+        {
+            ProtocolCapability.READ,
+            ProtocolCapability.WRITE,
+            ProtocolCapability.SUBSCRIBE,
+            ProtocolCapability.INTERROGATE,
+        }
+    )
 
 
 @pytest.mark.asyncio
