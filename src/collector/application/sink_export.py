@@ -12,7 +12,20 @@ from typing import Any
 
 from collector.domain.point_value import PointValue
 from core.application import Quality
-from core.application.sink_config import ResolvedSinkPoint
+from typing import Protocol
+
+
+class SinkPointSource(Protocol):
+    device_id: str
+    point_id: str
+
+
+class ResolvedSinkPoint(Protocol):
+    source: SinkPointSource
+    ref: str
+    scale: float
+    offset: float
+
 
 
 @dataclass(frozen=True, slots=True)
