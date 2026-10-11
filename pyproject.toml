@@ -10,7 +10,6 @@ packages = [
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
     { include = "wind_hub_server", from = "src" },
-    { include = "wind_hub_core", from = "src" },
     { include = "ctl", from = "src" },
 ]
 
@@ -108,10 +107,6 @@ ignore_missing_imports = true
 # 形态；这些是生成物特征而非缺陷，不参与手写代码的严格规则。
 [[tool.mypy.overrides]]
 module = [
-    "wind_hub_core.rpc.collector_pb2",
-    "wind_hub_core.rpc.collector_pb2_grpc",
-    "wind_hub_core.rpc.commander_pb2",
-    "wind_hub_core.rpc.commander_pb2_grpc",
     "core.infrastructure.rpc.collector_pb2",
     "core.infrastructure.rpc.collector_pb2_grpc",
     "core.infrastructure.rpc.commander_pb2",
@@ -155,7 +150,6 @@ root_packages = [
     "core",
     "collector",
     "commander",
-    "wind_hub_core",
     "wind_hub_server",
     "ctl",
 ]
@@ -168,7 +162,6 @@ name = "new core 不得依赖旧 core 或任何进程包"
 type = "forbidden"
 source_modules = ["core"]
 forbidden_modules = [
-    "wind_hub_core",
     "wind_hub_server",
     "ctl",
 ]
@@ -190,7 +183,6 @@ name = "new commander 不得依赖旧包或 collector"
 type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
-    "wind_hub_core",
     "wind_hub_server",
     "ctl",
     "collector",
@@ -201,7 +193,6 @@ name = "new collector 不得依赖旧包或 commander"
 type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
-    "wind_hub_core",
     "wind_hub_server",
     "ctl",
     "commander",
@@ -225,18 +216,7 @@ layers = [
     "collector.domain",
 ]
 
-# ---- 跨包边界（现行正式架构的固化，见各包文件头职责说明）----
-# 依赖方向：collector / commander / server / ctl → core；core 无出向依赖。
-# 进程间协作一律经 core.rpc 生成的 gRPC 契约，禁止直接 import 对端进程包。
-
-[[tool.importlinter.contracts]]
-name = "core 不得依赖任何进程包"
-type = "forbidden"
-source_modules = ["wind_hub_core"]
-forbidden_modules = [
-    "wind_hub_server",
-    "ctl",
-]
+# ---- 旧 Server/CLI 临时保留，待后续整体迁移 ----
 
 [[tool.importlinter.contracts]]
 name = "server 不得依赖 ctl"
@@ -245,50 +225,14 @@ source_modules = ["wind_hub_server"]
 forbidden_modules = ["ctl"]
 
 [[tool.importlinter.contracts]]
-name = "ctl 只依赖 shared core，不依赖进程包或 legacy 包"
+name = "ctl 只依赖 shared core，不依赖进程包"
 type = "forbidden"
 source_modules = ["ctl"]
 forbidden_modules = [
     "collector",
     "commander",
-    "wind_hub_core",
     "wind_hub_server",
 ]
-
-# ---- wind_hub_core.config 内部结构 ----
-# 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
-# 不反向依赖。fingerprint 无包内依赖，不参与分层。
-
-[[tool.importlinter.contracts]]
-name = "config 内部分层：loader → resolver/validation/diff → model"
-type = "layers"
-layers = [
-    "wind_hub_core.config.loader",
-    "wind_hub_core.config.resolver | wind_hub_core.config.validation | wind_hub_core.config.diff",
-    "wind_hub_core.config.model",
-]
-
-# ---- config public façade ----
-# 进程包与 core 其它子包只经 `wind_hub_core.config` façade 访问配置，禁止
-# 直接 import config 内部物理模块（model / resolver / validation / loader /
-# diff / fingerprint）。仅约束直接 import；façade 自身对内部模块的传导合法。
-
-[[tool.importlinter.contracts]]
-name = "生产代码只经 config façade 访问配置"
-type = "forbidden"
-source_modules = [
-    "wind_hub_server",
-    "ctl",
-]
-forbidden_modules = [
-    "wind_hub_core.config.model",
-    "wind_hub_core.config.resolver",
-    "wind_hub_core.config.validation",
-    "wind_hub_core.config.loader",
-    "wind_hub_core.config.diff",
-    "wind_hub_core.config.fingerprint",
-]
-allow_indirect_imports = true
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
@@ -304,10 +248,10 @@ source_modules = [
     "commander.domain",
 ]
 forbidden_modules = [
-    "collector.infrastructure.grpc.collector_pb2",
-    "collector.infrastructure.grpc.collector_pb2_grpc",
-    "commander.infrastructure.grpc.commander_pb2",
-    "commander.infrastructure.grpc.commander_pb2_grpc",
+    "core.infrastructure.rpc.collector_pb2",
+    "core.infrastructure.rpc.collector_pb2_grpc",
+    "core.infrastructure.rpc.commander_pb2",
+    "core.infrastructure.rpc.commander_pb2_grpc",
 ]
 
 # ---- server application 内部分层 ----
@@ -324,7 +268,7 @@ forbidden_modules = ["wind_hub_server.adapter", "wind_hub_server.infra"]
 name = "server application 不得依赖生成的 protobuf"
 type = "forbidden"
 source_modules = ["wind_hub_server.application"]
-forbidden_modules = ["wind_hub_core.rpc"]
+forbidden_modules = ["core.infrastructure.rpc"]
 
 [[tool.importlinter.contracts]]
 name = "server application capability 分层"
