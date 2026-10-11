@@ -83,10 +83,8 @@ def _isolated_tests(root_name: str) -> bool:
     """各子包独立收集，隔离并行迁移期同名 Protobuf 描述符。
 
     不跳过任何测试：目录与顶层测试文件均逐个启动新的 pytest 进程。
-    迁移期新旧两包生成自同名 package 的 *_pb2（如
-    ``wind_hub_core.rpc.collector_pb2`` 与
-    ``collector.infrastructure.grpc.collector_pb2``）在同一进程的默认
-    descriptor pool 中互斥；隔离运行是运行环境隔离，不修改任何测试。
+    各测试目录仍逐个启动独立 pytest 进程，避免测试模块之间共享全局
+    descriptor pool、事件循环或其他进程级状态。
     """
     root = REPO_ROOT / "tests" / root_name
     children = sorted(
