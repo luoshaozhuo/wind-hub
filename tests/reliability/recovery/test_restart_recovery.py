@@ -179,13 +179,21 @@ class TestSubscriptionRestartPending:
             data["point_tables"]["iec104"]["points"].append(
                 {
                     "point_id": "meas.reactive_power",
+                    "business_point_id": "meas.reactive_power",
                     "point_groups": ["telemetry"],
                     "address": {"ioa": 300},
                     "data_type": "float32",
                 }
             )
 
+        def _add_business_point(data: dict[str, Any]) -> None:
+            data["business_points"]["meas.reactive_power"] = {
+                "data_type": "float32",
+                "unit": "none",
+            }
+
         update_yaml(config_dir, "points.yaml", _add_point)
+        update_yaml(config_dir, "business_points.yaml", _add_business_point)
         activated = await reload_config(
             proc.grpc_target, config_dir=config_dir, revision_id="rev-disconnected"
         )

@@ -199,7 +199,7 @@ def write_soak_config(
             tasks.append(
                 {
                     "task_id": device_id,
-                    "device": device_id,
+                    "device_group": device_id,
                     "point_group": "default",
                     "interval": group.interval_s,
                     "targets": [{"sink": "soak_sink"}],
