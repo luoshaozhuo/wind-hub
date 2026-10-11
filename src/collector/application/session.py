@@ -231,7 +231,6 @@ class CollectorDeviceSession:
         """
         self._protocol.update_point_table(point_table)
         self._point_table = point_table
-        self._point_meta = dict(point_meta)
         self._point_group_cache.clear()
 
     # ------------------------------------------------------------------
