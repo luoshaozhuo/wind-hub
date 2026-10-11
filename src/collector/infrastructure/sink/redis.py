@@ -8,9 +8,9 @@ from contextlib import suppress
 from collector.application.errors import SinkError
 from core.application.protocol_contract import ConnectionHealth
 from core.application.redis_sink_record import encode_redis_record
-from core.infrastructure.config.sink_schema import RedisSinkConnection
 from core.domain import Sink
 from core.domain.point_value import PointValue
+from core.infrastructure.config.sink_schema import RedisSinkConnection
 
 
 def _command(*arguments: str) -> bytes:
