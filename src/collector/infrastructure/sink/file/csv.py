@@ -17,15 +17,16 @@ from core.application.file_sink_segments import (
     segment_filename,
 )
 from core.application.protocol_contract import ConnectionHealth
-from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
+from core.infrastructure.config.sink_schema import FileSinkConnection
+from core.domain import Sink
 from core.domain.point_value import PointValue
 
 
 class FileSink:
     """一份活动 CSV 文件及其归档；所有状态转换串行化。"""
 
-    def __init__(self, config: ResolvedSinkConfig) -> None:
-        cfg = config.connection
+    def __init__(self, config: Sink) -> None:
+        cfg = FileSinkConnection.model_validate(dict(config.connection))
         if not isinstance(cfg, FileSinkConnection):
             raise ValueError("FileSink requires FileSinkConnection")
         path = Path(cfg.path)
