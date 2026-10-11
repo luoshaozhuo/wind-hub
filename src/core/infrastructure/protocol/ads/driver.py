@@ -11,11 +11,13 @@ import contextlib
 import ctypes
 import logging
 import struct
+import sys
 import threading
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from core.application.settings import ADSLocalConfig
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -37,6 +39,9 @@ _ADSERR_SYMBOL_NOT_FOUND = 1808
 
 logger = logging.getLogger(__name__)
 _REMOTE_ROUTE_LOCK = threading.Lock()
+_LOCAL_AMS_LOCK = threading.RLock()
+_LOCAL_AMS: ADSLocalConfig | None = None
+_LOCAL_PORT_OPEN = False
 
 
 def _ads_state_name(value: object) -> str:
@@ -141,6 +146,47 @@ class ADSDriver:
             }
         )
 
+    @staticmethod
+    def _initialize_local_sync(config: ADSLocalConfig) -> None:
+        """Initialize process-wide AMS identity once, independently of device sessions."""
+        global _LOCAL_AMS, _LOCAL_PORT_OPEN
+        with _LOCAL_AMS_LOCK:
+            if _LOCAL_AMS is not None:
+                if (
+                    _LOCAL_AMS.local_ams_net_id != config.local_ams_net_id
+                    or _LOCAL_AMS.local_ip != config.local_ip
+                ):
+                    raise ConfigError("ADS local AMS identity conflicts with initialized identity")
+                _LOCAL_AMS = config
+                return
+            pyads = _pyads()
+            if sys.platform.startswith("linux"):
+                pyads.open_port()
+                try:
+                    pyads.set_local_address(config.local_ams_net_id)
+                except BaseException:
+                    pyads.close_port()
+                    raise
+                _LOCAL_PORT_OPEN = True
+            _LOCAL_AMS = config
+
+    @classmethod
+    async def initialize_local(cls, config: ADSLocalConfig) -> None:
+        await asyncio.to_thread(cls._initialize_local_sync, config)
+
+    @staticmethod
+    def _close_local_sync() -> None:
+        global _LOCAL_AMS, _LOCAL_PORT_OPEN
+        with _LOCAL_AMS_LOCK:
+            if _LOCAL_PORT_OPEN:
+                _pyads().close_port()
+            _LOCAL_PORT_OPEN = False
+            _LOCAL_AMS = None
+
+    @classmethod
+    async def close_local(cls) -> None:
+        await asyncio.to_thread(cls._close_local_sync)
+
     def _new_connection(self) -> Any:
         """创建配置一致、尚未 open 的 pyads Connection。"""
         pyads = _pyads()
@@ -179,14 +225,17 @@ class ADSDriver:
                     return self._open_verified_connection()
                 except Exception:
                     pass
+                identity = _LOCAL_AMS
+                if identity is None:
+                    raise ConfigError("ADS local AMS identity is not initialized")
                 pyads = _pyads()
                 try:
                     added = pyads.add_route_to_plc(
-                        self._config.route_local_net_id,
-                        self._config.route_local_host,
+                        identity.local_ams_net_id,
+                        identity.local_ip,
                         self._config.host,
-                        self._config.route_username,
-                        self._config.route_password,
+                        identity.username,
+                        identity.password,
                     )
                     if not added:
                         raise RuntimeError("remote route registration refused")
