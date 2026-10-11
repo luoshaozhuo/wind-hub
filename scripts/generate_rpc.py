@@ -12,8 +12,8 @@ SRC_ROOT = ROOT / "src"
 LEGACY_RPC_DIR = SRC_ROOT / "wind_hub_core" / "rpc"
 SHARED_RPC_DIR = SRC_ROOT / "core" / "infrastructure" / "rpc"
 
-#: shared core / 进程内 proto 与 legacy proto 的 descriptor 名映射。
-#: 三份 proto 的 wire schema 相同。descriptor pool 以文件名参与冲突判断，
+#: shared core 与 legacy proto 的 descriptor 名映射。
+#: 两份 proto 的 wire schema 相同。descriptor pool 以文件名参与冲突判断，
 #: 因此生成后统一对齐到 legacy 的 canonical name，使迁移期间可同进程共存。
 GENERATED_PROTOS = (
     (
@@ -24,16 +24,6 @@ GENERATED_PROTOS = (
     (
         SHARED_RPC_DIR / "commander.proto",
         "core/infrastructure/rpc/commander.proto",
-        "wind_hub_core/rpc/commander.proto",
-    ),
-    (
-        SRC_ROOT / "collector" / "infrastructure" / "grpc" / "collector.proto",
-        "collector/infrastructure/grpc/collector.proto",
-        "wind_hub_core/rpc/collector.proto",
-    ),
-    (
-        SRC_ROOT / "commander" / "infrastructure" / "grpc" / "commander.proto",
-        "commander/infrastructure/grpc/commander.proto",
         "wind_hub_core/rpc/commander.proto",
     ),
 )
@@ -54,12 +44,12 @@ def main() -> int:
     """重新生成 Commander/Collector pb2、gRPC stub 与 mypy stub。
 
     ``--mypy_out`` / ``--mypy_grpc_out`` 由 mypy-protobuf 提供。生成顺序
-    为 legacy、shared core、进程副本；每组必须分开调用 protoc，避免同一
+    为 legacy、shared core；两组必须分开调用 protoc，避免同一
     invocation 内重复定义相同 protobuf 全限定符号。生成后统一 descriptor
-    文件名，保证迁移期间三套模块可在同一 Python 进程中加载。
+    文件名，保证迁移期间两套模块可在同一 Python 进程中加载。
     """
     include_dir = Path(grpc_tools.__file__).resolve().parent / "_proto"
-    # 三组 proto 符号同名，必须分次调用 protoc。
+    # 两组 proto 符号同名，必须分次调用 protoc。
     passes = (
         (
             LEGACY_RPC_DIR / "commander.proto",
@@ -68,11 +58,6 @@ def main() -> int:
         (
             SHARED_RPC_DIR / "commander.proto",
             SHARED_RPC_DIR / "collector.proto",
-        ),
-        tuple(
-            proto
-            for proto, generated_name, _ in GENERATED_PROTOS
-            if not generated_name.startswith("core/")
         ),
     )
     for protos in passes:
