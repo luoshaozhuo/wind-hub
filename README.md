@@ -18,7 +18,7 @@
 | `src/wind_hub_collector` | 进程 `wind-hub-collector` | 采集运行时：协议接入、采集 Task 调度、Sink 分发，对外提供 gRPC 控制面 |
 | `src/wind_hub_commander` | 进程 `wind-hub-commander` | 即时设备命令与诊断进程 |
 | `src/wind_hub_server` | 进程 `wind-hub-server` | 管理 API（FastAPI）进程宿主：装配与生命周期；业务 Use Case 复用 collector，不形成第二套后端 |
-| `src/wind_hub_ctl` | CLI `wind-hub-ctl` | 只读诊断客户端，只通过 gRPC 管理单个 Collector |
+| `src/ctl` | CLI `wind-hub-ctl` | 直接连接 Collector / Commander gRPC 控制面，提供查询、任务控制、Sink 诊断、即时读写、设备诊断与配置事务；不依赖 Server/Admin |
 | `src/wind-hub-admin` | 前端（Vue 3 + TS + Vite） | 管理界面 |
 | `scripts/` | 工具 | `dev.py`（本机环境入口）、`ci_gate.py`（质量门禁）、`ci_scope.py`（变更范围识别）、`run_benchmark.py`（压测）、`generate_rpc.py`（proto 代码生成） |
 | `ai_shared/` | 治理 | Coding Agent 规则、Skill、Hook 与本机工具配置模板，`.claude/`、`.codex/`、`.agents/` 仅为适配层 |
@@ -168,10 +168,11 @@ wind-hub-collector --config configs/template
 # 即时命令与诊断进程（gRPC 默认 127.0.0.1:50052）
 wind-hub-commander --config configs/template
 
-# 只读诊断客户端（JSON 输出）
-wind-hub-ctl status
-wind-hub-ctl devices
-wind-hub-ctl tasks
+# 本地运维 CLI（JSON 输出；不需要启动 Server/Admin）
+wind-hub-ctl collector status
+wind-hub-ctl collector tasks
+wind-hub-ctl commander status
+wind-hub-ctl commander read modbus-1 active_power
 ```
 
 更多参数见各入口 `--help`。
