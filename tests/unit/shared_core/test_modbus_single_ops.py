@@ -24,7 +24,6 @@ from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
 
-from pymodbus.exceptions import ModbusIOException
 
 def _point(
     point_id: str,
