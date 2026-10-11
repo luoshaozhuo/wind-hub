@@ -239,7 +239,7 @@ class IEC104Driver:
             self._is_open = False
             self._loop = asyncio.get_running_loop()
             self._open_event = asyncio.Event()
-    
+
             client = c104.Client(command_timeout_ms=int(self._config.t1 * 2 * 1000))
             connection = client.add_connection(
                 ip=self._config.host,
@@ -309,7 +309,7 @@ class IEC104Driver:
             self._station = None
             self._open_event = None
             self._receive_callback_factory = None
-                self._reject_pending_reads("IEC104 connection closed")
+            self._reject_pending_reads("IEC104 connection closed")
             self._reject_interrogation("IEC104 connection closed")
             self._loop = None
 
