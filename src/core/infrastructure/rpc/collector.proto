@@ -1,0 +1,195 @@
+syntax = "proto3";
+package windhub.collector.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+message CollectorInfoResponse {
+  string component = 1;
+  string collector_id = 2;
+  string boot_id = 3;
+  string config_hash = 4;
+  string active_config_hash = 5;
+  string prepared_config_hash = 6;
+  string boot_config_hash = 7;
+  string config_revision = 8;
+  string active_revision = 9;
+  string prepared_revision = 10;
+  bool runtime_running = 11;
+}
+message AcquisitionInfoMessage {
+  string instance_id = 1;
+  string task_id = 2;
+  string device_id = 3;
+  string point_group = 4;
+  bool running = 5;
+  uint64 consecutive_failures = 6;
+  string last_error = 7;
+  google.protobuf.DoubleValue last_duration = 8;
+}
+message RuntimeStatusResponse {
+  bool running = 1;
+  uint64 device_count = 2;
+  uint64 sink_count = 3;
+  uint64 devices_connected = 4;
+  uint64 sinks_healthy = 5;
+  uint64 points_collected = 6;
+  uint64 points_routed = 7;
+  uint64 points_dropped = 8;
+  repeated AcquisitionInfoMessage acquisitions = 9;
+}
+message MetricsCounters {
+  uint64 points_total = 1;
+  uint64 points_bad = 2;
+  uint64 acquisition_runs = 3;
+  uint64 acquisition_failures = 4;
+  uint64 acquisition_partial = 5;
+  uint64 missed_cycles = 6;
+  uint64 poll_overruns = 7;
+  uint64 connect_failures = 8;
+  uint64 reconnects = 9;
+}
+message StringCounter { string key = 1; uint64 value = 2; }
+message MetricsEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string kind = 2;
+  string object = 3;
+  string message = 4;
+}
+message MetricsSnapshotResponse {
+  MetricsCounters counters = 1;
+  repeated StringCounter device_connect_failures = 2;
+  repeated StringCounter device_reconnects = 3;
+  repeated MetricsEvent events = 4;
+}
+message TaskSummaryMessage {
+  string task_id = 1;
+  google.protobuf.StringValue device = 2;
+  google.protobuf.StringValue device_group = 3;
+  string point_group = 4;
+  google.protobuf.DoubleValue interval = 5;
+  repeated string targets = 6;
+  bool enabled = 7;
+  string runtime_state = 8;
+  uint64 instance_count = 9;
+  uint64 running_instances = 10;
+  uint64 stopped_instances = 11;
+  uint64 failed_instances = 12;
+}
+message TaskInstanceMessage {
+  string instance_id = 1;
+  string task_id = 2;
+  string device_id = 3;
+  string point_group = 4;
+  google.protobuf.DoubleValue interval = 5;
+  repeated string targets = 6;
+  string state = 7;
+}
+message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
+message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
+message TaskIdRequest { string task_id = 1; }
+message InstanceIdRequest { string instance_id = 1; }
+message TaskStartRequest {
+  string task_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskInstanceStartRequest {
+  string instance_id = 1;
+  uint64 placement_generation = 2;
+}
+message TaskPlacementSnapshotRequest {
+  string worker_id = 1;
+  uint64 generation = 2;
+  repeated string task_ids = 3;
+}
+message TaskPlacementSnapshotResponse {
+  bool success = 1;
+  uint64 generation = 2;
+  uint64 task_count = 3;
+}
+
+message DeviceInfoMessage {
+  string device_id = 1;
+  string protocol = 2;
+  bool connected = 3;
+  google.protobuf.Timestamp last_seen = 4;
+  uint64 consecutive_failures = 5;
+  string last_error = 6;
+}
+message ListDevicesResponse { repeated DeviceInfoMessage items = 1; }
+message SinkInfoMessage { string name = 1; bool healthy = 2; string message = 3; uint64 queue_depth = 4; }
+message ListSinksResponse { repeated SinkInfoMessage items = 1; }
+message SinkRequest { string name = 1; }
+message SinkOperationResponse { bool success = 1; string message = 2; uint64 queue_depth = 3; }
+
+message DeviceDiffMessage {
+  repeated string added = 1;
+  repeated string removed = 2;
+  repeated string updated = 3;
+  repeated string unchanged = 4;
+}
+message SinkDiffMessage {
+  repeated string added = 1;
+  repeated string removed = 2;
+  repeated string updated = 3;
+  repeated string unchanged = 4;
+}
+message TaskDiffMessage {
+  repeated string added = 1;
+  repeated string removed = 2;
+  repeated string updated = 3;
+  repeated string unchanged = 4;
+}
+message ConfigDiffMessage {
+  DeviceDiffMessage devices = 1;
+  SinkDiffMessage sinks = 2;
+  TaskDiffMessage tasks = 3;
+  bool points_changed = 4;
+  repeated string point_tables_changed = 5;
+  bool units_changed = 6;
+}
+message PrepareConfigRequest { string revision_id = 1; string config_hash = 2; bool force_reconfigure = 3; }
+message PrepareConfigResponse {
+  bool success = 1;
+  string revision_id = 2;
+  string config_hash = 3;
+  ConfigDiffMessage diff = 4;
+  repeated string errors = 5;
+  double duration_ms = 6;
+}
+message ActivateConfigRequest { string revision_id = 1; }
+message ActivateConfigResponse {
+  bool success = 1;
+  string revision_id = 2;
+  string active_config_hash = 3;
+  ConfigDiffMessage diff = 4;
+  repeated string errors = 5;
+  double duration_ms = 6;
+}
+message AbortConfigRequest { string revision_id = 1; }
+message AbortConfigResponse { bool success = 1; string revision_id = 2; bool aborted = 3; }
+
+service CollectorRuntimeService {
+  rpc GetCollectorInfo(google.protobuf.Empty) returns (CollectorInfoResponse);
+  rpc GetRuntimeStatus(google.protobuf.Empty) returns (RuntimeStatusResponse);
+  rpc GetMetricsSnapshot(google.protobuf.Empty) returns (MetricsSnapshotResponse);
+  rpc ListTasks(google.protobuf.Empty) returns (ListTasksResponse);
+  rpc GetTask(TaskIdRequest) returns (TaskSummaryMessage);
+  rpc ListTaskInstances(google.protobuf.Empty) returns (ListTaskInstancesResponse);
+  rpc GetTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
+  rpc ListDevices(google.protobuf.Empty) returns (ListDevicesResponse);
+  rpc ListSinks(google.protobuf.Empty) returns (ListSinksResponse);
+  rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
+  rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
+}
+service CollectorControlService {
+  rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
+  rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);
+  rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
+  rpc StartTaskInstance(TaskInstanceStartRequest) returns (TaskInstanceMessage);
+  rpc StopTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
+  rpc PrepareConfig(PrepareConfigRequest) returns (PrepareConfigResponse);
+  rpc ActivateConfig(ActivateConfigRequest) returns (ActivateConfigResponse);
+  rpc AbortConfig(AbortConfigRequest) returns (AbortConfigResponse);
+}
