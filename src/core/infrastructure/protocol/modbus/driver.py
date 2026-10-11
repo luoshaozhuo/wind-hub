@@ -11,6 +11,9 @@ from datetime import UTC, datetime
 from math import isfinite
 from typing import Any, NoReturn, TypeVar
 
+import pymodbus.client
+import pymodbus.exceptions
+
 from core.application.errors import (
     ConfigError,
     ProtocolCapabilityError,
@@ -33,25 +36,7 @@ from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 
-_PYMODBUS_MISSING = "Modbus support requires the optional 'pymodbus' dependency"
-
 _T = TypeVar("_T")
-
-
-def _pymodbus() -> Any:
-    """延迟导入 pymodbus（可选依赖），集中在真实的 Modbus 使用边界调用。
-
-    仅在包本身缺失时降级为 ``ProtocolError``；pymodbus 已安装但其内部
-    导入失败属于环境损坏，原样上抛，不掩盖为「缺少依赖」。
-    """
-    try:
-        import pymodbus.client
-        import pymodbus.exceptions
-    except ModuleNotFoundError as exc:
-        if exc.name is not None and exc.name.startswith("pymodbus"):
-            raise ProtocolError(_PYMODBUS_MISSING) from exc
-        raise
-    return pymodbus
 
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
@@ -149,7 +134,7 @@ class ModbusDriver:
                 return
 
             self._close_client()
-            client = _pymodbus().client.AsyncModbusTcpClient(
+            client = pymodbus.client.AsyncModbusTcpClient(
                 self._config.host,
                 port=self._config.port,
                 timeout=self._config.timeout,
@@ -550,7 +535,7 @@ class ModbusDriver:
         if cancelled is not None:
             self._close_client()
             raise cancelled from exc
-        if isinstance(exc, _pymodbus().exceptions.ModbusIOException):
+        if isinstance(exc, pymodbus.exceptions.ModbusIOException):
             self._close_client()
         raise ProtocolConnectionError(f"Modbus {operation} failed: {exc}") from exc
 
@@ -576,7 +561,7 @@ def _unwrap_pymodbus_cancellation(exc: Exception) -> asyncio.CancelledError | No
     通信异常保持原有 ProtocolConnectionError 转换。
     """
     cause = exc.__cause__
-    if isinstance(exc, _pymodbus().exceptions.ModbusException) and isinstance(
+    if isinstance(exc, pymodbus.exceptions.ModbusException) and isinstance(
         cause, asyncio.CancelledError
     ):
         return cause
@@ -626,7 +611,7 @@ def _decode_registers(
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
     # 通用 32/64 位编解码交由 PyModbus，避免自行拼接二进制字节流。
-    tcp_client = _pymodbus().client.ModbusTcpClient
+    tcp_client = pymodbus.client.ModbusTcpClient
     datatype = getattr(tcp_client.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")
@@ -657,7 +642,7 @@ def _encode_registers(
     else:
         raise ValueError(f"unsupported Modbus data type '{data_type}'")
 
-    tcp_client = _pymodbus().client.ModbusTcpClient
+    tcp_client = pymodbus.client.ModbusTcpClient
     datatype = getattr(tcp_client.DATATYPE, data_type.upper(), None)
     if datatype is None:
         raise ValueError(f"unsupported PyModbus data type '{data_type}'")

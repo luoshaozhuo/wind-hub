@@ -11,9 +11,13 @@ import contextlib
 import ctypes
 import logging
 import struct
+import sys
+import threading
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
+
+import pyads  # type: ignore[import-untyped]
 
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
@@ -26,20 +30,25 @@ from core.application.protocol_contract import (
     Quality,
     WritableScalar,
 )
+from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .config import ADSConfig, parse_ads_config
-from .mapping import ADSPoint, parse_ads_point
+from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .subscription import ADSSubscription
 
 _ADSERR_SYMBOL_NOT_FOUND = 1808
 
 logger = logging.getLogger(__name__)
+_REMOTE_ROUTE_LOCK = threading.Lock()
+_LOCAL_AMS_LOCK = threading.RLock()
+_LOCAL_AMS: ADSLocalConfig | None = None
+_LOCAL_PORT_OPEN = False
 
 
 def _ads_state_name(value: object) -> str:
     """把 pyads ADSSTATE_* 数值转成可诊断名称；未知值保留原值。"""
-    constants = getattr(_pyads(), "constants", None)
+    constants = getattr(pyads, "constants", None)
     if constants is not None:
         for name in dir(constants):
             if name.startswith("ADSSTATE_") and getattr(constants, name, object()) == value:
@@ -47,17 +56,7 @@ def _ads_state_name(value: object) -> str:
     return str(value)
 
 
-def _pyads() -> Any:
-    """延迟导入 pyads，把未类型化第三方对象隔离在 Adapter 内。"""
-    try:
-        import pyads  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
-    return pyads
-
-
 def _plc_datatype(ads_name: str) -> Any:
-    pyads = _pyads()
     datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
     if datatype is None:
         raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
@@ -111,6 +110,7 @@ class ADSDriver:
         self._read_unresolved_cache: dict[tuple[str | ADSPoint, ...], tuple[int, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
         self._symbol_cache: dict[str, tuple[int, int]] = {}
+        self._symbol_sizes: dict[str, int] = {}
         self.update_point_table(point_table)
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -127,6 +127,7 @@ class ADSDriver:
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
         self._symbol_cache.clear()
+        self._symbol_sizes.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -139,9 +140,48 @@ class ADSDriver:
             }
         )
 
+    @staticmethod
+    def _initialize_local_sync(config: ADSLocalConfig) -> None:
+        """Initialize process-wide AMS identity once, independently of device sessions."""
+        global _LOCAL_AMS, _LOCAL_PORT_OPEN
+        with _LOCAL_AMS_LOCK:
+            if _LOCAL_AMS is not None:
+                if (
+                    _LOCAL_AMS.local_ams_net_id != config.local_ams_net_id
+                    or _LOCAL_AMS.local_ip != config.local_ip
+                ):
+                    raise ConfigError("ADS local AMS identity conflicts with initialized identity")
+                _LOCAL_AMS = config
+                return
+            if sys.platform.startswith("linux"):
+                pyads.open_port()
+                try:
+                    pyads.set_local_address(config.local_ams_net_id)
+                except BaseException:
+                    pyads.close_port()
+                    raise
+                _LOCAL_PORT_OPEN = True
+            _LOCAL_AMS = config
+
+    @classmethod
+    async def initialize_local(cls, config: ADSLocalConfig) -> None:
+        await asyncio.to_thread(cls._initialize_local_sync, config)
+
+    @staticmethod
+    def _close_local_sync() -> None:
+        global _LOCAL_AMS, _LOCAL_PORT_OPEN
+        with _LOCAL_AMS_LOCK:
+            if _LOCAL_PORT_OPEN:
+                pyads.close_port()
+            _LOCAL_PORT_OPEN = False
+            _LOCAL_AMS = None
+
+    @classmethod
+    async def close_local(cls) -> None:
+        await asyncio.to_thread(cls._close_local_sync)
+
     def _new_connection(self) -> Any:
         """创建配置一致、尚未 open 的 pyads Connection。"""
-        pyads = _pyads()
         connection = pyads.Connection(
             self._config.target_net_id or None,
             self._config.target_port,
@@ -150,35 +190,77 @@ class ADSDriver:
         connection.set_timeout(int(self._config.timeout * 1000))
         return connection
 
+    def _open_verified_connection(self) -> Any:
+        """建立会话并执行真实 ADS State Read；失败时总是释放句柄。"""
+        connection = self._new_connection()
+        try:
+            connection.open()
+            if not connection.is_open:
+                raise ConnectionError("ADS session did not open")
+            connection.read_state()
+            return connection
+        except BaseException:
+            with contextlib.suppress(Exception):
+                connection.close()
+            raise
+
+    def _connect_with_optional_route(self) -> Any:
+        try:
+            return self._open_verified_connection()
+        except Exception:
+            if not self._config.route_auto_add:
+                raise
+            # Route is a persistent PLC-side resource, not an ADS session.
+            # Serialize registration across drivers and recheck before modifying the PLC.
+            with _REMOTE_ROUTE_LOCK:
+                try:
+                    return self._open_verified_connection()
+                except Exception:
+                    pass
+                identity = _LOCAL_AMS
+                if identity is None:
+                    raise ConfigError("ADS local AMS identity is not initialized") from None
+                try:
+                    added = pyads.add_route_to_plc(
+                        identity.local_ams_net_id,
+                        identity.local_ip,
+                        self._config.host,
+                        identity.username,
+                        identity.password,
+                    )
+                    if not added:
+                        raise RuntimeError("remote route registration refused")
+                except Exception:
+                    # pyads errors may contain endpoint arguments; never expose credentials.
+                    raise ProtocolError(
+                        f"ADS remote route registration failed for {self._config.host}"
+                    ) from None
+                try:
+                    return self._open_verified_connection()
+                except Exception:
+                    raise ProtocolError(
+                        "ADS still unreachable after remote route registration: "
+                        f"{self._config.host}"
+                    ) from None
+
     async def connect(self) -> None:
-        """建立 ADS session；Symbol 地址在首次使用时按需解析。"""
+        """建立并验证 ADS 通信；仅在首次连接失败时按配置添加 PLC 反向路由。"""
         async with self._lock:
             if self._connected:
                 return
-
             self._close_connection()
-            connection = self._new_connection()
-
             try:
-                await asyncio.to_thread(connection.open)
-                if not connection.is_open:
-                    raise ProtocolError(f"ADS connection to {self._config.host} did not open")
-
-                self._connection = connection
-                self._invalidate_symbol_addresses()
+                connection = await asyncio.to_thread(self._connect_with_optional_route)
             except ProtocolError:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.close)
-                self._connection = None
                 self._connected = False
                 raise
-            except Exception as exc:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(connection.close)
-                self._connection = None
+            except Exception:
                 self._connected = False
-                raise ProtocolError(f"ADS connect failed for {self._config.host}: {exc}") from exc
-
+                raise ProtocolError(
+                    f"ADS connect failed for {self._config.host}"
+                ) from None
+            self._connection = connection
+            self._invalidate_symbol_addresses()
             self._connected = True
 
     async def close(self) -> None:
@@ -391,15 +473,64 @@ class ADSDriver:
             mapped_batch = [
                 await self._resolve_point_locked(write.point_id) for write in writes
             ]
-            results: list[ProtocolWriteResult] = []
+            results: list[ProtocolWriteResult | None] = [None] * len(writes)
+            prepared: list[tuple[int, ADSPoint, bytes]] = []
+            for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
+                if not point.address_resolved:
+                    results[index] = ProtocolWriteResult(
+                        point_id=write.point_id, success=False,
+                        message="ADS address is unresolved",
+                    )
+                    continue
+                try:
+                    raw_value = _coerce_write_value(write.value, point.data_type)
+                    payload = _encode_value(raw_value, point)
+                except (ConfigError, TypeError, ValueError, OverflowError) as exc:
+                    results[index] = ProtocolWriteResult(
+                        point_id=write.point_id, success=False, message=str(exc),
+                    )
+                    continue
+                prepared.append((index, point, payload))
+
             try:
-                for write, mapped in zip(writes, mapped_batch, strict=True):
-                    results.append(await self._write_single_point(mapped, write.value))
+                for start in range(0, len(prepared), self._config.max_subs_per_sum):
+                    chunk = prepared[start : start + self._config.max_subs_per_sum]
+                    errors = await asyncio.to_thread(self._sum_write_bytes, chunk)
+                    for (index, point, _), error in zip(chunk, errors, strict=True):
+                        results[index] = ProtocolWriteResult(
+                            point_id=point.point_id,
+                            success=error == 0,
+                            message=None if error == 0 else f"ADS write error {error}",
+                        )
             except Exception as exc:
                 await self._disconnect_after_failure()
-                raise ProtocolError(f"ADS write failed: {exc}") from exc
+                raise ProtocolError(f"ADS sum write failed: {exc}") from exc
 
-            return tuple(results)
+            if any(result is None for result in results):
+                raise RuntimeError("ADS sum write did not produce a result for every point")
+            return tuple(result for result in results if result is not None)
+
+    def _sum_write_bytes(
+        self, chunk: Sequence[tuple[int, ADSPoint, bytes]],
+    ) -> tuple[int, ...]:
+        """Send ADSIGRP_SUMUP_WRITE by index and decode individual ADS error codes."""
+        from pyads.constants import ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
+
+        connection = self._connection
+        if connection is None:
+            raise ProtocolError("ADS connection is unavailable")
+        headers = b"".join(
+            struct.pack("<III", point.index_group, point.index_offset, len(payload))
+            for _, point, payload in chunk
+        )
+        request = bytearray(headers + b"".join(payload for _, _, payload in chunk))
+        raw = connection.read_write(
+            ADSIGRP_SUMUP_WRITE, len(chunk), None, request, None,
+            check_length=False,
+        )
+        if raw is None or len(raw) != len(chunk) * 4:
+            raise ProtocolError("ADS sum write returned an invalid response size")
+        return tuple(error for (error,) in struct.iter_unpack("<I", bytes(raw)))
 
     async def _write_single_point(
         self,
@@ -570,16 +701,13 @@ class ADSDriver:
         if connection is None:
             raise ProtocolError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
-        group = getattr(info, "index_group", None)
-        offset = getattr(info, "index_offset", None)
-        if (
-            type(group) is not int
-            or type(offset) is not int
-            or group < 0
-            or offset < 0
-        ):
-            raise ProtocolError(f"ADS symbol '{symbol}' returned an invalid index address")
-        address = (group, offset)
+        address = symbol_index_address(symbol, info)
+        plc_type = getattr(info, "plc_type", None)
+        if plc_type is not None:
+            with contextlib.suppress(TypeError):
+                size = ctypes.sizeof(plc_type)
+                if size > 0:
+                    self._symbol_sizes[symbol] = size
         self._symbol_cache[symbol] = address
         return address
 
@@ -593,7 +721,8 @@ class ADSDriver:
             if _is_point_level_error(exc):
                 return mapped
             raise
-        resolved = mapped.resolved(index_group=group, index_offset=offset)
+        size = self._symbol_sizes.get(mapped.symbol, mapped.size)
+        resolved = mapped.resolved(index_group=group, index_offset=offset, size=size)
         if isinstance(point, str):
             self._points[point] = resolved
         self._read_plan_cache.clear()
@@ -603,6 +732,7 @@ class ADSDriver:
 
     def _invalidate_symbol_addresses(self) -> None:
         self._symbol_cache.clear()
+        self._symbol_sizes.clear()
         self._read_plan_cache.clear()
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
@@ -620,7 +750,7 @@ class ADSDriver:
         """把注册点 point_id 或动态 ADSPoint 统一解析为 ADSPoint。
 
         动态点不进点表映射，直接使用自身携带的显式 index 地址，也不参与
-        ``_resolve_symbols()``/``_invalidate_symbol_addresses()``——其字段
+        会话地址缓存失效流程——其字段
         合法性由构造方（如 ``ads_point()`` 工厂）保证。
         """
         if isinstance(point, ADSPoint):
@@ -638,7 +768,7 @@ class ADSDriver:
         """
         from ctypes import Structure, c_uint32
 
-        from pyads.constants import ADSIGRP_SUMUP_READ  # type: ignore[import-untyped]
+        from pyads.constants import ADSIGRP_SUMUP_READ
 
         connection = self._connection
         if connection is None:
@@ -721,6 +851,20 @@ class ADSDriver:
                 connection.close()
 
 
+def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
+    """Serialize one ADS scalar to exactly the addressed byte width."""
+    if point.data_type == "STRING":
+        encoded = value.encode("utf-8") if isinstance(value, str) else b""
+        if point.size <= 0 or len(encoded) >= point.size:
+            raise ValueError(f"ADS STRING '{point.point_id}' exceeds configured size")
+        return encoded.ljust(point.size, b"\x00")
+    datatype = _plc_datatype(point.data_type)
+    raw = bytes(datatype(value))
+    if len(raw) != point.size:
+        raise ValueError(f"ADS point '{point.point_id}' data width mismatch")
+    return raw
+
+
 def _decode_value(raw: bytes, point: ADSPoint) -> float | int | bool | str:
     if point.data_type == "STRING":
         return raw.split(b"\x00", 1)[0].decode("utf-8")
@@ -756,7 +900,6 @@ def _bad_sample(point_id: str) -> ProtocolSample:
 
 
 def _is_point_level_error(exc: BaseException) -> bool:
-    pyads = _pyads()
     ads_error = getattr(pyads, "ADSError", None)
     return (
         ads_error is not None

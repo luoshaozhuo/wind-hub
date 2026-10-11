@@ -25,7 +25,7 @@ class ADSLocalConfig:
     local_ams_net_id: str
     local_ip: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
     def __post_init__(self) -> None:
         _require_non_empty(self.local_ams_net_id, "ads.local_ams_net_id")

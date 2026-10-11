@@ -185,10 +185,9 @@ gssauth = ["gssapi ; platform_system != \"Windows\"", "sspilib ; platform_system
 name = "c104"
 version = "2.2.1"
 description = "A Python module to simulate SCADA and RTU communication over protocol 60870-5-104 to research ICT behavior in power grids."
-optional = true
+optional = false
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "extra == \"iec104\" or extra == \"all\""
 files = [
     {file = "c104-2.2.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:844cadea6d1c319bce3e271df28864ba33903b6d54fc5d90f6deadc0b12fca55"},
     {file = "c104-2.2.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:58d557a620773977c00e3ed3f41a5d759379f50363bb244124ea0ee03fba3c69"},
@@ -1101,10 +1100,9 @@ files = [
 name = "pyads"
 version = "3.6.0"
 description = "Python wrapper for TwinCAT ADS library"
-optional = true
+optional = false
 python-versions = "<4,>=3.9"
 groups = ["main"]
-markers = "extra == \"ads\" or extra == \"all\""
 files = [
     {file = "pyads-3.6.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:f867eb467cbbfca4388e2694f42754bcf199cdf52923c35b1531b5493a31db0c"},
     {file = "pyads-3.6.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:0113d9bf71bf5fdebb9032e9ddde27733c9c3bfb4bf9ff7d5b74aea057336a0f"},
@@ -1296,10 +1294,9 @@ windows-terminal = ["colorama (>=0.4.6)"]
 name = "pymodbus"
 version = "3.15.0"
 description = "A fully featured modbus protocol stack in python"
-optional = true
+optional = false
 python-versions = ">=3.10.0"
 groups = ["main"]
-markers = "extra == \"modbus\" or extra == \"all\""
 files = [
     {file = "pymodbus-3.15.0-py3-none-any.whl", hash = "sha256:74d8dee961f23845f18a8481253183504dca05c4fcd102890cd28f4d7ce09267"},
     {file = "pymodbus-3.15.0.tar.gz", hash = "sha256:4c5f715128bfeba59f4c9fb3542b0c32a8afd4b90081111e39c12f7af0c89aae"},
@@ -2052,14 +2049,11 @@ files = [
 ]
 
 [extras]
-ads = ["pyads"]
-all = ["aiokafka", "asyncpg", "c104", "influxdb-client", "pyads", "pymodbus"]
+all = ["aiokafka", "asyncpg", "influxdb-client"]
 db = ["asyncpg", "influxdb-client"]
-iec104 = ["c104"]
 kafka = ["aiokafka"]
-modbus = ["pymodbus"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "48a6c9a0fe1d4c47e21e8753e33e238a3078e3397875832c65e76e4cce4a7fd5"
+content-hash = "3bded1c7e575dab53fe19f164771189381aa181c863a6bb8cb22d4e7f8912d7a"

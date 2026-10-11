@@ -10,6 +10,7 @@ from core.domain import (
     ConnectionEndpoint,
     DataType,
     Device,
+    DeviceGroup,
     DeviceModel,
     DeviceType,
     Point,
@@ -60,11 +61,12 @@ def _indexes(
         model.device_model_id,
         ConnectionEndpoint("10.0.0.1", 502),
         name=device_name,
+        device_group_ids=("wt_group",),
     )
     return {
         "device_types": {device_type.device_type_id: device_type},
         "device_models": {model.device_model_id: model},
-        "device_groups": {},
+        "device_groups": {"wt_group": DeviceGroup("wt_group", "Turbines")},
         "devices": {device.device_id: device},
         "business_points": {point.business_point_id: point},
         "point_tables": {table.point_table_id: table},

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import struct
-import subprocess
-import sys
 
 import pytest
+from pymodbus.exceptions import ModbusIOException
 
 from core.application import ConfigError
 from core.application.errors import ProtocolConnectionError, ProtocolError
@@ -24,15 +23,6 @@ from core.domain import (
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 from core.infrastructure.protocol.modbus.driver import ModbusDriver
 from core.infrastructure.protocol.modbus.mapping import ModbusPoint
-
-try:
-    from pymodbus.exceptions import ModbusIOException
-except ImportError:  # pymodbus 是可选依赖
-    ModbusIOException = None
-
-_requires_pymodbus = pytest.mark.skipif(
-    ModbusIOException is None, reason="pymodbus not installed"
-)
 
 
 def _point(
@@ -291,7 +281,6 @@ class TestReadOne:
         assert (await driver.read_one("h")).value == 7
         assert (await driver.health()).healthy is True
 
-    @_requires_pymodbus
     @pytest.mark.asyncio
     async def test_inflight_io_exception_discards_connection(self) -> None:
         """ModbusIOException（对端无响应等在途歧义）：连接标记不可复用并释放。"""
@@ -582,7 +571,6 @@ class TestCancellationState:
         assert client.total_write_calls() == 1  # 已发送的请求绝不重发
         assert (await driver.health()).healthy is False
 
-    @_requires_pymodbus
     @pytest.mark.asyncio
     async def test_pymodbus_wrapped_cancellation_is_unwrapped(self) -> None:
         """pymodbus 3.15 把 CancelledError 转成 ModbusIOException；Driver 必须
@@ -722,25 +710,6 @@ def test_write_groups_option_is_rejected() -> None:
         )
 
 
-def test_protocol_modules_import_without_pymodbus() -> None:
-    """pymodbus 缺失时 Modbus/ADS/IEC104 模块仍可导入（可选依赖隔离）。"""
-    script = (
-        "import sys;\n"
-        "sys.modules['pymodbus'] = None;\n"
-        "sys.modules['pymodbus.client'] = None;\n"
-        "from core.infrastructure.protocol.modbus.driver import ModbusDriver;\n"
-        "from core.infrastructure.protocol.ads.driver import ADSDriver;\n"
-        "from core.infrastructure.protocol.iec104.driver import IEC104Driver;\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-
-
 # ---------------------------------------------------------------------------
 # is_open / health 语义
 # ---------------------------------------------------------------------------
@@ -750,14 +719,16 @@ class TestHealthSemantics:
     """health() 仅反映本地传输状态（与 ADS/IEC104 Driver 同口径）；
     重连与恢复决策走 is_open()，不依赖 health 的通信历史。"""
 
-    def test_connected_transport_reports_healthy(self) -> None:
+    @pytest.mark.asyncio
+    async def test_connected_transport_reports_healthy(self) -> None:
         driver = _driver({"h": _point("h")}, _Client())
         assert driver.is_open() is True
-        health = driver.health()
+        health = await driver.health()
         assert health.healthy is True
-        assert "connected to" in (health.message or "")
+        assert "Modbus health point" in (health.message or "")
 
-    def test_closed_transport_reports_not_open(self) -> None:
+    @pytest.mark.asyncio
+    async def test_closed_transport_reports_not_open(self) -> None:
         client = _Client()
         driver = _driver({"h": _point("h")}, client, connected=False)
         assert driver.is_open() is False
@@ -793,6 +764,6 @@ class TestHealthSemantics:
         await driver.read_one("h")
         await driver.close()
         assert driver.is_open() is False
-        health = driver.health()
+        health = await driver.health()
         assert health.healthy is False
         assert health.message == "not connected"

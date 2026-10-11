@@ -3,7 +3,7 @@
 只装配采集链路：设备会话（Core 协议 Driver）、采集引擎、Sink 注册表与
 热重载编排；不包含命令分发、诊断或 Web API。组合根是唯一允许跨层引用
 Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持有进程级
-ADS 本机身份（ADSLocalRouter）、按 enabled 实例化 Sink。
+ADS 本机身份、按 enabled 实例化 Sink。
 """
 
 from __future__ import annotations
@@ -13,11 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
-from core.application.settings import ADSLocalConfig as AppADSLocalConfig
-from core.infrastructure import (
-    ADSLocalConfig,
-    ADSLocalRouter,
-)
+from core.application.settings import ADSLocalConfig
 from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -54,7 +50,6 @@ class CollectorApp:
         config_hash: 启动配置集摘要。
         metrics: 进程级采集质量计数与近期事件（gRPC 指标快照的唯一事实源）。
         identity: 本次进程启动身份（collector_id / boot_id / 启动摘要）。
-        ads_local_router: 进程级 ADS 本机身份 owner；stop 时关闭。
     """
 
     boot_config: CollectorConfig
@@ -64,13 +59,12 @@ class CollectorApp:
     config_hash: str
     metrics: CollectorMetricsState
     identity: CollectorIdentity
-    ads_local_router: ADSLocalRouter
     ads_local: ADSLocalConfig | None
 
     async def start(self) -> None:
         """初始化 ADS 本机身份（配置含 ADS 时）并启动 Runtime。"""
         if self.ads_local is not None:
-            await self.ads_local_router.initialize(self.ads_local)
+            await ADSDriver.initialize_local(self.ads_local)
         await self.runtime.start()
 
     async def stop(self) -> None:
@@ -78,17 +72,7 @@ class CollectorApp:
         try:
             await self.runtime.stop()
         finally:
-            await self.ads_local_router.close()
-
-
-def _to_ads_local_config(identity: AppADSLocalConfig | None) -> ADSLocalConfig | None:
-    """把 Application 层 ADS 本机身份转换为 Core 的 ADSLocalConfig。"""
-    if identity is None:
-        return None
-    return ADSLocalConfig(
-        local_ams_net_id=identity.local_ams_net_id,
-        local_ip=identity.local_ip,
-    )
+            await ADSDriver.close_local()
 
 
 def assemble_collector(
@@ -178,8 +162,7 @@ def assemble_collector(
         config_hash=config_hash,
         metrics=metrics,
         identity=build_collector_identity(config_hash, collector_id=collector_id),
-        ads_local_router=ADSLocalRouter(),
-        ads_local=_to_ads_local_config(config.ads_local),
+        ads_local=config.ads_local,
     )
 
 

@@ -24,24 +24,18 @@ structlog = "^24.0"
 prometheus-client = "^0.21"
 grpcio = "^1.75"
 protobuf = "^6.32"
-pymodbus = { version = "^3.6", optional = true }
-c104 = { version = "^2.2", optional = true }
-pyads = { version = "^3.4", optional = true }
+pymodbus = "^3.6"
+c104 = "^2.2"
+pyads = "^3.4"
 aiokafka = { version = "^0.14", optional = true }
 asyncpg = { version = "^0.31", optional = true }
 influxdb-client = { version = "^1.48", optional = true }
 aiofiles = "^25.1.0"
 
 [tool.poetry.extras]
-ads = ["pyads"]
-modbus = ["pymodbus"]
-iec104 = ["c104"]
 kafka = ["aiokafka"]
 db = ["asyncpg", "influxdb-client"]
 all = [
-    "pyads",
-    "pymodbus",
-    "c104",
     "aiokafka",
     "asyncpg",
     "influxdb-client",

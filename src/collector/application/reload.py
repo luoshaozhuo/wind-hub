@@ -9,8 +9,10 @@ Collector 的运行时重构决策（设备/Sink/Task 增删改、点表重注�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TypeVar
 
 from .config import CollectorConfig, RuntimeParams
 
@@ -140,7 +142,13 @@ class ReloadResult:
     """reload 完成时间，UTC。"""
 
 
-def _differences(old: dict[str, object], new: dict[str, object]) -> tuple[list[str], list[str], list[str]]:
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+def _differences(
+    old: Mapping[_K, _V], new: Mapping[_K, _V]
+) -> tuple[list[str], list[str], list[str]]:
     before, after = set(old), set(new)
     return (
         sorted(str(key) for key in after - before),

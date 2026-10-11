@@ -17,26 +17,20 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import pyads  # type: ignore[import-untyped]
+
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
 from .config import ADSConfig
-from .mapping import ADSPoint
+from .mapping import ADSPoint, symbol_index_address
 
 logger = logging.getLogger(__name__)
 _WATCHDOG_INTERVAL = 1.0
 
 
-def _pyads() -> Any:
-    try:
-        import pyads  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
-    return pyads
-
-
 def _plc_datatype(ads_name: str) -> Any:
-    datatype = getattr(_pyads(), f"PLCTYPE_{ads_name}", None)
+    datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
     if datatype is None:
         raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
     return datatype
@@ -75,13 +69,18 @@ class ADSSubscription:
         self._last_notification: dict[str, float] = {}
         self._lock = asyncio.Lock()
         self._closed = False
+        self._generation = 0
+        self._started = False
 
     async def start(self) -> None:
         """建立 notification pool 并注册全部点。"""
         async with self._lock:
             if self._closed:
                 raise ProtocolError("ADS subscription is closed")
+            if self._started:
+                raise ProtocolError("ADS subscription is already started")
             await self._rebuild_locked()
+            self._started = True
             self._watchdog_task = asyncio.create_task(
                 self._watchdog_loop(),
                 name="ads-notification-watchdog",
@@ -149,31 +148,25 @@ class ADSSubscription:
                     logger.exception("ADS notification pool rebuild failed")
 
     async def _rebuild_locked(self) -> None:
+        self._generation += 1
         await self._close_pool_locked()
         if not self._points:
             return
 
         max_per = self._config.max_notifications_per_connection
-        for start in range(0, len(self._points), max_per):
-            chunk = self._points[start : start + max_per]
-            connection = await self._create_connection()
-            self._connections.append(connection)
-            try:
+        try:
+            for start in range(0, len(self._points), max_per):
+                chunk = self._points[start : start + max_per]
+                connection = await self._create_connection()
+                self._connections.append(connection)
                 for point in chunk:
-                    resolved = await self._resolve_point(
-                        connection,
-                        point,
-                    )
-                    await self._register_point(
-                        connection,
-                        resolved,
-                    )
-            except Exception:
-                await self._close_pool_locked()
-                raise
+                    resolved = await self._resolve_point(connection, point)
+                    await self._register_point(connection, resolved)
+        except BaseException:
+            await self._close_pool_locked()
+            raise
 
     async def _create_connection(self) -> Any:
-        pyads = _pyads()
         connection = pyads.Connection(
             self._config.target_net_id or None,
             self._config.target_port,
@@ -208,15 +201,7 @@ class ADSSubscription:
             connection.get_symbol,
             point.symbol,
         )
-        index_group = getattr(symbol, "index_group", None)
-        index_offset = getattr(symbol, "index_offset", None)
-        if (
-            isinstance(index_group, bool)
-            or not isinstance(index_group, int)
-            or isinstance(index_offset, bool)
-            or not isinstance(index_offset, int)
-        ):
-            raise ConfigError(f"ADS symbol '{point.symbol}' did not resolve a valid index address")
+        index_group, index_offset = symbol_index_address(point.symbol, symbol)
 
         size = point.size
         plc_type = getattr(symbol, "plc_type", None)
@@ -240,8 +225,6 @@ class ADSSubscription:
                 f"ADS notification point '{point.point_id}' requires a "
                 "resolved positive byte size"
             )
-
-        pyads = _pyads()
         attr = pyads.NotificationAttrib(
             point.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
@@ -249,7 +232,7 @@ class ADSSubscription:
             max_delay=self._config.max_delay,
         )
         callback = connection.notification(_plc_datatype(point.data_type))(
-            self._notification_callback(point)
+            self._notification_callback(point, self._generation)
         )
         handle, user_handle = await asyncio.to_thread(
             connection.add_device_notification,
@@ -279,6 +262,7 @@ class ADSSubscription:
     def _notification_callback(
         self,
         point: ADSPoint,
+        generation: int,
     ) -> Callable[..., None]:
         def callback(
             handle: Any,
@@ -287,7 +271,7 @@ class ADSSubscription:
             value: Any,
         ) -> None:
             del handle, address
-            if self._closed:
+            if self._closed or generation != self._generation:
                 return
             try:
                 scalar = _as_scalar(value)
@@ -308,12 +292,17 @@ class ADSSubscription:
                 self._loop.call_soon_threadsafe(
                     self._schedule_sample,
                     sample,
+                    generation,
                 )
 
         return callback
 
-    def _schedule_sample(self, sample: ProtocolSample) -> None:
-        if self._closed or sample.point_id not in self._last_notification:
+    def _schedule_sample(self, sample: ProtocolSample, generation: int) -> None:
+        if (
+            self._closed
+            or generation != self._generation
+            or sample.point_id not in self._last_notification
+        ):
             return
         self._last_notification[sample.point_id] = time.monotonic()
         task = asyncio.create_task(self._invoke_callback(sample))

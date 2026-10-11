@@ -7,14 +7,13 @@ from typing import Protocol as TypingProtocol
 import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
-import core.infrastructure.protocol.ads.router as router_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
 from core.application import (
     ConfigError,
-    ProtocolError,
     ProtocolSample,
     ProtocolWrite,
 )
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -26,8 +25,6 @@ from core.domain import (
 )
 from core.infrastructure.protocol.ads import (
     ADSDriver,
-    ADSLocalConfig,
-    ADSLocalRouter,
     parse_ads_config,
     parse_ads_point,
 )
@@ -154,7 +151,7 @@ def test_ads_int64_mapping_is_supported() -> None:
     assert mapped.size == 8
 
 
-def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
+def test_ads_driver_precompiles_point_table_without_network_io() -> None:
     point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
@@ -226,7 +223,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     driver._connected = True
 
     fake_pyads = _FakePyads()
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
+    monkeypatch.setattr(driver_module, "pyads", fake_pyads)
 
     result = await driver.write_one(ProtocolWrite(point_id=point.point_id, value=10.0))
 
@@ -236,25 +233,24 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
 
 
 @pytest.mark.asyncio
-async def test_ads_local_router_initializes_once_and_rejects_conflict(
+async def test_ads_driver_local_ams_identity_initializes_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
-
-    router = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-
-    await router.initialize(config)
-    await router.initialize(config)
-
-    assert fake_pyads.open_calls == 1
-    assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
-
-    with pytest.raises(ConfigError, match="different local identity"):
-        await router.initialize(ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11"))
-
-    await router.close()
+    monkeypatch.setattr(driver_module, "pyads", fake_pyads)
+    monkeypatch.setattr(driver_module.sys, "platform", "linux")
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10", "user", "secret")
+    try:
+        await ADSDriver.initialize_local(config)
+        await ADSDriver.initialize_local(config)
+        assert fake_pyads.open_calls == 1
+        assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
+        with pytest.raises(ConfigError, match="conflicts"):
+            await ADSDriver.initialize_local(
+                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11", "user", "secret")
+            )
+    finally:
+        await ADSDriver.close_local()
     assert fake_pyads.close_calls == 1
 
 
@@ -365,8 +361,8 @@ async def test_ads_driver_exposes_notification_subscription(
     _FakeNotificationConnection.instances = []
     monkeypatch.setattr(
         subscription_module,
-        "_pyads",
-        lambda: _FakeNotificationPyads,
+        "pyads",
+        _FakeNotificationPyads,
     )
     received: list[ProtocolSample] = []
     delivered = asyncio.Event()
@@ -400,26 +396,54 @@ async def test_ads_driver_exposes_notification_subscription(
 
 
 @pytest.mark.asyncio
-async def test_ads_local_router_has_single_process_owner(
+async def test_ads_subscription_ignores_old_generation_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
+    point = _point(
+        "speed",
+        ext=_point_ext(index_group=0x4020, index_offset=10),
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable("ads_pt", Protocol("ads"), {"speed": point}),
+        {},
+    )
+    driver._connected = True
+    _FakeNotificationConnection.instances = []
+    monkeypatch.setattr(subscription_module, "pyads", _FakeNotificationPyads)
 
-    first = ADSLocalRouter()
-    second = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+    received: list[ProtocolSample] = []
 
-    await first.initialize(config)
-    with pytest.raises(ConfigError, match="another instance"):
-        await second.initialize(config)
+    async def on_sample(sample: ProtocolSample) -> None:
+        received.append(sample)
 
-    await first.close()
-    await second.initialize(config)
-    await second.close()
+    handle = await driver.subscribe(("speed",), on_sample, interval=0.25)
+    subscription = handle._subscription
+    old_connection = _FakeNotificationConnection.instances[-1]
+    old_callback = old_connection.callback
+    assert old_callback is not None
 
-    assert fake_pyads.open_calls == 2
-    assert fake_pyads.close_calls == 2
+    async with subscription._lock:
+        await subscription._rebuild_locked()
+
+    new_connection = _FakeNotificationConnection.instances[-1]
+    assert new_connection is not old_connection
+    assert new_connection.callback is not None
+
+    # A callback from a closed ADS connection must not refresh the new watchdog.
+    previous = subscription._last_notification["speed"]
+    old_callback(None, (0x4020, 10), None, 1.0)
+    await asyncio.sleep(0)
+    assert subscription._last_notification["speed"] == previous
+    assert received == []
+
+    new_connection.callback(None, (0x4020, 10), None, 2.0)
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if received:
+            break
+    assert received and received[0].value == 2.0
+    await handle.close()
 
 
 @pytest.mark.asyncio
@@ -448,8 +472,8 @@ async def test_ads_subscription_can_close_itself_from_callback(
     _FakeNotificationConnection.instances = []
     monkeypatch.setattr(
         subscription_module,
-        "_pyads",
-        lambda: _FakeNotificationPyads,
+        "pyads",
+        _FakeNotificationPyads,
     )
     done = asyncio.Event()
     handle_box: list[_Closable] = []
@@ -474,22 +498,79 @@ async def test_ads_subscription_can_close_itself_from_callback(
     assert connection.is_open is False
 
 
+def test_ads_symbol_index_address_rejects_invalid_values() -> None:
+    from types import SimpleNamespace
+
+    from core.infrastructure.protocol.ads.mapping import symbol_index_address
+
+    assert symbol_index_address(
+        "MAIN.speed", SimpleNamespace(index_group=0x4020, index_offset=0)
+    ) == (0x4020, 0)
+    for group, offset in [(True, 1), (-1, 1), (1, None), (1, False)]:
+        with pytest.raises(ConfigError, match="invalid index address"):
+            symbol_index_address(
+                "MAIN.speed",
+                SimpleNamespace(index_group=group, index_offset=offset),
+            )
+
+
 @pytest.mark.asyncio
-async def test_ads_local_router_releases_owner_when_pyads_unavailable(
+async def test_ads_route_added_only_when_normal_connect_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    first = ADSLocalRouter()
-    second = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
+    from core.infrastructure.protocol.ads.config import ADSConfig
 
-    def unavailable() -> object:
-        raise ProtocolError("pyads unavailable")
+    class FakeConnection:
+        def __init__(self, reachable: bool) -> None:
+            self.is_open = False
+            self.reachable = reachable
 
-    monkeypatch.setattr(router_module, "_pyads", unavailable)
-    with pytest.raises(ProtocolError, match="unavailable"):
-        await first.initialize(config)
+        def open(self) -> None:
+            self.is_open = True
 
-    fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
-    await second.initialize(config)
-    await second.close()
+        def read_state(self) -> tuple[int, int]:
+            if not self.reachable:
+                raise ConnectionError("route missing")
+            return (5, 0)
+
+        def close(self) -> None:
+            self.is_open = False
+
+    class FakeAds:
+        def __init__(self) -> None:
+            self.route_added = False
+            self.route_calls = 0
+
+        def add_route_to_plc(self, *_args: object) -> bool:
+            self.route_calls += 1
+            self.route_added = True
+            return True
+
+    fake_ads = FakeAds()
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable("ads_pt", Protocol("ads"), {}),
+        {},
+    )
+    driver._config = ADSConfig(
+        host="192.0.2.20",
+        target_net_id="192.0.2.20.1.1",
+        target_port=801,
+        route_auto_add=True,
+    )
+    monkeypatch.setattr(driver_module, "pyads", fake_ads)
+    monkeypatch.setattr(
+        driver_module, "_LOCAL_AMS",
+        ADSLocalConfig("192.0.2.10.1.1", "192.0.2.10", "user", "private-password"),
+    )
+    monkeypatch.setattr(
+        driver,
+        "_new_connection",
+        lambda: FakeConnection(fake_ads.route_added),
+    )
+    await driver.connect()
+    assert driver.is_open()
+    assert fake_ads.route_calls == 1
+    await driver.close()
+
+

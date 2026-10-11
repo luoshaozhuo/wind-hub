@@ -371,9 +371,8 @@ def _device_catalog(
         )
         extensions = _map(raw_endpoint.get("extensions", {}), "endpoint.extensions")
         options = {**defaults, **extensions}
-        if protocol == "ads":
-            if options.pop("subscribe_enabled", False):
-                ads_subscriptions.add(device_identity)
+        if protocol == "ads" and options.pop("subscribe_enabled", False):
+            ads_subscriptions.add(device_identity)
         for key, value in options.items():
             if not isinstance(key, str) or value is not None and not isinstance(
                 value, str | int | float | bool

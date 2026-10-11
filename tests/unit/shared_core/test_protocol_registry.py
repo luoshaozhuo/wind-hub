@@ -101,7 +101,8 @@ def test_protocol_write_normalizes_point_id() -> None:
         ProtocolWrite(point_id=" ", value=1.0)
 
 
-def test_protocol_registry_is_explicit_and_case_normalized() -> None:
+@pytest.mark.asyncio
+async def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
     registry.register(
         "Modbus",
@@ -113,7 +114,7 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     protocol = registry.create(endpoint, point_table, {})
 
     assert registry.registered_names() == ("modbus",)
-    assert protocol.health().healthy is True
+    assert (await protocol.health()).healthy is True
 
 
 def test_protocol_registry_accepts_builtin_driver_classes() -> None:
@@ -160,6 +161,7 @@ def test_protocol_registry_create_fails_fast_on_invalid_driver_config() -> None:
         "d1",
         model.device_model_id,
         ConnectionEndpoint("127.0.0.1", 502),
+        device_group_ids=("group",),
     )
     with pytest.raises(ConfigError, match="address"):
         registry.create(

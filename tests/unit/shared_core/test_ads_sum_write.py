@@ -1,11 +1,13 @@
-"""ADS index 地址批量写入与错误隔离测试。"""
+"""ADS index-addressed Sum Write regression tests."""
 
 from __future__ import annotations
 
-import pytest
+import struct
 
-import core.infrastructure.protocol.ads.driver as driver_module
-from core.application import ProtocolWrite
+import pytest
+from pyads.constants import ADSIGRP_SUMUP_WRITE
+
+from core.application import ProtocolError, ProtocolWrite
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
@@ -18,156 +20,110 @@ from core.domain import (
 from core.infrastructure.protocol.ads import ADSDriver
 
 
-def _point(point_id: str, *, symbol: str | None = None) -> Point:
-    ext: dict[str, object] = {"data_type": "DINT"}
-    if symbol is None:
-        ext.update(index_group=0x4020, index_offset=10)
-    else:
-        ext["symbol"] = symbol
+def _point(point_id: str, offset: int, *, data_type: str = "DINT") -> Point:
     return Point(
         point_id=point_id,
         business_point_id=point_id,
         source_unit=UNIT_CATALOG[UnitCode.NONE],
         access=PointAccess.READ_WRITE,
-        ext=ext,
+        ext={"index_group": 0x4020, "index_offset": offset, "data_type": data_type},
     )
 
 
-class _FakeConnection:
-    def __init__(self) -> None:
-        self.batch: list[dict[str, object]] = []
-        self.individual: list[tuple[int, int, object]] = []
+class _Connection:
+    def __init__(self, errors: list[int] | None = None) -> None:
+        self.errors = errors
+        self.requests: list[list[tuple[int, int, bytes]]] = []
+        self.closed = False
 
-    def write(
-        self, index_group: int, index_offset: int, value: object, datatype: object
-    ) -> None:
-        del datatype
-        self.individual.append((index_group, index_offset, value))
+    def read_write(
+        self,
+        index_group: int,
+        count: int,
+        read_datatype: object,
+        value: object,
+        write_datatype: object,
+        *,
+        check_length: bool,
+    ) -> bytes:
+        assert index_group == ADSIGRP_SUMUP_WRITE
+        assert read_datatype is None and write_datatype is None
+        assert check_length is False
+        raw = bytes(value)
+        entries = [struct.unpack_from("<III", raw, i * 12) for i in range(count)]
+        data_offset = 12 * count
+        requests = []
+        for group, offset, size in entries:
+            requests.append((group, offset, raw[data_offset:data_offset + size]))
+            data_offset += size
+        assert data_offset == len(raw)
+        self.requests.append(requests)
+        errors = self.errors if self.errors is not None else [0] * count
+        return b"".join(struct.pack("<I", x) for x in errors[:count])
+
+    def close(self) -> None:
+        self.closed = True
 
 
-class _FakePyads:
-    PLCTYPE_DINT = object()
-
-
-def _driver(*points: Point) -> ADSDriver:
+def _driver(*points: Point) -> tuple[ADSDriver, _Connection]:
     table = PointTable("ads", Protocol("ads"), {p.point_id: p for p in points})
     driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
-    driver._connection = _FakeConnection()
+    connection = _Connection()
+    driver._connection = connection
     driver._connected = True
-    return driver
+    return driver, connection
 
 
 @pytest.mark.asyncio
-async def test_resolved_symbols_write_by_index(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
-    driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
-    for index, (key, point) in enumerate(driver._points.items()):
-        driver._points[key] = point.resolved(
-            index_group=0x4020, index_offset=10 + index * 4
-        )
-
+async def test_sum_write_uses_index_addresses_and_preserves_order() -> None:
+    driver, connection = _driver(_point("a", 10), _point("b", 20))
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert all(result.success for result in results)
-    assert driver._connection.batch == []
-    assert driver._connection.individual == [(0x4020, 10, 1), (0x4020, 14, 2)]
+    assert [r.success for r in results] == [True, True]
+    assert connection.requests == [[
+        (0x4020, 10, struct.pack("<i", 1)),
+        (0x4020, 20, struct.pack("<i", 2)),
+    ]]
 
 
 @pytest.mark.asyncio
-async def test_index_writes_remain_sequential(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
-    driver = _driver(_point("a"), _point("b"))
+async def test_sum_write_individual_status_isolated() -> None:
+    driver, connection = _driver(_point("a", 10), _point("b", 20))
+    connection.errors = [1808, 0]
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert all(result.success for result in results)
-    assert driver._connection.batch == []
-    assert len(driver._connection.individual) == 2
-
-
-@pytest.mark.asyncio
-async def test_distinct_symbols_same_index_address_do_not_sum_write(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
-    driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
-    for key, point in driver._points.items():
-        driver._points[key] = point.resolved(index_group=0x4020, index_offset=10)
-
-    result = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert all(entry.success for entry in result)
-    assert driver._connection.batch == []
-    assert len(driver._connection.individual) == 2
-
-
-@pytest.mark.asyncio
-async def test_overlapping_symbol_spans_fall_back_to_ordered_writes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
-    driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
-    driver._points["a"] = driver._points["a"].resolved(
-        index_group=0x4020, index_offset=100
-    )
-    driver._points["b"] = driver._points["b"].resolved(
-        index_group=0x4020, index_offset=102
-    )
-    result = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert [entry.success for entry in result] == [True, True]
-    assert driver._connection.batch == []
-    assert [entry[1] for entry in driver._connection.individual] == [100, 102]
-
-
-class _FakeADSError(Exception):
-    def __init__(self, message: str, err_code: int) -> None:
-        super().__init__(message)
-        self.err_code = err_code
-
-
-class _PointFailingConnection(_FakeConnection):
-    """第一个点抛点级 ADS 错误（symbol 不存在），其余正常。"""
-
-    def __init__(self, error: Exception) -> None:
-        super().__init__()
-        self._error = error
-        self._raised = False
-
-    def write(
-        self, index_group: int, index_offset: int, value: object, datatype: object
-    ) -> None:
-        if not self._raised:
-            self._raised = True
-            raise self._error
-        super().write(index_group, index_offset, value, datatype)
-
-
-@pytest.mark.asyncio
-async def test_point_level_write_error_isolated_without_disconnect(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """点级 ADS 错误（symbol 被 PLC 删除）只收敛为单点失败，不标记断线。"""
-    fake_pyads = type("_FakePyads", (), {"PLCTYPE_DINT": object(), "ADSError": _FakeADSError})
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
-    driver = _driver(_point("a"), _point("b"))
-    driver._connection = _PointFailingConnection(_FakeADSError("symbol gone", 1808))
-
-    results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-
     assert [r.success for r in results] == [False, True]
-    assert (await driver.health()).healthy is True
+    assert results[0].message == "ADS write error 1808"
+    assert driver.is_open()
 
 
 @pytest.mark.asyncio
-async def test_transport_write_error_marks_disconnect(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """连接/传输级写错误统一标记断线并抛 ProtocolError。"""
-    fake_pyads = type("_FakePyads", (), {"PLCTYPE_DINT": object(), "ADSError": _FakeADSError})
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
-    driver = _driver(_point("a"), _point("b"))
-    driver._connection = _PointFailingConnection(_FakeADSError("port closed", 1861))
+async def test_sum_write_rejects_invalid_value_without_discarding_valid_points() -> None:
+    driver, connection = _driver(_point("a", 10), _point("b", 20))
+    results = await driver.write_many((
+        ProtocolWrite("a", 1.5),
+        ProtocolWrite("b", 2),
+    ))
+    assert [r.success for r in results] == [False, True]
+    assert connection.requests == [[(0x4020, 20, struct.pack("<i", 2))]]
 
-    with pytest.raises(Exception, match="write failed"):
+
+@pytest.mark.asyncio
+async def test_sum_write_transport_failure_disconnects() -> None:
+    driver, connection = _driver(_point("a", 10), _point("b", 20))
+    connection.errors = [0]  # Invalid Sum Write response size
+    with pytest.raises(ProtocolError, match="sum write failed"):
         await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert (await driver.health()).healthy is False
+    assert not driver.is_open()
+    assert connection.closed
+
+
+@pytest.mark.asyncio
+async def test_sum_write_chunks_by_limit() -> None:
+    from dataclasses import replace
+
+    driver, connection = _driver(_point("a", 10), _point("b", 20), _point("c", 30))
+    driver._config = replace(driver._config, max_subs_per_sum=2)
+    results = await driver.write_many((
+        ProtocolWrite("a", 1), ProtocolWrite("b", 2), ProtocolWrite("c", 3),
+    ))
+    assert all(r.success for r in results)
+    assert [len(batch) for batch in connection.requests] == [2, 1]

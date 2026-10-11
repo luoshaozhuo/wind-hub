@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Any, cast
 
+import c104
+
 from core.application.errors import ConfigError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
@@ -33,7 +35,6 @@ def command_to_c104(
     value: object,
 ) -> tuple[Any, object]:
     """按点表 type_id 把协议侧值转换成 c104 控制类型和值。"""
-    c104 = _c104()
     type_id = mapped.type_id
     if type_id is None:
         raise ConfigError(f"IEC104 writable point '{mapped.point_id}' requires type_id")
@@ -76,7 +77,6 @@ def _quality_from_c104(quality: Any) -> Quality:
     if quality is None:
         return Quality.UNCERTAIN
 
-    c104 = _c104()
     bits = getattr(quality, "value", 0)
     invalid = getattr(c104.Quality.Invalid, "value", 0)
     uncertain = (
@@ -133,9 +133,3 @@ def _integer(value: object, type_id: str) -> int:
     return integer
 
 
-def _c104() -> Any:
-    try:
-        import c104
-    except ImportError as exc:
-        raise ConfigError("IEC104 support requires the optional 'c104' dependency") from exc
-    return c104

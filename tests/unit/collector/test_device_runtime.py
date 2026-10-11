@@ -7,7 +7,6 @@ import pytest
 from collector.application.config import RuntimeParams
 from collector.application.device_runtime import DeviceRuntime, is_connection_level
 from collector.application.device_state import reconnect_delay
-from core.application import ProtocolError
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,

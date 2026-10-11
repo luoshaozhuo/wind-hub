@@ -15,6 +15,7 @@ _ALLOWED_OPTIONS = frozenset(
         "max_subs_per_sum",
         "max_delay",
         "max_notifications_per_connection",
+        "route_auto_add",
     }
 )
 
@@ -31,6 +32,7 @@ class ADSConfig:
     max_subs_per_sum: int = 500
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
+    route_auto_add: bool = False
 
 
 def parse_ads_config(
@@ -89,6 +91,9 @@ def parse_ads_config(
             f"connection '{endpoint}': " "max_notifications_per_connection must be > 0"
         )
 
+    route_auto_add = options.get("route_auto_add", False)
+    if type(route_auto_add) is not bool:
+        raise ConfigError("ADS route_auto_add must be a boolean")
     default_port = 801 if twincat_version == "2" else 802
     target_port = endpoint.port or default_port
 
@@ -101,6 +106,7 @@ def parse_ads_config(
         max_subs_per_sum=max_subs,
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,
+        route_auto_add=route_auto_add,
     )
 
 

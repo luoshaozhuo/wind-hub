@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from core.application import ConfigError, Quality
-from core.application.errors import ProtocolError
 from core.application.protocol_contract import ProtocolWrite
 from core.infrastructure.protocol.modbus.mapping import modbus_point
 from tests.unit.shared_core.test_modbus_single_ops import (
