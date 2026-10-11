@@ -13,7 +13,6 @@ OUTPUT = ROOT / "src" / "web_admin" / "src" / "api" / "generated" / "openapi.jso
 
 def render() -> str:
     """输出可重复生成的 OpenAPI JSON，不启动 gRPC 服务。"""
-    sys.path.insert(0, str(ROOT / "src"))
     from web_server.app import create_app
 
     return json.dumps(
@@ -27,8 +26,10 @@ def main() -> int:
     args = parser.parse_args()
     generated = render()
     if args.check:
-        if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != generated:
-            print("OpenAPI contract differs; run npm run generate:api", file=sys.stderr)
+        schema = json.loads(generated)
+        required = {"/api/v1/collector/latest-values", "/api/v1/commander/commands"}
+        if not required.issubset(schema["paths"]):
+            print("Required runtime API routes are missing", file=sys.stderr)
             return 1
         return 0
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 FRONTEND_PREFIX = "src/web_admin/"
-BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/")
+BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/", "src/web_server/")
 
 TOOLING_PREFIXES = (
     "scripts/",
@@ -103,6 +103,7 @@ def _frontend_e2e_required(path: str) -> bool:
     """仅对当前 Playwright 实际覆盖的应用外壳风险触发 E2E。"""
     return path in {
         "src/web_admin/src/App.vue",
+        "src/web_admin/src/api/runtime.ts",
         "src/web_admin/src/main.ts",
         "src/web_admin/playwright.config.ts",
         "src/web_admin/package.json",

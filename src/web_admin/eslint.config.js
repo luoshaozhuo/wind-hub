@@ -14,7 +14,6 @@ export default tseslint.config(
       '.vite/**',
       'test-results/**',
       'playwright-report/**',
-      'public/mockServiceWorker.js',
     ],
   },
   js.configs.recommended,
@@ -39,14 +38,6 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-explicit-any': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
-    },
-  },
-  {
-    // generated contract 由 openapi-typescript 产出，不人工修补、不参与检查
-    files: ['src/api/generated/**'],
-    rules: {
-      '@typescript-eslint/no-unused-vars': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   prettier,
