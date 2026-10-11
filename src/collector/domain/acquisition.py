@@ -28,7 +28,7 @@ from typing import Protocol
 
 from core.application import Quality
 
-from .point_value import PointValue
+from core.domain.point_value import PointValue
 
 logger = logging.getLogger(__name__)
 
