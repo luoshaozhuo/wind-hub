@@ -1,4 +1,4 @@
-"""新 Collector DeviceRuntime 重连节流/故障分类/热更新单元测试。"""
+"""Collector DeviceRuntime 健康检查、连接状态与热更新单元测试。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import pytest
 
 from collector.application.config import RuntimeParams
 from collector.application.device_runtime import DeviceRuntime, is_connection_level
-from collector.application.device_state import reconnect_delay
 from tests.support.new_collector import (
     CollectorFakeProtocol,
     make_collector_config,
@@ -31,14 +30,6 @@ def _runtime(
     return runtime, proto
 
 
-def test_reconnect_delay_exponential_with_cap():
-    assert reconnect_delay(1) == 1.0
-    assert reconnect_delay(2) == 2.0
-    assert reconnect_delay(3) == 4.0
-    assert reconnect_delay(10) == 30.0
-    assert reconnect_delay(0) == 1.0
-
-
 def test_is_connection_level_walks_cause_chain():
     assert is_connection_level(TimeoutError())
     assert is_connection_level(ConnectionRefusedError())
@@ -55,33 +46,28 @@ async def test_ensure_connected_fast_path_when_connected():
     assert proto.connect_calls == 1  # 快路径零开销
 
 
-async def test_ensure_connected_throttled_within_backoff_window():
-    now = [100.0]
-    runtime, proto = _runtime(clock=lambda: now[0])
+async def test_normal_acquisition_does_not_retry_connect():
+    """采集查询不触发连接，故障恢复由 Watchdog 周期执行。"""
+    runtime, proto = _runtime()
     proto.fail_connect = True
-    await runtime.connect_all()  # 失败 → next_retry_at = 100 + 1
+    await runtime.connect_all()
     state = runtime.device_state("dev1")
     assert state is not None and not state.connected
     assert state.consecutive_failures == 1
 
-    now[0] = 100.5  # 仍在节流窗口内
     assert await runtime.ensure_connected("dev1") is False
-    assert proto.connect_calls == 1  # 不发起新 connect
+    assert proto.connect_calls == 1
 
-    now[0] = 101.5  # 窗口已过 → 重试并再次失败 → backoff 2s
-    assert await runtime.ensure_connected("dev1") is False
-    assert proto.connect_calls == 2
-    state = runtime.device_state("dev1")
-    assert state is not None and state.next_retry_at == pytest.approx(101.5 + 2.0)
-
-    now[0] = 104.0
     proto.fail_connect = False
+    await runtime._watchdogs["dev1"].check_once()
+    assert proto.connect_calls == 2
     assert await runtime.ensure_connected("dev1") is True
     state = runtime.device_state("dev1")
-    assert state is not None and state.connected and state.consecutive_failures == 0
+    assert state is not None and state.connected
+    await runtime.close_all()
 
 
-async def test_ensure_connected_force_ignores_backoff():
+async def test_explicit_connect_after_initial_failure():
     now = [100.0]
     runtime, proto = _runtime(clock=lambda: now[0])
     proto.fail_connect = True
@@ -229,6 +215,38 @@ class _RecordingMetrics:
 
     def device_connect_failed(self, device_id: str, protocol: str) -> None:
         self.connect_failed.append((device_id, protocol))
+
+
+async def test_watchdog_failed_connect_is_recorded_and_recovers():
+    """周期重连失败需要记录一次设备失败；恢复后清零连续失败。"""
+    metrics = _RecordingMetrics()
+    config = make_collector_config()
+    proto = CollectorFakeProtocol()
+    session = make_session(config, proto)
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 1.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+
+    proto.connected = False
+    proto.fail_connect = True
+    with pytest.raises(ConnectionError):
+        await runtime._watchdogs["dev1"].check_once()
+
+    state = runtime.device_state("dev1")
+    assert state is not None
+    assert state.consecutive_failures == 1
+    assert metrics.connect_failed == [("dev1", "modbus")]
+
+    proto.fail_connect = False
+    await runtime._watchdogs["dev1"].check_once()
+    assert state.connected
+    assert state.consecutive_failures == 0
+    assert metrics.reconnected == [("dev1", "modbus")]
+    await runtime.close_all()
 
 
 async def test_rebuild_stops_old_watchdog_and_isolates_state():

@@ -98,7 +98,7 @@ def test_unknown_point_table_reference_rejected(tmp_path):
             },
         },
     )
-    with pytest.raises(ConfigError, match="unknown point_table"):
+    with pytest.raises(ConfigError, match="point table"):
         load_commander_config(config_dir)
 
 
@@ -135,17 +135,12 @@ def test_unknown_unit_rejected(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="unknown unit"):
+    with pytest.raises(ConfigError, match="invalid business point"):
         load_commander_config(config_dir)
 
 
 def test_bool_point_must_be_dimensionless(tmp_path):
     config_dir = write_minimal_config_tree(tmp_path)
-    write_yaml(
-        config_dir,
-        "units.yaml",
-        {"units": {"percent": {"symbol": "%", "name": "Percent"}}},
-    )
     write_yaml(
         config_dir,
         "points.yaml",
@@ -239,8 +234,8 @@ def test_ads_connection_options_preserved(tmp_path):
     assert options["target_net_id"] == "1.2.3.4.5.6"
 
 
-def test_business_point_conflict_gets_table_prefix(tmp_path):
-    """两张表同名点但 data_type 冲突 → 后解析表使用 ``{table}:{point}``。"""
+def test_distinct_business_point_ids_are_explicit(tmp_path):
+    """同名协议点映射不同业务量时必须显式指定不同业务点 ID。"""
     config_dir = write_minimal_config_tree(
         tmp_path,
         point_tables={
@@ -260,6 +255,7 @@ def test_business_point_conflict_gets_table_prefix(tmp_path):
                 "points": [
                     {
                         "point_id": "p1",
+                        "business_point_id": "tab_b:p1",
                         "point_groups": ["g"],
                         "address": {"register_type": "holding", "address": 2},
                         "data_type": "int16",
@@ -271,7 +267,7 @@ def test_business_point_conflict_gets_table_prefix(tmp_path):
     config = load_commander_config(config_dir)
     bp_ids = {str(bp) for bp in config.business_points}
     assert "p1" in bp_ids
-    # dict 顺序：tab 先解析占用裸 id，tab_b 冲突后加表前缀
+    # 业务点身份由配置显式给出，不在解析时自动改写。
     assert "tab_b:p1" in bp_ids
 
 
@@ -315,7 +311,7 @@ def test_device_group_synthesized(tmp_path):
     assert "wind_turbines" in {str(g) for g in config.device_groups}
 
 
-def test_point_meta_collected(tmp_path):
+def test_point_fields_loaded(tmp_path):
     config_dir = write_minimal_config_tree(
         tmp_path,
         points=[
@@ -329,9 +325,9 @@ def test_point_meta_collected(tmp_path):
         ],
     )
     config = load_commander_config(config_dir)
-    meta = config.meta_for(PointTableId("tab"), "p1")
-    assert meta.variable_name == "有功功率"
-    assert meta.point_groups == ("telemetry", "fast")
+    point = config.point_tables[PointTableId("tab")].points["p1"]
+    assert point.variable_name == "有功功率"
+    assert point.point_groups == ("telemetry", "fast")
 
 
 def test_unsupported_protocol_rejected(tmp_path):

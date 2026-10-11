@@ -1,20 +1,12 @@
-"""Sink outbound port 与类型注册表（Application 层）。
+"""Collector Sink 工厂注册表，SinkPort 契约由 Core 统一定义。"""
 
-SinkPort 由 application 层（Runtime 的投递编排）消费；文件 / Redis /
-协议服务端等实现位于 ``collector.infrastructure.sink``，由
-组合根装配注入。
-
-SinkRegistry 与 ``core.infrastructure.ProtocolRegistry`` 同一设计语言：
-注册表只保存「类型 → factory」，不持有 Sink 运行实例；内置 Sink 的
-注册发生在组合根显式调用的装配函数，不依赖 import side effect。
-"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from core.application import ConfigError
-from core.application.port import ExclusiveOpenSinkPort, SinkPort
+from core.application.port import SinkPort
 from core.domain import Sink
 
 SinkFactory = Callable[[Sink], SinkPort]
@@ -73,4 +65,4 @@ class SinkRegistry:
             )
         return factory(cfg)
 
-__all__ = ["SinkPort", "ExclusiveOpenSinkPort", "SinkFactory", "SinkRegistry"]
+__all__ = ["SinkFactory", "SinkRegistry"]

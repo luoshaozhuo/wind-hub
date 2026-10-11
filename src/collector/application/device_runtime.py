@@ -181,39 +181,9 @@ class DeviceRuntime:
     # ------------------------------------------------------------------
 
     async def connect_all(self) -> None:
-        """启动时逐台连接，单设备失败记账后继续（best-effort）。"""
+        """启动时逐台连接；单台失败不影响其余设备，随后启动 Watchdog。"""
         for device_id, device in self._devices.items():
-            try:
-                await asyncio.wait_for(
-                    device.connect(),
-                    timeout=self._params.connect_timeout,
-                )
-                self._state_for(device_id).mark_success(self._clock())
-                logger.info("Device '%s' connected", device_id)
-            except TimeoutError:
-                self._note_connect_failure(
-                    device_id,
-                    TimeoutError("connect timeout"),
-                )
-                logger.warning(
-                    "connect timeout: device=%s timeout=%.1fs — skipped",
-                    device_id,
-                    self._params.connect_timeout,
-                )
-            except Exception as exc:
-                self._note_connect_failure(device_id, exc)
-                if is_connection_level(exc):
-                    logger.warning(
-                        "Device '%s' failed to connect — skipped: %s",
-                        device_id,
-                        exc,
-                    )
-                else:
-                    logger.warning(
-                        "Device '%s' failed to connect — skipped",
-                        device_id,
-                        exc_info=True,
-                    )
+            await self._connect_new(device_id, device, "connected")
         await self.start_watchdogs()
 
     async def close_all(self) -> None:
@@ -254,17 +224,12 @@ class DeviceRuntime:
                 return False
             if _transport_open(device):
                 return True
-            return await self._connect_locked(
-                device_id,
-                device,
-                self._state_for(device_id),
-            )
+            return await self._connect_locked(device_id, device)
 
     async def _connect_locked(
         self,
         device_id: str,
         device: CollectorDeviceSession,
-        state: DeviceRuntimeState,
     ) -> bool:
         """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
         now = self._clock()
@@ -285,7 +250,7 @@ class DeviceRuntime:
             else:
                 logger.warning("Device '%s' reconnect attempt failed", device_id, exc_info=True)
             return False
-        state.mark_success(now)
+        self._state_for(device_id).mark_success(now)
         if self._metrics is not None:
             self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
         logger.info("Device '%s' reconnected", device_id)
@@ -410,6 +375,14 @@ class DeviceRuntime:
         device_id: str,
         session: CollectorDeviceSession,
     ) -> WatchdogUseCase:
+        async def _connect() -> None:
+            try:
+                await session.connect()
+            except Exception as exc:
+                if self._devices.get(device_id) is session:
+                    self._note_connect_failure(device_id, exc)
+                raise
+
         async def _on_success() -> None:
             if self._devices.get(device_id) is not session:
                 return
@@ -423,7 +396,7 @@ class DeviceRuntime:
         return WatchdogUseCase(
             health=session.health,
             close=session.close,
-            connect=session.connect,
+            connect=_connect,
             interval=self._params.watchdog_interval,
             health_timeout=self._params.health_timeout,
             connect_timeout=self._params.connect_timeout,

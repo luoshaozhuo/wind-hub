@@ -1,4 +1,4 @@
-"""Recovery：重连 backoff 节流的真实行为验证。
+"""Recovery：Watchdog 周期恢复 节流的真实行为验证。
 
 断言的不是「最终重连成功」（已有用例覆盖），而是退避曲线本身：
 
@@ -94,8 +94,8 @@ async def _sample_attempts(
     )
 
 
-class TestReconnectBackoff:
-    async def test_backoff_throttles_and_resets_after_recovery(
+class TestWatchdogRecovery:
+    async def test_watchdog_recovers_without_poll_loop_reconnect(
         self, collector_factory, tmp_path: Path
     ) -> None:
         port = free_port()
@@ -107,24 +107,15 @@ class TestReconnectBackoff:
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 
-        # ---- 故障：设备全程不可达，观察退避曲线 ----
-        attempts_at, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
+        # ---- 故障：设备全程不可达，验证周期连接检查 ----
+        _, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
 
-        assert 3 <= attempts <= 8, (
-            f"expected ~5 throttled connect attempts in {OUTAGE_WINDOW}s, got {attempts}"
+        assert 1 <= attempts <= 6, (
+            f"expected periodic watchdog reconnect attempts, got {attempts}"
         )
         assert attempts * 10 < runs, (
-            f"connect attempts ({attempts}) not throttled relative to "
-            f"acquisition ticks ({runs})"
+            f"connect attempts ({attempts}) should not follow acquisition ticks ({runs})"
         )
-        gaps = [b - a for a, b in zip(attempts_at, attempts_at[1:], strict=False)]
-        # 启动期的前几次尝试可能落在采样基线之前，窗口内只要求可判型的间隔数。
-        assert len(gaps) >= 2, f"too few attempts to inspect backoff gaps: {attempts_at}"
-        # 指数退避：后一档不短于前一档（采样误差 ±0.5s，留 0.6 容忍系数），
-        # 且末档显著大于 1s 固定重试能达到的间隔。
-        for prev, cur in zip(gaps, gaps[1:], strict=False):
-            assert cur >= prev * 0.6, f"backoff gaps not non-decreasing: {gaps}"
-        assert gaps[-1] >= 2.0, f"final backoff gap too small (no exponential growth): {gaps}"
 
         # ---- 恢复：重连成功，失败计数清零，数据面恢复 ----
         try:
@@ -136,16 +127,14 @@ class TestReconnectBackoff:
             assert snap["device_reconnects"].get(DEVICE_ID, 0) >= 1
             await wait_file_rows(sink_path, min_rows=2)
 
-            # ---- 二次故障：退避必须从初始档重新开始 ----
+            # 二次故障后仍由同一个 Watchdog 周期执行连接检查。
             await server.stop()
             await wait_status(
                 proc, lambda p: p["devices_connected"] == 0, description="second outage"
             )
-            _, second_attempts, _ = await _sample_attempts(proc, 4.5)
-            # 初始档 1s：4.5s 窗口至少 2 次尝试；若延续 30s 封顶档则只有 1 次。
-            assert second_attempts >= 2, (
-                f"backoff did not reset after recovery: "
-                f"{second_attempts} attempts in 4.5s window"
+            _, second_attempts, _ = await _sample_attempts(proc, 11.0)
+            assert second_attempts >= 1, (
+                f"watchdog did not retry during second outage: {second_attempts}"
             )
         finally:
             await server.stop()

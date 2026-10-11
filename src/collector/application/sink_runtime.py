@@ -18,12 +18,12 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.application import ConnectionHealth, WatchdogUseCase
+from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.domain import Sink
-
-from ..domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
-from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
+from .sink_registry import SinkFactory
 
 logger = logging.getLogger(__name__)
 
@@ -228,20 +228,21 @@ class SinkRuntime:
         单 Sink open 失败只标记 unhealthy 并继续，避免一个输出端点阻断
         整体启动；失败 Sink 不建消费者，由 :meth:`health` 持续暴露。
         """
+        if self._running:
+            return
         self._running = True
         for name, sink in self._sinks.items():
             try:
                 await sink.open()
+                self._unhealthy.discard(name)
                 logger.info("Sink '%s' opened", name)
             except Exception:
                 logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
                 self._unhealthy.add(name)
 
         for name, sink in self._sinks.items():
-            if name in self._unhealthy:
-                continue
-            task = asyncio.create_task(self._consumer(name, sink))
-            self._consumer_tasks[name] = task
+            if name not in self._unhealthy:
+                self._restart_consumer(name, sink)
         for watchdog in self._watchdogs.values():
             await watchdog.start()
 
@@ -272,7 +273,7 @@ class SinkRuntime:
                         name,
                         queue.qsize(),
                     )
-                    self._consumer_tasks.pop(name).cancel()
+                    self._consumer_tasks[name].cancel()
         for task in self._consumer_tasks.values():
             try:
                 await asyncio.wait_for(task, timeout=self._params.shutdown_timeout)
@@ -287,20 +288,13 @@ class SinkRuntime:
         self._consumer_tasks.clear()
 
         for name, sink in self._sinks.items():
-            try:
-                await sink.flush()
-            except Exception:
-                logger.warning("Sink '%s' flush failed", name, exc_info=True)
-            try:
-                await sink.close()
-            except Exception:
-                logger.warning("Sink '%s' close failed", name, exc_info=True)
+            await self._flush_and_close(name, sink, "during shutdown")
 
     # ------------------------------------------------------------------
     # 热重载——sink 增删重建
     # ------------------------------------------------------------------
 
-    async def add_sink(self, sink_name: str, cfg: Sink, sink: SinkPort) -> None:
+    async def add_sink(self, sink_name: str, sink: SinkPort) -> None:
         """运行时新增 sink；open 成功后才提交到注册表。
 
         部分 reload 失败重试时，若同名 sink 已存在，直接按 rebuild 路径
@@ -310,7 +304,7 @@ class SinkRuntime:
             Exception: ``sink.open()`` 失败原样上抛；失败前不修改注册表。
         """
         if sink_name in self._sinks:
-            await self.rebuild_sink(sink_name, cfg, sink)
+            await self.rebuild_sink(sink_name, sink)
             return
 
         await sink.open()
@@ -321,9 +315,8 @@ class SinkRuntime:
         self._watchdogs[sink_name] = watchdog
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
+        self._restart_consumer(sink_name, sink)
         if self._running:
-            task = asyncio.create_task(self._consumer(sink_name, sink))
-            self._consumer_tasks[sink_name] = task
             await watchdog.start()
 
     async def remove_sink(self, sink_name: str) -> None:
@@ -341,19 +334,13 @@ class SinkRuntime:
         self._unhealthy.discard(sink_name)
         logger.info("Hot-reload: sink '%s' removed", sink_name)
 
-    async def rebuild_sink(
-        self,
-        sink_name: str,
-        new_cfg: Sink,
-        new_sink: SinkPort,
-    ) -> None:
+    async def rebuild_sink(self, sink_name: str, new_sink: SinkPort) -> None:
         """重建 Sink，并按资源能力选择 open-first / close-first。
 
         普通客户端型 Sink 先打开新实例再切换；实现 ExclusiveOpenSinkPort
         且 exclusive_open=True 的监听型 Sink 先关闭旧实例释放独占资源。
         若新实例 open 失败，会尽力重新打开旧实例。
         """
-        del new_cfg
         old_sink = self._sinks.get(sink_name)
         exclusive = isinstance(new_sink, ExclusiveOpenSinkPort) and new_sink.exclusive_open
         if not exclusive:
@@ -419,24 +406,14 @@ class SinkRuntime:
         for name in diff.removed:
             await self.remove_sink(name)
 
-        for name in diff.added:
+        for name in (*diff.added, *diff.updated):
             cfg = new_sinks[name]
             if not cfg.enabled:
+                if name in self._sinks:
+                    await self.remove_sink(name)
                 continue
             assert factory is not None
-            await self.add_sink(name, cfg, factory(cfg))
-
-        for name in diff.updated:
-            cfg = new_sinks[name]
-            if not cfg.enabled:
-                await self.remove_sink(name)
-                continue
-            assert factory is not None
-            sink = factory(cfg)
-            if name in self._sinks:
-                await self.rebuild_sink(name, cfg, sink)
-            else:
-                await self.add_sink(name, cfg, sink)
+            await self.add_sink(name, factory(cfg))
 
     # ------------------------------------------------------------------
     # 私有——消费者与重建辅助

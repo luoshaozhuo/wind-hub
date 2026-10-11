@@ -1,6 +1,6 @@
 """Commander 设备通信会话（Application Runtime 组件）。
 
-DeviceSession 把共享领域对象（Device / PointTable / BusinessPoint）与
+DeviceSession 把共享领域对象（Device / PointTable）与
 ``core.application.ProtocolPort`` 组合成单台设备的即时操作边界：
 
 - 读：``ProtocolSample`` 原始值按点表 scale/offset 换算为工程值；
@@ -12,13 +12,13 @@ DeviceSession 把共享领域对象（Device / PointTable / BusinessPoint）与
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
 from core.application import (
     ConnectionHealth,
     PointScalar,
+    ProtocolError,
     ProtocolPort,
     ProtocolSample,
     ProtocolWrite,
@@ -28,8 +28,6 @@ from core.application import (
     validate_read_many_results,
 )
 from core.domain import (
-    BusinessPoint,
-    BusinessPointId,
     Device,
     DeviceId,
     Point,
@@ -71,7 +69,6 @@ class DeviceSession:
     Args:
         device: 共享领域设备聚合。
         point_table: 设备型号绑定的 resolved 点表。
-        business_points: 快照中的业务点索引（写值类型参考）。
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
     """
 
@@ -79,12 +76,10 @@ class DeviceSession:
         self,
         device: Device,
         point_table: PointTable,
-        business_points: Mapping[BusinessPointId, BusinessPoint],
         protocol: ProtocolPort,
     ) -> None:
         self._device = device
         self._point_table = point_table
-        self._business_points = business_points
         self._protocol = protocol
 
     @property
@@ -152,6 +147,10 @@ class DeviceSession:
         """
         self.point(point_id)
         sample = await self._protocol.read_one(point_id)
+        if sample.point_id != point_id:
+            raise ProtocolError(
+                f"read_one point mismatch: requested={point_id!r}, received={sample.point_id!r}"
+            )
         return self._to_reading(sample)
 
     async def read_points(self, point_ids: list[str]) -> list[PointReading]:
@@ -186,20 +185,6 @@ class DeviceSession:
             source=self.protocol_name,
         )
 
-    def protocol_write_value(self, point_id: str, value: WritableScalar) -> ProtocolWrite:
-        """把业务写值转换为协议写值（含 PointAccess 检查与逆变换）。
-
-        Raises:
-            CommandError: 点未知或点不允许写入。
-        """
-        point = self.point(point_id)
-        if point.access is PointAccess.READ:
-            raise CommandError(f"point '{self._device.device_id}/{point_id}' is read-only")
-        return ProtocolWrite(
-            point_id=point_id,
-            value=raw_write_value(point, value),
-        )
-
     async def write_point(self, point_id: str, value: WritableScalar) -> None:
         """执行单点写入。
 
@@ -207,8 +192,12 @@ class DeviceSession:
             CommandError: 点未知、只读或协议确认失败。
             ProtocolError: 协议级写入失败。
         """
-        write = self.protocol_write_value(point_id, value)
-        result = await self._protocol.write_one(write)
+        point = self.point(point_id)
+        if point.access is PointAccess.READ:
+            raise CommandError(f"point '{self._device.device_id}/{point_id}' is read-only")
+        result = await self._protocol.write_one(
+            ProtocolWrite(point_id=point_id, value=raw_write_value(point, value))
+        )
         if not result.success:
             raise CommandError(
                 result.message or f"write rejected by device '{self._device.device_id}'"

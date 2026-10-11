@@ -1,6 +1,6 @@
 """Commander 用例服务——read / config 事务。
 
-服务只做用例编排：固定 generation、校验输入、委托 Runtime/Dispatcher。
+服务只做用例编排：固定 generation、校验批量请求、委托运行时和设备会话。
 协议与连接细节在 DeviceSession / CommanderRuntime；配置加载在
 Infrastructure 的 config adapter。即时写命令无独立用例编排，入口即
 :class:`CommandDispatcher`（连接保证、幂等与错误收敛均在其中）。
@@ -31,8 +31,6 @@ class CommanderReadService:
         """
         async with self._runtime.operation():
             device = await self._connected_device(device_id)
-            if point_id not in device.point_table.points:
-                raise CommandError(f"unknown points on device '{device_id}': ['{point_id}']")
             return await device.read_point(point_id)
 
     async def read_points(
@@ -49,15 +47,9 @@ class CommanderReadService:
             CommandError: 设备未知、点位为空/未知或设备未连接。
         """
         async with self._runtime.operation():
-            device = await self._connected_device(device_id)
             if not point_ids:
                 raise CommandError("point_ids must be non-empty")
-
-            unknown = [
-                point_id for point_id in point_ids if point_id not in device.point_table.points
-            ]
-            if unknown:
-                raise CommandError(f"unknown points on device '{device_id}': {unknown}")
+            device = await self._connected_device(device_id)
             return await device.read_points(point_ids)
 
     async def _connected_device(self, device_id: str) -> DeviceSession:

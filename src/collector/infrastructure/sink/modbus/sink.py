@@ -6,8 +6,8 @@ export/scale/encode/store，TCP Server 只读暴露同一份 ModbusSinkStore。
 
 from __future__ import annotations
 
-from collector.application.sink_port import SinkPort
-from collector.domain.point_value import PointValue
+from core.application.port import SinkPort
+from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from core.application import ConfigError, ConnectionHealth

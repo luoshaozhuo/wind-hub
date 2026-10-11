@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from collector.assembly import assemble_collector
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application.port.protocol import ProtocolPort
 from tests.fixtures.sinks.null_sink import NullSink
 from tests.performance.collector import MetricsCollector, PerfMetrics

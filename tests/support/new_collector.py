@@ -15,7 +15,6 @@ from collector.application.config import (
     CollectionTask,
     CollectorConfig,
     DeviceView,
-    PointMeta,
     RuntimeParams,
 )
 from collector.application.runtime import CollectorRuntime
@@ -26,14 +25,10 @@ from core.application import (
     ProtocolSample,
     Quality,
 )
-from core.application.port import ConfigTopic
 from core.application.port.protocol import SubscriptionHandle
-from core.application.sink_config import SinksConfig
 from core.domain import (
-    BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    DataType,
     Device,
     DeviceGroupId,
     DeviceId,
@@ -45,20 +40,6 @@ from core.domain import (
     PointTable,
     PointTableId,
     Protocol,
-)
-from core.domain.config import (
-    DeviceInstanceConfig,
-    DeviceModelConfig,
-    DeviceModelsConfig,
-    DevicesConfig,
-    EndpointConfig,
-    PointConfig,
-    PointTableConfig,
-    PointTablesConfig,
-    SystemConfig,
-    TasksConfig,
-    UnitDefinitionConfig,
-    UnitsConfig,
 )
 from core.domain.unit import UNIT_CATALOG, UnitCode
 from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
@@ -177,30 +158,27 @@ def make_collector_config(
 ) -> CollectorConfig:
     """构造单设备单点的内存 CollectorConfig（不经过 YAML）。
 
-    默认含一个采集任务 ``t1``：device=dev1、group=g、interval=1.0、
-    targets=("s1",)。传 ``tasks={}`` 可关闭默认任务。
+    默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0、
+    sink_ids=("s1",)。传 ``tasks={}`` 可关闭默认任务。
     """
     unit = UNIT_CATALOG[UnitCode.NONE]
-    bp = BusinessPoint(
-        business_point_id=BusinessPointId("p1"),
-        data_type=DataType.FLOAT32,
-        standard_unit=unit,
-    )
     point = Point(
         point_id="p1",
-        business_point_id=bp.business_point_id,
+        business_point_id=BusinessPointId("p1"),
         source_unit=unit,
         access=PointAccess.READ_WRITE,
         scale=scale,
         offset=offset,
-        ext={"register_type": "holding", "address": 100},
+        ext={"register_type": "holding", "address": 100, "data_type": "float32"},
+        variable_name="P1",
+        point_groups=point_groups,
     )
     table = PointTable(
         point_table_id=PointTableId("tab"),
         protocol=Protocol(protocol),
         points={"p1": point},
     )
-    group_ids = (DeviceGroupId(device_group),) if device_group else ()
+    group_ids = (DeviceGroupId(device_group or device_id),)
     device_indexes = {
         "device_models": {
             DeviceModelId("mod"): DeviceModel(
@@ -223,83 +201,19 @@ def make_collector_config(
         tasks = {
             "t1": CollectionTask(
                 task_id="t1",
-                device=device_id,
+                device_group_id=DeviceGroupId(device_group or device_id),
                 point_group="g",
                 interval=1.0,
-                targets=("s1",),
+                sink_ids=("s1",),
             )
         }
-    config_vos = {
-        ConfigTopic.SYSTEM: SystemConfig(),
-        ConfigTopic.DEVICE_MODELS: DeviceModelsConfig(
-            device_types={"turbine": None},
-            device_models={
-                "mod": DeviceModelConfig(
-                    device_type="turbine",
-                    manufacturer=None,
-                    model=None,
-                    protocol=protocol,
-                    point_table="tab",
-                    properties={},
-                    connection_defaults={},
-                )
-            },
-        ),
-        ConfigTopic.DEVICES: DevicesConfig(
-            devices={
-                device_id: DeviceInstanceConfig(
-                    device_id=device_id,
-                    model="mod",
-                    device_group=device_group,
-                    endpoint=EndpointConfig(host="127.0.0.1", port=502, extensions={}),
-                    enabled=True,
-                )
-            }
-        ),
-        ConfigTopic.POINTS: PointTablesConfig(
-            tables={
-                "tab": PointTableConfig(
-                    protocol=protocol,
-                    points={
-                        "p1": PointConfig(
-                            point_id="p1",
-                            variable_name="P1",
-                            point_groups=point_groups,
-                            address={"register_type": "holding", "address": 100},
-                            data_type="float32",
-                            scale=scale,
-                            offset=offset,
-                            unit="none",
-                            description=None,
-                        )
-                    },
-                )
-            }
-        ),
-        ConfigTopic.UNITS: UnitsConfig(
-            units={"none": UnitDefinitionConfig(symbol="", name=None)}
-        ),
-        ConfigTopic.TASKS: TasksConfig(tasks=dict(tasks)),
-        ConfigTopic.SINKS: SinksConfig(sinks=list((sinks or {}).values())),
-    }
     return CollectorConfig(
-        configs=config_vos,
         **device_indexes,
         runtime=params or RuntimeParams(connect_timeout=0.2, shutdown_timeout=0.5),
         tasks=tasks,
         sinks=sinks or {},
-        point_meta={
-            PointTableId("tab"): {"p1": PointMeta(variable_name="P1", point_groups=point_groups)}
-        },
         ads_subscribe_devices=frozenset({DeviceId(device_id)}) if ads_subscribe else frozenset(),
     )
-
-
-def with_config_vo(config: CollectorConfig, topic: ConfigTopic, value: Any) -> CollectorConfig:
-    """返回替换单个主题配置 VO 基线后的新 CollectorConfig（不可变更新）。"""
-    from dataclasses import replace
-
-    return replace(config, configs={**config.configs, topic: value})
 
 
 def make_session(
@@ -313,7 +227,6 @@ def make_session(
     return CollectorDeviceSession(
         view.device,
         view.point_table,
-        view.point_meta,
         protocol or CollectorFakeProtocol(),
         subscribe_enabled=view.subscribe_enabled,
     )
@@ -341,8 +254,7 @@ def make_runtime(
         return CollectorDeviceSession(
             view.device,
             view.point_table,
-            view.point_meta,
-            registry.create(view.device.endpoint, view.point_table, view.options),
+                registry.create(view.device.endpoint, view.point_table, view.options),
             subscribe_enabled=view.subscribe_enabled,
         )
 
@@ -366,7 +278,6 @@ __all__ = [
     "make_collector_config",
     "make_runtime",
     "make_session",
-    "with_config_vo",
 ]
 
 
@@ -427,7 +338,7 @@ def write_collector_config_tree(
         tasks = [
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
                 "targets": [{"sink": "s1"}],

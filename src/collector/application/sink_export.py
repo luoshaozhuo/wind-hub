@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application import Quality
 from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 

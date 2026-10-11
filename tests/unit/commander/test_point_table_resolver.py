@@ -1,171 +1,119 @@
-"""新 Commander 点表继承解析单元测试。"""
+"""Core 点表继承解析回归测试，通过实际 Commander 配置加载入口验证。"""
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
+from commander.infrastructure.config import load_commander_config
 from core.application import ConfigError
-from core.infrastructure.config.point_tables import (
-    PointPatch,
-    PointTableDraft,
-    resolve_point_tables,
-)
+from core.domain import PointTableId
+from tests.support.new_commander import write_minimal_config_tree
 
 
-def _patch(data: dict[str, Any]) -> PointPatch:
-    declared = frozenset(set(data) - {"point_id"})
-    return PointPatch(
-        point_id=data["point_id"],
-        declared=declared,
-        variable_name=data.get("variable_name") if "variable_name" in data else None,
-        point_groups=(
-            tuple(data["point_groups"]) if "point_groups" in data else None
-        ),
-        address=data.get("address") if "address" in data else None,
-        data_type=data.get("data_type") if "data_type" in data else None,
-        scale=data.get("scale") if "scale" in data else None,
-        offset=data.get("offset") if "offset" in data else None,
-        unit=data.get("unit") if "unit" in data else None,
-        description=data.get("description") if "description" in data else None,
+def _base_point(point_id: str, address: int, *, data_type: str = "float32") -> dict:
+    return {
+        "point_id": point_id,
+        "business_point_id": point_id,
+        "point_groups": ["g"],
+        "address": {"register_type": "holding", "address": address},
+        "data_type": data_type,
+    }
+
+
+def _load(tmp_path, tables: dict):
+    directory = write_minimal_config_tree(
+        tmp_path,
+        point_tables=tables,
     )
+    return load_commander_config(directory)
 
 
-def _table(data: dict[str, Any]) -> PointTableDraft:
-    return PointTableDraft(
-        protocol=data.get("protocol"),
-        extends=data.get("extends"),
-        remove_points=tuple(data.get("remove_points", ())),
-        points=tuple(_patch(item) for item in data.get("points", ())),
+def test_base_table_requires_protocol(tmp_path):
+    with pytest.raises(ConfigError, match="protocol"):
+        _load(tmp_path, {"tab": {"points": []}})
+
+
+def test_inheritance_override_append_and_remove(tmp_path):
+    base = {
+        "protocol": "modbus",
+        "points": [_base_point("p1", 1), _base_point("p2", 2)],
+    }
+    child = {
+        "extends": "tab",
+        "remove_points": ["p2"],
+        "points": [
+            {"point_id": "p1", "scale": 0.1},
+            _base_point("p3", 3, data_type="int16"),
+        ],
+    }
+    config = _load(tmp_path, {"tab": base, "child": child})
+    table = config.point_tables[PointTableId("child")]
+    assert table.parent_id == PointTableId("tab")
+    assert set(table.points) == {"p1", "p3"}
+    assert table.points["p1"].scale == 0.1
+    assert table.points["p1"].ext["address"] == 1
+
+
+def test_explicit_null_clears_inherited_optional_name(tmp_path):
+    base_point = {**_base_point("p1", 1), "variable_name": "original"}
+    config = _load(
+        tmp_path,
+        {
+            "tab": {"protocol": "modbus", "points": [base_point]},
+            "child": {"extends": "tab", "points": [
+                {"point_id": "p1", "variable_name": None}
+            ]},
+        },
     )
+    assert config.point_tables[PointTableId("child")].points["p1"].variable_name is None
 
 
-def test_base_table_requires_protocol():
-    with pytest.raises(ConfigError, match="protocol is required"):
-        resolve_point_tables({"tab": _table({"points": []})})
-
-
-def test_inheritance_override_and_append():
-    tables = {
-        "base": _table(
-            {
-                "protocol": "modbus",
-                "points": [
-                    {
-                        "point_id": "p1",
-                        "point_groups": ["g"],
-                        "address": {"register_type": "holding", "address": 1},
-                        "data_type": "float32",
-                        "scale": 1.0,
-                    },
-                    {
-                        "point_id": "p2",
-                        "point_groups": ["g"],
-                        "address": {"register_type": "holding", "address": 2},
-                        "data_type": "float32",
-                    },
-                ],
-            }
-        ),
-        "child": _table(
-            {
-                "extends": "base",
-                "remove_points": ["p2"],
-                "points": [
-                    {
-                        "point_id": "p1",
-                        "scale": 0.1,
-                    },
-                    {
-                        "point_id": "p3",
-                        "point_groups": ["g"],
-                        "address": {"register_type": "holding", "address": 3},
-                        "data_type": "int16",
-                    },
-                ],
-            }
-        ),
-    }
-    resolved = resolve_point_tables(tables)
-    child = resolved["child"]
-    assert child.protocol == "modbus"
-    assert set(child.points) == {"p1", "p3"}
-    assert child.points["p1"].scale == 0.1
-    # 未写字段继承父值
-    assert child.points["p1"].address["address"] == 1
-    assert child.points["p1"].data_type == "float32"
-
-
-def test_explicit_null_overrides_parent():
-    tables = {
-        "base": _table(
-            {
-                "protocol": "modbus",
-                "points": [
-                    {
-                        "point_id": "p1",
-                        "variable_name": "name",
-                        "point_groups": ["g"],
-                        "address": {"register_type": "holding", "address": 1},
-                        "data_type": "float32",
-                    }
-                ],
-            }
-        ),
-        "child": _table(
-            {
-                "extends": "base",
-                "points": [{"point_id": "p1", "variable_name": None}],
-            }
-        ),
-    }
-    resolved = resolve_point_tables(tables)
-    assert resolved["child"].points["p1"].variable_name is None
-
-
-def test_cycle_detected():
-    tables = {
-        "a": _table({"extends": "b", "protocol": "modbus"}),
-        "b": _table({"extends": "a"}),
-    }
+def test_inheritance_cycle_rejected(tmp_path):
     with pytest.raises(ConfigError, match="cycle"):
-        resolve_point_tables(tables)
-
-
-def test_unknown_parent_rejected():
-    tables = {"child": _table({"extends": "ghost"})}
-    with pytest.raises(ConfigError, match="unknown table"):
-        resolve_point_tables(tables)
-
-
-def test_remove_unknown_point_rejected():
-    tables = {
-        "base": _table({"protocol": "modbus"}),
-        "child": _table({"extends": "base", "remove_points": ["nope"]}),
-    }
-    with pytest.raises(ConfigError, match="unknown point"):
-        resolve_point_tables(tables)
-
-
-def test_cross_protocol_inheritance_rejected():
-    tables = {
-        "base": _table({"protocol": "modbus"}),
-        "child": _table({"extends": "base", "protocol": "ads"}),
-    }
-    with pytest.raises(ConfigError, match="cross-protocol"):
-        resolve_point_tables(tables)
-
-
-def test_incomplete_new_point_rejected():
-    tables = {
-        "base": _table({"protocol": "modbus"}),
-        "child": _table(
+        _load(
+            tmp_path,
             {
-                "extends": "base",
-                "points": [{"point_id": "p1", "point_groups": ["g"]}],
-            }
-        ),
-    }
-    with pytest.raises(ConfigError, match="missing required field"):
-        resolve_point_tables(tables)
+                "tab": {"extends": "child", "points": []},
+                "child": {"extends": "tab", "points": []},
+            },
+        )
+
+
+def test_unknown_parent_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="not found"):
+        _load(tmp_path, {"tab": {"extends": "missing", "points": []}})
+
+
+def test_remove_unknown_point_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="cannot remove unknown point"):
+        _load(
+            tmp_path,
+            {
+                "tab": {"protocol": "modbus", "points": []},
+                "child": {"extends": "tab", "remove_points": ["missing"]},
+            },
+        )
+
+
+def test_cross_protocol_inheritance_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="protocol differs"):
+        _load(
+            tmp_path,
+            {
+                "tab": {"protocol": "modbus", "points": []},
+                "child": {"extends": "tab", "protocol": "ads", "points": []},
+            },
+        )
+
+
+def test_incomplete_new_point_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="business point|address"):
+        _load(
+            tmp_path,
+            {
+                "tab": {"protocol": "modbus", "points": []},
+                "child": {"extends": "tab", "points": [
+                    {"point_id": "p1", "point_groups": ["g"]}
+                ]},
+            },
+        )

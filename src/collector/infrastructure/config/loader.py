@@ -30,6 +30,17 @@ def load_collector_config(
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
+    enabled_sinks = {
+        sink_id for sink_id, sink in snapshot.sinks.items() if sink.enabled
+    }
+    for task in snapshot.tasks.values():
+        if not task.enabled:
+            continue
+        unavailable = set(task.sink_ids) - enabled_sinks
+        if unavailable:
+            raise ConfigError(
+                f"task '{task.task_id}' references disabled sinks: {sorted(unavailable)}"
+            )
     devices = snapshot.site.devices
     settings = snapshot.system.runtime
     return CollectorConfig(

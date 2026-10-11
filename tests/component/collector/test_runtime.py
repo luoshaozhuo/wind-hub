@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 from dataclasses import replace
 
 from collector.application.config import CollectionTask
 from collector.application.reload import compute_diff
 from collector.application.task_instance import TaskInstanceState
-from core.application.port import ConfigTopic
 from core.domain import DeviceId
-from core.domain.config import DevicesConfig
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
     make_runtime,
-    with_config_vo,
 )
 
 
@@ -45,7 +44,7 @@ async def test_start_failure_of_one_component_does_not_block_others():
 
     await runtime.start()
     assert runtime.running  # best-effort：设备失败不阻断启动
-    health = runtime.device_health()
+    health = await runtime.device_health()
     assert not health["dev1"].healthy
     state = runtime.device_state("dev1")
     assert state is not None and state.consecutive_failures == 1
@@ -57,7 +56,7 @@ async def test_task_instance_collect_flows_to_sink_end_to_end():
     config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=0.02, targets=("s1",)
+                task_id="t1", device_group_id="dev1", point_group="g", interval=0.02, sink_ids=("s1",)
             )
         }
     )
@@ -121,18 +120,7 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
 
     view = config.device_view(DeviceId("dev1"))
     new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
-    old_devices_vo = config.configs[ConfigTopic.DEVICES]
-    old_instance = old_devices_vo.devices["dev1"]
-    new_devices_vo = DevicesConfig(
-        devices={
-            "dev1": replace(old_instance, endpoint=replace(old_instance.endpoint, port=503))
-        }
-    )
-    new_config = with_config_vo(
-        replace(config, devices={DeviceId("dev1"): new_device}),
-        ConfigTopic.DEVICES,
-        new_devices_vo,
-    )
+    new_config = replace(config, devices={DeviceId("dev1"): new_device})
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]
 
@@ -155,7 +143,7 @@ async def test_reconfigure_task_change_updates_instances():
     new_config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=5.0, targets=("s1",)
+                task_id="t1", device_group_id="dev1", point_group="g", interval=5.0, sink_ids=("s1",)
             )
         }
     )
@@ -187,3 +175,73 @@ async def test_stop_idempotent_and_lifecycle_serialized():
     assert runtime.running
     await asyncio.gather(runtime.stop(), runtime.stop())
     assert not runtime.running
+
+
+async def test_start_failure_releases_devices_and_sinks():
+    """Task 实例注册异常时，所有已启动子系统必须回滚。"""
+    sink = FakeSink()
+    runtime, protocol = make_runtime(make_collector_config(), sinks={"s1": sink})
+
+    async def fail_sync() -> None:
+        raise RuntimeError("task sync failed")
+
+    runtime.task_runtime.sync_instances = fail_sync  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="task sync failed"):
+        await runtime.start()
+
+    assert not runtime.running
+    assert not runtime._running
+    assert sink.close_calls == 1
+    assert protocol.close_calls == 1
+
+
+async def test_stop_releases_sinks_and_devices_after_task_stop_failure():
+    """停采集失败不能阻止 Sink 和设备释放。"""
+    sink = FakeSink()
+    runtime, protocol = make_runtime(make_collector_config(), sinks={"s1": sink})
+    await runtime.start()
+
+    async def fail_stop() -> None:
+        raise RuntimeError("task stop failed")
+
+    runtime.task_runtime.stop_all = fail_stop  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="task stop failed"):
+        await runtime.stop()
+
+    assert not runtime.running
+    assert sink.close_calls == 1
+    assert protocol.close_calls == 1
+
+
+async def test_startup_error_not_masked_by_cleanup_failure():
+    """清理失败不能覆盖实际的启动失败，其他组件仍应释放。"""
+    runtime, protocol = make_runtime(make_collector_config())
+
+    async def fail_start() -> None:
+        raise RuntimeError("sync failure")
+
+    async def fail_cleanup() -> None:
+        raise RuntimeError("sink cleanup failure")
+
+    runtime.task_runtime.sync_instances = fail_start  # type: ignore[method-assign]
+    runtime.sink_runtime.stop = fail_cleanup  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="sync failure"):
+        await runtime.start()
+    assert protocol.close_calls == 1
+
+
+async def test_shutdown_preserves_first_error_and_still_closes_devices():
+    runtime, protocol = make_runtime(make_collector_config())
+    await runtime.start()
+
+    async def fail_tasks() -> None:
+        raise ValueError("tasks cleanup failed")
+
+    async def fail_sinks() -> None:
+        raise RuntimeError("sinks cleanup failed")
+
+    runtime.task_runtime.stop_all = fail_tasks  # type: ignore[method-assign]
+    runtime.sink_runtime.stop = fail_sinks  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="tasks cleanup failed"):
+        await runtime.stop()
+    assert protocol.close_calls == 1

@@ -1,40 +1,20 @@
-"""Collector Sink Adapter 组合入口：File、Modbus、Redis。"""
+"""Collector Sink 组合入口：注册 File、Modbus、Redis 三种 Adapter。"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collector.application.sink_registry import SinkRegistry
 
-from collector.application.sink_port import SinkRegistry
-
-if TYPE_CHECKING:
-    from collector.application.sink_port import SinkPort
-    from core.domain import Sink
-
-
-def _file(config: Sink) -> SinkPort:
-    from collector.infrastructure.sink.file.csv import FileSink
-
-    return FileSink(config)
-
-
-def _modbus(config: Sink) -> SinkPort:
-    from collector.infrastructure.sink.modbus import ModbusSink
-
-    return ModbusSink(config)
-
-
-def _redis(config: Sink) -> SinkPort:
-    from collector.infrastructure.sink.redis import RedisSink
-
-    return RedisSink(config)
+from .file.csv import FileSink
+from .modbus import ModbusSink
+from .redis import RedisSink
 
 
 def build_sink_registry() -> SinkRegistry:
-    """按需延迟导入具体 Adapter，不强迫 File-only 部署安装 Redis 或 Modbus。"""
+    """显式注册内置 Sink 工厂，不依赖运行期按类型动态导入。"""
     registry = SinkRegistry()
-    registry.register("file", _file)
-    registry.register("modbus", _modbus)
-    registry.register("redis", _redis)
+    registry.register("file", FileSink)
+    registry.register("modbus", ModbusSink)
+    registry.register("redis", RedisSink)
     return registry
 
 

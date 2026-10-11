@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from collector.assembly import CollectorApp, assemble_collector
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from core.application import ProtocolWrite
 from core.application.port.protocol import ProtocolPort
 from core.domain import Sink

@@ -31,7 +31,7 @@ from core.application import (
 )
 from core.domain import Device, DeviceId, Point, PointTable, engineering_value
 
-from ..domain.point_value import PointValue
+from core.domain.point_value import PointValue
 
 logger = logging.getLogger(__name__)
 

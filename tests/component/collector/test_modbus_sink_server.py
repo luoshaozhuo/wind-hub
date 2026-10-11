@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 import pytest
 from pymodbus.client import AsyncModbusTcpClient
 
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.server import ModbusTcpSinkServer
 from core.application.sink_config import (

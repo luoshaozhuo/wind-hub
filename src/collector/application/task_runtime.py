@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from ..domain.acquisition import AcquisitionEngine
-from ..domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask
 from .device_runtime import DeviceRuntime

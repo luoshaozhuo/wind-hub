@@ -64,16 +64,15 @@ class RuntimeParams:
                 f"backpressure_policy must be one of drop_old/drop_new/block, "
                 f"got '{self.backpressure_policy}'"
             )
-        if self.shutdown_timeout <= 0:
-            raise ConfigError("shutdown_timeout must be > 0")
-        if self.connect_timeout <= 0:
-            raise ConfigError("connect_timeout must be > 0")
-        if self.watchdog_interval <= 0:
-            raise ConfigError("watchdog_interval must be > 0")
-        if self.health_timeout <= 0:
-            raise ConfigError("health_timeout must be > 0")
-        if self.write_timeout <= 0:
-            raise ConfigError("write_timeout must be > 0")
+        for name in (
+            "shutdown_timeout",
+            "connect_timeout",
+            "watchdog_interval",
+            "health_timeout",
+            "write_timeout",
+        ):
+            if getattr(self, name) <= 0:
+                raise ConfigError(f"{name} must be > 0")
         if self.read_timeout is not None and self.read_timeout <= 0:
             raise ConfigError("read_timeout must be > 0")
 
@@ -132,16 +131,15 @@ class CollectorConfig:
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
-        object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
-        object.__setattr__(self, "point_tables", MappingProxyType(dict(self.point_tables)))
-        object.__setattr__(
-            self,
+        for name in (
+            "devices",
+            "device_models",
+            "point_tables",
             "protocol_options_by_device",
-            MappingProxyType(dict(self.protocol_options_by_device)),
-        )
-        object.__setattr__(self, "tasks", MappingProxyType(dict(self.tasks)))
-        object.__setattr__(self, "sinks", MappingProxyType(dict(self.sinks)))
+            "tasks",
+            "sinks",
+        ):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
         object.__setattr__(self, "ads_subscribe_devices", frozenset(self.ads_subscribe_devices))
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
 

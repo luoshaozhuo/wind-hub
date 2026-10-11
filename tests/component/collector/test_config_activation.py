@@ -15,21 +15,18 @@ from dataclasses import replace
 
 import pytest
 
-from collector.application.config import ADSLocalIdentity, CollectorConfig, RuntimeParams
+from collector.application.config import CollectorConfig, RuntimeParams
+from core.application.settings import ADSLocalConfig
 from collector.application.config_service import CollectorConfigService
-from core.application.port import ConfigTopic
-from core.application.sink_config import SinksConfig
-from core.domain.config import PointTablesConfig, TasksConfig
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
     make_runtime,
-    with_config_vo,
 )
 
-_IDENTITY_A = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
-_IDENTITY_B_NET_ID = ADSLocalIdentity(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1")
-_IDENTITY_B_IP = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10")
+_IDENTITY_A = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
+_IDENTITY_B_NET_ID = ADSLocalConfig(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test")
+_IDENTITY_B_IP = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test")
 
 
 def _service(config: CollectorConfig, candidate: CollectorConfig):
@@ -178,8 +175,8 @@ async def test_hot_runtime_fields_applied_to_runtime_owners():
     ids=["none-to-configured", "configured-to-none", "net-id-change", "ip-change"],
 )
 async def test_ads_local_identity_change_rejected_at_prepare(
-    current_identity: ADSLocalIdentity | None,
-    candidate_identity: ADSLocalIdentity | None,
+    current_identity: ADSLocalConfig | None,
+    candidate_identity: ADSLocalConfig | None,
 ):
     config = make_collector_config()
     config = replace(config, ads_local=current_identity)
@@ -226,26 +223,7 @@ async def test_point_table_address_change_updates_driver_mapping():
     old_table = config.point_tables[PointTableId("tab")]
     moved_point = replace(old_table.points["p1"], ext={"register_type": "holding", "address": 200})
     new_table = replace(old_table, points={"p1": moved_point})
-    old_points_vo = config.configs[ConfigTopic.POINTS]
-    old_tab_vo = old_points_vo.tables["tab"]
-    new_points_vo = PointTablesConfig(
-        tables={
-            "tab": replace(
-                old_tab_vo,
-                points={
-                    "p1": replace(
-                        old_tab_vo.points["p1"],
-                        address={"register_type": "holding", "address": 200},
-                    )
-                },
-            )
-        }
-    )
-    candidate = with_config_vo(
-        replace(config, point_tables={PointTableId("tab"): new_table}),
-        ConfigTopic.POINTS,
-        new_points_vo,
-    )
+    candidate = replace(config, point_tables={PointTableId("tab"): new_table})
 
     service, runtime = _service(config, candidate)
     protocol = next(iter(runtime.devices.values()))._protocol
@@ -268,9 +246,9 @@ async def test_point_table_address_change_updates_driver_mapping():
 
 
 def _file_sink_cfg(name: str, path: str):
-    from core.application.sink_config import ResolvedSinkConfig
+    from core.domain import Sink
 
-    return ResolvedSinkConfig(name=name, type="file", connection={"path": path})
+    return Sink(sink_id=name, kind="file", enabled=True, connection={"path": path})
 
 
 async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
@@ -281,18 +259,10 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
     new_sinks = {"s1": _file_sink_cfg("s1", "/tmp/b.csv")}
     new_tasks = {
         "t1": CollectionTask(
-            task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+            task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
         )
     }
-    candidate = with_config_vo(
-        with_config_vo(
-            replace(config, sinks=new_sinks, tasks=new_tasks),
-            ConfigTopic.SINKS,
-            SinksConfig(sinks=list(new_sinks.values())),
-        ),
-        ConfigTopic.TASKS,
-        TasksConfig(tasks=dict(new_tasks)),
-    )
+    candidate = replace(config, sinks=new_sinks, tasks=new_tasks)
 
     failures = {"count": 0}
 
@@ -325,5 +295,5 @@ async def test_sink_failure_does_not_block_task_phase_and_retry_converges():
 
     retry = await service.reload()
     assert retry.success, retry.errors
-    assert service.current_config.sinks["s1"].connection.path == "/tmp/b.csv"  # type: ignore[union-attr]
+    assert service.current_config.sinks["s1"].connection["path"] == "/tmp/b.csv"
     assert "s1" in runtime.sinks

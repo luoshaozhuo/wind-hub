@@ -21,12 +21,12 @@ def test_load_minimal_config(tmp_path):
     assert set(config.tasks) == {"t1"}
     task = config.tasks["t1"]
     assert task.interval == 1.0
-    assert task.targets == ("s1",)
+    assert task.sink_ids == ("s1",)
     assert set(config.sinks) == {"s1"}
     point = config.sinks["s1"].points[0]
-    assert point.ref == "dev1.p1"  # 缺省 ref 合成
-    assert point.source_data_type == "float32"
-    assert point.source_unit == "none"
+    assert point["ref"] == "dev1.p1"  # 缺省 ref 合成
+    assert point["source_data_type"] == "float32"
+    assert point["source_unit"] == "none"
     assert config.runtime.queue_maxsize == 1000
     assert config.runtime.backpressure_policy == "drop_old"
     assert config.ads_subscribe_devices == frozenset()
@@ -139,7 +139,7 @@ def test_task_unknown_sink_rejected(tmp_path):
         tasks=[
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
                 "targets": [{"sink": "ghost"}],
@@ -150,20 +150,20 @@ def test_task_unknown_sink_rejected(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_task_unknown_device_rejected(tmp_path):
+def test_task_unknown_group_rejected(tmp_path):
     config_dir = write_collector_config_tree(
         tmp_path,
         tasks=[
             {
                 "task_id": "t1",
-                "device": "ghost",
+                "device_group": "ghost",
                 "point_group": "g",
                 "interval": 1.0,
                 "targets": [{"sink": "s1"}],
             }
         ],
     )
-    with pytest.raises(ConfigError, match="unknown device"):
+    with pytest.raises(ConfigError, match="unknown device group"):
         load_collector_config(config_dir)
 
 
@@ -189,7 +189,7 @@ def test_task_device_group_expansion_and_empty_group_rejected(tmp_path):
         ],
     )
     config = load_collector_config(config_dir)
-    assert config.tasks["tg"].device_group == "wind"
+    assert str(config.tasks["tg"].device_group_id) == "wind"
 
     write_yaml(
         config_dir,
@@ -206,7 +206,7 @@ def test_task_device_group_expansion_and_empty_group_rejected(tmp_path):
             ]
         },
     )
-    with pytest.raises(ConfigError, match="matches no device"):
+    with pytest.raises(ConfigError, match="unknown device group"):
         load_collector_config(config_dir)
 
 
@@ -216,7 +216,7 @@ def test_task_point_group_must_exist(tmp_path):
         tasks=[
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "ghost",
                 "interval": 1.0,
                 "targets": [{"sink": "s1"}],
@@ -227,23 +227,23 @@ def test_task_point_group_must_exist(tmp_path):
         load_collector_config(config_dir)
 
 
-def test_interval_required_except_pure_iec104(tmp_path):
+def test_interval_required_for_all_protocols(tmp_path):
     # modbus 任务缺 interval → 配置错误
     config_dir = write_collector_config_tree(
         tmp_path,
         tasks=[
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "g",
                 "targets": [{"sink": "s1"}],
             }
         ],
     )
-    with pytest.raises(ConfigError, match="interval is required"):
+    with pytest.raises(ConfigError, match="interval"):
         load_collector_config(config_dir)
 
-    # 纯 iec104 订阅任务可省略 interval
+    # IEC104 同样要求显式给出合法 interval
     iec_dir = write_collector_config_tree(
         tmp_path / "iec",
         protocol="iec104",
@@ -251,14 +251,14 @@ def test_interval_required_except_pure_iec104(tmp_path):
         tasks=[
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "g",
                 "targets": [{"sink": "s1"}],
             }
         ],
     )
-    config = load_collector_config(iec_dir)
-    assert config.tasks["t1"].interval is None
+    with pytest.raises(ConfigError, match="interval"):
+        load_collector_config(iec_dir)
 
 
 def test_sink_scale_offset_on_numeric_source(tmp_path):
@@ -283,8 +283,8 @@ def test_sink_scale_offset_on_numeric_source(tmp_path):
     )
     config = load_collector_config(config_dir)
     point = config.sinks["s1"].points[0]
-    assert point.ref == "scada.p1"
-    assert point.scale == 2.0
+    assert point["ref"] == "scada.p1"
+    assert point["scale"] == 2.0
 
 
 def test_sink_unknown_point_rejected(tmp_path):
@@ -389,7 +389,7 @@ def test_retired_iec104_sink_type_rejected(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="Invalid sinks configuration"):
+    with pytest.raises(ConfigError, match="invalid sinks.yaml"):
         load_collector_config(config_dir)
 
 
@@ -406,7 +406,7 @@ def test_disabled_sink_not_a_valid_task_target(tmp_path):
             }
         ],
     )
-    with pytest.raises(ConfigError, match="unknown sink"):
+    with pytest.raises(ConfigError, match="disabled sink"):
         load_collector_config(config_dir)
 
 
@@ -434,9 +434,9 @@ def test_meta_and_point_groups_loaded(tmp_path):
         ],
     )
     config = load_collector_config(config_dir)
-    meta = config.meta_for(PointTableId("tab"), "p1")
-    assert meta.variable_name == "风速"
-    assert meta.point_groups == ("g", "fast")
+    point = config.point_tables[PointTableId("tab")].points["p1"]
+    assert point.variable_name == "风速"
+    assert point.point_groups == ("g", "fast")
 
 
 def test_unknown_protocol_option_is_rejected_at_load(tmp_path):
@@ -445,7 +445,7 @@ def test_unknown_protocol_option_is_rejected_at_load(tmp_path):
         tmp_path,
         connection_defaults={"port": 502, "bogus_option": 1},
     )
-    with pytest.raises(ConfigError, match="unknown Modbus options"):
+    with pytest.raises(ConfigError, match="invalid protocol options"):
         load_collector_config(config_dir)
 
 

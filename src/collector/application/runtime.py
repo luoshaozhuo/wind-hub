@@ -28,6 +28,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from core.application import ConnectionHealth
+from core.application.port import SinkPort
 from core.domain import DeviceId
 
 from ..domain.acquisition import AcquisitionEngine
@@ -43,7 +44,7 @@ from .reload import (
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
-from .sink_port import SinkFactory, SinkPort
+from .sink_registry import SinkFactory
 from .sink_runtime import SinkRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState
 from .task_runtime import TaskRuntime
@@ -212,12 +213,18 @@ class CollectorRuntime:
             self._running = True
             self._started = False
 
-            await self._device_runtime.connect_all()
-            await self._sink_runtime.start()
-            # 注册采集 Task Instance（默认 STOPPED）——程序启动不自动开始
-            # 采集，只有控制面的显式 start 才启动 acquisition。
-            await self._task_runtime.sync_instances()
-
+            try:
+                await self._device_runtime.connect_all()
+                await self._sink_runtime.start()
+                # 实例默认 STOPPED，采集由控制面显式启动。
+                await self._task_runtime.sync_instances()
+            except BaseException:
+                self._running = False
+                try:
+                    await self._stop_components()
+                except BaseException:
+                    logger.exception("Collector startup cleanup failed")
+                raise
             self._started = True
 
     async def stop(self) -> None:
@@ -235,9 +242,25 @@ class CollectorRuntime:
 
             # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
             # 后台 task 或订阅；实例定义保留并统一标记 STOPPED。
-            await self._task_runtime.stop_all()
-            await self._sink_runtime.stop()
-            await self._device_runtime.close_all()
+            await self._stop_components()
+
+    async def _stop_components(self) -> None:
+        """依赖逆序释放组件；所有组件均尝试关闭，保留首个失败原因。"""
+        first_error: BaseException | None = None
+        for name, cleanup in (
+            ("tasks", self._task_runtime.stop_all),
+            ("sinks", self._sink_runtime.stop),
+            ("devices", self._device_runtime.close_all),
+        ):
+            try:
+                await cleanup()
+            except BaseException as exc:
+                if isinstance(exc, Exception):
+                    logger.exception("Collector component shutdown failed: %s", name)
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     # ------------------------------------------------------------------
     # 状态
@@ -539,11 +562,10 @@ class CollectorRuntime:
         遗漏新 mapping。
         """
         changed_tables = set(diff.point_tables_changed)
-        removed = set(diff.devices.removed)
-        added = set(diff.devices.added)
+        changed_devices = set(diff.devices.removed) | set(diff.devices.added)
 
         for did, session in self._device_runtime.devices.items():
-            if did in removed or did in added:
+            if did in changed_devices:
                 continue
             if DeviceId(did) not in new_config.devices:
                 # 部分失败残留：目标配置已无此设备，等下一轮 diff 收敛。

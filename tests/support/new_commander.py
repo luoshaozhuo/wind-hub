@@ -13,7 +13,8 @@ from typing import Any
 
 import yaml
 
-from commander.application.config import ADSLocalIdentity, CommanderConfig, PointMeta
+from commander.application.config import CommanderConfig
+from core.application.settings import ADSLocalConfig
 from core.application import (
     ConnectionHealth,
     ProtocolCapability,
@@ -68,7 +69,6 @@ def write_minimal_config_tree(
 ) -> Path:
     """写出最小自包含配置树（单型号 ``mod``、单点表 ``tab``），返回目录。"""
     base.mkdir(parents=True, exist_ok=True)
-    write_yaml(base, "units.yaml", {"units": {"none": {"symbol": "", "name": "None"}}})
     system: dict[str, Any] = {"site": {"site_id": "test"}, "runtime": runtime or {}}
     if ads is not None:
         system["ads"] = ads
@@ -94,6 +94,9 @@ def write_minimal_config_tree(
                 "endpoint": {"host": "127.0.0.1", "port": 502},
             }
         ]
+    for device in devices:
+        if "device_group" not in device and "device_groups" not in device:
+            device["device_group"] = device["device_id"]
     write_yaml(base, "devices.yaml", {"devices": devices})
 
     if point_tables is None:
@@ -107,7 +110,23 @@ def write_minimal_config_tree(
                 }
             ]
         point_tables = {"tab": {"protocol": protocol, "points": points}}
+    business_points: dict[str, dict[str, str]] = {}
+    for table in point_tables.values():
+        for point in table.get("points", []):
+            identity = point.setdefault("business_point_id", point["point_id"])
+            if "data_type" in point:
+                definition = {
+                    "data_type": point["data_type"],
+                    "unit": point.get("unit", "none"),
+                }
+                previous = business_points.get(identity)
+                if previous is not None and previous != definition:
+                    raise ValueError(f"conflicting business point definition: {identity}")
+                business_points[identity] = definition
+    write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})
+    write_yaml(base, "tasks.yaml", {"tasks": []})
+    write_yaml(base, "sinks.yaml", {"sinks": []})
     return base
 
 
@@ -245,7 +264,7 @@ def make_commander_config(
     protocol: str = "modbus",
     address: dict[str, Any] | None = None,
     protocol_options_by_device: dict[str, Any] | None = None,
-    ads_local: ADSLocalIdentity | None = None,
+    ads_local: ADSLocalConfig | None = None,
     scale: float = 1.0,
     offset: float = 0.0,
     access: PointAccess = PointAccess.READ_WRITE,
@@ -268,6 +287,8 @@ def make_commander_config(
         scale=scale,
         offset=offset,
         ext=address or {"register_type": "holding", "address": 100},
+        variable_name="P1",
+        point_groups=("g",),
     )
     table = PointTable(
         point_table_id=PointTableId("tab"),
@@ -299,9 +320,6 @@ def make_commander_config(
         ads_local=ads_local,
         connect_timeout=connect_timeout,
         write_timeout=write_timeout,
-        point_meta={
-            PointTableId("tab"): {"p1": PointMeta(variable_name="P1", point_groups=("g",))}
-        },
     )
 
 

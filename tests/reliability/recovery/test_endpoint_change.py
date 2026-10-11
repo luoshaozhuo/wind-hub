@@ -235,11 +235,10 @@ class TestReloadDuringReconnect:
         collector_factory,
         tmp_path: Path,
     ) -> None:
-        """CFG-01：backoff 中途迁移 endpoint——旧退避状态不得阻塞新设备连接。
+        """CFG-01：Watchdog 恢复期间迁移 endpoint——旧会话不得阻塞新设备连接。
 
-        A 掉线约 12s（退避已增长到 ≥8s 档位），此时 reload 到 B：若旧
-        DeviceRuntimeState 泄漏到新协议实例，连接会被 next_retry_at 推迟到
-        8s 以后；正确行为是重建状态、立即连接（<5s）。最后重启 A，验证旧
+        A 掉线约 12s 后 reload 到 B：新会话应立即尝试连接（<5s），
+        不受旧 Watchdog 及旧状态影响。最后重启 A，验证旧
         协议实例不会复活（不再出现 A 值）。
         """
         sink_path = tmp_path / "out" / "telemetry.csv"

@@ -11,16 +11,16 @@ import dataclasses
 import pytest
 
 from collector.application.sink_export import ExportedSinkPointValue
-from collector.domain.point_value import PointValue
+from core.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.pipeline import ModbusSinkDataPath
 from collector.infrastructure.sink.modbus.sink import ModbusSink
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
-from core.application import ConfigError, Quality
-from core.application.sink_config import (
+from core.application import Quality
+from core.domain import Sink
+from core.infrastructure.config.sink_schema import (
     ModbusSinkAddress,
     ModbusSinkConnection,
-    ResolvedSinkConfig,
     ResolvedSinkPoint,
     SinkSource,
 )
@@ -153,27 +153,20 @@ def test_pipeline_applies_sink_scale_offset() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _sink_config(**conn: object) -> ResolvedSinkConfig:
-    return ResolvedSinkConfig(
-        name="mb",
-        type="modbus",
-        connection=ModbusSinkConnection(host="127.0.0.1", port=15020, **conn),  # type: ignore[arg-type]
-        points=[_point()],
+def _sink_config(**conn: object) -> Sink:
+    connection = ModbusSinkConnection(host="127.0.0.1", port=15020, **conn)
+    return Sink(
+        sink_id="mb",
+        kind="modbus",
+        enabled=True,
+        connection=connection.model_dump(mode="json"),
+        points=(_point().model_dump(mode="json"),),
     )
 
 
 def test_sink_requires_modbus_connection() -> None:
-    from core.application.sink_config import FileSinkConnection
-
-    with pytest.raises(ConfigError, match="ModbusSinkConnection"):
-        ModbusSink(
-            ResolvedSinkConfig.model_construct(
-                name="mb",
-                type="modbus",
-                connection=FileSinkConnection(path="/tmp/x.csv"),
-                points=[],
-            )
-        )
+    with pytest.raises(ValueError):
+        ModbusSink(Sink(sink_id="mb", kind="modbus", enabled=True, connection={"path": "/tmp/x.csv"}))
 
 
 async def test_sink_write_flows_to_store_without_network() -> None:
