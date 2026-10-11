@@ -175,6 +175,37 @@ wind-hub-ctl commander status
 wind-hub-ctl commander read modbus-1 active_power
 ```
 
+### 无 Server/Admin 的 CTL 操作
+
+只需分别启动 Collector 和 Commander 进程，CTL 通过独立 gRPC endpoint 直连。
+Collector 的任务初始为停止状态；首次启动任务前，必须先为该 Collector
+设置 placement（这也是原 Server 提供的启动授权）。以下示例只使用
+Collector 自身的 gRPC 接口：
+
+```bash
+wind-hub-ctl collector info
+wind-hub-ctl collector tasks
+
+# collector_id 和 task_id 应取自上面两个命令的输出。
+wind-hub-ctl collector placement collector-1 1 task-1
+wind-hub-ctl collector start-task task-1 --generation 1
+wind-hub-ctl collector instances
+wind-hub-ctl collector stop-task task-1
+
+# 直接经 Commander 读取与写入；不会请求 Server/Admin。
+wind-hub-ctl commander devices
+wind-hub-ctl commander read dev1 p1
+wind-hub-ctl commander write dev1 p1 12.5
+wind-hub-ctl commander verify-device dev1
+```
+
+远程 Collector / Commander 分别使用 `collector --target HOST:50051`
+和 `commander --target HOST:50052` 指定地址。
+`placement` 是**完整任务集合快照**，不是增量添加；后续更新应包含
+该 Collector 全部应获授权的任务 ID，并使用更大的 generation。
+不应在由 Server 管理的 Collector 上手工覆盖 placement。当前控制面
+未提供身份认证，远程访问必须采取网络隔离和访问控制措施。
+
 更多参数见各入口 `--help`。
 
 ## 测试
