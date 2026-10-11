@@ -27,10 +27,8 @@ from core.application import (
 )
 from core.application.port.protocol import SubscriptionHandle
 from core.domain import (
-    BusinessPoint,
     BusinessPointId,
     ConnectionEndpoint,
-    DataType,
     Device,
     DeviceGroupId,
     DeviceId,
@@ -160,18 +158,13 @@ def make_collector_config(
 ) -> CollectorConfig:
     """构造单设备单点的内存 CollectorConfig（不经过 YAML）。
 
-    默认含一个采集任务 ``t1``：device=dev1、group=g、interval=1.0、
-    targets=("s1",)。传 ``tasks={}`` 可关闭默认任务。
+    默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0、
+    sink_ids=("s1",)。传 ``tasks={}`` 可关闭默认任务。
     """
     unit = UNIT_CATALOG[UnitCode.NONE]
-    bp = BusinessPoint(
-        business_point_id=BusinessPointId("p1"),
-        data_type=DataType.FLOAT32,
-        standard_unit=unit,
-    )
     point = Point(
         point_id="p1",
-        business_point_id=bp.business_point_id,
+        business_point_id=BusinessPointId("p1"),
         source_unit=unit,
         access=PointAccess.READ_WRITE,
         scale=scale,
@@ -285,7 +278,6 @@ __all__ = [
     "make_collector_config",
     "make_runtime",
     "make_session",
-    "with_config_vo",
 ]
 
 

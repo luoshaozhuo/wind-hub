@@ -46,7 +46,7 @@ async def test_reload_one_shot_prepare_and_activate():
     new_config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+                task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
             )
         }
     )

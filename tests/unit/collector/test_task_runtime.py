@@ -58,10 +58,10 @@ async def test_disabled_task_not_expanded():
         tasks={
             "t1": CollectionTask(
                 task_id="t1",
-                device="dev1",
+                device_group_id="dev1",
                 point_group="g",
                 interval=1.0,
-                targets=("s1",),
+                sink_ids=("s1",),
                 enabled=False,
             )
         }
@@ -73,14 +73,14 @@ async def test_disabled_task_not_expanded():
 
 async def test_device_group_task_expands_per_matching_device():
     config = make_collector_config(
-        device_group="wind",
+        device_group_id="wind",
         tasks={
             "tg": CollectionTask(
                 task_id="tg",
-                device_group="wind",
+                device_group_id="wind",
                 point_group="g",
                 interval=1.0,
-                targets=("s1",),
+                sink_ids=("s1",),
             )
         },
     )
@@ -129,7 +129,7 @@ async def test_interval_change_restarts_running_instance():
 
     new_defs = {
         "t1": CollectionTask(
-            task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+            task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
         )
     }
     await tasks.apply_definitions(new_defs)
@@ -147,7 +147,7 @@ async def test_targets_change_does_not_restart_handle():
 
     new_defs = {
         "t1": CollectionTask(
-            task_id="t1", device="dev1", point_group="g", interval=1.0, targets=("s2",)
+            task_id="t1", device_group_id="dev1", point_group="g", interval=1.0, sink_ids=("s2",)
         )
     }
     await tasks.apply_definitions(new_defs)
@@ -173,7 +173,7 @@ async def test_restart_failure_marks_pending_and_next_sync_retries():
     session.start_acquisition = failing  # type: ignore[method-assign]
     new_defs = {
         "t1": CollectionTask(
-            task_id="t1", device="dev1", point_group="g", interval=2.0, targets=("s1",)
+            task_id="t1", device_group_id="dev1", point_group="g", interval=2.0, sink_ids=("s1",)
         )
     }
     with pytest.raises(RuntimeError, match="subscribe failed"):

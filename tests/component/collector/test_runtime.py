@@ -8,14 +8,11 @@ from dataclasses import replace
 from collector.application.config import CollectionTask
 from collector.application.reload import compute_diff
 from collector.application.task_instance import TaskInstanceState
-from core.application.port import ConfigTopic
 from core.domain import DeviceId
-from core.domain.config import DevicesConfig
 from tests.support.new_collector import (
     FakeSink,
     make_collector_config,
     make_runtime,
-    with_config_vo,
 )
 
 
@@ -45,7 +42,7 @@ async def test_start_failure_of_one_component_does_not_block_others():
 
     await runtime.start()
     assert runtime.running  # best-effort：设备失败不阻断启动
-    health = runtime.device_health()
+    health = await runtime.device_health()
     assert not health["dev1"].healthy
     state = runtime.device_state("dev1")
     assert state is not None and state.consecutive_failures == 1
@@ -57,7 +54,7 @@ async def test_task_instance_collect_flows_to_sink_end_to_end():
     config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=0.02, targets=("s1",)
+                task_id="t1", device_group_id="dev1", point_group="g", interval=0.02, sink_ids=("s1",)
             )
         }
     )
@@ -121,18 +118,7 @@ async def test_reconfigure_endpoint_change_rebuilds_device():
 
     view = config.device_view(DeviceId("dev1"))
     new_device = replace(view.device, endpoint=replace(view.device.endpoint, port=503))
-    old_devices_vo = config.configs[ConfigTopic.DEVICES]
-    old_instance = old_devices_vo.devices["dev1"]
-    new_devices_vo = DevicesConfig(
-        devices={
-            "dev1": replace(old_instance, endpoint=replace(old_instance.endpoint, port=503))
-        }
-    )
-    new_config = with_config_vo(
-        replace(config, devices={DeviceId("dev1"): new_device}),
-        ConfigTopic.DEVICES,
-        new_devices_vo,
-    )
+    new_config = replace(config, devices={DeviceId("dev1"): new_device})
     diff = compute_diff(config, new_config)
     assert diff.devices.updated == ["dev1"]
 
@@ -155,7 +141,7 @@ async def test_reconfigure_task_change_updates_instances():
     new_config = make_collector_config(
         tasks={
             "t1": CollectionTask(
-                task_id="t1", device="dev1", point_group="g", interval=5.0, targets=("s1",)
+                task_id="t1", device_group_id="dev1", point_group="g", interval=5.0, sink_ids=("s1",)
             )
         }
     )
