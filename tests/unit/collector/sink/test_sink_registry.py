@@ -16,12 +16,17 @@ def test_three_builtin_types() -> None:
 
 
 def test_file_factory(tmp_path: Path) -> None:
-    sink = build_sink_registry().create(Sink(sink_id="file", kind="file", enabled=True, connection={"path": str(tmp_path / "x.csv")}))
+    config = Sink(
+        sink_id="file", kind="file", enabled=True,
+        connection={"path": str(tmp_path / "x.csv")},
+    )
+    sink = build_sink_registry().create(config)
     assert isinstance(sink, FileSink)
 
 
 def test_redis_factory() -> None:
-    sink = build_sink_registry().create(Sink(sink_id="redis", kind="redis", enabled=True, connection={}))
+    config = Sink(sink_id="redis", kind="redis", enabled=True, connection={})
+    sink = build_sink_registry().create(config)
     assert isinstance(sink, RedisSink)
 
 
