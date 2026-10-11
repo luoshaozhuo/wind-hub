@@ -1,6 +1,6 @@
 """Commander 设备通信会话（Application Runtime 组件）。
 
-DeviceSession 把共享领域对象（Device / PointTable / BusinessPoint）与
+DeviceSession 把共享领域对象（Device / PointTable）与
 ``core.application.ProtocolPort`` 组合成单台设备的即时操作边界：
 
 - 读：``ProtocolSample`` 原始值按点表 scale/offset 换算为工程值；

@@ -307,11 +307,12 @@ async def test_inflight_diagnostic_uses_pinned_generation_options():
 
     async with runtime.operation():
         # pin 旧 generation 期间 activate 新 options——本次 probe 不受影响。
-        await runtime.prepare_config("r2", make_commander_config(
-                protocol="ads",
-                address=_ADS_ADDRESS,
-                protocol_options_by_device={"ams_net_id": "new"},
-            ), "hash-b")
+        candidate = make_commander_config(
+            protocol="ads",
+            address=_ADS_ADDRESS,
+            protocol_options_by_device={"ams_net_id": "new"},
+        )
+        await runtime.prepare_config("r2", candidate, "hash-b")
         await runtime.activate_config("r2")
         result = await service.resolve_point("dev1", "p1")
         assert result.error is None
