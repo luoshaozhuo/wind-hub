@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
 def _error_text(error: BaseException) -> str:
     """把异常压成一行可读错误文本；空消息异常（如裸 ``TimeoutError``）
     回退为类型名，保证 ``last_error`` 不为空字符串。"""
@@ -61,7 +62,7 @@ class DeviceRuntimeState:
             now: 单调时钟时间戳。
             error: 本次读取失败异常。
             connection_level: 是否属于连接级失败；为 True 时额外标记断线，
-                交由后续 ensure_connected 路径重连。
+                由 Watchdog 周期检查并恢复连接。
         """
         self.last_failure_at = now
         self.last_error = _error_text(error)
