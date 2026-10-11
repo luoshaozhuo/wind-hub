@@ -11,8 +11,10 @@ from uuid import uuid4
 
 import grpc
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 from starlette.responses import Response
+from starlette.routing import Match
 
 from web_server.rpc import RpcGateway, RpcSettings
 
@@ -114,6 +116,21 @@ def create_app(
     ) -> Response:
         """记录 HTTP 状态和耗时；不记录查询参数、请求体和凭据。"""
         request_id = uuid4().hex
+        matched_route = next(
+            (
+                route
+                for route in app.routes
+                if isinstance(route, APIRoute)
+                and route.matches(request.scope)[0] is Match.FULL
+            ),
+            None,
+        )
+        route_template = matched_route.path if matched_route is not None else "<unmatched>"
+        control_operation = (
+            matched_route is not None
+            and request.method == "POST"
+            and not route_template.endswith("/read-many")
+        )
         started = perf_counter()
         status_code = 500
         try:
@@ -125,14 +142,13 @@ def create_app(
             duration_ms = (perf_counter() - started) * 1000
             logger.info(
                 "http_request id=%s method=%s path=%s status=%s duration_ms=%.2f",
-                request_id, request.method, request.url.path, status_code, duration_ms,
+                request_id, request.method, route_template, status_code, duration_ms,
             )
-            if request.method == "POST" and request.url.path.startswith("/api/v1/"):
+            if control_operation:
                 logger.info(
                     "control_audit id=%s operation=%s status=%s",
-                    request_id, request.url.path, status_code,
+                    request_id, route_template, status_code,
                 )
-
 
     @app.get("/health/live", tags=["health"])
     async def liveness() -> dict[str, str]:
