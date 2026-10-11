@@ -321,9 +321,8 @@ class SinkRuntime:
         self._watchdogs[sink_name] = watchdog
         logger.info("Hot-reload: sink '%s' opened", sink_name)
 
+        self._restart_consumer(sink_name, sink)
         if self._running:
-            task = asyncio.create_task(self._consumer(sink_name, sink))
-            self._consumer_tasks[sink_name] = task
             await watchdog.start()
 
     async def remove_sink(self, sink_name: str) -> None:
@@ -419,24 +418,14 @@ class SinkRuntime:
         for name in diff.removed:
             await self.remove_sink(name)
 
-        for name in diff.added:
+        for name in (*diff.added, *diff.updated):
             cfg = new_sinks[name]
             if not cfg.enabled:
+                if name in self._sinks:
+                    await self.remove_sink(name)
                 continue
             assert factory is not None
             await self.add_sink(name, cfg, factory(cfg))
-
-        for name in diff.updated:
-            cfg = new_sinks[name]
-            if not cfg.enabled:
-                await self.remove_sink(name)
-                continue
-            assert factory is not None
-            sink = factory(cfg)
-            if name in self._sinks:
-                await self.rebuild_sink(name, cfg, sink)
-            else:
-                await self.add_sink(name, cfg, sink)
 
     # ------------------------------------------------------------------
     # 私有——消费者与重建辅助

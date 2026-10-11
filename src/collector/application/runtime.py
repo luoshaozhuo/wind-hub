@@ -539,11 +539,10 @@ class CollectorRuntime:
         遗漏新 mapping。
         """
         changed_tables = set(diff.point_tables_changed)
-        removed = set(diff.devices.removed)
-        added = set(diff.devices.added)
+        changed_devices = set(diff.devices.removed) | set(diff.devices.added)
 
         for did, session in self._device_runtime.devices.items():
-            if did in removed or did in added:
+            if did in changed_devices:
                 continue
             if DeviceId(did) not in new_config.devices:
                 # 部分失败残留：目标配置已无此设备，等下一轮 diff 收敛。
