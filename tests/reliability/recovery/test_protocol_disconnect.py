@@ -2,7 +2,7 @@
 
 故障注入手段是 fixture server 的真实起停（同一端口），Collector 为独立
 subprocess；任务启动经 CollectorControlService RPC 下发（与 Server →
-Collector 生产控制路径一致）；检测与恢复信号全部来自系统边界：ctl status
+Collector 生产控制路径一致）；检测与恢复信号全部来自系统边界：CLI status
 的 ``devices_connected``、输出文件行数增减。即时设备读由 Commander 负责，
 不在 Collector 边界断言（见 Commander recovery 测试）。
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
-from tests.reliability.recovery.helpers import ctl_status, wait_status, write_modbus_file_config
+from tests.reliability.recovery.helpers import cli_status, wait_status, write_modbus_file_config
 from tests.support.control import start_task_instance
 from tests.support.process import CollectorProcess
 from tests.support.wait import read_csv, wait_file_rows
@@ -58,8 +58,8 @@ class TestProtocolDisconnectRecovery:
 
         # ---- 主进程存活：控制面正常应答 ----
         assert proc.is_running()
-        status = await ctl_status(proc)
-        assert status is not None, "ctl status RPC failed while collector should be alive"
+        status = await cli_status(proc)
+        assert status is not None, "cli status RPC failed while collector should be alive"
         assert status["running"] is True
 
         # ---- 恢复：从站重启，驱动自动重连 ----

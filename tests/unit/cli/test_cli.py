@@ -1,12 +1,12 @@
-"""CTL 编解码与参数解析单元测试。"""
+"""CLI 编解码与参数解析单元测试。"""
 
 from __future__ import annotations
 
 import pytest
 
 from core.infrastructure.rpc import collector_pb2
-from ctl.client import _to_dict, encode_scalar
-from ctl.main import build_parser
+from wind_hub_cli.client import _to_dict, encode_scalar
+from wind_hub_cli.main import build_parser
 
 
 def test_to_dict_preserves_uint64_as_int() -> None:
@@ -60,7 +60,7 @@ def test_parser_decodes_write_scalar() -> None:
 @pytest.mark.asyncio
 async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
     """RPC 返回失败结果时 CLI 不得报告成功。"""
-    from ctl import main as cli
+    from wind_hub_cli import main as cli
 
     class FailedClient:
         def __init__(self, target: str, *, timeout: float) -> None:
@@ -86,7 +86,7 @@ async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
 @pytest.mark.asyncio
 async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> None:
     """任一批量写失败均以失败退出码返回。"""
-    from ctl import main as cli
+    from wind_hub_cli import main as cli
 
     class PartialClient:
         def __init__(self, target: str, *, timeout: float) -> None:

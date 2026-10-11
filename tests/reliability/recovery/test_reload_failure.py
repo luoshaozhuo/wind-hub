@@ -22,7 +22,7 @@ from tests.support.control import (
     start_task_instance,
 )
 from tests.support.functional_config import update_yaml
-from tests.support.process import CollectorProcess, run_ctl_async
+from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
@@ -74,7 +74,7 @@ class TestReloadFailureResilience:
         )
         assert activated.success is True, list(activated.errors)
 
-        task = await run_ctl_async("task", TASK_ID, target=proc.grpc_target)
+        task = await run_cli_async("task", TASK_ID, target=proc.grpc_target)
         assert json.loads(task.stdout)["interval"] == 0.5
 
         # ---- 数据面贯穿全程不中断 ----

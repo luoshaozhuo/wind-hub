@@ -23,7 +23,7 @@ from tests.support.control import (
     start_task_instance,
 )
 from tests.support.functional_config import update_yaml
-from tests.support.process import CollectorProcess, run_ctl_async
+from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = pytest.mark.real_service
@@ -136,7 +136,7 @@ class TestCollectorRestart:
         proc_b: CollectorProcess = await collector_factory(
             config_dir, collector_id="recovery-restart"
         )
-        info = await run_ctl_async("info", target=proc_b.grpc_target)
+        info = await run_cli_async("info", target=proc_b.grpc_target)
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == "recovery-restart"
 
@@ -201,7 +201,7 @@ class TestSubscriptionRestartPending:
         assert activated.errors
         # 实例保持已登记（不是消失），进程存活。
         assert proc.is_running()
-        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
+        instance = await run_cli_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert instance.returncode == 0
 
         # ---- 恢复：从站重启，驱动自动重连 ----
@@ -220,6 +220,6 @@ class TestSubscriptionRestartPending:
         )
         assert activated.success is True, list(activated.errors)
 
-        instance = await run_ctl_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
+        instance = await run_cli_async("instance", IEC104_INSTANCE_ID, target=proc.grpc_target)
         assert json.loads(instance.stdout)["state"] == "running"
         await wait_file_rows(sink_path, min_rows=rows_before + 2, timeout=30.0)

@@ -1,6 +1,6 @@
 # wind-hub 测试专用基础服务：Redis（单节点）。
 #
-# 只承载测试依赖的外部服务；Collector / ctl 一律由测试以 subprocess 启动，
+# 只承载测试依赖的外部服务；Collector / CLI 一律由测试以 subprocess 启动，
 # 不进入本 Compose。生命周期由 pytest session fixture
 # （tests/fixtures/services/compose.py）管理：up -d → 等 health → down -v。
 #

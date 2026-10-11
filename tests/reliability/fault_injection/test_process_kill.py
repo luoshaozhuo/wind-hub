@@ -16,7 +16,7 @@ import pytest
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import write_modbus_file_config
 from tests.support.control import start_task_instance
-from tests.support.process import CollectorProcess, run_ctl_async
+from tests.support.process import CollectorProcess, run_cli_async
 from tests.support.wait import read_csv, wait_file_rows
 
 pytestmark = [pytest.mark.modbus, pytest.mark.real_service]
@@ -49,7 +49,7 @@ class TestProcessKillRecovery:
 
         # ---- 同配置重启：控制面恢复、采集可重新启动、数据继续到达 ----
         proc_b: CollectorProcess = await collector_factory(config_dir, collector_id=WORKER_ID)
-        info = await run_ctl_async("info", target=proc_b.grpc_target)
+        info = await run_cli_async("info", target=proc_b.grpc_target)
         assert info.returncode == 0
         assert json.loads(info.stdout)["collector_id"] == WORKER_ID
 

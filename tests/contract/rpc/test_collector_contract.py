@@ -1,6 +1,6 @@
 """Collector gRPC v1 wire contract 契约测试。
 
-该契约是 wind-hub-ctl / Web Admin 与 Collector 之间唯一的耦合点：service /
+该契约是 wind-hub CLI / Web Admin 与 Collector 之间唯一的耦合点：service /
 method 名称与 path 构造规则一旦漂移，两侧会在运行时以 UNIMPLEMENTED
 失败。本测试直接从生成的 pb2 描述符（真实 wire 定义）读取并固化为显式
 断言——任何 proto 改名都必须同步修改本文件，从而强制契约变更显式化。

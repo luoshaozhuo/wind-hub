@@ -1,4 +1,4 @@
-"""wind-hub-ctl 命令行入口。"""
+"""wind-hub 命令行入口。"""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def _build_commander_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
 def build_parser() -> argparse.ArgumentParser:
     """构建完整 CLI 参数解析器。"""
     parser = argparse.ArgumentParser(
-        prog="wind-hub-ctl",
+        prog="wind-hub",
         description="直接连接 Collector / Commander 的本地运维 CLI。",
     )
     parser.add_argument("--rpc-timeout", type=float, default=5.0)
@@ -209,7 +209,7 @@ async def _run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    """执行 wind-hub-ctl。"""
+    """执行 wind-hub。"""
     args = build_parser().parse_args()
     try:
         return asyncio.run(_run(args))
@@ -218,7 +218,7 @@ def main() -> int:
             detail = f"{exc.code().name}: {exc.details()}"
         else:
             detail = str(exc)
-        print(f"ctl failed: {detail}", file=sys.stderr)
+        print(f"wind-hub failed: {detail}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130

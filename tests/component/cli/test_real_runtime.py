@@ -9,9 +9,9 @@ from collector.assembly import assemble_collector
 from collector.infrastructure.grpc import build_grpc_server as build_collector_server
 from commander.assembly import assemble_commander
 from commander.infrastructure.grpc import build_grpc_server as build_commander_server
-from ctl.client import CollectorClient, CommanderClient
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_minimal_config_tree
+from wind_hub_cli.client import CollectorClient, CommanderClient
 
 
 async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
@@ -27,7 +27,7 @@ async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
         ],
         runtime={"connect_timeout": 0.5},
     )
-    app = assemble_collector(config_dir, collector_id="ctl-standalone")
+    app = assemble_collector(config_dir, collector_id="cli-standalone")
     server = build_collector_server(
         app,
         app.identity,
@@ -39,7 +39,7 @@ async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
     try:
         async with CollectorClient(server.endpoint, timeout=3.0) as client:
             identity = await client.call("info")
-            assert identity["collector_id"] == "ctl-standalone"
+            assert identity["collector_id"] == "cli-standalone"
 
             tasks = await client.call("tasks")
             assert len(tasks["items"]) == 1

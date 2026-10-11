@@ -9,7 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
-    { include = "ctl", from = "src" },
+    { include = "wind_hub_cli", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -58,7 +58,7 @@ types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
 wind-hub-collector = "collector.main:main"
-wind-hub-ctl = "ctl.main:main"
+wind-hub = "wind_hub_cli.main:main"
 wind-hub-commander = "commander.main:main"
 
 [tool.ruff]
@@ -157,7 +157,7 @@ root_packages = [
     "core",
     "collector",
     "commander",
-    "ctl",
+    "wind_hub_cli",
 ]
 
 
@@ -170,7 +170,7 @@ source_modules = ["core"]
 forbidden_modules = [
     "collector",
     "commander",
-    "ctl",
+    "wind_hub_cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -186,20 +186,20 @@ layers = [
 # 新进程包只依赖 core；禁止 import 旧 wind_hub_* 包，禁止互相 import。
 
 [[tool.importlinter.contracts]]
-name = "new commander 不得依赖 collector 或 ctl"
+name = "new commander 不得依赖 collector 或 wind_hub_cli"
 type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
-    "ctl",
+    "wind_hub_cli",
     "collector",
 ]
 
 [[tool.importlinter.contracts]]
-name = "new collector 不得依赖 commander 或 ctl"
+name = "new collector 不得依赖 commander 或 wind_hub_cli"
 type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
-    "ctl",
+    "wind_hub_cli",
     "commander",
 ]
 
@@ -222,9 +222,9 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "ctl 只依赖 shared core，不依赖进程包"
+name = "wind_hub_cli 只依赖 shared core，不依赖进程包"
 type = "forbidden"
-source_modules = ["ctl"]
+source_modules = ["wind_hub_cli"]
 forbidden_modules = [
     "collector",
     "commander",
@@ -232,7 +232,7 @@ forbidden_modules = [
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
-# 与 ctl client；application/domain 不感知 wire 形态。
+# 与 wind_hub_cli client；application/domain 不感知 wire 形态。
 
 [[tool.importlinter.contracts]]
 name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"
