@@ -25,6 +25,8 @@ class ResolvedSinkPoint(Protocol):
     ref: str
     scale: float
     offset: float
+    datatype: str
+    address: Any
 
 
 
