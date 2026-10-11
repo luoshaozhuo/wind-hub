@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runtimeApi, RuntimeApiError } from '../../src/api/runtime'
+import { runtimeApi, RuntimeApiError } from '../../../src/web_admin/src/api/runtime'
 
 afterEach(() => vi.unstubAllGlobals())
 
