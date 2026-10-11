@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 FRONTEND_PREFIX = "src/wind-hub-admin/"
-BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/")
+BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/cli/")
 
 TOOLING_PREFIXES = (
     "scripts/",
