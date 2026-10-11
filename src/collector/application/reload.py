@@ -1,7 +1,8 @@
 """配置 diff 与热重载结果模型（Application 层）。
 
 compute_diff 比较两个 :class:`CollectorConfig` 快照，产出结构化差异，
-驱动 CollectorRuntime.reconfigure 的最小化重构。直接比较领域对象与解析后的 Sink 契约；本模块把差异翻译为
+驱动 CollectorRuntime.reconfigure 的最小化重构。
+直接比较领域对象与 Sink 契约，并转换为
 Collector 的运行时重构决策（设备/Sink/Task 增删改、点表重注入、
 运行参数应用），不触碰任何运行时组件。
 """
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+
 from .config import CollectorConfig, RuntimeParams
 
 #: 构造期固化、无安全在线迁移方案的 RuntimeParams 字段——变化必须重启进程。
