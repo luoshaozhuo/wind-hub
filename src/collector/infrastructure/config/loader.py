@@ -64,8 +64,10 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             source_data_type = point.ext["data_type"]
             source_unit = point.source_unit.code.value
             unit = raw.get("unit") or source_unit
-            if UnitCode(unit) not in UNIT_CATALOG:
-                raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'")
+            try:
+                UNIT_CATALOG[UnitCode(unit)]
+            except (KeyError, ValueError) as exc:
+                raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'") from exc
             resolved = ResolvedSinkPoint.model_validate({
                 **raw,
                 "ref": raw.get("ref") or f"{device_id}.{point.point_id}",
@@ -74,7 +76,7 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 "datatype": raw.get("datatype") or source_data_type,
                 "unit": unit,
             })
-            points.append(resolved.model_dump(mode="python"))
+            points.append(resolved.model_dump(mode="json"))
         result[sink_id] = Sink(
             sink_id=sink.sink_id,
             kind=sink.kind,
