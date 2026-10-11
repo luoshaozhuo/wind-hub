@@ -2,8 +2,8 @@
 
 CollectorConfig 只承载 Collector 真正需要的内容：共享核心领域配置索引
 （devices / device_models / point_tables / protocol_options_by_device）、运行时参数
-（队列/背压/超时）、采集 Task 定义、resolved Sink 契约、点位元数据
-（point_groups / variable_name），以及 ADS 订阅设备集合
+（队列/背压/超时）、采集 Task 定义、Sink 契约、测点分组信息
+（直接由 Core Point 提供），以及 ADS 订阅设备集合
 （``subscribe_enabled`` 是进程级采集策略，不进协议 Driver 的
 protocol_options_by_device——ADS Driver 严格拒绝未知 option）。
 
