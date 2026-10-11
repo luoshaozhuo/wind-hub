@@ -17,6 +17,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import pyads  # type: ignore[import-untyped]
+
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import ProtocolSample, Quality, TimestampSource
 
@@ -27,16 +29,8 @@ logger = logging.getLogger(__name__)
 _WATCHDOG_INTERVAL = 1.0
 
 
-def _pyads() -> Any:
-    try:
-        import pyads  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ProtocolError("ADS support requires the optional 'pyads' dependency") from exc
-    return pyads
-
-
 def _plc_datatype(ads_name: str) -> Any:
-    datatype = getattr(_pyads(), f"PLCTYPE_{ads_name}", None)
+    datatype = getattr(pyads, f"PLCTYPE_{ads_name}", None)
     if datatype is None:
         raise ConfigError(f"pyads does not expose PLCTYPE_{ads_name}")
     return datatype
@@ -173,7 +167,7 @@ class ADSSubscription:
             raise
 
     async def _create_connection(self) -> Any:
-        pyads = _pyads()
+        pyads = pyads
         connection = pyads.Connection(
             self._config.target_net_id or None,
             self._config.target_port,
@@ -233,7 +227,7 @@ class ADSSubscription:
                 "resolved positive byte size"
             )
 
-        pyads = _pyads()
+        pyads = pyads
         attr = pyads.NotificationAttrib(
             point.size,
             trans_mode=pyads.ADSTRANS_SERVERCYCLE,
