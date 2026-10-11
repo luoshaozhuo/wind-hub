@@ -11,7 +11,7 @@ from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.modbus.codec import encode_modbus_value
 from collector.infrastructure.sink.modbus.store import ModbusSinkStore
 from core.application import Quality
-from core.application.sink_config import ResolvedSinkPoint
+from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 
 
 class ModbusSinkDataPath:
