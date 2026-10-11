@@ -103,19 +103,21 @@ async def test_disconnect_during_pending_active_read_rejects_read() -> None:
     driver = _driver(server.port)
     await driver.connect()
     try:
-        # 读取服务端不存在的动态 IOA：请求真实发出但不会有响应，
-        # 读停留在等待 REQUEST 的在途状态（t1=1s 超时兜底之外先断线）。
-        task = asyncio.create_task(
-            driver.read_one(iec104_point("ghost", ioa=999, type_id="M_ME_NC_1"))
-        )
-        await asyncio.sleep(0.1)
-        assert 999 in driver._active_reads
+        # 让发送成功但响应永不到达，读确定性停留在等待 REQUEST 的在途状态；
+        # 故障注入本身是真实的（停止 c104 server，协议栈检测断线）。
+        async def no_response(_mapped: object) -> None:
+            return None
+
+        driver._send_read = no_response  # type: ignore[method-assign]
+        task = asyncio.create_task(driver.read_one("meas"))
+        await asyncio.sleep(0.05)
+        assert 100 in driver._active_reads
 
         await server.stop()
         with pytest.raises(ProtocolError):
             await asyncio.wait_for(task, timeout=5.0)
-        assert 999 not in driver._active_reads
-        assert 999 not in driver._active_read_locks
+        assert 100 not in driver._active_reads
+        assert 100 not in driver._active_read_locks
         assert driver.is_open() is False
     finally:
         await driver.close()
