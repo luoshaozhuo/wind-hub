@@ -114,10 +114,15 @@ def write_minimal_config_tree(
     for table in point_tables.values():
         for point in table.get("points", []):
             identity = point.setdefault("business_point_id", point["point_id"])
-            business_points[identity] = {
-                "data_type": point.get("data_type", "float32"),
-                "unit": point.get("unit", "none"),
-            }
+            if "data_type" in point:
+                definition = {
+                    "data_type": point["data_type"],
+                    "unit": point.get("unit", "none"),
+                }
+                previous = business_points.get(identity)
+                if previous is not None and previous != definition:
+                    raise ValueError(f"conflicting business point definition: {identity}")
+                business_points[identity] = definition
     write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})
     write_yaml(base, "tasks.yaml", {"tasks": []})
