@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: src/wind-hub-admin/package-lock.json
+          cache-dependency-path: src/web_admin/package-lock.json
       - name: Install dependencies
         working-directory: src/wind-hub-admin
         run: npm ci

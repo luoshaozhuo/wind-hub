@@ -57,5 +57,5 @@ perf_report_*.md
 perf_report_*.json
 perf_latency.png
 # 前端测试输出（Playwright）
-src/wind-hub-admin/test-results/
-src/wind-hub-admin/playwright-report/
+src/web_admin/test-results/
+src/web_admin/playwright-report/
