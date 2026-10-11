@@ -180,20 +180,6 @@ class DeviceSession:
             source=self.protocol_name,
         )
 
-    def protocol_write_value(self, point_id: str, value: WritableScalar) -> ProtocolWrite:
-        """把业务写值转换为协议写值（含 PointAccess 检查与逆变换）。
-
-        Raises:
-            CommandError: 点未知或点不允许写入。
-        """
-        point = self.point(point_id)
-        if point.access is PointAccess.READ:
-            raise CommandError(f"point '{self._device.device_id}/{point_id}' is read-only")
-        return ProtocolWrite(
-            point_id=point_id,
-            value=raw_write_value(point, value),
-        )
-
     async def write_point(self, point_id: str, value: WritableScalar) -> None:
         """执行单点写入。
 
@@ -201,8 +187,12 @@ class DeviceSession:
             CommandError: 点未知、只读或协议确认失败。
             ProtocolError: 协议级写入失败。
         """
-        write = self.protocol_write_value(point_id, value)
-        result = await self._protocol.write_one(write)
+        point = self.point(point_id)
+        if point.access is PointAccess.READ:
+            raise CommandError(f"point '{self._device.device_id}/{point_id}' is read-only")
+        result = await self._protocol.write_one(
+            ProtocolWrite(point_id=point_id, value=raw_write_value(point, value))
+        )
         if not result.success:
             raise CommandError(
                 result.message or f"write rejected by device '{self._device.device_id}'"
