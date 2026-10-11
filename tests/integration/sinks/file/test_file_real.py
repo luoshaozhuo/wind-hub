@@ -9,15 +9,15 @@ import pytest
 
 from collector.domain.point_value import PointValue
 from collector.infrastructure.sink.file.csv import FileSink
-from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
+from core.domain import Sink
 
 pytestmark = pytest.mark.real_service
 
 
 def sink_for(path: Path, **opts: object) -> FileSink:
-    return FileSink(ResolvedSinkConfig(
-        name="file", type="file",
-        connection=FileSinkConnection(path=str(path), **opts),  # type: ignore[arg-type]
+    return FileSink(Sink(
+        sink_id="file", kind="file", enabled=True,
+        connection={"path": str(path), **opts},
     ))
 
 
