@@ -445,7 +445,7 @@ class IEC104Driver:
         if point is None:
             point = self._register_monitoring_point(mapped)
         try:
-            accepted = await asyncio.to_thread(point.read, wait_for_response=False)
+            accepted = await asyncio.to_thread(point.read)
         except Exception as exc:
             raise ProtocolError(
                 f"IEC104 active read failed for {mapped.point_id}: {exc}"
