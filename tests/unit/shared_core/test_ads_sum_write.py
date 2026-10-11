@@ -38,14 +38,6 @@ class _FakeConnection:
         self.batch: list[dict[str, object]] = []
         self.individual: list[tuple[int, int, object]] = []
 
-    def write_list_by_name(
-        self, values: dict[str, object], *, ads_sub_commands: int
-    ) -> dict[str, str]:
-        assert ads_sub_commands > 0
-        self.batch.append(dict(values))
-        return {symbol: "no error" if symbol == "MAIN.a" else "device rejected"
-                for symbol in values}
-
     def write(
         self, index_group: int, index_offset: int, value: object, datatype: object
     ) -> None:
