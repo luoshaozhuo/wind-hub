@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 import grpc
-from google.protobuf import empty_pb2, json_format, message
+from google.protobuf import empty_pb2, message
+from google.protobuf.descriptor import FieldDescriptor
+from google.protobuf.timestamp_pb2 import Timestamp
+from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue, StringValue
 
 from collector.infrastructure.grpc import collector_pb2 as collector_pb
 from collector.infrastructure.grpc import collector_pb2_grpc as collector_grpc
@@ -13,13 +16,41 @@ from commander.infrastructure.grpc import commander_pb2 as commander_pb
 from commander.infrastructure.grpc import commander_pb2_grpc as commander_grpc
 
 
+def _field_value(value: object) -> object:
+    """把 protobuf 字段值转换为 JSON 可序列化 Python 值。"""
+    if isinstance(value, Timestamp):
+        return value.ToJsonString()
+    if isinstance(value, (BoolValue, DoubleValue, StringValue)):
+        return value.value
+    if isinstance(value, message.Message):
+        return _to_dict(value)
+    if isinstance(value, bytes):
+        return value.hex()
+    return value
+
+
 def _to_dict(value: message.Message) -> dict[str, Any]:
-    """把 protobuf 消息转换为稳定 snake_case JSON 对象。"""
-    return json_format.MessageToDict(
-        value,
-        preserving_proto_field_name=True,
-        always_print_fields_with_no_presence=True,
-    )
+    """按 protobuf 描述符转换，保留 64 位整数的 Python int 语义。"""
+    result: dict[str, Any] = {}
+    for field in value.DESCRIPTOR.fields:
+        if field.containing_oneof is not None:
+            selected = value.WhichOneof(field.containing_oneof.name)
+            if selected != field.name:
+                continue
+
+        field_value = getattr(value, field.name)
+        if field.is_repeated:
+            result[field.name] = [_field_value(item) for item in field_value]
+            continue
+
+        if field.cpp_type == FieldDescriptor.CPPTYPE_MESSAGE:
+            if not value.HasField(field.name):
+                continue
+            result[field.name] = _field_value(field_value)
+            continue
+
+        result[field.name] = _field_value(field_value)
+    return result
 
 
 def encode_scalar(value: object) -> commander_pb.ScalarValue:
