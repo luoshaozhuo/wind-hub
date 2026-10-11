@@ -152,7 +152,7 @@ def test_ads_int64_mapping_is_supported() -> None:
     assert mapped.size == 8
 
 
-def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
+def test_ads_driver_precompiles_point_table_without_network_io() -> None:
     point = _point("speed", ext=_point_ext(symbol="MAIN.speed"))
     table = PointTable("ads_pt", Protocol("ads"), {"speed": point})
 
@@ -224,7 +224,7 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
     driver._connected = True
 
     fake_pyads = _FakePyads()
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
+    monkeypatch.setattr(driver_module, "pyads", fake_pyads)
 
     result = await driver.write_one(ProtocolWrite(point_id=point.point_id, value=10.0))
 
@@ -238,7 +238,7 @@ async def test_ads_driver_local_ams_identity_initializes_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_pyads = _FakePyads()
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
+    monkeypatch.setattr(driver_module, "pyads", fake_pyads)
     monkeypatch.setattr(driver_module.sys, "platform", "linux")
     config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10", "user", "secret")
     try:
@@ -362,8 +362,8 @@ async def test_ads_driver_exposes_notification_subscription(
     _FakeNotificationConnection.instances = []
     monkeypatch.setattr(
         subscription_module,
-        "_pyads",
-        lambda: _FakeNotificationPyads,
+        "pyads",
+        _FakeNotificationPyads,
     )
     received: list[ProtocolSample] = []
     delivered = asyncio.Event()
@@ -411,7 +411,7 @@ async def test_ads_subscription_ignores_old_generation_callback(
     )
     driver._connected = True
     _FakeNotificationConnection.instances = []
-    monkeypatch.setattr(subscription_module, "_pyads", lambda: _FakeNotificationPyads)
+    monkeypatch.setattr(subscription_module, "pyads", _FakeNotificationPyads)
 
     received: list[ProtocolSample] = []
 
@@ -473,8 +473,8 @@ async def test_ads_subscription_can_close_itself_from_callback(
     _FakeNotificationConnection.instances = []
     monkeypatch.setattr(
         subscription_module,
-        "_pyads",
-        lambda: _FakeNotificationPyads,
+        "pyads",
+        _FakeNotificationPyads,
     )
     done = asyncio.Event()
     handle_box: list[_Closable] = []
@@ -559,7 +559,7 @@ async def test_ads_route_added_only_when_normal_connect_fails(
         target_port=801,
         route_auto_add=True,
     )
-    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_ads)
+    monkeypatch.setattr(driver_module, "pyads", fake_ads)
     monkeypatch.setattr(
         driver_module, "_LOCAL_AMS",
         ADSLocalConfig("192.0.2.10.1.1", "192.0.2.10", "user", "private-password"),
