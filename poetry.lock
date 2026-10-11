@@ -2056,4 +2056,4 @@ kafka = ["aiokafka"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "014dbb6a77411e2c4aa05cf6af3880b47a38c79d07ccce18498d1a005495be62"
+content-hash = "3bded1c7e575dab53fe19f164771189381aa181c863a6bb8cb22d4e7f8912d7a"
