@@ -418,7 +418,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             request,
             context,
             start=True,
-            placement_generation=int(request.placement_generation),
         )
 
     async def StopTaskInstance(
@@ -437,7 +436,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
-        placement_generation: int,
     ) -> pb.TaskInstanceMessage:
         """执行单个 Task Instance 启停并统一错误映射。"""
         try:

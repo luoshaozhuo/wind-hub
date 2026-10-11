@@ -6,7 +6,6 @@ Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持�
 ADS 本机身份、装配诊断 probe。
 """
 
-from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +14,7 @@ from pathlib import Path
 from core.application import ProtocolRegistry
 from core.domain import ConnectionEndpoint, Device, ProtocolOptions
 from core.infrastructure.config import config_dir_digest
+from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
 from .application.config import CommanderConfig
