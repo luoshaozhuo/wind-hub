@@ -45,12 +45,19 @@ class RpcGateway:
         self._commander: commander_grpc.CommanderServiceStub | None = None
 
     async def __aenter__(self) -> RpcGateway:
-        self._collector_channel = grpc.aio.insecure_channel(self._settings.collector_target)
-        self._commander_channel = grpc.aio.insecure_channel(self._settings.commander_target)
-        self._collector = collector_grpc.CollectorRuntimeServiceStub(self._collector_channel)
-        self._collector_control = collector_grpc.CollectorControlServiceStub(self._collector_channel)
-        self._commander = commander_grpc.CommanderServiceStub(self._commander_channel)
-        return self
+        """建立 RPC 客户端；部分初始化失败时释放已创建的 channel。"""
+        try:
+            self._collector_channel = grpc.aio.insecure_channel(self._settings.collector_target)
+            self._commander_channel = grpc.aio.insecure_channel(self._settings.commander_target)
+            self._collector = collector_grpc.CollectorRuntimeServiceStub(self._collector_channel)
+            self._collector_control = collector_grpc.CollectorControlServiceStub(
+                self._collector_channel
+            )
+            self._commander = commander_grpc.CommanderServiceStub(self._commander_channel)
+            return self
+        except BaseException:
+            await self.__aexit__(None, None, None)
+            raise
 
     async def __aexit__(self, *_: object) -> None:
         try:
