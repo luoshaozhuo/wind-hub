@@ -8,7 +8,8 @@ from contextlib import suppress
 from collector.application.errors import SinkError
 from core.application.protocol_contract import ConnectionHealth
 from core.application.redis_sink_record import encode_redis_record
-from core.application.sink_config import RedisSinkConnection, ResolvedSinkConfig
+from core.infrastructure.config.sink_schema import RedisSinkConnection
+from core.domain import Sink
 from core.domain.point_value import PointValue
 
 
@@ -24,10 +25,8 @@ def _command(*arguments: str) -> bytes:
 class RedisSink:
     """通过 SET 原子覆盖各点最新值，单连接串行 Pipeline。"""
 
-    def __init__(self, config: ResolvedSinkConfig) -> None:
-        if not isinstance(config.connection, RedisSinkConnection):
-            raise ValueError("RedisSink requires RedisSinkConnection")
-        self._config = config.connection
+    def __init__(self, config: Sink) -> None:
+        self._config = RedisSinkConnection.model_validate(dict(config.connection))
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
