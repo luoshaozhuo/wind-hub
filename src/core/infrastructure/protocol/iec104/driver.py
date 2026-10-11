@@ -315,8 +315,10 @@ class IEC104Driver:
             self._station = station
 
             try:
+                # c104 ``Client.start()`` 已经连接全部 connection 并维护自动
+                # 重连；不要再调 ``connection.connect()``——它与 c104 内部
+                # 线程的 connect/reconnect 共用未串行化的状态机，属于多余调用。
                 await asyncio.to_thread(client.start)
-                connection.connect()
                 await asyncio.wait_for(
                     self._open_event.wait(),
                     timeout=self._config.t0,
@@ -355,9 +357,12 @@ class IEC104Driver:
 
         await self._subscriptions.close_all()
 
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.disconnect)
+        # 不要显式调 ``connection.disconnect()``：它会持有 GIL 等待 c104
+        # 连接线程退出，而连接线程分发 Python 回调时需要同一把 GIL，c104 的
+        # GilAwareMutex 100ms 死锁保险丝会以 std::terminate 结束整个进程。
+        # ``Client.stop()`` 自身在释放 GIL 的状态下完成全部 disconnect 与
+        # 线程回收，是并发流量下唯一安全的拆除路径。
+        del connection
         if client is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
@@ -751,7 +756,7 @@ class IEC104Driver:
     async def _cleanup_failed_connect(self) -> None:
         self._closed = True
         self._is_open = False
-        client, connection = self._client, self._connection
+        client = self._client
         self._client = None
         self._connection = None
         self._station = None
@@ -759,9 +764,8 @@ class IEC104Driver:
         self._receive_callback_factory = None
         self._loop = None
 
-        if connection is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(connection.disconnect)
+        # 与 close() 同理：拆除只经 ``Client.stop()``（全程释放 GIL），
+        # 不做显式 ``connection.disconnect()``。
         if client is not None:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(client.stop)
