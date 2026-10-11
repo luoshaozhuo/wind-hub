@@ -130,6 +130,23 @@ async def test_read_points_uses_read_many_not_read_one():
     assert len(readings) == 2
 
 
+async def test_read_one_rejects_mismatched_point_id():
+    """单点结果身份错配不得作为其他点位值返回。"""
+    session, protocol = _session()
+
+    async def wrong_point(_point_id):
+        return ProtocolSample(
+            point_id="unexpected",
+            value=1.0,
+            quality=Quality.GOOD,
+            timestamp=datetime.now(UTC),
+        )
+
+    protocol.read_one = wrong_point  # type: ignore[method-assign]
+    with pytest.raises(ProtocolError, match="point mismatch"):
+        await session.read_point("p1")
+
+
 async def test_read_points_rejects_missing_samples():
     """协议少返回样本属于契约违约，必须显式失败而不是静默漏点。"""
     session, protocol = _session()
