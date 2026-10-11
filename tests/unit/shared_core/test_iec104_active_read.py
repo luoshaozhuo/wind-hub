@@ -83,3 +83,58 @@ async def test_read_one_serializes_same_ioa() -> None:
         ProtocolSample(point_id="p", value=2, timestamp=datetime.now(UTC))
     )
     assert (await second).value == 2
+
+
+@pytest.mark.asyncio
+async def test_send_read_does_not_block_on_library_response() -> None:
+    driver = _driver()
+    seen = []
+
+    class Point:
+        def read(self, *, wait_for_response: bool = True) -> bool:
+            seen.append(wait_for_response)
+            return True
+
+    class Station:
+        def get_point(self, ioa: int) -> Point:
+            assert ioa == 11
+            return Point()
+
+    driver._station = Station()
+    driver._dynamic_points = {}
+    driver._points_by_ioa = {11: driver._points_by_id["p"]}
+    await driver._send_read(driver._points_by_id["p"])
+    assert seen == [False]
+
+
+@pytest.mark.asyncio
+async def test_send_read_rejected_by_library() -> None:
+    driver = _driver()
+
+    class Point:
+        def read(self, *, wait_for_response: bool = True) -> bool:
+            assert not wait_for_response
+            return False
+
+    class Station:
+        def get_point(self, ioa: int) -> Point:
+            return Point()
+
+    driver._station = Station()
+    driver._dynamic_points = {}
+    driver._points_by_ioa = {11: driver._points_by_id["p"]}
+    with pytest.raises(ProtocolError, match="rejected"):
+        await driver._send_read(driver._points_by_id["p"])
+
+
+@pytest.mark.asyncio
+async def test_read_request_failed_before_response_cleans_waiter() -> None:
+    driver = _driver()
+
+    async def send(mapped: IEC104Point) -> None:
+        raise ProtocolError("send failed")
+
+    driver._send_read = send
+    with pytest.raises(ProtocolError, match="send failed"):
+        await driver.read_one("p")
+    assert driver._active_reads == {}
