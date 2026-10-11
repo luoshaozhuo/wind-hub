@@ -8,7 +8,10 @@ from typing import cast
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.domain import DeviceId
+from core.application.errors import ConfigError
+from core.domain import DeviceId, Sink
+from core.domain.unit import UNIT_CATALOG, UnitCode
+from core.infrastructure.config.sink_schema import ResolvedSinkPoint
 from core.infrastructure.config import YamlConfigAdapter
 
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
@@ -32,12 +35,54 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
         runtime=_runtime_params(settings),
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,
-        sinks=snapshot.sinks,
+        sinks=_resolve_sinks(snapshot),
         ads_subscribe_devices=snapshot.ads_subscribe_devices,
         disabled_devices=frozenset(
             DeviceId(key) for key, device in devices.items() if not device.enabled
         ),
     )
+
+
+def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
+    """解析外部 Sink 点引用，明确源类型与单位，不依赖 units.yaml。"""
+    result: dict[str, Sink] = {}
+    for sink_id, sink in snapshot.sinks.items():
+        points = []
+        for raw in sink.points:
+            source = raw["source"]
+            device_id = DeviceId(source["device_id"])
+            device = snapshot.site.devices.get(device_id)
+            if device is None:
+                raise ConfigError(f"Sink '{sink_id}' references unknown device '{device_id}'")
+            model = snapshot.device_models[device.device_model_id]
+            table = snapshot.point_tables[model.point_table_id]
+            point = table.points.get(source["point_id"])
+            if point is None:
+                raise ConfigError(
+                    f"Sink '{sink_id}' references unknown point '{source['point_id']}'"
+                )
+            source_data_type = point.ext["data_type"]
+            source_unit = point.source_unit.code.value
+            unit = raw.get("unit") or source_unit
+            if UnitCode(unit) not in UNIT_CATALOG:
+                raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'")
+            resolved = ResolvedSinkPoint.model_validate({
+                **raw,
+                "ref": raw.get("ref") or f"{device_id}.{point.point_id}",
+                "source_data_type": source_data_type,
+                "source_unit": source_unit,
+                "datatype": raw.get("datatype") or source_data_type,
+                "unit": unit,
+            })
+            points.append(resolved.model_dump(mode="python"))
+        result[sink_id] = Sink(
+            sink_id=sink.sink_id,
+            kind=sink.kind,
+            enabled=sink.enabled,
+            connection=sink.connection,
+            points=tuple(points),
+        )
+    return result
 
 
 def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
