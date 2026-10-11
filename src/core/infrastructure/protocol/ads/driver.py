@@ -340,7 +340,7 @@ class ADSDriver:
         """使用 ADS Sum Read 批量读取，返回按输入顺序排列的样本元组。
 
         支持注册点 point_id 与动态 ADSPoint 混合；动态点按显式 index 地址
-        参与 Sum Read，不降级为逐点读取，也不使用 read_list_by_name。
+        参与 Sum Read，不降级为逐点读取。
         """
         raw = await self._read_values(points)
         # 全批次共享同一读取时刻——Driver 在获得读取结果时生成 UTC 时间戳。
