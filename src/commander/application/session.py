@@ -18,8 +18,8 @@ from datetime import datetime
 from core.application import (
     ConnectionHealth,
     PointScalar,
-    ProtocolPort,
     ProtocolError,
+    ProtocolPort,
     ProtocolSample,
     ProtocolWrite,
     Quality,
