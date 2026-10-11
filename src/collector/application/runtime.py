@@ -314,6 +314,14 @@ class CollectorRuntime:
         """各 sink 队列当前深度（只读透传 SinkRuntime）。"""
         return self._sink_runtime.queue_depths()
 
+    def sink_write_failures(self) -> dict[str, int]:
+        """各 sink 运行期写失败次数（只读透传 SinkRuntime）。"""
+        return self._sink_runtime.write_failures()
+
+    def sink_drops(self) -> dict[str, int]:
+        """各 sink 运行期丢弃点数（只读透传 SinkRuntime）。"""
+        return self._sink_runtime.drops_by_sink()
+
     # ------------------------------------------------------------------
     # 采集 Task——查询与实例生命周期委托（实现与簿记在 TaskRuntime）
     # ------------------------------------------------------------------

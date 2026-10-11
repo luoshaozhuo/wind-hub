@@ -73,6 +73,9 @@ class SinkRuntime:
         self._unhealthy_reason: dict[str, str] = {}
         # 运行期统计：派发/丢弃在派发路径（dispatch）计数。
         self._points_routed = 0
+        # 按 Sink 维度的故障统计：写失败次数与丢弃点数。
+        self._write_failures: dict[str, int] = {}
+        self._drops_by_sink: dict[str, int] = {}
         self._points_dropped = 0
         self._running = False
         self._watchdogs: dict[str, WatchdogUseCase] = {
@@ -125,6 +128,14 @@ class SinkRuntime:
                 health[name] = result
         return health
 
+    def write_failures(self) -> dict[str, int]:
+        """各 Sink 运行期写失败次数。"""
+        return dict(self._write_failures)
+
+    def drops_by_sink(self) -> dict[str, int]:
+        """各 Sink 运行期丢弃点数（unhealthy、queue_full、背压孤儿）。"""
+        return dict(self._drops_by_sink)
+
     def queue_depths(self) -> dict[str, int]:
         """各 sink 队列当前深度（队列归 SinkRuntime 所有，SinkPort 自身不感知队列）。"""
         return {name: queue.qsize() for name, queue in self._queues.items()}
@@ -159,6 +170,7 @@ class SinkRuntime:
                 continue
             if sink_name in self._unhealthy:
                 self._points_dropped += len(batch)
+                self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(batch)
                 logger.warning(
                     "Sink '%s' is unhealthy — dropping batch (%d points)",
                     sink_name,
@@ -179,6 +191,7 @@ class SinkRuntime:
         if policy == "drop_new":
             if queue.full():
                 self._points_dropped += len(batch)
+                self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(batch)
                 logger.warning(
                     "Sink '%s' queue full (%d) — dropping new batch (%d points)",
                     sink_name,
@@ -196,6 +209,9 @@ class SinkRuntime:
                 except asyncio.QueueEmpty:
                     break
                 self._points_dropped += len(evicted)
+                self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(
+                    evicted
+                )
             await queue.put(batch)
             self._points_routed += len(batch)
 
@@ -206,6 +222,9 @@ class SinkRuntime:
             while True:
                 if self._queues.get(sink_name) is not queue or sink_name in self._unhealthy:
                     self._points_dropped += len(batch)
+                    self._drops_by_sink[sink_name] = self._drops_by_sink.get(sink_name, 0) + len(
+                        batch
+                    )
                     logger.warning(
                         "Sink '%s' removed or unhealthy while blocked — dropping batch (%d points)",
                         sink_name,
@@ -241,7 +260,7 @@ class SinkRuntime:
                 logger.info("Sink '%s' opened", name)
             except Exception as exc:
                 logger.warning("Sink '%s' failed to open — skipped", name, exc_info=True)
-                self._mark_unhealthy(name, f"open failed: {exc}")
+                self._mark_unhealthy(name, f"open_failed: {exc}")
 
         for name, sink in self._sinks.items():
             if name not in self._unhealthy:
@@ -368,7 +387,9 @@ class SinkRuntime:
                         sink_name,
                         exc_info=True,
                     )
-                    self._mark_unhealthy(sink_name, "failed to restore old instance")
+                    self._mark_unhealthy(
+                        sink_name, "reconnect_failed: failed to restore old instance"
+                    )
                 else:
                     self._sinks[sink_name] = old_sink
                     restored_watchdog = self._make_watchdog(sink_name, old_sink)
@@ -444,7 +465,7 @@ class SinkRuntime:
                 return
             # 不掩盖已记录的更具体根因（如 open/write 失败）。
             self._unhealthy.add(sink_name)
-            self._unhealthy_reason.setdefault(sink_name, "connection lost, reconnecting")
+            self._unhealthy_reason.setdefault(sink_name, "connection_lost: reconnecting")
             await self._stop_consumer(sink_name)
             await sink.close()
 
@@ -550,7 +571,8 @@ class SinkRuntime:
                     await sink.write(batch)
                 except Exception as exc:
                     # 写失败根因立即进入健康视图；watchdog 重连成功后清除。
-                    self._mark_unhealthy(sink_name, f"write failed: {exc}")
+                    self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
+                    self._mark_unhealthy(sink_name, f"write_failed: {exc}")
                     logger.warning(
                         "Sink '%s' write failed for %d points",
                         sink_name,

@@ -118,7 +118,10 @@ message DeviceInfoMessage {
   string last_error = 6;
 }
 message ListDevicesResponse { repeated DeviceInfoMessage items = 1; }
-message SinkInfoMessage { string name = 1; bool healthy = 2; string message = 3; uint64 queue_depth = 4; }
+message SinkInfoMessage {
+  string name = 1; bool healthy = 2; string message = 3; uint64 queue_depth = 4;
+  uint64 write_failures = 5; uint64 points_dropped = 6;
+}
 message ListSinksResponse { repeated SinkInfoMessage items = 1; }
 message SinkRequest { string name = 1; }
 message SinkOperationResponse { bool success = 1; string message = 2; uint64 queue_depth = 3; }
