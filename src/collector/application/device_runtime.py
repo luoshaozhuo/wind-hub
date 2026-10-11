@@ -375,6 +375,14 @@ class DeviceRuntime:
         device_id: str,
         session: CollectorDeviceSession,
     ) -> WatchdogUseCase:
+        async def _connect() -> None:
+            try:
+                await session.connect()
+            except Exception as exc:
+                if self._devices.get(device_id) is session:
+                    self._note_connect_failure(device_id, exc)
+                raise
+
         async def _on_success() -> None:
             if self._devices.get(device_id) is not session:
                 return
@@ -388,7 +396,7 @@ class DeviceRuntime:
         return WatchdogUseCase(
             health=session.health,
             close=session.close,
-            connect=session.connect,
+            connect=_connect,
             interval=self._params.watchdog_interval,
             health_timeout=self._params.health_timeout,
             connect_timeout=self._params.connect_timeout,
