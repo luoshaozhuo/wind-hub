@@ -51,7 +51,8 @@ class _Subscription:
         self._callback = callback
         self._ioas = ioas
         self._closed = False
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._pending: dict[str, ProtocolSample] = {}
+        self._worker: asyncio.Task[None] | None = None
 
     async def close(self) -> None:
         """注销订阅并等待已调度 callback 完成。
@@ -63,27 +64,29 @@ class _Subscription:
         self._closed = True
         self._registry.unsubscribe(self)
 
-        current = asyncio.current_task()
-        tasks = tuple(task for task in self._tasks if task is not current)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        self._pending.clear()
+        worker = self._worker
+        if worker is not None and worker is not asyncio.current_task():
+            await worker
 
     def schedule(self, sample: ProtocolSample) -> None:
-        """在当前 event loop 调度一次 callback。"""
+        """保持每个测点最新的待处理样本，避免慢回调导致任务无限堆积。"""
         if self._closed:
             return
-        task = asyncio.create_task(self._invoke(sample))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._pending[sample.point_id] = sample
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._drain())
 
-    async def _invoke(self, sample: ProtocolSample) -> None:
-        try:
-            await self._callback(sample)
-        except Exception:
-            logger.exception(
-                "IEC104 subscriber callback failed for point '%s'",
-                sample.point_id,
-            )
+    async def _drain(self) -> None:
+        while self._pending and not self._closed:
+            _, sample = self._pending.popitem()
+            try:
+                await self._callback(sample)
+            except Exception:
+                logger.exception(
+                    "IEC104 subscriber callback failed for point '%s'",
+                    sample.point_id,
+                )
 
 
 class _SubscriptionRegistry:
@@ -129,15 +132,6 @@ class _SubscriptionRegistry:
                     subscriptions.append(subscription)
         for subscription in subscriptions:
             await subscription.close()
-
-    async def dispatch(self, sample: ProtocolSample, ioa: int) -> None:
-        """向全局与当前 IOA 订阅者分发样本。"""
-        subscriptions = [
-            *self._global,
-            *self._ioa.get(ioa, []),
-        ]
-        for subscription in subscriptions:
-            subscription.schedule(sample)
 
 
 def _c104() -> Any:
@@ -753,6 +747,8 @@ class IEC104Driver:
         if mapped is None or mapped.point_id != sample.point_id:
             # A queued callback may belong to the previous point-table generation.
             return
+        if negative and not requested:
+            return
         if negative and requested:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
@@ -768,4 +764,5 @@ class IEC104Driver:
                     )
                 else:
                     waiter.set_result(sample)
-        asyncio.create_task(self._subscriptions.dispatch(sample, ioa))
+        for subscription in (*self._subscriptions._global, *self._subscriptions._ioa.get(ioa, [])):
+            subscription.schedule(sample)
