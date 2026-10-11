@@ -10,10 +10,10 @@ from google.protobuf.descriptor import FieldDescriptor
 from google.protobuf.timestamp_pb2 import Timestamp
 from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue, StringValue
 
-from collector.infrastructure.grpc import collector_pb2 as collector_pb
-from collector.infrastructure.grpc import collector_pb2_grpc as collector_grpc
-from commander.infrastructure.grpc import commander_pb2 as commander_pb
-from commander.infrastructure.grpc import commander_pb2_grpc as commander_grpc
+from core.infrastructure.rpc import collector_pb2 as collector_pb
+from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
+from core.infrastructure.rpc import commander_pb2 as commander_pb
+from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
 
 
 def _field_value(value: object) -> object:
