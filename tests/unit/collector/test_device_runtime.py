@@ -217,6 +217,38 @@ class _RecordingMetrics:
         self.connect_failed.append((device_id, protocol))
 
 
+async def test_watchdog_failed_connect_is_recorded_and_recovers():
+    """周期重连失败需要记录一次设备失败；恢复后清零连续失败。"""
+    metrics = _RecordingMetrics()
+    config = make_collector_config()
+    proto = CollectorFakeProtocol()
+    session = make_session(config, proto)
+    runtime = DeviceRuntime(
+        {"dev1": session},
+        RuntimeParams(connect_timeout=0.2),
+        clock=lambda: 1.0,
+        metrics_hook=metrics,  # type: ignore[arg-type]
+    )
+    await runtime.connect_all()
+
+    proto.connected = False
+    proto.fail_connect = True
+    with pytest.raises(ConnectionError):
+        await runtime._watchdogs["dev1"].check_once()
+
+    state = runtime.device_state("dev1")
+    assert state is not None
+    assert state.consecutive_failures == 1
+    assert metrics.connect_failed == [("dev1", "modbus")]
+
+    proto.fail_connect = False
+    await runtime._watchdogs["dev1"].check_once()
+    assert state.connected
+    assert state.consecutive_failures == 0
+    assert metrics.reconnected == [("dev1", "modbus")]
+    await runtime.close_all()
+
+
 async def test_rebuild_stops_old_watchdog_and_isolates_state():
     metrics = _RecordingMetrics()
     config = make_collector_config()
