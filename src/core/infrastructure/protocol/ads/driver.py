@@ -169,7 +169,7 @@ class ADSDriver:
     def _connect_with_optional_route(self) -> Any:
         try:
             return self._open_verified_connection()
-        except Exception as first_error:
+        except Exception:
             if not self._config.route_auto_add:
                 raise
             # Route is a persistent PLC-side resource, not an ADS session.
