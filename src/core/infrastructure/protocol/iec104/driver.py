@@ -544,7 +544,9 @@ class IEC104Driver:
         if result == "completed":
             waiter.set_result(None)
         else:
-            waiter.set_exception(ProtocolError("IEC104 general interrogation negative confirmation"))
+            waiter.set_exception(
+                ProtocolError("IEC104 general interrogation negative confirmation")
+            )
 
     def _reject_interrogation(self, reason: str) -> None:
         waiter = self._interrogation_waiter
