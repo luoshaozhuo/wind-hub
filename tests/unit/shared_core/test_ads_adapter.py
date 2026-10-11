@@ -7,8 +7,8 @@ from typing import Protocol as TypingProtocol
 import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
-import core.infrastructure.protocol.ads.router as router_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
+from core.application.settings import ADSLocalConfig
 from core.application import (
     ConfigError,
     ProtocolError,
@@ -26,8 +26,6 @@ from core.domain import (
 )
 from core.infrastructure.protocol.ads import (
     ADSDriver,
-    ADSLocalConfig,
-    ADSLocalRouter,
     parse_ads_config,
     parse_ads_point,
 )
@@ -236,25 +234,24 @@ async def test_ads_write_coerces_integral_float_for_integer_type(
 
 
 @pytest.mark.asyncio
-async def test_ads_local_router_initializes_once_and_rejects_conflict(
+async def test_ads_driver_local_ams_identity_initializes_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
-
-    router = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-
-    await router.initialize(config)
-    await router.initialize(config)
-
-    assert fake_pyads.open_calls == 1
-    assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
-
-    with pytest.raises(ConfigError, match="different local identity"):
-        await router.initialize(ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11"))
-
-    await router.close()
+    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_pyads)
+    monkeypatch.setattr(driver_module.sys, "platform", "linux")
+    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10", "user", "secret")
+    try:
+        await ADSDriver.initialize_local(config)
+        await ADSDriver.initialize_local(config)
+        assert fake_pyads.open_calls == 1
+        assert fake_pyads.local_addresses == ["192.0.2.10.1.2"]
+        with pytest.raises(ConfigError, match="conflicts"):
+            await ADSDriver.initialize_local(
+                ADSLocalConfig("192.0.2.11.1.2", "192.0.2.11", "user", "secret")
+            )
+    finally:
+        await ADSDriver.close_local()
     assert fake_pyads.close_calls == 1
 
 
@@ -451,29 +448,6 @@ async def test_ads_subscription_ignores_old_generation_callback(
 
 
 @pytest.mark.asyncio
-async def test_ads_local_router_has_single_process_owner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
-
-    first = ADSLocalRouter()
-    second = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-
-    await first.initialize(config)
-    with pytest.raises(ConfigError, match="another instance"):
-        await second.initialize(config)
-
-    await first.close()
-    await second.initialize(config)
-    await second.close()
-
-    assert fake_pyads.open_calls == 2
-    assert fake_pyads.close_calls == 2
-
-
-@pytest.mark.asyncio
 async def test_ads_subscription_can_close_itself_from_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -525,27 +499,6 @@ async def test_ads_subscription_can_close_itself_from_callback(
     assert connection.is_open is False
 
 
-@pytest.mark.asyncio
-async def test_ads_local_router_releases_owner_when_pyads_unavailable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    first = ADSLocalRouter()
-    second = ADSLocalRouter()
-    config = ADSLocalConfig("192.0.2.10.1.2", "192.0.2.10")
-
-    def unavailable() -> object:
-        raise ProtocolError("pyads unavailable")
-
-    monkeypatch.setattr(router_module, "_pyads", unavailable)
-    with pytest.raises(ProtocolError, match="unavailable"):
-        await first.initialize(config)
-
-    fake_pyads = _FakePyads()
-    monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
-    await second.initialize(config)
-    await second.close()
-
-
 def test_ads_symbol_index_address_rejects_invalid_values() -> None:
     from types import SimpleNamespace
 
@@ -566,8 +519,6 @@ def test_ads_symbol_index_address_rejects_invalid_values() -> None:
 async def test_ads_route_added_only_when_normal_connect_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from types import SimpleNamespace
-
     from core.infrastructure.protocol.ads.config import ADSConfig
 
     class FakeConnection:
@@ -607,12 +558,12 @@ async def test_ads_route_added_only_when_normal_connect_fails(
         target_net_id="192.0.2.20.1.1",
         target_port=801,
         route_auto_add=True,
-        route_username="user",
-        route_password="private-password",
-        route_local_net_id="192.0.2.10.1.1",
-        route_local_host="192.0.2.10",
     )
     monkeypatch.setattr(driver_module, "_pyads", lambda: fake_ads)
+    monkeypatch.setattr(
+        driver_module, "_LOCAL_AMS",
+        ADSLocalConfig("192.0.2.10.1.1", "192.0.2.10", "user", "private-password"),
+    )
     monkeypatch.setattr(
         driver,
         "_new_connection",
@@ -624,8 +575,3 @@ async def test_ads_route_added_only_when_normal_connect_fails(
     await driver.close()
 
 
-def test_ads_remote_route_requires_credentials() -> None:
-    from core.infrastructure.protocol.ads.config import parse_ads_config
-
-    with pytest.raises(ConfigError, match="requires target and local"):
-        parse_ads_config(_endpoint(), {"route_auto_add": True})
