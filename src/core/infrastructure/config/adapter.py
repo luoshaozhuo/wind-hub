@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -36,6 +37,8 @@ class YamlConfigAdapter:
         # 在任何正式文件被替换前，验证整套配置可读且往返无损。
         with tempfile.TemporaryDirectory(dir=self._base) as directory:
             staging = Path(directory)
+            for original in self._base.glob("*.yaml"):
+                shutil.copy2(original, staging / original.name)
             for filename, document in documents.items():
                 write_yaml_mapping_atomic(staging / filename, document)
             restored = load_domain(staging)
