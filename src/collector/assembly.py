@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.application.settings import ADSLocalConfig as AppADSLocalConfig
 from core.infrastructure import (
     ADSLocalConfig,
     ADSLocalRouter,
@@ -20,7 +21,6 @@ from core.infrastructure import (
 from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
-from core.application.settings import ADSLocalConfig as AppADSLocalConfig
 from .application.config import CollectorConfig, DeviceView
 from .application.config_service import CollectorConfigService
 from .application.identity import CollectorIdentity, build_collector_identity
