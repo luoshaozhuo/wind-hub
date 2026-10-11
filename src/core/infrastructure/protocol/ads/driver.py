@@ -29,7 +29,7 @@ from core.application.protocol_contract import (
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .config import ADSConfig, parse_ads_config
-from .mapping import ADSPoint, parse_ads_point
+from .mapping import ADSPoint, parse_ads_point, symbol_index_address
 from .subscription import ADSSubscription
 
 _ADSERR_SYMBOL_NOT_FOUND = 1808
@@ -570,16 +570,7 @@ class ADSDriver:
         if connection is None:
             raise ProtocolError("ADS connection is not available")
         info = await asyncio.to_thread(connection.get_symbol, symbol)
-        group = getattr(info, "index_group", None)
-        offset = getattr(info, "index_offset", None)
-        if (
-            type(group) is not int
-            or type(offset) is not int
-            or group < 0
-            or offset < 0
-        ):
-            raise ProtocolError(f"ADS symbol '{symbol}' returned an invalid index address")
-        address = (group, offset)
+        address = symbol_index_address(symbol, info)
         self._symbol_cache[symbol] = address
         return address
 
