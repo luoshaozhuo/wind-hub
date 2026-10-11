@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-import pytest
-
 from commander.infrastructure.config.loader import load_commander_config
-from core.application.errors import ConfigError
 from core.domain import DeviceId
 from core.infrastructure.config import YamlConfigAdapter
 
