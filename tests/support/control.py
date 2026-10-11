@@ -1,7 +1,7 @@
 """System / Reliability 层的 Collector 控制面 RPC helper。
 
 system 测试需要驱动 Task 生命周期时，直接以 gRPC 调用
-CollectorControlService——与 CTL / Web Admin → Collector 的生产控制
+CollectorControlService——与 CLI → Collector 的生产控制
 路径一致；不经过任何 Server 中转。
 """
 

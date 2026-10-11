@@ -1,4 +1,4 @@
-"""CTL 直连 Collector / Commander gRPC 控制面的组件测试。"""
+"""CLI 直连 Collector / Commander gRPC 控制面的组件测试。"""
 
 from __future__ import annotations
 
