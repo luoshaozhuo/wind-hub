@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from core.application import ConfigError
-from core.application.port import ExclusiveOpenSinkPort, SinkPort
+from core.application.port import SinkPort
 from core.domain import Sink
 
 SinkFactory = Callable[[Sink], SinkPort]
@@ -73,4 +73,4 @@ class SinkRegistry:
             )
         return factory(cfg)
 
-__all__ = ["SinkPort", "ExclusiveOpenSinkPort", "SinkFactory", "SinkRegistry"]
+__all__ = ["SinkFactory", "SinkRegistry"]

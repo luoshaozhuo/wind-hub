@@ -23,7 +23,8 @@ from core.domain import Sink
 from core.domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
-from .sink_port import ExclusiveOpenSinkPort, SinkFactory, SinkPort
+from core.application.port import ExclusiveOpenSinkPort, SinkPort
+from .sink_registry import SinkFactory
 
 logger = logging.getLogger(__name__)
 

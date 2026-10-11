@@ -23,7 +23,8 @@ from .application.identity import CollectorIdentity, build_collector_identity
 from .application.metrics_state import CollectorMetricsState
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
-from .application.sink_port import SinkFactory, SinkPort
+from core.application.port import SinkPort
+from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import load_collector_config
 from .infrastructure.sink import build_sink_registry

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from collector.application.sink_port import SinkRegistry
+from collector.application.sink_registry import SinkRegistry
 
 if TYPE_CHECKING:
-    from collector.application.sink_port import SinkPort
+    from core.application.port import SinkPort
     from core.domain import Sink
 
 

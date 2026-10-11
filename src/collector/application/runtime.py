@@ -43,7 +43,8 @@ from .reload import (
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
-from .sink_port import SinkFactory, SinkPort
+from core.application.port import SinkPort
+from .sink_registry import SinkFactory
 from .sink_runtime import SinkRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState
 from .task_runtime import TaskRuntime
