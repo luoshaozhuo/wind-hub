@@ -12,7 +12,12 @@ from core.application.settings import RuntimeSettings
 from core.domain import DeviceId, Sink
 from core.domain.unit import UNIT_CATALOG, UnitCode
 from core.infrastructure.config import YamlConfigAdapter
-from core.infrastructure.config.sink_schema import ResolvedSinkPoint
+from core.infrastructure.config.sink_schema import (
+    MODBUS_WORD_WIDTH,
+    SINK_NUMERIC_DATA_TYPES,
+    ModbusSinkAddress,
+    ResolvedSinkPoint,
+)
 
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
@@ -48,6 +53,8 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
     result: dict[str, Sink] = {}
     for sink_id, sink in snapshot.sinks.items():
         points = []
+        refs: set[str] = set()
+        addresses: dict[tuple[int, str], list[tuple[int, int]]] = {}
         for raw in sink.points:
             source = raw["source"]
             device_id = DeviceId(source["device_id"])
@@ -76,6 +83,46 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 "datatype": raw.get("datatype") or source_data_type,
                 "unit": unit,
             })
+            if resolved.ref in refs:
+                raise ConfigError(f"Sink '{sink_id}' duplicate point ref '{resolved.ref}'")
+            refs.add(resolved.ref)
+            if resolved.scale != 1.0 or resolved.offset != 0.0:
+                if (
+                    resolved.source_data_type not in SINK_NUMERIC_DATA_TYPES
+                    or resolved.datatype not in SINK_NUMERIC_DATA_TYPES
+                ):
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        "scale/offset require numeric source and datatype"
+                    )
+            if isinstance(resolved.address, ModbusSinkAddress):
+                address = resolved.address
+                is_bit = address.register_type in {"coil", "discrete"}
+                if is_bit and resolved.datatype != "bool":
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        f"{address.register_type} requires bool"
+                    )
+                width = 1 if is_bit else MODBUS_WORD_WIDTH.get(resolved.datatype)
+                if width is None:
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        f"unsupported Modbus datatype '{resolved.datatype}'"
+                    )
+                end = address.address + width - 1
+                if end > 65535:
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        "Modbus address range exceeds 65535"
+                    )
+                key = (address.unit_id, address.register_type)
+                occupied = addresses.setdefault(key, [])
+                if any(start <= end and address.address <= finish for start, finish in occupied):
+                    raise ConfigError(
+                        f"Sink '{sink_id}' point '{resolved.ref}': "
+                        "overlapping Modbus register addresses"
+                    )
+                occupied.append((address.address, end))
             points.append(resolved.model_dump(mode="json"))
         result[sink_id] = Sink(
             sink_id=sink.sink_id,
