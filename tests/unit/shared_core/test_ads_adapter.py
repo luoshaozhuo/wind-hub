@@ -560,3 +560,72 @@ def test_ads_symbol_index_address_rejects_invalid_values() -> None:
                 "MAIN.speed",
                 SimpleNamespace(index_group=group, index_offset=offset),
             )
+
+
+@pytest.mark.asyncio
+async def test_ads_route_added_only_when_normal_connect_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from core.infrastructure.protocol.ads.config import ADSConfig
+
+    class FakeConnection:
+        def __init__(self, reachable: bool) -> None:
+            self.is_open = False
+            self.reachable = reachable
+
+        def open(self) -> None:
+            self.is_open = True
+
+        def read_state(self) -> tuple[int, int]:
+            if not self.reachable:
+                raise ConnectionError("route missing")
+            return (5, 0)
+
+        def close(self) -> None:
+            self.is_open = False
+
+    class FakeAds:
+        def __init__(self) -> None:
+            self.route_added = False
+            self.route_calls = 0
+
+        def add_route_to_plc(self, *_args: object) -> bool:
+            self.route_calls += 1
+            self.route_added = True
+            return True
+
+    fake_ads = FakeAds()
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable("ads_pt", Protocol("ads"), {}),
+        {},
+    )
+    driver._config = ADSConfig(
+        host="192.0.2.20",
+        target_net_id="192.0.2.20.1.1",
+        target_port=801,
+        route_auto_add=True,
+        route_username="user",
+        route_password="private-password",
+        route_local_net_id="192.0.2.10.1.1",
+        route_local_host="192.0.2.10",
+    )
+    monkeypatch.setattr(driver_module, "_pyads", lambda: fake_ads)
+    monkeypatch.setattr(
+        driver,
+        "_new_connection",
+        lambda: FakeConnection(fake_ads.route_added),
+    )
+    await driver.connect()
+    assert driver.is_open()
+    assert fake_ads.route_calls == 1
+    await driver.close()
+
+
+def test_ads_remote_route_requires_credentials() -> None:
+    from core.infrastructure.protocol.ads.config import parse_ads_config
+
+    with pytest.raises(ConfigError, match="requires target and local"):
+        parse_ads_config(_endpoint(), {"route_auto_add": True})
