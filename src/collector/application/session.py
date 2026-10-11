@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Protocol
 
