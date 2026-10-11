@@ -45,8 +45,11 @@ class FileSink:
 
     def _archives(self) -> list[Path]:
         return sorted(
-            (p for p in self._path.parent.iterdir()
-             if p.is_file() and is_owned_segment(p.name, base=self._path.name)),
+            (
+                p
+                for p in self._path.parent.iterdir()
+                if p.is_file() and is_owned_segment(p.name, base=self._path.name)
+            ),
             key=lambda p: p.name,
         )
 
@@ -55,12 +58,13 @@ class FileSink:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
         archives = self._archives()
-        self._sequence = next_segment_sequence(
-            [p.name for p in archives], base=self._path.name
-        )
+        self._sequence = next_segment_sequence([p.name for p in archives], base=self._path.name)
         existing_size = self._path.stat().st_size if self._path.exists() else 0
-        now = (datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
-               if existing_size else datetime.now(UTC))
+        now = (
+            datetime.fromtimestamp(self._path.stat().st_mtime, UTC)
+            if existing_size
+            else datetime.now(UTC)
+        )
         file = self._path.open("ab")
         try:
             if existing_size == 0:
@@ -81,7 +85,8 @@ class FileSink:
         self._file = None
         while True:
             filename = segment_filename(
-                self._path.name, opened_at=datetime.now(UTC),
+                self._path.name,
+                opened_at=datetime.now(UTC),
                 sequence=self._sequence,
             )
             self._sequence += 1
@@ -91,7 +96,7 @@ class FileSink:
         self._path.rename(target)
         self._open()
         archives = self._archives()
-        for stale in archives[:max(0, len(archives) - self._policy.max_files)]:
+        for stale in archives[: max(0, len(archives) - self._policy.max_files)]:
             stale.unlink()
 
     def _write(self, batch: list[PointValue]) -> None:
@@ -99,9 +104,7 @@ class FileSink:
             raise SinkError("FileSink must be opened before write")
         for row in iter_csv_rows(batch):
             now = datetime.now(UTC)
-            if should_rotate(
-                self._policy, self._segment, next_row_bytes=len(row), now=now
-            ):
+            if should_rotate(self._policy, self._segment, next_row_bytes=len(row), now=now):
                 self._rotate()
             assert self._file is not None and self._segment is not None
             self._file.write(row)

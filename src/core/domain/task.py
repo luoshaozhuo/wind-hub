@@ -74,6 +74,5 @@ def devices_for_task(
 ) -> tuple[Device, ...]:
     """选出属于任务设备组的设备；设备可同时参与不同任务。"""
     return tuple(
-        device for device in devices.values()
-        if task.device_group_id in device.device_group_ids
+        device for device in devices.values() if task.device_group_id in device.device_group_ids
     )

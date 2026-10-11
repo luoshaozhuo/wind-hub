@@ -11,9 +11,7 @@ from typing import Any
 def freeze_sink_value(value: Any) -> Any:
     """递归冻结 Sink 参数，不允许快照内部嵌套列表被改写。"""
     if isinstance(value, Mapping):
-        return MappingProxyType({
-            key: freeze_sink_value(item) for key, item in value.items()
-        })
+        return MappingProxyType({key: freeze_sink_value(item) for key, item in value.items()})
     if isinstance(value, list | tuple):
         return tuple(freeze_sink_value(item) for item in value)
     if value is None or isinstance(value, str | int | float | bool):
@@ -40,6 +38,4 @@ class Sink:
             raise ValueError("sink enabled must be bool")
         object.__setattr__(self, "sink_id", self.sink_id.strip())
         object.__setattr__(self, "connection", freeze_sink_value(self.connection))
-        object.__setattr__(self, "points", tuple(
-            freeze_sink_value(point) for point in self.points
-        ))
+        object.__setattr__(self, "points", tuple(freeze_sink_value(point) for point in self.points))

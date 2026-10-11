@@ -14,8 +14,9 @@ import time
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from ..domain.acquisition import AcquisitionEngine
 from core.domain.point_value import PointValue
+
+from ..domain.acquisition import AcquisitionEngine
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask
 from .device_runtime import DeviceRuntime
@@ -345,7 +346,8 @@ class TaskRuntime:
             if not task.enabled:
                 continue
             device_ids = [
-                device_id for device_id, session in self._devices.devices.items()
+                device_id
+                for device_id, session in self._devices.devices.items()
                 if str(task.device_group_id) in session.device_group_ids
             ]
             for device_id in device_ids:

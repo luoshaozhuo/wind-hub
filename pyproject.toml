@@ -92,6 +92,7 @@ extend-immutable-calls = [
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
 # protobuf 生成的 *_pb2*.py 不是手写源码；类型信息由配套的
 # .pyi stub（mypy-protobuf 生成）提供，生成文件本身不做严格检查。
 exclude = "(_pb2\\.py|_pb2_grpc\\.py)$"
@@ -113,6 +114,14 @@ module = [
     "core.infrastructure.rpc.commander_pb2_grpc",
 ]
 disable_error_code = ["unused-ignore", "overload-cannot-match"]
+
+# 测试代码的严格模式例外（明确记录）：测试函数以 pytest fixture 注入
+# 依赖，逐参数标注类型是噪音而非价值；monkeypatch 场景下对第三方的
+# 无类型调用同理。其余严格规则（arg-type、attr-defined、return-value
+# 等真实缺陷信号）对测试仍然生效。
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disable_error_code = ["no-untyped-def", "no-untyped-call"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

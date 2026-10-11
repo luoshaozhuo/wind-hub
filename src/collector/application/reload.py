@@ -177,29 +177,38 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         ):
             updated.add(str(device_id))
     devices = DeviceDiff(
-        added=added, removed=removed,
+        added=added,
+        removed=removed,
         updated=sorted(updated),
         unchanged=sorted(str(item) for item in common if str(item) not in updated),
     )
 
     changed_tables = sorted(
-        str(key) for key in set(old.point_tables) | set(new.point_tables)
+        str(key)
+        for key in set(old.point_tables) | set(new.point_tables)
         if old.point_tables.get(key) != new.point_tables.get(key)
     )
     added_sinks, removed_sinks, changed_sinks, unchanged_sinks = _differences(old.sinks, new.sinks)
     # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
     sinks = SinkDiff(
-        added=added_sinks, removed=removed_sinks, updated=changed_sinks,
+        added=added_sinks,
+        removed=removed_sinks,
+        updated=changed_sinks,
         unchanged=unchanged_sinks,
     )
     added_tasks, removed_tasks, changed_tasks, unchanged_tasks = _differences(old.tasks, new.tasks)
     tasks = TaskDiff(
-        added=added_tasks, removed=removed_tasks, updated=changed_tasks,
+        added=added_tasks,
+        removed=removed_tasks,
+        updated=changed_tasks,
         unchanged=unchanged_tasks,
     )
     return ConfigDiff(
-        devices=devices, sinks=sinks, tasks=tasks,
-        points_changed=bool(changed_tables), point_tables_changed=changed_tables,
+        devices=devices,
+        sinks=sinks,
+        tasks=tasks,
+        points_changed=bool(changed_tables),
+        point_tables_changed=changed_tables,
         runtime_changed=any(
             getattr(old.runtime, name) != getattr(new.runtime, name)
             for name in HOT_RELOADABLE_RUNTIME_FIELDS

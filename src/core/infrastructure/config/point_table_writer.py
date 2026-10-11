@@ -48,10 +48,7 @@ def dump_point_tables(
             current = _point_dict(point)
             if parent is not None and point_id in parent.points:
                 previous = _point_dict(parent.points[point_id])
-                changes = {
-                    key: value for key, value in current.items()
-                    if value != previous[key]
-                }
+                changes = {key: value for key, value in current.items() if value != previous[key]}
                 if not changes:
                     continue
                 points.append({"point_id": point_id, **changes})

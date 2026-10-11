@@ -63,22 +63,27 @@ def dump_snapshot(snapshot: ConfigSnapshot) -> dict[str, dict[str, Any]]:
             options["subscribe_enabled"] = True
         if options:
             endpoint["extensions"] = options
-        devices.append({
-            "device_id": str(device_key),
-            "model": str(device.device_model_id),
-            **({"name": device.name} if device.name is not None else {}),
-            "device_groups": [str(group_id) for group_id in device.device_group_ids],
-            "endpoint": endpoint,
-            "enabled": device.enabled,
-        })
-    tasks = [{
-        "task_id": task.task_id,
-        "device_group": str(task.device_group_id),
-        "point_group": task.point_group,
-        "interval": task.interval,
-        "targets": [{"sink": sink_id} for sink_id in task.sink_ids],
-        "enabled": task.enabled,
-    } for task in snapshot.tasks.values()]
+        devices.append(
+            {
+                "device_id": str(device_key),
+                "model": str(device.device_model_id),
+                **({"name": device.name} if device.name is not None else {}),
+                "device_groups": [str(group_id) for group_id in device.device_group_ids],
+                "endpoint": endpoint,
+                "enabled": device.enabled,
+            }
+        )
+    tasks = [
+        {
+            "task_id": task.task_id,
+            "device_group": str(task.device_group_id),
+            "point_group": task.point_group,
+            "interval": task.interval,
+            "targets": [{"sink": sink_id} for sink_id in task.sink_ids],
+            "enabled": task.enabled,
+        }
+        for task in snapshot.tasks.values()
+    ]
     catalog = {
         str(key): {
             "data_type": point.data_type.value,

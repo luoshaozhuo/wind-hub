@@ -53,37 +53,38 @@ def should_rotate(
         raise ValueError("now must be timezone-aware")
     if not segment.has_records:
         return False
-    return (
-        now.astimezone(UTC).date() != segment.opened_at.astimezone(UTC).date()
-        or segment.byte_size + next_row_bytes > int(config.max_size_mb * 1024 * 1024)
-    )
+    return now.astimezone(UTC).date() != segment.opened_at.astimezone(
+        UTC
+    ).date() or segment.byte_size + next_row_bytes > int(config.max_size_mb * 1024 * 1024)
 
 
 def expired_segments(paths: Sequence[Path], *, max_files: int) -> tuple[Path, ...]:
     """归档文件从旧到新排序；调用方仅传自己拥有的归档文件。"""
     if max_files < 1:
         raise ValueError("max_files must be >= 1")
-    return tuple(paths[:max(0, len(paths) - max_files)])
+    return tuple(paths[: max(0, len(paths) - max_files)])
 
 
-def encode_csv_batch(
-    values: Sequence[PointValue], *, include_header: bool = False
-) -> bytes:
+def encode_csv_batch(values: Sequence[PointValue], *, include_header: bool = False) -> bytes:
     """将 PointValue 批次序列化为 UTF-8 CSV。"""
     return b"".join(iter_csv_rows(values, include_header=include_header))
 
 
-def iter_csv_rows(
-    values: Sequence[PointValue], *, include_header: bool = False
-) -> Iterator[bytes]:
+def iter_csv_rows(values: Sequence[PointValue], *, include_header: bool = False) -> Iterator[bytes]:
     """逐条产生完整 CSV 行，便于按行轮转而不拆断记录。"""
     if include_header:
         yield _encode_row(CSV_COLUMNS)
     for item in values:
-        yield _encode_row((
-            item.timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-            item.device_id, item.point_id, item.value, item.quality.value, item.source,
-        ))
+        yield _encode_row(
+            (
+                item.timestamp.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                item.device_id,
+                item.point_id,
+                item.value,
+                item.quality.value,
+                item.source,
+            )
+        )
 
 
 def _encode_row(fields: Sequence[object]) -> bytes:

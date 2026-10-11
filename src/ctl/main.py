@@ -203,9 +203,7 @@ async def _run(args: argparse.Namespace) -> int:
     _print(result)
     if result.get("success") is False or result.get("ok") is False:
         return 2
-    if "results" in result and any(
-        item.get("success") is False for item in result["results"]
-    ):
+    if "results" in result and any(item.get("success") is False for item in result["results"]):
         return 2
     return 0
 

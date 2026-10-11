@@ -30,9 +30,7 @@ def load_collector_config(
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
-    enabled_sinks = {
-        sink_id for sink_id, sink in snapshot.sinks.items() if sink.enabled
-    }
+    enabled_sinks = {sink_id for sink_id, sink in snapshot.sinks.items() if sink.enabled}
     for task in snapshot.tasks.values():
         if not task.enabled:
             continue
@@ -86,14 +84,16 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 UNIT_CATALOG[UnitCode(unit)]
             except (KeyError, ValueError) as exc:
                 raise ConfigError(f"Sink '{sink_id}' unknown unit '{unit}'") from exc
-            resolved = ResolvedSinkPoint.model_validate({
-                **raw,
-                "ref": raw.get("ref") or f"{device_id}.{point.point_id}",
-                "source_data_type": source_data_type,
-                "source_unit": source_unit,
-                "datatype": raw.get("datatype") or source_data_type,
-                "unit": unit,
-            })
+            resolved = ResolvedSinkPoint.model_validate(
+                {
+                    **raw,
+                    "ref": raw.get("ref") or f"{device_id}.{point.point_id}",
+                    "source_data_type": source_data_type,
+                    "source_unit": source_unit,
+                    "datatype": raw.get("datatype") or source_data_type,
+                    "unit": unit,
+                }
+            )
             if resolved.ref in refs:
                 raise ConfigError(f"Sink '{sink_id}' duplicate point ref '{resolved.ref}'")
             refs.add(resolved.ref)

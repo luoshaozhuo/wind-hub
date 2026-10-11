@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from core.domain.point_value import PointValue
+
 from .config import CollectionTask
 from .runtime import CollectorRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState

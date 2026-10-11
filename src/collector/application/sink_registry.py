@@ -1,6 +1,5 @@
 """Collector Sink 工厂注册表，SinkPort 契约由 Core 统一定义。"""
 
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -64,5 +63,6 @@ class SinkRegistry:
                 f"Unknown sink type '{cfg.kind}'. " f"Registered types: {sorted(self._factories)}"
             )
         return factory(cfg)
+
 
 __all__ = ["SinkFactory", "SinkRegistry"]

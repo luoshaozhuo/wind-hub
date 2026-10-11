@@ -97,5 +97,3 @@ class ResolvedAddress:
     index_offset: int
     size: int | None
     protocol_type: str
-
-

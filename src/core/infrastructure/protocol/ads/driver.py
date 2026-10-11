@@ -256,9 +256,7 @@ class ADSDriver:
                 raise
             except Exception:
                 self._connected = False
-                raise ProtocolError(
-                    f"ADS connect failed for {self._config.host}"
-                ) from None
+                raise ProtocolError(f"ADS connect failed for {self._config.host}") from None
             self._connection = connection
             self._invalidate_symbol_addresses()
             self._connected = True
@@ -470,15 +468,14 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
 
-            mapped_batch = [
-                await self._resolve_point_locked(write.point_id) for write in writes
-            ]
+            mapped_batch = [await self._resolve_point_locked(write.point_id) for write in writes]
             results: list[ProtocolWriteResult | None] = [None] * len(writes)
             prepared: list[tuple[int, ADSPoint, bytes]] = []
             for index, (write, point) in enumerate(zip(writes, mapped_batch, strict=True)):
                 if not point.address_resolved:
                     results[index] = ProtocolWriteResult(
-                        point_id=write.point_id, success=False,
+                        point_id=write.point_id,
+                        success=False,
                         message="ADS address is unresolved",
                     )
                     continue
@@ -487,7 +484,9 @@ class ADSDriver:
                     payload = _encode_value(raw_value, point)
                 except (ConfigError, TypeError, ValueError, OverflowError) as exc:
                     results[index] = ProtocolWriteResult(
-                        point_id=write.point_id, success=False, message=str(exc),
+                        point_id=write.point_id,
+                        success=False,
+                        message=str(exc),
                     )
                     continue
                 prepared.append((index, point, payload))
@@ -511,7 +510,8 @@ class ADSDriver:
             return tuple(result for result in results if result is not None)
 
     def _sum_write_bytes(
-        self, chunk: Sequence[tuple[int, ADSPoint, bytes]],
+        self,
+        chunk: Sequence[tuple[int, ADSPoint, bytes]],
     ) -> tuple[int, ...]:
         """Send ADSIGRP_SUMUP_WRITE by index and decode individual ADS error codes."""
         from pyads.constants import ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
@@ -525,7 +525,11 @@ class ADSDriver:
         )
         request = bytearray(headers + b"".join(payload for _, _, payload in chunk))
         raw = connection.read_write(
-            ADSIGRP_SUMUP_WRITE, len(chunk), None, request, None,
+            ADSIGRP_SUMUP_WRITE,
+            len(chunk),
+            None,
+            request,
+            None,
             check_length=False,
         )
         if raw is None or len(raw) != len(chunk) * 4:
