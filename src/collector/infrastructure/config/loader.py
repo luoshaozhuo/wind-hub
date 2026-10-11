@@ -90,10 +90,10 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
                 resolved.source_data_type not in SINK_NUMERIC_DATA_TYPES
                 or resolved.datatype not in SINK_NUMERIC_DATA_TYPES
             ):
-                    raise ConfigError(
-                        f"Sink '{sink_id}' point '{resolved.ref}': "
-                        "scale/offset require numeric source and datatype"
-                    )
+                raise ConfigError(
+                    f"Sink '{sink_id}' point '{resolved.ref}': "
+                    "scale/offset require numeric source and datatype"
+                )
             if isinstance(resolved.address, ModbusSinkAddress):
                 address = resolved.address
                 is_bit = address.register_type in {"coil", "discrete"}
