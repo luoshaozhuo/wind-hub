@@ -1,46 +1,8 @@
-"""DeviceRuntimeState —— 每台设备的最小运行状态与重连节流。
-
-与配置快照严格分离——配置是不可变快照（热重载整体替换），运行状态随
-采集/重连活动演进，绝不写回配置模型。
-
-状态机（刻意保持最小）：
-
-- ``connected`` — 当前是否可用（最近一次 connect/read 成功）；
-- ``consecutive_failures`` — 连续 connect 失败次数，驱动 backoff；
-- ``next_retry_at`` — 单调时钟语义的重连节流点：未到该时刻
-  :meth:`DeviceRuntime.ensure_connected` 直接返回 ``False``，不发起
-  connect——避免 1 Hz 轮询打满重连（连接风暴）。
-
-Backoff（无 jitter，与驱动内部 reconnect 退避同族）：
-
-    T_k = min(T_max, T_0 · 2^k)，T_0 = 1 s，T_max = 30 s
-
-连接或读取成功后 ``consecutive_failures`` 清零。
-"""
+"""Collector 设备运行状态；周期恢复由 Core Watchdog 负责。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-RECONNECT_BACKOFF_INITIAL = 1.0
-"""首次重连等待（秒）。"""
-
-RECONNECT_BACKOFF_MAX = 30.0
-"""重连等待上限（秒）。"""
-
-
-def reconnect_delay(consecutive_failures: int) -> float:
-    """计算连续连接失败后的重连等待时长。
-
-    Args:
-        consecutive_failures: 当前连续失败次数；小于 1 时按首次失败处理。
-
-    Returns:
-        指数退避后的等待秒数，不超过 RECONNECT_BACKOFF_MAX。
-    """
-    k = max(0, consecutive_failures - 1)
-    return min(RECONNECT_BACKOFF_MAX, RECONNECT_BACKOFF_INITIAL * (2.0**k))
-
 
 def _error_text(error: BaseException) -> str:
     """把异常压成一行可读错误文本；空消息异常（如裸 ``TimeoutError``）
@@ -56,16 +18,13 @@ class DeviceRuntimeState:
     """当前是否已连接（最近一次 connect / read 成功）。"""
 
     consecutive_failures: int = 0
-    """连续 connect 失败次数——决定 backoff 档位，成功后清零。"""
+    """连续连接失败次数，供运行指标使用。"""
 
     last_success_at: float | None = None
     """最近一次成功（connect 或 read）的单调时钟时间戳。"""
 
     last_failure_at: float | None = None
     """最近一次失败的单调时钟时间戳。"""
-
-    next_retry_at: float = 0.0
-    """允许下一次 connect 尝试的最早时刻（节流点）。"""
 
     last_error: str | None = None
     """最近一次失败的简要描述（面向 status 输出）。"""
@@ -82,7 +41,7 @@ class DeviceRuntimeState:
         self.last_error = None
 
     def mark_connect_failure(self, now: float, error: BaseException) -> None:
-        """记录 connect 失败并推进重连退避窗口。
+        """记录 connect 失败。
 
         Args:
             now: 单调时钟时间戳。
@@ -92,7 +51,6 @@ class DeviceRuntimeState:
         self.consecutive_failures += 1
         self.last_failure_at = now
         self.last_error = _error_text(error)
-        self.next_retry_at = now + reconnect_delay(self.consecutive_failures)
 
     def mark_read_failure(
         self, now: float, error: BaseException, *, connection_level: bool
