@@ -45,6 +45,19 @@ async def _invoke(operation: Awaitable[dict[str, object]]) -> dict[str, object]:
     return result
 
 
+class ConfigPrepareBody(BaseModel):
+    """目标端根据事先部署的候选配置执行 prepare。"""
+
+    revision_id: str = Field(min_length=1)
+    config_hash: str = Field(min_length=1)
+
+
+class ConfigRevisionBody(BaseModel):
+    """配置事务阶段使用相同的修订标识。"""
+
+    revision_id: str = Field(min_length=1)
+
+
 class WritePointBody(BaseModel):
     """要求明确命令标识与超时的设备写入请求。"""
 
@@ -164,25 +177,25 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_instance(instance_id))
 
-    @app.post("/api/v1/collector/tasks/{task_id}/start", tags=["collector"])
+    @app.post("/api/v1/collector/tasks/{task_id}/start", tags=["collector"], dependencies=[Depends(require_write_token)])
     async def start_task(
         task_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_start_task(task_id))
 
-    @app.post("/api/v1/collector/tasks/{task_id}/stop", tags=["collector"])
+    @app.post("/api/v1/collector/tasks/{task_id}/stop", tags=["collector"], dependencies=[Depends(require_write_token)])
     async def stop_task(
         task_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_stop_task(task_id))
 
-    @app.post("/api/v1/collector/instances/{instance_id}/start", tags=["collector"])
+    @app.post("/api/v1/collector/instances/{instance_id}/start", tags=["collector"], dependencies=[Depends(require_write_token)])
     async def start_instance(
         instance_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_start_instance(instance_id))
 
-    @app.post("/api/v1/collector/instances/{instance_id}/stop", tags=["collector"])
+    @app.post("/api/v1/collector/instances/{instance_id}/stop", tags=["collector"], dependencies=[Depends(require_write_token)])
     async def stop_instance(
         instance_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
@@ -194,7 +207,7 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_verify_sink(name))
 
-    @app.post("/api/v1/collector/sinks/{name}/test", tags=["collector"])
+    @app.post("/api/v1/collector/sinks/{name}/test", tags=["collector"], dependencies=[Depends(require_write_token)])
     async def test_sink(
         name: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
@@ -266,5 +279,71 @@ def create_app(
             for item in body.commands
         ]
         return await _invoke(gateway.commander_write_many(commands))
+
+    @app.post(
+        "/api/v1/collector/config/prepare",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def collector_prepare_config(
+        body: ConfigPrepareBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_prepare_config(body.revision_id, body.config_hash))
+
+    @app.post(
+        "/api/v1/collector/config/activate",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def collector_activate_config(
+        body: ConfigRevisionBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_activate_config(body.revision_id))
+
+    @app.post(
+        "/api/v1/collector/config/abort",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def collector_abort_config(
+        body: ConfigRevisionBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_abort_config(body.revision_id))
+
+    @app.post(
+        "/api/v1/commander/config/prepare",
+        tags=["commander"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def commander_prepare_config(
+        body: ConfigPrepareBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_prepare_config(body.revision_id, body.config_hash))
+
+    @app.post(
+        "/api/v1/commander/config/activate",
+        tags=["commander"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def commander_activate_config(
+        body: ConfigRevisionBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_activate_config(body.revision_id))
+
+    @app.post(
+        "/api/v1/commander/config/abort",
+        tags=["commander"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def commander_abort_config(
+        body: ConfigRevisionBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_abort_config(body.revision_id))
 
     return app

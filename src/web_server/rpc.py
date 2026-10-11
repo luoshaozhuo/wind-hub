@@ -194,3 +194,33 @@ class RpcGateway:
             ]
         )
         return to_payload(await self.commander().WritePoints(request, timeout=self.timeout))
+
+    async def collector_prepare_config(self, revision_id: str, config_hash: str) -> dict[str, object]:
+        """将 prepare 阶段明确转交 collector，不假装跨进程原子提交。"""
+        request = collector_pb.PrepareConfigRequest(revision_id=revision_id, config_hash=config_hash)
+        return to_payload(await self.collector_control().PrepareConfig(request, timeout=self.timeout))
+
+    async def collector_activate_config(self, revision_id: str) -> dict[str, object]:
+        """将 activate 阶段明确转交 collector，不假装跨进程原子提交。"""
+        request = collector_pb.ActivateConfigRequest(revision_id=revision_id)
+        return to_payload(await self.collector_control().ActivateConfig(request, timeout=self.timeout))
+
+    async def collector_abort_config(self, revision_id: str) -> dict[str, object]:
+        """将 abort 阶段明确转交 collector，不假装跨进程原子提交。"""
+        request = collector_pb.AbortConfigRequest(revision_id=revision_id)
+        return to_payload(await self.collector_control().AbortConfig(request, timeout=self.timeout))
+
+    async def commander_prepare_config(self, revision_id: str, config_hash: str) -> dict[str, object]:
+        """将 prepare 阶段明确转交 commander，不假装跨进程原子提交。"""
+        request = commander_pb.PrepareConfigRequest(revision_id=revision_id, config_hash=config_hash)
+        return to_payload(await self.commander().PrepareConfig(request, timeout=self.timeout))
+
+    async def commander_activate_config(self, revision_id: str) -> dict[str, object]:
+        """将 activate 阶段明确转交 commander，不假装跨进程原子提交。"""
+        request = commander_pb.ActivateConfigRequest(revision_id=revision_id)
+        return to_payload(await self.commander().ActivateConfig(request, timeout=self.timeout))
+
+    async def commander_abort_config(self, revision_id: str) -> dict[str, object]:
+        """将 abort 阶段明确转交 commander，不假装跨进程原子提交。"""
+        request = commander_pb.AbortConfigRequest(revision_id=revision_id)
+        return to_payload(await self.commander().AbortConfig(request, timeout=self.timeout))
