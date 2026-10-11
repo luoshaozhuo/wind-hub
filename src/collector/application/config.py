@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     Device,
     DeviceId,
@@ -27,10 +28,10 @@ from core.domain import (
     PointTable,
     PointTableId,
     ProtocolOptions,
+    Sink,
+    Task,
 )
-from core.application.settings import ADSLocalConfig
-from core.domain import Sink, Task
-
+ 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
 
 
