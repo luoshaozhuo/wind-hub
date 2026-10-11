@@ -7,6 +7,7 @@ fake pyads Connection：动态 ADSPoint 直接按 index_group/index_offset
 from __future__ import annotations
 
 import struct
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,11 @@ class _Connection:
         self.values: dict[tuple[int, int], object] = {}
         self.read_error: Exception | None = None
         self.write_error: Exception | None = None
+        self.symbol_calls: list[str] = []
+
+    def get_symbol(self, symbol: str) -> object:
+        self.symbol_calls.append(symbol)
+        return SimpleNamespace(index_group=0x4020, index_offset=100)
 
     def read(self, index_group: int, index_offset: int, datatype: object) -> object:
         del datatype
@@ -307,3 +313,27 @@ class TestDynamicReadMany:
         assert [s.value for s in samples] == [111, 222]
         assert monkey_connection.sum_calls != []
         assert monkey_connection.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_symbol_is_resolved_on_first_read_and_cached_per_session() -> None:
+    connection = _Connection()
+    connection.values[(0x4020, 100)] = 42
+    driver = _driver(connection)
+    driver._points["speed"] = ADSPoint(
+        point_id="speed",
+        index_group=0,
+        index_offset=0,
+        data_type="DINT",
+        size=4,
+        symbol="MAIN.speed",
+        address_resolved=False,
+    )
+
+    assert await driver.resolve_symbol("MAIN.speed") == (0x4020, 100)
+    assert (await driver.read_one("speed")).value == 42
+    assert (await driver.read_one("speed")).value == 42
+    assert connection.symbol_calls == ["MAIN.speed"]
+    driver._invalidate_symbol_addresses()
+    assert await driver.resolve_symbol("MAIN.speed") == (0x4020, 100)
+    assert connection.symbol_calls == ["MAIN.speed", "MAIN.speed"]
