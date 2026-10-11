@@ -122,7 +122,8 @@ def test_iec104_writable_point_requires_command_type() -> None:
         )
 
 
-def test_iec104_driver_builds_without_importing_c104() -> None:
+@pytest.mark.asyncio
+async def test_iec104_driver_builds_with_required_c104() -> None:
     point = _point(
         "setpoint",
         access=PointAccess.WRITE,
@@ -143,7 +144,7 @@ def test_iec104_driver_builds_without_importing_c104() -> None:
         {},
     )
 
-    assert driver.health().healthy is False
+    assert (await driver.health()).healthy is False
 
 
 def test_iec104_writable_point_rejects_monitoring_type() -> None:
