@@ -15,6 +15,11 @@ _ALLOWED_OPTIONS = frozenset(
         "max_subs_per_sum",
         "max_delay",
         "max_notifications_per_connection",
+        "route_auto_add",
+        "route_username",
+        "route_password",
+        "route_local_net_id",
+        "route_local_host",
     }
 )
 
@@ -31,6 +36,11 @@ class ADSConfig:
     max_subs_per_sum: int = 500
     max_delay: float = 0.06
     max_notifications_per_connection: int = 550
+    route_auto_add: bool = False
+    route_username: str = ""
+    route_password: str = ""
+    route_local_net_id: str = ""
+    route_local_host: str = ""
 
 
 def parse_ads_config(
@@ -89,6 +99,29 @@ def parse_ads_config(
             f"connection '{endpoint}': " "max_notifications_per_connection must be > 0"
         )
 
+    route_auto_add = options.get("route_auto_add", False)
+    if type(route_auto_add) is not bool:
+        raise ConfigError("ADS route_auto_add must be a boolean")
+    route_username = _string_option(
+        options.get("route_username"), "route_username", default="", allow_empty=True
+    )
+    route_password = _string_option(
+        options.get("route_password"), "route_password", default="", allow_empty=True
+    )
+    route_local_net_id = _string_option(
+        options.get("route_local_net_id"), "route_local_net_id", default="", allow_empty=True
+    )
+    route_local_host = _string_option(
+        options.get("route_local_host"), "route_local_host", default="", allow_empty=True
+    )
+    if route_auto_add:
+        if not all((
+            target_net_id, route_username, route_password, route_local_net_id, route_local_host
+        )):
+            raise ConfigError("ADS automatic remote routing requires target and local AMS identities and credentials")
+        if not is_valid_ams_net_id(route_local_net_id):
+            raise ConfigError("ADS route_local_net_id must be a valid AMS Net ID")
+
     default_port = 801 if twincat_version == "2" else 802
     target_port = endpoint.port or default_port
 
@@ -101,6 +134,11 @@ def parse_ads_config(
         max_subs_per_sum=max_subs,
         max_delay=max_delay,
         max_notifications_per_connection=max_notifications,
+        route_auto_add=route_auto_add,
+        route_username=route_username,
+        route_password=route_password,
+        route_local_net_id=route_local_net_id,
+        route_local_host=route_local_host,
     )
 
 
