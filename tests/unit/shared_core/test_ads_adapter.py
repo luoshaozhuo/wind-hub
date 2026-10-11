@@ -400,6 +400,57 @@ async def test_ads_driver_exposes_notification_subscription(
 
 
 @pytest.mark.asyncio
+async def test_ads_subscription_ignores_old_generation_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    point = _point(
+        "speed",
+        ext=_point_ext(index_group=0x4020, index_offset=10),
+    )
+    driver = ADSDriver(
+        _endpoint(),
+        PointTable("ads_pt", Protocol("ads"), {"speed": point}),
+        {},
+    )
+    driver._connected = True
+    _FakeNotificationConnection.instances = []
+    monkeypatch.setattr(subscription_module, "_pyads", lambda: _FakeNotificationPyads)
+
+    received: list[ProtocolSample] = []
+
+    async def on_sample(sample: ProtocolSample) -> None:
+        received.append(sample)
+
+    handle = await driver.subscribe(("speed",), on_sample, interval=0.25)
+    subscription = handle._subscription
+    old_connection = _FakeNotificationConnection.instances[-1]
+    old_callback = old_connection.callback
+    assert old_callback is not None
+
+    async with subscription._lock:
+        await subscription._rebuild_locked()
+
+    new_connection = _FakeNotificationConnection.instances[-1]
+    assert new_connection is not old_connection
+    assert new_connection.callback is not None
+
+    # A callback from a closed ADS connection must not refresh the new watchdog.
+    previous = subscription._last_notification["speed"]
+    old_callback(None, (0x4020, 10), None, 1.0)
+    await asyncio.sleep(0)
+    assert subscription._last_notification["speed"] == previous
+    assert received == []
+
+    new_connection.callback(None, (0x4020, 10), None, 2.0)
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if received:
+            break
+    assert received and received[0].value == 2.0
+    await handle.close()
+
+
+@pytest.mark.asyncio
 async def test_ads_local_router_has_single_process_owner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
