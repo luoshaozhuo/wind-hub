@@ -80,14 +80,7 @@ def _run_many(commands: Sequence[tuple[str, Sequence[str]]]) -> bool:
 
 
 def _isolated_tests(root_name: str) -> bool:
-    """各子包独立收集，隔离并行迁移期同名 Protobuf 描述符。
-
-    不跳过任何测试：目录与顶层测试文件均逐个启动新的 pytest 进程。
-    迁移期新旧两包生成自同名 package 的 *_pb2（如
-    ``wind_hub_core.rpc.collector_pb2`` 与
-    ``collector.infrastructure.grpc.collector_pb2``）在同一进程的默认
-    descriptor pool 中互斥；隔离运行是运行环境隔离，不修改任何测试。
-    """
+    """逐子包执行单元与组件测试，便于按模块定位失败。"""
     root = REPO_ROOT / "tests" / root_name
     children = sorted(
         path
@@ -133,10 +126,7 @@ def fast_gate(part: str, targets: str) -> bool:
         if not selected:
             print("GATE RESULT: NOT_APPLICABLE")
             return True
-        # unit/component 均含并行迁移期同名 pb2 的测试包（如
-        # tests/component/ctl 引旧 collector_pb2，tests/component/collector
-        # 引新 collector_pb2），单进程全目录收集必然 duplicate symbol；
-        # 与 unit 相同的逐子包隔离执行。contract 无此冲突，保持单进程。
+        # unit/component 逐子包运行，contract 统一运行。
         checks = [
             (target, _python_module("pytest", f"tests/{target}", "-q"))
             for target in selected
