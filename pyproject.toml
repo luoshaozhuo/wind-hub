@@ -112,6 +112,10 @@ module = [
     "wind_hub_core.rpc.collector_pb2_grpc",
     "wind_hub_core.rpc.commander_pb2",
     "wind_hub_core.rpc.commander_pb2_grpc",
+    "core.infrastructure.rpc.collector_pb2",
+    "core.infrastructure.rpc.collector_pb2_grpc",
+    "core.infrastructure.rpc.commander_pb2",
+    "core.infrastructure.rpc.commander_pb2_grpc",
     "collector.infrastructure.grpc.collector_pb2",
     "collector.infrastructure.grpc.collector_pb2_grpc",
     "commander.infrastructure.grpc.commander_pb2",
@@ -245,10 +249,15 @@ source_modules = ["wind_hub_server"]
 forbidden_modules = ["ctl"]
 
 [[tool.importlinter.contracts]]
-name = "ctl 不得依赖 legacy core 或 server"
+name = "ctl 只依赖 shared core，不依赖进程包或 legacy 包"
 type = "forbidden"
 source_modules = ["ctl"]
-forbidden_modules = ["wind_hub_core", "wind_hub_server"]
+forbidden_modules = [
+    "collector",
+    "commander",
+    "wind_hub_core",
+    "wind_hub_server",
+]
 
 # ---- wind_hub_core.config 内部结构 ----
 # 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
