@@ -265,7 +265,9 @@ class _FakeNotificationAttrib:
         *,
         cycle_time: float,
         max_delay: float,
+        trans_mode: int,
     ) -> None:
+        self.trans_mode = trans_mode
         self.length = length
         self.cycle_time = cycle_time
         self.max_delay = max_delay
@@ -330,6 +332,7 @@ class _FakeNotificationConnection:
 
 
 class _FakeNotificationPyads:
+    ADSTRANS_SERVERCYCLE = 3
     PLCTYPE_REAL = object()
     Connection = _FakeNotificationConnection
     NotificationAttrib = _FakeNotificationAttrib
