@@ -46,13 +46,13 @@ def _backend_pr_targets(path: str) -> set[str]:
 
     if _starts(
         path,
-        "src/wind_hub_core/protocol/",
+        "src/core/infrastructure/protocols/",
         "tests/integration/protocols/",
     ):
         targets.add("integration-protocol")
 
     if (
-        _starts(path, "src/wind_hub_core/rpc/", "tests/integration/rpc/")
+        _starts(path, "src/core/infrastructure/rpc/", "tests/integration/rpc/")
         or "/grpc/" in path
         or path
         in {
