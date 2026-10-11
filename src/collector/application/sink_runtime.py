@@ -238,10 +238,8 @@ class SinkRuntime:
                 self._unhealthy.add(name)
 
         for name, sink in self._sinks.items():
-            if name in self._unhealthy:
-                continue
-            task = asyncio.create_task(self._consumer(name, sink))
-            self._consumer_tasks[name] = task
+            if name not in self._unhealthy:
+                self._restart_consumer(name, sink)
         for watchdog in self._watchdogs.values():
             await watchdog.start()
 
@@ -287,14 +285,7 @@ class SinkRuntime:
         self._consumer_tasks.clear()
 
         for name, sink in self._sinks.items():
-            try:
-                await sink.flush()
-            except Exception:
-                logger.warning("Sink '%s' flush failed", name, exc_info=True)
-            try:
-                await sink.close()
-            except Exception:
-                logger.warning("Sink '%s' close failed", name, exc_info=True)
+            await self._flush_and_close(name, sink, "during shutdown")
 
     # ------------------------------------------------------------------
     # 热重载——sink 增删重建
