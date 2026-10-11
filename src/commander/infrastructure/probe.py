@@ -4,7 +4,7 @@
 ``AdsDiagnosticProbe`` 是短生命周期 ADS 地址解析会话，仅服务诊断，不参与
 生产读写路径（生产读写由 Core ADSDriver 承担）。
 
-pyads 仅在实际使用 ADS 探测时延迟导入；第三方对象以 Any 隔离在适配边界内。
+ADS 诊断使用必需依赖 pyads，第三方动态类型保持在基础设施层。
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import asyncio
 import contextlib
 import ctypes
 from typing import Any
+
+import pyads  # type: ignore[import-untyped]
 
 from core.domain import ConnectionEndpoint, Point, ProtocolOptions
 
@@ -101,7 +103,7 @@ class AdsDiagnosticProbe:
         """建立 ADS 连接；已连接时直接返回。失败时先释放本地 ADS 资源。"""
         if self._connected:
             return
-        pyads = _pyads()
+        pyads = pyads
         net_id = str(self._options.get("target_net_id") or "") or None
         timeout = float(self._options.get("timeout", 5.0) or 5.0)
         connection = pyads.Connection(net_id, self._endpoint.port, self._endpoint.host)
@@ -168,19 +170,12 @@ class AdsDiagnosticProbe:
         self._resolved[point.point_id] = resolved
         return resolved
 
-def _pyads() -> Any:
-    """延迟导入 pyads；未类型化第三方模块限制在本适配边界内。"""
-    import pyads  # type: ignore[import-untyped]
-
-    return pyads
-
-
 def _plc_type(data_type: str) -> Any:
     """把基础类型映射为 pyads PLCTYPE。"""
     ads_name = _TYPE_MAP.get(data_type.lower())
     if ads_name is None:
         raise ValueError(f"unsupported ADS data_type: {data_type}")
-    return getattr(_pyads(), f"PLCTYPE_{ads_name}")
+    return getattr(pyads, f"PLCTYPE_{ads_name}")
 
 
 __all__ = [
