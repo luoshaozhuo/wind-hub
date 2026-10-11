@@ -195,7 +195,7 @@ class TestReconnect:
 
         await server.stop()
         await wait_until(
-            lambda: True if not driver.health().healthy else None,
+            lambda: True if not driver.is_open() else None,
             timeout=10.0,
             description="driver detected disconnect",
         )
@@ -205,7 +205,7 @@ class TestReconnect:
 
         await server.start()
         await wait_until(
-            lambda: True if driver.health().healthy else None,
+            lambda: True if driver.is_open() else None,
             timeout=10.0,
             description="driver auto-reconnected",
         )
@@ -382,13 +382,13 @@ class TestDynamicPoints:
 
             await server.stop()
             await wait_until(
-                lambda: True if not drv.health().healthy else None,
+                lambda: True if not drv.is_open() else None,
                 timeout=10.0,
                 description="driver detected disconnect",
             )
             await server.start()
             await wait_until(
-                lambda: True if drv.health().healthy else None,
+                lambda: True if drv.is_open() else None,
                 timeout=10.0,
                 description="driver auto-reconnected",
             )
@@ -470,7 +470,7 @@ class TestCommandFailures:
         await driver.connect()
         await server.stop()
         await wait_until(
-            lambda: True if not driver.health().healthy else None,
+            lambda: True if not driver.is_open() else None,
             timeout=10.0,
             description="driver detected disconnect",
         )
@@ -739,7 +739,7 @@ class TestLifecycle:
     ) -> None:
         await driver.connect()
         await driver.close()
-        assert driver.health().healthy is False
+        assert driver.is_open() is False
         with pytest.raises(ProtocolError, match="OPEN connection"):
             await driver.read_one("meas.power")
 
@@ -747,9 +747,9 @@ class TestLifecycle:
         await driver.connect()
         await driver.close()
         await driver.close()
-        assert driver.health().healthy is False
+        assert driver.is_open() is False
 
     async def test_close_without_connect(self) -> None:
         drv = _driver(free_port(), _default_points())
         await drv.close()
-        assert drv.health().healthy is False
+        assert drv.is_open() is False
