@@ -19,8 +19,6 @@ from types import MappingProxyType
 from typing import Literal
 
 from core.application import ConfigError
-from core.application.port import ConfigValue
-from core.application.sink_config import ResolvedSinkConfig
 from core.domain import (
     Device,
     DeviceId,
@@ -33,8 +31,8 @@ from core.domain import (
 from core.domain import (
     PointMeta as PointMeta,
 )
-from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
-from core.domain.config import ConfigTopic, TaskConfig
+from core.application.settings import ADSLocalConfig
+from core.domain import Sink, Task
 
 BackpressurePolicy = Literal["drop_old", "drop_new", "block"]
 
@@ -82,10 +80,7 @@ class RuntimeParams:
             raise ConfigError("read_timeout must be > 0")
 
 
-#: 周期采集 Task 的业务定义——直接使用 Core Domain 的 TaskConfig VO
-#: （语义与旧 ``tasks.yaml`` 一致：device/device_group XOR、point_group
-#: 必填、interval > 0、targets 非空不重复、enabled 控制运行实例创建）。
-CollectionTask = TaskConfig
+CollectionTask = Task
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,32 +116,28 @@ class CollectorConfig:
             endpoint extensions）。
         runtime: 运行时参数（队列/背压/超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
-        sinks: resolved Sink 契约注册表（``{name: ResolvedSinkConfig}``，
+        sinks: Sink 注册表（``{name: Sink}``，
             含 disabled——是否实例化由 Runtime 按 ``enabled`` 判定）。
         point_meta: ``{点表: {point_id: PointMeta}}`` 采集分组/展示元数据。
         ads_subscribe_devices: 使用 ADS 订阅推送（notification）的设备集合。
         disabled_devices: 配置级停用设备集合（不进 core 快照，不参与采集）。
         ads_local: 进程级 ADS 本机身份；无 ADS 配置时为 None。
             restart-required——热重载 prepare 阶段拒绝其任何变化。
-        configs: 本快照对应的各主题配置 VO（``{ConfigTopic: ConfigValue}``）——
-            热重载时由 Core Diff 在 VO 层面计算语义差异的基线。
     """
 
-    configs: Mapping[ConfigTopic, ConfigValue] = field(default_factory=dict)
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
     runtime: RuntimeParams = field(default_factory=RuntimeParams)
-    ads_local: ADSLocalIdentity | None = None
+    ads_local: ADSLocalConfig | None = None
     tasks: Mapping[str, CollectionTask] = field(default_factory=dict)
-    sinks: Mapping[str, ResolvedSinkConfig] = field(default_factory=dict)
+    sinks: Mapping[str, Sink] = field(default_factory=dict)
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "configs", MappingProxyType(dict(self.configs)))
         object.__setattr__(self, "devices", MappingProxyType(dict(self.devices)))
         object.__setattr__(self, "device_models", MappingProxyType(dict(self.device_models)))
         object.__setattr__(self, "point_tables", MappingProxyType(dict(self.point_tables)))
