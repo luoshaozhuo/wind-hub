@@ -107,7 +107,7 @@ def test_cross_protocol_inheritance_rejected(tmp_path):
 
 
 def test_incomplete_new_point_rejected(tmp_path):
-    with pytest.raises(ConfigError, match="business_point_id"):
+    with pytest.raises(ConfigError, match="address"):
         _load(
             tmp_path,
             {
