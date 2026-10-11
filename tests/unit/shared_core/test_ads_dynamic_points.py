@@ -6,6 +6,7 @@ fake pyads Connection：动态 ADSPoint 直接按 index_group/index_offset
 
 from __future__ import annotations
 
+import dataclasses
 import struct
 from types import SimpleNamespace
 
@@ -337,3 +338,36 @@ async def test_symbol_is_resolved_on_first_read_and_cached_per_session() -> None
     driver._invalidate_symbol_addresses()
     assert await driver.resolve_symbol("MAIN.speed") == (0x4020, 100)
     assert connection.symbol_calls == ["MAIN.speed", "MAIN.speed"]
+
+
+@pytest.mark.asyncio
+async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _Connection()
+    driver = _driver(connection)
+    driver._config = dataclasses.replace(driver._config, max_subs_per_sum=2)
+    batches: list[list[tuple[int, int, bytes]]] = []
+
+    def fake_sum_write(chunk: object) -> tuple[int, ...]:
+        values = [
+            (point.index_group, point.index_offset, payload)
+            for _index, point, payload in chunk
+        ]
+        batches.append(values)
+        return tuple(0 if point[1] != 200 else 1808 for point in values)
+
+    monkeypatch.setattr(driver, "_sum_write_bytes", fake_sum_write)
+    driver._points.update({
+        name: _dyn(name, offset=offset)
+        for name, offset in (("a", 100), ("b", 200), ("c", 300))
+    })
+    results = await driver.write_many((
+        ProtocolWrite(point_id="a", value=1),
+        ProtocolWrite(point_id="b", value=2),
+        ProtocolWrite(point_id="c", value=3),
+    ))
+    assert [r.success for r in results] == [True, False, True]
+    assert [len(batch) for batch in batches] == [2, 1]
+    assert [int.from_bytes(payload, "little", signed=True)
+            for batch in batches for _, _, payload in batch] == [1, 2, 3]
