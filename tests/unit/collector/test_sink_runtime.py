@@ -9,6 +9,7 @@ import pytest
 from collector.application.config import RuntimeParams
 from collector.application.reload import SinkDiff
 from collector.application.sink_runtime import SinkRuntime
+from core.domain import Sink
 from core.domain.point_value import PointValue
 from tests.support.new_collector import FakeSink
 
@@ -133,14 +134,8 @@ async def test_add_sink_after_start_opens_and_consumes():
     runtime = _runtime({})
     await runtime.start()
     sink = FakeSink()
-    from core.application.sink_config import (
-        FileSinkConnection,
-        ResolvedSinkConfig,
-    )
 
-    cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.csv")
-    )
+    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/x.csv"})
     await runtime.add_sink("s1", cfg, sink)
     assert sink.open_calls == 1
     await runtime.dispatch({"s1": [_value()]})
@@ -154,11 +149,8 @@ async def test_add_sink_open_failure_leaves_registry_unchanged():
     await runtime.start()
     sink = FakeSink()
     sink.fail_open = True
-    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
-    cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/x.csv")
-    )
+    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/x.csv"})
     with pytest.raises(ConnectionError):
         await runtime.add_sink("s1", cfg, sink)
     assert "s1" not in runtime.sinks
@@ -181,11 +173,8 @@ async def test_rebuild_open_first_for_regular_sink():
     runtime = _runtime({"s1": old})
     await runtime.start()
     new = FakeSink()
-    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
-    cfg = ResolvedSinkConfig(
-        name="s1", type="file", connection=FileSinkConnection(path="/tmp/y.csv")
-    )
+    cfg = Sink(sink_id="s1", kind="file", enabled=True, connection={"path": "/tmp/y.csv"})
     await runtime.rebuild_sink("s1", cfg, new)
     assert new.open_calls == 1
     assert old.close_calls == 1
@@ -199,12 +188,8 @@ async def test_rebuild_close_first_for_exclusive_sink_and_restores_on_failure():
     await runtime.start()
     new = FakeSink(exclusive=True)
     new.fail_open = True
-    from core.application.sink_config import (
-        ModbusSinkConnection,
-        ResolvedSinkConfig,
-    )
 
-    cfg = ResolvedSinkConfig(name="s1", type="modbus", connection=ModbusSinkConnection())
+    cfg = Sink(sink_id="s1", kind="modbus", enabled=True, connection={})
     with pytest.raises(ConnectionError):
         await runtime.rebuild_sink("s1", cfg, new)
     # close-first：旧实例已关闭；open 失败后尽力恢复旧实例
@@ -218,11 +203,8 @@ async def test_apply_diff_requires_factory_before_any_removal():
     sink = FakeSink()
     runtime = _runtime({"old": sink})
     await runtime.start()
-    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
-    new_cfg = ResolvedSinkConfig(
-        name="new", type="file", connection=FileSinkConnection(path="/tmp/z.csv")
-    )
+    new_cfg = Sink(sink_id="new", kind="file", enabled=True, connection={"path": "/tmp/z.csv"})
     diff = SinkDiff(added=["new"], removed=["old"])
     with pytest.raises(RuntimeError, match="sink factory"):
         await runtime.apply_diff(diff, {"new": new_cfg})
@@ -234,7 +216,6 @@ async def test_apply_diff_add_remove_update():
     old = FakeSink()
     runtime = _runtime({"keep": old, "drop": FakeSink()})
     await runtime.start()
-    from core.application.sink_config import FileSinkConnection, ResolvedSinkConfig
 
     made: list[FakeSink] = []
 
@@ -244,12 +225,8 @@ async def test_apply_diff_add_remove_update():
         return sink
 
     runtime._sink_factory = factory
-    cfg_keep = ResolvedSinkConfig(
-        name="keep", type="file", connection=FileSinkConnection(path="/tmp/k2.csv")
-    )
-    cfg_new = ResolvedSinkConfig(
-        name="new", type="file", connection=FileSinkConnection(path="/tmp/n.csv")
-    )
+    cfg_keep = Sink(sink_id="keep", kind="file", enabled=True, connection={"path": "/tmp/k2.csv"})
+    cfg_new = Sink(sink_id="new", kind="file", enabled=True, connection={"path": "/tmp/n.csv"})
     diff = SinkDiff(added=["new"], removed=["drop"], updated=["keep"])
     await runtime.apply_diff(diff, {"keep": cfg_keep, "new": cfg_new})
     assert set(runtime.sinks) == {"keep", "new"}
