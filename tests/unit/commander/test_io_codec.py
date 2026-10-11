@@ -16,8 +16,8 @@ from commander.infrastructure.grpc.io_codec import (
     encode_scalar,
     point_value_to_proto,
 )
-from core.infrastructure.rpc import commander_pb2 as pb
 from core.application import Quality
+from core.infrastructure.rpc import commander_pb2 as pb
 
 
 @pytest.mark.parametrize(
