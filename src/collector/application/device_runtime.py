@@ -69,9 +69,8 @@ class DeviceRuntime:
         self._watchdogs: dict[str, WatchdogUseCase] = {}
         self._watchdogs_running = False
         self._reconnect_callback: Callable[[str], Awaitable[None]] | None = None
-        # 每台设备的 connect 串行化锁：并发显式 force connect 在同一设备上
-        # force 控制路径）在同一断线事件上只允许一个协程真正发起 connect，
-        # 其余协程在锁内复查状态后直接收敛，避免重复连接与重复指标记账。
+        # 同一设备的显式 connect 与 Watchdog close/connect 共用锁，
+        # 避免热更新期间并发连接和重复指标记账。
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
@@ -302,7 +301,7 @@ class DeviceRuntime:
         优先沿异常 cause 链判定连接级故障；若第三方协议库把断线包装成
         不含 OSError 的协议异常，则再读取 Driver 的缓存 health。Driver 已
         标记 unhealthy 时同样把 DeviceRuntime 状态切到 disconnected，使下一周期
-        进入 ``ensure_connected`` 重连路径。
+        等待 Watchdog 的下一次周期性恢复。
         """
         connection_level = is_connection_level(error)
         if not connection_level:
@@ -356,6 +355,7 @@ class DeviceRuntime:
 
         self._device_states.pop(device_id, None)
         self._views.pop(device_id, None)
+        self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
         self, device_id: str, view: DeviceView, session: CollectorDeviceSession
@@ -428,6 +428,7 @@ class DeviceRuntime:
             health_timeout=self._params.health_timeout,
             connect_timeout=self._params.connect_timeout,
             on_success=_on_success,
+            lifecycle_lock=self._connect_locks.setdefault(device_id, asyncio.Lock()),
         )
 
     async def _connect_new(
