@@ -39,7 +39,6 @@ from core.domain import (
     raw_write_value,
 )
 
-from .config import PointMeta
 from .errors import CommandError
 
 
@@ -73,7 +72,6 @@ class DeviceSession:
         device: 共享领域设备聚合。
         point_table: 设备型号绑定的 resolved 点表。
         business_points: 快照中的业务点索引（写值类型参考）。
-        point_meta: 本点表的进程级点位元数据。
         protocol: 组合根经 ProtocolRegistry 创建的协议 Driver。
     """
 
@@ -82,13 +80,11 @@ class DeviceSession:
         device: Device,
         point_table: PointTable,
         business_points: Mapping[BusinessPointId, BusinessPoint],
-        point_meta: Mapping[str, PointMeta],
         protocol: ProtocolPort,
     ) -> None:
         self._device = device
         self._point_table = point_table
         self._business_points = business_points
-        self._point_meta = point_meta
         self._protocol = protocol
 
     @property
@@ -123,16 +119,12 @@ class DeviceSession:
             raise CommandError(f"unknown point '{self._device.device_id}/{point_id}'")
         return point
 
-    def point_meta(self, point_id: str) -> PointMeta:
-        """返回点位进程级元数据；缺省时返回空元数据。"""
-        return self._point_meta.get(point_id, PointMeta(variable_name=None, point_groups=()))
-
     def point_group_points(self, point_group: str) -> list[Point]:
         """返回属于指定 point_group 的点定义（诊断批量验证用）。"""
         return [
             point
             for point in self._point_table.points.values()
-            if point_group in self.point_meta(point.point_id).point_groups
+            if point_group in point.point_groups
         ]
 
     async def connect(self) -> None:
