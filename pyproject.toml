@@ -11,7 +11,7 @@ packages = [
     { include = "commander", from = "src" },
     { include = "wind_hub_server", from = "src" },
     { include = "wind_hub_core", from = "src" },
-    { include = "wind_hub_ctl", from = "src" },
+    { include = "ctl", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -60,7 +60,7 @@ types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
 wind-hub-collector = "collector.main:main"
-wind-hub-ctl = "wind_hub_ctl.main:main"
+wind-hub-ctl = "ctl.main:main"
 wind-hub-server = "wind_hub_server.main:main"
 wind-hub-commander = "commander.main:main"
 
@@ -157,7 +157,7 @@ root_packages = [
     "commander",
     "wind_hub_core",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 
 
@@ -170,7 +170,7 @@ source_modules = ["core"]
 forbidden_modules = [
     "wind_hub_core",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 
 [[tool.importlinter.contracts]]
@@ -192,7 +192,7 @@ source_modules = ["commander"]
 forbidden_modules = [
     "wind_hub_core",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
     "collector",
 ]
 
@@ -203,7 +203,7 @@ source_modules = ["collector"]
 forbidden_modules = [
     "wind_hub_core",
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
     "commander",
 ]
 
@@ -235,7 +235,7 @@ type = "forbidden"
 source_modules = ["wind_hub_core"]
 forbidden_modules = [
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 
 [[tool.importlinter.contracts]]
@@ -247,8 +247,8 @@ forbidden_modules = ["wind_hub_ctl"]
 [[tool.importlinter.contracts]]
 name = "ctl 不得依赖 collector / commander / server"
 type = "forbidden"
-source_modules = ["wind_hub_ctl"]
-forbidden_modules = ["wind_hub_server"]
+source_modules = ["ctl"]
+forbidden_modules = ["wind_hub_core", "wind_hub_server"]
 
 # ---- wind_hub_core.config 内部结构 ----
 # 依赖方向：loader → resolver / validation / diff → model；model 为纯 schema 层，
@@ -273,7 +273,7 @@ name = "生产代码只经 config façade 访问配置"
 type = "forbidden"
 source_modules = [
     "wind_hub_server",
-    "wind_hub_ctl",
+    "ctl",
 ]
 forbidden_modules = [
     "wind_hub_core.config.model",
