@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.application import ProtocolRegistry
+from core.application.port import SinkPort
 from core.application.settings import ADSLocalConfig
 from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
@@ -23,7 +24,6 @@ from .application.identity import CollectorIdentity, build_collector_identity
 from .application.metrics_state import CollectorMetricsState
 from .application.runtime import CollectorRuntime
 from .application.session import CollectorDeviceSession
-from core.application.port import SinkPort
 from .application.sink_registry import SinkFactory
 from .domain.acquisition import AcquisitionEngine
 from .infrastructure.config.loader import load_collector_config

@@ -28,6 +28,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from core.application import ConnectionHealth
+from core.application.port import SinkPort
 from core.domain import DeviceId
 
 from ..domain.acquisition import AcquisitionEngine
@@ -43,7 +44,6 @@ from .reload import (
     TaskDiff,
 )
 from .session import AcquisitionMode, CollectorDeviceSession
-from core.application.port import SinkPort
 from .sink_registry import SinkFactory
 from .sink_runtime import SinkRuntime
 from .task_instance import CollectionTaskInstance, TaskInstanceState

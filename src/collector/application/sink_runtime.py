@@ -18,12 +18,11 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from core.application import ConnectionHealth, WatchdogUseCase
+from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from core.domain import Sink
-
 from core.domain.point_value import PointValue
 from .config import RuntimeParams
 from .reload import SinkDiff
-from core.application.port import ExclusiveOpenSinkPort, SinkPort
 from .sink_registry import SinkFactory
 
 logger = logging.getLogger(__name__)
