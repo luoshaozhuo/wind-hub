@@ -19,7 +19,6 @@ from typing import Any
 
 import pyads  # type: ignore[import-untyped]
 
-from core.application.settings import ADSLocalConfig
 from core.application.errors import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -31,6 +30,7 @@ from core.application.protocol_contract import (
     Quality,
     WritableScalar,
 )
+from core.application.settings import ADSLocalConfig
 from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 
 from .config import ADSConfig, parse_ads_config
