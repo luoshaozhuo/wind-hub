@@ -36,6 +36,8 @@ from core.domain import ConnectionEndpoint, PointTable, ProtocolOptions
 from .config import ModbusConfig, parse_modbus_config
 from .mapping import ModbusPoint, group_consecutive_reads, parse_modbus_point
 
+_T = TypeVar("_T")
+
 _BIT_TYPES = frozenset({"coil", "discrete_input"})
 _READ_ONLY_TYPES = frozenset({"discrete_input", "input"})
 _MULTI_REGISTER_TYPES = frozenset({"int32", "uint32", "float32", "int64", "uint64", "float64"})
