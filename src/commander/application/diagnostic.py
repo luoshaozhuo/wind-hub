@@ -455,7 +455,7 @@ class CommanderDiagnosticService:
         source: str | None = None,
         error: str | None = None,
     ) -> PointVerifyResult:
-        meta = device.point_meta(point.point_id)
+        meta = point
         engineering = engineering_value(point, raw_value)
 
         code = DiagnosticCode.OK
