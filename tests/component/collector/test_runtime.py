@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 from dataclasses import replace
 
 from collector.application.config import CollectionTask
@@ -173,3 +175,39 @@ async def test_stop_idempotent_and_lifecycle_serialized():
     assert runtime.running
     await asyncio.gather(runtime.stop(), runtime.stop())
     assert not runtime.running
+
+
+async def test_start_failure_releases_devices_and_sinks():
+    """Task 实例注册异常时，所有已启动子系统必须回滚。"""
+    sink = FakeSink()
+    runtime, protocol = make_runtime(make_collector_config(), sinks={"s1": sink})
+
+    async def fail_sync() -> None:
+        raise RuntimeError("task sync failed")
+
+    runtime.task_runtime.sync_instances = fail_sync  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="task sync failed"):
+        await runtime.start()
+
+    assert not runtime.running
+    assert not runtime._running
+    assert sink.close_calls == 1
+    assert protocol.close_calls == 1
+
+
+async def test_stop_releases_sinks_and_devices_after_task_stop_failure():
+    """停采集失败不能阻止 Sink 和设备释放。"""
+    sink = FakeSink()
+    runtime, protocol = make_runtime(make_collector_config(), sinks={"s1": sink})
+    await runtime.start()
+
+    async def fail_stop() -> None:
+        raise RuntimeError("task stop failed")
+
+    runtime.task_runtime.stop_all = fail_stop  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="task stop failed"):
+        await runtime.stop()
+
+    assert not runtime.running
+    assert sink.close_calls == 1
+    assert protocol.close_calls == 1
