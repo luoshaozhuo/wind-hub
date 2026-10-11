@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+
 class DiagnosticCode(StrEnum):
     """诊断阶段的稳定结果码（gRPC/CLI 契约）。"""
 
