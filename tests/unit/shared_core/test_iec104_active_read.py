@@ -86,13 +86,13 @@ async def test_read_one_serializes_same_ioa() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_read_does_not_block_on_library_response() -> None:
+async def test_send_read_uses_supported_point_api() -> None:
     driver = _driver()
     seen = []
 
     class Point:
-        def read(self, *, wait_for_response: bool = True) -> bool:
-            seen.append(wait_for_response)
+        def read(self) -> bool:
+            seen.append(True)
             return True
 
     class Station:
@@ -104,7 +104,7 @@ async def test_send_read_does_not_block_on_library_response() -> None:
     driver._dynamic_points = {}
     driver._points_by_ioa = {11: driver._points_by_id["p"]}
     await driver._send_read(driver._points_by_id["p"])
-    assert seen == [False]
+    assert seen == [True]
 
 
 @pytest.mark.asyncio
@@ -112,8 +112,7 @@ async def test_send_read_rejected_by_library() -> None:
     driver = _driver()
 
     class Point:
-        def read(self, *, wait_for_response: bool = True) -> bool:
-            assert not wait_for_response
+        def read(self) -> bool:
             return False
 
     class Station:
