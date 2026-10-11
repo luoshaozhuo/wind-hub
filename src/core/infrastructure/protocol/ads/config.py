@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.application.errors import ConfigError
 from core.domain import ConnectionEndpoint, ProtocolOptions
@@ -38,7 +38,7 @@ class ADSConfig:
     max_notifications_per_connection: int = 550
     route_auto_add: bool = False
     route_username: str = ""
-    route_password: str = ""
+    route_password: str = field(default="", repr=False)
     route_local_net_id: str = ""
     route_local_host: str = ""
 
