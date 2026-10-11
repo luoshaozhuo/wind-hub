@@ -315,12 +315,17 @@ class ADSSubscription:
                 self._loop.call_soon_threadsafe(
                     self._schedule_sample,
                     sample,
+                    generation,
                 )
 
         return callback
 
-    def _schedule_sample(self, sample: ProtocolSample) -> None:
-        if self._closed or sample.point_id not in self._last_notification:
+    def _schedule_sample(self, sample: ProtocolSample, generation: int) -> None:
+        if (
+            self._closed
+            or generation != self._generation
+            or sample.point_id not in self._last_notification
+        ):
             return
         self._last_notification[sample.point_id] = time.monotonic()
         task = asyncio.create_task(self._invoke_callback(sample))
