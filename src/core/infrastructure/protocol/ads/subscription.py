@@ -160,23 +160,17 @@ class ADSSubscription:
             return
 
         max_per = self._config.max_notifications_per_connection
-        for start in range(0, len(self._points), max_per):
-            chunk = self._points[start : start + max_per]
-            connection = await self._create_connection()
-            self._connections.append(connection)
-            try:
+        try:
+            for start in range(0, len(self._points), max_per):
+                chunk = self._points[start : start + max_per]
+                connection = await self._create_connection()
+                self._connections.append(connection)
                 for point in chunk:
-                    resolved = await self._resolve_point(
-                        connection,
-                        point,
-                    )
-                    await self._register_point(
-                        connection,
-                        resolved,
-                    )
-            except Exception:
-                await self._close_pool_locked()
-                raise
+                    resolved = await self._resolve_point(connection, point)
+                    await self._register_point(connection, resolved)
+        except BaseException:
+            await self._close_pool_locked()
+            raise
 
     async def _create_connection(self) -> Any:
         pyads = _pyads()
