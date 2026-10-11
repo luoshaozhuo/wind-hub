@@ -808,7 +808,7 @@ def _encode_value(value: float | int | bool | str, point: ADSPoint) -> bytes:
         encoded = value.encode("utf-8") if isinstance(value, str) else b""
         if point.size <= 0 or len(encoded) >= point.size:
             raise ValueError(f"ADS STRING '{point.point_id}' exceeds configured size")
-        return encoded.ljust(point.size, b"\\x00")
+        return encoded.ljust(point.size, b"\x00")
     datatype = _plc_datatype(point.data_type)
     raw = bytes(datatype(value))
     if len(raw) != point.size:
