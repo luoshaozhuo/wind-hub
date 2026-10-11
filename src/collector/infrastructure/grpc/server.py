@@ -21,9 +21,10 @@ from ...application.services import (
     TaskInstanceDetail,
     TaskSummary,
 )
+from core.infrastructure.rpc import collector_pb2 as pb
+from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+
 from ...assembly import CollectorApp
-from . import collector_pb2 as pb
-from . import collector_pb2_grpc as pb_grpc
 
 
 def _required(value: str, field: str) -> str:
