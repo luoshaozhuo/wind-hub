@@ -15,6 +15,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
+import c104
+
 from core.application.errors import ConfigError, ProtocolError
 from core.application.protocol_contract import (
     ConnectionHealth,
@@ -140,14 +142,6 @@ class _SubscriptionRegistry:
             subscription.schedule(sample)
 
 
-def _c104() -> Any:
-    try:
-        import c104
-    except ImportError as exc:
-        raise ConfigError("IEC104 support requires the optional 'c104' dependency") from exc
-    return c104
-
-
 class IEC104Driver:
     """单个 Endpoint 的 IEC104 主站 Driver。
 
@@ -243,7 +237,7 @@ class IEC104Driver:
             if self._client is not None:
                 return
 
-            c104 = _c104()
+            c104 = c104
             self._closed = False
             self._is_open = False
             self._loop = asyncio.get_running_loop()
@@ -575,7 +569,7 @@ class IEC104Driver:
         if not self._is_open or self._connection is None:
             raise ProtocolError("IEC104 interrogation requires an OPEN connection")
 
-        c104 = _c104()
+        c104 = c104
         connection = self._connection
         accepted = await asyncio.to_thread(
             connection.interrogation,
@@ -617,7 +611,7 @@ class IEC104Driver:
                 )
 
             point.value = value
-            c104 = _c104()
+            c104 = c104
             started = time.monotonic()
             try:
                 accepted = await asyncio.to_thread(
@@ -713,7 +707,7 @@ class IEC104Driver:
         if station is None:
             raise ProtocolError("IEC104 station is not available")
         type_id = mapped.type_id
-        c104 = _c104()
+        c104 = c104
         point_type = getattr(c104.Type, type_id, None) if type_id is not None else None
         if point_type is None or not str(type_id).startswith("M_"):
             raise ProtocolError(
@@ -777,7 +771,7 @@ class IEC104Driver:
     def _handle_state(self, state: Any) -> None:
         if self._closed:
             return
-        c104 = _c104()
+        c104 = c104
         if state == c104.ConnectionState.OPEN:
             self._is_open = True
             if self._open_event is not None:
@@ -814,7 +808,7 @@ class IEC104Driver:
         point.on_receive(callable=factory(self._handle_point_receive))
 
     def _handle_point_receive(self, point: Any, message: Any) -> Any:
-        c104 = _c104()
+        c104 = c104
         ioa = point.io_address
         mapped = self._ioa_mapping(ioa)
         if mapped is None:
