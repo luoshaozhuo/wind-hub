@@ -8,13 +8,13 @@ import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
 import core.infrastructure.protocol.ads.subscription as subscription_module
-from core.application.settings import ADSLocalConfig
 from core.application import (
     ConfigError,
     ProtocolError,
     ProtocolSample,
     ProtocolWrite,
 )
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     UNIT_CATALOG,
     ConnectionEndpoint,
