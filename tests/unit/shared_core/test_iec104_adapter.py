@@ -8,6 +8,9 @@ import pytest
 
 from core.application import (
     ConfigError,
+    ProtocolCapability,
+    ProtocolCapabilityError,
+    ProtocolError,
     ProtocolSample,
     Quality,
 )
@@ -284,13 +287,10 @@ async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
             {"wind_speed": replacement},
         )
     )
-    sample = await driver.read_one("wind_speed")
-    assert sample.point_id == "wind_speed"
-    assert sample.value is None
-    assert sample.quality == Quality.BAD
-    # BAD 镜像缺失样本同样携带必填的本地接收时间戳
-    assert sample.timestamp.tzinfo is not None
-    assert sample.timestamp_source == "local"
+    assert 100 not in driver._samples
+    driver._closed = False
+    with pytest.raises(ProtocolError, match="active read"):
+        await driver.read_one("wind_speed")
 
 
 def test_iec104_invalid_point_table_update_is_atomic() -> None:
@@ -330,3 +330,13 @@ async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
         ),
     )
     assert 100 not in driver._samples
+
+
+@pytest.mark.asyncio
+async def test_iec104_rejects_batch_operations_without_network_io() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    assert ProtocolCapability.WRITE_MANY not in driver.capabilities()
+    with pytest.raises(ProtocolCapabilityError, match="read_many"):
+        await driver.read_many(("power",))
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
+        await driver.write_many(())
