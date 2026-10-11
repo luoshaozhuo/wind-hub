@@ -58,13 +58,13 @@ class YamlConfigAdapter:
         except Exception:
             for filename in reversed(written):
                 target = self._base / filename
-                original = originals[filename]
-                if original is None:
+                original_bytes = originals[filename]
+                if original_bytes is None:
                     target.unlink(missing_ok=True)
                     continue
                 with tempfile.NamedTemporaryFile(dir=self._base, delete=False) as handle:
                     temporary = Path(handle.name)
-                    handle.write(original)
+                    handle.write(original_bytes)
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temporary, target)
