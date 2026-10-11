@@ -544,3 +544,19 @@ async def test_ads_local_router_releases_owner_when_pyads_unavailable(
     monkeypatch.setattr(router_module, "_pyads", lambda: fake_pyads)
     await second.initialize(config)
     await second.close()
+
+
+def test_ads_symbol_index_address_rejects_invalid_values() -> None:
+    from types import SimpleNamespace
+
+    from core.infrastructure.protocol.ads.mapping import symbol_index_address
+
+    assert symbol_index_address(
+        "MAIN.speed", SimpleNamespace(index_group=0x4020, index_offset=0)
+    ) == (0x4020, 0)
+    for group, offset in [(True, 1), (-1, 1), (1, None), (1, False)]:
+        with pytest.raises(ConfigError, match="invalid index address"):
+            symbol_index_address(
+                "MAIN.speed",
+                SimpleNamespace(index_group=group, index_offset=offset),
+            )
