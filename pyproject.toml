@@ -239,13 +239,13 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "server 不得依赖 collector / commander / ctl"
+name = "server 不得依赖 ctl"
 type = "forbidden"
 source_modules = ["wind_hub_server"]
-forbidden_modules = ["wind_hub_ctl"]
+forbidden_modules = ["ctl"]
 
 [[tool.importlinter.contracts]]
-name = "ctl 不得依赖 collector / commander / server"
+name = "ctl 不得依赖 legacy core 或 server"
 type = "forbidden"
 source_modules = ["ctl"]
 forbidden_modules = ["wind_hub_core", "wind_hub_server"]
