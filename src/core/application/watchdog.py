@@ -122,7 +122,8 @@ class WatchdogUseCase:
         try:
             await task
         except asyncio.CancelledError:
-            if asyncio.current_task() is not None and asyncio.current_task().cancelling():
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
                 raise
 
     async def _reconnect_if_current(self, generation: int) -> bool:
