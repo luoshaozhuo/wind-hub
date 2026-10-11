@@ -26,7 +26,7 @@ def _parse_scalar(text: str) -> object:
     except json.JSONDecodeError:
         return text
     if isinstance(value, (dict, list)) or value is None:
-        raise argparse.ArgumentTypeError("value must be bool/int/float/string")
+        raise ValueError("value must be bool/int/float/string")
     return value
 
 
