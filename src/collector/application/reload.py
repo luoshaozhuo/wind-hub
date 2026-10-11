@@ -147,19 +147,22 @@ _V = TypeVar("_V")
 
 def _differences(
     old: Mapping[_K, _V], new: Mapping[_K, _V]
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """返回 added、removed、updated、unchanged，统一各类配置的比较规则。"""
     before, after = set(old), set(new)
+    common = before & after
     return (
         sorted(str(key) for key in after - before),
         sorted(str(key) for key in before - after),
-        sorted(str(key) for key in before & after if old[key] != new[key]),
+        sorted(str(key) for key in common if old[key] != new[key]),
+        sorted(str(key) for key in common if old[key] == new[key]),
     )
 
 
 def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
     """直接比较领域对象与已解析的运行配置，不依赖旧主题 VO。"""
     old_devices, new_devices = old.devices, new.devices
-    added, removed, changed = _differences(dict(old_devices), dict(new_devices))
+    added, removed, changed, _ = _differences(old_devices, new_devices)
     common = set(old_devices) & set(new_devices)
     updated = set(changed)
     for device_id in common:
@@ -183,16 +186,16 @@ def compute_diff(old: CollectorConfig, new: CollectorConfig) -> ConfigDiff:
         str(key) for key in set(old.point_tables) | set(new.point_tables)
         if old.point_tables.get(key) != new.point_tables.get(key)
     )
-    added_sinks, removed_sinks, changed_sinks = _differences(dict(old.sinks), dict(new.sinks))
+    added_sinks, removed_sinks, changed_sinks, unchanged_sinks = _differences(old.sinks, new.sinks)
     # 下游 Sink 引用可能因设备映射或点表变化而改变，直接比较解析后契约。
     sinks = SinkDiff(
         added=added_sinks, removed=removed_sinks, updated=changed_sinks,
-        unchanged=sorted((set(old.sinks) & set(new.sinks)) - set(changed_sinks)),
+        unchanged=unchanged_sinks,
     )
-    added_tasks, removed_tasks, changed_tasks = _differences(dict(old.tasks), dict(new.tasks))
+    added_tasks, removed_tasks, changed_tasks, unchanged_tasks = _differences(old.tasks, new.tasks)
     tasks = TaskDiff(
         added=added_tasks, removed=removed_tasks, updated=changed_tasks,
-        unchanged=sorted((set(old.tasks) & set(new.tasks)) - set(changed_tasks)),
+        unchanged=unchanged_tasks,
     )
     return ConfigDiff(
         devices=devices, sinks=sinks, tasks=tasks,
