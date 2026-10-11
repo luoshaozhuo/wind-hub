@@ -101,7 +101,8 @@ def test_protocol_write_normalizes_point_id() -> None:
         ProtocolWrite(point_id=" ", value=1.0)
 
 
-def test_protocol_registry_is_explicit_and_case_normalized() -> None:
+@pytest.mark.asyncio
+async def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     registry = ProtocolRegistry()
     registry.register(
         "Modbus",
