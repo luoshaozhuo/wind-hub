@@ -66,10 +66,10 @@ class SinkRegistry:
         Raises:
             ConfigError: 类型未注册。
         """
-        factory = self._factories.get(cfg.type)
+        factory = self._factories.get(cfg.kind)
         if factory is None:
             raise ConfigError(
-                f"Unknown sink type '{cfg.type}'. " f"Registered types: {sorted(self._factories)}"
+                f"Unknown sink type '{cfg.kind}'. " f"Registered types: {sorted(self._factories)}"
             )
         return factory(cfg)
 
