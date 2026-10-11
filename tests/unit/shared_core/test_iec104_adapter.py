@@ -384,3 +384,24 @@ async def test_negative_unsolicited_message_does_not_enter_mirror() -> None:
         negative=True,
     )
     assert 100 not in driver._samples
+
+
+@pytest.mark.asyncio
+async def test_duplicate_subscription_point_does_not_duplicate_delivery() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    seen = []
+    received = asyncio.Event()
+
+    async def callback(sample: ProtocolSample) -> None:
+        seen.append(sample.value)
+        received.set()
+
+    handle = await driver.subscribe(("power", "power"), callback)
+    driver._store_sample(
+        100, ProtocolSample(point_id="power", value=7, timestamp=datetime.now(UTC))
+    )
+    await asyncio.wait_for(received.wait(), 1)
+    await handle.close()
+    assert seen == [7]
