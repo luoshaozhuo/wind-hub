@@ -17,16 +17,17 @@ import asyncio
 import pytest
 
 from commander.application.command import Command
-from commander.application.config import ADSLocalIdentity, CommanderConfig
+from commander.application.config import CommanderConfig
+from core.application.settings import ADSLocalConfig
 from commander.application.diagnostic import CommanderDiagnosticService
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
 from core.application import ProtocolWriteResult
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
-_IDENTITY_A = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
-_IDENTITY_B_NET_ID = ADSLocalIdentity(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1")
-_IDENTITY_B_IP = ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10")
+_IDENTITY_A = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
+_IDENTITY_B_NET_ID = ADSLocalConfig(local_ams_net_id="9.9.9.9.1.1", local_ip="127.0.0.1", username="test", password="test")
+_IDENTITY_B_IP = ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="192.168.0.10", username="test", password="test")
 
 _ADS_ADDRESS = {"symbol": "MAIN.value", "data_type": "float32"}
 
@@ -65,8 +66,8 @@ def _runtime(
     ids=["none-to-configured", "configured-to-none", "net-id-change", "ip-change"],
 )
 async def test_ads_local_identity_change_rejected_at_prepare(
-    current_identity: ADSLocalIdentity | None,
-    candidate_identity: ADSLocalIdentity | None,
+    current_identity: ADSLocalConfig | None,
+    candidate_identity: ADSLocalConfig | None,
 ):
     config = make_commander_config(ads_local=current_identity)
     runtime = _runtime(config)

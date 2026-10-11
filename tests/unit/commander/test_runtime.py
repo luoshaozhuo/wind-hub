@@ -92,11 +92,11 @@ async def test_activate_revision_mismatch_rejected():
 
 
 async def test_prepare_rejects_ads_identity_change():
-    from tests.support.new_commander import ADSLocalIdentity  # noqa: PLC0415
+    from core.application.settings import ADSLocalConfig
 
     runtime, _ = _runtime()
     candidate = make_commander_config(
-        ads_local=ADSLocalIdentity(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1")
+        ads_local=ADSLocalConfig(local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test")
     )
     with pytest.raises(ValueError, match="ADS local identity"):
         await runtime.prepare_config("r2", candidate, "hash-b")

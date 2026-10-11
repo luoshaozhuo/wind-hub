@@ -68,7 +68,7 @@ async def test_read_service_unknown_device_and_point():
     service = CommanderReadService(runtime)
     with pytest.raises(Exception, match="unknown device"):
         await service.read_point("ghost", "p1")
-    with pytest.raises(Exception, match="unknown points"):
+    with pytest.raises(Exception, match="unknown point"):
         await service.read_points("dev1", ["p1", "ghost"])
     with pytest.raises(Exception, match="non-empty"):
         await service.read_points("dev1", [])

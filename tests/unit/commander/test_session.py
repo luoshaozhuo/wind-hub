@@ -21,8 +21,6 @@ def _session(**kwargs) -> tuple[DeviceSession, FakeProtocol]:
     session = DeviceSession(
         device,
         table,
-        config.business_points,
-        config.point_meta[table.point_table_id],
         protocol,
     )
     return session, protocol
@@ -177,5 +175,4 @@ def test_point_group_lookup():
     session, _ = _session()
     assert [p.point_id for p in session.point_group_points("g")] == ["p1"]
     assert session.point_group_points("unknown") == []
-    meta = session.point_meta("p1")
-    assert meta.variable_name == "P1"
+    assert session.point("p1").variable_name == "P1"
