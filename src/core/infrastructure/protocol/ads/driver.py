@@ -110,6 +110,7 @@ class ADSDriver:
         ] = {}
         self._read_unresolved_cache: dict[tuple[str | ADSPoint, ...], tuple[int, ...]] = {}
         self._points: dict[str, ADSPoint] = {}
+        self._symbol_cache: dict[str, tuple[int, int]] = {}
         self.update_point_table(point_table)
 
     def update_point_table(self, point_table: PointTable) -> None:
@@ -125,6 +126,7 @@ class ADSDriver:
         self._read_plan_cache.clear()
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
+        self._symbol_cache.clear()
 
     def capabilities(self) -> frozenset[ProtocolCapability]:
         """返回 ADS Driver 实际支持的协议能力。"""
@@ -149,7 +151,7 @@ class ADSDriver:
         return connection
 
     async def connect(self) -> None:
-        """建立一次 ADS session 并解析全部 symbol 地址。"""
+        """建立 ADS session；Symbol 地址在首次使用时按需解析。"""
         async with self._lock:
             if self._connected:
                 return
@@ -164,7 +166,6 @@ class ADSDriver:
 
                 self._connection = connection
                 self._invalidate_symbol_addresses()
-                await self._resolve_symbols()
             except ProtocolError:
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(connection.close)
@@ -270,11 +271,11 @@ class ADSDriver:
         不查点表、不做 symbol 解析）。点级失败（symbol 不存在等）返回
         BAD 质量样本；连接/传输级失败统一标记断线并抛 ProtocolError。
         """
-        mapped = self._resolve_point(point)
-        point_id = mapped.point_id
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
+            mapped = await self._resolve_point_locked(point)
+            point_id = mapped.point_id
             if not mapped.address_resolved:
                 return _bad_sample(point_id)
             try:
@@ -327,6 +328,7 @@ class ADSDriver:
         async with self._lock:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
+            mapped = await self._resolve_point_locked(mapped)
             try:
                 return await self._write_single_point(mapped, write_value)
             except Exception as exc:
@@ -362,6 +364,8 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS read requires an active connection")
             try:
+                for point in points:
+                    await self._resolve_point_locked(point)
                 return await self._read_sum_raw(points)
             except ProtocolError:
                 raise
@@ -384,7 +388,9 @@ class ADSDriver:
             if not self._connected or self._connection is None:
                 raise ProtocolError("ADS write requires an active connection")
 
-            mapped_batch = [self._mapped_point(write.point_id) for write in writes]
+            mapped_batch = [
+                await self._resolve_point_locked(write.point_id) for write in writes
+            ]
             results: list[ProtocolWriteResult] = []
             try:
                 for write, mapped in zip(writes, mapped_batch, strict=True):
@@ -549,51 +555,54 @@ class ADSDriver:
             raise RuntimeError("ADS read did not produce a result for every point")
         return tuple(result for result in results if result is not None)
 
-    async def _resolve_symbols(self) -> None:
-        self._read_plan_cache.clear()
-        self._read_variable_cache.clear()
-        self._read_unresolved_cache.clear()
-        """在当前 session 内一次性解析 symbol -> index 地址。"""
+    async def resolve_symbol(self, symbol: str) -> tuple[int, int]:
+        """按需查询 PLC 符号地址；同一 ADS session 内复用解析结果。"""
+        async with self._lock:
+            if not self._connected or self._connection is None:
+                raise ProtocolError("ADS resolve_symbol requires an active connection")
+            return await self._resolve_symbol_locked(symbol)
+
+    async def _resolve_symbol_locked(self, symbol: str) -> tuple[int, int]:
+        cached = self._symbol_cache.get(symbol)
+        if cached is not None:
+            return cached
         connection = self._connection
         if connection is None:
             raise ProtocolError("ADS connection is not available")
+        info = await asyncio.to_thread(connection.get_symbol, symbol)
+        group = getattr(info, "index_group", None)
+        offset = getattr(info, "index_offset", None)
+        if (
+            type(group) is not int
+            or type(offset) is not int
+            or group < 0
+            or offset < 0
+        ):
+            raise ProtocolError(f"ADS symbol '{symbol}' returned an invalid index address")
+        address = (group, offset)
+        self._symbol_cache[symbol] = address
+        return address
 
-        for point_id, point in tuple(self._points.items()):
-            if point.symbol is None:
-                continue
-            try:
-                symbol = await asyncio.to_thread(
-                    connection.get_symbol,
-                    point.symbol,
-                )
-            except Exception as exc:
-                if _is_point_level_error(exc):
-                    continue
-                raise
-
-            index_group = getattr(symbol, "index_group", None)
-            index_offset = getattr(symbol, "index_offset", None)
-            if (
-                isinstance(index_group, bool)
-                or not isinstance(index_group, int)
-                or isinstance(index_offset, bool)
-                or not isinstance(index_offset, int)
-            ):
-                continue
-
-            size = point.size
-            plc_type = getattr(symbol, "plc_type", None)
-            if plc_type is not None:
-                with contextlib.suppress(TypeError):
-                    size = ctypes.sizeof(plc_type)
-
-            self._points[point_id] = point.resolved(
-                index_group=index_group,
-                index_offset=index_offset,
-                size=size,
-            )
+    async def _resolve_point_locked(self, point: str | ADSPoint) -> ADSPoint:
+        mapped = self._resolve_point(point)
+        if mapped.address_resolved or mapped.symbol is None:
+            return mapped
+        try:
+            group, offset = await self._resolve_symbol_locked(mapped.symbol)
+        except Exception as exc:
+            if _is_point_level_error(exc):
+                return mapped
+            raise
+        resolved = mapped.resolved(index_group=group, index_offset=offset)
+        if isinstance(point, str):
+            self._points[point] = resolved
+        self._read_plan_cache.clear()
+        self._read_variable_cache.clear()
+        self._read_unresolved_cache.clear()
+        return resolved
 
     def _invalidate_symbol_addresses(self) -> None:
+        self._symbol_cache.clear()
         self._read_plan_cache.clear()
         self._read_variable_cache.clear()
         self._read_unresolved_cache.clear()
