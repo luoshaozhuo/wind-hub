@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections import OrderedDict
 
@@ -24,6 +25,8 @@ from core.application.protocol_contract import WriteOutcome
 from .command import Command, CommandResult
 from .errors import CommandError, CommandUncertainError
 from .runtime import CommanderRuntime
+
+logger = logging.getLogger(__name__)
 
 
 class CommandDispatcher:
@@ -90,6 +93,7 @@ class CommandDispatcher:
                     error=f"unknown device '{command.device_id}'",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
+                self._audit(command, result)
                 return result
 
             if not await self._runtime.ensure_connected(command.device_id):
@@ -100,6 +104,7 @@ class CommandDispatcher:
                     error=f"device '{command.device_id}' is not connected",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
+                self._audit(command, result)
                 return result
 
             # 显式 timeout 优先；否则使用本次操作固定 generation 的
@@ -149,7 +154,22 @@ class CommandDispatcher:
                 )
 
         self._cache_store(command.command_id, signature, result, time.monotonic())
+        self._audit(command, result)
         return result
+
+    @staticmethod
+    def _audit(command: Command, result: CommandResult) -> None:
+        """逐条命令审计日志：command_id 关联设备/测点/终局；UNKNOWN 提升级别。"""
+        log = logger.info if result.outcome is WriteOutcome.CONFIRMED_SUCCESS else logger.warning
+        log(
+            "Command outcome=%s command_id=%s device=%s point=%s value=%r error=%s",
+            result.outcome.value,
+            command.command_id,
+            command.device_id,
+            command.point_id,
+            command.value,
+            result.error,
+        )
 
     @staticmethod
     def _signature(command: Command) -> str:

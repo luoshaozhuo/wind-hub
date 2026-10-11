@@ -484,6 +484,7 @@ class SinkRuntime:
             health_timeout=self._params.health_timeout,
             connect_timeout=self._params.connect_timeout,
             on_success=_on_success,
+            name=f"sink:{sink_name}",
         )
 
     async def _replace_opened_sink(
@@ -574,7 +575,7 @@ class SinkRuntime:
                     self._write_failures[sink_name] = self._write_failures.get(sink_name, 0) + 1
                     self._mark_unhealthy(sink_name, f"write_failed: {exc}")
                     logger.warning(
-                        "Sink '%s' write failed for %d points",
+                        "sink write failed sink=%s stage=write_failed points=%d",
                         sink_name,
                         len(batch),
                         exc_info=True,

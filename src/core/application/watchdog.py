@@ -33,6 +33,7 @@ class WatchdogUseCase:
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
         lifecycle_lock: asyncio.Lock | None = None,
+        name: str = "",
     ) -> None:
         if interval <= 0:
             raise ValueError("watchdog interval must be > 0")
@@ -49,6 +50,7 @@ class WatchdogUseCase:
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
         self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
+        self._name = name
 
         self._reconnect_lock = asyncio.Lock()
         self._wake = asyncio.Event()
@@ -107,7 +109,9 @@ class WatchdogUseCase:
             return
         self._enabled = True
         self._wake.clear()
-        self._task = asyncio.create_task(self._run(), name="communication-watchdog")
+        self._task = asyncio.create_task(
+            self._run(), name=f"communication-watchdog:{self._name or 'endpoint'}"
+        )
 
     async def stop(self) -> None:
         """停止后续检查；不会在停止后发起新的重连。"""
@@ -163,7 +167,7 @@ class WatchdogUseCase:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.warning("watchdog cycle failed", exc_info=True)
+                logger.warning("watchdog cycle failed endpoint=%s", self._name, exc_info=True)
 
             if not self._enabled:
                 break
