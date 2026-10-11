@@ -40,21 +40,51 @@ from .mapping import (
 logger = logging.getLogger(__name__)
 
 
+class _IoaLockEntry:
+    """per-IOA 锁与使用者计数（当前持有者 + 已登记等待者）。"""
+
+    __slots__ = ("lock", "refs")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.refs = 0
+
+
+def _register_ioa_lock(
+    registry: dict[int, _IoaLockEntry],
+    ioa: int,
+) -> asyncio.Lock:
+    """登记一次 IOA 锁使用并返回锁；必须在第一次 ``await`` 之前调用。
+
+    单事件循环内，登记所在的同步代码段不会被其他协程打断，因此
+    「查表 + 计数 +1」相对其他登记/释放操作是原子的：同一 IOA 的所有
+    并发使用者始终拿到同一把锁。
+    """
+    entry = registry.get(ioa)
+    if entry is None:
+        entry = _IoaLockEntry()
+        registry[ioa] = entry
+    entry.refs += 1
+    return entry.lock
+
+
 def _release_ioa_lock(
-    registry: dict[int, asyncio.Lock],
+    registry: dict[int, _IoaLockEntry],
     ioa: int,
     lock: asyncio.Lock,
 ) -> None:
-    """释放空闲的 per-IOA 锁，避免动态 IOA 场景下注册表无界增长。
+    """释放一次 IOA 锁使用；计数归零（无持有者也无等待者）后删除条目。
 
-    调用点位于 ``async with lock`` 退出之后的同一同步代码段（无 await），
-    因此 ``lock.locked()`` 为 False 且不存在等待者时，不可能有协程正持有
-    该锁；等待者只能通过 ``lock._waiters`` 观察（asyncio 无公开 API）。
+    调用点位于 ``finally`` 的同步代码段（无 await），与登记操作互不
+    打断，因此计数归零时不可能存在尚未登记的未来使用者，可安全删除。
+    取消、超时、异常路径都经 ``finally`` 释放，不会泄漏计数。
     """
-    if lock.locked() or getattr(lock, "_waiters", None):
+    entry = registry.get(ioa)
+    if entry is None or entry.lock is not lock:
         return
-    if registry.get(ioa) is lock:
-        registry.pop(ioa, None)
+    entry.refs -= 1
+    if entry.refs == 0:
+        del registry[ioa]
 
 
 class _Subscription:
@@ -199,8 +229,8 @@ class IEC104Driver:
         self._dynamic_points: dict[int, IEC104Point] = {}
         self._interrogation_lock = asyncio.Lock()
         self._interrogation_waiter: asyncio.Future[None] | None = None
-        self._command_locks: dict[int, asyncio.Lock] = {}
-        self._active_read_locks: dict[int, asyncio.Lock] = {}
+        self._command_locks: dict[int, _IoaLockEntry] = {}
+        self._active_read_locks: dict[int, _IoaLockEntry] = {}
         self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
         self._receive_callback_factory: Any = None
         self._subscriptions = _SubscriptionRegistry()
@@ -363,7 +393,7 @@ class IEC104Driver:
         if not self._is_open:
             raise ProtocolError("IEC104 read requires an OPEN connection")
         mapped = self._resolve_point(point)
-        lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
+        lock = _register_ioa_lock(self._active_read_locks, mapped.ioa)
         try:
             async with lock:
                 loop = asyncio.get_running_loop()
@@ -570,10 +600,7 @@ class IEC104Driver:
         mapped: IEC104Point,
         write_value: object,
     ) -> ProtocolWriteResult:
-        lock = self._command_locks.setdefault(
-            mapped.ioa,
-            asyncio.Lock(),
-        )
+        lock = _register_ioa_lock(self._command_locks, mapped.ioa)
 
         try:
             return await self._execute_write_locked(mapped, write_value, lock)
