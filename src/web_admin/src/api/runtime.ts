@@ -95,6 +95,18 @@ export const runtimeApi = {
     action('/api/v1/collector/sinks/' + encodeURIComponent(name) + '/test', apiKey),
   devices: async (): Promise<RuntimeDevice[]> =>
     (await request<{ items: RuntimeDevice[] }>('/api/v1/collector/devices')).items,
+  commanderDevices: async (): Promise<Array<{device_id: string; protocol: string; healthy: boolean}>> =>
+    (await request<{devices: Array<{device_id: string; protocol: string; healthy: boolean}>}>('/api/v1/commander/devices')).devices,
+  readPoint: (deviceId: string, pointId: string): Promise<LatestPointValue> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/points/' + encodeURIComponent(pointId)),
+  verifyDevice: (deviceId: string): Promise<{ok: boolean; stages: Array<{name: string; ok: boolean; message: string}>}> =>
+    request('/api/v1/commander/devices/' + encodeURIComponent(deviceId) + '/verify'),
+  writePoint: (input: {command_id: string; device_id: string; point_id: string; value: boolean | number | string; timeout: number}, apiKey: string): Promise<{command_id: string; success: boolean; error: string}> =>
+    request('/api/v1/commander/commands', {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   latestValues: async (deviceId?: string): Promise<LatestPointValue[]> => {
     const query = deviceId ? '?device_id=' + encodeURIComponent(deviceId) : ''
     return (await request<{ values: LatestPointValue[] }>('/api/v1/collector/latest-values' + query)).values
