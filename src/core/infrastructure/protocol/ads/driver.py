@@ -181,13 +181,15 @@ class ADSDriver:
                     pass
                 pyads = _pyads()
                 try:
-                    pyads.add_route_to_plc(
+                    added = pyads.add_route_to_plc(
                         self._config.route_local_net_id,
                         self._config.route_local_host,
                         self._config.host,
                         self._config.route_username,
                         self._config.route_password,
                     )
+                    if not added:
+                        raise RuntimeError("remote route registration refused")
                 except Exception:
                     # pyads errors may contain endpoint arguments; never expose credentials.
                     raise ProtocolError(
