@@ -371,3 +371,34 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
     assert [len(batch) for batch in batches] == [2, 1]
     assert [int.from_bytes(payload, "little", signed=True)
             for batch in batches for _, _, payload in batch] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_lazy_symbol_resolution_preserves_plc_string_size() -> None:
+    import ctypes
+    from types import SimpleNamespace
+
+    connection = _Connection()
+    driver = _driver(connection)
+    driver._points["description"] = ADSPoint(
+        point_id="description",
+        index_group=0,
+        index_offset=0,
+        data_type="STRING",
+        size=0,
+        symbol="MAIN.description",
+        address_resolved=False,
+    )
+
+    connection.get_symbol = lambda _name: SimpleNamespace(  # type: ignore[method-assign]
+        index_group=0x4020,
+        index_offset=100,
+        plc_type=ctypes.c_char * 32,
+    )
+    async with driver._lock:
+        resolved = await driver._resolve_point_locked("description")
+    assert resolved.size == 32
+    assert resolved.index_group == 0x4020
+    assert resolved.index_offset == 100
+    driver._invalidate_symbol_addresses()
+    assert not driver._symbol_sizes
