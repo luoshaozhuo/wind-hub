@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
-from core.application.port import ConfigPort
 from core.application.errors import ConfigError
+from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
 from core.domain import DeviceId, Sink
 from core.domain.unit import UNIT_CATALOG, UnitCode
@@ -86,11 +86,10 @@ def _resolve_sinks(snapshot: ConfigSnapshot) -> dict[str, Sink]:
             if resolved.ref in refs:
                 raise ConfigError(f"Sink '{sink_id}' duplicate point ref '{resolved.ref}'")
             refs.add(resolved.ref)
-            if resolved.scale != 1.0 or resolved.offset != 0.0:
-                if (
-                    resolved.source_data_type not in SINK_NUMERIC_DATA_TYPES
-                    or resolved.datatype not in SINK_NUMERIC_DATA_TYPES
-                ):
+            if (resolved.scale != 1.0 or resolved.offset != 0.0) and (
+                resolved.source_data_type not in SINK_NUMERIC_DATA_TYPES
+                or resolved.datatype not in SINK_NUMERIC_DATA_TYPES
+            ):
                     raise ConfigError(
                         f"Sink '{sink_id}' point '{resolved.ref}': "
                         "scale/offset require numeric source and datatype"
@@ -138,7 +137,9 @@ def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     return RuntimeParams(
         queue_maxsize=settings.queue_maxsize if settings.queue_maxsize is not None else 1000,
         backpressure_policy=cast(BackpressurePolicy, settings.backpressure_policy or "drop_old"),
-        shutdown_timeout=settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0,
+        shutdown_timeout=(
+            settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
+        ),
         connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
         read_timeout=settings.read_timeout if settings.read_timeout is not None else 1.0,
         write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
