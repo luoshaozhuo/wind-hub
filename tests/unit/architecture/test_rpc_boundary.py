@@ -20,7 +20,6 @@ SRC_ROOT = REPO_ROOT / "src"
 # grpc inbound/outbound adapter、core rpc codec 与生成物自身、ctl RPC client。
 _ALLOWED_PB2_PREFIXES = (
     "wind_hub_server/adapter/outbound/grpc/",
-    "wind_hub_core/rpc/",
     "core/infrastructure/rpc/",
     "ctl/",
     "collector/infrastructure/grpc/",
