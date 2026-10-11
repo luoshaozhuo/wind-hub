@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from core.application.settings import ADSLocalConfig
 from core.domain import (
     BusinessPoint,
     BusinessPointId,
@@ -55,7 +56,7 @@ class CommanderConfig:
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
-    ads_local: object | None = None
+    ads_local: ADSLocalConfig | None = None
     connect_timeout: float = 1.0
     write_timeout: float = 1.0
     read_timeout: float = 1.0
