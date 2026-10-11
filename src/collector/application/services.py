@@ -316,12 +316,14 @@ class CollectorTaskService:
 
 @dataclass(frozen=True, slots=True)
 class SinkInfo:
-    """单个运行 Sink 的健康与队列深度快照。"""
+    """单个运行 Sink 的健康、队列深度与故障计数快照。"""
 
     name: str
     healthy: bool = False
     message: str = ""
     queue_depth: int = 0
+    write_failures: int = 0
+    points_dropped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +344,8 @@ class CollectorSinkService:
         """列出当前运行 Sink 的健康状态与队列深度。"""
         health = await self._runtime.sink_health()
         depths = self._runtime.sink_queue_depths()
+        write_failures = self._runtime.sink_write_failures()
+        drops = self._runtime.sink_drops()
         items: list[SinkInfo] = []
         for name in self._runtime.sinks:
             current = health.get(name)
@@ -351,6 +355,8 @@ class CollectorSinkService:
                     healthy=bool(current.healthy) if current is not None else False,
                     message=(current.message or "") if current is not None else "",
                     queue_depth=int(depths.get(name, 0)),
+                    write_failures=write_failures.get(name, 0),
+                    points_dropped=drops.get(name, 0),
                 )
             )
         return items

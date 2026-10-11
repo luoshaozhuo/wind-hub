@@ -18,7 +18,6 @@ from starlette.routing import Match
 
 from web_server.rpc import RpcGateway, RpcSettings
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -89,9 +88,7 @@ class ReadPointsBody(BaseModel):
     point_ids: list[str] = Field(min_length=1)
 
 
-def create_app(
-    settings: RpcSettings | None = None, *, write_token: str | None = None
-) -> FastAPI:
+def create_app(settings: RpcSettings | None = None, *, write_token: str | None = None) -> FastAPI:
     """每个应用实例持有自己的 RPC 连接，测试可覆盖 gateway 依赖。"""
     config = settings or RpcSettings()
 
@@ -120,8 +117,7 @@ def create_app(
             (
                 route
                 for route in app.routes
-                if isinstance(route, APIRoute)
-                and route.matches(request.scope)[0] is Match.FULL
+                if isinstance(route, APIRoute) and route.matches(request.scope)[0] is Match.FULL
             ),
             None,
         )
@@ -142,12 +138,18 @@ def create_app(
             duration_ms = (perf_counter() - started) * 1000
             logger.info(
                 "http_request id=%s method=%s path=%s status=%s duration_ms=%.2f",
-                request_id, request.method, route_template, status_code, duration_ms,
+                request_id,
+                request.method,
+                route_template,
+                status_code,
+                duration_ms,
             )
             if control_operation:
                 logger.info(
                     "control_audit id=%s operation=%s status=%s",
-                    request_id, route_template, status_code,
+                    request_id,
+                    route_template,
+                    status_code,
                 )
 
     @app.get("/health/live", tags=["health"])
@@ -212,7 +214,6 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_verify_device(device_id))
 
-
     @app.get("/api/v1/collector/tasks/{task_id}", tags=["collector"])
     async def collector_task(
         task_id: str, gateway: RpcGateway = Depends(get_gateway)
@@ -225,25 +226,41 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_instance(instance_id))
 
-    @app.post("/api/v1/collector/tasks/{task_id}/start", tags=["collector"], dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/collector/tasks/{task_id}/start",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
     async def start_task(
         task_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_start_task(task_id))
 
-    @app.post("/api/v1/collector/tasks/{task_id}/stop", tags=["collector"], dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/collector/tasks/{task_id}/stop",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
     async def stop_task(
         task_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_stop_task(task_id))
 
-    @app.post("/api/v1/collector/instances/{instance_id}/start", tags=["collector"], dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/collector/instances/{instance_id}/start",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
     async def start_instance(
         instance_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_start_instance(instance_id))
 
-    @app.post("/api/v1/collector/instances/{instance_id}/stop", tags=["collector"], dependencies=[Depends(require_write_token)])
+    @app.post(
+        "/api/v1/collector/instances/{instance_id}/stop",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
     async def stop_instance(
         instance_id: str, gateway: RpcGateway = Depends(get_gateway)
     ) -> dict[str, object]:
@@ -255,10 +272,12 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.collector_verify_sink(name))
 
-    @app.post("/api/v1/collector/sinks/{name}/test", tags=["collector"], dependencies=[Depends(require_write_token)])
-    async def test_sink(
-        name: str, gateway: RpcGateway = Depends(get_gateway)
-    ) -> dict[str, object]:
+    @app.post(
+        "/api/v1/collector/sinks/{name}/test",
+        tags=["collector"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def test_sink(name: str, gateway: RpcGateway = Depends(get_gateway)) -> dict[str, object]:
         return await _invoke(gateway.collector_test_sink(name))
 
     @app.post("/api/v1/commander/devices/{device_id}/read-many", tags=["commander"])
@@ -298,7 +317,6 @@ def create_app(
         gateway: RpcGateway = Depends(get_gateway),
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_verify_points(device_id, point_group))
-
 
     @app.post(
         "/api/v1/commander/commands",
@@ -394,7 +412,6 @@ def create_app(
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_abort_config(body.revision_id))
 
-
     @app.post(
         "/api/v1/config/prepare",
         tags=["config"],
@@ -412,13 +429,17 @@ def create_app(
             )
             results["collector"] = collector
             if not collector.get("success", False):
-                raise HTTPException(status_code=409, detail={"stage": "collector_prepare", "result": collector})
+                raise HTTPException(
+                    status_code=409, detail={"stage": "collector_prepare", "result": collector}
+                )
             commander = await _invoke(
                 gateway.commander_prepare_config(body.revision_id, body.config_hash)
             )
             results["commander"] = commander
             if not commander.get("success", False):
-                raise HTTPException(status_code=409, detail={"stage": "commander_prepare", "result": commander})
+                raise HTTPException(
+                    status_code=409, detail={"stage": "commander_prepare", "result": commander}
+                )
             return {"success": True, "revision_id": body.revision_id, "results": results}
         except Exception:
             # prepare 失败后尽力释放两侧候选配置；撤销结果不应掩盖原始失败。
@@ -450,8 +471,7 @@ def create_app(
             except HTTPException as exc:
                 results[name] = {"success": False, "http_status": exc.status_code}
         success = all(
-            isinstance(value, dict) and value.get("success") is True
-            for value in results.values()
+            isinstance(value, dict) and value.get("success") is True for value in results.values()
         )
         outcome = {"success": success, "revision_id": body.revision_id, "results": results}
         if not success:

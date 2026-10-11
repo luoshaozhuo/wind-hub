@@ -47,7 +47,8 @@ async def test_start_failure_of_one_component_does_not_block_others():
     health = await runtime.device_health()
     assert not health["dev1"].healthy
     state = runtime.device_state("dev1")
-    assert state is not None and state.consecutive_failures == 1
+    # 后台 watchdog 可能在断言前再记录一次失败；只要求失败被计入，不锁定次数。
+    assert state is not None and state.consecutive_failures >= 1
     await runtime.stop()
 
 

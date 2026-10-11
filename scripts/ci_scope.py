@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 FRONTEND_PREFIX = "src/web_admin/"
-BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/", "src/web_server/")
+BACKEND_PREFIXES = ("src/core/", "src/collector/", "src/commander/", "src/cli/", "src/web_server/")
 
 TOOLING_PREFIXES = (
     "scripts/",
@@ -155,8 +155,7 @@ def _frontend_fast_required(path: str) -> bool:
         return False
 
     return not (
-        path.startswith("tests/system/web_admin/")
-        or path == "src/web_admin/playwright.config.ts"
+        path.startswith("tests/system/web_admin/") or path == "src/web_admin/playwright.config.ts"
     )
 
 

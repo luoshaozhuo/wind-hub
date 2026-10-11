@@ -56,3 +56,53 @@ def test_retain_prunes_removed_devices_and_points() -> None:
     remaining = cache.snapshot()
     assert [(v.device_id, v.point_id) for v in remaining] == [("d1", "p1")]
     assert remaining[0].timestamp == _T0 + timedelta(seconds=1)
+
+
+def test_late_callback_after_retain_cannot_reinsert_removed_point() -> None:
+    """配置激活后，旧订阅迟到回调携带的已删除测点不得重新进入缓存。"""
+    from datetime import UTC, datetime
+
+    cache = LatestValues()
+    cache.retain({"dev1": frozenset({"p1"})})
+    cache.update(
+        [
+            PointValue(
+                device_id="dev1",
+                point_id="p2",
+                value=2.0,
+                timestamp=datetime.now(UTC),
+            )
+        ]
+    )
+    assert cache.snapshot() == []
+
+    # 有效键内的测点仍正常更新。
+    cache.update(
+        [
+            PointValue(
+                device_id="dev1",
+                point_id="p1",
+                value=1.0,
+                timestamp=datetime.now(UTC),
+            )
+        ]
+    )
+    assert [value.point_id for value in cache.snapshot()] == ["p1"]
+
+
+def test_update_before_first_retain_is_unconstrained() -> None:
+    """首次配置激活前（初始配置即基线）不做键约束。"""
+    from datetime import UTC, datetime
+
+    cache = LatestValues()
+    cache.update(
+        [
+            PointValue(
+                device_id="dev1",
+                point_id="p9",
+                value=1.0,
+                timestamp=datetime.now(UTC),
+            )
+        ]
+    )
+    assert [value.point_id for value in cache.snapshot()] == ["p9"]

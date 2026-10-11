@@ -3,7 +3,7 @@
 与 component 层 ``test_endpoint_port_change_reconnects_to_new_peer`` 的区别：
 这里的 Collector 是独立 subprocess，reload 经 Prepare/Activate 两段事务
 RPC 下发（与生产路径一致），观测全部在系统边界——sink 文件中的点值来源
-（A=1200.5 / B=1500.5）、ctl status 的 ``devices_connected``。
+（A=1200.5 / B=1500.5）、CLI status 的 ``devices_connected``。
 
 两个对端都是真实 Modbus 从站：A 与 B 寄存器值不同，sink 行里的值直接
 证明「当前连接的是哪一台」。host 变化用 loopback 别名 127.0.0.2 构造

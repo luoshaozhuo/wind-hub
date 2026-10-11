@@ -109,9 +109,9 @@ async def test_write_point_offline_device_returns_failure_result(running):
         value=pb.ScalarValue(double_value=1.0),
     )
     result = await stub.WritePoint(request)
-    # 命令分发到离线设备：CommandResult 级失败而非 RPC 错误
+    # 命令分发到离线设备：命令未发送，CONFIRMED_FAILURE 而非 RPC 错误
     assert result.command_id
-    assert result.success is False
+    assert result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE
     assert result.error
 
 

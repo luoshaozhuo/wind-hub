@@ -333,6 +333,8 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
                     healthy=item.healthy,
                     message=item.message,
                     queue_depth=item.queue_depth,
+                    write_failures=item.write_failures,
+                    points_dropped=item.points_dropped,
                 )
                 for item in items
             ]

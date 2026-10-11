@@ -9,7 +9,7 @@ veth pair 的链路上注入**连续谱**的网络损伤（拓扑与原因见 co
   数据面续上；
 - 短抖（亚超时闪断）不得重建连接；超过读超时的中断必须重连恢复。
 
-观测点：ctl status 的 ``devices_connected``、metrics 的
+观测点：CLI status 的 ``devices_connected``、metrics 的
 ``device_reconnects`` / ``device_connect_failures``、输出文件行数。
 
 需要 root（无权限时整套 skip，报告计 NOT_RUN）。
@@ -25,7 +25,7 @@ import pytest
 
 from tests.performance.netem import NetemScenario
 from tests.reliability.network.conftest import NetemLink
-from tests.reliability.recovery.helpers import ctl_status, telemetry_task, wait_status
+from tests.reliability.recovery.helpers import cli_status, telemetry_task, wait_status
 from tests.support.config_helper import write_config_tree
 from tests.support.control import metrics_snapshot, start_task_instance
 from tests.support.process import CollectorProcess
@@ -96,7 +96,7 @@ async def _assert_link_healthy(proc: CollectorProcess, sink_path: Path, duration
     rows_before = len(read_csv(sink_path))
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
-        status = await ctl_status(proc)
+        status = await cli_status(proc)
         assert status is not None, "本地控制面 status 查询失败（不应受链路损伤影响）"
         assert (
             status["devices_connected"] == 1

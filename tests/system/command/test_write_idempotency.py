@@ -111,7 +111,7 @@ class TestWriteIdempotency:
             )
         )
 
-        assert all(r.success for r in responses)
+        assert all(r.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS for r in responses)
         assert all(r.command_id == command_id for r in responses)
         # 8 个并发同 id 请求共享一次执行——从站只收到一个写请求。
         assert server.write_count == 1
@@ -126,14 +126,14 @@ class TestWriteIdempotency:
         first = await _write_point_rpc(
             proc.grpc_target, command_id="cmd-system-idem-cached", value=77.7
         )
-        assert first.success
+        assert first.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
         assert server.write_count == 1
 
         # 完成后的同 id 重复请求命中结果缓存——不再触发设备写。
         repeat = await _write_point_rpc(
             proc.grpc_target, command_id="cmd-system-idem-cached", value=77.7
         )
-        assert repeat.success
+        assert repeat.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
         assert repeat.command_id == "cmd-system-idem-cached"
         assert server.write_count == 1
 
@@ -141,7 +141,7 @@ class TestWriteIdempotency:
         other = await _write_point_rpc(
             proc.grpc_target, command_id="cmd-system-idem-other", value=88.8
         )
-        assert other.success
+        assert other.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
         assert server.write_count == 2
         registers = await server.read_holding(1, 200, 2)
         assert _decode_float32(registers) == pytest.approx(88.8)
@@ -152,7 +152,7 @@ class TestWriteIdempotency:
         """调用方不带 command_id 时 Commander 生成幂等标识并回填响应。"""
         proc, server = idem_env
         result = await _write_point_rpc(proc.grpc_target, command_id="", value=55.5)
-        assert result.success
+        assert result.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
         assert result.command_id != ""
         assert server.write_count == 1
 
@@ -163,8 +163,8 @@ class TestWriteIdempotency:
         command_id = "cmd-system-idem-conflict"
         first = await _write_point_rpc(proc.grpc_target, command_id=command_id, value=44.4)
         conflict = await _write_point_rpc(proc.grpc_target, command_id=command_id, value=99.9)
-        assert first.success
-        assert not conflict.success
+        assert first.outcome == pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS
+        assert conflict.outcome == pb.COMMAND_OUTCOME_CONFIRMED_FAILURE
         assert "idempotency conflict" in conflict.error
         assert server.write_count == 1
         registers = await server.read_holding(1, 200, 2)

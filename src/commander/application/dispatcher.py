@@ -3,20 +3,30 @@
 提供 command_id 进程内幂等、写超时、并发去重、连接保证与设备路由；
 不承担权限、审计、跨进程幂等或协议实现。
 
-幂等语义（与旧 Commander 一致）：相同 command_id 只有在命令内容签名一致
-时才允许复用结果/合并在途；同键不同内容返回幂等冲突失败。
+幂等语义：相同 command_id 只有在命令内容签名一致时才允许复用结果/
+合并在途；同键不同内容返回幂等冲突失败。幂等缓存为进程内 LRU/TTL，
+Commander 重启后自然丢失——没有跨进程持久化保证。
+
+结果语义：写超时、响应丢失或写入期连接中断一律返回 UNKNOWN（命令
+可能已被设备执行），绝不解释为设备确定未执行；UNKNOWN 不会被
+Dispatcher 自动重发。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections import OrderedDict
 
+from core.application.protocol_contract import WriteOutcome
+
 from .command import Command, CommandResult
-from .errors import CommandError
+from .errors import CommandError, CommandUncertainError
 from .runtime import CommanderRuntime
+
+logger = logging.getLogger(__name__)
 
 
 class CommandDispatcher:
@@ -79,19 +89,22 @@ class CommandDispatcher:
             except KeyError:
                 result = CommandResult(
                     command_id=command.command_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     error=f"unknown device '{command.device_id}'",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
+                self._audit(command, result)
                 return result
 
             if not await self._runtime.ensure_connected(command.device_id):
+                # 写入前连接建立失败：命令未发送，确证未执行。
                 result = CommandResult(
                     command_id=command.command_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     error=f"device '{command.device_id}' is not connected",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
+                self._audit(command, result)
                 return result
 
             # 显式 timeout 优先；否则使用本次操作固定 generation 的
@@ -106,28 +119,57 @@ class CommandDispatcher:
                     device.write_point(command.point_id, command.value),
                     timeout=timeout,
                 )
-                result = CommandResult(command_id=command.command_id, success=True)
-            except TimeoutError:
                 result = CommandResult(
                     command_id=command.command_id,
-                    success=False,
-                    error=f"write timeout after {timeout:.1f}s",
+                    outcome=WriteOutcome.CONFIRMED_SUCCESS,
+                )
+            except TimeoutError:
+                # 超时：请求可能已送达设备，无最终证据，禁止按未执行处理。
+                result = CommandResult(
+                    command_id=command.command_id,
+                    outcome=WriteOutcome.UNKNOWN,
+                    error=(
+                        f"write timeout after {timeout:.1f}s; "
+                        "command may have reached the device"
+                    ),
+                )
+            except CommandUncertainError as exc:
+                result = CommandResult(
+                    command_id=command.command_id,
+                    outcome=WriteOutcome.UNKNOWN,
+                    error=str(exc),
                 )
             except CommandError as exc:
                 result = CommandResult(
                     command_id=command.command_id,
-                    success=False,
+                    outcome=WriteOutcome.CONFIRMED_FAILURE,
                     error=str(exc),
                 )
             except Exception as exc:
+                # 协议/连接级异常发生在写入期间：设备侧状态不可知。
                 result = CommandResult(
                     command_id=command.command_id,
-                    success=False,
+                    outcome=WriteOutcome.UNKNOWN,
                     error=str(exc) or type(exc).__name__,
                 )
 
         self._cache_store(command.command_id, signature, result, time.monotonic())
+        self._audit(command, result)
         return result
+
+    @staticmethod
+    def _audit(command: Command, result: CommandResult) -> None:
+        """逐条命令审计日志：command_id 关联设备/测点/终局；UNKNOWN 提升级别。"""
+        log = logger.info if result.outcome is WriteOutcome.CONFIRMED_SUCCESS else logger.warning
+        log(
+            "Command outcome=%s command_id=%s device=%s point=%s value=%r error=%s",
+            result.outcome.value,
+            command.command_id,
+            command.device_id,
+            command.point_id,
+            command.value,
+            result.error,
+        )
 
     @staticmethod
     def _signature(command: Command) -> str:
@@ -144,7 +186,7 @@ class CommandDispatcher:
     def _conflict(command_id: str) -> CommandResult:
         return CommandResult(
             command_id=command_id,
-            success=False,
+            outcome=WriteOutcome.CONFIRMED_FAILURE,
             error="idempotency conflict: command_id reused with different command payload",
         )
 

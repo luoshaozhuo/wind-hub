@@ -25,6 +25,7 @@ from core.application import (
     ProtocolSample,
     ProtocolWrite,
     Quality,
+    WriteOutcome,
     validate_read_many_results,
 )
 from core.domain import ConnectionEndpoint, PointTable, PointTableId, Protocol
@@ -135,11 +136,11 @@ class TestWriteContract:
     def test_write_result_normalizes_point_id(self) -> None:
         from core.application import ProtocolWriteResult
 
-        result = ProtocolWriteResult(point_id=" p ", success=True)
+        result = ProtocolWriteResult(point_id=" p ", outcome=WriteOutcome.CONFIRMED_SUCCESS)
         assert result.point_id == "p"
         assert result.message is None
         with pytest.raises(ValueError, match="point_id"):
-            ProtocolWriteResult(point_id=" ", success=False, message="x")
+            ProtocolWriteResult(point_id=" ", outcome=WriteOutcome.CONFIRMED_FAILURE, message="x")
 
     def test_write_normalizes_point_id(self) -> None:
         assert ProtocolWrite(point_id=" p ", value=1).point_id == "p"

@@ -1,12 +1,12 @@
-"""CTL 编解码与参数解析单元测试。"""
+"""CLI 编解码与参数解析单元测试。"""
 
 from __future__ import annotations
 
 import pytest
 
+from cli.client import _to_dict, encode_scalar
+from cli.main import build_parser
 from core.infrastructure.rpc import collector_pb2
-from ctl.client import _to_dict, encode_scalar
-from ctl.main import build_parser
 
 
 def test_to_dict_preserves_uint64_as_int() -> None:
@@ -60,7 +60,7 @@ def test_parser_decodes_write_scalar() -> None:
 @pytest.mark.asyncio
 async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
     """RPC 返回失败结果时 CLI 不得报告成功。"""
-    from ctl import main as cli
+    from cli import main as cli_mod
 
     class FailedClient:
         def __init__(self, target: str, *, timeout: float) -> None:
@@ -74,19 +74,23 @@ async def test_cli_write_failure_returns_nonzero(monkeypatch, capsys) -> None:
 
         async def call(self, operation: str, **kwargs):
             del operation, kwargs
-            return {"command_id": "failed", "success": False, "error": "offline"}
+            return {
+                "command_id": "failed",
+                "outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE",
+                "error": "offline",
+            }
 
-    monkeypatch.setattr(cli, "CommanderClient", FailedClient)
-    args = cli.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
+    monkeypatch.setattr(cli_mod, "CommanderClient", FailedClient)
+    args = cli_mod.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
 
-    assert await cli._run(args) == 2
-    assert '"success": false' in capsys.readouterr().out
+    assert await cli_mod._run(args) == 2
+    assert '"outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE"' in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
 async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> None:
     """任一批量写失败均以失败退出码返回。"""
-    from ctl import main as cli
+    from cli import main as cli_mod
 
     class PartialClient:
         def __init__(self, target: str, *, timeout: float) -> None:
@@ -100,9 +104,41 @@ async def test_cli_partial_batch_write_failure_returns_nonzero(monkeypatch) -> N
 
         async def call(self, operation: str, **kwargs):
             del operation, kwargs
-            return {"results": [{"success": True}, {"success": False}]}
+            return {
+                "results": [
+                    {"outcome": "COMMAND_OUTCOME_CONFIRMED_SUCCESS"},
+                    {"outcome": "COMMAND_OUTCOME_CONFIRMED_FAILURE"},
+                ]
+            }
 
-    monkeypatch.setattr(cli, "CommanderClient", PartialClient)
-    args = cli.build_parser().parse_args(["commander", "write-many", "--item", "dev1", "p1", "1"])
+    monkeypatch.setattr(cli_mod, "CommanderClient", PartialClient)
+    args = cli_mod.build_parser().parse_args(
+        ["commander", "write-many", "--item", "dev1", "p1", "1"]
+    )
 
-    assert await cli._run(args) == 2
+    assert await cli_mod._run(args) == 2
+
+
+@pytest.mark.asyncio
+async def test_cli_unknown_outcome_returns_distinct_exit_code(monkeypatch) -> None:
+    """UNKNOWN 结果（命令可能已执行）以独立退出码 3 返回，区别于确认失败。"""
+    from cli import main as cli_mod
+
+    class UncertainClient:
+        def __init__(self, target: str, *, timeout: float) -> None:
+            del target, timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def call(self, operation: str, **kwargs):
+            del operation, kwargs
+            return {"command_id": "c1", "outcome": "COMMAND_OUTCOME_UNKNOWN", "error": "timeout"}
+
+    monkeypatch.setattr(cli_mod, "CommanderClient", UncertainClient)
+    args = cli_mod.build_parser().parse_args(["commander", "write", "dev1", "p1", "12"])
+
+    assert await cli_mod._run(args) == 3

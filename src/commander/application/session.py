@@ -25,6 +25,7 @@ from core.application import (
     Quality,
     TimestampSource,
     WritableScalar,
+    WriteOutcome,
     validate_read_many_results,
 )
 from core.domain import (
@@ -37,7 +38,7 @@ from core.domain import (
     raw_write_value,
 )
 
-from .errors import CommandError
+from .errors import CommandError, CommandUncertainError
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,8 +190,9 @@ class DeviceSession:
         """执行单点写入。
 
         Raises:
-            CommandError: 点未知、只读或协议确认失败。
-            ProtocolError: 协议级写入失败。
+            CommandError: 点未知、只读或设备明确拒绝——确证未执行。
+            CommandUncertainError: 命令可能已送达但未获得确认证据。
+            ProtocolError: 协议级写入失败（执行结果未知）。
         """
         point = self.point(point_id)
         if point.access is PointAccess.READ:
@@ -198,7 +200,9 @@ class DeviceSession:
         result = await self._protocol.write_one(
             ProtocolWrite(point_id=point_id, value=raw_write_value(point, value))
         )
-        if not result.success:
-            raise CommandError(
-                result.message or f"write rejected by device '{self._device.device_id}'"
-            )
+        if result.outcome is WriteOutcome.CONFIRMED_SUCCESS:
+            return
+        message = result.message or f"write rejected by device '{self._device.device_id}'"
+        if result.outcome is WriteOutcome.UNKNOWN:
+            raise CommandUncertainError(message)
+        raise CommandError(message)

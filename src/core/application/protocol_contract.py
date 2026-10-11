@@ -37,12 +37,28 @@ class ProtocolWrite:
         object.__setattr__(self, "point_id", point_id)
 
 
+class WriteOutcome(StrEnum):
+    """一次写入的现场执行结果分类。
+
+    - ``CONFIRMED_SUCCESS``：协议证据确认设备已接受并执行；
+    - ``CONFIRMED_FAILURE``：请求未发送（本地校验失败）或设备明确
+      拒绝（异常响应/否定确认）——可以确证未执行；
+    - ``UNKNOWN``：命令可能已送达或已执行，但没有足够证据确认最终
+      结果（响应超时、确认丢失、写入期间连接中断）。UNKNOWN 结果
+      不得被调用方盲目重试。
+    """
+
+    CONFIRMED_SUCCESS = "confirmed_success"
+    CONFIRMED_FAILURE = "confirmed_failure"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class ProtocolWriteResult:
     """一次协议点写入结果。"""
 
     point_id: str
-    success: bool
+    outcome: WriteOutcome
     message: str | None = None
 
     def __post_init__(self) -> None:

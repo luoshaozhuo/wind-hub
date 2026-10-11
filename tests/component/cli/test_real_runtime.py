@@ -1,21 +1,21 @@
-"""CTL 直接操作真实 Collector / Commander Runtime，不经过 Server/Admin。"""
+"""CLI 直接操作真实 Collector / Commander Runtime，不经过 Server/Admin。"""
 
 from __future__ import annotations
 
 import grpc
 import pytest
 
+from cli.client import CollectorClient, CommanderClient
 from collector.assembly import assemble_collector
 from collector.infrastructure.grpc import build_grpc_server as build_collector_server
 from commander.assembly import assemble_commander
 from commander.infrastructure.grpc import build_grpc_server as build_commander_server
-from ctl.client import CollectorClient, CommanderClient
 from tests.support.new_collector import write_collector_config_tree
 from tests.support.new_commander import write_minimal_config_tree
 
 
-async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
-    """验证 CTL 可独立查询并启停已配置采集任务。"""
+async def test_collector_task_start_stop_via_cli(tmp_path) -> None:
+    """验证 CLI 可独立查询并启停已配置采集任务。"""
     config_dir = write_collector_config_tree(
         tmp_path,
         devices=[
@@ -27,7 +27,7 @@ async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
         ],
         runtime={"connect_timeout": 0.5},
     )
-    app = assemble_collector(config_dir, collector_id="ctl-standalone")
+    app = assemble_collector(config_dir, collector_id="cli-standalone")
     server = build_collector_server(
         app,
         app.identity,
@@ -39,7 +39,7 @@ async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
     try:
         async with CollectorClient(server.endpoint, timeout=3.0) as client:
             identity = await client.call("info")
-            assert identity["collector_id"] == "ctl-standalone"
+            assert identity["collector_id"] == "cli-standalone"
 
             tasks = await client.call("tasks")
             assert len(tasks["items"]) == 1
@@ -60,8 +60,8 @@ async def test_collector_task_start_stop_via_ctl(tmp_path) -> None:
         await app.stop()
 
 
-async def test_commander_live_rpc_via_ctl(tmp_path) -> None:
-    """验证 CTL 无 Server/Admin 时可读取真实 Commander 状态与诊断结果。"""
+async def test_commander_live_rpc_via_cli(tmp_path) -> None:
+    """验证 CLI 无 Server/Admin 时可读取真实 Commander 状态与诊断结果。"""
     config_dir = write_minimal_config_tree(
         tmp_path,
         devices=[

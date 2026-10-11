@@ -7,7 +7,7 @@
 
 观测点（全部在进程边界）：
 - ``/proc/<pid>/fd`` 采样（含 socket/文件/管道）；
-- ctl status 的 acquisitions 列表（Task Instance 唯一、无重复 handle）；
+- CLI status 的 acquisitions 列表（Task Instance 唯一、无重复 handle）；
 - GetMetricsSnapshot 的 reconnects 计数（确认故障循环真实发生）。
 """
 
@@ -21,7 +21,7 @@ import pytest
 
 from tests.fixtures.servers.modbus_server import ModbusMockServer
 from tests.reliability.recovery.helpers import (
-    ctl_instance_states,
+    cli_instance_states,
     wait_status,
     write_modbus_file_config,
 )
@@ -47,7 +47,7 @@ FD_SLACK = 3
 
 async def _single_running_instance(proc: CollectorProcess) -> None:
     """断言本用例实例唯一且处于 RUNNING 生命周期状态。"""
-    states = await ctl_instance_states(proc)
+    states = await cli_instance_states(proc)
     assert states is not None
     assert states.get(INSTANCE_ID) == "running", f"unexpected instance states: {states}"
 

@@ -33,6 +33,7 @@ class WatchdogUseCase:
         connect_timeout: float,
         on_success: ReconnectCallback | None = None,
         lifecycle_lock: asyncio.Lock | None = None,
+        name: str = "",
     ) -> None:
         if interval <= 0:
             raise ValueError("watchdog interval must be > 0")
@@ -49,6 +50,7 @@ class WatchdogUseCase:
         self._connect_timeout = float(connect_timeout)
         self._on_success = on_success
         self._lifecycle_lock = lifecycle_lock or asyncio.Lock()
+        self._name = name
 
         self._reconnect_lock = asyncio.Lock()
         self._wake = asyncio.Event()
@@ -75,10 +77,10 @@ class WatchdogUseCase:
         """执行一次有界健康检查；需要时最多触发一次重连。"""
         generation = self._generation
         try:
-            health = await asyncio.wait_for(
-                self._health(),
-                timeout=self._health_timeout,
-            )
+            # asyncio.timeout 在当前任务内直接 await，避免 wait_for 的子任务
+            # 在外层取消时未开始执行即被销毁（coroutine never awaited）。
+            async with asyncio.timeout(self._health_timeout):
+                health = await self._health()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -107,7 +109,9 @@ class WatchdogUseCase:
             return
         self._enabled = True
         self._wake.clear()
-        self._task = asyncio.create_task(self._run(), name="communication-watchdog")
+        self._task = asyncio.create_task(
+            self._run(), name=f"communication-watchdog:{self._name or 'endpoint'}"
+        )
 
     async def stop(self) -> None:
         """停止后续检查；不会在停止后发起新的重连。"""
@@ -145,14 +149,10 @@ class WatchdogUseCase:
                 return False
 
             async with self._lifecycle_lock:
-                await asyncio.wait_for(
-                    self._close(),
-                    timeout=self._connect_timeout,
-                )
-                await asyncio.wait_for(
-                    self._connect(),
-                    timeout=self._connect_timeout,
-                )
+                async with asyncio.timeout(self._connect_timeout):
+                    await self._close()
+                async with asyncio.timeout(self._connect_timeout):
+                    await self._connect()
                 self._generation += 1
 
         # 外部回调不得在生命周期锁内执行，避免回调重入造成死锁。
@@ -167,12 +167,13 @@ class WatchdogUseCase:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.warning("watchdog cycle failed", exc_info=True)
+                logger.warning("watchdog cycle failed endpoint=%s", self._name, exc_info=True)
 
             if not self._enabled:
                 break
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+                async with asyncio.timeout(self._interval):
+                    await self._wake.wait()
             except TimeoutError:
                 continue
             self._wake.clear()

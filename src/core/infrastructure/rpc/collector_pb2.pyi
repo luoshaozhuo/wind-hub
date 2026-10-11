@@ -634,10 +634,14 @@ class SinkInfoMessage(_message.Message):
     HEALTHY_FIELD_NUMBER: _builtins.int
     MESSAGE_FIELD_NUMBER: _builtins.int
     QUEUE_DEPTH_FIELD_NUMBER: _builtins.int
+    WRITE_FAILURES_FIELD_NUMBER: _builtins.int
+    POINTS_DROPPED_FIELD_NUMBER: _builtins.int
     name: _builtins.str
     healthy: _builtins.bool
     message: _builtins.str
     queue_depth: _builtins.int
+    write_failures: _builtins.int
+    points_dropped: _builtins.int
     def __init__(
         self,
         *,
@@ -645,10 +649,12 @@ class SinkInfoMessage(_message.Message):
         healthy: _builtins.bool = ...,
         message: _builtins.str = ...,
         queue_depth: _builtins.int = ...,
+        write_failures: _builtins.int = ...,
+        points_dropped: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["healthy", b"healthy", "message", b"message", "name", b"name", "queue_depth", b"queue_depth"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["healthy", b"healthy", "message", b"message", "name", b"name", "points_dropped", b"points_dropped", "queue_depth", b"queue_depth", "write_failures", b"write_failures"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

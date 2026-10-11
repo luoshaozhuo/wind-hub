@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TypeAlias
 
+from core.application.protocol_contract import WriteOutcome
+
 CommandValue: TypeAlias = float | int | bool | str
 """写命令允许的业务标量值；类型合法性由点表与协议 Driver 校验。"""
 
@@ -43,12 +45,13 @@ class CommandResult:
 
     Attributes:
         command_id: 回显原始 command_id。
-        success: 设备写入被确认时为 True。
-        error: 失败时的可读错误原因。
+        outcome: 现场执行结果分类；``UNKNOWN`` 表示命令可能已送达或
+            已执行但没有确认证据，调用方不得盲目重试。
+        error: 非确认成功时的可读原因。
         finished_at: 执行完成时间（UTC）。
     """
 
     command_id: str
-    success: bool
+    outcome: WriteOutcome
     error: str | None = None
     finished_at: datetime = field(default_factory=lambda: datetime.now(UTC))

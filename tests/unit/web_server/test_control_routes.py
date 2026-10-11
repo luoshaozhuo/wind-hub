@@ -29,12 +29,8 @@ def test_commander_bulk_read_requires_nonempty_points() -> None:
     app = create_app()
     app.dependency_overrides[get_gateway] = lambda: gateway
     with TestClient(app) as client:
-        invalid = client.post(
-            "/api/v1/commander/devices/d1/read-many", json={"point_ids": []}
-        )
-        valid = client.post(
-            "/api/v1/commander/devices/d1/read-many", json={"point_ids": ["p1"]}
-        )
+        invalid = client.post("/api/v1/commander/devices/d1/read-many", json={"point_ids": []})
+        valid = client.post("/api/v1/commander/devices/d1/read-many", json={"point_ids": ["p1"]})
 
     assert invalid.status_code == 422
     assert valid.status_code == 200

@@ -15,7 +15,7 @@ import pytest
 
 import core.infrastructure.protocol.ads.driver as driver_module
 from core.application import ConfigError, ProtocolError, ProtocolWrite
-from core.application.protocol_contract import Quality
+from core.application.protocol_contract import Quality, WriteOutcome
 from core.domain import ConnectionEndpoint, PointTable, PointTableId, Protocol
 from core.infrastructure.protocol.ads import ADSDriver, ADSPoint, ads_point
 
@@ -197,7 +197,7 @@ class TestDynamicWriteOne:
 
         result = await driver.write_one(_dyn(), 123)
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "dyn"
         assert connection.write_calls == [(0x4020, 100, 123)]
 
@@ -208,7 +208,7 @@ class TestDynamicWriteOne:
 
         result = await driver.write_one(_dyn(data_type="BOOL"), 1)
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "bool" in (result.message or "")
         assert connection.write_calls == []
 
@@ -224,7 +224,7 @@ class TestDynamicWriteOne:
         driver = _driver(connection)
         driver._points["reg"] = _dyn("reg")
         result = await driver.write_one(ProtocolWrite("reg", 9))
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert connection.write_calls == [(0x4020, 100, 9)]
         with pytest.raises(TypeError, match="does not take a separate value"):
             await driver.write_one(ProtocolWrite("reg", 9), 1)
@@ -367,7 +367,11 @@ async def test_ads_sum_write_uses_index_addresses_and_preserves_point_errors(
             ProtocolWrite(point_id="c", value=3),
         )
     )
-    assert [r.success for r in results] == [True, False, True]
+    assert [r.outcome for r in results] == [
+        WriteOutcome.CONFIRMED_SUCCESS,
+        WriteOutcome.CONFIRMED_FAILURE,
+        WriteOutcome.CONFIRMED_SUCCESS,
+    ]
     assert [len(batch) for batch in batches] == [2, 1]
     assert [
         int.from_bytes(payload, "little", signed=True)

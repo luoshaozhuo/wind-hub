@@ -402,6 +402,7 @@ class DeviceRuntime:
             connect_timeout=self._params.connect_timeout,
             on_success=_on_success,
             lifecycle_lock=self._connect_locks.setdefault(device_id, asyncio.Lock()),
+            name=f"device:{device_id}",
         )
 
     async def _connect_new(

@@ -1,4 +1,4 @@
-"""wind-hub-ctl 命令行入口。"""
+"""wind-hub 命令行入口。"""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def _build_commander_parser(sub: argparse._SubParsersAction[argparse.ArgumentPar
 def build_parser() -> argparse.ArgumentParser:
     """构建完整 CLI 参数解析器。"""
     parser = argparse.ArgumentParser(
-        prog="wind-hub-ctl",
+        prog="wind-hub",
         description="直接连接 Collector / Commander 的本地运维 CLI。",
     )
     parser.add_argument("--rpc-timeout", type=float, default=5.0)
@@ -201,15 +201,22 @@ async def _run(args: argparse.Namespace) -> int:
         async with CommanderClient(args.target, timeout=args.rpc_timeout) as client:
             result = await client.call(args.operation, **_commander_kwargs(args))
     _print(result)
-    if result.get("success") is False or result.get("ok") is False:
+    outcomes = [item["outcome"] for item in result.get("results", []) if "outcome" in item]
+    if "outcome" in result:
+        outcomes.append(result["outcome"])
+    # 退出码：0=全部确认成功；3=存在 UNKNOWN（命令可能已执行，需人工核实）；
+    # 2=确认失败或 RPC 级失败。
+    if any(outcome == "COMMAND_OUTCOME_UNKNOWN" for outcome in outcomes):
+        return 3
+    if outcomes and any(outcome != "COMMAND_OUTCOME_CONFIRMED_SUCCESS" for outcome in outcomes):
         return 2
-    if "results" in result and any(item.get("success") is False for item in result["results"]):
+    if result.get("success") is False or result.get("ok") is False:
         return 2
     return 0
 
 
 def main() -> int:
-    """执行 wind-hub-ctl。"""
+    """执行 wind-hub。"""
     args = build_parser().parse_args()
     try:
         return asyncio.run(_run(args))
@@ -218,7 +225,7 @@ def main() -> int:
             detail = f"{exc.code().name}: {exc.details()}"
         else:
             detail = str(exc)
-        print(f"ctl failed: {detail}", file=sys.stderr)
+        print(f"wind-hub failed: {detail}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130

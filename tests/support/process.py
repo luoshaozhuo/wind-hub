@@ -1,11 +1,11 @@
-"""System E2E 的进程管理 harness——Collector / ctl 一律以真实 subprocess 运行。
+"""System E2E 的进程管理 harness——Collector / CLI 一律以真实 subprocess 运行。
 
 本模块是 tests/system 与 tests/recovery 的唯一进程入口，禁止在测试里
 直接拼 ``subprocess.Popen``：
 
 - Collector 经 console script ``wind-hub-collector`` 启动（与生产一致），
   stdout/stderr 合并落盘到临时日志文件，断言失败时可直接贴日志；
-- ctl 经 console script ``wind-hub-ctl`` 执行，返回退出码 + stdout/stderr，
+- CLI 经 console script ``wind-hub`` 执行，返回退出码 + stdout/stderr，
   JSON 输出由调用方 ``json.loads``；
 - 所有等待都是带超时的轮询，不用硬 ``sleep``。
 
@@ -39,8 +39,8 @@ def free_port() -> int:
 
 
 @dataclass
-class CtlResult:
-    """一次 ``wind-hub-ctl`` 执行的结果。"""
+class CliResult:
+    """一次 ``wind-hub`` 执行的结果。"""
 
     returncode: int
     stdout: str
@@ -48,29 +48,29 @@ class CtlResult:
 
     @property
     def ok(self) -> bool:
-        """退出码为 0（RPC 失败时 ctl 约定返回 2）。"""
+        """退出码为 0（RPC 失败时 CLI 约定返回 2）。"""
         return self.returncode == 0
 
 
-def run_ctl(
+def run_cli(
     *args: str,
     target: str,
     rpc_timeout: float = 10.0,
     exec_timeout: float = 30.0,
-) -> CtlResult:
-    """以 subprocess 执行一次 ``wind-hub-ctl``。
+) -> CliResult:
+    """以 subprocess 执行一次 ``wind-hub``。
 
     Args:
         args: 子命令及参数（如 ``("start", "task-1")``）。
         target: Collector gRPC endpoint（``host:port``）；helper 固定使用 collector 命名空间。
-        rpc_timeout: ctl 单次 RPC 超时（秒）。
+        rpc_timeout: CLI 单次 RPC 超时（秒）。
         exec_timeout: 子进程整体硬超时（秒）；超时杀进程并按失败返回。
 
     Returns:
         CtlResult；exec_timeout 触发时 returncode 为 -SIGKILL。
     """
     cmd = [
-        "wind-hub-ctl",
+        "wind-hub",
         "--rpc-timeout",
         str(rpc_timeout),
         "collector",
@@ -87,33 +87,33 @@ def run_ctl(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        return CtlResult(
+        return CliResult(
             returncode=-signal.SIGKILL,
             stdout=exc.stdout if isinstance(exc.stdout, str) else "",
-            stderr=f"ctl exec timeout after {exec_timeout}s",
+            stderr=f"cli exec timeout after {exec_timeout}s",
         )
-    return CtlResult(
+    return CliResult(
         returncode=completed.returncode,
         stdout=completed.stdout,
         stderr=completed.stderr,
     )
 
 
-async def run_ctl_async(
+async def run_cli_async(
     *args: str,
     target: str,
     rpc_timeout: float = 10.0,
     exec_timeout: float = 30.0,
-) -> CtlResult:
-    """:func:`run_ctl` 的异步包装——在独立线程执行阻塞 subprocess 调用。
+) -> CliResult:
+    """:func:`run_cli` 的异步包装——在独立线程执行阻塞 subprocess 调用。
 
     测试进程的事件循环同时承载协议 fixture server；同步调用会阻塞循环，
-    导致 Collector 的读写请求在 ctl 执行期间全部超时。异步测试一律用本
-    包装，不用裸 ``run_ctl``。
+    导致 Collector 的读写请求在 CLI 执行期间全部超时。异步测试一律用本
+    包装，不用裸 ``run_cli``。
     """
     return await asyncio.to_thread(
         partial(
-            run_ctl,
+            run_cli,
             *args,
             target=target,
             rpc_timeout=rpc_timeout,

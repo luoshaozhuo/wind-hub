@@ -17,10 +17,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 
 # generated protobuf 允许出现的前缀（相对 src/）：
-# grpc inbound/outbound adapter、core rpc codec 与生成物自身、ctl RPC client。
+# grpc inbound/outbound adapter、core rpc codec 与生成物自身、
+# cli / web_server 两个出站 RPC client 边界。
 _ALLOWED_PB2_PREFIXES = (
     "core/infrastructure/rpc/",
-    "ctl/",
+    "cli/",
+    "web_server/",
     "collector/infrastructure/grpc/",
     "commander/infrastructure/grpc/",
 )
@@ -55,7 +57,7 @@ def _relative(path: Path) -> str:
 
 
 def test_pb2_only_in_allowed_zones() -> None:
-    """引用 pb2 生成物的文件全部位于 adapter/codec/ctl 边界内。"""
+    """引用 pb2 生成物的文件全部位于 adapter/codec/cli 边界内。"""
     offenders = [
         _relative(path)
         for path in _source_files()

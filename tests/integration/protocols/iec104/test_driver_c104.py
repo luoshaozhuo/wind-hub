@@ -8,13 +8,12 @@ IEC104ControlServer），不 mock c104。
 分发、命令否定确认/断线/超时、多订阅与订阅生命周期、品质位与 CP56Time2a
 时标映射、点表热更新、停机清理。
 
-与旧栈（wind_hub_core）语义差异：
-- 新 Driver 建连后不做隐式总召（init=NONE），需要镜像数据时显式
+关键语义：
+- Driver 建连后不做隐式总召（init=NONE），需要镜像数据时显式
   ``interrogate()``；持续采集与补召策略属于上层应用职责。
-- 重复 IOA 在 ``build_iec104_index`` 直接拒绝（ConfigError），旧栈
-  “last wins” 用例不再存在；拒绝路径由 unit 测试覆盖。
-- 未寻址 point_id 的 read/write 抛 ConfigError，不再返回 BAD 样本或
-  success=False 结果。
+- 重复 IOA 在 ``build_iec104_index`` 直接拒绝（ConfigError）。
+- 未寻址 point_id 的 read/write 抛 ConfigError，不返回 BAD 样本或
+  失败结果。
 """
 
 from __future__ import annotations
@@ -31,6 +30,7 @@ from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
     Quality,
+    WriteOutcome,
 )
 from core.domain import (
     UNIT_CATALOG,
@@ -342,7 +342,7 @@ class TestDynamicPoints:
             result = await drv.write_one(
                 iec104_point("dyn.switch", ioa=1002, type_id="C_DC_NA_1"), 2
             )
-            assert result.success
+            assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
             assert control_server.last_control.get("C_DC_NA_1") == 1002
         finally:
             await drv.close()
@@ -411,7 +411,7 @@ def _switch_point(point_id: str = "switch.on", ioa: int = 1001) -> Point:
 
 class TestCommandFailures:
     async def test_negative_command_confirmation(self, control_server: IEC104ControlServer) -> None:
-        """从站否定确认（ACT_CON negative）→ success=False。"""
+        """从站否定确认：c104 不区分否定确认与链路失败，诚实归为 UNKNOWN。"""
         drv = _driver(control_server.port, [_switch_point()])
         try:
             await drv.connect()
@@ -419,13 +419,13 @@ class TestCommandFailures:
         finally:
             await drv.close()
 
-        assert result.success is False
-        assert "negative" in (result.message or "")
+        assert result.outcome is WriteOutcome.UNKNOWN
+        assert "not confirmed" in (result.message or "")
 
     async def test_command_interrupted_by_disconnect(
         self, control_server: IEC104ControlServer
     ) -> None:
-        """命令在途期间对端断开 → 该命令 success=False，driver 不挂起。"""
+        """命令在途期间对端断开 → UNKNOWN（可能已执行），driver 不挂起。"""
         drv = _driver(control_server.port, [_switch_point()])
         try:
             await drv.connect()
@@ -438,7 +438,7 @@ class TestCommandFailures:
         finally:
             await drv.close()
 
-        assert result.success is False
+        assert result.outcome is WriteOutcome.UNKNOWN
         assert result.message
 
     async def test_write_after_detected_disconnect_raises(
@@ -550,7 +550,8 @@ class TestCommandTimeout:
             await drv.close()
             await blackhole.stop()
 
-        assert result.success is False
+        # 黑洞下无 ACT_CON 证据：命令可能已送达，结果为 UNKNOWN。
+        assert result.outcome is WriteOutcome.UNKNOWN
         assert "timeout" in (result.message or "")
 
 

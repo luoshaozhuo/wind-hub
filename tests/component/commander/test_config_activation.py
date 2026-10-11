@@ -22,6 +22,7 @@ from commander.application.diagnostic import CommanderDiagnosticService
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
 from core.application import ProtocolWriteResult
+from core.application.protocol_contract import WriteOutcome
 from core.application.settings import ADSLocalConfig
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
@@ -119,14 +120,18 @@ async def test_startup_write_timeout_applies_to_default_command_timeout():
 
     async def slow_write(write):
         await asyncio.sleep(5)
-        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            outcome=WriteOutcome.CONFIRMED_SUCCESS,
+            message=None,
+        )
 
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
-    assert not result.success
+    assert result.outcome is WriteOutcome.UNKNOWN
     assert "write timeout" in (result.error or "")
 
 
@@ -136,7 +141,11 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
 
     async def slow_write(write):
         await asyncio.sleep(0.2)
-        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            outcome=WriteOutcome.CONFIRMED_SUCCESS,
+            message=None,
+        )
 
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
@@ -144,7 +153,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     timed_out = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
-    assert not timed_out.success
+    assert timed_out.outcome is WriteOutcome.UNKNOWN
     assert "write timeout" in (timed_out.error or "")
 
     await runtime.prepare_config("r2", make_commander_config(write_timeout=5.0), "hash-b")
@@ -154,7 +163,7 @@ async def test_reloaded_write_timeout_applies_to_new_operations():
     completed = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
-    assert completed.success
+    assert completed.outcome is WriteOutcome.CONFIRMED_SUCCESS
     await runtime.stop()
 
 
@@ -164,7 +173,11 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
 
     async def slow_write(write):
         await asyncio.sleep(0.1)
-        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            outcome=WriteOutcome.CONFIRMED_SUCCESS,
+            message=None,
+        )
 
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
@@ -177,14 +190,14 @@ async def test_inflight_operation_uses_pinned_generation_timeout():
             Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=0)
         )
         # 本次操作 pin 旧 generation——新配置的超时不影响在途操作。
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
 
     # pin 结束后，新操作使用新 generation 的小超时。
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     result = await dispatcher.send(
         Command(command_id="c2", device_id="dev1", point_id="p1", value=1.0, timeout=0)
     )
-    assert not result.success
+    assert result.outcome is WriteOutcome.UNKNOWN
     assert "write timeout" in (result.error or "")
     await runtime.stop()
 
@@ -195,14 +208,18 @@ async def test_explicit_command_timeout_takes_precedence():
 
     async def slow_write(write):
         await asyncio.sleep(0.1)
-        return ProtocolWriteResult(point_id=write.point_id, success=True, message=None)
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            outcome=WriteOutcome.CONFIRMED_SUCCESS,
+            message=None,
+        )
 
     runtime.device("dev1").protocol.write_one = slow_write  # type: ignore[method-assign]
     dispatcher = CommandDispatcher(runtime)
     result = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0, timeout=5.0)
     )
-    assert result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
 
 
 # ---------------------------------------------------------------------------

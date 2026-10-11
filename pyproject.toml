@@ -9,7 +9,7 @@ packages = [
     { include = "core", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
-    { include = "ctl", from = "src" },
+    { include = "cli", from = "src" },
     { include = "web_server", from = "src" },
 ]
 
@@ -19,7 +19,6 @@ pydantic = "^2.0"
 pyyaml = "^6.0"
 fastapi = "^0.115"
 uvicorn = { version = "^0.32", extras = ["standard"] }
-structlog = "^24.0"
 prometheus-client = "^0.21"
 grpcio = "^1.75"
 protobuf = "^6.32"
@@ -59,7 +58,7 @@ types-aiofiles = "^25.1.0.20260518"
 
 [tool.poetry.scripts]
 wind-hub-collector = "collector.main:main"
-wind-hub-ctl = "ctl.main:main"
+wind-hub = "cli.main:main"
 wind-hub-commander = "commander.main:main"
 wind-hub-web-server = "web_server.main:main"
 
@@ -159,7 +158,7 @@ root_packages = [
     "core",
     "collector",
     "commander",
-    "ctl",
+    "cli",
     "web_server",
 ]
 
@@ -173,7 +172,7 @@ source_modules = ["core"]
 forbidden_modules = [
     "collector",
     "commander",
-    "ctl",
+    "cli",
     "web_server",
 ]
 
@@ -190,20 +189,20 @@ layers = [
 # 新进程包只依赖 core；禁止 import 旧 wind_hub_* 包，禁止互相 import。
 
 [[tool.importlinter.contracts]]
-name = "new commander 不得依赖 collector 或 ctl"
+name = "new commander 不得依赖 collector 或 cli"
 type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
-    "ctl",
+    "cli",
     "collector",
 ]
 
 [[tool.importlinter.contracts]]
-name = "new collector 不得依赖 commander 或 ctl"
+name = "new collector 不得依赖 commander 或 cli"
 type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
-    "ctl",
+    "cli",
     "commander",
 ]
 
@@ -226,9 +225,9 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "ctl 只依赖 shared core，不依赖进程包"
+name = "cli 只依赖 shared core，不依赖进程包"
 type = "forbidden"
-source_modules = ["ctl"]
+source_modules = ["cli"]
 forbidden_modules = [
     "collector",
     "commander",
@@ -236,7 +235,7 @@ forbidden_modules = [
 
 # ---- generated protobuf 边界 ----
 # pb2/grpc stub 只允许出现在 grpc inbound/outbound adapter、core rpc codec
-# 与 ctl client；application/domain 不感知 wire 形态。
+# 与 cli client；application/domain 不感知 wire 形态。
 
 [[tool.importlinter.contracts]]
 name = "new collector/commander application 与 domain 不得依赖生成的 protobuf"
@@ -258,4 +257,4 @@ forbidden_modules = [
 name = "web_server 只通过 core RPC 访问服务"
 type = "forbidden"
 source_modules = ["web_server"]
-forbidden_modules = ["collector", "commander", "ctl"]
+forbidden_modules = ["collector", "commander", "cli"]

@@ -1,15 +1,15 @@
-"""CTL 直连 Collector / Commander gRPC 控制面的组件测试。"""
+"""CLI 直连 Collector / Commander gRPC 控制面的组件测试。"""
 
 from __future__ import annotations
 
 import grpc
 import pytest
 
+from cli.client import CollectorClient, CommanderClient
 from core.infrastructure.rpc import collector_pb2 as collector_pb
 from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
 from core.infrastructure.rpc import commander_pb2 as commander_pb
 from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
-from ctl.client import CollectorClient, CommanderClient
 
 
 class _CollectorRuntime(collector_grpc.CollectorRuntimeServiceServicer):
@@ -57,7 +57,7 @@ class _Commander(commander_grpc.CommanderServiceServicer):
         del context
         return commander_pb.CommandResultMessage(
             command_id=request.command_id,
-            success=True,
+            outcome=commander_pb.COMMAND_OUTCOME_CONFIRMED_SUCCESS,
         )
 
 
@@ -129,4 +129,4 @@ async def test_commander_read_write_without_server_admin(endpoints) -> None:
     assert status["running"] is True
     assert reading["value"]["double_value"] == 12.5
     assert reading["quality"] == "good"
-    assert result["success"] is True
+    assert result["outcome"] == "COMMAND_OUTCOME_CONFIRMED_SUCCESS"

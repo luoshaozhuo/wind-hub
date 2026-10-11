@@ -13,6 +13,8 @@ import logging
 import signal
 from pathlib import Path
 
+from core.infrastructure.diagnostic.log_setup import configure_logging
+
 from .assembly import assemble_collector
 from .infrastructure.grpc import build_grpc_server
 
@@ -115,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """同步 Collector CLI 入口。"""
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     args = build_parser().parse_args()
     if args.check:
         app = assemble_collector(args.config, collector_id=args.collector_id)

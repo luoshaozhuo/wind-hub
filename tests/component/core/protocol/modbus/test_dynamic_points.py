@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.application import ConfigError, Quality
-from core.application.protocol_contract import ProtocolWrite
+from core.application.protocol_contract import ProtocolWrite, WriteOutcome
 from core.infrastructure.protocol.modbus.mapping import modbus_point
 
 from .test_single_ops import (
@@ -199,7 +199,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one(dynamic, -5)
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert result.point_id == "dyn"
         assert client.write_register_calls == [(300, 0xFFFB)]
 
@@ -210,7 +210,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one("h", 10)
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_register_calls == [(200, 10)]
 
     @pytest.mark.asyncio
@@ -220,7 +220,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one(ProtocolWrite("h", 3))
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_register_calls == [(200, 3)]
 
     @pytest.mark.asyncio
@@ -252,7 +252,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one(dynamic, 42.5)
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.write_registers_calls == [(400, _float32_registers(42.5))]
         assert client.total_write_calls() == 1
 
@@ -264,7 +264,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one(dynamic, 1)
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert "read-only" in (result.message or "")
         assert client.total_write_calls() == 0
 
@@ -276,7 +276,7 @@ class TestDynamicWrite:
 
         result = await driver.write_one(dynamic, 70000)
 
-        assert not result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
         assert client.total_write_calls() == 0
 
     @pytest.mark.asyncio
@@ -290,5 +290,5 @@ class TestDynamicWrite:
         driver.write_many = fail_write_many  # type: ignore[method-assign]
         result = await driver.write_one("h", 1)
 
-        assert result.success
+        assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
         assert client.total_write_calls() == 1

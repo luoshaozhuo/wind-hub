@@ -422,4 +422,5 @@ class CommanderRuntime:
             health_timeout=generation.config.health_timeout,
             connect_timeout=generation.config.connect_timeout,
             lifecycle_lock=lock,
+            name=f"commander-device:{device_id}",
         )

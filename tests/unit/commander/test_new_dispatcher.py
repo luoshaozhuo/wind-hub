@@ -8,7 +8,7 @@ import contextlib
 from commander.application.command import Command
 from commander.application.dispatcher import CommandDispatcher
 from commander.application.runtime import CommanderRuntime
-from core.application.protocol_contract import ProtocolWriteResult
+from core.application.protocol_contract import ProtocolWriteResult, WriteOutcome
 from tests.support.new_commander import FakeRegistry, make_commander_config
 
 
@@ -26,11 +26,11 @@ async def test_send_success_and_idempotent_replay():
     command = Command(command_id="c1", device_id="dev1", point_id="p1", value=1.0)
 
     first = await dispatcher.send(command)
-    assert first.success
+    assert first.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1
 
     replay = await dispatcher.send(command)
-    assert replay.success
+    assert replay.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1  # 幂等命中，未重复写
 
 
@@ -42,7 +42,7 @@ async def test_idempotency_conflict_on_different_payload():
     conflict = await dispatcher.send(
         Command(command_id="c1", device_id="dev1", point_id="p1", value=2.0)
     )
-    assert not conflict.success
+    assert conflict.outcome is WriteOutcome.CONFIRMED_FAILURE
     assert "idempotency conflict" in (conflict.error or "")
 
 
@@ -51,16 +51,16 @@ async def test_unknown_device_returns_failure_result():
     result = await dispatcher.send(
         Command(command_id="c2", device_id="ghost", point_id="p1", value=1.0)
     )
-    assert not result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
     assert "unknown device" in (result.error or "")
 
 
-async def test_write_timeout_returns_failure_result():
+async def test_write_timeout_returns_unknown_result():
     registry = FakeRegistry()
 
     async def slow_write(write):
         await asyncio.sleep(5)
-        return ProtocolWriteResult(point_id=write.point_id, success=True)
+        return ProtocolWriteResult(point_id=write.point_id, outcome=WriteOutcome.CONFIRMED_SUCCESS)
 
     runtime = _runtime(registry)
     protocol = runtime.device("dev1").protocol
@@ -75,7 +75,8 @@ async def test_write_timeout_returns_failure_result():
             timeout=0.05,
         )
     )
-    assert not result.success
+    # 写超时：命令可能已送达设备，结果必须表达为 UNKNOWN 而非确认失败。
+    assert result.outcome is WriteOutcome.UNKNOWN
     assert "timeout" in (result.error or "")
 
 
@@ -84,7 +85,8 @@ async def test_concurrent_same_command_shares_inflight():
     dispatcher = CommandDispatcher(_runtime(registry))
     command = Command(command_id="c4", device_id="dev1", point_id="p1", value=1.0)
     first, second = await asyncio.gather(dispatcher.send(command), dispatcher.send(command))
-    assert first.success and second.success
+    assert first.outcome is WriteOutcome.CONFIRMED_SUCCESS
+    assert second.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1
 
 
@@ -99,13 +101,13 @@ async def test_send_batch_preserves_order_and_isolates_failures():
         ]
     )
     assert [result.command_id for result in results] == ["b1", "b2"]
-    assert not results[0].success
+    assert results[0].outcome is WriteOutcome.CONFIRMED_FAILURE
     assert "unknown device" in (results[0].error or "")
-    assert results[1].success
+    assert results[1].outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1
 
 
-async def test_protocol_rejection_maps_to_failure_result():
+async def test_protocol_rejection_maps_to_confirmed_failure():
     registry = FakeRegistry()
     runtime = _runtime(registry)
     runtime.device("dev1").protocol.write_success = False  # type: ignore[attr-defined]
@@ -113,7 +115,7 @@ async def test_protocol_rejection_maps_to_failure_result():
     result = await dispatcher.send(
         Command(command_id="c5", device_id="dev1", point_id="p1", value=1.0)
     )
-    assert not result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
     assert "rejected" in (result.error or "")
 
 
@@ -143,7 +145,7 @@ async def test_client_cancellation_does_not_cancel_inflight_write():
     assert len(registry.instances[0].writes) == 1  # 写入未被取消
 
     replay = await dispatcher.send(command)
-    assert replay.success
+    assert replay.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1  # 缓存回放，未重复写
 
 
@@ -160,13 +162,13 @@ async def test_idempotency_cache_spans_generation_switch():
     command = Command(command_id="c-gen", device_id="dev1", point_id="p1", value=1.0)
 
     first = await dispatcher.send(command)
-    assert first.success
+    assert first.outcome is WriteOutcome.CONFIRMED_SUCCESS
 
     await runtime.prepare_config("r2", make_commander_config(), "hash-b")
     await runtime.activate_config("r2")
 
     replay = await dispatcher.send(command)
-    assert replay.success
+    assert replay.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances) == 2  # 新 generation 新会话
     assert len(registry.instances[1].writes) == 0  # 未写入新会话
 
@@ -194,6 +196,62 @@ async def test_inflight_write_uses_pinned_generation_during_activate():
     write_release.set()
 
     result = await in_flight
-    assert result.success
+    assert result.outcome is WriteOutcome.CONFIRMED_SUCCESS
     assert len(registry.instances[0].writes) == 1  # 写入落在旧 generation 会话
     assert len(registry.instances[1].writes) == 0
+
+
+async def test_protocol_error_during_write_returns_unknown_result():
+    """写入期间连接/协议异常：设备侧状态不可知，结果必须是 UNKNOWN。"""
+    from core.application.errors import ProtocolConnectionError
+
+    registry = FakeRegistry()
+
+    async def failing_write(write):
+        raise ProtocolConnectionError("connection reset during write")
+
+    runtime = _runtime(registry)
+    protocol = runtime.device("dev1").protocol
+    protocol.write_one = failing_write  # type: ignore[method-assign]
+    dispatcher = CommandDispatcher(runtime)
+    result = await dispatcher.send(
+        Command(command_id="c-io", device_id="dev1", point_id="p1", value=1.0)
+    )
+    assert result.outcome is WriteOutcome.UNKNOWN
+    assert "connection reset" in (result.error or "")
+
+
+async def test_uncertain_driver_result_maps_to_unknown():
+    """驱动返回 UNKNOWN（如 IEC104 控制确认超时）透传为 UNKNOWN。"""
+    registry = FakeRegistry()
+
+    async def uncertain_write(write):
+        return ProtocolWriteResult(
+            point_id=write.point_id,
+            outcome=WriteOutcome.UNKNOWN,
+            message="activation confirm timeout",
+        )
+
+    runtime = _runtime(registry)
+    protocol = runtime.device("dev1").protocol
+    protocol.write_one = uncertain_write  # type: ignore[method-assign]
+    dispatcher = CommandDispatcher(runtime)
+    result = await dispatcher.send(
+        Command(command_id="c-unc", device_id="dev1", point_id="p1", value=1.0)
+    )
+    assert result.outcome is WriteOutcome.UNKNOWN
+    assert "activation confirm timeout" in (result.error or "")
+
+
+async def test_not_connected_returns_confirmed_failure():
+    """写入前建连失败：命令未发送，确证未执行（CONFIRMED_FAILURE）。"""
+    registry = FakeRegistry()
+    runtime = _runtime(registry)
+    registry.instances[0].fail_connect = True
+    dispatcher = CommandDispatcher(runtime)
+    result = await dispatcher.send(
+        Command(command_id="c-nc", device_id="dev1", point_id="p1", value=1.0)
+    )
+    assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
+    assert "not connected" in (result.error or "")
+    assert len(registry.instances[0].writes) == 0

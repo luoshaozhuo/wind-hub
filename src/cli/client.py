@@ -43,6 +43,14 @@ def _to_dict(value: message.Message) -> dict[str, Any]:
             result[field.name] = [_field_value(item) for item in field_value]
             continue
 
+        if field.cpp_type == FieldDescriptor.CPPTYPE_ENUM:
+            # 枚举输出名字而非数字，便于运维直接阅读（如命令执行结果）。
+            enum_type = field.enum_type
+            if enum_type is not None:
+                enum_value = enum_type.values_by_number.get(int(field_value))
+                result[field.name] = enum_value.name if enum_value is not None else field_value
+                continue
+
         if field.cpp_type == FieldDescriptor.CPPTYPE_MESSAGE:
             if not value.HasField(field.name):
                 continue
