@@ -219,15 +219,10 @@ class CollectorRuntime:
                 await self._task_runtime.sync_instances()
             except BaseException:
                 self._running = False
-                for name, cleanup in (
-                    ("tasks", self._task_runtime.stop_all),
-                    ("sinks", self._sink_runtime.stop),
-                    ("devices", self._device_runtime.close_all),
-                ):
-                    try:
-                        await cleanup()
-                    except Exception:
-                        logger.exception("Collector startup rollback failed: %s", name)
+                try:
+                    await self._stop_components()
+                except BaseException:
+                    logger.exception("Collector startup cleanup failed")
                 raise
             self._started = True
 
@@ -246,13 +241,25 @@ class CollectorRuntime:
 
             # 关闭全部实例采集句柄——polling 协程取消、订阅注销，不留
             # 后台 task 或订阅；实例定义保留并统一标记 STOPPED。
+            await self._stop_components()
+
+    async def _stop_components(self) -> None:
+        """依赖逆序释放组件；所有组件均尝试关闭，保留首个失败原因。"""
+        first_error: BaseException | None = None
+        for name, cleanup in (
+            ("tasks", self._task_runtime.stop_all),
+            ("sinks", self._sink_runtime.stop),
+            ("devices", self._device_runtime.close_all),
+        ):
             try:
-                await self._task_runtime.stop_all()
-            finally:
-                try:
-                    await self._sink_runtime.stop()
-                finally:
-                    await self._device_runtime.close_all()
+                await cleanup()
+            except BaseException as exc:
+                if isinstance(exc, Exception):
+                    logger.exception("Collector component shutdown failed: %s", name)
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     # ------------------------------------------------------------------
     # 状态
