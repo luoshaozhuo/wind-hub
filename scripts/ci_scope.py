@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 FRONTEND_PREFIX = "src/wind-hub-admin/"
-BACKEND_PREFIX = "src/wind_hub_"
+BACKEND_PREFIXES = ("src/wind_hub_", "src/core/", "src/collector/", "src/commander/", "src/ctl/")
 
 TOOLING_PREFIXES = (
     "scripts/",
@@ -138,8 +138,8 @@ def _backend_pr_targets(path: str) -> set[str]:
             "src/wind_hub_server/application/task/reconcile.py",
             "src/wind_hub_server/application/task/collector.py",
             "src/wind_hub_server/application/task/control.py",
-            "src/wind_hub_ctl/client.py",
-            "src/wind_hub_ctl/main.py",
+            "src/ctl/client.py",
+            "src/ctl/main.py",
         }
     ):
         targets.add("system-task-control")
@@ -171,7 +171,7 @@ def _backend_fast_tests(paths: list[str]) -> tuple[bool, set[str]]:
     targets: set[str] = set()
 
     for path in paths:
-        if path in BACKEND_GLOBAL_FILES or path.startswith(BACKEND_PREFIX):
+        if path in BACKEND_GLOBAL_FILES or path.startswith(BACKEND_PREFIXES):
             static_required = True
             targets.update(FAST_TEST_ORDER)
             continue
