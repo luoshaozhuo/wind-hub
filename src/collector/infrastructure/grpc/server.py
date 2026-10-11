@@ -367,11 +367,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
         """启动一个 Task 当前展开的全部实例。"""
-        return await self._set_task(
-            request,
-            context,
-            start=True,
-        )
+        return await self._set_task(request, context, start=True)
 
     async def StopTask(
         self,
@@ -409,11 +405,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
         """启动单个 Task Instance。"""
-        return await self._set_task_instance(
-            request,
-            context,
-            start=True,
-        )
+        return await self._set_task_instance(request, context, start=True)
 
     async def StopTaskInstance(
         self,

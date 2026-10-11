@@ -93,9 +93,7 @@ async def test_task_lifecycle_without_placement(running):
     assert tasks.items[0].task_id == "t1"
     assert tasks.items[0].runtime_state == "stopped"
 
-    summary = await control_stub.StartTask(
-        pb.TaskStartRequest(task_id="t1")
-    )
+    summary = await control_stub.StartTask(pb.TaskStartRequest(task_id="t1"))
     assert summary.runtime_state == "running"
     assert summary.running_instances == 1
 
@@ -107,15 +105,27 @@ async def test_task_lifecycle_without_placement(running):
     detail = await control_stub.StopTaskInstance(pb.InstanceIdRequest(instance_id=instance_id))
     assert detail.state == "stopped"
 
+    # Task Instance 不依赖外部 Placement，可直接重新启动。
+    detail = await control_stub.StartTaskInstance(
+        pb.TaskInstanceStartRequest(instance_id=instance_id)
+    )
+    assert detail.state == "running"
+
     summary = await control_stub.StopTask(pb.TaskIdRequest(task_id="t1"))
     assert summary.runtime_state == "stopped"
 
-    # 未知 task / instance 映射为 NOT_FOUND
+    # 未知 task / instance 的查询和启动均映射为 NOT_FOUND
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await runtime_stub.GetTask(pb.TaskIdRequest(task_id="ghost"))
     assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await runtime_stub.GetTaskInstance(pb.InstanceIdRequest(instance_id="ghost"))
+    assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
+        await control_stub.StartTask(pb.TaskStartRequest(task_id="ghost"))
+    assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
+        await control_stub.StartTaskInstance(pb.TaskInstanceStartRequest(instance_id="ghost"))
     assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
 
 
