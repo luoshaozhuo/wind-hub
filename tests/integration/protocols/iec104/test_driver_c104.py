@@ -508,12 +508,17 @@ class _StartdtBlackhole:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         self._writers.add(writer)
+        # APCI 帧可能跨多次 TCP 读到达，未消费的残余字节必须缓冲到下次读，
+        # 否则被拆开的 STARTDT_ACT 永远不会得到应答（连接挂起）。
+        buffer = bytearray()
         try:
             while True:
                 data = await reader.read(255)
                 if not data:
                     break
-                response = self._respond(data)
+                buffer += data
+                response, consumed = self._respond(bytes(buffer))
+                del buffer[:consumed]
                 if response:
                     writer.write(response)
                     await writer.drain()
@@ -523,8 +528,11 @@ class _StartdtBlackhole:
             self._writers.discard(writer)
             writer.close()
 
-    def _respond(self, data: bytes) -> bytes:
-        """按 APCI 长度逐帧处理；只回 STARTDT_CON 与 S 帧确认。"""
+    def _respond(self, data: bytes) -> tuple[bytes, int]:
+        """按 APCI 长度逐帧处理；只回 STARTDT_CON 与 S 帧确认。
+
+        返回 (响应字节, 已消费字节数)；未凑齐的残余帧由调用方缓冲。
+        """
         out = bytearray()
         offset = 0
         while offset + 6 <= len(data):
@@ -542,7 +550,7 @@ class _StartdtBlackhole:
                 out += bytes([0x68, 0x04, 0x01, 0x00])
                 out += (self._recv_seq * 2).to_bytes(2, "little")
             offset += 2 + length
-        return bytes(out)
+        return bytes(out), offset
 
     async def stop(self) -> None:
         for writer in list(self._writers):
