@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collector.infrastructure.grpc import collector_pb2
+from core.infrastructure.rpc import collector_pb2
 from ctl.client import _to_dict, encode_scalar
 from ctl.main import build_parser
 
