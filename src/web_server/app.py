@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
+from secrets import compare_digest
 
 import grpc
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from web_server.rpc import RpcGateway, RpcSettings
@@ -44,15 +45,41 @@ async def _invoke(operation: Awaitable[dict[str, object]]) -> dict[str, object]:
     return result
 
 
+class WritePointBody(BaseModel):
+    """要求明确命令标识与超时的设备写入请求。"""
+
+    command_id: str = Field(min_length=1)
+    device_id: str = Field(min_length=1)
+    point_id: str = Field(min_length=1)
+    value: bool | int | float | str
+    timeout: float = Field(default=1.0, gt=0, le=30)
+
+
+class WritePointsBody(BaseModel):
+    """限制一次写入的命令数量。"""
+
+    commands: list[WritePointBody] = Field(min_length=1, max_length=100)
+
+
 class ReadPointsBody(BaseModel):
     """批量读取请求，仅声明测点 ID。"""
 
     point_ids: list[str] = Field(min_length=1)
 
 
-def create_app(settings: RpcSettings | None = None) -> FastAPI:
+def create_app(
+    settings: RpcSettings | None = None, *, write_token: str | None = None
+) -> FastAPI:
     """每个应用实例持有自己的 RPC 连接，测试可覆盖 gateway 依赖。"""
     config = settings or RpcSettings()
+
+    def require_write_token(x_api_key: str | None = Header(default=None)) -> None:
+        """未配置凭据时禁用设备写入。"""
+        if not write_token:
+            raise HTTPException(status_code=503, detail="write API is disabled")
+        if x_api_key is None or not compare_digest(x_api_key, write_token):
+            raise HTTPException(status_code=403, detail="write API access denied")
+
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -210,5 +237,34 @@ def create_app(settings: RpcSettings | None = None) -> FastAPI:
         gateway: RpcGateway = Depends(get_gateway),
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_verify_points(device_id, point_group))
+
+
+    @app.post(
+        "/api/v1/commander/commands",
+        tags=["commander"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def commander_write(
+        body: WritePointBody, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(
+            gateway.commander_write(
+                body.command_id, body.device_id, body.point_id, body.value, body.timeout
+            )
+        )
+
+    @app.post(
+        "/api/v1/commander/commands/batch",
+        tags=["commander"],
+        dependencies=[Depends(require_write_token)],
+    )
+    async def commander_write_many(
+        body: WritePointsBody, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        commands = [
+            (item.command_id, item.device_id, item.point_id, item.value, item.timeout)
+            for item in body.commands
+        ]
+        return await _invoke(gateway.commander_write_many(commands))
 
     return app

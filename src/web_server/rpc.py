@@ -11,6 +11,7 @@ from core.infrastructure.rpc import collector_pb2 as collector_pb
 from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
 from core.infrastructure.rpc import commander_pb2 as commander_pb
 from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
+from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 
 def to_payload(response: message.Message) -> dict[str, object]:
@@ -167,3 +168,29 @@ class RpcGateway:
     async def commander_verify_points(self, device_id: str, point_group: str = "") -> dict[str, object]:
         request = commander_pb.VerifyPointsRequest(device_id=device_id, point_group=point_group)
         return to_payload(await self.commander().VerifyPoints(request, timeout=self.timeout))
+
+    async def commander_write(
+        self, command_id: str, device_id: str, point_id: str,
+        value: bool | int | float | str, io_timeout: float,
+    ) -> dict[str, object]:
+        """传递调用方指定的命令 ID，不在 Web 层重试。"""
+        request = commander_pb.WritePointRequest(
+            command_id=command_id, device_id=device_id, point_id=point_id,
+            value=encode_scalar(value), timeout=io_timeout,
+        )
+        return to_payload(await self.commander().WritePoint(request, timeout=self.timeout))
+
+    async def commander_write_many(
+        self, commands: list[tuple[str, str, str, bool | int | float | str, float]]
+    ) -> dict[str, object]:
+        """批量转发写入指令，保持原有命令 ID。"""
+        request = commander_pb.WritePointsRequest(
+            commands=[
+                commander_pb.WritePointRequest(
+                    command_id=cid, device_id=did, point_id=pid,
+                    value=encode_scalar(value), timeout=io_timeout,
+                )
+                for cid, did, pid, value, io_timeout in commands
+            ]
+        )
+        return to_payload(await self.commander().WritePoints(request, timeout=self.timeout))
