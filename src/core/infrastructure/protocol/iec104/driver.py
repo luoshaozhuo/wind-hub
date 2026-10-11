@@ -105,7 +105,7 @@ class _SubscriptionRegistry:
         if ioas is None:
             self._global.append(subscription)
             return subscription
-        for ioa in ioas:
+        for ioa in dict.fromkeys(ioas):
             self._ioa.setdefault(ioa, []).append(subscription)
         return subscription
 
@@ -114,7 +114,7 @@ class _SubscriptionRegistry:
             with contextlib.suppress(ValueError):
                 self._global.remove(subscription)
             return
-        for ioa in subscription._ioas:
+        for ioa in dict.fromkeys(subscription._ioas):
             subscriptions = self._ioa.get(ioa)
             if subscriptions is None:
                 continue
