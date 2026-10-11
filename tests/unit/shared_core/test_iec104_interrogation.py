@@ -11,7 +11,14 @@ from core.application import ProtocolError
 from core.infrastructure.protocol.iec104.driver import IEC104Driver
 
 
-def _frame(cot: int, *, negative: bool = False, ca: int = 1, type_id: int = 100, qoi: int = 20) -> bytes:
+def _frame(
+    cot: int,
+    *,
+    negative: bool = False,
+    ca: int = 1,
+    type_id: int = 100,
+    qoi: int = 20,
+) -> bytes:
     # IEC104 I frame: 6-byte APCI + 10-byte C_IC_NA_1 ASDU.
     asdu = bytes([type_id, 1, cot | (0x40 if negative else 0), 0])
     asdu += ca.to_bytes(2, "little") + bytes((0, 0, 0, qoi))
