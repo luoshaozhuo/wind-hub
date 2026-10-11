@@ -21,7 +21,7 @@ SRC_ROOT = REPO_ROOT / "src"
 _ALLOWED_PB2_PREFIXES = (
     "wind_hub_server/adapter/outbound/grpc/",
     "wind_hub_core/rpc/",
-    "wind_hub_ctl/",
+    "ctl/",
     "collector/infrastructure/grpc/",
     "commander/infrastructure/grpc/",
 )
