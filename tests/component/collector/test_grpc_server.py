@@ -7,9 +7,13 @@ Servicer 的 wire contract 与应用语义。
 
 from __future__ import annotations
 
+import json
+
 import grpc
 import pytest
 from google.protobuf import empty_pb2
+
+from core.domain.point_value import PointValue
 
 from collector.assembly import CollectorApp, assemble_collector
 from collector.infrastructure.grpc import build_grpc_server
@@ -127,6 +131,29 @@ async def test_task_lifecycle_without_placement(running):
     with pytest.raises(grpc.aio.AioRpcError) as excinfo:
         await control_stub.StartTaskInstance(pb.TaskInstanceStartRequest(instance_id="ghost"))
     assert excinfo.value.code() == grpc.StatusCode.NOT_FOUND
+
+
+async def test_latest_points_are_passive_snapshots(running):
+    app, runtime_stub, _ = running
+    empty = await runtime_stub.ListLatestPoints(pb.ListLatestPointsRequest())
+    assert not empty.items
+
+    # 数据通过正常采集引擎入口进入，无需再次读取设备。
+    await app.runtime.engine.process(
+        [PointValue(device_id="dev1", point_id="p1", value=12.5)],
+        targets=[],
+    )
+    latest = await runtime_stub.ListLatestPoints(pb.ListLatestPointsRequest(device_id="dev1"))
+    assert len(latest.items) == 1
+    assert latest.items[0].device_id == "dev1"
+    assert latest.items[0].point_id == "p1"
+    assert json.loads(latest.items[0].value_json) == 12.5
+    assert latest.items[0].quality == "good"
+    assert latest.items[0].timestamp_source == "local"
+    assert latest.items[0].HasField("timestamp")
+
+    missing = await runtime_stub.ListLatestPoints(pb.ListLatestPointsRequest(device_id="other"))
+    assert not missing.items
 
 
 async def test_sink_check_and_write_test(running, tmp_path):

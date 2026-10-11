@@ -165,7 +165,6 @@ service CollectorRuntimeService {
   rpc GetCollectorInfo(google.protobuf.Empty) returns (CollectorInfoResponse);
   rpc GetRuntimeStatus(google.protobuf.Empty) returns (RuntimeStatusResponse);
   rpc GetMetricsSnapshot(google.protobuf.Empty) returns (MetricsSnapshotResponse);
-  rpc ListLatestPoints(ListLatestPointsRequest) returns (ListLatestPointsResponse);
   rpc ListTasks(google.protobuf.Empty) returns (ListTasksResponse);
   rpc GetTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc ListTaskInstances(google.protobuf.Empty) returns (ListTaskInstancesResponse);
@@ -174,6 +173,7 @@ service CollectorRuntimeService {
   rpc ListSinks(google.protobuf.Empty) returns (ListSinksResponse);
   rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
+  rpc ListLatestPoints(ListLatestPointsRequest) returns (ListLatestPointsResponse);
 }
 service CollectorControlService {
   rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);

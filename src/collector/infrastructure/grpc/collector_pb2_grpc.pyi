@@ -84,13 +84,13 @@ class CollectorRuntimeServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_collector_pb2.MetricsSnapshotResponse, _abc.Awaitable[_collector_pb2.MetricsSnapshotResponse]]: ...
 
     @_abc_1.abstractmethod
-    @_abc_1.abstractmethod
     def ListLatestPoints(
         self,
         request: _collector_pb2.ListLatestPointsRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_collector_pb2.ListLatestPointsResponse, _abc.Awaitable[_collector_pb2.ListLatestPointsResponse]]: ...
 
+    @_abc_1.abstractmethod
     def ListTasks(
         self,
         request: _empty_pb2.Empty,

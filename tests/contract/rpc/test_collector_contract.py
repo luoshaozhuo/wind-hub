@@ -18,7 +18,6 @@ _RUNTIME_METHODS = [
     "GetCollectorInfo",
     "GetRuntimeStatus",
     "GetMetricsSnapshot",
-    "ListLatestPoints",
     "ListTasks",
     "GetTask",
     "ListTaskInstances",
@@ -27,6 +26,7 @@ _RUNTIME_METHODS = [
     "ListSinks",
     "VerifySink",
     "WriteTestSink",
+    "ListLatestPoints",
 ]
 
 _CONTROL_METHODS = [
