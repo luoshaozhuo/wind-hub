@@ -162,6 +162,7 @@ def assemble_collector(
             load_config=lambda: load_collector_config(config_path),
             config_digest=lambda: config_dir_digest(config_path),
             config_hash=config_hash,
+            latest_values=latest_values,
         ),
         config_dir=config_path,
         config_hash=config_hash,

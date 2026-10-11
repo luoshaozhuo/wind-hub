@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 
 from .config import CollectorConfig
+from .latest_values import LatestValues
 from .reload import (
     ConfigDiff,
     ReloadResult,
@@ -59,8 +60,10 @@ class CollectorConfigService:
         load_config: ConfigLoader,
         config_digest: ConfigDigest,
         config_hash: str,
+        latest_values: LatestValues | None = None,
     ) -> None:
         self._runtime = runtime
+        self._latest_values = latest_values
         self._load_config = load_config
         self._config_digest = config_digest
         self._config_hash = config_hash
@@ -250,6 +253,15 @@ class CollectorConfigService:
             self._current = candidate
             self._config_hash = candidate_hash
             self._active_revision = revision_id
+            if self._latest_values is not None:
+                # 已删除设备/测点或点表变更后不再存在的键必须清除，
+                # 避免最新值查询返回已脱离配置的陈旧采样。
+                self._latest_values.retain(
+                    {
+                        str(device_id): frozenset(view.point_table.points)
+                        for device_id, view in candidate.device_views().items()
+                    }
+                )
             self._prepared_revision = None
             self._prepared_config = None
             self._prepared_diff = None

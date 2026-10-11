@@ -4,6 +4,7 @@ package windhub.collector.v1;
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
+import "core/infrastructure/rpc/commander.proto";
 
 message CollectorInfoResponse {
   string component = 1;
@@ -90,24 +91,23 @@ message ListTasksResponse { repeated TaskSummaryMessage items = 1; }
 message ListTaskInstancesResponse { repeated TaskInstanceMessage items = 1; }
 message TaskIdRequest { string task_id = 1; }
 message InstanceIdRequest { string instance_id = 1; }
-message TaskStartRequest {
-  string task_id = 1;
-  uint64 placement_generation = 2;
+message TaskStartRequest { string task_id = 1; }
+message TaskInstanceStartRequest { string instance_id = 1; }
+
+message LatestValuesRequest {
+  // 为空时返回全部设备的最新值。
+  string device_id = 1;
 }
-message TaskInstanceStartRequest {
-  string instance_id = 1;
-  uint64 placement_generation = 2;
+message LatestValueMessage {
+  string device_id = 1;
+  string point_id = 2;
+  windhub.commander.v1.ScalarValue value = 3;
+  string quality = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  string timestamp_source = 6;
+  string source = 7;
 }
-message TaskPlacementSnapshotRequest {
-  string worker_id = 1;
-  uint64 generation = 2;
-  repeated string task_ids = 3;
-}
-message TaskPlacementSnapshotResponse {
-  bool success = 1;
-  uint64 generation = 2;
-  uint64 task_count = 3;
-}
+message LatestValuesResponse { repeated LatestValueMessage values = 1; }
 
 message DeviceInfoMessage {
   string device_id = 1;
@@ -180,11 +180,11 @@ service CollectorRuntimeService {
   rpc GetTaskInstance(InstanceIdRequest) returns (TaskInstanceMessage);
   rpc ListDevices(google.protobuf.Empty) returns (ListDevicesResponse);
   rpc ListSinks(google.protobuf.Empty) returns (ListSinksResponse);
+  rpc QueryLatestValues(LatestValuesRequest) returns (LatestValuesResponse);
   rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
 }
 service CollectorControlService {
-  rpc ApplyTaskPlacement(TaskPlacementSnapshotRequest) returns (TaskPlacementSnapshotResponse);
   rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);
   rpc StopTask(TaskIdRequest) returns (TaskSummaryMessage);
   rpc StartTaskInstance(TaskInstanceStartRequest) returns (TaskInstanceMessage);

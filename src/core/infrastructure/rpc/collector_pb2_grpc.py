@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from core.infrastructure.rpc import collector_pb2 as collector_dot_infrastructure_dot_grpc_dot_collector__pb2
+from core.infrastructure.rpc import collector_pb2 as core_dot_infrastructure_dot_rpc_dot_collector__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 GRPC_GENERATED_VERSION = '1.81.1'
@@ -38,57 +38,62 @@ class CollectorRuntimeServiceStub:
         self.GetCollectorInfo = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetCollectorInfo',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.CollectorInfoResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.CollectorInfoResponse.FromString,
                 _registered_method=True)
         self.GetRuntimeStatus = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetRuntimeStatus',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.RuntimeStatusResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.RuntimeStatusResponse.FromString,
                 _registered_method=True)
         self.GetMetricsSnapshot = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetMetricsSnapshot',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.MetricsSnapshotResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.MetricsSnapshotResponse.FromString,
                 _registered_method=True)
         self.ListTasks = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/ListTasks',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTasksResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTasksResponse.FromString,
                 _registered_method=True)
         self.GetTask = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetTask',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
                 _registered_method=True)
         self.ListTaskInstances = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/ListTaskInstances',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTaskInstancesResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTaskInstancesResponse.FromString,
                 _registered_method=True)
         self.GetTaskInstance = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/GetTaskInstance',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
                 _registered_method=True)
         self.ListDevices = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/ListDevices',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListDevicesResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListDevicesResponse.FromString,
                 _registered_method=True)
         self.ListSinks = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/ListSinks',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListSinksResponse.FromString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListSinksResponse.FromString,
+                _registered_method=True)
+        self.QueryLatestValues = channel.unary_unary(
+                '/windhub.collector.v1.CollectorRuntimeService/QueryLatestValues',
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesResponse.FromString,
                 _registered_method=True)
         self.VerifySink = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/VerifySink',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
                 _registered_method=True)
         self.WriteTestSink = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/WriteTestSink',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
                 _registered_method=True)
 
 
@@ -149,6 +154,12 @@ class CollectorRuntimeServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def QueryLatestValues(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def VerifySink(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -167,57 +178,62 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
             'GetCollectorInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetCollectorInfo,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.CollectorInfoResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.CollectorInfoResponse.SerializeToString,
             ),
             'GetRuntimeStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetRuntimeStatus,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.RuntimeStatusResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.RuntimeStatusResponse.SerializeToString,
             ),
             'GetMetricsSnapshot': grpc.unary_unary_rpc_method_handler(
                     servicer.GetMetricsSnapshot,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.MetricsSnapshotResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.MetricsSnapshotResponse.SerializeToString,
             ),
             'ListTasks': grpc.unary_unary_rpc_method_handler(
                     servicer.ListTasks,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTasksResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTasksResponse.SerializeToString,
             ),
             'GetTask': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTask,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
             ),
             'ListTaskInstances': grpc.unary_unary_rpc_method_handler(
                     servicer.ListTaskInstances,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTaskInstancesResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTaskInstancesResponse.SerializeToString,
             ),
             'GetTaskInstance': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTaskInstance,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
             ),
             'ListDevices': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDevices,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListDevicesResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListDevicesResponse.SerializeToString,
             ),
             'ListSinks': grpc.unary_unary_rpc_method_handler(
                     servicer.ListSinks,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListSinksResponse.SerializeToString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListSinksResponse.SerializeToString,
+            ),
+            'QueryLatestValues': grpc.unary_unary_rpc_method_handler(
+                    servicer.QueryLatestValues,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesResponse.SerializeToString,
             ),
             'VerifySink': grpc.unary_unary_rpc_method_handler(
                     servicer.VerifySink,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.SerializeToString,
             ),
             'WriteTestSink': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteTestSink,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -246,7 +262,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/GetCollectorInfo',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.CollectorInfoResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.CollectorInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -273,7 +289,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/GetRuntimeStatus',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.RuntimeStatusResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.RuntimeStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -300,7 +316,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/GetMetricsSnapshot',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.MetricsSnapshotResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.MetricsSnapshotResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -327,7 +343,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/ListTasks',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTasksResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTasksResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -353,8 +369,8 @@ class CollectorRuntimeService:
             request,
             target,
             '/windhub.collector.v1.CollectorRuntimeService/GetTask',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -381,7 +397,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/ListTaskInstances',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListTaskInstancesResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListTaskInstancesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -407,8 +423,8 @@ class CollectorRuntimeService:
             request,
             target,
             '/windhub.collector.v1.CollectorRuntimeService/GetTaskInstance',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -435,7 +451,7 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/ListDevices',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListDevicesResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListDevicesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -462,7 +478,34 @@ class CollectorRuntimeService:
             target,
             '/windhub.collector.v1.CollectorRuntimeService/ListSinks',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ListSinksResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListSinksResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def QueryLatestValues(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.collector.v1.CollectorRuntimeService/QueryLatestValues',
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -488,8 +531,8 @@ class CollectorRuntimeService:
             request,
             target,
             '/windhub.collector.v1.CollectorRuntimeService/VerifySink',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -515,8 +558,8 @@ class CollectorRuntimeService:
             request,
             target,
             '/windhub.collector.v1.CollectorRuntimeService/WriteTestSink',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.SinkOperationResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.SinkOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -537,56 +580,45 @@ class CollectorControlServiceStub:
         Args:
             channel: A grpc.Channel.
         """
-        self.ApplyTaskPlacement = channel.unary_unary(
-                '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
-                _registered_method=True)
         self.StartTask = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StartTask',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
                 _registered_method=True)
         self.StopTask = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StopTask',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
                 _registered_method=True)
         self.StartTaskInstance = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StartTaskInstance',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceStartRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceStartRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
                 _registered_method=True)
         self.StopTaskInstance = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/StopTaskInstance',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
                 _registered_method=True)
         self.PrepareConfig = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/PrepareConfig',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigResponse.FromString,
                 _registered_method=True)
         self.ActivateConfig = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/ActivateConfig',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigResponse.FromString,
                 _registered_method=True)
         self.AbortConfig = channel.unary_unary(
                 '/windhub.collector.v1.CollectorControlService/AbortConfig',
-                request_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigRequest.SerializeToString,
-                response_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigResponse.FromString,
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigResponse.FromString,
                 _registered_method=True)
 
 
 class CollectorControlServiceServicer:
     """Missing associated documentation comment in .proto file."""
-
-    def ApplyTaskPlacement(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def StartTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -633,45 +665,40 @@ class CollectorControlServiceServicer:
 
 def add_CollectorControlServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ApplyTaskPlacement': grpc.unary_unary_rpc_method_handler(
-                    servicer.ApplyTaskPlacement,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.SerializeToString,
-            ),
             'StartTask': grpc.unary_unary_rpc_method_handler(
                     servicer.StartTask,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskStartRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskStartRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
             ),
             'StopTask': grpc.unary_unary_rpc_method_handler(
                     servicer.StopTask,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.SerializeToString,
             ),
             'StartTaskInstance': grpc.unary_unary_rpc_method_handler(
                     servicer.StartTaskInstance,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceStartRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceStartRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
             ),
             'StopTaskInstance': grpc.unary_unary_rpc_method_handler(
                     servicer.StopTaskInstance,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.SerializeToString,
             ),
             'PrepareConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.PrepareConfig,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigResponse.SerializeToString,
             ),
             'ActivateConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.ActivateConfig,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigResponse.SerializeToString,
             ),
             'AbortConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.AbortConfig,
-                    request_deserializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigRequest.FromString,
-                    response_serializer=collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigResponse.SerializeToString,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -683,33 +710,6 @@ def add_CollectorControlServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class CollectorControlService:
     """Missing associated documentation comment in .proto file."""
-
-    @staticmethod
-    def ApplyTaskPlacement(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/windhub.collector.v1.CollectorControlService/ApplyTaskPlacement',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskPlacementSnapshotResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def StartTask(request,
@@ -726,8 +726,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/StartTask',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskStartRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -753,8 +753,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/StopTask',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskSummaryMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskIdRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskSummaryMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -780,8 +780,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/StartTaskInstance',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceStartRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceStartRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -807,8 +807,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/StopTaskInstance',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.TaskInstanceMessage.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.InstanceIdRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.TaskInstanceMessage.FromString,
             options,
             channel_credentials,
             insecure,
@@ -834,8 +834,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/PrepareConfig',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.PrepareConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.PrepareConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -861,8 +861,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/ActivateConfig',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.ActivateConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.ActivateConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -888,8 +888,8 @@ class CollectorControlService:
             request,
             target,
             '/windhub.collector.v1.CollectorControlService/AbortConfig',
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigRequest.SerializeToString,
-            collector_dot_infrastructure_dot_grpc_dot_collector__pb2.AbortConfigResponse.FromString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.AbortConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,

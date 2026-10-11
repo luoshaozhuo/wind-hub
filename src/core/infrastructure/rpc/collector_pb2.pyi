@@ -4,6 +4,7 @@ isort:skip_file
 """
 
 from collections import abc as _abc
+from core.infrastructure.rpc import commander_pb2 as _commander_pb2
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
@@ -458,18 +459,15 @@ class TaskStartRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     TASK_ID_FIELD_NUMBER: _builtins.int
-    PLACEMENT_GENERATION_FIELD_NUMBER: _builtins.int
     task_id: _builtins.str
-    placement_generation: _builtins.int
     def __init__(
         self,
         *,
         task_id: _builtins.str = ...,
-        placement_generation: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["placement_generation", b"placement_generation", "task_id", b"task_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["task_id", b"task_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -480,73 +478,98 @@ class TaskInstanceStartRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
     INSTANCE_ID_FIELD_NUMBER: _builtins.int
-    PLACEMENT_GENERATION_FIELD_NUMBER: _builtins.int
     instance_id: _builtins.str
-    placement_generation: _builtins.int
     def __init__(
         self,
         *,
         instance_id: _builtins.str = ...,
-        placement_generation: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["instance_id", b"instance_id", "placement_generation", b"placement_generation"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["instance_id", b"instance_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___TaskInstanceStartRequest: _TypeAlias = TaskInstanceStartRequest  # noqa: Y015
 
 @_typing.final
-class TaskPlacementSnapshotRequest(_message.Message):
+class LatestValuesRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    WORKER_ID_FIELD_NUMBER: _builtins.int
-    GENERATION_FIELD_NUMBER: _builtins.int
-    TASK_IDS_FIELD_NUMBER: _builtins.int
-    worker_id: _builtins.str
-    generation: _builtins.int
-    @_builtins.property
-    def task_ids(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    """为空时返回全部设备的最新值。"""
     def __init__(
         self,
         *,
-        worker_id: _builtins.str = ...,
-        generation: _builtins.int = ...,
-        task_ids: _abc.Iterable[_builtins.str] | None = ...,
+        device_id: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation", b"generation", "task_ids", b"task_ids", "worker_id", b"worker_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___TaskPlacementSnapshotRequest: _TypeAlias = TaskPlacementSnapshotRequest  # noqa: Y015
+Global___LatestValuesRequest: _TypeAlias = LatestValuesRequest  # noqa: Y015
 
 @_typing.final
-class TaskPlacementSnapshotResponse(_message.Message):
+class LatestValueMessage(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    SUCCESS_FIELD_NUMBER: _builtins.int
-    GENERATION_FIELD_NUMBER: _builtins.int
-    TASK_COUNT_FIELD_NUMBER: _builtins.int
-    success: _builtins.bool
-    generation: _builtins.int
-    task_count: _builtins.int
+    DEVICE_ID_FIELD_NUMBER: _builtins.int
+    POINT_ID_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    QUALITY_FIELD_NUMBER: _builtins.int
+    TIMESTAMP_FIELD_NUMBER: _builtins.int
+    TIMESTAMP_SOURCE_FIELD_NUMBER: _builtins.int
+    SOURCE_FIELD_NUMBER: _builtins.int
+    device_id: _builtins.str
+    point_id: _builtins.str
+    quality: _builtins.str
+    timestamp_source: _builtins.str
+    source: _builtins.str
+    @_builtins.property
+    def value(self) -> _commander_pb2.ScalarValue: ...
+    @_builtins.property
+    def timestamp(self) -> _timestamp_pb2.Timestamp: ...
     def __init__(
         self,
         *,
-        success: _builtins.bool = ...,
-        generation: _builtins.int = ...,
-        task_count: _builtins.int = ...,
+        device_id: _builtins.str = ...,
+        point_id: _builtins.str = ...,
+        value: _commander_pb2.ScalarValue | None = ...,
+        quality: _builtins.str = ...,
+        timestamp: _timestamp_pb2.Timestamp | None = ...,
+        timestamp_source: _builtins.str = ...,
+        source: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["timestamp", b"timestamp", "value", b"value"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["generation", b"generation", "success", b"success", "task_count", b"task_count"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["device_id", b"device_id", "point_id", b"point_id", "quality", b"quality", "source", b"source", "timestamp", b"timestamp", "timestamp_source", b"timestamp_source", "value", b"value"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
-Global___TaskPlacementSnapshotResponse: _TypeAlias = TaskPlacementSnapshotResponse  # noqa: Y015
+Global___LatestValueMessage: _TypeAlias = LatestValueMessage  # noqa: Y015
+
+@_typing.final
+class LatestValuesResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedCompositeFieldContainer[Global___LatestValueMessage]: ...
+    def __init__(
+        self,
+        *,
+        values: _abc.Iterable[Global___LatestValueMessage] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___LatestValuesResponse: _TypeAlias = LatestValuesResponse  # noqa: Y015
 
 @_typing.final
 class DeviceInfoMessage(_message.Message):
