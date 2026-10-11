@@ -62,6 +62,25 @@ async def test_open_failure_marks_unhealthy_and_skips_consumer():
     await runtime.stop()
 
 
+async def test_failed_open_recovers_and_restarts_consumer():
+    sink = FakeSink()
+    sink.fail_open = True
+    runtime = _runtime({"s1": sink})
+    await runtime.start()
+    assert "s1" in runtime._unhealthy
+    assert not (await runtime.health())["s1"].healthy
+
+    sink.fail_open = False
+    await runtime._watchdogs["s1"].check_once()
+    assert "s1" not in runtime._unhealthy
+    assert sink.open_calls == 2
+
+    await runtime.dispatch({"s1": [_value()]})
+    await asyncio.sleep(0.05)
+    assert len(sink.batches) == 1
+    await runtime.stop()
+
+
 async def test_drop_new_discards_when_full():
     sink = FakeSink()
     runtime = _runtime({"s1": sink}, policy="drop_new", maxsize=1)
