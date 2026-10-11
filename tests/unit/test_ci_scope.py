@@ -1,8 +1,8 @@
-"""ci_scope.py 变更路径 → gate 映射的回归测试（Phase 6）。
+"""ci_scope.py 变更路径 → gate 映射的回归测试。
 
-固定关键架构路径的 PR Gate 触发关系：placement reconciler 等 task control
-核心路径必须触发 system-task-control；collector sink/query 应用服务必须
-触发 RPC 与 sink 相关集成测试；commander 配置事务服务必须触发 system-reload。
+固定关键架构路径的 PR Gate 触发关系：collector sink/query 应用服务必须
+触发 RPC 与 sink 相关集成测试；collector/commander 配置与装配路径必须
+触发对应 system 套件。
 """
 
 from __future__ import annotations
@@ -27,23 +27,12 @@ def _pr_targets(*paths: str) -> set[str]:
     return set(filter(None, result["backend_pr_targets"].split(",")))
 
 
-def test_reconciler_triggers_system_task_control() -> None:
-    assert "system-task-control" in _pr_targets("src/wind_hub_server/application/task/reconcile.py")
+def test_collector_config_service_triggers_system_acquisition() -> None:
+    assert "system-acquisition" in _pr_targets("src/collector/application/config_service.py")
 
 
-def test_task_control_plane_paths_trigger_system_task_control() -> None:
-    for path in (
-        "src/wind_hub_server/application/task/placement.py",
-        "src/wind_hub_server/application/task/control.py",
-        "src/wind_hub_server/application/task/collector.py",
-        "src/wind_hub_server/application/worker/registry.py",
-        "src/wind_hub_server/application/worker/model.py",
-    ):
-        assert "system-task-control" in _pr_targets(path), path
-
-
-def test_commander_config_service_triggers_system_reload() -> None:
-    assert "system-reload" in _pr_targets("src/commander/application/config.py")
+def test_commander_config_triggers_system_command() -> None:
+    assert "system-command" in _pr_targets("src/commander/application/config.py")
 
 
 def test_collector_sink_service_triggers_rpc_and_sink_gates() -> None:

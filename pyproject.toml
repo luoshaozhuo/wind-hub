@@ -9,7 +9,6 @@ packages = [
     { include = "core", from = "src" },
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
-    { include = "wind_hub_server", from = "src" },
     { include = "ctl", from = "src" },
 ]
 
@@ -60,7 +59,6 @@ types-aiofiles = "^25.1.0.20260518"
 [tool.poetry.scripts]
 wind-hub-collector = "collector.main:main"
 wind-hub-ctl = "ctl.main:main"
-wind-hub-server = "wind_hub_server.main:main"
 wind-hub-commander = "commander.main:main"
 
 [tool.ruff]
@@ -159,7 +157,6 @@ root_packages = [
     "core",
     "collector",
     "commander",
-    "wind_hub_server",
     "ctl",
 ]
 
@@ -167,11 +164,12 @@ root_packages = [
 # ---- new Shared Core boundary ----
 
 [[tool.importlinter.contracts]]
-name = "new core 不得依赖旧 core 或任何进程包"
+name = "new core 不得依赖进程包"
 type = "forbidden"
 source_modules = ["core"]
 forbidden_modules = [
-    "wind_hub_server",
+    "collector",
+    "commander",
     "ctl",
 ]
 
@@ -188,21 +186,19 @@ layers = [
 # 新进程包只依赖 core；禁止 import 旧 wind_hub_* 包，禁止互相 import。
 
 [[tool.importlinter.contracts]]
-name = "new commander 不得依赖旧包或 collector"
+name = "new commander 不得依赖 collector 或 ctl"
 type = "forbidden"
 source_modules = ["commander"]
 forbidden_modules = [
-    "wind_hub_server",
     "ctl",
     "collector",
 ]
 
 [[tool.importlinter.contracts]]
-name = "new collector 不得依赖旧包或 commander"
+name = "new collector 不得依赖 commander 或 ctl"
 type = "forbidden"
 source_modules = ["collector"]
 forbidden_modules = [
-    "wind_hub_server",
     "ctl",
     "commander",
 ]
@@ -225,14 +221,6 @@ layers = [
     "collector.domain",
 ]
 
-# ---- 旧 Server/CLI 临时保留，待后续整体迁移 ----
-
-[[tool.importlinter.contracts]]
-name = "server 不得依赖 ctl"
-type = "forbidden"
-source_modules = ["wind_hub_server"]
-forbidden_modules = ["ctl"]
-
 [[tool.importlinter.contracts]]
 name = "ctl 只依赖 shared core，不依赖进程包"
 type = "forbidden"
@@ -240,7 +228,6 @@ source_modules = ["ctl"]
 forbidden_modules = [
     "collector",
     "commander",
-    "wind_hub_server",
 ]
 
 # ---- generated protobuf 边界 ----
@@ -261,32 +248,4 @@ forbidden_modules = [
     "core.infrastructure.rpc.collector_pb2_grpc",
     "core.infrastructure.rpc.commander_pb2",
     "core.infrastructure.rpc.commander_pb2_grpc",
-]
-
-# ---- server application 内部分层 ----
-# 依赖方向：adapter → application capability → application port → outbound adapter/infra。
-# capability 之间只允许单向依赖（见 layers contract），禁止反向或环。
-
-[[tool.importlinter.contracts]]
-name = "server application 不得依赖 adapter / infra"
-type = "forbidden"
-source_modules = ["wind_hub_server.application"]
-forbidden_modules = ["wind_hub_server.adapter", "wind_hub_server.infra"]
-
-[[tool.importlinter.contracts]]
-name = "server application 不得依赖生成的 protobuf"
-type = "forbidden"
-source_modules = ["wind_hub_server.application"]
-forbidden_modules = ["core.infrastructure.rpc"]
-
-[[tool.importlinter.contracts]]
-name = "server application capability 分层"
-type = "layers"
-layers = [
-    "wind_hub_server.application.app_context",
-    "wind_hub_server.application.monitoring | wind_hub_server.application.device | wind_hub_server.application.sink",
-    "wind_hub_server.application.task",
-    "wind_hub_server.application.config",
-    "wind_hub_server.application.worker | wind_hub_server.application.operation",
-    "wind_hub_server.application.port",
 ]
