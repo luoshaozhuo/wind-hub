@@ -33,7 +33,7 @@ async function write() {
     if (!pointId.value) throw new Error('Point ID required')
     if (!writeValue.value.trim()) throw new Error('Value required')
     const raw = writeValue.value.trim()
-    const value = raw === 'true' ? true : raw === 'false' ? false : Number.isFinite(Number(raw)) ? Number(raw) : raw
+    const value: boolean | number | string = raw === 'true' ? true : raw === 'false' ? false : /^[-+]?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?$/.test(raw) ? Number(raw) : raw
     const result = await runtimeApi.writePoint({
       command_id: crypto.randomUUID(), device_id: selected.value, point_id: pointId.value,
       value, timeout: 1,
