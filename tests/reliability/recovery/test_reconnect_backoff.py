@@ -95,7 +95,7 @@ async def _sample_attempts(
 
 
 class TestWatchdogRecovery:
-    async def test_backoff_throttles_and_resets_after_recovery(
+    async def test_watchdog_recovers_without_poll_loop_reconnect(
         self, collector_factory, tmp_path: Path
     ) -> None:
         port = free_port()
@@ -107,8 +107,8 @@ class TestWatchdogRecovery:
             proc.grpc_target, task_id=TASK_ID, instance_id=INSTANCE_ID
         )
 
-        # ---- 故障：设备全程不可达，观察退避曲线 ----
-        attempts_at, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
+        # ---- 故障：设备全程不可达，验证周期连接检查 ----
+        _, attempts, runs = await _sample_attempts(proc, OUTAGE_WINDOW)
 
         assert 1 <= attempts <= 6, (
             f"expected periodic watchdog reconnect attempts, got {attempts}"
