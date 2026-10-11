@@ -3,7 +3,7 @@
 只装配即时设备通信、命令分发、读取、诊断和配置事务；不包含采集 Task、
 Sink、Web API 或 Collector Runtime。组合根是唯一允许跨层引用
 Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持有进程级
-ADS 本机身份（ADSLocalRouter）、装配诊断 probe。
+ADS 本机身份、装配诊断 probe。
 """
 
 from __future__ import annotations
@@ -13,10 +13,6 @@ from pathlib import Path
 
 from core.application import ProtocolRegistry
 from core.domain import ConnectionEndpoint, Device, ProtocolOptions
-from core.infrastructure import (
-    ADSLocalConfig,
-    ADSLocalRouter,
-)
 from core.infrastructure.config import config_dir_digest
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -52,7 +48,6 @@ class CommanderApp:
         config: 配置事务服务（prepare / activate / abort）。
         config_dir: 现场配置目录。
         config_hash: 启动配置集摘要。
-        ads_local_router: 进程级 ADS 本机身份 owner；stop 时关闭。
     """
 
     boot_config: CommanderConfig
@@ -63,7 +58,6 @@ class CommanderApp:
     config: CommanderConfigService
     config_dir: Path
     config_hash: str
-    ads_local_router: ADSLocalRouter
 
     async def start(self) -> None:
         """启动 Runtime（协议环境准备）。"""
@@ -74,7 +68,7 @@ class CommanderApp:
         try:
             await self.runtime.stop()
         finally:
-            await self.ads_local_router.close()
+            await ADSDriver.close_local()
 
 
 def build_protocol_registry() -> ProtocolRegistry:
@@ -104,18 +98,11 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
             f"before={before_hash} after={config_hash}"
         )
 
-    ads_local_router = ADSLocalRouter()
-
     async def prepare_protocols(current: CommanderConfig) -> None:
         """协议环境准备：初始化进程级 ADS 本机身份（配置含 ADS 时）。"""
         if current.ads_local is None:
             return
-        await ads_local_router.initialize(
-            ADSLocalConfig(
-                local_ams_net_id=current.ads_local.local_ams_net_id,
-                local_ip=current.ads_local.local_ip,
-            )
-        )
+        await ADSDriver.initialize_local(current.ads_local)
 
     def probe_factory(
         device: Device,
@@ -156,7 +143,6 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         ),
         config_dir=config_path,
         config_hash=config_hash,
-        ads_local_router=ads_local_router,
     )
 
 
