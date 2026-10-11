@@ -145,8 +145,7 @@ def _c104() -> Any:
 class IEC104Driver:
     """单个 Endpoint 的 IEC104 主站 Driver。
 
-    c104 自己运行 APCI/ASDU 状态机和内部重连。本 Driver 只维护共享镜像，
-    断线时立即清空镜像，避免 read 返回旧值。
+    c104 负责 APCI/ASDU 通信。Driver 不缓存业务点值，重连与业务恢复由外部负责。
     """
 
     def __init__(
@@ -182,7 +181,7 @@ class IEC104Driver:
         self._closed = True
 
         # 动态 IOA 接收关联（协议会话级，不是 PointTable 登记）：任何动态点
-        # 操作按需登记，使自发上送/总召响应能写入镜像；跨断连保留，重连后
+        # 操作按需登记，使上报和总召响应能路由到订阅者；跨断连保留，重连后
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
         self._dynamic_points: dict[int, IEC104Point] = {}
@@ -197,8 +196,7 @@ class IEC104Driver:
     def update_point_table(self, point_table: PointTable) -> None:
         """热重载点表：重建 IOA 寻址索引（不断开连接）。
 
-        已注册的 c104 通知点由上层重启订阅后按新映射重新注册；旧 IOA
-        的残留样本不再被读取（读取按 point_id 经新索引寻址）。
+        已注册的 c104 通知点由上层重启订阅后按新映射重新注册。
         """
         next_by_id, next_by_ioa = build_iec104_index(
             list(point_table.points.values()),
@@ -206,8 +204,7 @@ class IEC104Driver:
         for point in point_table.points.values():
             if point.access in (PointAccess.WRITE, PointAccess.READ_WRITE):
                 validate_iec104_write_type(next_by_id[point.point_id])
-        # Commit the new mapping only after complete validation; old samples
-        # must not be exposed under a reassigned IOA or point identity.
+        # 验证完成后统一替换映射，旧映射下的待处理读取将被拒绝。
         self._point_table_id = point_table.point_table_id
         self._points_by_id, self._points_by_ioa = next_by_id, next_by_ioa
         self._reject_pending_reads("IEC104 point table changed")
@@ -497,6 +494,10 @@ class IEC104Driver:
             finally:
                 if self._interrogation_waiter is completed:
                     self._interrogation_waiter = None
+                if completed.done() and not completed.cancelled():
+                    completed.exception()
+                else:
+                    completed.cancel()
 
     def _handle_raw_receive(self, connection: Any, data: bytes) -> None:
         """识别站总召的否定 ACT_CON 或 ACT_TERM，不重复解码测点。"""
@@ -521,6 +522,7 @@ class IEC104Driver:
             or data[1] + 2 != len(data)
             or data[2] & 0x01
             or data[6] != 100
+            or data[7] != 1
             or int.from_bytes(data[10:12], "little") != common_addr
             or int.from_bytes(data[12:15], "little") != 0
             or data[15] != 20
