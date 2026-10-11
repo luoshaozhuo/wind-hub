@@ -94,6 +94,9 @@ def write_minimal_config_tree(
                 "endpoint": {"host": "127.0.0.1", "port": 502},
             }
         ]
+    for device in devices:
+        if "device_group" not in device and "device_groups" not in device:
+            device["device_group"] = device["device_id"]
     write_yaml(base, "devices.yaml", {"devices": devices})
 
     if point_tables is None:
@@ -107,7 +110,18 @@ def write_minimal_config_tree(
                 }
             ]
         point_tables = {"tab": {"protocol": protocol, "points": points}}
+    business_points: dict[str, dict[str, str]] = {}
+    for table in point_tables.values():
+        for point in table.get("points", []):
+            identity = point.setdefault("business_point_id", point["point_id"])
+            business_points[identity] = {
+                "data_type": point.get("data_type", "float32"),
+                "unit": point.get("unit", "none"),
+            }
+    write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})
+    write_yaml(base, "tasks.yaml", {"tasks": []})
+    write_yaml(base, "sinks.yaml", {"sinks": []})
     return base
 
 
