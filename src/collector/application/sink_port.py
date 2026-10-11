@@ -30,7 +30,7 @@ class SinkRegistry:
         """注册 Sink factory。
 
         Args:
-            type_name: 与 Sink.type 一致的类型名。
+            type_name: 与 Sink.kind 一致的类型名。
             factory: 接收 Sink 并返回 SinkPort 的工厂。
 
         Raises:
