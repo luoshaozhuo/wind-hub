@@ -129,11 +129,8 @@ def test_domain_config_is_compact() -> None:
     """Shared Domain 配置收敛为 VO（含按业务 ID 粒度的 diff）与一致性规则。"""
     config_dir = _CORE / "domain" / "config"
 
-    assert {path.name for path in config_dir.glob("*.py")} == {
-        "__init__.py",
-        "models.py",
-        "validation.py",
-    }
+    assert not config_dir.exists()
+    assert (_CORE / "domain" / "validation.py").is_file()
 
 
 def test_shared_core_has_no_process_config_adapters_or_use_cases() -> None:
