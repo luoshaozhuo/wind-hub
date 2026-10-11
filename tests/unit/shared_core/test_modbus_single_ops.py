@@ -725,7 +725,7 @@ class TestHealthSemantics:
         assert driver.is_open() is True
         health = await driver.health()
         assert health.healthy is True
-        assert "connected to" in (health.message or "")
+        assert "Modbus health point" in (health.message or "")
 
     @pytest.mark.asyncio
     async def test_closed_transport_reports_not_open(self) -> None:
