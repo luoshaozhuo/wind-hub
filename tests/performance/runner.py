@@ -341,7 +341,7 @@ async def _health_watch(protocol_driver: ProtocolPort, collector: MetricsCollect
     down_since = 0.0
     while True:
         await asyncio.sleep(1.0)
-        healthy = protocol_driver.health().healthy
+        healthy = (await protocol_driver.health()).healthy
         if was_healthy is None:
             was_healthy = healthy
             continue

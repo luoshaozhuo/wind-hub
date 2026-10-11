@@ -1,7 +1,7 @@
 """ADS 动态点（显式 index 地址，不登记 PointTable）读写测试。
 
 fake pyads Connection：动态 ADSPoint 直接按 index_group/index_offset
-读写，不做 symbol 解析；批读覆盖 sequential 与 Sum Read 两种模式。
+读写，不做 symbol 解析；批量读取使用 Sum Read。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import pytest
 import core.infrastructure.protocol.ads.driver as driver_module
 from core.application import ConfigError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import Quality
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import ConnectionEndpoint, PointTable, Protocol
 from core.infrastructure.protocol.ads import ADSDriver, ADSPoint, ads_point
 
@@ -35,6 +34,26 @@ class _Connection:
             raise self.read_error
         return self.values[(index_group, index_offset)]
 
+    def read_write(
+        self,
+        index_group: int,
+        index_offset: int,
+        read_datatype: object,
+        value: object,
+        write_datatype: object,
+        *,
+        check_length: bool,
+    ) -> bytes:
+        del index_group, read_datatype, write_datatype, check_length
+        addresses = [
+            (value[i].iGroup, value[i].iOffset, value[i].size)
+            for i in range(index_offset)
+        ]
+        return bytes(4 * len(addresses)) + b"".join(
+            struct.pack("<i", self.values[(group, offset)])
+            for group, offset, _size in addresses
+        )
+
     def write(
         self, index_group: int, index_offset: int, value: object, datatype: object
     ) -> None:
@@ -47,16 +66,10 @@ class _Connection:
 def _driver(
     connection: _Connection,
     *,
-    read_mode: str = "sequential",
     point_table: PointTable | None = None,
 ) -> ADSDriver:
-    table = (
-        point_table
-        if point_table is not None
-        else PointTable("ads", Protocol("ads"), {})
-    )
-    options = {"read_mode": read_mode} if read_mode != "sum" else {}
-    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, options)
+    table = point_table if point_table is not None else PointTable("ads", Protocol("ads"), {})
+    driver = ADSDriver(ConnectionEndpoint("192.0.2.20", 801), table, {})
     driver._connection = connection
     driver._connected = True
     return driver
@@ -256,7 +269,7 @@ class TestDynamicReadMany:
 
     @pytest.mark.asyncio
     async def test_sum_mode_keeps_dynamic_points_on_sum_read(self) -> None:
-        """sum 模式下动态点使用 index Sum Read，不降级 read_list_by_name。"""
+        """动态点使用 index Sum Read，不降级逐点读取。"""
 
         class _SumConnection(_Connection):
             def __init__(self) -> None:
@@ -281,7 +294,7 @@ class TestDynamicReadMany:
         import pyads
 
         monkey_connection = _SumConnection()
-        driver = _driver(monkey_connection, read_mode="sum")
+        driver = _driver(monkey_connection)
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(driver_module, "_pyads", lambda: pyads)
         try:
@@ -294,27 +307,3 @@ class TestDynamicReadMany:
         assert [s.value for s in samples] == [111, 222]
         assert monkey_connection.sum_calls != []
         assert monkey_connection.read_calls == []
-
-
-# ---------------------------------------------------------------------------
-# RecoveringProtocol 透传
-# ---------------------------------------------------------------------------
-
-
-class TestDynamicPointsThroughRecovery:
-    @pytest.mark.asyncio
-    async def test_recovery_passthrough_read_and_write(self) -> None:
-        connection = _Connection()
-        connection.values[(0x4020, 100)] = 33
-        driver = _driver(connection)
-        wrapped = RecoveringProtocol(driver, RecoverySettings(read_retries=1))
-
-        sample = await wrapped.read_one(_dyn())
-        assert sample.value == 33
-
-        result = await wrapped.write_one(_dyn(), 44)
-        assert result.success
-        assert connection.write_calls == [(0x4020, 100, 44)]
-
-        samples = await wrapped.read_many([_dyn(), _dyn("b", offset=100)])
-        assert [s.value for s in samples] == [33, 33]

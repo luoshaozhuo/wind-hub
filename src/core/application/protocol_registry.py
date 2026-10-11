@@ -6,7 +6,6 @@ from collections.abc import Callable
 
 from core.application.errors import ConfigError
 from core.application.port import ProtocolPort
-from core.application.recovery import RecoveringProtocol, RecoverySettings
 from core.domain import ConnectionEndpoint, PointTable, Protocol, ProtocolOptions
 
 ProtocolFactory = Callable[
@@ -24,12 +23,6 @@ class ProtocolRegistry:
 
     def __init__(self) -> None:
         self._factories: dict[str, ProtocolFactory] = {}
-        self._recovery_settings: RecoverySettings | None = None
-
-    def configure_recovery(self, settings: RecoverySettings) -> None:
-        """Set the runtime recovery policy for drivers created afterward."""
-        self._recovery_settings = settings
-
     def register(
         self,
         protocol: Protocol | str,
@@ -59,10 +52,7 @@ class ProtocolRegistry:
                 f"unknown protocol driver '{protocol.name}'; "
                 f"registered={list(self.registered_names())}"
             )
-        driver = factory(endpoint, point_table, protocol_options)
-        if self._recovery_settings is None:
-            return driver
-        return RecoveringProtocol(driver, self._recovery_settings)
+        return factory(endpoint, point_table, protocol_options)
 
 
 def _protocol_name(protocol: Protocol | str) -> str:

@@ -27,8 +27,8 @@ class SinkPort(Protocol):
         """提交内部缓冲；不承诺执行物理介质 fsync。"""
         ...
 
-    def health(self) -> ConnectionHealth:
-        """返回缓存的健康状态；不得执行阻塞 I/O。"""
+    async def health(self) -> ConnectionHealth:
+        """执行一次无业务副作用的健康检查；不得写入虚假业务数据。"""
         ...
 
 

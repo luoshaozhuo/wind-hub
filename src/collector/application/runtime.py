@@ -126,13 +126,16 @@ class CollectorRuntime:
         self._task_runtime = TaskRuntime(
             tasks or {}, self._device_runtime, engine, clock, metrics_hook
         )
+        self._device_runtime.set_reconnect_callback(
+            self._task_runtime.restore_subscriptions
+        )
         self._sink_runtime = SinkRuntime(sinks, params, sink_factory)
         self._session_factory = session_factory
         self._engine = engine
         self._params = params
 
-        # 设备连接状态的落点：引擎采集前经 ensure_connected 完成带节流的
-        # 重连，采集后上报 read 结果；设备端口直接绑定唯一 owner。
+        # 设备连接状态的落点：引擎采集前只检查可用性，周期恢复由
+        # DeviceRuntime 的 Watchdog 执行；采集后仍上报 read 结果。
         self._engine.attach_device_state(self._device_runtime)
         # 采集执行状态的落点：引擎上报每次 collect 的开始/成功/失败
         # （TaskRuntime 实现 AcquisitionStatePort）。
@@ -179,13 +182,13 @@ class CollectorRuntime:
         """单台设备的连接/重连簿记状态（委托 DeviceRuntime）。"""
         return self._device_runtime.device_state(device_id)
 
-    def device_health(self) -> dict[str, ConnectionHealth]:
-        """全部设备的健康状态（委托 DeviceRuntime）。"""
-        return self._device_runtime.health()
+    async def device_health(self) -> dict[str, ConnectionHealth]:
+        """主动检查全部设备健康状态（委托 DeviceRuntime）。"""
+        return await self._device_runtime.health()
 
-    def sink_health(self) -> dict[str, ConnectionHealth]:
-        """全部 Sink 的健康状态（委托 SinkRuntime）。"""
-        return self._sink_runtime.health()
+    async def sink_health(self) -> dict[str, ConnectionHealth]:
+        """主动检查全部 Sink 健康状态（委托 SinkRuntime）。"""
+        return await self._sink_runtime.health()
 
     @property
     def engine(self) -> AcquisitionEngine:
@@ -240,10 +243,14 @@ class CollectorRuntime:
     # 状态
     # ------------------------------------------------------------------
 
-    def health(self) -> dict[str, ConnectionHealth]:
-        """返回全部设备与 sink 的健康状态（设备优先、随后 sink）。"""
-        result = self._device_runtime.health()
-        result.update(self._sink_runtime.health())
+    async def health(self) -> dict[str, ConnectionHealth]:
+        """主动检查设备并合并当前 Sink 健康状态。"""
+        device_health, sink_health = await asyncio.gather(
+            self._device_runtime.health(),
+            self._sink_runtime.health(),
+        )
+        result = dict(device_health)
+        result.update(sink_health)
         return result
 
     @property
@@ -586,5 +593,4 @@ def _views_match(current: DeviceView, target: DeviceView) -> bool:
         and dict(current.options) == dict(target.options)
         and current.point_table.point_table_id == target.point_table.point_table_id
         and current.subscribe_enabled == target.subscribe_enabled
-        and current.supports_scheduled_collection == target.supports_scheduled_collection
     )

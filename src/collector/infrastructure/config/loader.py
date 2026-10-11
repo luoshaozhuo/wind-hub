@@ -157,8 +157,8 @@ def _runtime_params(system: SystemConfig) -> RuntimeParams:
         connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
         read_timeout=(settings.read_timeout if settings.read_timeout is not None else 1.0),
         write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
-        read_retries=settings.read_retries,
-        retry_interval=settings.retry_interval,
+        watchdog_interval=settings.watchdog_interval,
+        health_timeout=settings.health_timeout,
     )
 
 

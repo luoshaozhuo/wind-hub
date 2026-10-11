@@ -9,7 +9,7 @@ from core.domain import ConnectionEndpoint, ProtocolOptions
 
 _VALID_MODES = frozenset({"tcp"})
 _VALID_WORD_ORDERS = frozenset({"big_endian", "little_endian"})
-_ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order"})
+_ALLOWED_OPTIONS = frozenset({"mode", "unit_id", "timeout", "word_order", "health_point_id"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +22,7 @@ class ModbusConfig:
     mode: str = "tcp"
     timeout: float = 5.0
     word_order: str = "little_endian"
+    health_point_id: str | None = None
 
 
 def parse_modbus_config(
@@ -58,6 +59,10 @@ def parse_modbus_config(
     if word_order not in _VALID_WORD_ORDERS:
         raise ConfigError(f"connection '{endpoint}': invalid word_order " f"'{word_order}'")
 
+    health_point_id = options.get("health_point_id")
+    if health_point_id is not None:
+        health_point_id = _string_option(health_point_id, "health_point_id", default="")
+
     return ModbusConfig(
         host=endpoint.host,
         port=endpoint.port or 502,
@@ -65,6 +70,7 @@ def parse_modbus_config(
         mode=mode,
         timeout=timeout,
         word_order=word_order,
+        health_point_id=health_point_id,
     )
 
 

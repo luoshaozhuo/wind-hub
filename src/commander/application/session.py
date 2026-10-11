@@ -147,9 +147,9 @@ class DeviceSession:
         """底层协议传输连接当前是否打开（本地查询，不触发网络 I/O）。"""
         return self._protocol.is_open()
 
-    def health(self) -> ConnectionHealth:
-        """返回协议缓存的健康状态，不触发实时网络探测。"""
-        return self._protocol.health()
+    async def health(self) -> ConnectionHealth:
+        """执行一次底层协议健康检查。"""
+        return await self._protocol.health()
 
     async def read_point(self, point_id: str) -> PointReading:
         """单点即时读取（独立公开入口，不经过批量路径）。

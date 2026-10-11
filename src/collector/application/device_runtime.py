@@ -13,12 +13,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from core.application import ConnectionHealth
-from core.application.recovery import RecoveringProtocol
+from core.application import ConnectionHealth, WatchdogUseCase
 
 from .config import DeviceView, RuntimeParams
 from .device_state import DeviceRuntimeState
@@ -51,8 +50,8 @@ def is_connection_level(exc: BaseException) -> bool:
 class DeviceRuntime:
     """持有设备会话与连接状态，并负责连接、重连及设备热更新。
 
-    接管传入的会话注册表；不保存 Task、采集句柄或 Sink 状态。连接超时、
-    重试窗口和指标上报沿用 Collector 的既有策略。
+    接管传入的会话注册表；不保存 Task、采集句柄或 Sink 状态。周期健康检查
+    与一次重连由每设备 Watchdog 执行。
     """
 
     def __init__(
@@ -67,16 +66,16 @@ class DeviceRuntime:
         self._params = params
         self._clock = clock
         self._metrics = metrics_hook
-        # 每台设备的 connect 串行化锁：并发 ensure_connected（多个采集实例、
-        # force 控制路径）在同一断线事件上只允许一个协程真正发起 connect，
-        # 其余协程在锁内复查状态后直接收敛，避免重复连接与重复指标记账。
+        self._watchdogs: dict[str, WatchdogUseCase] = {}
+        self._watchdogs_running = False
+        self._reconnect_callback: Callable[[str], Awaitable[None]] | None = None
+        # 同一设备的显式 connect 与 Watchdog close/connect 共用锁，
+        # 避免热更新期间并发连接和重复指标记账。
         self._connect_locks: dict[str, asyncio.Lock] = {}
         # 每台设备建会话时使用的 DeviceView（轻量更新判定的比较基线）。
         self._views: dict[str, DeviceView] = {}
-        # RecoveringProtocol 在读路径内透明重连时对上层不可见——把重连事件接回
-        # 运行状态与指标，保证 device_reconnects 如实反映每一次实际重连。
         for device_id, device in devices.items():
-            self._wire_reconnect_hook(device_id, device)
+            self._watchdogs[device_id] = self._make_watchdog(device_id, device)
 
     @property
     def devices(self) -> Mapping[str, CollectorDeviceSession]:
@@ -88,12 +87,39 @@ class DeviceRuntime:
         return MappingProxyType(self._devices)
 
     def update_params(self, params: RuntimeParams) -> None:
-        """热更新运行时参数快照——``connect_timeout`` 在每次 connect 动态读取。"""
+        """热更新连接与 Watchdog 时序参数。"""
         self._params = params
+        for watchdog in self._watchdogs.values():
+            watchdog.configure(
+                interval=params.watchdog_interval,
+                health_timeout=params.health_timeout,
+                connect_timeout=params.connect_timeout,
+            )
 
-    def health(self) -> dict[str, ConnectionHealth]:
-        """按注册顺序读取设备协议健康状态。"""
-        return {device_id: device.health() for device_id, device in self._devices.items()}
+    def set_reconnect_callback(
+        self,
+        callback: Callable[[str], Awaitable[None]] | None,
+    ) -> None:
+        """设置通用重连成功后的应用回调。"""
+        self._reconnect_callback = callback
+
+    async def health(self) -> dict[str, ConnectionHealth]:
+        """并发执行全部设备的协议级健康检查。"""
+        items = list(self._devices.items())
+        results = await asyncio.gather(
+            *(device.health() for _device_id, device in items),
+            return_exceptions=True,
+        )
+        health: dict[str, ConnectionHealth] = {}
+        for (device_id, _device), result in zip(items, results, strict=True):
+            if isinstance(result, BaseException):
+                health[device_id] = ConnectionHealth(
+                    healthy=False,
+                    message=f"health check failed: {result}",
+                )
+            else:
+                health[device_id] = result
+        return health
 
     # ------------------------------------------------------------------
     # 热更新判定（CollectorRuntime 在 reconfigure 时调用）
@@ -120,7 +146,6 @@ class DeviceRuntime:
             and dict(existing.options) == dict(view.options)
             and existing.device.device_model_id == view.device.device_model_id
             and existing.subscribe_enabled == view.subscribe_enabled
-            and existing.supports_scheduled_collection == view.supports_scheduled_collection
         )
 
     def update_device(self, device_id: str, view: DeviceView) -> None:
@@ -189,13 +214,15 @@ class DeviceRuntime:
                         device_id,
                         exc_info=True,
                     )
+        await self.start_watchdogs()
 
     async def close_all(self) -> None:
-        """停机时逐台关闭；关闭失败不阻断其他设备释放，保留注册表。
+        """停止 Watchdog 后逐台关闭；关闭失败不阻断其他设备释放，保留注册表。
 
         单台关闭以 ``connect_timeout`` 为上界：Driver close 内部若阻塞
         （如同步协议栈关闭挂起），不能让一台设备耗尽整体停机预算。
         """
+        await self.stop_watchdogs()
         for device_id, device in self._devices.items():
             try:
                 await asyncio.wait_for(device.close(), timeout=self._params.connect_timeout)
@@ -209,57 +236,29 @@ class DeviceRuntime:
                 logger.warning("Device '%s' close failed", device_id, exc_info=True)
 
     async def ensure_connected(self, device_id: str, *, force: bool = False) -> bool:
-        """采集前确保设备可用，必要时按节流窗口重连（实现 ``DeviceStatePort``）。
+        """返回设备当前可用性；仅显式 force 请求允许立即建连。
 
-        语义：
-
-        - ``force=False`` 且 DeviceRuntime 状态已连接 → 立即 ``True``（零开销快路径）；
-        - 断线但未到 ``next_retry_at`` 且 ``force=False`` → ``False``，本次采集跳过——
-          高频轮询不会形成 connect 风暴；
-        - ``force=True`` 用于显式控制/诊断请求：若 DeviceRuntime 状态显示已连接，
-          还会检查协议传输是否打开（``is_open``）；传输已断开时忽略重连
-          节流窗口并立即执行一次幂等 ``connect()``（可复用的连接不会被
-          无意义重建）；
-        - 断线且节流窗口已到 → 尝试一次 ``connect()``：成功则状态恢复
-          （失败计数清零），失败则按指数 backoff 推迟下次窗口
-          （1 s → 2 s → … → 30 s 封顶）。
+        正常采集不在读路径触发重连：连接失效后等待 Watchdog 的下一周期。
+        ``force=True`` 仅供配置热重载或显式控制路径做一次立即连接尝试。
         """
         device = self._devices.get(device_id)
         if device is None:
             return False
-        state = self._state_for(device_id)
-
-        if state.connected:
-            if not force:
-                return True
-            if _transport_open(device):
-                return True
-            logger.info(
-                "Device '%s' runtime state is connected but transport is not open; "
-                "forcing reconnect",
-                device_id,
-            )
-
-        now = self._clock()
-        if not force and now < state.next_retry_at:
+        if _transport_open(device):
+            return True
+        if not force:
             return False
 
         async with self._connect_locks.setdefault(device_id, asyncio.Lock()):
-            # 等锁期间设备可能被移除/重建——旧会话不再归本调用管理。
             if self._devices.get(device_id) is not device:
                 return False
-            # 等锁期间其他协程可能已完成重连（或透明重连回调已标记恢复）——
-            # 复查状态，避免对同一次断线重复 connect、重复记账。
-            state = self._state_for(device_id)
-            if state.connected:
-                if not force:
-                    return True
-                if _transport_open(device):
-                    return True
-            now = self._clock()
-            if not force and now < state.next_retry_at:
-                return False
-            return await self._connect_locked(device_id, device, state)
+            if _transport_open(device):
+                return True
+            return await self._connect_locked(
+                device_id,
+                device,
+                self._state_for(device_id),
+            )
 
     async def _connect_locked(
         self,
@@ -269,10 +268,6 @@ class DeviceRuntime:
     ) -> bool:
         """在设备 connect 锁内执行一次带超时的 connect 并记账。"""
         now = self._clock()
-        # 读路径的透明重连回调（sync hook）可能在 connect 等待期间抢先完成
-        # 恢复并已记账——此时本次 connect 在 RecoveringProtocol 内幂等返回，
-        # 不再重复计一次重连指标。
-        pre_success_at = state.last_success_at
         try:
             await asyncio.wait_for(device.connect(), timeout=self._params.connect_timeout)
         except TimeoutError:
@@ -290,9 +285,8 @@ class DeviceRuntime:
             else:
                 logger.warning("Device '%s' reconnect attempt failed", device_id, exc_info=True)
             return False
-        recovered_by_hook = state.last_success_at != pre_success_at
         state.mark_success(now)
-        if self._metrics is not None and not recovered_by_hook:
+        if self._metrics is not None:
             self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
         logger.info("Device '%s' reconnected", device_id)
         return True
@@ -307,7 +301,7 @@ class DeviceRuntime:
         优先沿异常 cause 链判定连接级故障；若第三方协议库把断线包装成
         不含 OSError 的协议异常，则再读取 Driver 的缓存 health。Driver 已
         标记 unhealthy 时同样把 DeviceRuntime 状态切到 disconnected，使下一周期
-        进入 ``ensure_connected`` 重连路径。
+        等待 Watchdog 的下一次周期性恢复。
         """
         connection_level = is_connection_level(error)
         if not connection_level:
@@ -329,7 +323,7 @@ class DeviceRuntime:
     async def add_device(
         self, device_id: str, view: DeviceView, session: CollectorDeviceSession
     ) -> None:
-        """运行时新增设备会话并立即尝试连接；失败记账后保留会话（周期重试）。
+        """运行时新增设备会话并立即尝试连接；失败记账后保留会话，由 Watchdog 后续周期恢复。
 
         调用方负责重复热增的收敛判定（``requires_rebuild``）与 Task 实例
         的 suspend/resume 协调。
@@ -337,11 +331,17 @@ class DeviceRuntime:
         self._devices[device_id] = session
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
-        self._wire_reconnect_hook(device_id, session)
+        watchdog = self._make_watchdog(device_id, session)
+        self._watchdogs[device_id] = watchdog
         await self._connect_new(device_id, session, "connected")
+        if self._watchdogs_running:
+            await watchdog.start()
 
     async def remove_device(self, device_id: str) -> None:
         """运行时移除设备——关闭连接并同步移除设备及状态。"""
+        watchdog = self._watchdogs.pop(device_id, None)
+        if watchdog is not None:
+            await watchdog.stop()
         device = self._devices.pop(device_id, None)
         if device is not None:
             try:
@@ -355,6 +355,7 @@ class DeviceRuntime:
 
         self._device_states.pop(device_id, None)
         self._views.pop(device_id, None)
+        self._connect_locks.pop(device_id, None)
 
     async def rebuild_device(
         self, device_id: str, view: DeviceView, session: CollectorDeviceSession
@@ -363,6 +364,9 @@ class DeviceRuntime:
 
         调用方负责先停止使用旧会话的采集句柄，再在返回后恢复实例。
         """
+        old_watchdog = self._watchdogs.pop(device_id, None)
+        if old_watchdog is not None:
+            await old_watchdog.stop()
         old_device = self._devices.pop(device_id, None)
         if old_device is not None:
             try:
@@ -379,12 +383,53 @@ class DeviceRuntime:
         # 立即写入全新状态）。
         self._device_states[device_id] = DeviceRuntimeState()
         self._views[device_id] = view
-        self._wire_reconnect_hook(device_id, session)
+        watchdog = self._make_watchdog(device_id, session)
+        self._watchdogs[device_id] = watchdog
         await self._connect_new(device_id, session, "reconnected")
+        if self._watchdogs_running:
+            await watchdog.start()
 
     # ------------------------------------------------------------------
     # 私有
     # ------------------------------------------------------------------
+
+    async def start_watchdogs(self) -> None:
+        """启动全部设备 Watchdog；重复调用安全。"""
+        self._watchdogs_running = True
+        for watchdog in self._watchdogs.values():
+            await watchdog.start()
+
+    async def stop_watchdogs(self) -> None:
+        """停止全部设备 Watchdog。"""
+        self._watchdogs_running = False
+        for watchdog in tuple(self._watchdogs.values()):
+            await watchdog.stop()
+
+    def _make_watchdog(
+        self,
+        device_id: str,
+        session: CollectorDeviceSession,
+    ) -> WatchdogUseCase:
+        async def _on_success() -> None:
+            if self._devices.get(device_id) is not session:
+                return
+            self._state_for(device_id).mark_success(self._clock())
+            if self._metrics is not None:
+                self._metrics.device_reconnected(device_id, session.protocol_name)
+            callback = self._reconnect_callback
+            if callback is not None:
+                await callback(device_id)
+
+        return WatchdogUseCase(
+            health=session.health,
+            close=session.close,
+            connect=session.connect,
+            interval=self._params.watchdog_interval,
+            health_timeout=self._params.health_timeout,
+            connect_timeout=self._params.connect_timeout,
+            on_success=_on_success,
+            lifecycle_lock=self._connect_locks.setdefault(device_id, asyncio.Lock()),
+        )
 
     async def _connect_new(
         self, device_id: str, session: CollectorDeviceSession, verb: str
@@ -408,34 +453,6 @@ class DeviceRuntime:
                 device_id,
                 exc_info=True,
             )
-
-    def _wire_reconnect_hook(self, device_id: str, session: CollectorDeviceSession) -> None:
-        """把 RecoveringProtocol 读路径内透明重连事件接回运行状态与指标。
-
-        回调与注册时的会话身份绑定：设备被移除/重建后，旧会话 RecoveringProtocol
-        的迟到重连回调（在途读触发的恢复晚于新会话注册）不得改写新会话的
-        运行状态或重复记账指标——以注册表中的会话身份做失效判定，无需额外
-        generation 计数。
-        """
-        protocol = session.protocol
-        if isinstance(protocol, RecoveringProtocol):
-
-            def _on_reconnect(session: CollectorDeviceSession = session) -> None:
-                if self._devices.get(device_id) is session:
-                    self._on_transparent_reconnect(device_id)
-
-            protocol.set_reconnect_hook(_on_reconnect)
-
-    def _on_transparent_reconnect(self, device_id: str) -> None:
-        """透明重连成功——恢复 connected 状态并如实记账一次重连。
-
-        状态恢复使下一周期 ``ensure_connected`` 走快路径，避免对同一次
-        断线重复 connect/重复计数。
-        """
-        self._state_for(device_id).mark_success(self._clock())
-        if self._metrics is not None:
-            self._metrics.device_reconnected(device_id, self._protocol_name(device_id))
-        logger.info("Device '%s' reconnected (transparent reconnect in read path)", device_id)
 
     def _state_for(self, device_id: str) -> DeviceRuntimeState:
         """取设备运行状态；缺失时惰性创建（引擎只对已注册设备调用）。"""
@@ -469,5 +486,4 @@ def _view_signature(view: DeviceView) -> object:
         dict(view.options),
         view.point_table.point_table_id,
         view.subscribe_enabled,
-        view.supports_scheduled_collection,
     )

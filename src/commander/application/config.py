@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from math import isfinite
 from types import MappingProxyType
 
 from core.domain import (
@@ -62,8 +61,8 @@ class CommanderConfig:
     connect_timeout: float = 1.0
     write_timeout: float = 1.0
     read_timeout: float = 1.0
-    read_retries: int = 1
-    retry_interval: float = 1.0
+    watchdog_interval: float = 5.0
+    health_timeout: float = 1.0
     point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
@@ -74,15 +73,10 @@ class CommanderConfig:
             raise ValueError("write_timeout must be > 0")
         if self.read_timeout <= 0:
             raise ValueError("read_timeout must be > 0")
-        if type(self.read_retries) is not int or self.read_retries < -1:
-            raise ValueError("read_retries must be an integer >= -1")
-        if (
-            isinstance(self.retry_interval, bool)
-            or not isinstance(self.retry_interval, int | float)
-            or not isfinite(self.retry_interval)
-            or self.retry_interval < 0
-        ):
-            raise ValueError("retry_interval must be a finite number >= 0")
+        if self.watchdog_interval <= 0:
+            raise ValueError("watchdog_interval must be > 0")
+        if self.health_timeout <= 0:
+            raise ValueError("health_timeout must be > 0")
         object.__setattr__(
             self,
             "point_meta",

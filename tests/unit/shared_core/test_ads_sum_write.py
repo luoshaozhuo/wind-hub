@@ -1,4 +1,4 @@
-"""ADS 公开 Sum Write 执行及 Index 回退测试。"""
+"""ADS index 地址批量写入与错误隔离测试。"""
 
 from __future__ import annotations
 
@@ -38,14 +38,6 @@ class _FakeConnection:
         self.batch: list[dict[str, object]] = []
         self.individual: list[tuple[int, int, object]] = []
 
-    def write_list_by_name(
-        self, values: dict[str, object], *, ads_sub_commands: int
-    ) -> dict[str, str]:
-        assert ads_sub_commands > 0
-        self.batch.append(dict(values))
-        return {symbol: "no error" if symbol == "MAIN.a" else "device rejected"
-                for symbol in values}
-
     def write(
         self, index_group: int, index_offset: int, value: object, datatype: object
     ) -> None:
@@ -66,21 +58,20 @@ def _driver(*points: Point) -> ADSDriver:
 
 
 @pytest.mark.asyncio
-async def test_unique_symbols_use_public_sum_write(
+async def test_resolved_symbols_write_by_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(driver_module, "_pyads", lambda: _FakePyads)
     driver = _driver(_point("a", symbol="MAIN.a"), _point("b", symbol="MAIN.b"))
-    # Normally performed during connect: bind symbol addresses to this session.
     for index, (key, point) in enumerate(driver._points.items()):
         driver._points[key] = point.resolved(
             index_group=0x4020, index_offset=10 + index * 4
         )
 
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert [result.success for result in results] == [True, False]
-    assert driver._connection.batch == [{"MAIN.a": 1, "MAIN.b": 2}]
-    assert driver._connection.individual == []
+    assert all(result.success for result in results)
+    assert driver._connection.batch == []
+    assert driver._connection.individual == [(0x4020, 10, 1), (0x4020, 14, 2)]
 
 
 @pytest.mark.asyncio
@@ -164,7 +155,7 @@ async def test_point_level_write_error_isolated_without_disconnect(
     results = await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
 
     assert [r.success for r in results] == [False, True]
-    assert driver.health().healthy is True
+    assert (await driver.health()).healthy is True
 
 
 @pytest.mark.asyncio
@@ -179,4 +170,4 @@ async def test_transport_write_error_marks_disconnect(
 
     with pytest.raises(Exception, match="write failed"):
         await driver.write_many((ProtocolWrite("a", 1), ProtocolWrite("b", 2)))
-    assert driver.health().healthy is False
+    assert (await driver.health()).healthy is False

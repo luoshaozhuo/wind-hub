@@ -19,7 +19,7 @@ class ProtocolConnectionError(ProtocolError):
     """通信链路级失败（传输断开、对端无响应、I/O 超时）。
 
     与设备已正常应答的业务/数据级 ``ProtocolError``（如 Modbus 异常响应）
-    区分：只有本类故障允许 RecoveringProtocol 按恢复策略重试。
+    区分：本类表示通信链路本身不可用，可由 Watchdog 在后续周期触发重连。
     """
 
 

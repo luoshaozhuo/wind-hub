@@ -91,27 +91,23 @@ async def test_read_timeout_change_rejected_at_prepare():
     await runtime.stop()
 
 
-async def test_read_retries_change_rejected_at_prepare():
+async def test_watchdog_timing_change_is_hot_reloadable():
     config = make_collector_config()
     candidate = make_collector_config(
-        params=replace(config.runtime, read_retries=config.runtime.read_retries + 1)
+        params=replace(
+            config.runtime,
+            watchdog_interval=2.5,
+            health_timeout=0.5,
+        )
     )
     service, runtime = _service(config, candidate)
 
-    result = await service.prepare_config("r1")
-    assert not result.success
-    assert "runtime.read_retries change requires process restart" in result.errors
-    await runtime.stop()
-
-
-async def test_retry_interval_change_rejected_at_prepare():
-    config = make_collector_config()
-    candidate = make_collector_config(params=replace(config.runtime, retry_interval=2.5))
-    service, runtime = _service(config, candidate)
-
-    result = await service.prepare_config("r1")
-    assert not result.success
-    assert "runtime.retry_interval change requires process restart" in result.errors
+    prepared = await service.prepare_config("r1")
+    assert prepared.success
+    activated = await service.activate_config("r1")
+    assert activated.success
+    assert runtime._params.watchdog_interval == 2.5
+    assert runtime._params.health_timeout == 0.5
     await runtime.stop()
 
 

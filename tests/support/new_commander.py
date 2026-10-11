@@ -65,7 +65,6 @@ def write_minimal_config_tree(
     connection_defaults: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
-    read_mode: str | None = None,
 ) -> Path:
     """写出最小自包含配置树（单型号 ``mod``、单点表 ``tab``），返回目录。"""
     base.mkdir(parents=True, exist_ok=True)
@@ -81,8 +80,6 @@ def write_minimal_config_tree(
         "point_table": "tab",
         "connection_defaults": connection_defaults or {},
     }
-    if read_mode is not None:
-        model["read_mode"] = read_mode
     write_yaml(
         base,
         "device_models.yaml",
@@ -161,7 +158,7 @@ class FakeProtocol:
     def is_open(self) -> bool:
         return self.connected
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=self.connected)
 
     async def read_one(self, point_id: str) -> ProtocolSample:

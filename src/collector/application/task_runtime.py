@@ -19,7 +19,7 @@ from ..domain.point_value import PointValue
 from .acquisition_state import AcquisitionRuntimeState
 from .config import CollectionTask
 from .device_runtime import DeviceRuntime
-from .session import AcquisitionHandle
+from .session import AcquisitionHandle, AcquisitionMode
 from .task_instance import (
     CollectionTaskInstance,
     TaskInstanceState,
@@ -170,6 +170,27 @@ class TaskRuntime:
         self._instance_states[instance_id] = TaskInstanceState.STOPPED
         self._restart_pending.discard(instance_id)
         await self._close_acquisition_handle(instance_id)
+
+    async def restore_subscriptions(self, device_id: str) -> None:
+        """重连成功后仅重建该设备当前 RUNNING 的订阅型采集句柄。
+
+        Watchdog 只调用本业务回调，不感知 ADS notification、IEC104 回调或
+        总召细节；这些仍由 CollectorDeviceSession.start_acquisition 负责。
+        """
+        device = self._devices.devices.get(device_id)
+        if device is None or device.acquisition_mode is not AcquisitionMode.SUBSCRIBE:
+            return
+
+        running = [
+            iid
+            for iid, instance in self._task_instances.items()
+            if instance.device_id == device_id
+            and self._instance_states.get(iid) is TaskInstanceState.RUNNING
+        ]
+        for iid in running:
+            self._instance_states[iid] = TaskInstanceState.STOPPED
+            await self._close_acquisition_handle(iid)
+            await self.start_instance(iid)
 
     async def stop_all(self) -> None:
         """停机路径：关闭全部实例采集句柄——polling 协程取消、订阅注销，

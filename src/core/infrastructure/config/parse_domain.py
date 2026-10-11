@@ -98,7 +98,7 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
     settings = dict(runtime_raw)
     for key in (
         "shutdown_timeout", "connect_timeout", "read_timeout",
-        "write_timeout", "retry_interval",
+        "write_timeout", "watchdog_interval", "health_timeout",
     ):
         if key in settings and settings[key] is not None:
             settings[key] = _number(settings[key], f"runtime.{key}")
@@ -106,10 +106,6 @@ def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
         value = settings["queue_maxsize"]
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError("runtime.queue_maxsize must be an integer")
-    if "read_retries" in settings:
-        value = settings["read_retries"]
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ConfigError("runtime.read_retries must be an integer")
     runtime = RuntimeSettings(**settings)
     ads_raw = raw.get("ads")
     ads = None
@@ -304,7 +300,7 @@ def _device_catalog(
         definition = _map(item, f"device model '{key}'")
         _keys(definition, {
             "device_type", "manufacturer", "model", "protocol", "point_table",
-            "read_mode", "properties", "connection_defaults",
+            "properties", "connection_defaults",
         }, f"device model '{key}'")
         model_identity = DeviceModelId(_name(key, "device model ID"))
         type_id = DeviceTypeId(_name(definition.get("device_type"), "device_type"))
@@ -316,10 +312,6 @@ def _device_catalog(
             raise ConfigError(f"device model '{key}' protocol does not match point table")
         if protocol not in _OPTION_PARSERS:
             raise ConfigError(f"unsupported protocol '{protocol}'")
-        if protocol != "ads" and definition.get("read_mode") is not None:
-            raise ConfigError(f"device model '{key}' read_mode only supported for ADS")
-        if protocol == "ads" and (definition.get("read_mode") or "sum") != "sum":
-            raise ConfigError(f"device model '{key}' only supports ADS sum mode")
         _map(definition.get("connection_defaults", {}), f"model '{key}'.connection_defaults")
         _map(definition.get("properties", {}), f"model '{key}'.properties")
         models[model_identity] = DeviceModel(
@@ -328,7 +320,6 @@ def _device_catalog(
             point_table_id=table_id,
             name=definition.get("model"),
             manufacturer=definition.get("manufacturer"),
-            read_mode=definition.get("read_mode"),
             properties=definition.get("properties") or {},
             connection_defaults=definition.get("connection_defaults") or {},
         )
@@ -381,7 +372,6 @@ def _device_catalog(
         extensions = _map(raw_endpoint.get("extensions", {}), "endpoint.extensions")
         options = {**defaults, **extensions}
         if protocol == "ads":
-            options["read_mode"] = model.get("read_mode", "sum") or "sum"
             if options.pop("subscribe_enabled", False):
                 ads_subscriptions.add(device_identity)
         for key, value in options.items():

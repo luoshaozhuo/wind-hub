@@ -29,24 +29,23 @@ from .config import CollectorConfig, RuntimeParams
 #:
 #: - ``queue_maxsize``：asyncio.Queue 按启动值创建，运行中改容量会丢队/溢队；
 #: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口；
-#: - ``read_retries`` / ``retry_interval``：装配期固化进 ProtocolRegistry
-#:   的 RecoverySettings，既有 RecoveringProtocol 实例不随快照更新。
+#: - ``read_timeout``：AcquisitionEngine 构造期固定，引擎不提供更新接口。
 RESTART_REQUIRED_RUNTIME_FIELDS: tuple[str, ...] = (
     "queue_maxsize",
     "read_timeout",
-    "read_retries",
-    "retry_interval",
 )
 
 #: 可安全热更新的 RuntimeParams 字段——owner 在使用点动态读取当前值：
 #: ``backpressure_policy``（SinkRuntime 每次派发读取）、
 #: ``shutdown_timeout``（仅影响后续 stop/remove）、``connect_timeout``
-#: （DeviceRuntime 每次 connect 读取）。activate 时整体替换 owner 持有的
-#: params 快照即真实生效。
+#: 以及 Watchdog 时序参数均在运行时 owner 使用当前快照。activate 时整体
+#: 替换 params 即真实生效。
 HOT_RELOADABLE_RUNTIME_FIELDS: tuple[str, ...] = (
     "backpressure_policy",
     "shutdown_timeout",
     "connect_timeout",
+    "watchdog_interval",
+    "health_timeout",
 )
 
 

@@ -53,7 +53,7 @@ class _Protocol:
     def is_open(self) -> bool:
         return True
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
     async def read_one(self, point_id: str) -> ProtocolSample:

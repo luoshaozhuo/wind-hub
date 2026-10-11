@@ -76,8 +76,6 @@ def test_ads_config_parses_device_options() -> None:
         _device_options(
             target_net_id="192.0.2.20.1.1",
             timeout=2.5,
-            read_mode="sequential",
-            max_concurrent_reads=8,
         ),
     )
 
@@ -85,8 +83,6 @@ def test_ads_config_parses_device_options() -> None:
     assert config.target_port == 801
     assert config.target_net_id == "192.0.2.20.1.1"
     assert config.timeout == 2.5
-    assert config.read_mode == "sequential"
-    assert config.max_concurrent_reads == 8
 
 
 def test_ads_config_uses_project_default_port_by_twincat_version() -> None:
@@ -168,7 +164,7 @@ def test_ads_driver_precompiles_point_table_without_importing_pyads() -> None:
         {},
     )
 
-    assert driver.health().healthy is False
+    assert driver.is_open() is False
 
 
 class _FakeADSConnection:

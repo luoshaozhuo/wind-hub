@@ -6,6 +6,8 @@ Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp �
 
 from __future__ import annotations
 
+import asyncio
+
 from dataclasses import replace
 from uuid import uuid4
 
@@ -110,7 +112,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
     ) -> pb.CommanderStatusResponse:
         """返回 Commander 运行与配置状态。"""
         del request, context
-        healthy = sum(1 for device in self._app.runtime.devices.values() if device.health().healthy)
+        devices = list(self._app.runtime.devices.values())
+        health = await asyncio.gather(*(device.health() for device in devices))
+        healthy = sum(1 for result in health if result.healthy)
         return pb.CommanderStatusResponse(
             running=True,
             device_count=len(self._app.runtime.devices),
@@ -131,6 +135,8 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
         """
         del request, context
         response = pb.ListDevicesResponse()
+        devices = list(self._app.runtime.devices.values())
+        health = await asyncio.gather(*(device.health() for device in devices))
         response.devices.extend(
             pb.DeviceSummary(
                 device_id=str(device.device_id),
@@ -138,9 +144,9 @@ class CommanderService(pb_grpc.CommanderServiceServicer):
                 host=device.device.endpoint.host,
                 port=device.device.endpoint.port or 0,
                 enabled=True,
-                healthy=device.health().healthy,
+                healthy=result.healthy,
             )
-            for device in self._app.runtime.devices.values()
+            for device, result in zip(devices, health, strict=True)
         )
         return response
 

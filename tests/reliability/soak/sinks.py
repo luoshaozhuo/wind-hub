@@ -81,9 +81,9 @@ class RecordingSink(SinkPort):
         if self._inner is not None:
             await self._inner.flush()
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         if self._inner is not None:
-            return self._inner.health()
+            return await self._inner.health()
         return ConnectionHealth(healthy=True)
 
 

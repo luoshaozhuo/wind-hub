@@ -153,7 +153,7 @@ class FakeSink:
     async def flush(self) -> None:
         self.flush_calls += 1
 
-    def health(self) -> ConnectionHealth:
+    async def health(self) -> ConnectionHealth:
         return ConnectionHealth(healthy=True)
 
 
@@ -240,7 +240,6 @@ def make_collector_config(
                     model=None,
                     protocol=protocol,
                     point_table="tab",
-                    read_mode=None,
                     properties={},
                     connection_defaults={},
                 )
@@ -317,7 +316,6 @@ def make_session(
         view.point_meta,
         protocol or CollectorFakeProtocol(),
         subscribe_enabled=view.subscribe_enabled,
-        supports_scheduled_collection=view.supports_scheduled_collection,
     )
 
 
@@ -346,7 +344,6 @@ def make_runtime(
             view.point_meta,
             registry.create(view.device.endpoint, view.point_table, view.options),
             subscribe_enabled=view.subscribe_enabled,
-            supports_scheduled_collection=view.supports_scheduled_collection,
         )
 
     runtime = CollectorRuntime(
@@ -389,7 +386,6 @@ def write_collector_config_tree(
     connection_defaults: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
     ads: dict[str, Any] | None = None,
-    read_mode: str | None = None,
     tasks: list[dict[str, Any]] | None = None,
     sinks: list[dict[str, Any]] | None = None,
 ) -> Path:
@@ -411,7 +407,6 @@ def write_collector_config_tree(
         connection_defaults=connection_defaults,
         runtime=runtime,
         ads=ads,
-        read_mode=read_mode,
     )
     if sinks is None:
         sinks = [
