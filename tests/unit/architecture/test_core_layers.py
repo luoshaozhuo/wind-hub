@@ -9,7 +9,7 @@ _FORBIDDEN_PACKAGES = {
     "wind_hub_collector",
     "wind_hub_commander",
     "wind_hub_server",
-    "ctl",
+    "wind_hub_ctl",
 }
 
 
@@ -133,7 +133,7 @@ def test_domain_config_is_compact() -> None:
     assert (_CORE / "domain" / "validation.py").is_file()
 
 
-def test_shared_core_has_no_process_config_adapters_or_use_cases() -> None:
+def test_core_has_no_process_config_adapters_or_use_cases() -> None:
     """配置加载、保存与事务编排由 Collector、Commander、Server 各自拥有。"""
     assert (_CORE / "infrastructure" / "config" / "yaml.py").is_file()
     assert not (_CORE / "application" / "config").exists()

@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
-from core.application import ConfigError, ProtocolError
+from core.application import ConfigError, ProtocolCapabilityError, ProtocolError
 from core.application.protocol_contract import (
     ProtocolSample,
     ProtocolWrite,
@@ -144,11 +144,11 @@ class TestRemoteControlIntegration:
         assert result.success is True
         assert control_server.last_control.get("C_SE_NC_1") == 1003
 
-    async def test_write_many_dispatches_all(
+    async def test_write_many_is_not_supported(
         self,
         control_server: IEC104ControlServer,
     ) -> None:
-        """write_many 逐点下发并保持请求顺序返回逐点结果。"""
+        """IEC104 不支持批量写：write_many 必须显式拒绝，不得静默逐点下发。"""
         driver = _driver(
             control_server.port,
             [
@@ -159,22 +159,18 @@ class TestRemoteControlIntegration:
         )
         await driver.connect()
         try:
-            results = await driver.write_many(
-                [
-                    ProtocolWrite(point_id="switch.on", value=True),
-                    ProtocolWrite(point_id="breaker.cmd", value=2),
-                    ProtocolWrite(point_id="setpoint.val", value=42.5),
-                ]
-            )
+            with pytest.raises(ProtocolCapabilityError, match="write_many"):
+                await driver.write_many(
+                    [
+                        ProtocolWrite(point_id="switch.on", value=True),
+                        ProtocolWrite(point_id="breaker.cmd", value=2),
+                        ProtocolWrite(point_id="setpoint.val", value=42.5),
+                    ]
+                )
         finally:
             await driver.close()
 
-        assert [result.point_id for result in results] == [
-            "switch.on",
-            "breaker.cmd",
-            "setpoint.val",
-        ]
-        assert all(result.success for result in results)
+        assert control_server.last_control == {}
 
     async def test_invalid_value_fails_before_wire(
         self,

@@ -358,7 +358,6 @@ def _device_catalog(
         _keys(raw_endpoint, {"host", "port", "extensions"}, f"device '{device_identity}'.endpoint")
         defaults = dict(_map(model.get("connection_defaults", {}), "connection_defaults"))
         port = raw_endpoint.get("port", defaults.pop("port", None))
-        defaults.pop("port", None)
         if port is None:
             raise ConfigError(f"device '{device_identity}' requires endpoint port or model default")
         if isinstance(port, bool) or not isinstance(port, int | str):
