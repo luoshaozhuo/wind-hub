@@ -338,7 +338,7 @@ def write_collector_config_tree(
         tasks = [
             {
                 "task_id": "t1",
-                "device": "dev1",
+                "device_group": "dev1",
                 "point_group": "g",
                 "interval": 1.0,
                 "targets": [{"sink": "s1"}],
