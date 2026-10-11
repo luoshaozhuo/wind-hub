@@ -365,86 +365,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         self._app = app
         self._identity = identity
         self._tasks = CollectorTaskService(app.runtime)
-        self._placement_generation = 0
-        self._assigned_task_ids: frozenset[str] = frozenset()
-
-    async def ApplyTaskPlacement(
-        self,
-        request: pb.TaskPlacementSnapshotRequest,
-        context: grpc.aio.ServicerContext,
-    ) -> pb.TaskPlacementSnapshotResponse:
-        """应用 Server 下发的完整 Task placement 快照。"""
-        worker_id = _required(request.worker_id, "worker_id")
-        if worker_id != self._identity.collector_id:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "placement worker_id does not match collector_id",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-        generation = int(request.generation)
-        if generation <= 0:
-            await _abort_invalid(context, "generation must be greater than 0")
-            raise AssertionError("context.abort must terminate the RPC")
-
-        task_ids = frozenset(str(task_id) for task_id in request.task_ids)
-        if any(not task_id for task_id in task_ids):
-            await _abort_invalid(context, "task_ids must not contain empty values")
-            raise AssertionError("context.abort must terminate the RPC")
-        known_task_ids = set(self._app.runtime.task_definitions())
-        unknown_task_ids = sorted(task_ids - known_task_ids)
-        if unknown_task_ids:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "placement contains unknown task(s): " + ", ".join(unknown_task_ids),
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-
-        if generation < self._placement_generation:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "placement generation is stale",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-        if generation == self._placement_generation and task_ids != self._assigned_task_ids:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "same placement generation has different task set",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-
-        self._placement_generation = generation
-        self._assigned_task_ids = task_ids
-        return pb.TaskPlacementSnapshotResponse(
-            success=True,
-            generation=generation,
-            task_count=len(task_ids),
-        )
-
-    async def _require_start_authority(
-        self,
-        task_id: str,
-        placement_generation: int,
-        context: grpc.aio.ServicerContext,
-    ) -> None:
-        """校验 Start 请求与当前 placement 快照一致。"""
-        if self._placement_generation <= 0:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "task placement has not been applied",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-        if placement_generation != self._placement_generation:
-            await context.abort(
-                grpc.StatusCode.FAILED_PRECONDITION,
-                "task placement generation mismatch",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
-        if task_id not in self._assigned_task_ids:
-            await context.abort(
-                grpc.StatusCode.PERMISSION_DENIED,
-                f"task '{task_id}' is not assigned to this collector",
-            )
-            raise AssertionError("context.abort must terminate the RPC")
 
     async def StartTask(
         self,
@@ -456,7 +376,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
             request,
             context,
             start=True,
-            placement_generation=int(request.placement_generation),
         )
 
     async def StopTask(
@@ -465,7 +384,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskSummaryMessage:
         """停止一个 Task 当前展开的全部实例。"""
-        return await self._set_task(request, context, start=False, placement_generation=0)
+        return await self._set_task(request, context, start=False)
 
     async def _set_task(
         self,
@@ -475,17 +394,10 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
         *,
         start: bool,
-        placement_generation: int,
     ) -> pb.TaskSummaryMessage:
         """执行单个 Task 启停并统一错误映射。"""
         try:
             task_id = _required(request.task_id, "task_id")
-            if start:
-                await self._require_start_authority(
-                    task_id,
-                    placement_generation,
-                    context,
-                )
             operation = self._tasks.start_task if start else self._tasks.stop_task
             item = await operation(task_id)
         except ValueError as exc:
@@ -515,7 +427,7 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> pb.TaskInstanceMessage:
         """停止单个 Task Instance。"""
-        return await self._set_task_instance(request, context, start=False, placement_generation=0)
+        return await self._set_task_instance(request, context, start=False)
 
     async def _set_task_instance(
         self,
@@ -531,12 +443,6 @@ class CollectorControlService(pb_grpc.CollectorControlServiceServicer):
         try:
             instance_id = _required(request.instance_id, "instance_id")
             if start:
-                current = await self._tasks.get_instance(instance_id)
-                await self._require_start_authority(
-                    current.task_id,
-                    placement_generation,
-                    context,
-                )
                 item = await self._tasks.start_instance(instance_id)
             else:
                 item = await self._tasks.stop_instance(instance_id)

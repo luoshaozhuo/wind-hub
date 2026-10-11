@@ -85,7 +85,7 @@ async def test_metrics_snapshot(running):
     assert snapshot.device_connect_failures[0].key == "dev1"
 
 
-async def test_task_lifecycle_with_placement(running):
+async def test_task_lifecycle_without_placement(running):
     _, runtime_stub, control_stub = running
 
     tasks = await runtime_stub.ListTasks(empty_pb2.Empty())
@@ -93,30 +93,8 @@ async def test_task_lifecycle_with_placement(running):
     assert tasks.items[0].task_id == "t1"
     assert tasks.items[0].runtime_state == "stopped"
 
-    # 未应用 placement 时 StartTask 必须失败
-    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
-        await control_stub.StartTask(pb.TaskStartRequest(task_id="t1", placement_generation=1))
-    assert excinfo.value.code() == grpc.StatusCode.FAILED_PRECONDITION
-
-    placement = await control_stub.ApplyTaskPlacement(
-        pb.TaskPlacementSnapshotRequest(
-            worker_id="collector-test",
-            generation=1,
-            task_ids=["t1"],
-        )
-    )
-    assert placement.success is True
-    assert placement.task_count == 1
-
-    # worker_id 不匹配必须失败
-    with pytest.raises(grpc.aio.AioRpcError) as excinfo:
-        await control_stub.ApplyTaskPlacement(
-            pb.TaskPlacementSnapshotRequest(worker_id="other", generation=2, task_ids=["t1"])
-        )
-    assert excinfo.value.code() == grpc.StatusCode.FAILED_PRECONDITION
-
     summary = await control_stub.StartTask(
-        pb.TaskStartRequest(task_id="t1", placement_generation=1)
+        pb.TaskStartRequest(task_id="t1")
     )
     assert summary.runtime_state == "running"
     assert summary.running_instances == 1

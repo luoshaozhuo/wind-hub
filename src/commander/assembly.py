@@ -6,6 +6,7 @@ Infrastructure 具体实现的地方：它显式注册 Core 协议 Driver、持�
 ADS 本机身份、装配诊断 probe。
 """
 
+from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,8 +31,6 @@ from .application.services import (
 from .infrastructure.config import load_commander_config
 from .infrastructure.probe import (
     AdsDiagnosticProbe,
-    ping_host,
-    tcp_port_open,
 )
 
 
