@@ -40,6 +40,23 @@ from .mapping import (
 logger = logging.getLogger(__name__)
 
 
+def _release_ioa_lock(
+    registry: dict[int, asyncio.Lock],
+    ioa: int,
+    lock: asyncio.Lock,
+) -> None:
+    """释放空闲的 per-IOA 锁，避免动态 IOA 场景下注册表无界增长。
+
+    调用点位于 ``async with lock`` 退出之后的同一同步代码段（无 await），
+    因此 ``lock.locked()`` 为 False 且不存在等待者时，不可能有协程正持有
+    该锁；等待者只能通过 ``lock._waiters`` 观察（asyncio 无公开 API）。
+    """
+    if lock.locked() or getattr(lock, "_waiters", None):
+        return
+    if registry.get(ioa) is lock:
+        registry.pop(ioa, None)
+
+
 class _Subscription:
     """一次 IEC104 样本订阅，close 会 drain 已调度 callback。"""
 
@@ -347,22 +364,25 @@ class IEC104Driver:
             raise ProtocolError("IEC104 read requires an OPEN connection")
         mapped = self._resolve_point(point)
         lock = self._active_read_locks.setdefault(mapped.ioa, asyncio.Lock())
-        async with lock:
-            loop = asyncio.get_running_loop()
-            future: asyncio.Future[ProtocolSample] = loop.create_future()
-            self._active_reads[mapped.ioa] = future
-            try:
-                await self._send_read(mapped)
+        try:
+            async with lock:
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future[ProtocolSample] = loop.create_future()
+                self._active_reads[mapped.ioa] = future
                 try:
-                    sample = await asyncio.wait_for(future, timeout=self._config.t1)
-                except TimeoutError as exc:
-                    raise ProtocolError(
-                        f"IEC104 active read timed out for {mapped.point_id}"
-                    ) from exc
-                return replace(sample, point_id=mapped.point_id)
-            finally:
-                if self._active_reads.get(mapped.ioa) is future:
-                    self._active_reads.pop(mapped.ioa, None)
+                    await self._send_read(mapped)
+                    try:
+                        sample = await asyncio.wait_for(future, timeout=self._config.t1)
+                    except TimeoutError as exc:
+                        raise ProtocolError(
+                            f"IEC104 active read timed out for {mapped.point_id}"
+                        ) from exc
+                    return replace(sample, point_id=mapped.point_id)
+                finally:
+                    if self._active_reads.get(mapped.ioa) is future:
+                        self._active_reads.pop(mapped.ioa, None)
+        finally:
+            _release_ioa_lock(self._active_read_locks, mapped.ioa, lock)
 
     async def write_one(
         self,
@@ -555,6 +575,17 @@ class IEC104Driver:
             asyncio.Lock(),
         )
 
+        try:
+            return await self._execute_write_locked(mapped, write_value, lock)
+        finally:
+            _release_ioa_lock(self._command_locks, mapped.ioa, lock)
+
+    async def _execute_write_locked(
+        self,
+        mapped: IEC104Point,
+        write_value: object,
+        lock: asyncio.Lock,
+    ) -> ProtocolWriteResult:
         async with lock:
             try:
                 point_type, value = command_to_c104(
