@@ -271,6 +271,7 @@ class _FakeNotificationAttrib:
         self.length = length
         self.cycle_time = cycle_time
         self.max_delay = max_delay
+        type(self).last_mode = self.trans_mode
 
 
 class _FakeNotificationConnection:
@@ -380,6 +381,7 @@ async def test_ads_driver_exposes_notification_subscription(
         interval=0.25,
     )
     connection = _FakeNotificationConnection.instances[0]
+    assert _FakeNotificationAttrib.last_mode == _FakeNotificationPyads.ADSTRANS_SERVERCYCLE
     assert connection.callback is not None
 
     connection.callback(
