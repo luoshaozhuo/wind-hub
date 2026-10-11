@@ -308,3 +308,19 @@ async def test_ads_mixed_plan_survives_point_table_reload_mid_flight(monkeypatch
     from core.application import Quality
 
     assert [(x.value, x.quality) for x in result] == [(11, Quality.GOOD), ("ok", Quality.GOOD)]
+
+
+def test_modbus_plan_cache_invalidates_on_point_table_update():
+    points = {
+        "p0": _point("p0", {"register_type": "holding", "address": 0, "data_type": "uint16"}),
+    }
+    driver = ModbusDriver(
+        ConnectionEndpoint("127.0.0.1", 502),
+        PointTable("mb", Protocol("modbus"), points),
+        {},
+    )
+    assert driver._read_plan(("p0",))
+    assert driver._read_plan_cache
+
+    driver.update_point_table(PointTable("mb", Protocol("modbus"), points))
+    assert driver._read_plan_cache == {}
