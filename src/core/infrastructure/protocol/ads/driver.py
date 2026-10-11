@@ -511,7 +511,7 @@ class ADSDriver:
         self, chunk: Sequence[tuple[int, ADSPoint, bytes]],
     ) -> tuple[int, ...]:
         """Send ADSIGRP_SUMUP_WRITE by index and decode individual ADS error codes."""
-        from pyads.constants import ADSIGRP_SUMUP_WRITE
+        from pyads.constants import ADSIGRP_SUMUP_WRITE  # type: ignore[import-untyped]
 
         connection = self._connection
         if connection is None:
