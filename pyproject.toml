@@ -10,6 +10,7 @@ packages = [
     { include = "collector", from = "src" },
     { include = "commander", from = "src" },
     { include = "ctl", from = "src" },
+    { include = "web_server", from = "src" },
 ]
 
 [tool.poetry.dependencies]
@@ -60,6 +61,7 @@ types-aiofiles = "^25.1.0.20260518"
 wind-hub-collector = "collector.main:main"
 wind-hub-ctl = "ctl.main:main"
 wind-hub-commander = "commander.main:main"
+wind-hub-web-server = "web_server.main:main"
 
 [tool.ruff]
 line-length = 100
@@ -158,6 +160,7 @@ root_packages = [
     "collector",
     "commander",
     "ctl",
+    "web_server",
 ]
 
 
@@ -171,6 +174,7 @@ forbidden_modules = [
     "collector",
     "commander",
     "ctl",
+    "web_server",
 ]
 
 [[tool.importlinter.contracts]]
@@ -249,3 +253,9 @@ forbidden_modules = [
     "core.infrastructure.rpc.commander_pb2",
     "core.infrastructure.rpc.commander_pb2_grpc",
 ]
+
+[[tool.importlinter.contracts]]
+name = "web_server 只通过 core RPC 访问服务"
+type = "forbidden"
+source_modules = ["web_server"]
+forbidden_modules = ["collector", "commander", "ctl"]
