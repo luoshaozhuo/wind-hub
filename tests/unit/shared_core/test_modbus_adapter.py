@@ -105,7 +105,8 @@ def test_modbus_mapping_rejects_write_access_on_input_register() -> None:
         )
 
 
-def test_modbus_driver_precompiles_resolved_point_table() -> None:
+@pytest.mark.asyncio
+async def test_modbus_driver_precompiles_resolved_point_table() -> None:
     point = _point("p1", ext=_point_ext(address=10))
     table = PointTable("pt", Protocol("modbus"), {"p1": point})
     endpoint = ConnectionEndpoint("192.0.2.10", 502)
@@ -116,7 +117,7 @@ def test_modbus_driver_precompiles_resolved_point_table() -> None:
         {},
     )
 
-    assert driver.health().healthy is False
+    assert (await driver.health()).healthy is False
 
 
 def test_modbus_grouping_uses_bit_limit_separately() -> None:
