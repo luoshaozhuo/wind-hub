@@ -11,11 +11,11 @@ def test_collector_control_routes_forward_arguments() -> None:
     gateway = AsyncMock()
     gateway.collector_start_task.return_value = {"task_id": "task1"}
     gateway.collector_test_sink.return_value = {"success": True}
-    app = create_app()
+    app = create_app(write_token="test-key")
     app.dependency_overrides[get_gateway] = lambda: gateway
     with TestClient(app) as client:
-        task = client.post("/api/v1/collector/tasks/task1/start")
-        sink = client.post("/api/v1/collector/sinks/csv/test")
+        task = client.post("/api/v1/collector/tasks/task1/start", headers={"X-API-Key": "test-key"})
+        sink = client.post("/api/v1/collector/sinks/csv/test", headers={"X-API-Key": "test-key"})
 
     assert task.status_code == 200
     assert sink.json() == {"success": True}

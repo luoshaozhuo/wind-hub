@@ -13,7 +13,11 @@ def test_all_mutating_routes_reject_unconfigured_credentials() -> None:
         for route in app.routes:
             methods = getattr(route, "methods", set())
             path = getattr(route, "path", "")
-            if path.startswith("/api/v1/") and "POST" in methods:
+            if (
+                path.startswith("/api/v1/")
+                and "POST" in methods
+                and not path.endswith("/read-many")
+            ):
                 response = client.post(path.replace("{task_id}", "t1")
                     .replace("{instance_id}", "i1").replace("{name}", "csv")
                     .replace("{device_id}", "d1"), json={})

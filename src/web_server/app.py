@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-import logging
+from secrets import compare_digest
 from time import perf_counter
 from uuid import uuid4
-from secrets import compare_digest
 
 import grpc
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -100,7 +100,6 @@ def create_app(
         if x_api_key is None or not compare_digest(x_api_key, write_token):
             raise HTTPException(status_code=403, detail="write API access denied")
 
-
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with RpcGateway(config) as gateway:
@@ -110,7 +109,9 @@ def create_app(
     app = FastAPI(title="Wind Hub Web API", version="1.0.0", lifespan=lifespan)
 
     @app.middleware("http")
-    async def observe_request(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:
+    async def observe_request(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """记录 HTTP 状态和耗时；不记录查询参数、请求体和凭据。"""
         request_id = uuid4().hex
         started = perf_counter()
@@ -122,11 +123,15 @@ def create_app(
             return response
         finally:
             duration_ms = (perf_counter() - started) * 1000
-            logger.info("http_request id=%s method=%s path=%s status=%s duration_ms=%.2f",
-                        request_id, request.method, request.url.path, status_code, duration_ms)
+            logger.info(
+                "http_request id=%s method=%s path=%s status=%s duration_ms=%.2f",
+                request_id, request.method, request.url.path, status_code, duration_ms,
+            )
             if request.method == "POST" and request.url.path.startswith("/api/v1/"):
-                logger.info("control_audit id=%s operation=%s status=%s",
-                            request_id, request.url.path, status_code)
+                logger.info(
+                    "control_audit id=%s operation=%s status=%s",
+                    request_id, request.url.path, status_code,
+                )
 
 
     @app.get("/health/live", tags=["health"])
