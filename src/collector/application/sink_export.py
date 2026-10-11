@@ -10,24 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from core.infrastructure.config.sink_schema import ResolvedSinkPoint
+
 from collector.domain.point_value import PointValue
 from core.application import Quality
-from typing import Protocol
-
-
-class SinkPointSource(Protocol):
-    device_id: str
-    point_id: str
-
-
-class ResolvedSinkPoint(Protocol):
-    source: SinkPointSource
-    ref: str
-    scale: float
-    offset: float
-    datatype: str
-    address: Any
-
 
 
 @dataclass(frozen=True, slots=True)
