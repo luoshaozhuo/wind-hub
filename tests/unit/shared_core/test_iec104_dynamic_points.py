@@ -68,7 +68,6 @@ def _driver(
     driver._points_by_id = points_by_id or {}
     driver._points_by_ioa = {p.ioa: p for p in driver._points_by_id.values()}
     driver._dynamic_points = {}
-    driver._samples = {}
     driver._command_locks = {}
     driver._active_reads = {}
     driver._active_read_locks = {}
@@ -345,10 +344,19 @@ class TestDynamicReceive:
             cot = c104.Cot.SPONTANEOUS
             is_negative = False
 
+        observed: list[ProtocolSample] = []
+        arrived = asyncio.Event()
+
+        async def callback(sample: ProtocolSample) -> None:
+            observed.append(sample)
+            arrived.set()
+
+        handle = driver._subscriptions.subscribe((500,), callback)
         result = driver._handle_point_receive(_FakeC104Point(), _FakeMessage())
         assert result == c104.ResponseState.NONE
-        await asyncio.sleep(0)
-        stored = driver._samples[500]
-        assert stored.point_id == "dyn"
-        assert stored.value == 1.25
-        assert stored.quality == Quality.UNCERTAIN
+        await asyncio.wait_for(arrived.wait(), timeout=1)
+        await handle.close()
+        assert len(observed) == 1
+        assert observed[0].point_id == "dyn"
+        assert observed[0].value == 1.25
+        assert observed[0].quality == Quality.UNCERTAIN
