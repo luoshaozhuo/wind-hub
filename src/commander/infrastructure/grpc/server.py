@@ -13,7 +13,7 @@ from uuid import uuid4
 import grpc
 from google.protobuf import empty_pb2, wrappers_pb2
 
-from ...application.diagnostic import DeviceVerifyResult, PointVerifyResult
+from core.domain.diagnostic import DeviceVerifyResult, PointVerifyResult
 from ...application.errors import CommandError
 from ...assembly import CommanderApp
 from . import commander_pb2 as pb

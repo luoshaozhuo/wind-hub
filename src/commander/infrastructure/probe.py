@@ -15,8 +15,7 @@ from typing import Any
 import pyads  # type: ignore[import-untyped]
 
 from core.domain import ConnectionEndpoint, Point, ProtocolOptions
-
-from ..application.diagnostic import ResolvedAddress
+from core.domain.diagnostic import ResolvedAddress
 
 _TYPE_MAP = {
     "bool": "BOOL",
