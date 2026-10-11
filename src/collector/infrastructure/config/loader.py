@@ -1,161 +1,59 @@
-"""Collector 现场配置加载入口。
-
-经 :class:`ConfigPort` 按主题读取本进程所需配置 VO（system /
-device_models / devices / points / units / tasks / sinks），完成 Core
-配置组装、Sink 引用解析与跨文件一致性校验，产出 CollectorConfig。
-
-加载顺序与旧系统一致：read → parse → resolve → validate → build。
-"""
+"""Collector 完整领域配置快照加载入口。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import cast
 
-from core.application.port import ConfigPort, ConfigTopic
-from core.application.sink_config import SinksConfig
-from core.domain import PointTableId
-from core.domain.config import (
-    DeviceModelsConfig,
-    DevicesConfig,
-    PointTablesConfig,
-    SystemConfig,
-    TasksConfig,
-    UnitsConfig,
-)
+from core.application.config_snapshot import ConfigSnapshot
+from core.application.port import ConfigPort
+from core.application.settings import RuntimeSettings
+from core.domain import DeviceId
 from core.infrastructure.config import YamlConfigAdapter
-from core.infrastructure.config.assembly import assemble_core_config
 
-from ...application.config import (
-    ADSLocalIdentity,
-    BackpressurePolicy,
-    CollectorConfig,
-    PointMeta,
-    RuntimeParams,
-)
-from .sinks_resolver import resolve_sinks
-from .tasks import validate_task_targets
-
-COLLECTOR_CONFIG_TOPICS: tuple[ConfigTopic, ...] = tuple(ConfigTopic)
+from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
 
 def load_collector_config(
     config_dir: str | Path, *, source: ConfigPort | None = None
 ) -> CollectorConfig:
-    """加载 Collector 配置并完成跨文件一致性校验。
-
-    默认经 :class:`YamlConfigAdapter` 按主题读取；``source`` 允许测试
-    注入任意 ConfigPort 实现。
-
-    Raises:
-        ConfigError: 文件缺失、YAML 非法或任何配置约束违反。
-    """
-    return _load_from(source if source is not None else YamlConfigAdapter(config_dir))
+    snapshot = (source if source is not None else YamlConfigAdapter(config_dir)).load()
+    return _from_snapshot(snapshot)
 
 
-def _load_from(source: ConfigPort) -> CollectorConfig:
-    system = cast(SystemConfig, source.read(ConfigTopic.SYSTEM))
-    models = cast(DeviceModelsConfig, source.read(ConfigTopic.DEVICE_MODELS))
-    devices = cast(DevicesConfig, source.read(ConfigTopic.DEVICES))
-    points = cast(PointTablesConfig, source.read(ConfigTopic.POINTS))
-    units = cast(UnitsConfig, source.read(ConfigTopic.UNITS))
-    tasks = cast(TasksConfig, source.read(ConfigTopic.TASKS))
-    sinks = cast(SinksConfig, source.read(ConfigTopic.SINKS))
-
-    runtime = _runtime_params(system)
-    ads_local = (
-        ADSLocalIdentity(
-            local_ams_net_id=system.ads.local_ams_net_id,
-            local_ip=system.ads.local_ip,
-        )
-        if system.ads is not None
-        else None
-    )
-
-    assembly = assemble_core_config(
-        device_models_config=models,
-        devices_config=devices,
-        point_config=points,
-        unit_config=units,
-    )
-    point_meta = {
-        table_id: {
-            point_id: PointMeta(
-                variable_name=meta.variable_name,
-                point_groups=meta.point_groups,
-            )
-            for point_id, meta in table_points.items()
-        }
-        for table_id, table_points in assembly.point_meta.items()
-    }
-
-    # disabled 设备不进索引，但其点表仍可用于 Sink 引用解析（旧行为）。
-    disabled_tables = {
-        instance.device_id: assembly.point_tables[
-            PointTableId(models.device_models[instance.model].point_table)
-        ]
-        for instance in devices.devices.values()
-        if not instance.enabled
-    }
-    resolved_sinks = resolve_sinks(sinks, assembly, units, disabled_tables)
-
-    # device_group 匹配判定包含 disabled 设备的分组（与旧行为一致）。
-    all_device_groups = {
-        instance.device_group
-        for instance in devices.devices.values()
-        if instance.device_group is not None
-    }
-    sink_names = {name for name, sink in resolved_sinks.items() if sink.enabled}
-    task_map = dict(tasks.tasks)
-    for task in task_map.values():
-        validate_task_targets(
-            task,
-            assembly,
-            point_meta,
-            sink_names,
-            all_device_groups,
-            assembly.disabled_devices,
-        )
-
+def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
+    devices = snapshot.site.devices
+    settings = snapshot.system.runtime
     return CollectorConfig(
-        configs={
-            ConfigTopic.SYSTEM: system,
-            ConfigTopic.DEVICE_MODELS: models,
-            ConfigTopic.DEVICES: devices,
-            ConfigTopic.POINTS: points,
-            ConfigTopic.UNITS: units,
-            ConfigTopic.TASKS: tasks,
-            ConfigTopic.SINKS: sinks,
+        devices={key: device for key, device in devices.items() if device.enabled},
+        device_models=snapshot.device_models,
+        point_tables=snapshot.point_tables,
+        protocol_options_by_device=snapshot.protocol_options_by_device,
+        runtime=_runtime_params(settings),
+        ads_local=snapshot.system.ads,
+        tasks=snapshot.tasks,
+        sinks=snapshot.sinks,
+        point_meta={
+            table_id: {
+                point_id: point
+                for point_id, point in table.points.items()
+            }
+            for table_id, table in snapshot.point_tables.items()
         },
-        devices=assembly.devices,
-        device_models=assembly.device_models,
-        point_tables=assembly.point_tables,
-        protocol_options_by_device=assembly.protocol_options_by_device,
-        runtime=runtime,
-        ads_local=ads_local,
-        tasks=task_map,
-        sinks=resolved_sinks,
-        point_meta=point_meta,
-        ads_subscribe_devices=assembly.ads_subscribe_devices,
-        disabled_devices=assembly.disabled_devices,
+        ads_subscribe_devices=snapshot.ads_subscribe_devices,
+        disabled_devices=frozenset(
+            DeviceId(key) for key, device in devices.items() if not device.enabled
+        ),
     )
 
 
-def _runtime_params(system: SystemConfig) -> RuntimeParams:
-    """把共享 RuntimeSettings 映射为 Collector 进程级运行时参数。
-
-    缺省键使用 Collector 自身默认值；正值约束由 RuntimeParams 复核。
-    """
-    settings = system.runtime
-    policy = settings.backpressure_policy or "drop_old"
+def _runtime_params(settings: RuntimeSettings) -> RuntimeParams:
     return RuntimeParams(
         queue_maxsize=settings.queue_maxsize if settings.queue_maxsize is not None else 1000,
-        backpressure_policy=cast(BackpressurePolicy, policy),
-        shutdown_timeout=(
-            settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0
-        ),
+        backpressure_policy=cast(BackpressurePolicy, settings.backpressure_policy or "drop_old"),
+        shutdown_timeout=settings.shutdown_timeout if settings.shutdown_timeout is not None else 10.0,
         connect_timeout=settings.connect_timeout if settings.connect_timeout is not None else 1.0,
-        read_timeout=(settings.read_timeout if settings.read_timeout is not None else 1.0),
+        read_timeout=settings.read_timeout if settings.read_timeout is not None else 1.0,
         write_timeout=settings.write_timeout if settings.write_timeout is not None else 1.0,
         watchdog_interval=settings.watchdog_interval,
         health_timeout=settings.health_timeout,
