@@ -5,10 +5,10 @@ from __future__ import annotations
 import grpc
 import pytest
 
-from collector.infrastructure.grpc import collector_pb2 as collector_pb
-from collector.infrastructure.grpc import collector_pb2_grpc as collector_grpc
-from commander.infrastructure.grpc import commander_pb2 as commander_pb
-from commander.infrastructure.grpc import commander_pb2_grpc as commander_grpc
+from core.infrastructure.rpc import collector_pb2 as collector_pb
+from core.infrastructure.rpc import collector_pb2_grpc as collector_grpc
+from core.infrastructure.rpc import commander_pb2 as commander_pb
+from core.infrastructure.rpc import commander_pb2_grpc as commander_grpc
 from ctl.client import CollectorClient, CommanderClient
 
 
