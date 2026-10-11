@@ -113,7 +113,7 @@ def test_protocol_registry_is_explicit_and_case_normalized() -> None:
     protocol = registry.create(endpoint, point_table, {})
 
     assert registry.registered_names() == ("modbus",)
-    assert protocol.health().healthy is True
+    assert (await protocol.health()).healthy is True
 
 
 def test_protocol_registry_accepts_builtin_driver_classes() -> None:
