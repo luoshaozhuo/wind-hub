@@ -6,7 +6,8 @@ from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 
 import grpc
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from web_server.rpc import RpcGateway, RpcSettings
 
@@ -41,6 +42,12 @@ async def _invoke(operation: Awaitable[dict[str, object]]) -> dict[str, object]:
     except grpc.aio.AioRpcError as exc:
         raise _http_error(exc) from exc
     return result
+
+
+class ReadPointsBody(BaseModel):
+    """批量读取请求，仅声明测点 ID。"""
+
+    point_ids: list[str] = Field(min_length=1)
 
 
 def create_app(settings: RpcSettings | None = None) -> FastAPI:
@@ -116,5 +123,92 @@ def create_app(settings: RpcSettings | None = None) -> FastAPI:
         gateway: RpcGateway = Depends(get_gateway),
     ) -> dict[str, object]:
         return await _invoke(gateway.commander_verify_device(device_id))
+
+
+    @app.get("/api/v1/collector/tasks/{task_id}", tags=["collector"])
+    async def collector_task(
+        task_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_task(task_id))
+
+    @app.get("/api/v1/collector/instances/{instance_id}", tags=["collector"])
+    async def collector_instance(
+        instance_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_instance(instance_id))
+
+    @app.post("/api/v1/collector/tasks/{task_id}/start", tags=["collector"])
+    async def start_task(
+        task_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_start_task(task_id))
+
+    @app.post("/api/v1/collector/tasks/{task_id}/stop", tags=["collector"])
+    async def stop_task(
+        task_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_stop_task(task_id))
+
+    @app.post("/api/v1/collector/instances/{instance_id}/start", tags=["collector"])
+    async def start_instance(
+        instance_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_start_instance(instance_id))
+
+    @app.post("/api/v1/collector/instances/{instance_id}/stop", tags=["collector"])
+    async def stop_instance(
+        instance_id: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_stop_instance(instance_id))
+
+    @app.get("/api/v1/collector/sinks/{name}/verify", tags=["collector"])
+    async def verify_sink(
+        name: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_verify_sink(name))
+
+    @app.post("/api/v1/collector/sinks/{name}/test", tags=["collector"])
+    async def test_sink(
+        name: str, gateway: RpcGateway = Depends(get_gateway)
+    ) -> dict[str, object]:
+        return await _invoke(gateway.collector_test_sink(name))
+
+    @app.post("/api/v1/commander/devices/{device_id}/read-many", tags=["commander"])
+    async def read_many(
+        device_id: str,
+        body: ReadPointsBody,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_read_many(device_id, body.point_ids))
+
+    @app.get(
+        "/api/v1/commander/devices/{device_id}/points/{point_id}/verify",
+        tags=["commander"],
+    )
+    async def verify_point(
+        device_id: str,
+        point_id: str,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_verify_point(device_id, point_id))
+
+    @app.get(
+        "/api/v1/commander/devices/{device_id}/points/{point_id}/resolve",
+        tags=["commander"],
+    )
+    async def resolve_point(
+        device_id: str,
+        point_id: str,
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_resolve_point(device_id, point_id))
+
+    @app.get("/api/v1/commander/devices/{device_id}/points/verify", tags=["commander"])
+    async def verify_points(
+        device_id: str,
+        point_group: str = Query(default=""),
+        gateway: RpcGateway = Depends(get_gateway),
+    ) -> dict[str, object]:
+        return await _invoke(gateway.commander_verify_points(device_id, point_group))
 
     return app

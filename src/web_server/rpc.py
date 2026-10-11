@@ -1,4 +1,4 @@
-"""Web 层到 Collector / Commander 的只读 RPC 边界。"""
+"""Web 层到 Collector / Commander 的 RPC 边界。"""
 
 from __future__ import annotations
 
@@ -40,12 +40,14 @@ class RpcGateway:
         self._collector_channel: grpc.aio.Channel | None = None
         self._commander_channel: grpc.aio.Channel | None = None
         self._collector: collector_grpc.CollectorRuntimeServiceStub | None = None
+        self._collector_control: collector_grpc.CollectorControlServiceStub | None = None
         self._commander: commander_grpc.CommanderServiceStub | None = None
 
     async def __aenter__(self) -> RpcGateway:
         self._collector_channel = grpc.aio.insecure_channel(self._settings.collector_target)
         self._commander_channel = grpc.aio.insecure_channel(self._settings.commander_target)
         self._collector = collector_grpc.CollectorRuntimeServiceStub(self._collector_channel)
+        self._collector_control = collector_grpc.CollectorControlServiceStub(self._collector_channel)
         self._commander = commander_grpc.CommanderServiceStub(self._commander_channel)
         return self
 
@@ -59,12 +61,18 @@ class RpcGateway:
             self._collector_channel = None
             self._commander_channel = None
             self._collector = None
+            self._collector_control = None
             self._commander = None
 
     def collector(self) -> collector_grpc.CollectorRuntimeServiceStub:
         if self._collector is None:
             raise RuntimeError("RPC gateway is not started")
         return self._collector
+
+    def collector_control(self) -> collector_grpc.CollectorControlServiceStub:
+        if self._collector_control is None:
+            raise RuntimeError("RPC gateway is not started")
+        return self._collector_control
 
     def commander(self) -> commander_grpc.CommanderServiceStub:
         if self._commander is None:
@@ -113,3 +121,49 @@ class RpcGateway:
     async def commander_verify_device(self, device_id: str) -> dict[str, object]:
         request = commander_pb.VerifyDeviceRequest(device_id=device_id, timeout=self.timeout)
         return to_payload(await self.commander().VerifyDevice(request, timeout=self.timeout))
+
+    async def collector_task(self, task_id: str) -> dict[str, object]:
+        request = collector_pb.TaskIdRequest(task_id=task_id)
+        return to_payload(await self.collector().GetTask(request, timeout=self.timeout))
+
+    async def collector_instance(self, instance_id: str) -> dict[str, object]:
+        request = collector_pb.InstanceIdRequest(instance_id=instance_id)
+        return to_payload(await self.collector().GetTaskInstance(request, timeout=self.timeout))
+
+    async def collector_start_task(self, task_id: str) -> dict[str, object]:
+        request = collector_pb.TaskStartRequest(task_id=task_id)
+        return to_payload(await self.collector_control().StartTask(request, timeout=self.timeout))
+
+    async def collector_stop_task(self, task_id: str) -> dict[str, object]:
+        request = collector_pb.TaskIdRequest(task_id=task_id)
+        return to_payload(await self.collector_control().StopTask(request, timeout=self.timeout))
+
+    async def collector_start_instance(self, instance_id: str) -> dict[str, object]:
+        request = collector_pb.TaskInstanceStartRequest(instance_id=instance_id)
+        return to_payload(await self.collector_control().StartTaskInstance(request, timeout=self.timeout))
+
+    async def collector_stop_instance(self, instance_id: str) -> dict[str, object]:
+        request = collector_pb.InstanceIdRequest(instance_id=instance_id)
+        return to_payload(await self.collector_control().StopTaskInstance(request, timeout=self.timeout))
+
+    async def collector_verify_sink(self, name: str) -> dict[str, object]:
+        return to_payload(await self.collector().VerifySink(collector_pb.SinkRequest(name=name), timeout=self.timeout))
+
+    async def collector_test_sink(self, name: str) -> dict[str, object]:
+        return to_payload(await self.collector().WriteTestSink(collector_pb.SinkRequest(name=name), timeout=self.timeout))
+
+    async def commander_read_many(self, device_id: str, point_ids: list[str]) -> dict[str, object]:
+        request = commander_pb.ReadPointsRequest(device_id=device_id, point_ids=point_ids)
+        return to_payload(await self.commander().ReadPoints(request, timeout=self.timeout))
+
+    async def commander_verify_point(self, device_id: str, point_id: str) -> dict[str, object]:
+        request = commander_pb.PointRequest(device_id=device_id, point_id=point_id)
+        return to_payload(await self.commander().VerifyPoint(request, timeout=self.timeout))
+
+    async def commander_resolve_point(self, device_id: str, point_id: str) -> dict[str, object]:
+        request = commander_pb.PointRequest(device_id=device_id, point_id=point_id)
+        return to_payload(await self.commander().ResolvePoint(request, timeout=self.timeout))
+
+    async def commander_verify_points(self, device_id: str, point_group: str = "") -> dict[str, object]:
+        request = commander_pb.VerifyPointsRequest(device_id=device_id, point_group=point_group)
+        return to_payload(await self.commander().VerifyPoints(request, timeout=self.timeout))
