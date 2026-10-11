@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from core.application import ConfigError, ProtocolError, ProtocolWrite
+from core.application import ConfigError, ProtocolCapabilityError, ProtocolError, ProtocolWrite
 from core.application.protocol_contract import ProtocolSample, Quality
 from core.infrastructure.protocol.iec104.driver import IEC104Driver, _SubscriptionRegistry
 from core.infrastructure.protocol.iec104.mapping import IEC104Point, iec104_point
@@ -68,7 +68,6 @@ def _driver(
     driver._points_by_id = points_by_id or {}
     driver._points_by_ioa = {p.ioa: p for p in driver._points_by_id.values()}
     driver._dynamic_points = {}
-    driver._samples = {}
     driver._command_locks = {}
     driver._active_reads = {}
     driver._active_read_locks = {}
@@ -121,76 +120,28 @@ class TestIEC104PointFactory:
 # ---------------------------------------------------------------------------
 
 
-class TestDynamicMirrorRead:
+class TestDynamicSingleRead:
     @pytest.mark.asyncio
-    async def test_unregistered_ioa_returns_bad_sample(self) -> None:
+    async def test_dynamic_remote_read_waits_for_reply(self) -> None:
         driver = _driver()
-        sample = await driver.read_one(iec104_point("dyn", ioa=500))
-        assert sample.point_id == "dyn"
-        assert sample.value is None
-        assert sample.quality == Quality.BAD
-        assert sample.timestamp.tzinfo is not None
+        point = iec104_point("dyn", ioa=500, type_id="M_ME_NC_1")
+
+        async def send(mapped: IEC104Point) -> None:
+            assert mapped.ioa == 500
+
+        driver._send_read = send
+        task = asyncio.create_task(driver.read_one(point))
+        await asyncio.sleep(0)
+        driver._active_reads[500].set_result(_sample("canonical", 3.5))
+        result = await task
+        assert result.point_id == "dyn"
+        assert result.value == 3.5
 
     @pytest.mark.asyncio
-    async def test_mirror_identity_relabeled_without_touching_value(self) -> None:
-        """镜像样本携带其他 point_id 时：身份重标，值/质量/时标原样保留。"""
+    async def test_batch_read_is_not_supported(self) -> None:
         driver = _driver()
-        stored = _sample("other", 3.5, ioa_ts=True)
-        driver._samples[500] = stored
-
-        sample = await driver.read_one(iec104_point("dyn", ioa=500))
-
-        assert sample.point_id == "dyn"
-        assert sample.value == 3.5
-        assert sample.quality == Quality.GOOD
-        assert sample.timestamp == stored.timestamp
-        assert sample.timestamp_source == "device"
-        # 镜像本体不被篡改
-        assert driver._samples[500].point_id == "other"
-
-    @pytest.mark.asyncio
-    async def test_same_ioa_different_point_ids_are_isolated(self) -> None:
-        driver = _driver()
-        driver._samples[500] = _sample("first", 1.5)
-
-        first = await driver.read_one(iec104_point("first", ioa=500))
-        second = await driver.read_one(iec104_point("second", ioa=500))
-
-        assert first.point_id == "first"
-        assert second.point_id == "second"
-        assert first.value == second.value == 1.5
-
-    @pytest.mark.asyncio
-    async def test_read_many_mixed_preserves_order_and_duplicates(self) -> None:
-        driver = _driver(points_by_id={"reg": IEC104Point("reg", 100, None)})
-        driver._samples[100] = _sample("reg", 10)
-        driver._samples[500] = _sample("canonical", 20)
-
-        samples = await driver.read_many(
-            ["reg", iec104_point("dyn", ioa=500), iec104_point("dyn", ioa=500),
-             iec104_point("missing", ioa=999)]
-        )
-
-        assert [(s.point_id, s.value, s.quality) for s in samples] == [
-            ("reg", 10, Quality.GOOD),
-            ("dyn", 20, Quality.GOOD),
-            ("dyn", 20, Quality.GOOD),
-            ("missing", None, Quality.BAD),
-        ]
-
-    @pytest.mark.asyncio
-    async def test_dynamic_read_registers_receive_association(self) -> None:
-        driver = _driver()
-        await driver.read_one(iec104_point("dyn", ioa=500))
-        assert 500 in driver._dynamic_points
-        # PointTable 不被写入
-        assert driver._points_by_id == {}
-
-    @pytest.mark.asyncio
-    async def test_dynamic_ioa_matching_point_table_keeps_registered_identity(self) -> None:
-        driver = _driver(points_by_id={"reg": IEC104Point("reg", 100, None)})
-        await driver.read_one(iec104_point("dyn", ioa=100))
-        assert 100 not in driver._dynamic_points
+        with pytest.raises(ProtocolCapabilityError, match="read_many"):
+            await driver.read_many(("reg",))
 
     @pytest.mark.asyncio
     async def test_closed_connection_rejects_dynamic_read(self) -> None:
@@ -304,83 +255,36 @@ class TestDynamicWrite:
 
 class TestDynamicActiveRead:
     @pytest.mark.asyncio
-    async def test_dynamic_active_read_registers_monitoring_point(self) -> None:
+    async def test_registers_monitoring_point_for_remote_read(self) -> None:
         import c104
 
         station = _Station()
         driver = _driver(station)
+        point = iec104_point("dyn", ioa=700, type_id="M_ME_NC_1")
 
-        await driver.request_read_one(iec104_point("dyn", ioa=700, type_id="M_ME_NC_1"))
-
+        await driver._send_read(point)
         assert station.add_calls == [(700, c104.Type.M_ME_NC_1)]
         assert station.points[700].read_calls == 1
         assert 700 in driver._dynamic_points
 
     @pytest.mark.asyncio
-    async def test_dynamic_active_read_without_monitoring_type_rejected(self) -> None:
-        station = _Station()
-        driver = _driver(station)
-
+    async def test_requires_monitoring_type_for_unregistered_point(self) -> None:
+        driver = _driver()
         with pytest.raises(ProtocolError, match="monitoring type_id"):
-            await driver.request_read_one(iec104_point("dyn", ioa=700))
-
-        with pytest.raises(ProtocolError, match="monitoring type_id"):
-            await driver.request_read_one(
-                iec104_point("dyn", ioa=700, type_id="C_SC_NA_1")
-            )
-        assert station.add_calls == []
+            await driver._send_read(iec104_point("dyn", ioa=700))
+        assert not driver._station.add_calls
 
     @pytest.mark.asyncio
-    async def test_dynamic_active_read_reuses_existing_c104_point(self) -> None:
+    async def test_remote_read_reuses_registered_c104_point(self) -> None:
         import c104
 
         station = _Station()
         existing = station.add_point(io_address=700, type=c104.Type.M_ME_NC_1)
         station.add_calls.clear()
         driver = _driver(station)
-
-        # 无 type_id 也可：本地已有 c104 点，类型由既有注册保证。
-        await driver.request_read_one(iec104_point("dyn", ioa=700))
-
+        await driver._send_read(iec104_point("dyn", ioa=700))
         assert station.add_calls == []
         assert existing.read_calls == 1
-
-    @pytest.mark.asyncio
-    async def test_read_active_one_relabels_response_identity(self) -> None:
-        driver = _driver()
-
-        async def send(_point: object) -> None:
-            return None
-
-        driver.request_read_one = send  # type: ignore[method-assign]
-        dynamic = iec104_point("dyn", ioa=700, type_id="M_ME_NC_1")
-        task = asyncio.create_task(driver.read_active_one(dynamic))
-        await asyncio.sleep(0)
-        future = driver._active_reads[700]
-        future.set_result(_sample("canonical", 8.5))
-        sample = await task
-        assert sample.point_id == "dyn"
-        assert sample.value == 8.5
-
-    @pytest.mark.asyncio
-    async def test_read_active_many_supports_dynamic_points(self) -> None:
-        driver = _driver()
-
-        async def send(_point: object) -> None:
-            return None
-
-        driver.request_read_one = send  # type: ignore[method-assign]
-        first = iec104_point("a", ioa=1, type_id="M_SP_NA_1")
-        second = iec104_point("b", ioa=2, type_id="M_SP_NA_1")
-        task = asyncio.create_task(driver.read_active_many([first, second]))
-        for _ in range(100):
-            await asyncio.sleep(0)
-            if len(driver._active_reads) == 2:
-                break
-        driver._active_reads[1].set_result(_sample("x", True))
-        driver._active_reads[2].set_result(_sample("y", False))
-        samples = await task
-        assert [(s.point_id, s.value) for s in samples] == [("a", True), ("b", False)]
 
 
 # ---------------------------------------------------------------------------
@@ -440,10 +344,19 @@ class TestDynamicReceive:
             cot = c104.Cot.SPONTANEOUS
             is_negative = False
 
+        observed: list[ProtocolSample] = []
+        arrived = asyncio.Event()
+
+        async def callback(sample: ProtocolSample) -> None:
+            observed.append(sample)
+            arrived.set()
+
+        handle = driver._subscriptions.subscribe((500,), callback)
         result = driver._handle_point_receive(_FakeC104Point(), _FakeMessage())
         assert result == c104.ResponseState.NONE
-        await asyncio.sleep(0)
-        stored = driver._samples[500]
-        assert stored.point_id == "dyn"
-        assert stored.value == 1.25
-        assert stored.quality == Quality.GOOD
+        await asyncio.wait_for(arrived.wait(), timeout=1)
+        await handle.close()
+        assert len(observed) == 1
+        assert observed[0].point_id == "dyn"
+        assert observed[0].value == 1.25
+        assert observed[0].quality == Quality.UNCERTAIN

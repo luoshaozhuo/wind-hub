@@ -75,7 +75,7 @@ def command_to_c104(
 
 def _quality_from_c104(quality: Any) -> Quality:
     if quality is None:
-        return Quality.GOOD
+        return Quality.UNCERTAIN
 
     bits = getattr(quality, "value", 0)
     invalid = getattr(c104.Quality.Invalid, "value", 0)
@@ -99,7 +99,8 @@ def _timestamp_from_c104(value: object) -> tuple[datetime, TimestampSource]:
     if not isinstance(value, datetime):
         raise TypeError("c104 recorded_at must be datetime or None")
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC), "device"
+        # CP56Time2a 不编码时区，不能假定无时区设备时间为 UTC。
+        return datetime.now(UTC), "local"
     return value.astimezone(UTC), "device"
 
 

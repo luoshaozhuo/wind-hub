@@ -8,6 +8,9 @@ import pytest
 
 from core.application import (
     ConfigError,
+    ProtocolCapability,
+    ProtocolCapabilityError,
+    ProtocolError,
     ProtocolSample,
     Quality,
 )
@@ -144,7 +147,7 @@ async def test_iec104_driver_builds_with_required_c104() -> None:
         {},
     )
 
-    assert (await driver.health()).healthy is False
+    assert driver.is_open() is False
 
 
 def test_iec104_writable_point_rejects_monitoring_type() -> None:
@@ -268,40 +271,23 @@ async def test_iec104_subscription_can_close_itself_from_callback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_iec104_point_table_update_invalidates_stale_mirror() -> None:
+async def test_iec104_point_table_update_changes_read_addressing() -> None:
     driver, _ = _driver_for_monitoring_point()
     driver._is_open = True
-    driver._samples[100] = ProtocolSample(
-        point_id="power",
-        value=42.0,
-        quality=Quality.GOOD,
-        timestamp=datetime.now(UTC),
-    )
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
-        PointTable(
-            "iec_pt",
-            DeviceProtocol("iec104"),
-            {"wind_speed": replacement},
-        )
+        PointTable("iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement})
     )
-    sample = await driver.read_one("wind_speed")
-    assert sample.point_id == "wind_speed"
-    assert sample.value is None
-    assert sample.quality == Quality.BAD
-    # BAD 镜像缺失样本同样携带必填的本地接收时间戳
-    assert sample.timestamp.tzinfo is not None
-    assert sample.timestamp_source == "local"
+    assert "power" not in driver._points_by_id
+    assert driver._points_by_id["wind_speed"].ioa == 100
+    with pytest.raises(ConfigError, match="power"):
+        await driver.read_one("power")
+    with pytest.raises(ProtocolError, match="active read"):
+        await driver.read_one("wind_speed")
 
 
 def test_iec104_invalid_point_table_update_is_atomic() -> None:
     driver, _ = _driver_for_monitoring_point()
-    driver._samples[100] = ProtocolSample(
-        point_id="power",
-        value=42.0,
-        quality=Quality.GOOD,
-        timestamp=datetime.now(UTC),
-    )
     invalid = _point("control", access=PointAccess.WRITE, ext=_point_ext(ioa=200))
     with pytest.raises(ConfigError, match="requires type_id"):
         driver.update_point_table(
@@ -309,7 +295,7 @@ def test_iec104_invalid_point_table_update_is_atomic() -> None:
         )
     assert driver._point_table_id == "iec_pt"
     assert list(driver._points_by_id) == ["power"]
-    assert driver._samples[100].value == 42.0
+    assert driver._points_by_ioa[100].point_id == "power"
 
 
 @pytest.mark.asyncio
@@ -317,17 +303,103 @@ async def test_iec104_queued_old_mapping_sample_is_ignored() -> None:
     driver, _ = _driver_for_monitoring_point()
     driver._closed = False
     driver._is_open = True
+    received: list[ProtocolSample] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        received.append(sample)
+
+    handle = await driver.subscribe(("power",), callback)
     replacement = _point("wind_speed", ext=_point_ext(ioa=100))
     driver.update_point_table(
         PointTable("iec_pt", DeviceProtocol("iec104"), {"wind_speed": replacement})
     )
     driver._store_sample(
         100,
-        ProtocolSample(
-            point_id="power",
-            value=42.0,
-            quality=Quality.GOOD,
-            timestamp=datetime.now(UTC),
-        ),
+        ProtocolSample(point_id="power", value=42.0, timestamp=datetime.now(UTC)),
     )
-    assert 100 not in driver._samples
+    await asyncio.sleep(0)
+    await handle.close()
+    assert received == []
+
+
+@pytest.mark.asyncio
+async def test_iec104_rejects_batch_operations_without_network_io() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    assert ProtocolCapability.WRITE_MANY not in driver.capabilities()
+    with pytest.raises(ProtocolCapabilityError, match="read_many"):
+        await driver.read_many(("power",))
+    with pytest.raises(ProtocolCapabilityError, match="write_many"):
+        await driver.write_many(())
+
+
+@pytest.mark.asyncio
+async def test_slow_subscriber_coalesces_new_samples_per_point() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    started = asyncio.Event()
+    release = asyncio.Event()
+    seen = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        seen.append(sample.value)
+        started.set()
+        if sample.value == 1:
+            await release.wait()
+
+    handle = await driver.subscribe(("power",), callback)
+    for value in (1,):
+        driver._store_sample(
+            100, ProtocolSample(point_id="power", value=value, timestamp=datetime.now(UTC))
+        )
+    await asyncio.wait_for(started.wait(), 1)
+    for value in range(2, 20):
+        driver._store_sample(
+            100, ProtocolSample(point_id="power", value=value, timestamp=datetime.now(UTC))
+        )
+    assert seen == [1]
+    release.set()
+    await asyncio.wait_for(handle.close(), 1)
+    assert seen == [1]
+
+
+@pytest.mark.asyncio
+async def test_negative_unsolicited_message_is_not_dispatched() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    seen: list[ProtocolSample] = []
+
+    async def callback(sample: ProtocolSample) -> None:
+        seen.append(sample)
+
+    handle = await driver.subscribe(("power",), callback)
+    driver._store_sample(
+        100,
+        ProtocolSample(point_id="power", value=1, timestamp=datetime.now(UTC)),
+        negative=True,
+    )
+    await asyncio.sleep(0)
+    await handle.close()
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_subscription_point_does_not_duplicate_delivery() -> None:
+    driver, _ = _driver_for_monitoring_point()
+    driver._closed = False
+    driver._is_open = True
+    seen = []
+    received = asyncio.Event()
+
+    async def callback(sample: ProtocolSample) -> None:
+        seen.append(sample.value)
+        received.set()
+
+    handle = await driver.subscribe(("power", "power"), callback)
+    driver._store_sample(
+        100, ProtocolSample(point_id="power", value=7, timestamp=datetime.now(UTC))
+    )
+    await asyncio.wait_for(received.wait(), 1)
+    await handle.close()
+    assert seen == [7]

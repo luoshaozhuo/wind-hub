@@ -1,7 +1,8 @@
-"""IEC104 主动读发送入口不返回旧镜像。"""
+"""IEC104 单点读取只接受本次 C_RD_NA_1 响应。"""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -11,124 +12,128 @@ from core.infrastructure.protocol.iec104.driver import IEC104Driver
 from core.infrastructure.protocol.iec104.mapping import IEC104Point
 
 
-class _Point:
-    def __init__(self, accepted: bool = True) -> None:
-        self.accepted = accepted
-        self.calls = 0
-
-    def read(self) -> bool:
-        self.calls += 1
-        return self.accepted
-
-
-class _Station:
-    def __init__(self, point: _Point | None) -> None:
-        self.point = point
-
-    def get_point(self, ioa: int) -> _Point | None:
-        assert ioa == 11
-        return self.point
-
-
-@pytest.mark.asyncio
-async def test_active_read_sends_without_returning_cached_sample() -> None:
-    driver = object.__new__(IEC104Driver)
-    point = _Point()
-    driver._is_open = True
-    driver._station = _Station(point)
-    driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    driver._samples = {11: object()}
-    assert await driver.request_read_one("p") is None
-    assert point.calls == 1
-
-
-@pytest.mark.asyncio
-async def test_active_read_requires_registered_point() -> None:
-    driver = object.__new__(IEC104Driver)
-    driver._is_open = True
-    driver._station = _Station(None)
-    driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    with pytest.raises(ProtocolError, match="not registered"):
-        await driver.request_read_one("p")
-
-
-@pytest.mark.asyncio
-async def test_active_read_rejected_by_library() -> None:
-    driver = object.__new__(IEC104Driver)
-    driver._is_open = True
-    driver._station = _Station(_Point(False))
-    driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    with pytest.raises(ProtocolError, match="rejected"):
-        await driver.request_read_one("p")
-
-
-@pytest.mark.asyncio
-async def test_active_read_many_uses_ordered_individual_requests() -> None:
-    driver = object.__new__(IEC104Driver)
-    calls: list[str] = []
-
-    async def fake_request(point_id: str) -> None:
-        calls.append(point_id)
-
-    driver.request_read_one = fake_request
-    assert await driver.request_read_many(("b", "a", "b")) is None
-    assert calls == ["b", "a", "b"]
-    assert await driver.request_read_many(()) is None
-
-
-@pytest.mark.asyncio
-async def test_active_read_waits_for_matching_requested_response() -> None:
-    import asyncio
-
+def _driver() -> IEC104Driver:
     driver = object.__new__(IEC104Driver)
     driver._is_open = True
     driver._closed = False
     driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    driver._points_by_ioa = {11: driver._points_by_id["p"]}
     driver._active_reads = {}
     driver._active_read_locks = {}
-    driver._samples = {}
 
-    class _Cfg:
-        t1 = 0.2
+    class Config:
+        t1 = 0.02
 
-    driver._config = _Cfg()
+    driver._config = Config()
+    return driver
 
-    async def send(_point_id: str) -> None:
-        return None
 
-    driver.request_read_one = send
-    task = asyncio.create_task(driver.read_active_one("p"))
+@pytest.mark.asyncio
+async def test_read_one_waits_for_requested_response_not_mirror() -> None:
+    driver = _driver()
+    calls = []
+
+    async def send(mapped: IEC104Point) -> None:
+        calls.append(mapped.ioa)
+
+    driver._send_read = send
+    task = asyncio.create_task(driver.read_one("p"))
     await asyncio.sleep(0)
-    sample = ProtocolSample(
-        point_id="p",
-        value=7,
-        timestamp=datetime.now(UTC),
+    assert calls == [11]
+    assert not task.done()
+    driver._active_reads[11].set_result(
+        ProtocolSample(point_id="p", value=7, timestamp=datetime.now(UTC))
     )
-    # A spontaneous notification must not resolve the explicit request.
-    future = driver._active_reads[11]
-    assert not future.done()
-    future.set_result(sample)
     assert (await task).value == 7
 
 
 @pytest.mark.asyncio
-async def test_active_read_times_out_without_using_mirror() -> None:
-    driver = object.__new__(IEC104Driver)
-    driver._is_open = True
-    driver._points_by_id = {"p": IEC104Point("p", 11, None)}
-    driver._active_reads = {}
-    driver._active_read_locks = {}
+async def test_read_one_times_out_without_response() -> None:
+    driver = _driver()
 
-    class _Cfg:
-        t1 = 0.001
+    async def send(mapped: IEC104Point) -> None:
+        del mapped
 
-    driver._config = _Cfg()
-
-    async def send(_point_id: str) -> None:
-        return None
-
-    driver.request_read_one = send
+    driver._send_read = send
     with pytest.raises(ProtocolError, match="timed out"):
-        await driver.read_active_one("p")
+        await driver.read_one("p")
+    assert not driver._active_reads
+
+
+@pytest.mark.asyncio
+async def test_read_one_serializes_same_ioa() -> None:
+    driver = _driver()
+    sent = []
+
+    async def send(mapped: IEC104Point) -> None:
+        sent.append(mapped.ioa)
+
+    driver._send_read = send
+    first = asyncio.create_task(driver.read_one("p"))
+    await asyncio.sleep(0)
+    second = asyncio.create_task(driver.read_one("p"))
+    await asyncio.sleep(0)
+    assert sent == [11]
+    driver._active_reads[11].set_result(
+        ProtocolSample(point_id="p", value=1, timestamp=datetime.now(UTC))
+    )
+    await first
+    await asyncio.sleep(0)
+    assert sent == [11, 11]
+    driver._active_reads[11].set_result(
+        ProtocolSample(point_id="p", value=2, timestamp=datetime.now(UTC))
+    )
+    assert (await second).value == 2
+
+
+@pytest.mark.asyncio
+async def test_send_read_uses_supported_point_api() -> None:
+    driver = _driver()
+    seen = []
+
+    class Point:
+        def read(self) -> bool:
+            seen.append(True)
+            return True
+
+    class Station:
+        def get_point(self, ioa: int) -> Point:
+            assert ioa == 11
+            return Point()
+
+    driver._station = Station()
+    driver._dynamic_points = {}
+    driver._points_by_ioa = {11: driver._points_by_id["p"]}
+    await driver._send_read(driver._points_by_id["p"])
+    assert seen == [True]
+
+
+@pytest.mark.asyncio
+async def test_send_read_rejected_by_library() -> None:
+    driver = _driver()
+
+    class Point:
+        def read(self) -> bool:
+            return False
+
+    class Station:
+        def get_point(self, ioa: int) -> Point:
+            return Point()
+
+    driver._station = Station()
+    driver._dynamic_points = {}
+    driver._points_by_ioa = {11: driver._points_by_id["p"]}
+    with pytest.raises(ProtocolError, match="rejected"):
+        await driver._send_read(driver._points_by_id["p"])
+
+
+@pytest.mark.asyncio
+async def test_read_request_failed_before_response_cleans_waiter() -> None:
+    driver = _driver()
+
+    async def send(mapped: IEC104Point) -> None:
+        raise ProtocolError("send failed")
+
+    driver._send_read = send
+    with pytest.raises(ProtocolError, match="send failed"):
+        await driver.read_one("p")
     assert driver._active_reads == {}
