@@ -19,6 +19,7 @@ from core.application import (
     ConnectionHealth,
     PointScalar,
     ProtocolPort,
+    ProtocolError,
     ProtocolSample,
     ProtocolWrite,
     Quality,
@@ -146,6 +147,10 @@ class DeviceSession:
         """
         self.point(point_id)
         sample = await self._protocol.read_one(point_id)
+        if sample.point_id != point_id:
+            raise ProtocolError(
+                f"read_one point mismatch: requested={point_id!r}, received={sample.point_id!r}"
+            )
         return self._to_reading(sample)
 
     async def read_points(self, point_ids: list[str]) -> list[PointReading]:
