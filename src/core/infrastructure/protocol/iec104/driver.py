@@ -440,9 +440,9 @@ class IEC104Driver:
         """发送单点读取请求；调用方负责等待 REQUEST 响应。"""
         if not self._is_open or self._station is None:
             raise ProtocolError("IEC104 active read requires an OPEN connection")
+        self._register_dynamic_ioa(mapped)
         point = self._station.get_point(mapped.ioa)
         if point is None:
-            self._register_dynamic_ioa(mapped)
             point = self._register_monitoring_point(mapped)
         try:
             accepted = await asyncio.to_thread(point.read)
