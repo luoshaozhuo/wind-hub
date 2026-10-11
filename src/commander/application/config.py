@@ -29,8 +29,6 @@ from core.domain import (
     PointTableId,
     ProtocolOptions,
 )
-from core.domain import PointMeta as PointMeta
-from core.domain.config import ADSLocalIdentity as ADSLocalIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,13 +55,12 @@ class CommanderConfig:
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
     business_points: Mapping[BusinessPointId, BusinessPoint] = field(default_factory=dict)
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions] = field(default_factory=dict)
-    ads_local: ADSLocalIdentity | None = None
+    ads_local: object | None = None
     connect_timeout: float = 1.0
     write_timeout: float = 1.0
     read_timeout: float = 1.0
     watchdog_interval: float = 5.0
     health_timeout: float = 1.0
-    point_meta: Mapping[PointTableId, Mapping[str, PointMeta]] = field(default_factory=dict)
     disabled_devices: frozenset[DeviceId] = frozenset()
 
     def __post_init__(self) -> None:
@@ -77,16 +74,6 @@ class CommanderConfig:
             raise ValueError("watchdog_interval must be > 0")
         if self.health_timeout <= 0:
             raise ValueError("health_timeout must be > 0")
-        object.__setattr__(
-            self,
-            "point_meta",
-            MappingProxyType(
-                {
-                    table_id: MappingProxyType(dict(meta))
-                    for table_id, meta in self.point_meta.items()
-                }
-            ),
-        )
         object.__setattr__(self, "disabled_devices", frozenset(self.disabled_devices))
         for name in (
             "devices",
@@ -97,12 +84,6 @@ class CommanderConfig:
             "protocol_options_by_device",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
-
-    def meta_for(self, table_id: PointTableId, point_id: str) -> PointMeta:
-        """返回点位元数据；缺省时返回空元数据（元数据不参与协议路径）。"""
-        return self.point_meta.get(table_id, {}).get(
-            point_id, PointMeta(variable_name=None, point_groups=())
-        )
 
     def point_table_for_device(self, device_id: DeviceId) -> PointTable:
         """解析 Device -> DeviceModel -> PointTable。"""
