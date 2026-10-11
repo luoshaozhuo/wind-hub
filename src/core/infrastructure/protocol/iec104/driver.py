@@ -187,6 +187,7 @@ class IEC104Driver:
         # 由 on_new_point 重新挂接接收回调。身份策略：PointTable 点优先，
         # 否则保留首个登记的动态 point_id；单次读取按输入对象重标身份。
         self._dynamic_points: dict[int, IEC104Point] = {}
+        self._interrogation_lock = asyncio.Lock()
         self._command_locks: dict[int, asyncio.Lock] = {}
         self._active_read_locks: dict[int, asyncio.Lock] = {}
         self._active_reads: dict[int, asyncio.Future[ProtocolSample]] = {}
@@ -460,23 +461,28 @@ class IEC104Driver:
                 future.set_exception(ProtocolError(reason))
 
     async def interrogate(self) -> None:
-        """显式发送一次 General Interrogation（QOI=20）。"""
-        if not self._is_open or self._connection is None:
-            raise ProtocolError("IEC104 interrogation requires an OPEN connection")
-
-        c104 = _c104()
-        connection = self._connection
-        accepted = await asyncio.to_thread(
-            connection.interrogation,
-            common_address=self._config.common_addr,
-            cause=c104.Cot.ACTIVATION,
-            qualifier=c104.Qoi.STATION,
-        )
-        if not accepted:
-            raise ProtocolError(
-                f"IEC104 general interrogation rejected by "
-                f"{self._config.host}:{self._config.port}"
-            )
+        """发送站总召，并等待 c104 对命令的应答，不假定全部测点存在。"""
+        async with self._interrogation_lock:
+            if not self._is_open or self._connection is None:
+                raise ProtocolError("IEC104 interrogation requires an OPEN connection")
+            c104 = _c104()
+            try:
+                accepted = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._connection.interrogation,
+                        common_address=self._config.common_addr,
+                        cause=c104.Cot.ACTIVATION,
+                        qualifier=c104.Qoi.STATION,
+                        wait_for_response=True,
+                    ),
+                    timeout=self._config.t1 * 2,
+                )
+            except TimeoutError as exc:
+                raise ProtocolError("IEC104 interrogation timed out") from exc
+            except Exception as exc:
+                raise ProtocolError(f"IEC104 interrogation failed: {exc}") from exc
+            if not accepted:
+                raise ProtocolError("IEC104 general interrogation rejected")
 
     async def _execute_write(
         self,
