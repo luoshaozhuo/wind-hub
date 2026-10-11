@@ -7,7 +7,6 @@ Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp �
 from __future__ import annotations
 
 import asyncio
-
 from dataclasses import replace
 from uuid import uuid4
 
