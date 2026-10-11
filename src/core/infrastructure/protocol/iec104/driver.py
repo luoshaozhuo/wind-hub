@@ -445,7 +445,7 @@ class IEC104Driver:
         if point is None:
             point = self._register_monitoring_point(mapped)
         try:
-            accepted = await asyncio.to_thread(point.read)
+            accepted = await asyncio.to_thread(point.read, wait_for_response=False)
         except Exception as exc:
             raise ProtocolError(
                 f"IEC104 active read failed for {mapped.point_id}: {exc}"
@@ -764,11 +764,6 @@ class IEC104Driver:
         if requested:
             waiter = self._active_reads.get(ioa)
             if waiter is not None and not waiter.done():
-                if negative:
-                    waiter.set_exception(
-                        ProtocolError(f"IEC104 negative read response at IOA {ioa}")
-                    )
-                else:
-                    waiter.set_result(sample)
+                waiter.set_result(sample)
         for subscription in (*self._subscriptions._global, *self._subscriptions._ioa.get(ioa, [])):
             subscription.schedule(sample)
