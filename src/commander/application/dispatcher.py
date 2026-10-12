@@ -95,7 +95,12 @@ class CommandDispatcher:
                     error=f"unknown device '{command.device_id}'",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
-                self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
+                self._audit(
+                    command,
+                    result,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                    config_hash=config_hash,
+                )
                 return result
 
             if not await self._runtime.ensure_connected(command.device_id):
@@ -106,7 +111,12 @@ class CommandDispatcher:
                     error=f"device '{command.device_id}' is not connected",
                 )
                 self._cache_store(command.command_id, signature, result, time.monotonic())
-                self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
+                self._audit(
+                    command,
+                    result,
+                    duration_ms=(time.monotonic() - started) * 1000,
+                    config_hash=config_hash,
+                )
                 return result
 
             # 显式 timeout 优先；否则使用本次操作固定 generation 的
@@ -156,7 +166,12 @@ class CommandDispatcher:
                 )
 
         self._cache_store(command.command_id, signature, result, time.monotonic())
-        self._audit(command, result, duration_ms=(time.monotonic() - started) * 1000, config_hash=config_hash)
+        self._audit(
+            command,
+            result,
+            duration_ms=(time.monotonic() - started) * 1000,
+            config_hash=config_hash,
+        )
         return result
 
     @staticmethod
