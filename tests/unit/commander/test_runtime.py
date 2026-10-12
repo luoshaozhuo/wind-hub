@@ -97,7 +97,7 @@ async def test_prepare_rejects_ads_identity_change():
     runtime, _ = _runtime()
     candidate = make_commander_config(
         ads_local=ADSLocalConfig(
-            local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1", username="test", password="test"
+            local_ams_net_id="1.2.3.4.1.1", local_ip="127.0.0.1"
         )
     )
     with pytest.raises(ValueError, match="ADS local identity"):
