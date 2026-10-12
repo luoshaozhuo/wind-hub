@@ -4,12 +4,10 @@ import pytest
 
 from core.application import ConfigError
 from core.domain import (
-    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
-    UnitCode,
 )
 from core.domain import (
     Protocol as DeviceProtocol,
@@ -21,6 +19,7 @@ from core.infrastructure.protocol.iec104 import (
     parse_iec104_config,
     parse_iec104_point,
 )
+from tests.support.units import NONE_UNIT
 
 
 def _endpoint() -> ConnectionEndpoint:
@@ -36,7 +35,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=access,
         ext={} if ext is None else ext,
     )
