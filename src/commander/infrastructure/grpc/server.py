@@ -7,6 +7,7 @@ Wire contract 全部为强类型 Protobuf；业务行为仍委托 CommanderApp �
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import replace
 from uuid import uuid4
 
@@ -43,7 +44,7 @@ def _required(value: str, field: str) -> str:
     return value
 
 
-def _address_fields(data: dict[str, object] | None) -> list[pb.AddressField]:
+def _address_fields(data: Mapping[str, object] | None) -> list[pb.AddressField]:
     """把协议地址字典转换为稳定有序的 AddressField 列表。"""
     if not data:
         return []
