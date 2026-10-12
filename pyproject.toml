@@ -17,7 +17,7 @@ packages = [
 python = "^3.11"
 pydantic = "^2.0"
 pyyaml = "^6.0"
-fastapi = "^0.115"
+fastapi = ">=0.115,<1.0"
 uvicorn = { version = "^0.32", extras = ["standard"] }
 prometheus-client = "^0.21"
 grpcio = "^1.75"
@@ -45,8 +45,8 @@ grpcio-tools = "^1.75"
 mypy-protobuf = "^5.0"
 # REST 系统/契约测试的真实 HTTP 客户端（Server 为 FastAPI 服务）。
 httpx = "^0.28"
-pytest = "^8.0"
-pytest-asyncio = "^0.24"
+pytest = ">=8,<10"
+pytest-asyncio = ">=0.24"
 mypy = "^1.0"
 # mypy strict 所需的第三方类型 stub（grpcio 无可用 stub 包，由 pyproject
 # overrides 显式按动态类型处理）。

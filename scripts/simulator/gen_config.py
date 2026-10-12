@@ -317,7 +317,9 @@ def _sinks(
                 "type": "modbus",
                 "enabled": modbus_sink_port is not None,
                 "connection": {
-                    "host": "0.0.0.0",
+                    # 验收环境只在本机回环暴露 SCADA 上行口；生产部署按
+                    # 现场网络显式配置（schema 默认 0.0.0.0，见 README 安全提示）。
+                    "host": "127.0.0.1",
                     "port": modbus_sink_port if modbus_sink_port is not None else 1502,
                 },
                 "points": _modbus_points() if modbus_sink_port is not None else [],

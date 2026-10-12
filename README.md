@@ -349,9 +349,19 @@ sudo "$PYTHON_BIN" scripts/run_benchmark.py
 
 ## 安全提示
 
-> **本模块当前未实现认证**，Web API 默认监听 `127.0.0.1`（仅本机可访问）。
-> 请勿将 API 端口直接暴露到公网；如需远程访问，应在反向代理/TLS 层
-> 增加认证与加密后方可暴露。
+> **本模块控制面未实现认证**，Web API 与 gRPC 控制面默认监听 `127.0.0.1`
+> （仅本机可访问）。请勿将端口直接暴露到公网；如需远程访问，应在反向
+> 代理/TLS 层增加认证与加密后方可暴露。
+>
+> 补充说明：
+>
+> - Web Server 的写操作接口由 `WIND_HUB_WEB_WRITE_TOKEN` 保护；未配置时
+>   写接口整体禁用（503），配置后客户端须携带 `X-API-Key`。
+> - Modbus SCADA 上行 sink 是 TCP server，schema 默认绑定 `0.0.0.0`——
+>   部署时请按现场网络显式设置 `connection.host` 收敛暴露面（验收/模拟
+>   环境配置固定 `127.0.0.1`）。
+> - 依赖漏洞基线：`pip-audit` 零已知漏洞（starlette / FastAPI / pytest
+>   已升级至修复版本）。
 
 ## 许可证
 
