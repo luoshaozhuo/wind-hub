@@ -255,3 +255,40 @@ async def test_not_connected_returns_confirmed_failure():
     assert result.outcome is WriteOutcome.CONFIRMED_FAILURE
     assert "not connected" in (result.error or "")
     assert len(registry.instances[0].writes) == 0
+
+
+async def test_unknown_timeout_is_cached_without_second_physical_write() -> None:
+    """超时后的相同 command_id 不能重新调用设备写入。"""
+    registry = FakeRegistry()
+    runtime = _runtime(registry)
+    entered = 0
+    never_complete = asyncio.Event()
+
+    async def suspended_write(write):
+        nonlocal entered
+        entered += 1
+        await never_complete.wait()
+        return ProtocolWriteResult(point_id=write.point_id, outcome=WriteOutcome.CONFIRMED_SUCCESS)
+
+    runtime.device("dev1").protocol.write_one = suspended_write  # type: ignore[method-assign]
+    dispatcher = CommandDispatcher(runtime)
+    command = Command(command_id="no-retry", device_id="dev1", point_id="p1", value=1.0, timeout=0.02)
+    first = await dispatcher.send(command)
+    replay = await dispatcher.send(command)
+    assert first.outcome is WriteOutcome.UNKNOWN
+    assert replay.outcome is WriteOutcome.UNKNOWN
+    assert entered == 1
+    await runtime.stop()
+
+
+async def test_idempotency_cache_is_not_shared_by_new_dispatcher() -> None:
+    """重启语义：不同 Dispatcher 实例不共享进程内去重缓存。"""
+    registry = FakeRegistry()
+    runtime = _runtime(registry)
+    command = Command(command_id="restart", device_id="dev1", point_id="p1", value=1.0)
+    first = await CommandDispatcher(runtime).send(command)
+    second = await CommandDispatcher(runtime).send(command)
+    assert first.outcome is WriteOutcome.CONFIRMED_SUCCESS
+    assert second.outcome is WriteOutcome.CONFIRMED_SUCCESS
+    assert len(registry.instances[0].writes) == 2
+    await runtime.stop()
