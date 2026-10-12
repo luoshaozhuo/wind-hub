@@ -23,6 +23,7 @@ from .application.diagnostic import (
     SymbolProbe,
 )
 from .application.dispatcher import CommandDispatcher
+from .application.metadata import CommanderMetadataService
 from .application.runtime import CommanderRuntime
 from .application.services import (
     CommanderConfigService,
@@ -54,6 +55,7 @@ class CommanderApp:
     dispatcher: CommandDispatcher
     read: CommanderReadService
     diagnostic: CommanderDiagnosticService
+    metadata: CommanderMetadataService
     config: CommanderConfigService
     config_dir: Path
     config_hash: str
@@ -129,6 +131,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         runtime=runtime,
         dispatcher=dispatcher,
         read=CommanderReadService(runtime),
+        metadata=CommanderMetadataService(runtime),
         diagnostic=CommanderDiagnosticService(
             runtime,
             ping=lambda host, timeout: ping_host(host, timeout=timeout),
