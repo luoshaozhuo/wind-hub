@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from commander.application.errors import CommandError
-from commander.application.metadata import CommanderMetadataService
+from commander.application.metadata import CommanderMetadataService, _point_metadata
 from commander.application.runtime import CommanderRuntime
 from core.domain import PointAccess
 from tests.support.new_commander import FakeRegistry, make_commander_config
@@ -71,7 +71,5 @@ async def test_metadata_reports_configured_access_not_live_capability() -> None:
     point = runtime.devices["dev1"].point_table.points["p1"]
     for access in PointAccess:
         changed_point = replace(point, access=access)
-        from commander.application.metadata import _point_metadata
-
         assert _point_metadata(changed_point, data_type="float32").access == access.value
     assert registry.instances[0].connect_calls == 0
