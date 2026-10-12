@@ -55,9 +55,9 @@ sinks:
       max_size_mb: 100
       max_files: 30
     points:
-      - source: {device_id: wtg-001, point_id: active_power}
-        ref: wtg_001_active_power
-        address: {field: wtg_001_active_power}
+      - source: {device_id: modbus-001, point_id: active_power}
+        ref: modbus_001_active_power
+        address: {field: modbus_001_active_power}
 
   # Redis 最新值输出
   redis_latest:
@@ -69,9 +69,9 @@ sinks:
       database: 0
       key_prefix: "wind-hub"
     points:
-      - source: {device_id: wtg-003, point_id: active_power}
-        ref: wtg_003_active_power
-        address: {field: wtg_003_active_power}
+      - source: {device_id: iec104-001, point_id: active_power}
+        ref: iec104_001_active_power
+        address: {field: iec104_001_active_power}
 
   # Modbus TCP Server（对 SCADA 暴露寄存器；默认关闭）
   modbus_scada:
@@ -81,8 +81,8 @@ sinks:
       host: "0.0.0.0"
       port: 1502
     points:
-      - source: {device_id: wtg-001, point_id: active_power}
-        ref: wtg_001_active_power
+      - source: {device_id: modbus-001, point_id: active_power}
+        ref: modbus_001_active_power
         datatype: float32
         address:
           unit_id: 1

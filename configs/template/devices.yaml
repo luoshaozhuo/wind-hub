@@ -20,8 +20,9 @@
 #             再缺省用协议代码默认（Modbus 502、IEC104 2404、
 #             ADS TwinCAT 2/3 第一 PLC Runtime 801/851）。
 #   protocol_options: Mapping，可选 —— 设备级协议参数，覆盖型号
-#                     protocol_options 同名键；只允许当前设备协议的合法
-#                     参数，未知参数是配置错误。
+#                     protocol_options 同名键（浅层同名 Key 覆盖，不用
+#                     null 隐式删除）；只允许当前设备协议的合法参数，
+#                     未知参数是配置错误。
 #
 # 参数优先级：设备显式 > 型号默认 > 协议代码默认。
 #
@@ -42,6 +43,7 @@
 #
 # ADS（protocol_options）：
 #   target_net_id:   目标 AMS Net ID（6 段点分），通常为 PLC IP + ".1.1"。
+#                    属于设备实例差异，不在型号中固定。
 #   twincat_version: "2" / "3"，默认 "2" —— 决定 AMS Runtime Port 默认值：
 #                    TwinCAT 2 第一 PLC Runtime 801，TwinCAT 3 第一 PLC
 #                    Runtime 851；endpoint.port 显式配置时覆盖。
@@ -52,6 +54,11 @@
 #                                    最大延迟。
 #   max_notifications_per_connection: int > 0，默认 550 —— 单连接最大通知数。
 #   route_auto_add:                  bool，默认 false —— 自动添加 AMS 路由。
+#   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名
+#                    （wind-hub 应用层默认值，非 pyads 默认值）。
+#   password:        str，默认 "" —— 远程 PLC 路由注册密码；空密码表示
+#                    未提供有效密码，不保证远程 PLC 接受；route_auto_add
+#                    为 false 时不使用凭据。不要在模板中填写真实生产密码。
 #   subscribe_enabled:               bool，默认 false —— Collector 进程级
 #                    采集策略：true 使用 ADS 订阅推送（notification），
 #                    false 使用周期 Sum Read。仅 ADS 设备允许；不进 Driver
@@ -66,6 +73,24 @@
 #   t2:          float > 0 且 <= t1（秒），默认 10 —— 无数据时确认等待。
 #   t3:          float > 0（秒），默认 20 —— 空闲时测试帧周期。
 #   IEC104 持续采集恒为主动上报（订阅）模式，无 subscribe_enabled。
+#
+# --------------------------- 本机模拟拓扑说明 ---------------------------
+#
+# 本模板中的 30 台设备全部是【本机模拟设备】，不是真实 PLC：
+#
+#   Modbus:  modbus-001..010 → 127.0.0.11..20，TCP 1502（型号默认）
+#   ADS:     ads-001..010    → 127.0.0.21..30，AMS Runtime Port 851（型号默认）
+#   IEC104:  iec104-001..010 → 127.0.0.31..40，TCP 12404（型号默认）
+#
+# - 每台设备使用独立的 127.0.0.0/8 回环 IP，使设备身份与真实部署一致；
+#   同型号设备共享型号默认端口。
+# - ADS 的 endpoint.port 是 AMS Runtime Port，不是 ADS 模拟服务器的 TCP
+#   监听端口；ADS 通信还要求正确的 AMS 路由与可用的 ADS 模拟服务器
+#   （见 system.yaml 的 ads 段）。Linux 下多回环 IP 通常无需额外配置，
+#   WSL/容器网络或模拟服务器绑定方式不同时，应单独调整模拟部署，
+#   不改变正式 Schema。
+# - 配置加载成功不代表模拟设备正在运行；模拟设备启动后才能完成真实
+#   协议通信。模拟服务未启动导致的连接失败不是配置错误。
 
 device_groups:
 
@@ -81,28 +106,213 @@ device_groups:
 
 devices:
 
-  # Modbus 风机控制器（端口/unit_id/word_order 来自型号默认值）
-  wtg-001:
+  # ---- Modbus 本机模拟设备 ×10（端口/unit_id 等来自型号默认值） ----
+  modbus-001:
     model_id: modbus_wtg
     device_group_ids: [turbine_modbus]
-    enabled: true
     endpoint:
-      host: "192.168.1.101"
+      host: "127.0.0.11"
 
-  # ADS 风机控制器（TwinCAT 2；端口/twincat_version 来自型号默认值）
-  wtg-002:
+  modbus-002:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.12"
+
+  modbus-003:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.13"
+
+  modbus-004:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.14"
+
+  modbus-005:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.15"
+
+  modbus-006:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.16"
+
+  modbus-007:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.17"
+
+  modbus-008:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.18"
+
+  modbus-009:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.19"
+
+  # 覆盖示例：仅覆盖 unit_id，其余参数继续继承型号默认值
+  modbus-010:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
+    endpoint:
+      host: "127.0.0.20"
+    protocol_options:
+      unit_id: 10
+
+  # ---- ADS 本机模拟设备 ×10（TwinCAT 3；端口/twincat_version 来自型号默认值） ----
+  # 每台设备必须有不同的目标 AMS Net ID（通常为设备 IP + ".1.1"），
+  # 不允许所有设备共用同一个 target_net_id。
+  ads-001:
     model_id: beckhoff_wtg
     device_group_ids: [turbine_ads]
-    enabled: true
     endpoint:
-      host: "192.168.1.102"
+      host: "127.0.0.21"
     protocol_options:
-      target_net_id: "192.168.1.102.1.1"   # AMS Net ID = PLC IP + ".1.1"
+      target_net_id: "127.0.0.21.1.1"
 
-  # IEC104 风机控制器（端口/common_addr 来自型号默认值）
-  wtg-003:
+  ads-002:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.22"
+    protocol_options:
+      target_net_id: "127.0.0.22.1.1"
+
+  ads-003:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.23"
+    protocol_options:
+      target_net_id: "127.0.0.23.1.1"
+
+  ads-004:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.24"
+    protocol_options:
+      target_net_id: "127.0.0.24.1.1"
+
+  ads-005:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.25"
+    protocol_options:
+      target_net_id: "127.0.0.25.1.1"
+
+  ads-006:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.26"
+    protocol_options:
+      target_net_id: "127.0.0.26.1.1"
+
+  ads-007:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.27"
+    protocol_options:
+      target_net_id: "127.0.0.27.1.1"
+
+  ads-008:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.28"
+    protocol_options:
+      target_net_id: "127.0.0.28.1.1"
+
+  ads-009:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.29"
+    protocol_options:
+      target_net_id: "127.0.0.29.1.1"
+
+  # 覆盖示例：覆盖远程路由注册用户名（不要在模板中填写真实生产密码），
+  # 其余参数继续继承型号默认值
+  ads-010:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
+    endpoint:
+      host: "127.0.0.30"
+    protocol_options:
+      target_net_id: "127.0.0.30.1.1"
+      username: RouteAdmin
+
+  # ---- IEC104 本机模拟设备 ×10（端口/common_addr 等来自型号默认值） ----
+  iec104-001:
     model_id: iec104_wtg
     device_group_ids: [turbine_iec104]
-    enabled: true
     endpoint:
-      host: "192.168.1.103"
+      host: "127.0.0.31"
+
+  iec104-002:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.32"
+
+  iec104-003:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.33"
+
+  iec104-004:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.34"
+
+  iec104-005:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.35"
+
+  iec104-006:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.36"
+
+  iec104-007:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.37"
+
+  iec104-008:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.38"
+
+  iec104-009:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.39"
+
+  iec104-010:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    endpoint:
+      host: "127.0.0.40"

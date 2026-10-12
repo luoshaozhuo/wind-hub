@@ -30,7 +30,53 @@
 #                     协议参数清单），设备 protocol_options 同名键优先，
 #                     均未配置时由协议代码默认值补全。
 #
-# 不允许在 endpoint_defaults / protocol_options 中隐式覆盖设备 host。
+# 覆盖规则（Endpoint 与 ProtocolOptions 分别按同名 Key 浅层覆盖）：
+#
+#   Device 显式值 > DeviceModel 默认值 > 协议代码默认值。
+#
+# 不允许在 endpoint_defaults / protocol_options 中隐式覆盖设备 host；
+# 不支持用 null 隐式删除型号默认配置。
+#
+# 本模板中的三个机型与 devices.yaml 的 30 台本机模拟设备配套，端口均为
+# 本机模拟的非特权端口（Modbus 1502、ADS 851、IEC104 12404）；真实部署
+# 时按现场调整。
+#
+# --------------------------- 各机型公共参数说明 ---------------------------
+#
+# Modbus（modbus_wtg.protocol_options）：
+#   mode:            仅支持 tcp（默认）。
+#   unit_id:         int 0..255，默认 1 —— 从站地址。
+#   timeout:         float > 0（秒），默认 5.0 —— 协议栈单次请求超时。
+#   word_order:      big_endian / little_endian，默认 little_endian。
+#   health_point_id: str，可选 —— 健康检查读取的 Point ID，必须存在于
+#                    该机型 PointTable 中；未配置时 Driver 用点表第一个点。
+#
+# ADS（beckhoff_wtg.protocol_options，TwinCAT 3 示例）：
+#   twincat_version: "2" / "3"，默认 "2" —— 决定 AMS Runtime Port 默认值
+#                    （TC2 801 / TC3 851）；endpoint_defaults.port 显式配置
+#                    时优先。
+#   timeout:         float > 0（秒），默认 5.0。
+#   max_subs_per_sum:                int > 0，默认 500。
+#   max_delay:                       float >= 0（秒），默认 0.06。
+#   max_notifications_per_connection: int > 0，默认 550。
+#   route_auto_add:  bool，默认 false —— 首次连接失败时是否尝试向远程
+#                    PLC 注册 AMS 反向路由。
+#   username:        str，默认 Administrator —— 远程 PLC 路由注册用户名。
+#   password:        str，默认 "" —— 远程 PLC 路由注册密码。
+#                    username/password 是 wind-hub 的应用层默认值（不是
+#                    pyads 的函数默认值）；空密码只表示未提供有效密码，
+#                    不保证远程 PLC 接受；route_auto_add=false 时不使用
+#                    凭据。target_net_id 通常是设备实例差异，不在型号中
+#                    固定（见 devices.yaml）。
+#
+# IEC104（iec104_wtg.protocol_options）：
+#   common_addr: int 0..65535，默认 1 —— ASDU 公共地址。
+#   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
+#   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
+#   t0:          float > 0（秒），默认 30 —— 连接建立超时。
+#   t1:          float > 0（秒），默认 15 —— 发送/测试帧确认超时。
+#   t2:          float > 0 且 <= t1（秒），默认 10 —— 无数据时确认等待。
+#   t3:          float > 0（秒），默认 20 —— 空闲时测试帧周期。
 
 device_types:
 
@@ -40,34 +86,50 @@ device_types:
 
 device_models:
 
-  # Modbus 风机控制器
+  # Modbus 风机控制器（公共参数：mode/unit_id/timeout/word_order/health_point_id）
   modbus_wtg:
     device_type_id: turbine
     protocol: modbus
     point_table_id: modbus_wtg_v1
     endpoint_defaults:
-      port: 502
+      port: 1502               # 本机模拟非特权 TCP 端口
     protocol_options:
+      mode: tcp
       unit_id: 1
+      timeout: 5.0
       word_order: little_endian
+      health_point_id: active_power   # 必须存在于 modbus_wtg_v1 点表
 
-  # Beckhoff 风机控制器（TwinCAT 2 / ADS）
+  # Beckhoff 风机控制器（TwinCAT 3 / ADS）
   beckhoff_wtg:
     device_type_id: turbine
     manufacturer: Beckhoff
     protocol: ads
     point_table_id: beckhoff_wtg_v1
     endpoint_defaults:
-      port: 801                # AMS Runtime Port；TwinCAT 2 第一 PLC 默认 801
+      port: 851                # AMS Runtime Port；TwinCAT 3 第一 PLC 默认 851
     protocol_options:
-      twincat_version: "2"
+      twincat_version: "3"
+      timeout: 5.0
+      max_subs_per_sum: 500
+      max_delay: 0.06
+      max_notifications_per_connection: 550
+      route_auto_add: false
+      username: Administrator  # 远程 PLC 路由注册凭据（wind-hub 应用层默认值）
+      password: ""             # 空密码表示未提供有效密码，不保证 PLC 接受
 
-  # IEC104 风机控制器
+  # IEC104 风机控制器（公共参数：common_addr/k/w/t0/t1/t2/t3）
   iec104_wtg:
     device_type_id: turbine
     protocol: iec104
     point_table_id: iec104_wtg_v1
     endpoint_defaults:
-      port: 2404
+      port: 12404              # 本机模拟非特权 TCP 端口
     protocol_options:
       common_addr: 1
+      k: 12
+      w: 8
+      t0: 30.0
+      t1: 15.0
+      t2: 10.0
+      t3: 20.0
