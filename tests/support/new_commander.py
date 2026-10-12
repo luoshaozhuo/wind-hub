@@ -45,7 +45,7 @@ from core.domain import (
     Protocol,
     ProtocolOptions,
 )
-from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT
+from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT, minimal_unit_catalog
 
 # ---------------------------------------------------------------------------
 # YAML 配置树
@@ -316,6 +316,7 @@ def make_commander_config(
         points={"p1": point},
     )
     return CommanderConfig(
+        units=minimal_unit_catalog(),
         device_models={
             DeviceModelId("mod"): DeviceModel(
                 device_model_id=DeviceModelId("mod"),

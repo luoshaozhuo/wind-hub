@@ -51,7 +51,7 @@ class CommanderConfig:
         units: 工程单位目录；restart-required——热重载拒绝其任何变化。
     """
 
-    units: UnitCatalog = field(default_factory=lambda: UnitCatalog(units={}, base_units={}))
+    units: UnitCatalog
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     device_groups: Mapping[DeviceGroupId, DeviceGroup] = field(default_factory=dict)

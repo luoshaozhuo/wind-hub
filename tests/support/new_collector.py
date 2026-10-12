@@ -42,7 +42,7 @@ from core.domain import (
     Protocol,
 )
 from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
-from tests.support.units import NONE_UNIT
+from tests.support.units import NONE_UNIT, minimal_unit_catalog
 
 # ---------------------------------------------------------------------------
 # Fake Protocol（采集增强版）
@@ -206,6 +206,7 @@ def make_collector_config(
             )
         }
     return CollectorConfig(
+        units=minimal_unit_catalog(),
         device_models=device_models,
         devices=devices,
         point_tables=point_tables,

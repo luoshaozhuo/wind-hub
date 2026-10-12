@@ -122,7 +122,7 @@ class CollectorConfig:
             数据的语义，热重载 prepare 阶段拒绝其任何变化。
     """
 
-    units: UnitCatalog = field(default_factory=lambda: UnitCatalog(units={}, base_units={}))
+    units: UnitCatalog
     devices: Mapping[DeviceId, Device] = field(default_factory=dict)
     device_models: Mapping[DeviceModelId, DeviceModel] = field(default_factory=dict)
     point_tables: Mapping[PointTableId, PointTable] = field(default_factory=dict)
