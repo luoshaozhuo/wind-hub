@@ -202,6 +202,32 @@ wind-hub commander verify-device dev1
 
 更多参数见各入口 `--help`。
 
+## 模拟器与一键验收环境
+
+`scripts/simulator/` 提供 40 台真实协议栈模拟 PLC（20 Modbus + 10 ADS +
+10 IEC104，seeded 数据生成、fault/recover 故障注入），配套真实 Core 配置
+树 `configs/simulation/`（由 `scripts/simulator/gen_config.py` 生成）：
+
+```bash
+python3 scripts/simulator/main.py start        # 前台启动 40 台设备
+python3 scripts/simulator/main.py devices      # 设备清单
+python3 scripts/simulator/main.py fault sim-mb-03 down    # 注入故障
+python3 scripts/simulator/main.py recover sim-mb-03
+```
+
+`scripts/acceptance.py` 一条命令拉起完整验收链路（模拟器 → Collector →
+Commander → Web Server，真实 CSV / Redis / Modbus SCADA sink）：
+
+```bash
+python3 scripts/acceptance.py start --with-redis --with-frontend
+python3 scripts/acceptance.py status
+python3 scripts/acceptance.py stop
+```
+
+采集任务默认 STOPPED，按启动时打印的命令经 Web Admin 或 API（X-API-Key）
+启动。`--with-redis` 经 docker 起临时 Redis；`--with-frontend` 起 Vite
+dev server（http://127.0.0.1:5173）。
+
 ## 测试
 
 测试按层级组织在 `tests/` 下，pytest marker 由 `tests/conftest.py` 按第一层

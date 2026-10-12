@@ -7,11 +7,12 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "NODE_PATH=node_modules playwright test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:api": "python3 ../../scripts/generate_api_contract.py --check"
+    "check:api": "python3 ../../scripts/generate_api_contract.py --check",
+    "test:e2e:real": "NODE_PATH=node_modules playwright test --config playwright.real.config.ts"
   },
   "dependencies": {
     "element-plus": "^2.10.7",

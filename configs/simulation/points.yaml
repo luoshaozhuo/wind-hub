@@ -1,4 +1,4 @@
-# configs/simulation/points.yaml — 由 scripts/simulator/gen_config.py 生成
+# points.yaml — 由 scripts/simulator/gen_config.py 生成
 # 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
 # 不要手工偏离模拟器布局。
 point_tables:
@@ -289,7 +289,7 @@ point_tables:
       - all
       - control
       address:
-        type: setpoint_command
+        type: C_SE_NC_1
         ioa: 2001
       data_type: float32
       scale: 1.0
@@ -302,7 +302,7 @@ point_tables:
       - all
       - control
       address:
-        type: single_command
+        type: C_SC_NA_1
         ioa: 2002
       data_type: int16
       scale: 1.0

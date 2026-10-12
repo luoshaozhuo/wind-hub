@@ -28,7 +28,8 @@ npm run dev        # 经 Vite proxy 把 /api 转发到 127.0.0.1:8080（Web Serv
 
 ```bash
 npm test             # Vitest 单元测试（REST 契约、错误透传）
-npm run test:e2e     # Playwright E2E
+npm run test:e2e     # Playwright 冒烟（无后端，shell 渲染）
+npm run test:e2e:real # Playwright 真实后端全链路（自动拉起验收环境）
 npm run build        # vue-tsc 类型检查 + 产物构建
 npm run lint
 npm run format:check

@@ -17,11 +17,13 @@ import contextlib
 import logging
 import struct
 from dataclasses import dataclass, field
+from typing import Any
 
 import c104
 from pymodbus.datastore.context import DataType
 from pymodbus.datastore.context import SimDevice as PymodbusSimDevice
 from pymodbus.server import ModbusTcpServer
+from pymodbus.server.requesthandler import ServerRequestHandler
 from pymodbus.simulator.simdata import SimData
 
 from .generators import (
@@ -95,6 +97,32 @@ class SimDevice:
         self.apply_snapshot(self.generator.next(dt_s))
 
 
+class _TrackedModbusTcpServer(ModbusTcpServer):
+    """跟踪活动连接 handler 的 ModbusTcpServer。
+
+    pymodbus ``shutdown()`` 只关监听 socket，不触碰活动连接的 handler
+    task——不主动断开会让客户端看到「静默半开」连接，与真实 PLC 断电
+    （TCP RST）的故障语义不符。与 tests/fixtures/servers/modbus_server.py
+    的同名实现保持一致（scripts 不依赖 tests，故自带一份）。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.active_handlers: set[ServerRequestHandler] = set()
+
+    def callback_new_connection(self) -> ServerRequestHandler:
+        handler: ServerRequestHandler = super().callback_new_connection()
+        self.active_handlers.add(handler)
+        original = handler.callback_disconnected
+
+        def _disconnected(exc: Exception | None = None) -> None:
+            self.active_handlers.discard(handler)
+            original(exc)
+
+        handler.callback_disconnected = _disconnected  # type: ignore[method-assign]
+        return handler
+
+
 class ModbusSimDevice(SimDevice):
     """pymodbus 从站（现代 SimData/SimDevice API）。
 
@@ -117,7 +145,7 @@ class ModbusSimDevice(SimDevice):
             datatype=DataType.REGISTERS,
         )
         device = PymodbusSimDevice(id=self._unit_id, simdata=hr)
-        self._server = ModbusTcpServer(device, address=(self.host, self.port))
+        self._server = _TrackedModbusTcpServer(device, address=(self.host, self.port))
         block = self._server.context.devices[self._unit_id].block["x"]  # type: ignore[union-attr]
         self._block_start, self._regs = block[0], block[2]
         await self._server.serve_forever(background=True)
@@ -125,6 +153,11 @@ class ModbusSimDevice(SimDevice):
     async def stop_server(self) -> None:
         server, self._server, self._regs = self._server, None, None
         if server is not None:
+            # 主动断开活动连接：让故障注入对客户端呈现真实「设备断电」
+            # 语义（TCP 连接被对端关闭），而不是静默半开。
+            for handler in list(server.active_handlers):
+                with contextlib.suppress(Exception):
+                    handler.close()
             await server.shutdown()
 
     def apply_snapshot(self, snapshot: PointSnapshot) -> None:

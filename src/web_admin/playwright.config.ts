@@ -21,7 +21,8 @@ function browserEnv(): Record<string, string> {
 
 export default defineConfig({
   testDir: '../../tests/system/web_admin',
-  // mock 模式用例由 playwright.mock.config.ts（dev:mock webServer）单独运行。
+  // 真实后端用例由 playwright.real.config.ts 单独运行（需验收环境）。
+  testIgnore: 'real_*',
   timeout: 30_000,
   retries: 0,
   use: {

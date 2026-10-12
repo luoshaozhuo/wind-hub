@@ -1,4 +1,4 @@
-# configs/simulation/tasks.yaml — 由 scripts/simulator/gen_config.py 生成
+# tasks.yaml — 由 scripts/simulator/gen_config.py 生成
 # 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
 # 不要手工偏离模拟器布局。
 tasks:
@@ -6,20 +6,18 @@ tasks:
   device_group: turbine_modbus
   point_group: all
   interval: 1.0
-  targets:
+  targets: &id001
   - sink: file_archive
   enabled: true
 - task_id: sim-iec104-all
   device_group: turbine_iec104
   point_group: all
   interval: 1.0
-  targets:
-  - sink: file_archive
+  targets: *id001
   enabled: true
 - task_id: sim-ads-all
   device_group: turbine_ads
   point_group: all
   interval: 1.0
-  targets:
-  - sink: file_archive
+  targets: *id001
   enabled: true

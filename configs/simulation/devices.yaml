@@ -1,4 +1,4 @@
-# configs/simulation/devices.yaml — 由 scripts/simulator/gen_config.py 生成
+# devices.yaml — 由 scripts/simulator/gen_config.py 生成
 # 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
 # 不要手工偏离模拟器布局。
 devices:

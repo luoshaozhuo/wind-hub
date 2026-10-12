@@ -59,3 +59,6 @@ perf_latency.png
 # 前端测试输出（Playwright）
 src/web_admin/test-results/
 src/web_admin/playwright-report/
+
+# 运行时产物（模拟器/验收环境）
+run/
