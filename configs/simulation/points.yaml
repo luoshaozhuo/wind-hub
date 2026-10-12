@@ -1,0 +1,310 @@
+# configs/simulation/points.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+point_tables:
+  sim_modbus_v1:
+    protocol: modbus
+    points:
+    - point_id: active_power
+      business_point_id: active_power
+      variable_name: active_power
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 0
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: wind_speed
+      business_point_id: wind_speed
+      variable_name: wind_speed
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 2
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: meter_per_second
+    - point_id: rotor_speed
+      business_point_id: rotor_speed
+      variable_name: rotor_speed
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 4
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: rpm
+    - point_id: generator_temp
+      business_point_id: generator_temp
+      variable_name: generator_temp
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 6
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: celsius
+    - point_id: pitch_angle
+      business_point_id: pitch_angle
+      variable_name: pitch_angle
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 8
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: degree
+    - point_id: fault_code
+      business_point_id: fault_code
+      variable_name: fault_code
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 10
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+    - point_id: turbine_status
+      business_point_id: turbine_status
+      variable_name: turbine_status
+      point_groups:
+      - all
+      address:
+        type: holding
+        address: 11
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+    - point_id: power_setpoint
+      business_point_id: power_setpoint
+      variable_name: power_setpoint
+      point_groups:
+      - all
+      - control
+      address:
+        type: holding
+        address: 20
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: turbine_command
+      business_point_id: turbine_command
+      variable_name: turbine_command
+      point_groups:
+      - all
+      - control
+      address:
+        type: holding
+        address: 22
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+  sim_ads_v1:
+    protocol: ads
+    points:
+    - point_id: active_power
+      business_point_id: active_power
+      variable_name: active_power
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.active_power
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: wind_speed
+      business_point_id: wind_speed
+      variable_name: wind_speed
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.wind_speed
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: meter_per_second
+    - point_id: rotor_speed
+      business_point_id: rotor_speed
+      variable_name: rotor_speed
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.rotor_speed
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: rpm
+    - point_id: generator_temp
+      business_point_id: generator_temp
+      variable_name: generator_temp
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.generator_temp
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: celsius
+    - point_id: pitch_angle
+      business_point_id: pitch_angle
+      variable_name: pitch_angle
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.pitch_angle
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: degree
+    - point_id: fault_code
+      business_point_id: fault_code
+      variable_name: fault_code
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.fault_code
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+    - point_id: turbine_status
+      business_point_id: turbine_status
+      variable_name: turbine_status
+      point_groups:
+      - all
+      address:
+        symbol: MAIN.turbine_status
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+    - point_id: power_setpoint
+      business_point_id: power_setpoint
+      variable_name: power_setpoint
+      point_groups:
+      - all
+      - control
+      address:
+        symbol: MAIN.power_setpoint
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: turbine_command
+      business_point_id: turbine_command
+      variable_name: turbine_command
+      point_groups:
+      - all
+      - control
+      address:
+        symbol: MAIN.turbine_command
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none
+  sim_iec104_v1:
+    protocol: iec104
+    points:
+    - point_id: active_power
+      business_point_id: active_power
+      variable_name: active_power
+      point_groups:
+      - all
+      address:
+        type: measured_value
+        ioa: 1001
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: wind_speed
+      business_point_id: wind_speed
+      variable_name: wind_speed
+      point_groups:
+      - all
+      address:
+        type: measured_value
+        ioa: 1002
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: meter_per_second
+    - point_id: rotor_speed
+      business_point_id: rotor_speed
+      variable_name: rotor_speed
+      point_groups:
+      - all
+      address:
+        type: measured_value
+        ioa: 1003
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: rpm
+    - point_id: generator_temp
+      business_point_id: generator_temp
+      variable_name: generator_temp
+      point_groups:
+      - all
+      address:
+        type: measured_value
+        ioa: 1004
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: celsius
+    - point_id: pitch_angle
+      business_point_id: pitch_angle
+      variable_name: pitch_angle
+      point_groups:
+      - all
+      address:
+        type: measured_value
+        ioa: 1005
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: degree
+    - point_id: power_setpoint
+      business_point_id: power_setpoint
+      variable_name: power_setpoint
+      point_groups:
+      - all
+      - control
+      address:
+        type: setpoint_command
+        ioa: 2001
+      data_type: float32
+      scale: 1.0
+      offset: 0.0
+      unit: kilowatt
+    - point_id: turbine_command
+      business_point_id: turbine_command
+      variable_name: turbine_command
+      point_groups:
+      - all
+      - control
+      address:
+        type: single_command
+        ioa: 2002
+      data_type: int16
+      scale: 1.0
+      offset: 0.0
+      unit: none

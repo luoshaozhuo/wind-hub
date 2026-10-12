@@ -1,0 +1,304 @@
+# configs/simulation/devices.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+devices:
+- device_id: sim-mb-01
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10502
+- device_id: sim-mb-02
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10503
+- device_id: sim-mb-03
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10504
+- device_id: sim-mb-04
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10505
+- device_id: sim-mb-05
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10506
+- device_id: sim-mb-06
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10507
+- device_id: sim-mb-07
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10508
+- device_id: sim-mb-08
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10509
+- device_id: sim-mb-09
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10510
+- device_id: sim-mb-10
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10511
+- device_id: sim-mb-11
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10512
+- device_id: sim-mb-12
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10513
+- device_id: sim-mb-13
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10514
+- device_id: sim-mb-14
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10515
+- device_id: sim-mb-15
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10516
+- device_id: sim-mb-16
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10517
+- device_id: sim-mb-17
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10518
+- device_id: sim-mb-18
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10519
+- device_id: sim-mb-19
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10520
+- device_id: sim-mb-20
+  model: sim_modbus_wtg
+  device_group: turbine_modbus
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 10521
+- device_id: sim-i104-01
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12404
+- device_id: sim-i104-02
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12405
+- device_id: sim-i104-03
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12406
+- device_id: sim-i104-04
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12407
+- device_id: sim-i104-05
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12408
+- device_id: sim-i104-06
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12409
+- device_id: sim-i104-07
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12410
+- device_id: sim-i104-08
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12411
+- device_id: sim-i104-09
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12412
+- device_id: sim-i104-10
+  model: sim_iec104_wtg
+  device_group: turbine_iec104
+  enabled: true
+  endpoint:
+    host: 127.0.0.1
+    port: 12413
+- device_id: sim-ads-01
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.11
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.11.1.1
+- device_id: sim-ads-02
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.12
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.12.1.1
+- device_id: sim-ads-03
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.13
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.13.1.1
+- device_id: sim-ads-04
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.14
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.14.1.1
+- device_id: sim-ads-05
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.15
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.15.1.1
+- device_id: sim-ads-06
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.16
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.16.1.1
+- device_id: sim-ads-07
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.17
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.17.1.1
+- device_id: sim-ads-08
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.18
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.18.1.1
+- device_id: sim-ads-09
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.19
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.19.1.1
+- device_id: sim-ads-10
+  model: sim_ads_wtg
+  device_group: turbine_ads
+  enabled: true
+  endpoint:
+    host: 127.0.0.20
+    port: 48898
+    extensions:
+      target_net_id: 127.0.0.20.1.1

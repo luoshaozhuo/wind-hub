@@ -1,0 +1,31 @@
+# configs/simulation/business_points.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+business_points:
+  active_power:
+    data_type: float32
+    unit: kilowatt
+  wind_speed:
+    data_type: float32
+    unit: meter_per_second
+  rotor_speed:
+    data_type: float32
+    unit: rpm
+  generator_temp:
+    data_type: float32
+    unit: celsius
+  pitch_angle:
+    data_type: float32
+    unit: degree
+  power_setpoint:
+    data_type: float32
+    unit: kilowatt
+  fault_code:
+    data_type: int16
+    unit: none
+  turbine_status:
+    data_type: int16
+    unit: none
+  turbine_command:
+    data_type: int16
+    unit: none

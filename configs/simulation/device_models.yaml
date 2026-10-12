@@ -1,0 +1,29 @@
+# configs/simulation/device_models.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+device_types:
+  turbine:
+    name: 风力发电机组
+device_models:
+  sim_modbus_wtg:
+    device_type: turbine
+    protocol: modbus
+    point_table: sim_modbus_v1
+    connection_defaults:
+      unit_id: 1
+      timeout: 3.0
+      word_order: big_endian
+  sim_ads_wtg:
+    device_type: turbine
+    protocol: ads
+    point_table: sim_ads_v1
+    connection_defaults:
+      port: 801
+      twincat_version: '2'
+      timeout: 3.0
+  sim_iec104_wtg:
+    device_type: turbine
+    protocol: iec104
+    point_table: sim_iec104_v1
+    connection_defaults:
+      port: 2404

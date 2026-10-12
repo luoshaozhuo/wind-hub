@@ -1,0 +1,25 @@
+# configs/simulation/sinks.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+sinks:
+- name: file_archive
+  type: file
+  enabled: true
+  connection:
+    path: /var/tmp/wind-hub/simulation/archive.csv
+    max_size_mb: 100
+  points: []
+- name: redis_cache
+  type: redis
+  enabled: false
+  connection:
+    host: 127.0.0.1
+    port: 6379
+  points: []
+- name: modbus_scada
+  type: modbus
+  enabled: false
+  connection:
+    host: 0.0.0.0
+    port: 1502
+  points: []

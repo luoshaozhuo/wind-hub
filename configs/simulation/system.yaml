@@ -1,0 +1,23 @@
+# configs/simulation/system.yaml — 由 scripts/simulator/gen_config.py 生成
+# 与 scripts/simulator（40 台模拟 PLC）一一对应；拓扑变化时重跑生成脚本，
+# 不要手工偏离模拟器布局。
+site:
+  site_id: simulation
+  name: 模拟风场（40 台模拟 PLC）
+runtime:
+  queue_maxsize: 10000
+  backpressure_policy: drop_old
+  shutdown_timeout: 10.0
+  connect_timeout: 5.0
+  read_timeout: 3.0
+  watchdog_interval: 5.0
+  health_timeout: 1.0
+  write_timeout: 3.0
+ads:
+  local_ams_net_id: 127.0.0.1.1.1
+  local_ip: 127.0.0.1
+interfaces:
+  api:
+    enabled: true
+    host: 127.0.0.1
+    port: 8080
