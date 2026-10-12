@@ -4,18 +4,33 @@
 #
 # 三层抽象：
 #
-#   DeviceType  — 设备业务类型（turbine / pcs / met_mast …），仅业务分类
-#   DeviceModel — 设备型号：协议、点表绑定、读取策略、连接默认值
-#   DeviceInstance（devices.yaml）— 现场设备实例：引用型号，只写连接
-#                 差异（endpoint 覆盖 connection_defaults，实例优先）
+#   DeviceType   — 设备业务类型（turbine / pcs / met_mast …），仅业务分类。
+#   DeviceModel  — 设备型号：协议、点表绑定、Endpoint 默认值与协议参数默认值。
+#   Device       — 现场设备实例（devices.yaml）：Mapping Key 即 Device ID，
+#                  引用型号，只写连接差异。
 #
-# 点表绑定在型号层（point_table → points.yaml 的 point_tables 键），同型号
-# 全部实例共享；型号的 protocol 必须与绑定点表的 protocol 一致。
+# device_types: Mapping，Key 即 DeviceType ID。字段：
+#   name:        str，可选 —— 展示名，缺省等于 ID。
+#   description: str，可选。
 #
-# connection_defaults：
-#   - port 并入 Endpoint.port（实例 endpoint.port 优先）；
-#   - 其余键并入 Endpoint.extensions（实例 endpoint.extensions 同名键优先）。
+# device_models: Mapping，Key 即 DeviceModel ID。字段：
+#   device_type_id:   引用 device_types 的 Key，必须已定义。
+#   protocol:         modbus / ads / iec104，必须与绑定点表 protocol 一致。
+#   point_table_id:   引用 points.yaml 的 point_tables Key，必须已定义；
+#                     点表绑定在型号层，同型号全部实例共享。
+#   manufacturer:     str，可选。
+#   model:            str，可选 —— 型号展示名。
+#   properties:       Mapping，可选 —— 任意型号业务属性（不参与连接）。
+#   endpoint_defaults: Mapping，可选 —— 仅允许 port（1..65535）：
+#                     设备 endpoint 未写 port 时使用；设备显式 port 优先；
+#                     都未配置时由协议代码默认值补全（Modbus 502、
+#                     IEC104 2404、ADS 按 TwinCAT 版本 801/851）。
+#   protocol_options: Mapping，可选 —— 型号级协议参数默认值；
+#                     只允许对应协议的合法参数（见 devices.yaml 文件头的
+#                     协议参数清单），设备 protocol_options 同名键优先，
+#                     均未配置时由协议代码默认值补全。
 #
+# 不允许在 endpoint_defaults / protocol_options 中隐式覆盖设备 host。
 
 device_types:
 
@@ -27,20 +42,32 @@ device_models:
 
   # Modbus 风机控制器
   modbus_wtg:
-    device_type: turbine
+    device_type_id: turbine
     protocol: modbus
-    point_table: modbus_wtg_v1
-    connection_defaults:
+    point_table_id: modbus_wtg_v1
+    endpoint_defaults:
       port: 502
+    protocol_options:
       unit_id: 1
       word_order: little_endian
 
-  # Beckhoff 风机控制器（TwinCAT 2 / ADS）— Sum 批量周期采集
+  # Beckhoff 风机控制器（TwinCAT 2 / ADS）
   beckhoff_wtg:
-    device_type: turbine
+    device_type_id: turbine
     manufacturer: Beckhoff
     protocol: ads
-    point_table: beckhoff_wtg_v1
-    connection_defaults:
+    point_table_id: beckhoff_wtg_v1
+    endpoint_defaults:
       port: 801                # AMS Runtime Port；TwinCAT 2 第一 PLC 默认 801
+    protocol_options:
       twincat_version: "2"
+
+  # IEC104 风机控制器
+  iec104_wtg:
+    device_type_id: turbine
+    protocol: iec104
+    point_table_id: iec104_wtg_v1
+    endpoint_defaults:
+      port: 2404
+    protocol_options:
+      common_addr: 1

@@ -1,29 +1,108 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — 设备实例
+# wind-hub 配置模板 — 设备实例与设备分组
 # ---------------------------------------------------------------------------
 #
-# 实例只描述「身份、型号引用、连接差异」；协议、点表、读取策略与连接默认
-# 值全部来自 device_models.yaml 的型号定义。endpoint 覆盖型号的
-# connection_defaults（实例优先）。
+# device_groups: Mapping，Key 即 DeviceGroup ID。所有分组必须在此显式声明；
+# 设备引用未定义的分组是配置错误（不隐式创建）。字段：
+#   name:        str，可选 —— 展示名，缺省等于 ID。
+#   description: str，可选。
 #
-# `device_group` 是采集分组——Task 可按它成组下发（见 tasks.yaml）。
+# devices: Mapping，Key 即 Device ID。实例只描述「身份、型号引用、连接
+# 差异」；协议、点表与连接默认值来自 device_models.yaml 的型号定义。字段：
+#   model_id:         引用 device_models.yaml 的 device_models Key（必填）。
+#   device_group_ids: list[str]，必填且至少一个 —— 引用 device_groups 的
+#                     Key；采集分组，Task 按它成组下发（见 tasks.yaml）。
+#   enabled:          bool，默认 true；false 的设备不参与采集/命令。
+#   name:             str，可选 —— 实例展示名。
+#   endpoint:         必填 —— 只允许两个字段：
+#       host: str，必填 —— 设备 IP / 主机名。
+#       port: int 1..65535，可选 —— 缺省用型号 endpoint_defaults.port，
+#             再缺省用协议代码默认（Modbus 502、IEC104 2404、
+#             ADS TwinCAT 2/3 第一 PLC Runtime 801/851）。
+#   protocol_options: Mapping，可选 —— 设备级协议参数，覆盖型号
+#                     protocol_options 同名键；只允许当前设备协议的合法
+#                     参数，未知参数是配置错误。
+#
+# 参数优先级：设备显式 > 型号默认 > 协议代码默认。
+#
+# ----------------------------- 协议参数清单 -----------------------------
+#
+# Modbus（protocol_options）：
+#   mode:            仅支持 tcp（默认）。
+#   unit_id:         int 0..255，默认 1 —— 从站地址。
+#   timeout:         float > 0（秒），默认 5.0 —— 协议栈单次请求超时；
+#                    与 runtime.connect_timeout/read_timeout（应用层调度
+#                    超时）语义不同，各自独立生效。
+#   word_order:      big_endian / little_endian，默认 little_endian ——
+#                    多寄存器值的字序（点 address 可逐点覆盖）。
+#   health_point_id: str，可选 —— 健康检查读取的 Point ID，必须存在于该
+#                    设备绑定点表（继承展开后）；未配置时 Driver 用点表第
+#                    一个点做健康读。由 Modbus Driver 消费（health()），
+#                    Watchdog 只调用 Driver.health，不直接读该参数。
+#
+# ADS（protocol_options）：
+#   target_net_id:   目标 AMS Net ID（6 段点分），通常为 PLC IP + ".1.1"。
+#   twincat_version: "2" / "3"，默认 "2" —— 决定 AMS Runtime Port 默认值：
+#                    TwinCAT 2 第一 PLC Runtime 801，TwinCAT 3 第一 PLC
+#                    Runtime 851；endpoint.port 显式配置时覆盖。
+#   timeout:         float > 0（秒），默认 5.0 —— ADS 请求超时。
+#   max_subs_per_sum:                int > 0，默认 500 —— 单次 Sum Read
+#                                    最大订阅数。
+#   max_delay:                       float >= 0（秒），默认 0.06 —— 通知
+#                                    最大延迟。
+#   max_notifications_per_connection: int > 0，默认 550 —— 单连接最大通知数。
+#   route_auto_add:                  bool，默认 false —— 自动添加 AMS 路由。
+#   subscribe_enabled:               bool，默认 false —— Collector 进程级
+#                    采集策略：true 使用 ADS 订阅推送（notification），
+#                    false 使用周期 Sum Read。仅 ADS 设备允许；不进 Driver
+#                    协议参数。
+#
+# IEC104（protocol_options）：
+#   common_addr: int 0..65535，默认 1 —— ASDU 公共地址。
+#   k:           int >= 1，默认 12 —— 发送窗口（未确认 I 帧上限）。
+#   w:           int >= 1 且 <= k，默认 8 —— 接收确认窗口。
+#   t0:          float > 0（秒），默认 30 —— 连接建立超时。
+#   t1:          float > 0（秒），默认 15 —— 发送/测试帧确认超时。
+#   t2:          float > 0 且 <= t1（秒），默认 10 —— 无数据时确认等待。
+#   t3:          float > 0（秒），默认 20 —— 空闲时测试帧周期。
+#   IEC104 持续采集恒为主动上报（订阅）模式，无 subscribe_enabled。
+
+device_groups:
+
+  turbine_modbus:
+    name: Modbus 机组
+
+  turbine_ads:
+    name: ADS 机组
+
+  turbine_iec104:
+    name: IEC104 机组
+
 
 devices:
 
-  # Modbus 风机控制器
-  - device_id: wtg-001
-    model: modbus_wtg
-    device_group: turbine_modbus
+  # Modbus 风机控制器（端口/unit_id/word_order 来自型号默认值）
+  wtg-001:
+    model_id: modbus_wtg
+    device_group_ids: [turbine_modbus]
     enabled: true
     endpoint:
       host: "192.168.1.101"
 
-  # ADS 风机控制器（TwinCAT 2）
-  - device_id: wtg-002
-    model: beckhoff_wtg
-    device_group: turbine_ads
+  # ADS 风机控制器（TwinCAT 2；端口/twincat_version 来自型号默认值）
+  wtg-002:
+    model_id: beckhoff_wtg
+    device_group_ids: [turbine_ads]
     enabled: true
     endpoint:
       host: "192.168.1.102"
-      extensions:
-        target_net_id: "192.168.1.102.1.1"   # AMS Net ID = PLC IP + ".1.1"
+    protocol_options:
+      target_net_id: "192.168.1.102.1.1"   # AMS Net ID = PLC IP + ".1.1"
+
+  # IEC104 风机控制器（端口/common_addr 来自型号默认值）
+  wtg-003:
+    model_id: iec104_wtg
+    device_group_ids: [turbine_iec104]
+    enabled: true
+    endpoint:
+      host: "192.168.1.103"

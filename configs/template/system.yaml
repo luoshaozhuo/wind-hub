@@ -1,46 +1,54 @@
 # ---------------------------------------------------------------------------
-# wind-hub 配置模板 — 系统（引擎、ADS 本机、接口）
+# wind-hub 配置模板 — 系统（现场身份、运行时参数、ADS 本机身份）
 # ---------------------------------------------------------------------------
 #
 # 本目录是完整、自包含的配置模板：复制整个目录后按现场修改即可作为
 # `wind-hub run --config <dir>` 的输入。所有文件都会被加载校验。
+#
+# 本文件字段：
+#
+# site（必填，单例）
+#   site_id: str，必填 —— 现场唯一标识；一个 wind-hub 运行实例只对应一个现场。
+#   name:    str，可选 —— 展示名，缺省等于 site_id。
+#
+# runtime（可选；None 表示未配置，默认值由各进程补全，见每项注释）
+#   queue_maxsize:       int > 0，每个 Sink 的有界队列容量（按批次计），默认 1000。
+#   backpressure_policy: drop_old / drop_new / block，队列满时的背压策略，
+#                        默认 drop_old。
+#   shutdown_timeout:    float > 0（秒），优雅停机等待消费者/资源释放，默认 10。
+#   connect_timeout:     float > 0（秒），单设备连接（含重连）超时，默认 1。
+#                        作用于应用层连接调度，与协议 protocol_options.timeout
+#                        （协议栈单次请求超时）语义不同，两者独立生效。
+#   read_timeout:        float > 0（秒），应用层单次批量读外层兜底，默认 1。
+#   write_timeout:       float > 0（秒），单次写入默认超时
+#                        （Command.timeout <= 0 时生效），默认 1。
+#   watchdog_interval:   float > 0（秒），Watchdog 健康检查周期，默认 5。
+#   health_timeout:      float > 0（秒），单次健康检查超时，默认 1。
+#
+# ads（可选；仅当配置中含 ADS 设备时需要，restart-required，热重载拒绝变更）
+#   local_ams_net_id: 本机 AMS Net ID（6 段点分，如 192.168.1.10.1.2）。
+#   local_ip:         本机 IP。
+#   username:         ADS 路由用户名，默认 Administrator。
+#   password:         ADS 路由密码，默认空。
+#   Linux / WSL mirrored / 容器下本机作为 AMS 路由器，进程启动时
+#   open_port + set_local_address 一次；不使用 ADS 设备时整段删除。
 
-# 当前现场身份 —— 一个 wind-hub 运行实例只对应一个现场
 site:
   site_id: my_site
   name: 我的风场
 
 runtime:
-  # 每个 Sink 的内部队列容量（背压阈值）
   queue_maxsize: 1000
-  # 背压策略：drop_old（丢最旧）/ drop_new（丢最新）/ block（阻塞）
   backpressure_policy: drop_old
-  # 优雅停机超时（秒）
   shutdown_timeout: 30.0
-  # 设备连接超时（秒），未配置时默认 1
   connect_timeout: 10.0
-  # 单次读取超时（秒）——一次批量读的应用层外层兜底，未配置时默认 1
   read_timeout: 5.0
-  # Watchdog 健康检查周期（秒）
-  watchdog_interval: 5.0
-  # 单次健康检查超时（秒）
-  health_timeout: 1.0
-  # 单次写入默认超时（秒）——Command.timeout <= 0 时生效，未配置时默认 1
   write_timeout: 5.0
+  watchdog_interval: 5.0
+  health_timeout: 1.0
 
-# 进程级 ADS 本机配置（Linux / WSL mirrored / 容器下本机作为 AMS 路由器）
-# —— 不属于任何单台 Device；进程启动时 open_port + set_local_address 一次。
-# 不使用 ADS 设备时整段删除即可。
 ads:
-  # 本机（wind-hub 所在主机/容器）AMS Net ID 与 IP
   local_ams_net_id: "192.168.1.10.1.2"
   local_ip: "192.168.1.10"
   username: "Administrator"
   password: ""
-
-
-interfaces:
-  api:
-    enabled: true
-    host: "127.0.0.1"
-    port: 8080

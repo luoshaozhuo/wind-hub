@@ -2,28 +2,53 @@
 # wind-hub 配置模板 — 命名点表集合（设备无关、可单继承）
 # ---------------------------------------------------------------------------
 #
-# - 点表是【设备无关】的完整点集定义；设备型号经 `point_table: <表名>`
-#   绑定获得点集，多台同型号设备共享同一份定义。
-# - `protocol` 是点表协议（基础表必填，ads / modbus / iec104），决定点
-#   address 的形式与校验；设备型号的 protocol 必须与绑定点表一致。
-# - `unit` 使用代码内置单位标识（如 kilowatt），缺省为 none。
-# - 点表继承（extends）：
-#     * 单继承，允许多级链；子表缺省继承父表 protocol，显式配置必须与
-#       父表一致（禁止跨协议继承）；
-#     * 子表写了父表已有的 point_id → override；没有的 → 新增；
-#     * remove_points 按 point_id 从父表结果中删除；
-#     * address 显式配置即整体替换，不残留父表字段。
+# point_tables: Mapping，Key 即 PointTable ID。点表是【设备无关】的完整
+# 点集定义；设备型号经 `point_table_id` 绑定获得点集，多台同型号设备
+# 共享同一份定义。
+#
+# 点表字段：
+#   protocol:      modbus / ads / iec104 —— 基础表必填；子表缺省继承父表，
+#                  显式写必须与父表一致（禁止跨协议继承）。
+#   parent_id:     str，可选 —— 单继承父表 ID，允许多级链，禁止成环。
+#   remove_points: list[str]，可选 —— 按 Point ID 从父表继承结果中删除；
+#                  重复或删除不存在的点是配置错误。
+#   points:        Mapping，Key 即 Point ID（表内局部唯一）。子表中：写父表
+#                  已有的 Point ID → 按字段覆盖（未写字段保持父表值）；
+#                  写新 ID → 新增。
+#
+# Point 字段：
+#   business_point_id: 引用 business_points.yaml 的业务点（必填）——数据
+#                      类型与量纲必须兼容；Point ID 与 BusinessPoint ID 是
+#                      两种身份，必须显式引用，不会自动等同。
+#   variable_name:     str，可选 —— 对外变量名，缺省等于 Point ID。
+#   point_groups:      list[str]，可选 —— 采集分组，Task 按 point_group
+#                      选择点集。
+#   address:           Mapping，必填 —— 协议地址（见下），显式配置即整体
+#                      替换父表值，不残留父表字段。
+#   data_type:         bool/int8/int16/int32/int64/uint8/uint16/uint32/
+#                      uint64/float32/float64/string（必填）。
+#   unit:              内置单位标识（如 kilowatt），缺省 none。
+#   scale / offset:    float，默认 1.0 / 0.0 —— 工程量换算
+#                      （bool/string 点不允许 scaling 且必须 dimensionless）。
+#   description:       str，可选。
 #
 # 各协议的 address 字段：
-# - Modbus: `type` + `address`，如 type: holding_register / address: 30001
-#   （type 取值 coil / discrete_input / holding / input 及其别名；
-#    address 为 0-based 寄存器/线圈偏移）
+# - Modbus: `register_type`（或别名 `type`）+ `address`。
+#     register_type: holding / input / coil / discrete_input
+#                    （别名 holding_register / input_register / discrete）；
+#                    input 与 discrete_input 为只读。
+#     address: int 0..65535 —— 【0-based】寄存器/线圈偏移，直接对应协议
+#              PDU 起始地址；不要与 4xxxx/3xxxx 等 1-based 编号混用
+#              （如寄存器 40181 应写 180）。
+#     可选逐点覆盖：word_order（big_endian/little_endian）、count。
 # - ADS（Symbol 优先）：
 #     symbol: MAIN.rotorSpeed               # 推荐：仅 Symbol 寻址
-#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset 成对
-#     index_offset: 0x1234                  #   出现（只写一个是配置错误）
-#   read_mode: sum 的设备，其绑定点表（继承展开后）必须全部点位配置 symbol。
-# - IEC104: `type` + `ioa`，如 type: measured_value / ioa: 1001
+#     index_group: 0x4020                   # 兼容寻址：必须与 index_offset
+#     index_offset: 0x1234                  #   成对出现（只写一个是错误）
+# - IEC104: `type`（或 `type_id`）+ `ioa`。
+#     type: ASDU Type ID 字符串（如 M_ME_NA_1 / C_SC_NA_1）；以 C_ 开头
+#           的点具有写权限，其余只读。
+#     ioa: int 0..16777215 —— 信息对象地址。
 
 point_tables:
 
@@ -32,12 +57,12 @@ point_tables:
     protocol: modbus
     points:
 
-      - point_id: active_power
+      active_power:
         business_point_id: active_power
         variable_name: active_power
         point_groups: [all]
         address:
-          type: input
+          register_type: input
           address: 178
         data_type: int32
         scale: 0.001
@@ -45,12 +70,12 @@ point_tables:
         unit: kilowatt
         description: "有功功率"
 
-      - point_id: wind_speed
+      wind_speed:
         business_point_id: wind_speed
         variable_name: wind_speed
         point_groups: [all]
         address:
-          type: input
+          register_type: input
           address: 357
         data_type: int16
         scale: 0.01
@@ -63,7 +88,7 @@ point_tables:
     protocol: ads
     points:
 
-      - point_id: rotor_speed
+      rotor_speed:
         business_point_id: rotor_speed
         variable_name: rotor_speed
         point_groups: [all]
@@ -73,7 +98,7 @@ point_tables:
         unit: rpm
         description: "风轮转速"
 
-      - point_id: gen_power
+      gen_power:
         business_point_id: gen_power
         variable_name: gen_power
         point_groups: [all]
@@ -85,16 +110,15 @@ point_tables:
 
   # ---- ADS 机型点表：继承基础表并覆盖 Symbol ----
   beckhoff_wtg_v1:
-    extends: beckhoff_base_v1
+    parent_id: beckhoff_base_v1
     # protocol 缺省继承父表（ads）；显式写必须与父表一致
     points:
 
-      - point_id: gen_power           # override：address 整体替换
-        business_point_id: gen_power
+      gen_power:                        # 覆盖：address 整体替换
         address:
           symbol: MAIN.power.genActivePower
 
-      - point_id: converter_temp      # 新增点
+      converter_temp:                   # 新增点
         business_point_id: converter_temp
         variable_name: converter_temp
         point_groups: [all]
@@ -103,3 +127,30 @@ point_tables:
         data_type: float32
         unit: celsius
         description: "变流器温度"
+
+  # ---- IEC104 风机点表 ----
+  iec104_wtg_v1:
+    protocol: iec104
+    points:
+
+      active_power:
+        business_point_id: active_power_iec
+        variable_name: active_power
+        point_groups: [all]
+        address:
+          type: M_ME_NA_1
+          ioa: 1001
+        data_type: float32
+        unit: kilowatt
+        description: "有功功率"
+
+      turbine_run:
+        business_point_id: turbine_run
+        variable_name: turbine_run
+        point_groups: [all]
+        address:
+          type: M_SP_NA_1
+          ioa: 2001
+        data_type: bool
+        unit: none
+        description: "运行状态"
