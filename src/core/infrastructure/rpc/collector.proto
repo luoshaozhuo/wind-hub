@@ -173,6 +173,34 @@ message ActivateConfigResponse {
 message AbortConfigRequest { string revision_id = 1; }
 message AbortConfigResponse { bool success = 1; string revision_id = 2; bool aborted = 3; }
 
+message PointsMetadataRequest {
+  string device_id = 1;
+  repeated string point_ids = 2;
+}
+message PointMetadata {
+  string point_id = 1;
+  string access = 2;
+  string data_type = 3;
+  string unit = 4;
+  double scale = 5;
+  double offset = 6;
+  repeated windhub.commander.v1.AddressField configured_address = 7;
+  repeated string task_ids = 8;
+  repeated string sink_ids = 9;
+}
+message PointMetadataResult {
+  string point_id = 1;
+  bool found = 2;
+  PointMetadata metadata = 3;
+  string error = 4;
+}
+message PointsMetadataResponse {
+  string device_id = 1;
+  string active_revision = 2;
+  string active_config_hash = 3;
+  repeated PointMetadataResult points = 4;
+}
+
 service CollectorRuntimeService {
   rpc GetCollectorInfo(google.protobuf.Empty) returns (CollectorInfoResponse);
   rpc GetRuntimeStatus(google.protobuf.Empty) returns (RuntimeStatusResponse);
@@ -186,6 +214,7 @@ service CollectorRuntimeService {
   rpc QueryLatestValues(LatestValuesRequest) returns (LatestValuesResponse);
   rpc VerifySink(SinkRequest) returns (SinkOperationResponse);
   rpc WriteTestSink(SinkRequest) returns (SinkOperationResponse);
+  rpc GetPointsMetadata(PointsMetadataRequest) returns (PointsMetadataResponse);
 }
 service CollectorControlService {
   rpc StartTask(TaskStartRequest) returns (TaskSummaryMessage);

@@ -80,6 +80,11 @@ class CollectorRuntimeServiceStub:
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListSinksResponse.FromString,
                 _registered_method=True)
+        self.GetPointsMetadata = channel.unary_unary(
+                '/windhub.collector.v1.CollectorRuntimeService/GetPointsMetadata',
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataResponse.FromString,
+                _registered_method=True)
         self.QueryLatestValues = channel.unary_unary(
                 '/windhub.collector.v1.CollectorRuntimeService/QueryLatestValues',
                 request_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesRequest.SerializeToString,
@@ -154,6 +159,11 @@ class CollectorRuntimeServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetPointsMetadata(self, request, context):
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def QueryLatestValues(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -220,7 +230,12 @@ def add_CollectorRuntimeServiceServicer_to_server(servicer, server):
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.ListSinksResponse.SerializeToString,
             ),
-            'QueryLatestValues': grpc.unary_unary_rpc_method_handler(
+            'GetPointsMetadata': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPointsMetadata,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataResponse.SerializeToString,
+            ),
+        'QueryLatestValues': grpc.unary_unary_rpc_method_handler(
                     servicer.QueryLatestValues,
                     request_deserializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesRequest.FromString,
                     response_serializer=core_dot_infrastructure_dot_rpc_dot_collector__pb2.LatestValuesResponse.SerializeToString,
@@ -483,6 +498,33 @@ class CollectorRuntimeService:
             channel_credentials,
             insecure,
             call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPointsMetadata(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.collector.v1.CollectorRuntimeService/GetPointsMetadata',
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_collector__pb2.PointsMetadataResponse.FromString,
+            options,
+            channel_credentials,
+            call_credentials,
+            insecure,
             compression,
             wait_for_ready,
             timeout,

@@ -14,9 +14,11 @@ from google.protobuf import empty_pb2, wrappers_pb2
 
 from core.infrastructure.rpc import collector_pb2 as pb
 from core.infrastructure.rpc import collector_pb2_grpc as pb_grpc
+from core.infrastructure.rpc import commander_pb2 as commander_pb
 from core.infrastructure.rpc.scalar_codec import encode_scalar
 
 from ...application.identity import CollectorIdentity
+from ...application.metadata import CollectorMetadataService
 from ...application.reload import ConfigDiff
 from ...application.services import (
     CollectorQueryService,
@@ -135,6 +137,7 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
         self._app = app
         self._identity = identity
         self._query = CollectorQueryService(app.runtime)
+        self._metadata = CollectorMetadataService(app.config)
         self._tasks = CollectorTaskService(app.runtime)
         self._sinks = CollectorSinkService(app.runtime)
 
@@ -278,6 +281,55 @@ class CollectorRuntimeService(pb_grpc.CollectorRuntimeServiceServicer):
             )
             raise AssertionError("context.abort must terminate the RPC") from exc
         return _task_instance_to_proto(item)
+
+    async def GetPointsMetadata(
+        self,
+        request: pb.PointsMetadataRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb.PointsMetadataResponse:
+        """查询已激活点表及采集任务关联，不执行任何现场 I/O。"""
+        try:
+            result = self._metadata.get_points_metadata(
+                _required(request.device_id, "device_id"), list(request.point_ids)
+            )
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+        except KeyError as exc:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            raise AssertionError("context.abort must terminate the RPC") from exc
+
+        response = pb.PointsMetadataResponse(
+            device_id=result.device_id,
+            active_revision=result.active_revision,
+            active_config_hash=result.active_config_hash,
+        )
+        for item in result.points:
+            if item.metadata is None:
+                response.points.add(
+                    point_id=item.point_id, found=False, error="point not found"
+                )
+                continue
+            point = item.metadata
+            response.points.add(
+                point_id=item.point_id,
+                found=True,
+                metadata=pb.PointMetadata(
+                    point_id=point.point_id,
+                    access=point.access,
+                    data_type=point.data_type,
+                    unit=point.unit,
+                    scale=point.scale,
+                    offset=point.offset,
+                    configured_address=[
+                        commander_pb.AddressField(key=key, value=encode_scalar(value))
+                        for key, value in sorted(point.configured_address.items())
+                    ],
+                    task_ids=point.task_ids,
+                    sink_ids=point.sink_ids,
+                ),
+            )
+        return response
 
     async def QueryLatestValues(
         self,

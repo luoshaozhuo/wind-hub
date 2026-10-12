@@ -94,6 +94,14 @@ class CollectorConfigService:
             return prepared
         return await self.activate_config(revision_id)
 
+    def active_snapshot(self) -> tuple[CollectorConfig, str, str]:
+        """同一次同步读取返回已提交配置、revision 和 hash。
+
+        activate_config 在事件循环内无 await 地完成三个字段的提交。
+        不读取 prepared 配置，也不通过磁盘重新加载。
+        """
+        return self._current, self._active_revision, self._config_hash
+
     @property
     def current_config(self) -> CollectorConfig:
         """返回当前已提交、作为下次 diff 基线的配置快照。"""
