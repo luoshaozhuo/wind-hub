@@ -87,8 +87,8 @@ class DeviceView:
     Attributes:
         device: 共享领域设备聚合。
         point_table: 设备型号绑定的 resolved 点表。
-        options: 合并后的协议参数（model connection_defaults + endpoint
-            extensions）。
+        options: 合并后的协议参数（设备显式 protocol_options 覆盖型号
+            protocol_options 默认值；协议代码默认值由 Driver 解析层补全）。
         subscribe_enabled: 本设备是否使用订阅推送采集（ADS 进程级策略；
             IEC104 恒为订阅、Modbus 恒为轮询，由会话按协议判定）。
     """
@@ -107,8 +107,8 @@ class CollectorConfig:
         devices: 启用设备索引（``enabled: false`` 的设备不进索引）。
         device_models: 设备型号索引（设备查找点表用）。
         point_tables: resolved 点表索引。
-        protocol_options_by_device: 合并后的协议参数索引（model connection_defaults +
-            endpoint extensions）。
+        protocol_options_by_device: 合并后的协议参数索引（设备显式
+            protocol_options 覆盖型号 protocol_options 默认值）。
         runtime: 运行时参数（队列/背压/超时）。
         tasks: 采集 Task Definition 注册表（``{task_id: CollectionTask}``）。
         sinks: Sink 注册表（``{name: Sink}``，

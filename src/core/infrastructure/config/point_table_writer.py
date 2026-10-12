@@ -27,9 +27,11 @@ def _point_dict(point: Point) -> dict[str, Any]:
 def dump_point_tables(
     tables: Mapping[PointTableId, PointTable],
 ) -> dict[str, Any]:
-    """以完整子表与父表的字段差异输出 extends / remove_points / points。
+    """以完整子表与父表的字段差异输出 parent_id / remove_points / points。
 
-    生成语义等价的精简 YAML，不保留原注释及字段书写习惯。
+    子表 ``points`` 是 Mapping（Key 即 Point ID），条目只携带相对父表
+    变化的字段；加载端按「父表展开 + 条目合并」还原，与 Writer 使用同一
+    套 Schema。生成语义等价的精简 YAML，不保留原注释及字段书写习惯。
     """
     result: dict[str, Any] = {}
     for table_id, table in tables.items():
@@ -38,12 +40,12 @@ def dump_point_tables(
         if parent is None:
             definition["protocol"] = table.protocol.name
         else:
-            definition["extends"] = str(table.parent_id)
+            definition["parent_id"] = str(table.parent_id)
             removed = [point_id for point_id in parent.points if point_id not in table.points]
             if removed:
                 definition["remove_points"] = removed
 
-        points: list[dict[str, Any]] = []
+        points: dict[str, Any] = {}
         for point_id, point in table.points.items():
             current = _point_dict(point)
             if parent is not None and point_id in parent.points:
@@ -51,9 +53,9 @@ def dump_point_tables(
                 changes = {key: value for key, value in current.items() if value != previous[key]}
                 if not changes:
                     continue
-                points.append({"point_id": point_id, **changes})
+                points[point_id] = changes
             else:
-                points.append({"point_id": point_id, **current})
+                points[point_id] = current
         if points or parent is None:
             definition["points"] = points
         result[str(table_id)] = definition

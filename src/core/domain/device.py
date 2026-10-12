@@ -87,7 +87,8 @@ class DeviceModel:
     name: str | None = None
     manufacturer: str | None = None
     properties: Mapping[str, Any] = field(default_factory=dict)
-    connection_defaults: Mapping[str, Any] = field(default_factory=dict)
+    endpoint_defaults: Mapping[str, Any] = field(default_factory=dict)
+    protocol_options: ProtocolOptions = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         device_model_id = self.device_model_id.strip()
@@ -104,9 +105,17 @@ class DeviceModel:
         object.__setattr__(self, "device_model_id", DeviceModelId(device_model_id))
         object.__setattr__(self, "device_type_id", DeviceTypeId(device_type_id))
         object.__setattr__(self, "point_table_id", PointTableId(point_table_id))
+        unknown_endpoint_keys = set(self.endpoint_defaults) - {"port"}
+        if unknown_endpoint_keys:
+            raise ValueError(
+                f"endpoint_defaults only supports 'port', got {sorted(unknown_endpoint_keys)}"
+            )
         object.__setattr__(self, "properties", _freeze_model_mapping(self.properties))
         object.__setattr__(
-            self, "connection_defaults", _freeze_model_mapping(self.connection_defaults)
+            self, "endpoint_defaults", _freeze_model_mapping(self.endpoint_defaults)
+        )
+        object.__setattr__(
+            self, "protocol_options", freeze_protocol_options(self.protocol_options)
         )
 
 

@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -208,11 +208,14 @@ class ResolvedSinkPoint(BaseModel):
 
 
 class _SinkSchema(BaseModel):
-    """sinks.yaml 中一个完整 Sink 的外部接口契约。"""
+    """sinks.yaml 中一个完整 Sink 的外部接口契约。
+
+    Sink ID 由 ``sinks`` Mapping 的 Key 提供（见
+    :func:`parse_sink_definitions`），条目内部不再重复声明身份。
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str
     type: str
     enabled: bool = True
     connection: SinkConnection
@@ -236,9 +239,7 @@ class _SinkSchema(BaseModel):
             except ConfigError:
                 raise
             except Exception as exc:
-                raise ConfigError(
-                    f"Sink '{data.get('name', '<unnamed>')}' invalid connection: {exc}"
-                ) from exc
+                raise ConfigError(f"invalid sink connection: {exc}") from exc
 
         address_type = _ADDRESS_TYPES[sink_type][0]
         points = parsed.get("points")
@@ -256,73 +257,67 @@ class _SinkSchema(BaseModel):
                     except ConfigError:
                         raise
                     except Exception as exc:
-                        raise ConfigError(
-                            f"Sink '{data.get('name', '<unnamed>')}' invalid point address: {exc}"
-                        ) from exc
+                        raise ConfigError(f"invalid sink point address: {exc}") from exc
                 parsed_points.append(point)
             parsed["points"] = parsed_points
         return parsed
 
     @model_validator(mode="after")
     def _validate_sink(self) -> _SinkSchema:
-        if not self.name.strip():
-            raise ConfigError("Sink name must be non-empty")
         if self.type not in SINK_TYPES:
             raise ConfigError(
-                f"Sink '{self.name}': type '{self.type}' must be one of {sorted(SINK_TYPES)}"
+                f"sink type '{self.type}' must be one of {sorted(SINK_TYPES)}"
             )
         expected_connection = _CONNECTION_TYPES[self.type]
         if not isinstance(self.connection, expected_connection):
-            raise ConfigError(f"Sink '{self.name}': connection does not match type '{self.type}'")
+            raise ConfigError(f"sink connection does not match type '{self.type}'")
 
         refs: set[str] = set()
         addresses: set[tuple[object, ...]] = set()
         for point in self.points:
             if point.ref is not None:
                 if point.ref in refs:
-                    raise ConfigError(f"Sink '{self.name}': duplicate ref '{point.ref}'")
+                    raise ConfigError(f"duplicate sink point ref '{point.ref}'")
                 refs.add(point.ref)
 
             point_label = point.ref or f"{point.source.device_id}.{point.source.point_id}"
             allowed = _ADDRESS_TYPES[self.type]
             if not isinstance(point.address, allowed):
                 raise ConfigError(
-                    f"Sink '{self.name}' point '{point_label}': address does not match "
+                    f"sink point '{point_label}': address does not match "
                     f"type '{self.type}'"
                 )
             key = _address_key(point.address)
             if key in addresses:
                 raise ConfigError(
-                    f"Sink '{self.name}' point '{point_label}': duplicate external address"
+                    f"sink point '{point_label}': duplicate external address"
                 )
             addresses.add(key)
         return self
 
 
-class _ResolvedSinkSchema(_SinkSchema):
-    """Runtime 直接消费的 Sink 定义；points 已全部解析为稳定引用。"""
-
-    points: list[ResolvedSinkPoint] = Field(default_factory=list)  # type: ignore[assignment]
-
-
-class _SinksSchema(BaseModel):
-    """Raw YAML root model——``sinks.yaml`` 顶层配置（文件级 wrapper）。
-
-    Sink name 唯一性在此校验；resolve 阶段保持 name 不变，因此 resolved
-    Sink 集可直接按 name 索引为 ``dict[name, ResolvedSinkConfig]``。
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    sinks: list[_SinkSchema] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def _validate_unique_names(self) -> _SinksSchema:
-        names = [sink.name for sink in self.sinks]
-        if len(names) != len(set(names)):
-            raise ConfigError(f"Duplicate sink names: {names}")
-        validate_sink_definitions(self.sinks)
-        return self
+def parse_sink_definitions(raw: Mapping[str, Any]) -> dict[str, _SinkSchema]:
+    """解析 sinks.yaml 根 Mapping：Mapping Key 即 Sink ID。"""
+    if not isinstance(raw, Mapping) or set(raw) - {"sinks"}:
+        raise ConfigError("sinks.yaml requires only 'sinks' root")
+    entries = raw.get("sinks")
+    if not isinstance(entries, Mapping):
+        raise ConfigError("sinks must be a mapping keyed by sink ID")
+    result: dict[str, _SinkSchema] = {}
+    for key, value in entries.items():
+        if not isinstance(key, str) or not key.strip() or key != key.strip():
+            raise ConfigError("sink IDs must be non-empty trimmed strings")
+        try:
+            result[key] = _SinkSchema.model_validate(value)
+        except ConfigError as exc:
+            raise ConfigError(f"Sink '{key}': {exc}") from exc
+        except Exception as exc:
+            raise ConfigError(f"Sink '{key}' invalid definition: {exc}") from exc
+    try:
+        validate_sink_definitions(result)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    return result
 
 
 def _address_key(address: SinkAddress) -> tuple[object, ...]:
@@ -348,23 +343,19 @@ __all__ = [
 ]
 
 
-def validate_sink_definitions(sinks: Sequence[_SinkSchema]) -> None:
-    """检查名称重复及 Modbus TCP 端口的绑定冲突。"""
-    names: set[str] = set()
-    listeners: set[tuple[str, int]] = set()
-    for sink in sinks:
-        name = sink.name.strip()
-        if not name or name in names:
-            raise ValueError(f"empty or duplicate sink name: {sink.name}")
-        names.add(name)
+def validate_sink_definitions(sinks: Mapping[str, _SinkSchema]) -> None:
+    """检查 Modbus TCP 端口的绑定冲突。"""
+    listeners: dict[tuple[str, int], str] = {}
+    for sink_id, sink in sinks.items():
         if not sink.enabled or not isinstance(sink.connection, ModbusSinkConnection):
             continue
         host = sink.connection.host
         port = sink.connection.port
-        if any(
+        conflict = any(
             used_port == port
             and (used_host == host or used_host in ("0.0.0.0", "::") or host in ("0.0.0.0", "::"))
             for used_host, used_port in listeners
-        ):
-            raise ValueError(f"duplicate Modbus listener: {(host, port)}")
-        listeners.add((host, port))
+        )
+        if conflict:
+            raise ValueError(f"Sink '{sink_id}': duplicate Modbus listener {(host, port)}")
+        listeners[(host, port)] = sink_id

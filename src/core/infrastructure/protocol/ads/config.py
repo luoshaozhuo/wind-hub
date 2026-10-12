@@ -94,7 +94,9 @@ def parse_ads_config(
     route_auto_add = options.get("route_auto_add", False)
     if type(route_auto_add) is not bool:
         raise ConfigError("ADS route_auto_add must be a boolean")
-    default_port = 801 if twincat_version == "2" else 802
+    # AMS Runtime Port：TwinCAT 2 第一 PLC Runtime 为 801，
+    # TwinCAT 3 第一 PLC Runtime 为 851（非 ADS 路由器 TCP 端口）。
+    default_port = 801 if twincat_version == "2" else 851
     target_port = endpoint.port or default_port
 
     return ADSConfig(

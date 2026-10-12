@@ -1,4 +1,19 @@
-"""YAML -> Core Domain 的直接解析。无 Config VO 中间模型。"""
+"""YAML -> Core Domain 的直接解析。无 Config VO 中间模型。
+
+统一 Schema 约定：
+
+- 具有稳定唯一 ID 的实体集合一律使用 Mapping，Mapping Key 即实体 ID，
+  实体内部不重复声明自身 ID；
+- 跨实体引用字段统一命名：``model_id`` / ``device_type_id`` /
+  ``point_table_id`` / ``device_group_id(s)`` / ``sink_ids`` /
+  ``business_point_id`` / ``parent_id``；
+- ``endpoint`` 只表达 host/port；协议参数一律放在设备或型号的
+  ``protocol_options``；型号连接默认值拆分为 ``endpoint_defaults``
+  （仅 port）与 ``protocol_options``；
+- 快照只保存显式配置：``Device.endpoint`` 与
+  ``protocol_options_by_device`` 均为设备实例显式值，型号默认值留在
+  ``DeviceModel`` 上，运行时有效参数由 Collector/Commander 装配层合并。
+"""
 
 from __future__ import annotations
 
@@ -38,8 +53,9 @@ from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
-from .snapshot_writer import _yaml_plain
+from .sink_schema import parse_sink_definitions
 from .yaml import read_yaml_mapping
+from .yaml import yaml_plain as _yaml_plain
 
 _OPTION_PARSERS = {
     "ads": parse_ads_config,
@@ -47,7 +63,6 @@ _OPTION_PARSERS = {
     "iec104": parse_iec104_config,
 }
 _POINT_FIELDS = {
-    "point_id",
     "business_point_id",
     "variable_name",
     "point_groups",
@@ -57,6 +72,24 @@ _POINT_FIELDS = {
     "offset",
     "unit",
     "description",
+}
+_DEVICE_FIELDS = {
+    "model_id",
+    "device_group_ids",
+    "endpoint",
+    "protocol_options",
+    "enabled",
+    "name",
+}
+_MODEL_FIELDS = {
+    "device_type_id",
+    "manufacturer",
+    "model",
+    "protocol",
+    "point_table_id",
+    "properties",
+    "endpoint_defaults",
+    "protocol_options",
 }
 
 
@@ -84,6 +117,13 @@ def _name(value: Any, context: str) -> str:
     return value.strip()
 
 
+def _id_key(value: Any, context: str) -> str:
+    """实体 Mapping Key（即实体 ID）的严格校验。"""
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ConfigError(f"{context}: entity IDs must be non-empty trimmed strings")
+    return value
+
+
 def _number(value: Any, context: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
         raise ConfigError(f"{context} must be a finite number")
@@ -94,6 +134,33 @@ def _flag(value: Any, context: str) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f"{context} must be boolean")
     return value
+
+
+def _port(value: Any, context: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        raise ConfigError(f"{context} must be an integer port")
+    if isinstance(value, str):
+        if not value.isdecimal():
+            raise ConfigError(f"{context} must be numeric")
+        value = int(value)
+    if not 1 <= value <= 65535:
+        raise ConfigError(f"{context} must be in 1..65535")
+    return int(value)
+
+
+def _options(value: Any, context: str) -> dict[str, Any]:
+    """协议参数集合校验：字符串键、标量值、浮点有限。"""
+    raw = _map(value, context)
+    options: dict[str, Any] = {}
+    for key, item in raw.items():
+        if not key.strip():
+            raise ConfigError(f"{context} option keys must be non-empty")
+        if item is not None and not isinstance(item, str | int | float | bool):
+            raise ConfigError(f"{context}.{key} must be a scalar")
+        if isinstance(item, float) and not isfinite(item):
+            raise ConfigError(f"{context}.{key} must be finite")
+        options[key] = item
+    return options
 
 
 def _system(raw: Mapping[str, Any]) -> tuple[str, str, SystemSettings]:
@@ -230,11 +297,13 @@ def _point_tables(
         definition = _map(definitions[name], f"point table '{name}'")
         _keys(
             definition,
-            {"protocol", "extends", "remove_points", "points"},
+            {"protocol", "parent_id", "remove_points", "points"},
             f"point table '{name}'",
         )
-        parent_id = definition.get("extends")
-        parent = resolve(_name(parent_id, f"{name}.extends")) if parent_id is not None else None
+        parent_id = definition.get("parent_id")
+        parent = (
+            resolve(_name(parent_id, f"{name}.parent_id")) if parent_id is not None else None
+        )
         protocol = definition.get("protocol", parent.protocol.name if parent else None)
         if protocol not in _OPTION_PARSERS:
             raise ConfigError(f"point table '{name}' unsupported protocol '{protocol}'")
@@ -250,20 +319,17 @@ def _point_tables(
         if len(remove) != len(set(remove)):
             raise ConfigError(f"point table '{name}' duplicate remove_points")
         for key in remove:
-            if key not in points:
-                raise ConfigError(f"point table '{name}' cannot remove unknown point '{key}'")
-            del points[key]
-        patches = _list(definition.get("points", []), f"{name}.points")
-        seen: set[str] = set()
-        for item in patches:
-            patch = _map(item, f"{name}.point")
-            _keys(patch, _POINT_FIELDS, f"{name}.point")
-            key = _name(patch.get("point_id"), "point.point_id")
-            if key in seen:
-                raise ConfigError(f"point table '{name}' duplicate point '{key}'")
-            seen.add(key)
+            removed = _name(key, f"{name}.remove_points")
+            if removed not in points:
+                raise ConfigError(f"point table '{name}' cannot remove unknown point '{removed}'")
+            del points[removed]
+        patches = _map(definition.get("points", {}), f"{name}.points")
+        for raw_key, item in patches.items():
+            key = _id_key(raw_key, f"point table '{name}'.points")
+            patch = _map(item, f"{name}.points.{key}")
+            _keys(patch, _POINT_FIELDS, f"{name}.points.{key}")
             updated = dict(points.get(key, {}))
-            updated.update({k: v for k, v in patch.items() if k != "point_id"})
+            updated.update(patch)
             points[key] = updated
         domain_points = {
             key: _point(key, value, protocol, business_points) for key, value in points.items()
@@ -279,215 +345,213 @@ def _point_tables(
         visiting.remove(name)
         return table
 
-    for key in definitions:
-        resolve(_name(key, "point table ID"))
+    for raw_key in definitions:
+        resolve(_id_key(raw_key, "point table ID"))
     return {PointTableId(key): table for key, table in cache.items()}
 
 
-def _device_catalog(
-    model_doc: Mapping[str, Any],
-    device_doc: Mapping[str, Any],
+def _device_types(raw: Mapping[str, Any]) -> dict[DeviceTypeId, DeviceType]:
+    types: dict[DeviceTypeId, DeviceType] = {}
+    for raw_key, item in _map(raw.get("device_types", {}), "device_types").items():
+        key = _id_key(raw_key, "device type ID")
+        definition = _map(item, f"device type '{key}'")
+        _keys(definition, {"name", "description"}, f"device type '{key}'")
+        identity = DeviceTypeId(key)
+        types[identity] = DeviceType(
+            device_type_id=identity,
+            name=_name(definition.get("name", key), f"device type '{key}'.name"),
+            description=definition.get("description"),
+        )
+    return types
+
+
+def _device_models(
+    raw: Mapping[str, Any],
+    types: Mapping[DeviceTypeId, DeviceType],
+    tables: Mapping[PointTableId, PointTable],
+) -> dict[DeviceModelId, DeviceModel]:
+    models: dict[DeviceModelId, DeviceModel] = {}
+    for raw_key, item in _map(raw.get("device_models", {}), "device_models").items():
+        key = _id_key(raw_key, "device model ID")
+        definition = _map(item, f"device model '{key}'")
+        _keys(definition, _MODEL_FIELDS, f"device model '{key}'")
+        identity = DeviceModelId(key)
+        type_id = DeviceTypeId(_name(definition.get("device_type_id"), "model.device_type_id"))
+        table_id = PointTableId(
+            _name(definition.get("point_table_id"), "model.point_table_id")
+        )
+        protocol = _name(definition.get("protocol"), "model.protocol")
+        if type_id not in types:
+            raise ConfigError(f"device model '{key}' references unknown device type '{type_id}'")
+        if table_id not in tables:
+            raise ConfigError(
+                f"device model '{key}' references unknown point table '{table_id}'"
+            )
+        if tables[table_id].protocol.name != protocol:
+            raise ConfigError(f"device model '{key}' protocol does not match point table")
+        if protocol not in _OPTION_PARSERS:
+            raise ConfigError(f"unsupported protocol '{protocol}'")
+
+        endpoint_defaults = _options(
+            definition.get("endpoint_defaults", {}), f"model '{key}'.endpoint_defaults"
+        )
+        unknown_endpoint = set(endpoint_defaults) - {"port"}
+        if unknown_endpoint:
+            raise ConfigError(
+                f"model '{key}'.endpoint_defaults only supports 'port', "
+                f"got {sorted(unknown_endpoint)}"
+            )
+        if "port" in endpoint_defaults:
+            endpoint_defaults["port"] = _port(
+                endpoint_defaults["port"], f"model '{key}'.endpoint_defaults.port"
+            )
+        options = _options(
+            definition.get("protocol_options", {}), f"model '{key}'.protocol_options"
+        )
+        # 用代码默认端口 + 型号默认参数校验型号协议参数本身合法。
+        try:
+            _OPTION_PARSERS[protocol](ConnectionEndpoint(host="localhost"), options)
+        except Exception as exc:
+            raise ConfigError(
+                f"device model '{key}' invalid protocol options: {exc}"
+            ) from exc
+        models[identity] = DeviceModel(
+            device_model_id=identity,
+            device_type_id=type_id,
+            point_table_id=table_id,
+            name=definition.get("model"),
+            manufacturer=definition.get("manufacturer"),
+            properties=_map(definition.get("properties", {}), f"model '{key}'.properties"),
+            endpoint_defaults=endpoint_defaults,
+            protocol_options=options,
+        )
+    return models
+
+
+def _devices(
+    raw: Mapping[str, Any],
+    models: Mapping[DeviceModelId, DeviceModel],
     tables: Mapping[PointTableId, PointTable],
 ) -> tuple[
-    dict[DeviceTypeId, DeviceType],
-    dict[DeviceModelId, DeviceModel],
     dict[DeviceGroupId, DeviceGroup],
     dict[DeviceId, Device],
     dict[DeviceId, dict[str, Any]],
     frozenset[DeviceId],
 ]:
-    _keys(model_doc, {"device_types", "device_models"}, "device_models.yaml")
-    types: dict[DeviceTypeId, DeviceType] = {}
-    for key, item in _map(model_doc.get("device_types", {}), "device_types").items():
-        definition = _map(item, f"device type '{key}'")
-        _keys(definition, {"name", "description"}, f"device type '{key}'")
-        type_identity = DeviceTypeId(_name(key, "device type"))
-        types[type_identity] = DeviceType(
-            device_type_id=type_identity,
-            name=_name(definition.get("name", key), f"device type '{key}'.name"),
-            description=definition.get("description"),
-        )
-
-    raw_models = _map(model_doc.get("device_models", {}), "device_models")
-    models: dict[DeviceModelId, DeviceModel] = {}
-    for key, item in raw_models.items():
-        definition = _map(item, f"device model '{key}'")
-        _keys(
-            definition,
-            {
-                "device_type",
-                "manufacturer",
-                "model",
-                "protocol",
-                "point_table",
-                "properties",
-                "connection_defaults",
-            },
-            f"device model '{key}'",
-        )
-        model_identity = DeviceModelId(_name(key, "device model ID"))
-        type_id = DeviceTypeId(_name(definition.get("device_type"), "device_type"))
-        table_id = PointTableId(_name(definition.get("point_table"), "point_table"))
-        protocol = _name(definition.get("protocol"), "model.protocol")
-        if type_id not in types or table_id not in tables:
-            raise ConfigError(f"device model '{key}' references unknown type or point table")
-        if tables[table_id].protocol.name != protocol:
-            raise ConfigError(f"device model '{key}' protocol does not match point table")
-        if protocol not in _OPTION_PARSERS:
-            raise ConfigError(f"unsupported protocol '{protocol}'")
-        _map(definition.get("connection_defaults", {}), f"model '{key}'.connection_defaults")
-        _map(definition.get("properties", {}), f"model '{key}'.properties")
-        models[model_identity] = DeviceModel(
-            device_model_id=model_identity,
-            device_type_id=type_id,
-            point_table_id=table_id,
-            name=definition.get("model"),
-            manufacturer=definition.get("manufacturer"),
-            properties=definition.get("properties") or {},
-            connection_defaults=definition.get("connection_defaults") or {},
-        )
-
-    _keys(device_doc, {"devices", "device_groups"}, "devices.yaml")
     groups: dict[DeviceGroupId, DeviceGroup] = {}
-    devices: dict[DeviceId, Device] = {}
-    options_by_device: dict[DeviceId, dict[str, Any]] = {}
-    ads_subscriptions: set[DeviceId] = set()
-    for item in _list(device_doc.get("devices"), "devices"):
-        definition = _map(item, "devices entry")
-        _keys(
-            definition,
-            {
-                "device_id",
-                "model",
-                "device_group",
-                "device_groups",
-                "endpoint",
-                "enabled",
-                "name",
-            },
-            "device",
-        )
-        device_identity = DeviceId(_name(definition.get("device_id"), "device_id"))
-        if device_identity in devices:
-            raise ConfigError(f"duplicate device_id '{device_identity}'")
-        model_id = DeviceModelId(_name(definition.get("model"), "device.model"))
-        if model_id not in models:
-            raise ConfigError(f"device '{device_identity}' unknown model '{model_id}'")
-        model = _map(raw_models[model_id], f"device model '{model_id}'")
-        protocol = _name(model.get("protocol"), "protocol")
-        raw_groups = definition.get("device_groups")
-        if raw_groups is not None and definition.get("device_group") is not None:
-            raise ConfigError(f"device '{device_identity}' cannot specify both group formats")
-        groups_list = raw_groups if raw_groups is not None else [definition.get("device_group")]
-        memberships = tuple(
-            DeviceGroupId(_name(group, f"device '{device_identity}'.group"))
-            for group in _list(groups_list, "device_groups")
-        )
-        for group in memberships:
-            groups.setdefault(group, DeviceGroup(device_group_id=group, name=str(group)))
-
-        raw_endpoint = _map(definition.get("endpoint"), f"device '{device_identity}'.endpoint")
-        _keys(raw_endpoint, {"host", "port", "extensions"}, f"device '{device_identity}'.endpoint")
-        defaults = dict(_map(model.get("connection_defaults", {}), "connection_defaults"))
-        port = raw_endpoint.get("port", defaults.pop("port", None))
-        if port is None:
-            raise ConfigError(f"device '{device_identity}' requires endpoint port or model default")
-        if isinstance(port, bool) or not isinstance(port, int | str):
-            raise ConfigError(f"device '{device_identity}' invalid port")
-        if isinstance(port, str) and not port.isdecimal():
-            raise ConfigError(f"device '{device_identity}' port must be numeric")
-        endpoint = ConnectionEndpoint(
-            host=_name(raw_endpoint.get("host"), f"device '{device_identity}'.host"),
-            port=int(port),
-        )
-        extensions = _map(raw_endpoint.get("extensions", {}), "endpoint.extensions")
-        options = {**defaults, **extensions}
-        if protocol == "ads" and options.pop("subscribe_enabled", False):
-            ads_subscriptions.add(device_identity)
-        for key, value in options.items():
-            if (
-                not isinstance(key, str)
-                or value is not None
-                and not isinstance(value, str | int | float | bool)
-            ):
-                raise ConfigError(f"device '{device_identity}' invalid protocol option '{key}'")
-        try:
-            _OPTION_PARSERS[protocol](endpoint, options)
-        except Exception as exc:
-            raise ConfigError(
-                f"device '{device_identity}' invalid protocol options: {exc}"
-            ) from exc
-        devices[device_identity] = Device(
-            device_id=device_identity,
-            device_model_id=model_id,
-            endpoint=endpoint,
-            name=definition.get("name"),
-            device_group_ids=memberships,
-            enabled=_flag(definition.get("enabled", True), "device.enabled"),
-        )
-        options_by_device[device_identity] = options
-
-    declared_groups = _map(device_doc.get("device_groups", {}), "devices.device_groups")
-    for key, item in declared_groups.items():
-        group_identity = DeviceGroupId(_name(key, "device group"))
+    for raw_key, item in _map(raw.get("device_groups", {}), "devices.device_groups").items():
+        key = _id_key(raw_key, "device group ID")
         data = _map(item, f"device group '{key}'")
         _keys(data, {"name", "description"}, f"device group '{key}'")
+        group_identity = DeviceGroupId(key)
         groups[group_identity] = DeviceGroup(
             device_group_id=group_identity,
             name=_name(data.get("name", key), f"device group '{key}'.name"),
             description=data.get("description"),
         )
-    return types, models, groups, devices, options_by_device, frozenset(ads_subscriptions)
+
+    devices: dict[DeviceId, Device] = {}
+    options_by_device: dict[DeviceId, dict[str, Any]] = {}
+    ads_subscriptions: set[DeviceId] = set()
+    for raw_key, item in _map(raw.get("devices", {}), "devices").items():
+        key = _id_key(raw_key, "device ID")
+        identity = DeviceId(key)
+        context = f"device '{key}'"
+        definition = _map(item, context)
+        _keys(definition, _DEVICE_FIELDS, context)
+        model_id = DeviceModelId(_name(definition.get("model_id"), f"{context}.model_id"))
+        model = models.get(model_id)
+        if model is None:
+            raise ConfigError(f"{context} unknown model '{model_id}'")
+        protocol = tables[model.point_table_id].protocol.name
+
+        memberships = tuple(
+            DeviceGroupId(_name(group, f"{context}.device_group_ids"))
+            for group in _list(
+                definition.get("device_group_ids"), f"{context}.device_group_ids"
+            )
+        )
+        for group in memberships:
+            if group not in groups:
+                raise ConfigError(f"{context} references unknown device group '{group}'")
+
+        raw_endpoint = _map(definition.get("endpoint"), f"{context}.endpoint")
+        _keys(raw_endpoint, {"host", "port"}, f"{context}.endpoint")
+        port_value = raw_endpoint.get("port")
+        endpoint = ConnectionEndpoint(
+            host=_name(raw_endpoint.get("host"), f"{context}.endpoint.host"),
+            port=(
+                _port(port_value, f"{context}.endpoint.port")
+                if port_value is not None
+                else None
+            ),
+        )
+
+        options = _options(definition.get("protocol_options", {}), f"{context}.protocol_options")
+        subscribe = options.pop("subscribe_enabled", None)
+        if subscribe is not None:
+            if protocol != "ads":
+                raise ConfigError(f"{context}: subscribe_enabled is only valid for ADS devices")
+            if not isinstance(subscribe, bool):
+                raise ConfigError(f"{context}.protocol_options.subscribe_enabled must be boolean")
+            if subscribe:
+                ads_subscriptions.add(identity)
+        # 按「设备显式 > 型号默认 > 协议代码默认」校验有效参数组合。
+        effective_port = endpoint.port or model.endpoint_defaults.get("port")
+        effective_endpoint = ConnectionEndpoint(host=endpoint.host, port=effective_port)
+        effective_options = {**model.protocol_options, **options}
+        try:
+            _OPTION_PARSERS[protocol](effective_endpoint, effective_options)
+        except Exception as exc:
+            raise ConfigError(f"{context} invalid protocol options: {exc}") from exc
+
+        devices[identity] = Device(
+            device_id=identity,
+            device_model_id=model_id,
+            endpoint=endpoint,
+            name=definition.get("name"),
+            device_group_ids=memberships,
+            enabled=_flag(definition.get("enabled", True), f"{context}.enabled"),
+        )
+        options_by_device[identity] = options
+    return groups, devices, options_by_device, frozenset(ads_subscriptions)
 
 
 def _tasks(raw: Mapping[str, Any]) -> dict[str, Task]:
     _keys(raw, {"tasks"}, "tasks.yaml")
     result: dict[str, Task] = {}
-    for entry in _list(raw.get("tasks", []), "tasks.yaml"):
-        data = _map(entry, "task")
+    for raw_key, item in _map(raw.get("tasks", {}), "tasks").items():
+        identity = _id_key(raw_key, "task ID")
+        context = f"task '{identity}'"
+        data = _map(item, context)
         _keys(
             data,
-            {
-                "task_id",
-                "device_group",
-                "point_group",
-                "interval",
-                "targets",
-                "enabled",
-            },
-            "task",
+            {"device_group_id", "point_group", "interval", "sink_ids", "enabled"},
+            context,
         )
-        identity = _name(data.get("task_id"), "task.task_id")
-        if identity in result:
-            raise ConfigError(f"duplicate task '{identity}'")
-        targets = []
-        for target in _list(data.get("targets"), f"task '{identity}'.targets"):
-            mapping = _map(target, f"task '{identity}'.target")
-            _keys(mapping, {"sink"}, f"task '{identity}'.target")
-            targets.append(_name(mapping.get("sink"), "target.sink"))
+        sink_ids = tuple(
+            _name(sink, f"{context}.sink_ids")
+            for sink in _list(data.get("sink_ids"), f"{context}.sink_ids")
+        )
         result[identity] = Task(
             task_id=identity,
-            device_group_id=DeviceGroupId(_name(data.get("device_group"), "task.device_group")),
-            point_group=_name(data.get("point_group"), "task.point_group"),
-            sink_ids=tuple(targets),
-            interval=_number(data.get("interval"), "task.interval"),
-            enabled=_flag(data.get("enabled", True), "task.enabled"),
+            device_group_id=DeviceGroupId(
+                _name(data.get("device_group_id"), f"{context}.device_group_id")
+            ),
+            point_group=_name(data.get("point_group"), f"{context}.point_group"),
+            sink_ids=sink_ids,
+            interval=_number(data.get("interval"), f"{context}.interval"),
+            enabled=_flag(data.get("enabled", True), f"{context}.enabled"),
         )
     return result
 
 
 def _sinks(raw: Mapping[str, Any]) -> dict[str, Sink]:
-    from .sink_schema import _SinksSchema
-
-    try:
-        definitions = _SinksSchema.model_validate(raw)
-    except Exception as exc:
-        raise ConfigError(f"invalid sinks.yaml: {exc}") from exc
     sinks: dict[str, Sink] = {}
-    for definition in definitions.sinks:
-        entry = _yaml_plain(definition.model_dump(mode="python", by_alias=True))
-        sinks[definition.name] = Sink(
-            sink_id=definition.name,
+    for sink_id, definition in parse_sink_definitions(raw).items():
+        entry = _yaml_plain(definition.model_dump(mode="python"))
+        sinks[sink_id] = Sink(
+            sink_id=sink_id,
             kind=definition.type,
             enabled=definition.enabled,
             connection=entry["connection"],
@@ -510,9 +574,13 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         site_id, site_name, settings = _system(system)
         business_points = parse_business_points(business_document)
         point_tables = _point_tables(point_document, business_points)
-        types, models, groups, devices, options, ads_subscriptions = _device_catalog(
-            model_document,
+        _keys(model_document, {"device_types", "device_models"}, "device_models.yaml")
+        types = _device_types(model_document)
+        models = _device_models(model_document, types, point_tables)
+        _keys(device_document, {"devices", "device_groups"}, "devices.yaml")
+        groups, devices, options, ads_subscriptions = _devices(
             device_document,
+            models,
             point_tables,
         )
         tasks = _tasks(task_document)

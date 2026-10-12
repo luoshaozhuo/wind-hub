@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import replace
 from typing import cast
 
 from core.application.config_snapshot import ConfigSnapshot
 from core.application.errors import ConfigError
 from core.application.port import ConfigPort
 from core.application.settings import RuntimeSettings
-from core.domain import DeviceId, Sink
+from core.domain import (
+    ConnectionEndpoint,
+    Device,
+    DeviceId,
+    DeviceModel,
+    ProtocolOptions,
+    Sink,
+)
 from core.domain.unit import UNIT_CATALOG, UnitCode
-from core.infrastructure.config import YamlConfigAdapter
 from core.infrastructure.config.sink_schema import (
     MODBUS_WORD_WIDTH,
     SINK_NUMERIC_DATA_TYPES,
@@ -22,11 +28,24 @@ from core.infrastructure.config.sink_schema import (
 from ...application.config import BackpressurePolicy, CollectorConfig, RuntimeParams
 
 
-def load_collector_config(
-    config_dir: str | Path, *, source: ConfigPort | None = None
-) -> CollectorConfig:
-    snapshot = (source if source is not None else YamlConfigAdapter(config_dir)).load()
-    return _from_snapshot(snapshot)
+def load_collector_config(source: ConfigPort) -> CollectorConfig:
+    """从注入的配置来源加载 Collector 配置；不在 Loader 内实例化 Adapter。"""
+    return _from_snapshot(source.load())
+
+
+def _effective_device(
+    device: Device,
+    model: DeviceModel,
+) -> tuple[Device, ProtocolOptions]:
+    """合并「设备显式 > 型号默认」得到运行时有效 endpoint 与协议参数。"""
+    endpoint = device.endpoint
+    if endpoint.port is None and model.endpoint_defaults.get("port") is not None:
+        endpoint = ConnectionEndpoint(
+            host=endpoint.host,
+            port=int(model.endpoint_defaults["port"]),
+        )
+        device = replace(device, endpoint=endpoint)
+    return device, cast(ProtocolOptions, dict(model.protocol_options))
 
 
 def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
@@ -41,11 +60,23 @@ def _from_snapshot(snapshot: ConfigSnapshot) -> CollectorConfig:
             )
     devices = snapshot.site.devices
     settings = snapshot.system.runtime
+    effective_devices: dict[DeviceId, Device] = {}
+    effective_options: dict[DeviceId, ProtocolOptions] = {}
+    for key, device in devices.items():
+        if not device.enabled:
+            continue
+        model = snapshot.device_models[device.device_model_id]
+        merged_device, model_options = _effective_device(device, model)
+        effective_devices[key] = merged_device
+        effective_options[key] = {
+            **model_options,
+            **snapshot.protocol_options_by_device.get(key, {}),
+        }
     return CollectorConfig(
-        devices={key: device for key, device in devices.items() if device.enabled},
+        devices=effective_devices,
         device_models=snapshot.device_models,
         point_tables=snapshot.point_tables,
-        protocol_options_by_device=snapshot.protocol_options_by_device,
+        protocol_options_by_device=effective_options,
         runtime=_runtime_params(settings),
         ads_local=snapshot.system.ads,
         tasks=snapshot.tasks,

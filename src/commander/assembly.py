@@ -13,7 +13,7 @@ from pathlib import Path
 
 from core.application import ProtocolRegistry
 from core.domain import ConnectionEndpoint, Device, ProtocolOptions
-from core.infrastructure.config import config_dir_digest
+from core.infrastructure.config import YamlConfigAdapter, config_dir_digest
 from core.infrastructure.diagnostic.network import ping_host, tcp_port_open
 from core.infrastructure.protocol import ADSDriver, IEC104Driver, ModbusDriver
 
@@ -87,9 +87,10 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         ConfigError: 配置非法。
     """
     config_path = Path(config_dir)
+    config_source = YamlConfigAdapter(config_path)
 
     before_hash = config_dir_digest(config_path)
-    config = load_commander_config(config_path)
+    config = load_commander_config(config_source)
     config_hash = config_dir_digest(config_path)
     if before_hash != config_hash:
         raise ValueError(
@@ -137,7 +138,7 @@ def assemble_commander(config_dir: str | Path) -> CommanderApp:
         config=CommanderConfigService(
             config_path,
             runtime,
-            load_config=load_commander_config,
+            load_config=lambda: load_commander_config(config_source),
             config_digest=config_dir_digest,
         ),
         config_dir=config_path,

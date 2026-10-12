@@ -40,6 +40,9 @@ class ConfigSnapshot:
     business_points: Mapping[BusinessPointId, BusinessPoint]
     tasks: Mapping[str, Task]
     sinks: Mapping[str, Sink]
+    # 设备实例显式声明的协议参数（不含 DeviceModel.protocol_options 默认
+    # 值）；运行时有效参数由 Collector/Commander 装配层按
+    # 「设备显式 > 型号默认 > 协议代码默认」合并。
     protocol_options_by_device: Mapping[DeviceId, ProtocolOptions]
     ads_subscribe_devices: frozenset[DeviceId] = frozenset()
 
