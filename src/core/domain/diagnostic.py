@@ -63,6 +63,7 @@ class PointVerifyResult:
     scale: float
     offset: float
     unit: str
+    access: str = ""
     readable: bool | None = None
     ok: bool = False
     code: DiagnosticCode = DiagnosticCode.OK
