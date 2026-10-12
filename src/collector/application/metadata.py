@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.domain import DeviceId, PointAccess
+from core.domain import DeviceId
 
 from .config_service import CollectorConfigService
 
