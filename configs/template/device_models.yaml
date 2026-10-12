@@ -45,7 +45,8 @@
 #
 # Modbus（modbus_wtg.protocol_options）：
 #   mode:            仅支持 tcp（默认）。
-#   unit_id:         int 0..255，默认 1 —— 从站地址。
+#   slave_id:        int 0..255，默认 1 —— Modbus 从站地址（Unit
+#                    Identifier）；与工程单位 unit_id 无关。
 #   timeout:         float > 0（秒），默认 5.0 —— 协议栈单次请求超时。
 #   word_order:      big_endian / little_endian，默认 little_endian。
 #   health_point_id: str，可选 —— 健康检查读取的 Point ID，必须存在于
@@ -86,7 +87,7 @@ device_types:
 
 device_models:
 
-  # Modbus 风机控制器（公共参数：mode/unit_id/timeout/word_order/health_point_id）
+  # Modbus 风机控制器（公共参数：mode/slave_id/timeout/word_order/health_point_id）
   modbus_wtg:
     device_type_id: turbine
     protocol: modbus
@@ -95,7 +96,7 @@ device_models:
       port: 1502               # 本机模拟非特权 TCP 端口
     protocol_options:
       mode: tcp
-      unit_id: 1
+      slave_id: 1
       timeout: 5.0
       word_order: little_endian
       health_point_id: active_power   # 必须存在于 modbus_wtg_v1 点表

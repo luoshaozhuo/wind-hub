@@ -82,7 +82,7 @@ async def idem_env(
                     "host": "127.0.0.1",
                     "port": modbus_server.port,
                 },
-                "protocol_options": {"unit_id": 1, "timeout": 2.0, "word_order": "big_endian"},
+                "protocol_options": {"slave_id": 1, "timeout": 2.0, "word_order": "big_endian"},
             }
         },
         point_tables={"modbus": {"protocol": "modbus", "points": dict(_COMMANDER_POINTS)}},

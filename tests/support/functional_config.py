@@ -64,7 +64,7 @@ def modbus_device_dict(port: int, **overrides: Any) -> dict[str, Any]:
                 "port": port,
             },
             "protocol_options": {
-                "unit_id": 1,
+                "slave_id": 1,
                 "timeout": 2.0,
                 # fixture server 寄存器布局为 big-endian float32。
                 "word_order": "big_endian",

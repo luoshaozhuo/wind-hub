@@ -62,10 +62,10 @@ def test_template_device_overrides_merge_with_model_defaults() -> None:
     models = snapshot.device_models
 
     modbus_override = options[DeviceId("modbus-010")]
-    assert modbus_override == {"unit_id": 10}
+    assert modbus_override == {"slave_id": 10}
     merged = {**models[DeviceModelId("modbus_wtg")].protocol_options, **modbus_override}
     config = parse_modbus_config(ConnectionEndpoint(host="127.0.0.20"), merged)
-    assert (config.unit_id, config.timeout, config.health_point_id) == (10, 5.0, "active_power")
+    assert (config.slave_id, config.timeout, config.health_point_id) == (10, 5.0, "active_power")
 
     ads_override = options[DeviceId("ads-010")]
     assert ads_override == {"target_net_id": "127.0.0.30.1.1", "username": "RouteAdmin"}
@@ -103,7 +103,7 @@ def test_template_defaults_match_protocol_code_defaults() -> None:
     """模板文件头声称的协议默认值与解析器代码默认值一致。"""
     endpoint = ConnectionEndpoint(host="192.0.2.1")
     modbus = parse_modbus_config(endpoint, {})
-    assert (modbus.port, modbus.unit_id, modbus.timeout, modbus.word_order) == (
+    assert (modbus.port, modbus.slave_id, modbus.timeout, modbus.word_order) == (
         502,
         1,
         5.0,

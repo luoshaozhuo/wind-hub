@@ -191,7 +191,7 @@ def write_soak_config(
                     "host": host,
                     "port": port,
                 },
-                "protocol_options": {"unit_id": 1, **(profile.device_protocol_options or {})},
+                "protocol_options": {"slave_id": 1, **(profile.device_protocol_options or {})},
             }
             tasks[device_id] = {
                 "device_group_id": device_id,

@@ -430,14 +430,14 @@ class ModbusDriver:
     ) -> Any:
         """发送一次 Modbus 读取请求并返回原始响应；不检查 isError。"""
         client = self._client
-        unit_id = self._config.unit_id
+        slave_id = self._config.slave_id
         if register_type == "coil":
-            return await client.read_coils(start, count=count, device_id=unit_id)
+            return await client.read_coils(start, count=count, device_id=slave_id)
         if register_type == "discrete_input":
-            return await client.read_discrete_inputs(start, count=count, device_id=unit_id)
+            return await client.read_discrete_inputs(start, count=count, device_id=slave_id)
         if register_type == "holding":
-            return await client.read_holding_registers(start, count=count, device_id=unit_id)
-        return await client.read_input_registers(start, count=count, device_id=unit_id)
+            return await client.read_holding_registers(start, count=count, device_id=slave_id)
+        return await client.read_input_registers(start, count=count, device_id=slave_id)
 
     async def _read_group(
         self,
@@ -482,17 +482,17 @@ class ModbusDriver:
         返回的协程发送请求并以 ``not response.isError()`` 报告设备是否接受。
         """
         client = self._client
-        unit_id = self._config.unit_id
+        slave_id = self._config.slave_id
 
         if point.register_type == "coil":
             coil_value = _encode_coil(value, point.data_type)
-            return _write_accepted(client.write_coil(point.address, coil_value, device_id=unit_id))
+            return _write_accepted(client.write_coil(point.address, coil_value, device_id=slave_id))
         words = _encode_registers(value, point.data_type, point.word_order)
         if len(words) == 1:
             return _write_accepted(
-                client.write_register(point.address, words[0], device_id=unit_id)
+                client.write_register(point.address, words[0], device_id=slave_id)
             )
-        return _write_accepted(client.write_registers(point.address, words, device_id=unit_id))
+        return _write_accepted(client.write_registers(point.address, words, device_id=slave_id))
 
     async def _transact(self, operation: str, request: Awaitable[_T]) -> _T:
         """执行一次 Modbus 请求，统一读写路径的取消与通信异常处理。

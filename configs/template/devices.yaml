@@ -30,7 +30,8 @@
 #
 # Modbus（protocol_options）：
 #   mode:            仅支持 tcp（默认）。
-#   unit_id:         int 0..255，默认 1 —— 从站地址。
+#   slave_id:        int 0..255，默认 1 —— Modbus 从站地址（Unit
+#                    Identifier）。
 #   timeout:         float > 0（秒），默认 5.0 —— 协议栈单次请求超时；
 #                    与 runtime.connect_timeout/read_timeout（应用层调度
 #                    超时）语义不同，各自独立生效。
@@ -106,7 +107,7 @@ device_groups:
 
 devices:
 
-  # ---- Modbus 本机模拟设备 ×10（端口/unit_id 等来自型号默认值） ----
+  # ---- Modbus 本机模拟设备 ×10（端口/slave_id 等来自型号默认值） ----
   modbus-001:
     model_id: modbus_wtg
     device_group_ids: [turbine_modbus]
@@ -161,14 +162,14 @@ devices:
     endpoint:
       host: "127.0.0.19"
 
-  # 覆盖示例：仅覆盖 unit_id，其余参数继续继承型号默认值
+  # 覆盖示例：仅覆盖 slave_id，其余参数继续继承型号默认值
   modbus-010:
     model_id: modbus_wtg
     device_group_ids: [turbine_modbus]
     endpoint:
       host: "127.0.0.20"
     protocol_options:
-      unit_id: 10
+      slave_id: 10
 
   # ---- ADS 本机模拟设备 ×10（TwinCAT 3；端口/twincat_version 来自型号默认值） ----
   # 每台设备必须有不同的目标 AMS Net ID（通常为设备 IP + ".1.1"），

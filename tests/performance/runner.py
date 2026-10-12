@@ -89,7 +89,7 @@ def get_device_config(protocol: str, host: str, port: int) -> dict[str, dict[str
     """
     plan = PLANS[protocol]
     if protocol == "modbus":
-        protocol_options: dict[str, object] = {"unit_id": 1}
+        protocol_options: dict[str, object] = {"slave_id": 1}
     elif protocol == "iec104":
         protocol_options = {"common_addr": 1}
     else:  # ads

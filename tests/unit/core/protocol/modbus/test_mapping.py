@@ -4,13 +4,11 @@ import pytest
 
 from core.application import ConfigError
 from core.domain import (
-    UNIT_CATALOG,
     ConnectionEndpoint,
     Point,
     PointAccess,
     PointTable,
     Protocol,
-    UnitCode,
 )
 from core.domain.identities import BusinessPointId, PointTableId
 from core.infrastructure.protocol.modbus import (
@@ -19,6 +17,7 @@ from core.infrastructure.protocol.modbus import (
     parse_modbus_config,
     parse_modbus_point,
 )
+from tests.support.units import NONE_UNIT
 
 
 def _point(
@@ -30,7 +29,7 @@ def _point(
     return Point(
         point_id=point_id,
         business_point_id=BusinessPointId(point_id),
-        source_unit=UNIT_CATALOG[UnitCode.NONE],
+        source_unit=NONE_UNIT,
         access=access,
         ext={} if ext is None else ext,
     )
@@ -55,7 +54,7 @@ def test_modbus_config_uses_device_options() -> None:
     config = parse_modbus_config(
         endpoint,
         {
-            "unit_id": 7,
+            "slave_id": 7,
             "timeout": 2.5,
             "word_order": "big_endian",
         },
@@ -63,7 +62,7 @@ def test_modbus_config_uses_device_options() -> None:
 
     assert config.host == "192.0.2.10"
     assert config.port == 1502
-    assert config.unit_id == 7
+    assert config.slave_id == 7
     assert config.timeout == 2.5
     assert config.word_order == "big_endian"
 
