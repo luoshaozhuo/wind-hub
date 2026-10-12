@@ -34,6 +34,8 @@ async def test_metadata_is_config_only_and_preserves_order() -> None:
     assert result.points[1].metadata is None
     assert result.points[2].metadata == result.points[0].metadata
     assert registry.instances[0].connect_calls == 0
+    assert registry.instances[0].writes == []
+    assert result.points[0].metadata.data_type == "float32"
     assert not runtime.devices["dev1"].is_open()
 
 
@@ -71,5 +73,5 @@ async def test_metadata_reports_configured_access_not_live_capability() -> None:
         changed_point = replace(point, access=access)
         from commander.application.metadata import _point_metadata
 
-        assert _point_metadata(changed_point).access == access.value
+        assert _point_metadata(changed_point, data_type="float32").access == access.value
     assert registry.instances[0].connect_calls == 0
