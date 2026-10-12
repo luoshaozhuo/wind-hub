@@ -370,7 +370,6 @@ class CommanderDiagnosticService:
         source: str | None = None,
         error: str | None = None,
     ) -> PointVerifyResult:
-        meta = point
         engineering = engineering_value(point, raw_value)
 
         code = DiagnosticCode.OK
@@ -400,14 +399,13 @@ class CommanderDiagnosticService:
         return PointVerifyResult(
             device_id=str(device.device_id),
             point_id=point.point_id,
-            variable_name=meta.variable_name,
             protocol=device.protocol_name,
             configured_address=_configured_address(point),
             resolved_address=resolved_address,
             data_type=_point_data_type(point),
             scale=point.scale,
             offset=point.offset,
-            unit=point.source_unit.code.value,
+            unit=point.source_unit.unit_id,
             readable=readable,
             ok=ok,
             code=code,

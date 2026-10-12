@@ -41,8 +41,8 @@ from core.domain import (
     PointTableId,
     Protocol,
 )
-from core.domain.unit import UNIT_CATALOG, UnitCode
 from tests.support.new_commander import FakeProtocol, FakeRegistry, FakeSubscriptionHandle
+from tests.support.units import NONE_UNIT
 
 # ---------------------------------------------------------------------------
 # Fake Protocol（采集增强版）
@@ -162,7 +162,7 @@ def make_collector_config(
     默认含一个采集任务 ``t1``：device_group_id=dev1、group=g、interval=1.0、
     sink_ids=("s1",)。传 ``tasks={}`` 可关闭默认任务。
     """
-    unit = UNIT_CATALOG[UnitCode.NONE]
+    unit = NONE_UNIT
     point = Point(
         point_id="p1",
         business_point_id=BusinessPointId("p1"),
@@ -171,7 +171,6 @@ def make_collector_config(
         scale=scale,
         offset=offset,
         ext={"register_type": "holding", "address": 100, "data_type": "float32"},
-        variable_name="P1",
         point_groups=point_groups,
     )
     table = PointTable(

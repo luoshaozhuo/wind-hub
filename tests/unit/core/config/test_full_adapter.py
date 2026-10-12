@@ -10,14 +10,13 @@ from core.infrastructure.config.adapter import YamlConfigAdapter
 ROOT = Path(__file__).resolve().parents[4]
 
 
-def test_load_example_modbus_without_units_file() -> None:
+def test_load_example_modbus() -> None:
     config = YamlConfigAdapter(ROOT / "configs" / "example_modbus").load()
     assert type(config).__name__ == "ConfigSnapshot"
     active = config.business_points[BusinessPointId("active_power")]
-    assert active.standard_unit.code.value == "kilowatt"
+    assert active.standard_unit.unit_id == "kilowatt"
     point = config.point_tables[PointTableId("wtg_modbus_site_v1")].points["active_power"]
     assert point.business_point_id == "active_power"
-    assert point.variable_name == "active_power"
     assert point.point_groups == ("all",)
     assert config.site.site_id == "example_modbus"
     assert config.site.devices
@@ -44,6 +43,7 @@ def test_full_loader_requires_business_point_catalog(tmp_path: Path) -> None:
     source = ROOT / "configs" / "example_modbus"
     for filename in (
         "system.yaml",
+        "units.yaml",
         "device_models.yaml",
         "devices.yaml",
         "points.yaml",

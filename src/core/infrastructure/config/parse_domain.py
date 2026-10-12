@@ -47,13 +47,14 @@ from core.domain import (
     Task,
     validate_core_config,
 )
-from core.domain.unit import UNIT_CATALOG, UnitCode
+from core.domain.unit import DIMENSIONLESS, UnitCatalog
 from core.infrastructure.protocol.ads.config import is_valid_ams_net_id, parse_ads_config
 from core.infrastructure.protocol.iec104.config import parse_iec104_config
 from core.infrastructure.protocol.modbus.config import parse_modbus_config
 
 from .business_points import parse_business_points
 from .sink_schema import parse_sink_definitions
+from .units import parse_unit_catalog
 from .yaml import read_yaml_mapping
 from .yaml import yaml_plain as _yaml_plain
 
@@ -64,13 +65,12 @@ _OPTION_PARSERS = {
 }
 _POINT_FIELDS = {
     "business_point_id",
-    "variable_name",
     "point_groups",
     "address",
     "data_type",
     "scale",
     "offset",
-    "unit",
+    "unit_id",
     "description",
 }
 _DEVICE_FIELDS = {
@@ -206,6 +206,7 @@ def _point(
     entry: Mapping[str, Any],
     protocol: str,
     business_points: Mapping[BusinessPointId, Any],
+    units: UnitCatalog,
 ) -> Point:
     context = f"point '{point_id}'"
     _keys(entry, _POINT_FIELDS, context)
@@ -217,9 +218,9 @@ def _point(
         raise ConfigError(f"{context} unknown business point '{identity}'")
     try:
         data_type = DataType(_name(entry.get("data_type"), f"{context}.data_type"))
-        unit = UNIT_CATALOG[UnitCode(_name(entry.get("unit", "none"), f"{context}.unit"))]
+        unit = units.unit(_name(entry.get("unit_id", "none"), f"{context}.unit_id"))
     except (ValueError, KeyError) as exc:
-        raise ConfigError(f"{context}: invalid data type or unit: {exc}") from exc
+        raise ConfigError(f"{context}: invalid data type or unit_id: {exc}") from exc
     if (
         data_type != business_point.data_type
         or unit.quantity != business_point.standard_unit.quantity
@@ -228,7 +229,10 @@ def _point(
     scale = _number(entry.get("scale", 1.0), f"{context}.scale")
     offset = _number(entry.get("offset", 0.0), f"{context}.offset")
     if data_type in (DataType.BOOL, DataType.STRING) and (
-        unit.code != UnitCode.NONE or scale != 1.0 or offset != 0.0
+        unit.quantity != DIMENSIONLESS
+        or not unit.is_base_transform
+        or scale != 1.0
+        or offset != 0.0
     ):
         raise ConfigError(f"{context}: bool/string must be dimensionless without scaling")
 
@@ -269,7 +273,6 @@ def _point(
         offset=offset,
         ext=extensions,
         description=entry.get("description"),
-        variable_name=entry.get("variable_name"),
         point_groups=groups,
     )
 
@@ -277,6 +280,7 @@ def _point(
 def _point_tables(
     raw: Mapping[str, Any],
     business_points: Mapping[BusinessPointId, Any],
+    units: UnitCatalog,
 ) -> dict[PointTableId, PointTable]:
     _keys(raw, {"point_tables"}, "points.yaml")
     definitions = _map(raw.get("point_tables"), "points.point_tables")
@@ -330,7 +334,8 @@ def _point_tables(
             updated.update(patch)
             points[key] = updated
         domain_points = {
-            key: _point(key, value, protocol, business_points) for key, value in points.items()
+            key: _point(key, value, protocol, business_points, units)
+            for key, value in points.items()
         }
         table = PointTable(
             point_table_id=PointTableId(name),
@@ -562,6 +567,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
     """一次性解析完整 YAML 集合，构建并验证领域快照。"""
     base = Path(config_dir)
     system = read_yaml_mapping(base / "system.yaml")
+    units_document = read_yaml_mapping(base / "units.yaml")
     model_document = read_yaml_mapping(base / "device_models.yaml")
     device_document = read_yaml_mapping(base / "devices.yaml")
     point_document = read_yaml_mapping(base / "points.yaml")
@@ -570,8 +576,9 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
     business_document = read_yaml_mapping(base / "business_points.yaml")
     try:
         site_id, site_name, settings = _system(system)
-        business_points = parse_business_points(business_document)
-        point_tables = _point_tables(point_document, business_points)
+        units = parse_unit_catalog(units_document)
+        business_points = parse_business_points(business_document, units)
+        point_tables = _point_tables(point_document, business_points, units)
         _keys(model_document, {"device_types", "device_models"}, "device_models.yaml")
         types = _device_types(model_document)
         models = _device_models(model_document, types, point_tables)
@@ -584,6 +591,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         tasks = _tasks(task_document)
         sinks = _sinks(sink_document)
         validate_core_config(
+            units=units,
             device_types=types,
             device_models=models,
             device_groups=groups,
@@ -598,6 +606,7 @@ def load_domain(config_dir: Path) -> ConfigSnapshot:
         site = Site(site_id=site_id, name=site_name, devices=devices)
         return ConfigSnapshot(
             system=settings,
+            units=units,
             site=site,
             device_types=types,
             device_models=models,

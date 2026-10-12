@@ -73,7 +73,8 @@ message PointRequest { string device_id = 1; string point_id = 2; }
 message VerifyPointsRequest { string device_id = 1; string point_group = 2; }
 message AddressField { string key = 1; ScalarValue value = 2; }
 message PointVerifyResponse {
-  string device_id = 1; string point_id = 2; string variable_name = 3; string protocol = 4;
+  reserved 3;
+  string device_id = 1; string point_id = 2; string protocol = 4;
   repeated AddressField configured_address = 5; repeated AddressField resolved_address = 6;
   string data_type = 7; double scale = 8; double offset = 9; string unit = 10;
   google.protobuf.BoolValue readable = 11; bool ok = 12; string code = 13; string severity = 14;

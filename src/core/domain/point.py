@@ -52,7 +52,6 @@ class Point:
     offset: float = 0.0
     ext: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
     description: str | None = None
-    variable_name: str | None = None
     point_groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:

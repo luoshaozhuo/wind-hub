@@ -408,7 +408,7 @@ def test_meta_and_point_groups_loaded(tmp_path):
         tmp_path,
         points={
             "p1": {
-                "variable_name": "风速",
+                "description": "风速",
                 "point_groups": ["g", "fast"],
                 "address": {"register_type": "holding", "address": 100},
                 "data_type": "float32",
@@ -417,7 +417,7 @@ def test_meta_and_point_groups_loaded(tmp_path):
     )
     config = load_collector_config(YamlConfigAdapter(config_dir))
     point = config.point_tables[PointTableId("tab")].points["p1"]
-    assert point.variable_name == "风速"
+    assert point.description == "风速"
     assert point.point_groups == ("g", "fast")
 
 

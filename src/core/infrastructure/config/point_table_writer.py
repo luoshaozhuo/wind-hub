@@ -13,13 +13,12 @@ def _point_dict(point: Point) -> dict[str, Any]:
     data_type = address.pop("data_type")
     return {
         "business_point_id": str(point.business_point_id),
-        "variable_name": point.variable_name,
         "point_groups": list(point.point_groups),
         "address": address,
         "data_type": data_type,
         "scale": point.scale,
         "offset": point.offset,
-        "unit": point.source_unit.code.value,
+        "unit_id": point.source_unit.unit_id,
         "description": point.description,
     }
 

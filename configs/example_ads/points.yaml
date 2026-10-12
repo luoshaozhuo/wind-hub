@@ -4,7 +4,6 @@ point_tables:
     points:
       wind_speed:
         business_point_id: wind_speed
-        variable_name: wind_speed
         point_groups:
         - all
         address:
@@ -12,11 +11,10 @@ point_tables:
         data_type: float32
         scale: 1.0
         offset: 0.0
-        unit: meter_per_second
+        unit_id: meter_per_second
         description: 风速
       wind_vane_wind_direction:
         business_point_id: wind_vane_wind_direction
-        variable_name: wind_vane_wind_direction
         point_groups:
         - all
         address:
@@ -24,11 +22,10 @@ point_tables:
         data_type: float32
         scale: 1.0
         offset: 0.0
-        unit: degree
+        unit_id: degree
         description: 风向
       grid_active_power:
         business_point_id: grid_active_power
-        variable_name: grid_active_power
         point_groups:
         - all
         address:
@@ -36,11 +33,10 @@ point_tables:
         data_type: float32
         scale: 1.0
         offset: 0.0
-        unit: kilowatt
+        unit_id: kilowatt
         description: 并网有功功率
       grid_reactive_power:
         business_point_id: grid_reactive_power
-        variable_name: grid_reactive_power
         point_groups:
         - all
         address:
@@ -48,11 +44,10 @@ point_tables:
         data_type: float32
         scale: 1.0
         offset: 0.0
-        unit: kilovar
+        unit_id: kilovar
         description: 并网无功功率
       generator_speed:
         business_point_id: generator_speed
-        variable_name: overspeed_modul_generator_speed_signal_1
         point_groups:
         - all
         address:
@@ -60,5 +55,5 @@ point_tables:
         data_type: float32
         scale: 1.0
         offset: 0.0
-        unit: rpm
+        unit_id: rpm
         description: 发电机转速信号

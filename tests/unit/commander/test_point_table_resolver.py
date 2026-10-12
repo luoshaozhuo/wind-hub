@@ -55,16 +55,16 @@ def test_inheritance_override_append_and_remove(tmp_path):
     assert table.points["p1"].ext["address"] == 1
 
 
-def test_explicit_null_clears_inherited_optional_name(tmp_path):
-    base_point = {**_base_point(1), "variable_name": "original"}
+def test_explicit_null_clears_inherited_optional_description(tmp_path):
+    base_point = {**_base_point(1), "description": "original"}
     config = _load(
         tmp_path,
         {
             "tab": {"protocol": "modbus", "points": {"p1": base_point}},
-            "child": {"parent_id": "tab", "points": {"p1": {"variable_name": None}}},
+            "child": {"parent_id": "tab", "points": {"p1": {"description": None}}},
         },
     )
-    assert config.point_tables[PointTableId("child")].points["p1"].variable_name is None
+    assert config.point_tables[PointTableId("child")].points["p1"].description is None
 
 
 def test_inheritance_cycle_rejected(tmp_path):

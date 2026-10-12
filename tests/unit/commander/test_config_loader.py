@@ -33,12 +33,12 @@ def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
         tmp_path,
         protocol="modbus",
         endpoint_defaults={"port": 1502},
-        protocol_options={"unit_id": 3, "word_order": "little_endian"},
+        protocol_options={"slave_id": 3, "word_order": "little_endian"},
         devices={
             "dev1": {
                 "model_id": "mod",
                 "endpoint": {"host": "10.0.0.1"},
-                "protocol_options": {"unit_id": 9},
+                "protocol_options": {"slave_id": 9},
             }
         },
     )
@@ -46,7 +46,7 @@ def test_endpoint_merge_defaults_and_instance_wins(tmp_path):
     device = config.devices[DeviceId("dev1")]
     assert device.endpoint.port == 1502  # 型号 endpoint_defaults 回填有效端口
     options = config.protocol_options_for(device.device_id)
-    assert options["unit_id"] == 9  # 设备显式 protocol_options 覆盖型号默认值
+    assert options["slave_id"] == 9  # 设备显式 protocol_options 覆盖型号默认值
     assert options["word_order"] == "little_endian"
 
 
@@ -127,11 +127,11 @@ def test_unknown_unit_rejected(tmp_path):
                 "point_groups": ["g"],
                 "address": {"register_type": "holding", "address": 100},
                 "data_type": "float32",
-                "unit": "furlong",
+                "unit_id": "furlong",
             }
         },
     )
-    with pytest.raises(ConfigError, match="invalid business point"):
+    with pytest.raises(ConfigError, match="invalid business point|invalid data type or unit_id"):
         load_commander_config(YamlConfigAdapter(config_dir))
 
 
@@ -140,7 +140,7 @@ def test_bool_point_must_be_dimensionless(tmp_path):
     write_yaml(
         config_dir,
         "business_points.yaml",
-        {"business_points": {"flag": {"data_type": "bool", "unit": "percent"}}},
+        {"business_points": {"flag": {"data_type": "bool", "unit_id": "percent"}}},
     )
     write_yaml(
         config_dir,
@@ -155,7 +155,7 @@ def test_bool_point_must_be_dimensionless(tmp_path):
                             "point_groups": ["g"],
                             "address": {"register_type": "coil", "address": 1},
                             "data_type": "bool",
-                            "unit": "percent",
+                            "unit_id": "percent",
                         }
                     },
                 }
@@ -338,7 +338,7 @@ def test_point_fields_loaded(tmp_path):
         tmp_path,
         points={
             "p1": {
-                "variable_name": "有功功率",
+                "description": "有功功率",
                 "point_groups": ["telemetry", "fast"],
                 "address": {"register_type": "holding", "address": 100},
                 "data_type": "float32",
@@ -347,7 +347,7 @@ def test_point_fields_loaded(tmp_path):
     )
     config = load_commander_config(YamlConfigAdapter(config_dir))
     point = config.point_tables[PointTableId("tab")].points["p1"]
-    assert point.variable_name == "有功功率"
+    assert point.description == "有功功率"
     assert point.point_groups == ("telemetry", "fast")
 
 

@@ -45,7 +45,7 @@ from core.domain import (
     Protocol,
     ProtocolOptions,
 )
-from core.domain.unit import UNIT_CATALOG, UnitCode
+from tests.support.units import MINIMAL_UNITS_DOCUMENT, NONE_UNIT
 
 # ---------------------------------------------------------------------------
 # YAML 配置树
@@ -138,12 +138,13 @@ def write_minimal_config_tree(
             if "data_type" in point:
                 definition = {
                     "data_type": point["data_type"],
-                    "unit": point.get("unit", "none"),
+                    "unit_id": point.get("unit_id", "none"),
                 }
                 previous = business_points.get(identity)
                 if previous is not None and previous != definition:
                     raise ValueError(f"conflicting business point definition: {identity}")
                 business_points[identity] = definition
+    write_yaml(base, "units.yaml", dict(MINIMAL_UNITS_DOCUMENT))
     write_yaml(base, "business_points.yaml", {"business_points": business_points})
     write_yaml(base, "points.yaml", {"point_tables": point_tables})
     write_yaml(base, "tasks.yaml", {"tasks": {}})
@@ -293,7 +294,7 @@ def make_commander_config(
     write_timeout: float = 1.0,
 ) -> CommanderConfig:
     """构造单设备单点的内存 CommanderConfig（不经过 YAML）。"""
-    unit = UNIT_CATALOG[UnitCode.NONE]
+    unit = NONE_UNIT
     bp = BusinessPoint(
         business_point_id=BusinessPointId("p1"),
         data_type=data_type,
@@ -307,7 +308,6 @@ def make_commander_config(
         scale=scale,
         offset=offset,
         ext=address or {"register_type": "holding", "address": 100},
-        variable_name="P1",
         point_groups=("g",),
     )
     table = PointTable(

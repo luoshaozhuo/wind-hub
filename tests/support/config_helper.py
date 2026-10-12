@@ -2,7 +2,8 @@
 
 生产配置目录是完全独立、自包含的完整配置集（``system.yaml`` /
 ``device_models.yaml`` / ``points.yaml`` / ``devices.yaml`` /
-``tasks.yaml`` / ``sinks.yaml`` / ``business_points.yaml``）。
+``tasks.yaml`` / ``sinks.yaml`` / ``business_points.yaml`` /
+``units.yaml``）。
 :func:`write_config_tree` 把整套文件直接写进 ``base`` 并返回 ``base``
 （即 ``load_config`` 的参数），与生产 loader 的目录规则一致。
 
@@ -25,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from tests.support.units import MINIMAL_UNITS_DOCUMENT
 
 
 def _write_yaml(dir_path: Path, name: str, data: dict[str, Any]) -> Path:
@@ -139,7 +142,7 @@ def write_config_tree(
             if "data_type" in point:
                 definition = {
                     "data_type": point["data_type"],
-                    "unit": point.get("unit", "none"),
+                    "unit_id": point.get("unit_id", "none"),
                 }
                 previous = business_points.get(identity)
                 if previous is not None and previous != definition:
@@ -160,6 +163,7 @@ def write_config_tree(
         for group_id in entry["device_group_ids"]:
             declared.setdefault(group_id, {"name": str(group_id)})
 
+    _write_yaml(base, "units.yaml", dict(MINIMAL_UNITS_DOCUMENT))
     _write_yaml(base, "business_points.yaml", {"business_points": business_points})
     _write_yaml(
         base,

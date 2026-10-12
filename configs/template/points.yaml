@@ -20,15 +20,18 @@
 #   business_point_id: 引用 business_points.yaml 的业务点（必填）——数据
 #                      类型与量纲必须兼容；Point ID 与 BusinessPoint ID 是
 #                      两种身份，必须显式引用，不会自动等同。
-#   variable_name:     str，可选 —— 对外变量名，缺省等于 Point ID。
 #   point_groups:      list[str]，可选 —— 采集分组，Task 按 point_group
 #                      选择点集。
 #   address:           Mapping，必填 —— 协议地址（见下），显式配置即整体
 #                      替换父表值，不残留父表字段。
 #   data_type:         bool/int8/int16/int32/int64/uint8/uint16/uint32/
 #                      uint64/float32/float64/string（必填）。
-#   unit:              内置单位标识（如 kilowatt），缺省 none。
-#   scale / offset:    float，默认 1.0 / 0.0 —— 工程量换算
+#   unit_id:           工程单位引用（units.yaml 的 Unit ID，如
+#                      kilowatt），缺省 none（无量纲）；量纲必须与
+#                      业务点标准单位一致。
+#   scale / offset:    float，默认 1.0 / 0.0 —— 把协议原始值换算为
+#                      unit_id 单位下的工程值（value × scale + offset）；
+#                      与 units.yaml 的单位间换算无关，不会叠加。
 #                      （bool/string 点不允许 scaling 且必须 dimensionless）。
 #   description:       str，可选。
 #
@@ -59,7 +62,6 @@ point_tables:
 
       active_power:
         business_point_id: active_power
-        variable_name: active_power
         point_groups: [all]
         address:
           register_type: input
@@ -67,12 +69,11 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit: kilowatt
+        unit_id: kilowatt
         description: "有功功率"
 
       wind_speed:
         business_point_id: wind_speed
-        variable_name: wind_speed
         point_groups: [all]
         address:
           register_type: input
@@ -80,7 +81,7 @@ point_tables:
         data_type: int16
         scale: 0.01
         offset: 0.0
-        unit: meter_per_second
+        unit_id: meter_per_second
         description: "风速"
 
   # ---- ADS 风机基础点表（继承基座，不直接绑定） ----
@@ -90,22 +91,20 @@ point_tables:
 
       rotor_speed:
         business_point_id: rotor_speed
-        variable_name: rotor_speed
         point_groups: [all]
         address:
           symbol: MAIN.rotorSpeed
         data_type: float32
-        unit: rpm
+        unit_id: rpm
         description: "风轮转速"
 
       gen_power:
         business_point_id: gen_power
-        variable_name: gen_power
         point_groups: [all]
         address:
           symbol: MAIN.genPower
         data_type: float32
-        unit: kilowatt
+        unit_id: kilowatt
         description: "发电机有功功率"
 
   # ---- ADS 机型点表：继承基础表并覆盖 Symbol ----
@@ -120,12 +119,11 @@ point_tables:
 
       converter_temp:                   # 新增点
         business_point_id: converter_temp
-        variable_name: converter_temp
         point_groups: [all]
         address:
           symbol: MAIN.converterTemp
         data_type: float32
-        unit: celsius
+        unit_id: celsius
         description: "变流器温度"
 
   # ---- IEC104 风机点表 ----
@@ -135,22 +133,20 @@ point_tables:
 
       active_power:
         business_point_id: active_power_iec
-        variable_name: active_power
         point_groups: [all]
         address:
           type: M_ME_NA_1
           ioa: 1001
         data_type: float32
-        unit: kilowatt
+        unit_id: kilowatt
         description: "有功功率"
 
       turbine_run:
         business_point_id: turbine_run
-        variable_name: turbine_run
         point_groups: [all]
         address:
           type: M_SP_NA_1
           ioa: 2001
         data_type: bool
-        unit: none
+        unit_id: none
         description: "运行状态"

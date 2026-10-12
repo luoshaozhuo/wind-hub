@@ -4,7 +4,6 @@ point_tables:
     points:
       active_power:
         business_point_id: active_power
-        variable_name: active_power
         point_groups:
         - all
         address:
@@ -13,11 +12,10 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit: kilowatt
+        unit_id: kilowatt
         description: 有功功率瞬时值
       active_power_1min:
         business_point_id: active_power_1min
-        variable_name: active_power_1min
         point_groups:
         - all
         address:
@@ -26,11 +24,10 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit: kilowatt
+        unit_id: kilowatt
         description: 有功功率1分钟值
       reactive_power:
         business_point_id: reactive_power
-        variable_name: reactive_power
         point_groups:
         - all
         address:
@@ -39,11 +36,10 @@ point_tables:
         data_type: int32
         scale: 0.001
         offset: 0.0
-        unit: kilovar
+        unit_id: kilovar
         description: 无功功率瞬时值
       wind_speed:
         business_point_id: wind_speed
-        variable_name: wind_speed
         point_groups:
         - all
         address:
@@ -52,11 +48,10 @@ point_tables:
         data_type: int16
         scale: 0.01
         offset: 0.0
-        unit: meter_per_second
+        unit_id: meter_per_second
         description: 风速
       generator_speed:
         business_point_id: generator_speed
-        variable_name: generator_speed
         point_groups:
         - all
         address:
@@ -65,11 +60,10 @@ point_tables:
         data_type: int32
         scale: 0.01
         offset: 0.0
-        unit: rpm
+        unit_id: rpm
         description: 发电机转速
       pitch_angle:
         business_point_id: pitch_angle
-        variable_name: pitch_angle
         point_groups:
         - all
         address:
@@ -78,11 +72,10 @@ point_tables:
         data_type: int32
         scale: 0.01
         offset: 0.0
-        unit: degree
+        unit_id: degree
         description: 桨距角
       fault_code:
         business_point_id: fault_code
-        variable_name: fault_code
         point_groups:
         - all
         address:
@@ -94,7 +87,6 @@ point_tables:
         description: 最新故障代码
       turbine_status:
         business_point_id: turbine_status
-        variable_name: turbine_status
         point_groups:
         - all
         address:
@@ -106,7 +98,6 @@ point_tables:
         description: 风机状态
       active_power_setpoint:
         business_point_id: active_power_setpoint
-        variable_name: active_power_setpoint
         point_groups:
         - control
         address:
@@ -115,11 +106,10 @@ point_tables:
         data_type: int32
         scale: 1.0
         offset: 0.0
-        unit: kilowatt
+        unit_id: kilowatt
         description: 有功功率最大设定值
       reactive_power_setpoint:
         business_point_id: reactive_power_setpoint
-        variable_name: reactive_power_setpoint
         point_groups:
         - control
         address:
@@ -128,11 +118,10 @@ point_tables:
         data_type: int32
         scale: 1.0
         offset: 0.0
-        unit: kilovar
+        unit_id: kilovar
         description: 无功功率最大设定值
       turbine_command:
         business_point_id: turbine_command
-        variable_name: turbine_command
         point_groups:
         - control
         address:
