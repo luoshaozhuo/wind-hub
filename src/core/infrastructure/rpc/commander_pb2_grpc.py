@@ -85,6 +85,11 @@ class CommanderServiceStub:
                 request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
                 response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
                 _registered_method=True)
+        self.GetPointsMetadata = channel.unary_unary(
+                '/windhub.commander.v1.CommanderService/GetPointsMetadata',
+                request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataRequest.SerializeToString,
+                response_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataResponse.FromString,
+                _registered_method=True)
         self.ResolvePoint = channel.unary_unary(
                 '/windhub.commander.v1.CommanderService/ResolvePoint',
                 request_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.SerializeToString,
@@ -165,6 +170,11 @@ class CommanderServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetPointsMetadata(self, request, context):
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ResolvePoint(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -236,7 +246,12 @@ def add_CommanderServiceServicer_to_server(servicer, server):
                     request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.FromString,
                     response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.SerializeToString,
             ),
-            'ResolvePoint': grpc.unary_unary_rpc_method_handler(
+            'GetPointsMetadata': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPointsMetadata,
+                    request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataRequest.FromString,
+                    response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataResponse.SerializeToString,
+            ),
+        'ResolvePoint': grpc.unary_unary_rpc_method_handler(
                     servicer.ResolvePoint,
                     request_deserializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointRequest.FromString,
                     response_serializer=core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointVerifyResponse.SerializeToString,
@@ -522,6 +537,33 @@ class CommanderService:
             '/windhub.commander.v1.CommanderService/VerifyDevice',
             core_dot_infrastructure_dot_rpc_dot_commander__pb2.VerifyDeviceRequest.SerializeToString,
             core_dot_infrastructure_dot_rpc_dot_commander__pb2.DeviceVerifyResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPointsMetadata(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/windhub.commander.v1.CommanderService/GetPointsMetadata',
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataRequest.SerializeToString,
+            core_dot_infrastructure_dot_rpc_dot_commander__pb2.PointsMetadataResponse.FromString,
             options,
             channel_credentials,
             insecure,
